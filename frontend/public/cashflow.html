@@ -134,12 +134,80 @@
       </div>
     </div>
 
-    <!-- 支出分类饼图 -->
-    <div class="card">
-      <div class="sectionTitle"><h3>支出分类占比</h3></div>
-      <div class="chart-container">
-        <canvas id="categoryChart"></canvas>
+    <!-- 图表区域 - 两列布局 -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+      <!-- 按月开支统计 -->
+      <div class="card">
+        <div class="sectionTitle"><h3>按月开支统计</h3></div>
+        <div class="chart-container">
+          <canvas id="trendChart"></canvas>
+        </div>
       </div>
+
+      <!-- 支出分类饼图 -->
+      <div class="card">
+        <div class="sectionTitle"><h3>支出分类占比</h3></div>
+        <div class="chart-container">
+          <canvas id="categoryChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加交易记录 -->
+    <div class="card">
+      <div class="sectionTitle"><h3>添加交易</h3></div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
+        <div>
+          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">金额</label>
+          <input type="number" id="txAmount" placeholder="输入金额" step="0.01"
+            style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">类型</label>
+          <select id="txType" style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">币种</label>
+          <select id="txCurrency" style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+            <option value="MXN" selected>MXN (墨西哥比索)</option>
+            <option value="CNY">CNY (人民币)</option>
+            <option value="USD">USD (美元)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">账户</label>
+          <select id="txAccount" style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+            <option value="Santander" selected>Santander</option>
+            <option value="腾讯理财通">腾讯理财通</option>
+            <option value="建行">建行</option>
+            <option value="华为账户">华为账户</option>
+            <option value="公积金账户">公积金账户</option>
+            <option value="币安">币安</option>
+            <option value="IBKR">IBKR</option>
+            <option value="广发">广发</option>
+            <option value="同花顺">同花顺</option>
+            <option value="借款">借款</option>
+            <option value="微信">微信</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">分类</label>
+          <input type="text" id="txCategory" placeholder="如：餐饮、交通"
+            style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">备注</label>
+          <input type="text" id="txDescription" placeholder="说明（可选）"
+            style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+        </div>
+      </div>
+      <button id="btnAddTransaction" style="margin-top: 12px; padding: 8px 24px; background: rgba(106,166,255,.25); border: 1px solid rgba(106,166,255,.4); color: #6aa6ff; border-radius: 4px; cursor: pointer; font-size: 14px;">
+        添加交易
+      </button>
+      <div id="addTxMsg" style="margin-top: 8px; font-size: 13px;"></div>
     </div>
 
     <!-- 最近交易 -->
@@ -151,6 +219,7 @@
             <th>日期</th>
             <th>分类</th>
             <th>备注</th>
+            <th>币种</th>
             <th>账户</th>
             <th style="text-align:right">金额</th>
           </tr>

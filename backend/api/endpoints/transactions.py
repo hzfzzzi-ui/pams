@@ -44,8 +44,8 @@ class TransactionCreate(BaseModel):
     description: Optional[str] = Field(None, description="备注")
     date: Optional[str] = Field(None, description="日期 YYYY-MM-DD")
     location: Optional[str] = Field(None, description="地点")
-    account: Optional[str] = Field("manual", description="账户")
-    currency: str = Field("CNY", description="币种")
+    account: Optional[str] = Field("Santander", description="账户")
+    currency: str = Field("MXN", description="币种")
     source: str = Field("manual", description="数据来源")
 
 

@@ -9,6 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # 导入交易端点路由
 from endpoints import transactions
+# 导入账户映射模块
+from account_mapper import standardize_account
+# 导入类型映射模块
+from type_mapper import get_major_category, get_minor_category, filter_by_page, get_page_categories
 
 app = FastAPI(title="pams-api", version="0.4.0")
 
@@ -118,7 +122,15 @@ def holdings_latest(
 
     out_rows: List[Dict[str, Any]] = []
     for r in rows:
-        out_rows.append({k: _norm(v) for k, v in dict(r).items()})
+        row_dict = {k: _norm(v) for k, v in dict(r).items()}
+        # 标准化账户名称
+        if 'account' in row_dict:
+            row_dict['account'] = standardize_account(row_dict['account'])
+        # 添加大类和小类分类
+        if 'type' in row_dict:
+            row_dict['major_category'] = get_major_category(row_dict['type'])
+            row_dict['minor_category'] = get_minor_category(row_dict['type'])
+        out_rows.append(row_dict)
 
     return json({"as_of": as_of.isoformat(), "rows": out_rows})
 
@@ -148,7 +160,18 @@ def holdings_as_of(
             )
             rows = cur.fetchall()
 
-    out_rows = [{k: _norm(v) for k, v in dict(r).items()} for r in rows]
+    out_rows = []
+    for r in rows:
+        row_dict = {k: _norm(v) for k, v in dict(r).items()}
+        # 标准化账户名称
+        if 'account' in row_dict:
+            row_dict['account'] = standardize_account(row_dict['account'])
+        # 添加大类和小类分类
+        if 'type' in row_dict:
+            row_dict['major_category'] = get_major_category(row_dict['type'])
+            row_dict['minor_category'] = get_minor_category(row_dict['type'])
+        out_rows.append(row_dict)
+
     return json({"as_of": date, "rows": out_rows})
 
 
@@ -896,6 +919,150 @@ def admin_refresh():
                 )
 
     return json({'ok': True, 'as_of': as_of.isoformat()})
+
+
+@app.get("/holdings/by-category/{category}")
+def holdings_by_category(
+    category: str,
+    limit: int = Query(500, ge=1, le=5000),
+):
+    """
+    获取指定大类的最新持仓
+
+    用于子页面数据展示
+    """
+    # 验证category
+    valid_categories = get_page_categories()
+    if category not in valid_categories:
+        return json({"error": f"Invalid category. Must be one of: {valid_categories}"}, status_code=400)
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 获取最新日期
+            cur.execute("SELECT max(as_of) AS as_of FROM pams_holdings_snapshot")
+            row = cur.fetchone()
+            as_of = row["as_of"] if row else None
+            if as_of is None:
+                return json({"as_of": None, "rows": []})
+
+            # 获取所有持仓
+            cur.execute(
+                """
+                SELECT venue, account, type, symbol, name, currency,
+                       market_value, holding_pnl, daily_pnl, as_of, created_at
+                  FROM pams_holdings_snapshot
+                 WHERE as_of = %s
+                 ORDER BY market_value DESC NULLS LAST
+                 LIMIT %s
+                """,
+                [as_of, limit * 2],  # 多取一些以便筛选
+            )
+            rows = cur.fetchall()
+
+    # 筛选并添加分类字段
+    out_rows: List[Dict[str, Any]] = []
+    for r in rows:
+        row_dict = {k: _norm(v) for k, v in dict(r).items()}
+
+        # 添加分类
+        if 'type' in row_dict:
+            major = get_major_category(row_dict['type'])
+            if major == category:  # 只保留匹配的大类
+                row_dict['major_category'] = major
+                row_dict['minor_category'] = get_minor_category(row_dict['type'])
+
+                # 标准化账户名称
+                if 'account' in row_dict:
+                    row_dict['account'] = standardize_account(row_dict['account'])
+
+                out_rows.append(row_dict)
+
+                if len(out_rows) >= limit:
+                    break
+
+    return json({"as_of": as_of.isoformat(), "category": category, "rows": out_rows})
+
+
+@app.get("/holdings/history/{category}")
+def holdings_history(
+    category: str,
+    days: int = Query(90, ge=7, le=365),
+    interval: str = Query("daily"),
+):
+    """
+    获取指定大类的历史市值序列
+
+    用于子页面折线图
+    """
+    # 验证category
+    valid_categories = get_page_categories()
+    if category not in valid_categories:
+        return json({"error": f"Invalid category. Must be one of: {valid_categories}"}, status_code=400)
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 获取历史数据
+            if interval == "weekly":
+                # 按周聚合（只取周一的数据）
+                cur.execute(
+                    """
+                    WITH weekly_data AS (
+                        SELECT DISTINCT ON (DATE_TRUNC('week', as_of))
+                               as_of,
+                               type,
+                               market_value
+                          FROM pams_holdings_snapshot
+                         WHERE as_of >= CURRENT_DATE - INTERVAL '%s days'
+                         ORDER BY DATE_TRUNC('week', as_of), as_of DESC
+                    )
+                    SELECT as_of, type, SUM(market_value) AS total_value
+                      FROM weekly_data
+                     GROUP BY as_of, type
+                     ORDER BY as_of ASC
+                    """,
+                    [days],
+                )
+            else:
+                # 按日
+                cur.execute(
+                    """
+                    SELECT as_of, type, SUM(market_value) AS total_value
+                      FROM pams_holdings_snapshot
+                     WHERE as_of >= CURRENT_DATE - INTERVAL '%s days'
+                     GROUP BY as_of, type
+                     ORDER BY as_of ASC
+                    """,
+                    [days],
+                )
+
+            rows = cur.fetchall()
+
+    # 按日期聚合指定大类的市值
+    date_values = {}
+    for r in rows:
+        type_value = r['type']
+        major = get_major_category(type_value)
+
+        if major == category:
+            date_str = r['as_of'].isoformat()
+            total_value = float(r['total_value'] or 0)
+
+            if date_str not in date_values:
+                date_values[date_str] = 0
+            date_values[date_str] += total_value
+
+    # 转换为有序列表
+    series = [
+        {"date": date, "value": value}
+        for date, value in sorted(date_values.items())
+    ]
+
+    return json({
+        "category": category,
+        "interval": interval,
+        "days": days,
+        "series": series
+    })
 
 
 # Import and register additional endpoints

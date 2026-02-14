@@ -93,7 +93,17 @@ async function main(){
     'CRYPTO': '加密',
     'CASH': '现金',
     'ESOP': '期权',
-    'GOLD_COMMODITIES': '黄金商品'
+    'GOLD_COMMODITIES': '黄金商品',
+    'CN_PRIVATE': '私募/内部持股',
+    'RECEIVABLE': '应收款',
+    'HPF': '住房公积金',
+    'CN_FUND': '基金',
+    'WEALTH': '理财',
+    'CASH_MM': '货币基金',
+    'METAL': '贵金属',
+    'US_CASH': '美元现金',
+    'US_FUND': '美股基金',
+    'A股权益': 'A股权益'
   };
 
   byTypeEl.innerHTML = bigRows.map(r=>{

@@ -32,10 +32,7 @@
       <div class="sectionTitle">
         <h3>全部持仓（最新快照）</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <label class="muted">资金类型</label>
-          <select id="typeFilter" class="btn">
-            <option value="">全部</option>
-          </select>
+          <a class="pill" href="holdings_categories.html">📊 查看分类详情（A股/美股/加密/其他）</a>
         </div>
       </div>
       <div class="muted" style="margin-top:-4px">可滚动</div>
@@ -43,15 +40,13 @@
         <table class="tableWide">
           <thead>
             <tr>
-              <th class="nowrap" style="width:140px">平台</th>
-              <th class="nowrap" style="width:90px">账户</th>
-              <th class="nowrap" style="width:70px">类型</th>
-              <th class="nowrap" style="width:70px">代码</th>
-              <th style="width:260px">名称</th>
+              <th class="nowrap" style="width:120px">账户</th>
+              <th class="nowrap" style="width:80px">类型</th>
+              <th style="width:300px">名称</th>
               <th class="nowrap" style="width:60px">币种</th>
-              <th class="nowrap num" style="width:110px">市值</th>
-              <th class="nowrap num" style="width:110px">持仓收益</th>
-              <th class="nowrap num" style="width:110px">昨日收益</th>
+              <th class="nowrap num" style="width:120px">市值</th>
+              <th class="nowrap num" style="width:120px">持仓收益</th>
+              <th class="nowrap num" style="width:120px">昨日收益</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>

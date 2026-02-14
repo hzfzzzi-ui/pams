@@ -11,10 +11,8 @@ function renderRows(rows){
   for(const r of rows){
     const tr=document.createElement('tr');
     tr.innerHTML = `
-      <td class="nowrap">${venueLabel(r.venue)}</td>
       <td class="nowrap">${accountLabel(r.account)}</td>
       <td class="nowrap">${typeLabel(r.type)||''}</td>
-      <td class="mono nowrap">${r.symbol||''}</td>
       <td class="name">${r.name||''}</td>
       <td class="nowrap">${r.currency||''}</td>
       <td class="mono num">${fmt2(r.market_value)}</td>
