@@ -1,0 +1,10 @@
+# One row = one transaction leg group (single split).
+# type: withdrawal|deposit|transfer
+# For withdrawal: source_name=asset account, destination_name=expense account (or other)
+# For deposit: source_name=revenue account, destination_name=asset account
+# For transfer: source_name=asset account, destination_name=asset/loan/debt/etc
+# Amount is positive number (script will enforce sign based on type).
+# external_id used for de-dupe (recommended).
+
+date,type,amount,currency_code,description,source_name,destination_name,notes,external_id
+2026-02-14T00:00:00-06:00,withdrawal,1.23,CNY,Example expense,WeChat Wallet (CNY),Misc expense,"from screenshot wx",wx:2026-02-14:1.23:example

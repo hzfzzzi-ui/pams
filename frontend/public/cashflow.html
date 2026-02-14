@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAMS · 收支分析</title>
+  <link rel="stylesheet" href="/assets/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .month-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      justify-content: center;
+    }
+    .month-selector button {
+      padding: 6px 16px;
+      background: rgba(106,166,255,.15);
+      border: 1px solid rgba(106,166,255,.3);
+      color: #6aa6ff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .month-selector button:hover {
+      background: rgba(106,166,255,.25);
+    }
+    .month-selector span {
+      font-size: 18px;
+      font-weight: 600;
+      color: #cfe0ff;
+      min-width: 100px;
+      text-align: center;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: rgba(36,48,85,.45);
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(106,166,255,.2);
+    }
+    .kpi-label {
+      font-size: 13px;
+      color: #8ea0c7;
+      margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: #cfe0ff;
+    }
+    .kpi-value.income { color: #43d19e; }
+    .kpi-value.expense { color: #ff6b6b; }
+    .kpi-value.net.positive { color: #43d19e; }
+    .kpi-value.net.negative { color: #ff6b6b; }
+    .transaction-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    .transaction-table th {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid rgba(106,166,255,.2);
+      color: #8ea0c7;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .transaction-table td {
+      padding: 10px;
+      border-bottom: 1px solid rgba(36,48,85,.5);
+      color: #cfe0ff;
+      font-size: 14px;
+    }
+    .transaction-table tr:hover {
+      background: rgba(106,166,255,.05);
+    }
+    .amount-income { color: #43d19e; }
+    .amount-expense { color: #ff6b6b; }
+    .chart-container {
+      height: 300px;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <div class="brand">收支分析</div>
+        <div class="muted">查看月度收支统计和交易记录</div>
+      </div>
+      <div class="right">
+        <a class="pill" href="/index.html">返回 Dashboard</a>
+      </div>
+    </div>
+
+    <div class="nav" style="margin-bottom:12px">
+      <a data-nav href="/index.html">总览</a>
+      <a data-nav href="/strategy.html">策略</a>
+      <a data-nav href="/watchlist.html">观察池</a>
+      <a data-nav href="/holdings.html">持仓</a>
+      <a data-nav href="/cashflow.html">收支</a>
+    </div>
+
+    <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6)"></div>
+
+    <!-- 月份选择器 -->
+    <div class="month-selector">
+      <button id="prevMonth">« 上月</button>
+      <span id="currentMonth">2026-02</span>
+      <button id="nextMonth">下月 »</button>
+    </div>
+
+    <!-- 月度 KPI -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">总收入</div>
+        <div class="kpi-value income" id="kpiIncome">¥0.00</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">总支出</div>
+        <div class="kpi-value expense" id="kpiExpense">¥0.00</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">结余</div>
+        <div class="kpi-value net" id="kpiNet">¥0.00</div>
+      </div>
+    </div>
+
+    <!-- 支出分类饼图 -->
+    <div class="card">
+      <div class="sectionTitle"><h3>支出分类占比</h3></div>
+      <div class="chart-container">
+        <canvas id="categoryChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 最近交易 -->
+    <div class="card">
+      <div class="sectionTitle"><h3>最近交易记录</h3></div>
+      <table class="transaction-table" id="transactionTable">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>分类</th>
+            <th>备注</th>
+            <th>账户</th>
+            <th style="text-align:right">金额</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="muted" id="txNote" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/assets/cashflow.js"></script>
+</body>
+</html>

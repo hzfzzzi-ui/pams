@@ -1,0 +1,160 @@
+name: pams
+
+services:
+  # --- LAN DNS so iOS can resolve pams.local ---
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: pams-adguard
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "3000:3000/tcp"  # first-run setup UI
+      - "8081:80/tcp"    # AdGuard web UI (after setup)
+    volumes:
+      - adguard_work:/opt/adguardhome/work
+      - adguard_conf:/opt/adguardhome/conf
+
+  # --- Reverse proxy / single stable entrypoint ---
+  caddy:
+    image: caddy:2
+    container_name: pams-caddy
+    restart: unless-stopped
+    depends_on:
+      - firefly
+      - pams-web
+    ports:
+      - "80:80/tcp"
+    volumes:
+      - ../../gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # --- Storage ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: pams-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pams
+      POSTGRES_USER: pams
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  # --- Bookkeeping system (free, self-hosted) ---
+  firefly:
+    image: fireflyiii/core:latest
+    container_name: pams-firefly
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    # Direct LAN access (no DNS/Caddy yet)
+    # Visit: http://192.168.0.143:8082
+    ports:
+      - "8082:8080"
+    environment:
+      APP_ENV: local
+      APP_KEY: ${FIREFLY_APP_KEY}
+      # Use Caddy virtual host
+      APP_URL: http://firefly.pams.local
+      TRUSTED_PROXIES: "**"
+
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${FIREFLY_DB_DATABASE}
+      DB_USERNAME: ${FIREFLY_DB_USERNAME}
+      DB_PASSWORD: ${FIREFLY_DB_PASSWORD}
+
+      # Bootstrap owner (you can still change later in UI)
+      SITE_OWNER: ${FIREFLY_SITE_OWNER}
+      SITE_OWNER_EMAIL: ${FIREFLY_SITE_OWNER_EMAIL}
+      SITE_OWNER_PASSWORD: ${FIREFLY_SITE_OWNER_PASSWORD}
+      DEFAULT_LANGUAGE: zh_CN
+      DEFAULT_LOCALE: zh_CN
+      TZ: Etc/GMT+6
+      ENABLE_EXCHANGE_RATES: "true"
+      # default currency will be configured in UI as CNY; MXN enabled for foreign currency bookkeeping
+    volumes:
+      - firefly_upload:/var/www/html/storage/upload
+
+  # --- Firefly scheduler (required for periodic tasks like exchange rates) ---
+  firefly-cron:
+    image: fireflyiii/core:latest
+    container_name: pams-firefly-cron
+    restart: unless-stopped
+    depends_on:
+      - firefly
+    environment:
+      APP_ENV: local
+      APP_KEY: ${FIREFLY_APP_KEY}
+      APP_URL: http://firefly.pams.local
+      TRUSTED_PROXIES: "**"
+
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${FIREFLY_DB_DATABASE}
+      DB_USERNAME: ${FIREFLY_DB_USERNAME}
+      DB_PASSWORD: ${FIREFLY_DB_PASSWORD}
+
+      DEFAULT_LANGUAGE: zh_CN
+      DEFAULT_LOCALE: zh_CN
+      TZ: Etc/GMT+6
+      ENABLE_EXCHANGE_RATES: "true"
+    command: ["sh", "-lc", "while true; do php /var/www/html/artisan schedule:run --no-interaction; sleep 60; done"]
+
+  # --- PAMS application (skeleton placeholders) ---
+  # Dashboard / analytics UI (MVP: static UI with mock data)
+  pams-web:
+    build:
+      context: ../../frontend
+    container_name: pams-web
+    restart: unless-stopped
+    # Expose directly (optional). Keeps Caddy on :80.
+    # Visit: http://192.168.0.143:8080
+    ports:
+      - "8080:80"
+
+  # Minimal API to read holdings snapshots from Postgres
+  pams-api:
+    build:
+      context: ../../backend/api
+    container_name: pams-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: pams
+      PGUSER: pams
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8090:8000"
+
+  # Collectors + schedulers (we'll implement)
+  # NOTE: Commented out until the image is built
+  # pams-collector:
+  #   image: ghcr.io/example/pams-collector:dev
+  #   container_name: pams-collector
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - postgres
+  #     - firefly
+  #   environment:
+  #     DATABASE_URL: postgres://pams:${POSTGRES_PASSWORD}@postgres:5432/pams
+  #     FIREFLY_BASE_URL: http://firefly.pams.local
+  #     FIREFLY_TOKEN: ${FIREFLY_TOKEN}
+  #     BINANCE_API_KEY: ${BINANCE_API_KEY}
+  #     BINANCE_API_SECRET: ${BINANCE_API_SECRET}
+  #     # IBKR will be added after we confirm integration approach
+
+volumes:
+  adguard_work:
+  adguard_conf:
+  caddy_data:
+  caddy_config:
+  pg_data:
+  firefly_upload:

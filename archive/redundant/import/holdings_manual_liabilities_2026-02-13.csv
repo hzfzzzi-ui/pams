@@ -1,0 +1,4 @@
+venue,account,type,symbol,name,currency,market_value,holding_pnl,daily_pnl,as_of
+manual,ccb_cc_0453,liability_cc,,建行-0453信用卡,CNY,-25313.26,,,2026-02-13
+manual,guangfa_cc_9711,liability_cc,,广发-9711信用卡,USD,-965.72,,,2026-02-13
+manual,guangfa_cc_7443,liability_cc,,广发-7443信用卡,CNY,-188.70,,,2026-02-13

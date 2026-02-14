@@ -1,0 +1,41 @@
+{
+  # LAN-only, HTTP only for now
+  auto_https off
+}
+
+# Main entry - PAMS Dashboard
+http://pams.local {
+  # API routes -> FastAPI backend (port 8000 inside container)
+  # Strip /api prefix before forwarding
+  handle_path /api/* {
+    reverse_proxy pams-api:8000
+  }
+
+  # Frontend static files -> Nginx
+  handle {
+    reverse_proxy pams-web:80
+  }
+}
+
+# Bookkeeping
+http://firefly.pams.local {
+  reverse_proxy firefly:8080
+}
+
+# DNS admin UI (optional to expose)
+http://adguard.pams.local {
+  reverse_proxy adguard:80
+}
+
+# Default site for IP access (192.168.0.143)
+:80 {
+  # API routes -> FastAPI backend
+  handle_path /api/* {
+    reverse_proxy pams-api:8000
+  }
+
+  # Frontend static files -> Nginx
+  handle {
+    reverse_proxy pams-web:80
+  }
+}

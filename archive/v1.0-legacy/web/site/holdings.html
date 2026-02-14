@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAMS · 持仓</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <div class="brand">持仓明细</div>
+        <div class="muted">最新快照：<span id="asof">--</span></div>
+      </div>
+      <div class="right">
+        <a class="pill" href="/index.html">返回 Dashboard</a>
+      </div>
+    </div>
+
+    <div class="nav" style="margin-bottom:12px">
+      <a data-nav href="/index.html">总览</a>
+      <a data-nav href="/strategy.html">策略</a>
+      <a data-nav href="/watchlist.html">观察池</a>
+      <a data-nav href="/holdings.html">持仓</a>
+      <a data-nav href="/cashflow.html">收支</a>
+    </div>
+
+    <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6)"></div>
+
+    <div class="card">
+      <div class="sectionTitle">
+        <h3>全部持仓（最新快照）</h3>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label class="muted">资金类型</label>
+          <select id="typeFilter" class="btn">
+            <option value="">全部</option>
+          </select>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:-4px">可滚动</div>
+      <div class="tableWrap" style="margin-top:10px">
+        <table class="tableWide">
+          <thead>
+            <tr>
+              <th class="nowrap" style="width:140px">平台</th>
+              <th class="nowrap" style="width:90px">账户</th>
+              <th class="nowrap" style="width:70px">类型</th>
+              <th class="nowrap" style="width:70px">代码</th>
+              <th style="width:260px">名称</th>
+              <th class="nowrap" style="width:60px">币种</th>
+              <th class="nowrap num" style="width:110px">市值</th>
+              <th class="nowrap num" style="width:110px">持仓收益</th>
+              <th class="nowrap num" style="width:110px">昨日收益</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/assets/holdings.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+venue,account,type,symbol,name,currency,market_value,holding_pnl,daily_pnl,as_of
+manual,santander4209,cash,,Santander4209-活期,MXN,109924.52,,,2026-02-13
+manual,jianhang7332,cash,,建行7332-活期,CNY,0,,,2026-02-13
+manual,tencent_mm,cash,,腾讯理财通-活期,CNY,1422.42,,,2026-02-13
+manual,wechat_mm,cash,,微信-零钱/零钱通,CNY,578.01,,,2026-02-13

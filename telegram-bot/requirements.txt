@@ -1,0 +1,10 @@
+# PAMS Telegram Bot Dependencies
+
+# Telegram Bot API
+python-telegram-bot==20.8
+
+# HTTP Requests
+requests==2.31.0
+
+# Environment Variables
+python-dotenv==1.0.0

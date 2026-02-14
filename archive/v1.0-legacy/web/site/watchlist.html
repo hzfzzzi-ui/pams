@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAMS · 观察池</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <div class="brand">观察池 / 决策树承载页</div>
+        <div class="muted">这里承载候选池/观察池/买入区间/反证条件（将由筛选器自动填充）。</div>
+      </div>
+      <div class="right">
+        <a class="pill" href="/index.html">返回 Dashboard</a>
+      </div>
+    </div>
+
+    <div class="nav" style="margin-bottom:12px">
+      <a data-nav href="/index.html">总览</a>
+      <a data-nav href="/strategy.html">策略</a>
+      <a data-nav href="/watchlist.html">观察池</a>
+      <a data-nav href="/holdings.html">持仓</a>
+      <a data-nav href="/cashflow.html">收支</a>
+    </div>
+
+    <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6)"></div>
+
+    <div class="card">
+      <div class="sectionTitle"><h3>观察池列表</h3><div class="muted">来自 pams_watchlist</div></div>
+      <div class="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>市场</th><th>代码</th><th>名称</th><th>状态</th><th>核心观点</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/assets/watchlist.js"></script>
+</body>
+</html>

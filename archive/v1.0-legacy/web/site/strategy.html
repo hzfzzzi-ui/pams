@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAMS · 策略</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <div class="brand">策略 / IPS</div>
+        <div class="muted">这里承载决策树、IPS 参数、风险事件、回撤曲线等。</div>
+      </div>
+      <div class="right">
+        <a class="pill" href="/index.html">返回 Dashboard</a>
+      </div>
+    </div>
+
+    <div class="nav" style="margin-bottom:12px">
+      <a data-nav href="/index.html">总览</a>
+      <a data-nav href="/strategy.html">策略</a>
+      <a data-nav href="/watchlist.html">观察池</a>
+      <a data-nav href="/holdings.html">持仓</a>
+      <a data-nav href="/cashflow.html">收支</a>
+    </div>
+
+    <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6)"></div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="sectionTitle"><h3>IPS v1</h3><div class="muted">你的投资章程（硬约束）</div></div>
+        <div id="ipsCards"></div>
+        <hr class="sep" />
+        <div class="sectionTitle"><h3>策略 v1（摘要）</h3><div class="muted">Dashboard 只看 KPI；细节放这里</div></div>
+        <div class="muted">
+          核心：质量现金流价值 + 分批建仓；风险：-25% 组合回撤、行业≤40%、再平衡带宽10%。<br/>
+          交易：仅生成草案，必须股东确认才执行。
+        </div>
+      </div>
+      <div class="card">
+        <div class="sectionTitle"><h3>NAV / 回撤</h3><div class="muted">scope 不全会失真（会提示）</div></div>
+        <div class="chartWrap"><canvas id="ddChart"></canvas></div>
+        <div class="muted" id="ddNote" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:10px">
+      <div class="card">
+        <div class="sectionTitle"><h3>风险事件（最新）</h3><div class="muted">按严重度排序</div></div>
+        <div id="alerts"></div>
+      </div>
+      <div class="card">
+        <div class="sectionTitle"><h3>机器可读（调试）</h3><div class="muted">后续可隐藏</div></div>
+        <details>
+          <summary class="muted">展开 IPS JSON</summary>
+          <pre class="mono" id="ipsJson" style="white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+        </details>
+        <details style="margin-top:10px">
+          <summary class="muted">展开 Drawdown JSON</summary>
+          <pre class="mono" id="ddJson" style="white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/assets/strategy.js"></script>
+</body>
+</html>
