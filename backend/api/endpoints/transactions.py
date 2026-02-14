@@ -250,27 +250,70 @@ async def get_monthly_stats(month: str):
     pool = await get_db_pool()
 
     try:
-        # Query monthly totals
+        # Query monthly totals with currency conversion
         totals_query = """
+            WITH base_currency AS (
+                SELECT 'CNY' AS currency
+            ),
+            converted AS (
+                SELECT
+                    t.date,
+                    t.amount,
+                    t.currency,
+                    -- 如果币种是CNY，汇率为1；否则查询汇率表
+                    CASE
+                        WHEN t.currency = 'CNY' THEN 1.0
+                        ELSE COALESCE(
+                            (SELECT fx.rate
+                             FROM pams_fx_rates_daily fx
+                             WHERE fx.base_currency = 'CNY'
+                               AND fx.quote_currency = t.currency
+                               AND fx.as_of <= t.date
+                             ORDER BY fx.as_of DESC
+                             LIMIT 1),
+                            1.0  -- 如果没有汇率数据，默认1:1
+                        )
+                    END AS fx_rate
+                FROM pams_transactions t
+                WHERE TO_CHAR(t.date, 'YYYY-MM') = $1
+            )
             SELECT
                 TO_CHAR(date, 'YYYY-MM') AS month,
-                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_income,
-                COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) AS total_expense,
-                COALESCE(SUM(amount), 0) AS net
-            FROM pams_transactions
-            WHERE TO_CHAR(date, 'YYYY-MM') = $1
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount * fx_rate ELSE 0 END), 0) AS total_income,
+                COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount * fx_rate) ELSE 0 END), 0) AS total_expense,
+                COALESCE(SUM(amount * fx_rate), 0) AS net
+            FROM converted
             GROUP BY TO_CHAR(date, 'YYYY-MM');
         """
 
-        # Query category breakdown
+        # Query category breakdown with currency conversion
         category_query = """
+            WITH converted AS (
+                SELECT
+                    t.category,
+                    t.amount,
+                    CASE
+                        WHEN t.currency = 'CNY' THEN 1.0
+                        ELSE COALESCE(
+                            (SELECT fx.rate
+                             FROM pams_fx_rates_daily fx
+                             WHERE fx.base_currency = 'CNY'
+                               AND fx.quote_currency = t.currency
+                               AND fx.as_of <= t.date
+                             ORDER BY fx.as_of DESC
+                             LIMIT 1),
+                            1.0
+                        )
+                    END AS fx_rate
+                FROM pams_transactions t
+                WHERE TO_CHAR(t.date, 'YYYY-MM') = $1
+                  AND t.amount < 0
+            )
             SELECT
                 category,
-                SUM(ABS(amount)) AS amount,
+                SUM(ABS(amount * fx_rate)) AS amount,
                 COUNT(*) AS count
-            FROM pams_transactions
-            WHERE TO_CHAR(date, 'YYYY-MM') = $1
-              AND amount < 0
+            FROM converted
             GROUP BY category;
         """
 
@@ -311,6 +354,134 @@ async def get_monthly_stats(month: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"统计失败: {str(e)}")
+    finally:
+        await pool.close()
+
+
+@router.get("/daily/{month}")
+async def get_daily_stats(month: str):
+    """
+    获取指定月份的每日统计
+
+    - month格式：YYYY-MM
+    - 返回每日的收入、支出数据数组
+    """
+    pool = await get_db_pool()
+
+    try:
+        query = """
+            WITH converted AS (
+                SELECT
+                    t.date,
+                    t.amount,
+                    CASE
+                        WHEN t.currency = 'CNY' THEN 1.0
+                        ELSE COALESCE(
+                            (SELECT fx.rate
+                             FROM pams_fx_rates_daily fx
+                             WHERE fx.base_currency = 'CNY'
+                               AND fx.quote_currency = t.currency
+                               AND fx.as_of <= t.date
+                             ORDER BY fx.as_of DESC
+                             LIMIT 1),
+                            1.0
+                        )
+                    END AS fx_rate
+                FROM pams_transactions t
+                WHERE TO_CHAR(t.date, 'YYYY-MM') = $1
+            )
+            SELECT
+                TO_CHAR(date, 'DD') AS day,
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount * fx_rate ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount * fx_rate) ELSE 0 END), 0) AS expense
+            FROM converted
+            GROUP BY date
+            ORDER BY date;
+        """
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query, month)
+
+        # Convert to list of dicts
+        daily_stats = [
+            {
+                'day': r['day'],
+                'income': float(r['income']),
+                'expense': float(r['expense'])
+            }
+            for r in rows
+        ]
+
+        return daily_stats
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取每日统计失败: {str(e)}")
+    finally:
+        await pool.close()
+
+
+@router.get("/categories-by-range")
+async def get_categories_by_range(start: str, end: str):
+    """
+    获取指定时间段的支出分类
+
+    - start/end格式：YYYY-MM-DD
+    - 返回分类占比数组
+    """
+    pool = await get_db_pool()
+
+    try:
+        # 将字符串转换为date对象
+        from datetime import datetime as dt
+        start_date = dt.strptime(start, '%Y-%m-%d').date()
+        end_date = dt.strptime(end, '%Y-%m-%d').date()
+
+        query = """
+            WITH converted AS (
+                SELECT
+                    t.category,
+                    t.amount,
+                    CASE
+                        WHEN t.currency = 'CNY' THEN 1.0
+                        ELSE COALESCE(
+                            (SELECT fx.rate
+                             FROM pams_fx_rates_daily fx
+                             WHERE fx.base_currency = 'CNY'
+                               AND fx.quote_currency = t.currency
+                               AND fx.as_of <= t.date
+                             ORDER BY fx.as_of DESC
+                             LIMIT 1),
+                            1.0
+                        )
+                    END AS fx_rate
+                FROM pams_transactions t
+                WHERE t.date >= $1
+                  AND t.date <= $2
+                  AND t.amount < 0  -- 只统计支出
+            )
+            SELECT
+                category,
+                SUM(ABS(amount * fx_rate)) AS amount,
+                COUNT(*) AS count
+            FROM converted
+            GROUP BY category
+            ORDER BY amount DESC;
+        """
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query, start_date, end_date)
+
+        return [
+            {
+                'category': r['category'],
+                'amount': float(r['amount']),
+                'count': r['count']
+            }
+            for r in rows
+        ]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取分类数据失败: {str(e)}")
     finally:
         await pool.close()
 
