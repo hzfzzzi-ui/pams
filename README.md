@@ -1,607 +1,321 @@
 # PAMS - Personal Asset Management System
 
-<div align="center">
+> **个人资产管理系统** - 多平台资产聚合、智能收支分析、风险监控一体化解决方案
 
-![Version](https://img.shields.io/badge/version-1.0-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-latest-green.svg)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-
-**🏠 LAN-only 个人资产管理系统 · 隐私优先 · 多平台集成**
-
-[功能特性](#功能特性) • [快速开始](#快速开始) • [架构设计](#架构设计) • [文档](#文档)
-
-</div>
+[![Version](https://img.shields.io/badge/version-1.3-blue.svg)](./VERSION.md)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com/)
 
 ---
 
-## 📖 项目简介
+## 📋 目录
 
-PAMS是一个专为个人投资者设计的**局域网资产管理系统**，通过Docker容器化部署，提供：
-
-- 📊 **统一资产视图** - 多平台账户汇总（A股、美股、基金、理财、加密货币）
-- 💰 **收支分析** - 自动分类、月度统计、预算管理
-- 📈 **投资策略** - IPS策略管理、风险监控、回撤分析
-- 🔒 **隐私优先** - 完全本地部署，无云依赖，数据自主可控
-- 📱 **iOS友好** - AdGuard Home提供局域网域名解析
-
----
-
-## ✨ 功能特性
-
-### 核心功能
-
-#### 1. 资产总览 (Dashboard)
-- 💎 **5大KPI指标**：总资产、总负债、净资产、最大回撤、持仓数
-- 📊 **多维度可视化**：
-  - 资产结构饼图（按资产类别）
-  - 负债结构分析
-  - 净资产曲线（90天历史）
-  - 近期收支趋势（30天）
-- 🎯 **资产分类体系**：
-  - CN_EQUITY (A股权益)
-  - US_EQUITY (美股权益)
-  - FIXED_INCOME (固收理财)
-  - CRYPTO (加密货币)
-  - CASH (现金)
-  - ESOP (员工持股)
-  - GOLD_COMMODITIES (黄金商品)
-  - LIABILITY (负债)
-
-#### 2. 收支分析 (Cashflow) ⭐ 新功能
-- 📅 **月度统计**：收入、支出、净额自动汇总
-- 🤖 **智能分类**：基于关键词的自动分类引擎（置信度评分）
-- 📊 **分类占比**：支出分类饼图可视化
-- 📝 **交易记录**：最近30条交易明细表格
-- 💳 **账户管理**：支持多账户来源（微信、支付宝、信用卡等）
-
-#### 3. 持仓管理 (Holdings)
-- 📋 **完整持仓表格**：平台、账户、类型、代码、名称、市值、盈亏
-- 🔍 **多维度筛选**：按资金类型、平台、账户筛选
-- 💹 **实时盈亏**：持仓盈亏、日涨跌实时显示
-
-#### 4. 投资策略 (Strategy)
-- 📐 **IPS策略管理**：投资政策声明参数化配置
-- ⚠️ **风险监控**：
-  - 集中度检查（单一标的、单一类别）
-  - 数据完整性检查
-  - 回撤分析
-- 📈 **NAV/回撤双轴图**：净资产价值与回撤百分比对比
-- 🚨 **风险事件列表**：按严重程度排序（info/warn/critical）
-
-#### 5. 观察池 (Watchlist)
-- 👀 **候选标的管理**：CN/US市场标的追踪
-- 📊 **状态分类**：candidate（候选）/ active（活跃）/ archived（已归档）
-- 💡 **投资论点**：记录每个标的的投资理由
-
-### 支持平台
-
-| 平台 | 类型 | 支持情况 |
-|------|------|----------|
-| 🏦 **国信证券** | A股 | ✅ 完整支持 |
-| 💼 **盈透证券 (IBKR)** | 美股 | ✅ 完整支持 |
-| 💰 **腾讯理财通** | 基金/理财 | ✅ 完整支持 |
-| 🏛️ **建设银行** | 银行账户 | ✅ 完整支持 |
-| 🪙 **币安 (Binance)** | 加密货币 | ⏳ API集成中 |
-| 🏢 **华为ESOP** | 员工持股 | ✅ 完整支持 |
+- [核心功能](#-核心功能)
+- [技术栈](#-技术栈)
+- [项目结构](#-项目结构)
+- [快速开始](#-快速开始)
+- [API文档](#-api文档)
+- [功能特性](#-功能特性)
+- [下一步计划](#-下一步计划)
+- [贡献指南](#-贡献指南)
 
 ---
 
-## 🖼️ 项目截图
+## 🎯 核心功能
 
-### 总览页面
+### 资产管理
+- **多平台聚合**：支持A股、美股、加密货币、基金、现金、员工持股等6大类资产
+- **实时汇率转换**：CNY/USD/MXN自动换算，统一币种视图
+- **智能分类**：基于资产类型和账户自动分类，支持4个主要持仓视图
+- **风险监控**：集中度检查、回撤分析、数据完整性检测
+
+### 收支分析
+- **智能分类引擎**：基于关键词规则自动分类交易（18条预定义规则）
+- **多维度统计**：按日/按月统计，支持收入、支出、结余分析
+- **预算管理**：分类预算设置、执行跟踪、预警机制（默认80%阈值）
+- **交互式图表**：折线图/饼图联动，hover实时显示分类占比
+
+### 投资决策
+- **NAV追踪**：日度净资产值曲线，自动回撤计算
+- **观察池**：CN/US市场标的追踪，状态分类管理
+- **策略配置**：IPS策略可参数化存储
+- **持仓详情**：完整持仓表格，多维度筛选（venue/account/type）
+
+---
+
+## 🛠 技术栈
+
+### 后端
+- **框架**: FastAPI 0.115.8 + Uvicorn 0.30.6
+- **语言**: Python 3.11
+- **数据库**: PostgreSQL 16（主） + SQLite（备）
+- **数据库驱动**: asyncpg 0.29.0（异步） + psycopg2 2.9.9（同步）
+- **特点**: 原生SQL查询，无ORM
+
+### 前端
+- **架构**: 多页面应用（MPA）
+- **核心**: 原生JavaScript（ES6+）
+- **图表**: Chart.js 4.4.1
+- **样式**: 自定义CSS（grid2/grid5布局系统）
+
+### 基础设施
+- **容器化**: Docker & Docker Compose
+- **反向代理**: Caddy 2
+- **DNS**: AdGuard Home（局域网DNS）
+- **集成**: Firefly III（开源记账系统）
+
+---
+
+## 📁 项目结构
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│  PAMS 总览                              快照：2026-02-13 │
-├─────────────────────────────────────────────────────────┤
-│  总览 | 策略 | 观察池 | 持仓 | 收支                      │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  [总资产 ¥645K] [总负债 ¥32K] [净资产 ¥613K]            │
-│  [最大回撤 -15%] [持仓数 29]                            │
-│                                                          │
-│  ┌──────────────────┐  ┌──────────────────┐            │
-│  │  资产结构饼图    │  │  资产明细列表    │            │
-│  │  ┌────────┐      │  │  CN_PRIVATE 31.8w│            │
-│  │  │        │      │  │  CN_EQUITY  5.1w │            │
-│  │  │  各类  │      │  │  CN_FUND    5.4w │            │
-│  │  │  资产  │      │  │  ...            │            │
-│  │  └────────┘      │  └──────────────────┘            │
-│  └──────────────────┘                                   │
-│                                                          │
-│  ┌──────────────────────────────────────────┐          │
-│  │  净资产曲线 (90天)                       │          │
-│  │     📈 ¥613K                              │          │
-│  └──────────────────────────────────────────┘          │
-│                                                          │
-│  ┌──────────────────────────────────────────┐          │
-│  │  近期收支 (30天)                         │          │
-│  │     📊 收支柱状图                         │          │
-│  └──────────────────────────────────────────┘          │
-└─────────────────────────────────────────────────────────┘
+pams/
+├── backend/
+│   └── api/
+│       ├── main.py                 # 核心API端点（1071行）
+│       ├── endpoints/
+│       │   └── transactions.py     # 交易API（618行）
+│       ├── account_mapper.py       # 账户标准化
+│       ├── type_mapper.py          # 资产分类映射
+│       └── requirements.txt
+│
+├── database/
+│   └── postgres/schema/
+│       ├── 005_transactions.sql    # 交易/预算/分类规则表
+│       └── 006_update_accounts.sql # 账户约束和视图
+│
+├── frontend/public/
+│   ├── index.html                  # 仪表板首页
+│   ├── cashflow.html               # 收支分析页
+│   ├── holdings.html               # 持仓汇总页
+│   ├── strategy.html               # 投资策略页
+│   ├── watchlist.html              # 观察池页
+│   └── assets/
+│       ├── css/style.css           # 全局样式
+│       └── js/                     # 交互逻辑
+│
+├── gateway/
+│   └── Caddyfile                   # 反向代理配置
+│
+├── telegram-bot/
+│   ├── bot.py                      # Telegram机器人
+│   └── requirements.txt
+│
+├── compose.yaml                    # Docker编排
+├── VERSION.md                      # 版本历史
+└── README.md
 ```
 
-### 收支分析页面 ⭐
-```
-┌─────────────────────────────────────────────────────────┐
-│  收支分析                         ◀ 2026-02 ▶           │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  [总收入 ¥5,000] [总支出 ¥347.50] [净额 ¥4,652.50]     │
-│                                                          │
-│  ┌──────────────────┐  ┌──────────────────┐            │
-│  │ 支出分类占比     │  │ 最近交易记录     │            │
-│  │  ┌────────┐      │  │ 2026-02-14 工资  │            │
-│  │  │ 餐饮   │      │  │   +¥5,000       │            │
-│  │  │ 92.7%  │      │  │ 2026-02-14 晚餐  │            │
-│  │  │        │      │  │   -¥222 (自动)  │            │
-│  │  │ 其他   │      │  │ 2026-02-14 午餐  │            │
-│  │  │  7.3%  │      │  │   -¥50 (自动)   │            │
-│  │  └────────┘      │  └──────────────────┘            │
-│  └──────────────────┘                                   │
-└─────────────────────────────────────────────────────────┘
-```
+### 核心文件说明
 
-> 💡 **提示**：实际页面使用Chart.js绘制动态图表，支持交互式操作
+| 文件 | 行数 | 功能 |
+|------|------|------|
+| `backend/api/main.py` | 1071 | 资产聚合、NAV计算、观察池等核心端点 |
+| `backend/api/endpoints/transactions.py` | 618 | 交易记录、月度统计、预算管理 |
+| `database/postgres/schema/005_transactions.sql` | 126 | 交易表、预算表、分类规则表定义 |
+| `frontend/public/cashflow.html` | 9563 | 收支分析页（含Chart.js配置） |
+| `frontend/public/holdings.html` | 10793 | 持仓管理页（完整表格） |
 
 ---
 
 ## 🚀 快速开始
 
 ### 前置要求
-
-- **硬件**：一台局域网内的电脑（作为服务器）
-- **软件**：
-  - Docker & Docker Compose
-  - Git
-  - （可选）AdGuard Home（用于DNS解析）
+- Docker & Docker Compose
+- Git
 
 ### 安装步骤
 
-#### 1. 克隆项目
+1. **克隆仓库**
+   ```bash
+   git clone https://github.com/hzfzzzi-ui/pams.git
+   cd pams
+   ```
 
-```bash
-git clone https://github.com/hzfzzzi-ui/pams.git
-cd pams
-```
+2. **配置环境变量**
+   ```bash
+   cp config/.env.example .env
+   # 编辑.env文件，设置PostgreSQL密码等
+   ```
 
-#### 2. 配置环境变量
+3. **启动服务**
+   ```bash
+   docker compose up -d
+   ```
 
-```bash
-# 复制环境变量模板
-cp config/.env.example .env
+4. **访问应用**
+   - 主应用：`http://pams.local` 或 `http://localhost:80`
+   - API文档：`http://localhost:8090/docs`（FastAPI自动生成）
+   - Firefly III：`http://localhost:8082`
 
-# 编辑.env文件，填写以下关键配置
-vim .env
-```
+5. **初始化数据库**
+   ```bash
+   docker exec -it pams-postgres psql -U pams -d pams -f /path/to/schema/005_transactions.sql
+   ```
 
-必需配置：
-```env
-# PostgreSQL数据库
-POSTGRES_PASSWORD=your_secure_password
-PGHOST=postgres
-PGPORT=5432
-PGDATABASE=pams
-PGUSER=pams
+### 端口映射
 
-# Firefly III (可选)
-FIREFLY_APP_KEY=base64:your_32_char_key
-FIREFLY_DB_PASSWORD=your_firefly_password
-FIREFLY_TOKEN=your_api_token
-```
-
-#### 3. 初始化数据库
-
-```bash
-# 启动PostgreSQL容器
-docker compose -f config/docker/compose.yaml up -d postgres
-
-# 等待数据库启动（约10秒）
-sleep 10
-
-# 初始化收支表
-docker exec -i pams-postgres psql -U pams -d pams < database/postgres/schema/005_transactions.sql
-```
-
-#### 4. 启动所有服务
-
-```bash
-# 构建镜像
-docker compose -f config/docker/compose.yaml build
-
-# 启动服务
-docker compose -f config/docker/compose.yaml up -d
-
-# 查看服务状态
-docker compose -f config/docker/compose.yaml ps
-```
-
-#### 5. 访问系统
-
-```bash
-# 方式1：通过IP访问（任意设备）
-http://192.168.0.143:8080/
-
-# 方式2：通过域名访问（需配置DNS）
-http://pams.local/
-```
+| 服务 | 对外端口 | 内部端口 | 用途 |
+|------|---------|---------|------|
+| Caddy | 80 | 80 | 反向代理 |
+| pams-web | 8080 | 80 | 前端Nginx |
+| pams-api | 8090 | 8000 | FastAPI后端 |
+| pams-firefly | 8082 | 8080 | Firefly III记账系统 |
+| pams-postgres | 5432 | 5432 | PostgreSQL数据库 |
+| pams-adguard | 53/8081/3000 | 53/80/3000 | DNS/广告屏蔽 |
 
 ---
 
-## 🌐 局域网域名配置（iOS友好）
+## 📡 API文档
 
-由于iOS无法轻松编辑hosts文件，我们使用AdGuard Home提供局域网DNS解析。
+### 资产管理端点
 
-### 配置步骤
+| 端点 | 方法 | 功能 | 参数 |
+|------|------|------|------|
+| `/holdings/latest` | GET | 获取最新持仓快照 | `venue`, `account`, `limit=500` |
+| `/holdings/as-of` | GET | 获取特定日期持仓 | `date=YYYY-MM-DD`, `venue`, `account` |
+| `/holdings/by-category/{category}` | GET | 按分类获取持仓 | `limit=500` |
+| `/summary/latest` | GET | 汇总统计（按type） | `venue`, `account` |
+| `/summary2/latest` | GET | 新汇总统计（按asset_class） | `venue`, `account` |
+| `/overview` | GET | 仪表板综合数据 | `baseCurrency=CNY` |
+| `/nav/recent` | GET | 最近NAV数据 | `limit=60` |
+| `/nav/drawdown` | GET | 回撤分析 | `limit=365` |
 
-#### 1. 固定服务器IP
+### 交易管理端点
 
-在路由器管理页面（通常是`192.168.0.1`或`192.168.1.1`）：
-- 进入DHCP设置
-- 为服务器MAC地址预留IP：`192.168.0.143`
+| 端点 | 方法 | 功能 | 参数 |
+|------|------|------|------|
+| `/api/transactions` | POST | 创建交易记录 | JSON body |
+| `/api/transactions/recent` | GET | 获取最近交易 | `limit=50` |
+| `/api/transactions/monthly/{month}` | GET | 月度统计 | `month=YYYY-MM` |
+| `/api/transactions/daily/{month}` | GET | 每日统计 | `month=YYYY-MM` |
+| `/api/transactions/categories-by-range` | GET | 时间段分类占比 | `start=YYYY-MM-DD`, `end=YYYY-MM-DD` |
+| `/api/transactions/budgets/{month}` | GET | 预算执行情况 | `month=YYYY-MM` |
+| `/api/transactions/budgets` | POST | 创建预算 | `category`, `month`, `amount` |
 
-#### 2. 启动AdGuard Home
-
-AdGuard Home已包含在docker-compose中，启动后访问：
-```
-http://192.168.0.143:3000
-```
-
-首次访问：
-- 设置管理员密码
-- 监听接口选择：`All interfaces`
-
-#### 3. 添加DNS重写规则
-
-在AdGuard Home管理页面：
-- 进入 **Filters** → **DNS rewrites**
-- 添加以下规则：
-
-| 域名 | 目标IP |
-|------|--------|
-| `pams.local` | `192.168.0.143` |
-| `firefly.pams.local` | `192.168.0.143` |
-| `adguard.pams.local` | `192.168.0.143` |
-
-#### 4. 配置iOS设备
-
-在iPhone/iPad上：
-1. 打开 **设置** → **Wi-Fi**
-2. 点击已连接的网络旁的 **ⓘ**
-3. 点击 **配置DNS** → **手动**
-4. 删除现有DNS服务器
-5. 添加DNS服务器：`192.168.0.143`
-6. 保存
-
-现在可以在Safari中访问：
-- http://pams.local ✅
-- http://firefly.pams.local ✅
+**完整API文档**：访问 `http://localhost:8090/docs` 查看Swagger UI
 
 ---
 
-## 🏗️ 架构设计
+## ✨ 功能特性
 
-### 系统架构
+### 1. 多平台资产聚合
 
+**支持的平台：**
+- ✅ 国信证券/同花顺（A股）
+- ✅ Interactive Brokers（美股）
+- ✅ 腾讯理财通（基金/理财）
+- ✅ 建设银行（银行账户）
+- ⏳ 币安 Binance（加密货币）
+- ✅ 华为ESOP（员工持股）
+- ✅ 微信/财付通（现金）
+
+### 2. 智能收支分析
+
+**自动分类引擎**：
+- 基于关键词匹配（支持优先级和置信度）
+- 18条预定义规则（午餐/晚餐/打车/房租等）
+- 自学习机制（match_count统计）
+
+**可视化图表**：
+- 📊 按日/按月收支折线图
+- 🥧 支出分类饼图（hover联动）
+- 📈 累计vs单日分类对比
+
+### 3. 风险监控
+
+**集中度检查**：
+- 单一标的占比 >30% → warn，>50% → crit
+- 单一类别占比 >40% → warn，>60% → crit
+
+**回撤分析**：
+- 基于NAV日度数据计算历史最大回撤
+- 实时回撤曲线展示
+
+**数据完整性**：
+- 自动检测数据跨度异常（>30%判定为incomplete）
+
+### 4. 数据库设计
+
+**核心表结构**：
+```sql
+pams_holdings_snapshot      -- 持仓快照（支持as_of查询）
+pams_transactions           -- 交易记录（多币种+自动分类）
+pams_budgets                -- 预算管理
+pams_category_rules         -- 自动分类规则
+pams_nav_daily              -- 日度NAV
+pams_fx_rates_daily         -- 汇率表
+pams_watchlist              -- 观察池
+pams_asset_class_map        -- 资产类别映射
 ```
-┌──────────────────────────────────────────────┐
-│         用户设备 (iOS/PC)                     │
-│       http://pams.local                      │
-└──────────────────────────────────────────────┘
-                    ↓
-┌──────────────────────────────────────────────┐
-│        DNS解析 (AdGuard Home)                │
-│   pams.local → 192.168.0.143:80             │
-└──────────────────────────────────────────────┘
-                    ↓
-┌──────────────────────────────────────────────┐
-│          Caddy 网关 (:80)                    │
-│  ┌────────────────────────────────────────┐ │
-│  │ /api/*  → pams-api:8000              │ │
-│  │ /*      → pams-web:80                │ │
-│  └────────────────────────────────────────┘ │
-└──────────────────────────────────────────────┘
-         ↓                     ↓
-   ┌──────────┐         ┌──────────┐
-   │ pams-api │         │ pams-web │
-   │ FastAPI  │         │  Nginx   │
-   │  :8000   │         │   :80    │
-   └────┬─────┘         └──────────┘
-        ↓
-   ┌──────────┐
-   │PostgreSQL│
-   │  :5432   │
-   └──────────┘
-```
 
-### 技术栈
-
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| **前端** | HTML5 + ES6 Modules + Chart.js | 原生JS，无框架依赖 |
-| **Web服务器** | Nginx 1.27-alpine | 静态文件托管 |
-| **后端** | Python 3.11 + FastAPI | RESTful API |
-| **数据库** | PostgreSQL 16 | 主数据库 |
-| **反向代理** | Caddy 2 | 自动HTTPS（LAN模式） |
-| **DNS服务** | AdGuard Home | 局域网域名解析 |
-| **记账系统** | Firefly III | 交易记录管理 |
-| **容器编排** | Docker Compose | 服务编排 |
-
-### 目录结构
-
-```
-pams/
-├── frontend/              # 前端应用
-│   ├── public/
-│   │   ├── assets/
-│   │   │   ├── css/style.css
-│   │   │   └── js/
-│   │   │       ├── api.js
-│   │   │       ├── dashboard.js
-│   │   │       ├── cashflow.js
-│   │   │       ├── holdings.js
-│   │   │       └── ...
-│   │   ├── index.html
-│   │   ├── cashflow.html
-│   │   └── ...
-│   ├── Dockerfile
-│   └── nginx.conf
-│
-├── backend/               # 后端API
-│   ├── api/
-│   │   ├── main.py
-│   │   ├── endpoints/
-│   │   │   └── transactions.py
-│   │   ├── requirements.txt
-│   │   └── Dockerfile
-│   └── services/
-│
-├── gateway/               # 网关配置
-│   └── Caddyfile
-│
-├── database/              # 数据库Schema
-│   ├── postgres/
-│   │   └── schema/
-│   │       └── 005_transactions.sql
-│   └── sqlite/
-│       └── schema.sql
-│
-├── config/                # 配置文件
-│   ├── docker/
-│   │   └── compose.yaml
-│   └── .env.example
-│
-├── scripts/               # 辅助脚本
-│   ├── ingest/            # 数据摄入
-│   ├── import/            # 数据导入
-│   └── maintenance/       # 运维工具
-│
-├── telegram-bot/          # Telegram Bot
-├── docs/                  # 文档
-└── archive/               # 归档代码
-```
+**关键约束**：
+- 账户白名单：11个标准账户（腾讯理财通/建行/币安/IBKR等）
+- 币种支持：CNY/USD/MXN
+- 视图：`v_transactions_cny`（自动汇率换算）
 
 ---
 
-## 📚 文档
+## 🔮 下一步计划
 
-- [完整架构文档](CURRENT_ARCHITECTURE.md) - 系统架构详解
-- [清理计划](CLEANUP_PLAN.md) - 项目重构说明
-- [清理后架构](ARCHITECTURE_CLEAN.md) - 当前架构总览
-- [仪表板规范](docs/DASHBOARD_SPEC.md) - UI/UX规范
-- [Vue3迁移指南](docs/VUE3_MIGRATION_GUIDE.md) - 前端框架迁移
+### V1.4 - 外部集成增强（2周）
+- [ ] **Binance API集成** - 加密货币实时数据同步
+- [ ] **Firefly III API对接** - cashflow端点完整集成
+- [ ] **Telegram机器人完善** - 交易记录快捷输入
 
----
+### V1.5 - 前端优化（3周）
+- [ ] **Vue 3重构** - 替代原生JS，提升可维护性
+- [ ] **移动端适配** - 响应式设计，支持iOS/Android
+- [ ] **PWA支持** - 离线访问能力
 
-## 🔌 API端点
+### V1.6 - 智能分析（4周）
+- [ ] **机器学习分类** - 改进auto_classify算法
+- [ ] **趋势预测** - 基于历史数据的支出预测
+- [ ] **异常检测** - 自动识别异常交易
 
-### 资产管理
-
-```bash
-# 最新持仓
-GET /holdings/latest
-
-# 资产汇总（按资产类别）
-GET /summary2/latest?baseCurrency=CNY
-
-# 净资产时间序列
-GET /nav/series?limit=90&baseCurrency=CNY
-```
-
-### 收支分析
-
-```bash
-# 创建交易记录
-POST /api/transactions
-{
-  "amount": -50.0,
-  "category": "餐饮",
-  "date": "2026-02-14",
-  "description": "午餐",
-  "account": "wechat"
-}
-
-# 月度统计
-GET /api/transactions/monthly/2026-02
-
-# 最近交易
-GET /api/transactions/recent?limit=30
-```
-
-### 风险与策略
-
-```bash
-# 风险事件
-GET /risk/latest?limit=10
-
-# IPS策略参数
-GET /policy/ips
-```
-
-完整API文档请查看：[API端点总览](backend/api/endpoints_overview.py)
-
----
-
-## 📊 数据导入
-
-### 方式1：手动导入（Excel）
-
-```bash
-# 1. 准备Excel资产负债表
-资产负债表.xlsx
-
-# 2. 导出为CSV
-scripts/import/balance_sheet_export.csv
-
-# 3. 运行导入脚本
-node backend/services/data-import/import_balance_sheet.js
-```
-
-### 方式2：API导入（推荐）
-
-```bash
-# 使用FastAPI直接导入
-curl -X POST http://localhost:8090/api/transactions \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 5000, "category": "工资", "description": "月薪"}'
-```
-
-### 方式3：Telegram Bot（开发中）
-
-通过Telegram发送账户截图：
-- 发送到 `@Pingihzf_bot`
-- 自动OCR识别
-- 分类存储到inbox/
-- 等待人工审核后导入
-
----
-
-## 🛠️ 开发指南
-
-### 本地开发
-
-```bash
-# 1. 安装Python依赖
-cd backend/api
-pip install -r requirements.txt
-
-# 2. 启动后端（开发模式）
-uvicorn main:app --reload --port 8090
-
-# 3. 启动前端（开发模式）
-cd frontend/public
-python -m http.server 8080
-
-# 4. 访问
-# 前端: http://localhost:8080
-# API文档: http://localhost:8090/docs
-```
-
-### 添加新功能
-
-1. **后端**：在 `backend/api/endpoints/` 创建新端点
-2. **前端**：在 `frontend/public/assets/js/` 添加新模块
-3. **数据库**：在 `database/postgres/schema/` 添加新表
-
-### 代码规范
-
-- **Python**：遵循PEP 8
-- **JavaScript**：ES6+ 标准
-- **Git Commit**：使用Conventional Commits格式
-  - `feat:` 新功能
-  - `fix:` Bug修复
-  - `docs:` 文档更新
-  - `chore:` 工具/配置更新
-
----
-
-## 🐛 故障排查
-
-### 常见问题
-
-#### 1. 前端无法访问
-
-```bash
-# 检查Caddy状态
-docker logs caddy
-
-# 检查Nginx状态
-docker logs pams-web
-
-# 重启服务
-docker compose -f config/docker/compose.yaml restart pams-web
-```
-
-#### 2. API 404错误
-
-```bash
-# 检查API服务
-docker logs pams-api
-
-# 手动测试API
-curl http://localhost:8090/health
-curl http://localhost:8090/summary2/latest?baseCurrency=CNY
-```
-
-#### 3. 数据库连接失败
-
-```bash
-# 检查PostgreSQL
-docker logs pams-postgres
-
-# 测试连接
-docker exec -it pams-postgres psql -U pams -d pams
-```
-
-#### 4. DNS解析失败
-
-```bash
-# 测试DNS解析
-nslookup pams.local 192.168.0.143
-
-# 检查AdGuard Home
-docker logs adguard
-```
+### V2.0 - 企业级特性（长期）
+- [ ] **多用户支持** - 认证/授权机制
+- [ ] **API限流** - 防止滥用
+- [ ] **数据导出** - PDF报表生成
+- [ ] **单元测试** - 覆盖率>80%
 
 ---
 
 ## 🤝 贡献指南
 
-欢迎贡献！请遵循以下步骤：
+### 开发环境设置
+
+1. **安装依赖**
+   ```bash
+   cd backend/api
+   pip install -r requirements.txt
+   ```
+
+2. **运行开发服务器**
+   ```bash
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+3. **数据库迁移**
+   ```bash
+   psql -U pams -d pams -f database/postgres/schema/005_transactions.sql
+   ```
+
+### 代码规范
+
+- **Python**: PEP 8
+- **JavaScript**: ES6+ 标准
+- **SQL**: PostgreSQL标准语法
+- **提交信息**: 使用 Conventional Commits 格式
+
+### 提交流程
 
 1. Fork本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'feat: Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
+2. 创建特性分支（`git checkout -b feature/AmazingFeature`）
+3. 提交更改（`git commit -m 'feat: Add AmazingFeature'`）
+4. 推送到分支（`git push origin feature/AmazingFeature`）
 5. 开启Pull Request
-
----
-
-## 📝 更新日志
-
-### [v1.0] - 2026-02-15
-
-#### 新增功能
-- ✨ 收支分析模块（Cashflow Module）
-  - 月度统计和自动分类
-  - 支出分类饼图
-  - 交易记录表格
-- 📊 资产总览Dashboard
-  - 5大KPI指标
-  - 多维度可视化图表
-- 💼 持仓管理模块
-- 📈 投资策略和风险监控
-- 👀 观察池管理
-
-#### 项目重构
-- 🗂️ 清理旧版代码，归档1.4MB
-- 📁 优化目录结构（精简36%）
-- 📚 完善文档（4个架构文档）
-
-#### Bug修复
-- 🐛 修复总览页API路径404错误
-- 🐛 修复前端资源引用路径问题
 
 ---
 
@@ -613,26 +327,19 @@ docker logs adguard
 
 ## 🙏 致谢
 
-- [FastAPI](https://fastapi.tiangolo.com/) - 现代化的Python Web框架
-- [Chart.js](https://www.chartjs.org/) - 简洁的JavaScript图表库
-- [Firefly III](https://www.firefly-iii.org/) - 优秀的个人财务管理器
-- [AdGuard Home](https://adguard.com/en/adguard-home/overview.html) - 网络级广告拦截器
-- [Caddy](https://caddyserver.com/) - 现代化的Web服务器
+- [FastAPI](https://fastapi.tiangolo.com/) - 现代化Python Web框架
+- [Chart.js](https://www.chartjs.org/) - 简单灵活的JavaScript图表库
+- [Firefly III](https://www.firefly-iii.org/) - 开源个人财务管理器
+- [Caddy](https://caddyserver.com/) - 自动HTTPS的Web服务器
+- [AdGuard Home](https://adguard.com/en/adguard-home/overview.html) - 网络广告和跟踪器拦截器
 
 ---
 
-## 📧 联系方式
+## 📞 联系方式
 
-- **GitHub**: [@hzfzzzi-ui](https://github.com/hzfzzzi-ui)
-- **项目主页**: https://github.com/hzfzzzi-ui/pams
-- **问题反馈**: [Issues](https://github.com/hzfzzzi-ui/pams/issues)
+- 问题反馈：[GitHub Issues](https://github.com/hzfzzzi-ui/pams/issues)
+- 版本历史：[VERSION.md](VERSION.md)
 
 ---
 
-<div align="center">
-
-**⭐ 如果这个项目对您有帮助，请给它一个Star！**
-
-Made with ❤️ by hzfzzzi-ui
-
-</div>
+**Built with ❤️ by hzfzzzi**
