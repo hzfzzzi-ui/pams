@@ -7,6 +7,210 @@
 
 ---
 
+## [v1.1] - 2026-02-15 📊
+
+### 🎯 持仓分类系统完成
+
+本版本实现了完整的持仓分类页面体系，对齐资产负债表的大类/小类结构，提供A股/美股/加密/其他四个分类的详细展示。
+
+#### ✨ 新增功能
+
+##### 持仓分类页面 (Holdings Categories)
+- **统一分类页面** (`holdings_categories.html`)
+  - 单页顺序展示A股/美股/加密/其他四个分类
+  - 每个分类包含：市值走势图 + KPI卡片 + 持仓明细表
+  - 快速导航跳转各分类区域
+
+- **市值走势可视化** (Chart.js)
+  - A股/美股/加密：近90天日线图
+  - 其他类别：近90天周线图
+  - 深色主题适配
+  - 响应式图表设计
+
+- **KPI汇总卡片** (每个分类4个指标)
+  - 当前市值：分类总市值
+  - 持仓收益：累计盈亏（带颜色）
+  - 昨日收益：日盈亏变化（带颜色）
+  - 持仓数量：标的数量统计
+
+- **持仓明细表格**
+  - 账户、小类、名称、币种
+  - 市值、持仓收益、昨日收益
+  - 盈亏颜色标识（绿涨红跌）
+
+##### 后端增强
+
+- **类型映射系统** (`backend/api/type_mapper.py`)
+  - 建立完整的 type → 大类/小类映射规则
+  - 支持的大类：
+    - **A股**: stock, fund, stock_cn, equity_cn
+    - **美股**: stock_us, equity_us
+    - **加密**: crypto
+    - **其他**: esop, equity_private, gold, wealth, cash, 等
+  - 小类细分（如：A股基金、员工持股、ETH等）
+
+- **账户标准化** (`backend/api/account_mapper.py`)
+  - 统一账户名称显示规则
+  - 中文友好名称映射
+  - 示例：`cn_a_rmb` → `A股账户`
+
+- **新增API端点**
+  - `GET /holdings/by-category/{category}`
+    - 按大类筛选持仓
+    - 参数：category (A股/美股/加密/其他), limit
+  - `GET /holdings/history/{category}`
+    - 获取分类历史市值时间序列
+    - 参数：category, days (默认90), interval (daily/weekly)
+  - 增强 `GET /holdings/latest`
+    - 返回字段新增：major_category, minor_category
+
+##### 前端模块化
+
+- **JavaScript模块** (`frontend/public/assets/js/`)
+  - `holdings_categories.js` - 统一分类页面主逻辑
+    - 并行加载4个分类数据
+    - 渲染表格和KPI汇总
+    - 绘制折线图
+  - `holdings_a_stock.js` - A股独立页面（预留）
+  - `holdings_us_stock.js` - 美股独立页面（预留）
+  - `holdings_crypto.js` - 加密独立页面（预留）
+  - `holdings_other.js` - 其他独立页面（预留）
+
+- **HTML页面**
+  - `holdings_categories.html` - 主分类页面
+  - `holdings_a_stock.html` - A股独立页（预留）
+  - `holdings_us_stock.html` - 美股独立页（预留）
+  - `holdings_crypto.html` - 加密独立页（预留）
+  - `holdings_other.html` - 其他独立页（预留）
+  - `test_api.html` - API调试页面
+
+- **页面导航更新**
+  - `holdings.html` 添加跳转到分类详情的按钮
+  - 导航文本：📊 查看分类详情（A股/美股/加密/其他）
+
+#### 🗄️ 数据管理
+
+- **数据库Schema更新**
+  - `database/postgres/schema/006_update_accounts.sql`
+  - 账户标准化脚本
+
+- **分类映射调整**
+  - **华为员工持股**：从 A股 移至 其他（内部持股）
+    - 类型：`equity_private` → 大类：其他, 小类：员工持股
+  - **ETH现金**：添加到 加密 类别
+    - 新增记录：venue=binance, type=crypto, symbol=ETH
+    - 市值：$679.26 USD
+
+- **当前数据状态** (2026-02-15)
+  - **A股**: 14条持仓
+    - 紫金矿业 ¥32,113
+    - 华夏科创50ETF联接C ¥28,216
+    - 华夏人工智能ETF联接A ¥10,519
+    - 等...
+  - **美股**: 0条持仓
+  - **加密**: 1条持仓
+    - ETH现金 $679.26
+  - **其他**: 16条持仓
+    - 华为员工内部持股 ¥318,000
+    - 支付宝余额宝 ¥21,256
+    - 等...
+
+#### 📚 文档完善
+
+- **HOLDINGS_CATEGORIES_UPDATE.md**
+  - 持仓分类系统设计文档
+  - 类型映射规则说明
+  - API端点使用指南
+
+- **HOLDINGS_PAGE_UPDATE.md**
+  - 持仓页面结构说明
+  - 前端组件文档
+  - 数据流设计
+
+- **ACCOUNT_MAPPING.md**
+  - 账户映射规则详解
+  - 标准化命名规范
+
+- **ACCOUNT_STANDARDIZATION.md**
+  - 账户名称标准化流程
+  - 显示名称规范
+
+- **ACCESS_GUIDE.md**
+  - GitHub仓库访问指南
+  - 权限配置说明
+
+- **SET_REPO_PRIVATE.md**
+  - 仓库隐私设置指南
+  - GitHub私有化步骤
+
+#### 🛠️ 开发工具
+
+- **快速提交脚本**
+  - `push-now.sh` - Linux/Mac快速提交脚本
+  - `quick-push.bat` - Windows批处理脚本
+  - `quick-push.ps1` - PowerShell脚本
+  - 自动添加、提交、推送到GitHub
+
+#### 🐛 Bug修复
+
+- **分类过滤逻辑错误**
+  - 修复：type映射到major_category的逻辑
+  - 确保esop/equity_private正确分类到"其他"
+
+- **API路径参数处理**
+  - 修复：移除错误的`Query(...)`用法
+  - 路径参数直接使用 `category: str`
+
+- **浏览器缓存问题**
+  - 解决：容器重建后页面不刷新
+  - 方案：`docker compose build --no-cache` + 强制刷新
+
+- **KPI数据显示为0**
+  - 修复：前端聚合计算逻辑
+  - 确保正确累加市值和盈亏数据
+
+- **图表数据缺失**
+  - 修复：历史数据API端点
+  - 清理旧的假数据，以真实数据为准
+
+#### 📊 技术统计
+
+- **新增文件**: 23个
+  - 后端：2个Python模块
+  - 前端：6个HTML + 6个JS模块
+  - 文档：5个Markdown
+  - 脚本：3个
+  - 数据库：1个SQL
+
+- **修改文件**: 8个
+  - 后端：main.py, transactions.py
+  - 前端：holdings.html, cashflow.html, 4个JS模块
+
+- **代码增量**: 3,975行新增, 28行删除
+
+#### 🚀 部署说明
+
+- **容器更新**: 重建 `pams-web` 和 `pams-api` 容器
+- **数据库**: 执行 `006_update_accounts.sql` 更新脚本
+- **访问**: http://pams.local/holdings_categories.html
+- **浏览器**: 需清除缓存或强制刷新 (Ctrl+Shift+R)
+
+#### 🔒 已知限制
+
+- **美股数据为空**: 暂无美股持仓记录
+- **历史数据不足**: 仅当日快照，无历史趋势
+- **周线图空白**: 其他类别因数据点少，图表可能为空
+
+#### 📝 待优化
+
+- [ ] 补充历史持仓快照数据（至少30天）
+- [ ] 添加分类筛选器（按账户/小类筛选）
+- [ ] 持仓明细支持导出CSV
+- [ ] 图表交互增强（tooltip、zoom）
+- [ ] 移动端响应式优化
+
+---
+
 ## [v1.0] - 2026-02-15 🎉
 
 **首个正式发布版本** - 收支分析模块与项目架构清理
