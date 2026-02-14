@@ -63,6 +63,7 @@ class TransactionContext:
         self.category: str = ''
         self.note: str = ''
         self.date: str = date.today().isoformat()
+        self.currency: str = 'MXN'  # 默认币种：比索
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,8 +76,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🚀 <b>快速记账</b>
 直接发送金额和备注，如：
-• <code>-50 午餐</code> （支出50元）
-• <code>+500 工资</code> （收入500元）
+• <code>-50 午餐</code> （支出50比索，默认币种）
+• <code>-100 CNY 购物</code> （支出100人民币）
+• <code>+500 USD 工资</code> （收入500美元）
+
+💱 <b>支持币种</b>
+MXN(比索-默认)、CNY(人民币)、USD(美元)、JPY(日元)、EUR(欧元)、GBP(英镑)
 
 📋 <b>命令列表</b>
 /record - 详细记账
@@ -96,12 +101,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📖 <b>使用帮助</b>
 
 <b>1. 快速记账（推荐）</b>
-直接发送消息，格式：<code>金额 备注</code>
+直接发送消息，格式：<code>金额 [币种] 备注</code>
 
 示例：
-• <code>-50 午餐</code> → 支出50元，分类：餐饮
-• <code>-100 打车回家</code> → 支出100元，分类：交通
-• <code>+5000 工资</code> → 收入5000元
+• <code>-50 午餐</code> → 支出50比索（默认），分类：餐饮
+• <code>-100 CNY 购物</code> → 支出100人民币，分类：购物
+• <code>-25 USD 咖啡</code> → 支出25美元，分类：餐饮
+• <code>+5000 工资 MXN</code> → 收入5000比索（币种可在前或后）
+
+<b>💱 支持币种</b>
+• MXN - 墨西哥比索（默认）
+• CNY - 人民币
+• USD - 美元
+• JPY - 日元
+• EUR - 欧元
+• GBP - 英镑
 
 <b>2. 详细记账</b>
 使用 /record 命令，按步骤选择：
@@ -111,7 +125,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 备注
 
 <b>3. 查看统计</b>
-/stats - 查看本月收支统计
+/stats - 查看本月收支统计（自动换算为基准币种）
 
 <b>4. 查看记录</b>
 /list - 查看最近记录
@@ -285,8 +299,25 @@ async def quick_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """快速记账：解析消息并记账"""
     text = update.message.text.strip()
 
-    # 解析格式：-50 午餐 或 +500 工资
-    match = re.match(r'^([+-]?\d+(?:\.\d+)?)\s*(.*)$', text)
+    # 解析格式：
+    # -50 午餐            (默认MXN)
+    # -50 MXN 午餐        (指定币种)
+    # -50 午餐 CNY        (币种在后面)
+    # +500 工资 USD       (收入指定币种)
+
+    # 提取币种（如果存在）
+    currency = 'MXN'  # 默认币种改为比索
+    note_clean = text
+
+    # 尝试从文本中提取币种
+    currency_match = re.search(r'\b(CNY|USD|MXN|JPY|EUR|GBP)\b', text, re.IGNORECASE)
+    if currency_match:
+        currency = currency_match.group(1).upper()
+        # 移除币种标识
+        note_clean = re.sub(r'\b(CNY|USD|MXN|JPY|EUR|GBP)\b', '', text, flags=re.IGNORECASE).strip()
+
+    # 解析金额和备注
+    match = re.match(r'^([+-]?\d+(?:\.\d+)?)\s*(.*)$', note_clean)
 
     if not match:
         return  # 不是记账格式，忽略
@@ -310,14 +341,17 @@ async def quick_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx.type = tx_type
     tx.category = category
     tx.note = note
+    tx.currency = currency  # 存储币种
 
     # 提交
     result = await submit_transaction(tx)
 
     if result['success']:
+        # 获取币种符号
+        currency_symbol = get_currency_symbol(currency)
         await update.message.reply_text(
             f"✅ 记账成功！\n\n"
-            f"{'💸 支出' if tx_type == 'expense' else '💰 收入'}：¥{amount:.2f}\n"
+            f"{'💸 支出' if tx_type == 'expense' else '💰 收入'}：{currency_symbol}{amount:.2f} ({currency})\n"
             f"分类：{category}\n"
             f"备注：{note or '无'}"
         )
@@ -396,7 +430,7 @@ async def submit_transaction(tx: TransactionContext) -> dict:
             'category': tx.category,
             'description': tx.note or None,
             'date': tx.date,
-            'currency': 'CNY',
+            'currency': tx.currency,  # 使用实际币种
             'account': 'telegram'
         }
 
@@ -412,6 +446,19 @@ async def submit_transaction(tx: TransactionContext) -> dict:
     except Exception as e:
         logger.error(f"提交交易失败: {e}")
         return {'success': False, 'error': str(e)}
+
+
+def get_currency_symbol(currency: str) -> str:
+    """获取币种符号"""
+    symbols = {
+        'CNY': '¥',
+        'JPY': '¥',
+        'USD': '$',
+        'MXN': 'MXN$',
+        'EUR': '€',
+        'GBP': '£'
+    }
+    return symbols.get(currency, currency + ' ')
 
 
 def auto_categorize(note: str, tx_type: str) -> str:

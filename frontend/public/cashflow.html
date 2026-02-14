@@ -87,6 +87,31 @@
       height: 300px;
       margin-top: 16px;
     }
+    .tab-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .tab-btn {
+      padding: 6px 16px;
+      background: rgba(36,48,85,.45);
+      border: 1px solid rgba(106,166,255,.2);
+      color: #8ea0c7;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover {
+      background: rgba(106,166,255,.15);
+      border-color: rgba(106,166,255,.3);
+    }
+    .tab-btn.active {
+      background: rgba(106,166,255,.25);
+      border-color: rgba(106,166,255,.4);
+      color: #6aa6ff;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -136,9 +161,15 @@
 
     <!-- 图表区域 - 两列布局 -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
-      <!-- 按月开支统计 -->
+      <!-- 开支统计 -->
       <div class="card">
-        <div class="sectionTitle"><h3>按月开支统计</h3></div>
+        <div class="sectionTitle">
+          <h3>开支统计</h3>
+        </div>
+        <div class="tab-buttons">
+          <button class="tab-btn active" id="tabDaily">按日统计（当月）</button>
+          <button class="tab-btn" id="tabMonthly">按月统计（当年）</button>
+        </div>
         <div class="chart-container">
           <canvas id="trendChart"></canvas>
         </div>
