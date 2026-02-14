@@ -17,10 +17,10 @@ http://pams.local {
   }
 }
 
-# Bookkeeping
-http://firefly.pams.local {
-  reverse_proxy firefly:8080
-}
+# Bookkeeping (DEPRECATED - Firefly removed, using direct PostgreSQL)
+# http://firefly.pams.local {
+#   reverse_proxy firefly:8080
+# }
 
 # DNS admin UI (optional to expose)
 http://adguard.pams.local {
