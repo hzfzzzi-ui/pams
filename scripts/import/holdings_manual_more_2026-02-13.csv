@@ -1,5 +1,0 @@
-venue,account,type,symbol,name,currency,market_value,holding_pnl,daily_pnl,as_of
-manual,recv_reimburse,receivable_reimburse,,待报销应收,CNY,28683.13,,,2026-02-13
-manual,recv_loan,receivable_loan,,他人借款应收,CNY,55000,,,2026-02-13
-manual,ccb_wm47,wealth,,建行-交银理财稳享固收精选日开47号,CNY,55202.09,,,2026-02-13
-manual,ccb_gold,gold,,建行-建行金,CNY,11055.40,,,2026-02-13

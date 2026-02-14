@@ -1,6 +1,0 @@
-venue,account,type,symbol,name,asset_class,priority,active,note
-# 说明：越具体越好。可留空表示“匹配任意”。priority 越小优先级越高。
-# 示例：
-# guosen,,stock_cn,601899,,CN_EQUITY,10,true,A股-紫金矿业
-# tencent_licaitong,,fund,,,CN_FUND,20,true,理财通基金默认归A股基金
-# ,,,,"住房公积金",HPF,5,true,手工资产：公积金
