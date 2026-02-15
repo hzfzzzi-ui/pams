@@ -1,136 +1,131 @@
 # PAMS - Personal Asset Management System
 
-> **个人资产管理系统** - 多平台资产聚合、智能收支分析、风险监控一体化解决方案
+> **个人资产管理系统** - 多平台资产聚合、智能收支分析、交易识别、风险监控一体化解决方案
 
-[![Version](https://img.shields.io/badge/version-1.4-blue.svg)](./VERSION.md)
+[![Version](https://img.shields.io/badge/version-1.5-blue.svg)](./VERSION.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com/)
 
 ---
 
-## 📋 目录
-
-- [核心功能](#-核心功能)
-- [技术栈](#-技术栈)
-- [项目结构](#-项目结构)
-- [快速开始](#-快速开始)
-- [API文档](#-api文档)
-- [功能特性](#-功能特性)
-- [下一步计划](#-下一步计划)
-- [贡献指南](#-贡献指南)
-
----
-
-## 🎯 核心功能
+## 核心功能
 
 ### 资产管理
-- **多平台聚合**：支持A股、美股、加密货币、基金、现金、员工持股等6大类资产
-- **实时汇率转换**：CNY/USD/MXN双向独立获取，支持正反向切换
-- **智能分类**：基于资产类型和账户自动分类，支持4个主要持仓视图
+- **多平台聚合**：支持A股、美股、加密货币、基金、贵金属、现金等6大类资产
+- **实时汇率转换**：CNY/USD/MXN双向独立获取
+- **智能分类**：基于资产类型和账户自动分类，配置驱动的持仓详情视图
 - **风险监控**：集中度检查、回撤分析、数据完整性检测
+
+### 交易识别（V1.5 新增）
+- **OCR 截图识别**：发送券商持仓截图，Tesseract OCR 自动识别交易数据
+- **文字指令**：`买入 贵州茅台 100股 @1800` / `sell AAPL 50 @195.5`
+- **确认入账**：识别结果展示 → 用户确认 → UPSERT 持仓快照
+- **支持券商**：同花顺、广发证券、IBKR盈透、币安
 
 ### 收支分析
 - **智能分类引擎**：基于关键词规则自动分类交易（18条预定义规则）
 - **多维度统计**：按日/按月统计，支持收入、支出、结余分析
-- **预算管理**：分类预算设置、执行跟踪、预警机制（默认80%阈值）
+- **预算管理**：分类预算设置、执行跟踪、预警机制
 - **交互式图表**：折线图/饼图联动，hover实时显示分类占比
+
+### 每日推送（V1.5 新增）
+- **持仓日报**：每日 9:00 CST 自动推送资产总值、分类占比、盈亏变动
+- **通知框架**：预留 Agent 消息推送接口，支持外部服务投递通知
 
 ### 投资决策
 - **NAV追踪**：日度净资产值曲线，自动回撤计算
 - **观察池**：CN/US市场标的追踪，状态分类管理
 - **策略配置**：IPS策略可参数化存储
-- **持仓详情**：完整持仓表格，多维度筛选（venue/account/type）
 
 ---
 
-## 🛠 技术栈
+## 技术栈
 
 ### 后端
-- **框架**: FastAPI 0.115.8 + Uvicorn 0.30.6
+- **框架**: FastAPI 0.115 + Uvicorn
 - **语言**: Python 3.11
-- **数据库**: PostgreSQL 16
-- **数据库驱动**: psycopg2 2.9.9
-- **特点**: 原生SQL查询，无ORM
+- **数据库**: PostgreSQL 16（原生SQL，无ORM）
+- **OCR**: Tesseract 5.5 + pytesseract（中英文语言包）
 
 ### 前端
-- **架构**: 多页面应用（MPA）
+- **架构**: 多页面应用（MPA），ES Module
 - **核心**: 原生JavaScript（ES6+）
-- **图表**: Chart.js 4.4.1
-- **样式**: 自定义CSS（grid2/grid5布局系统）
+- **图表**: Chart.js 4.4
+- **样式**: 自定义CSS（Samurai Black 主题）
 
 ### 基础设施
-- **容器化**: Docker & Docker Compose
+- **容器化**: Docker & Docker Compose（9个服务）
 - **反向代理**: Caddy 2
 - **DNS**: AdGuard Home（局域网DNS）
-- **集成**: Firefly III（开源记账系统）
-- **Bot**: Telegram Bot（记账 + 助手指令桥）
+- **定时调度**: APScheduler（Bot内）+ 独立Scheduler服务
+- **Bot**: Telegram Bot（记账 + 交易识别 + 助手指令桥）
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```
 pams/
 ├── backend/
-│   └── api/
-│       ├── main.py                 # 核心API端点（汇率刷新、NAV、持仓等）
-│       ├── endpoints/
-│       │   ├── transactions.py     # 交易API
-│       │   └── tasks.py            # 任务队列API（Telegram桥）
-│       ├── account_mapper.py       # 账户标准化
-│       ├── type_mapper.py          # 资产分类映射
-│       └── requirements.txt
+│   ├── api/
+│   │   ├── main.py                 # 核心API（汇率、NAV、持仓汇总等）
+│   │   └── endpoints/
+│   │       ├── transactions.py     # 交易/预算API
+│   │       ├── holdings_trade.py   # 持仓交易UPSERT API
+│   │       ├── notifications.py    # 通知推送API
+│   │       ├── prices.py           # 价格刷新API
+│   │       └── tasks.py            # 任务队列API
+│   └── scheduler/
+│       └── scheduler.py            # 定时价格刷新调度器
 │
-├── database/
-│   └── postgres/schema/
-│       ├── 005_transactions.sql    # 交易/预算/分类规则表
-│       ├── 006_update_accounts.sql # 账户约束和视图
-│       └── 008_task_queue.sql      # 任务队列表
+├── database/postgres/schema/
+│   ├── 005_transactions.sql        # 交易/预算/分类规则表
+│   ├── 006_update_accounts.sql     # 账户约束和视图
+│   ├── 008_task_queue.sql          # 任务队列表
+│   └── 009_notifications.sql       # 通知推送表
 │
 ├── frontend/public/
 │   ├── index.html                  # 仪表板首页
 │   ├── cashflow.html               # 收支分析页
 │   ├── holdings.html               # 持仓汇总页
+│   ├── holdings_categories.html    # 持仓分类页
+│   ├── holdings_detail.html        # 持仓详情页（配置驱动）
 │   ├── strategy.html               # 投资策略页
 │   ├── watchlist.html              # 观察池页
-│   └── assets/
-│       ├── css/style.css           # 全局样式
-│       └── js/                     # 交互逻辑
-│
-├── gateway/
-│   └── Caddyfile                   # 反向代理配置
+│   └── assets/js/
+│       ├── utils.js                # 共享工具模块
+│       ├── dashboard.js            # 仪表板交互
+│       ├── holdings.js             # 持仓汇总
+│       ├── holdings_categories.js  # 持仓分类（价格走势）
+│       └── holdings_detail.js      # 持仓详情（A股/美股/加密/贵金属/其他）
 │
 ├── telegram-bot/
-│   ├── bot.py                      # Telegram记账机器人
-│   └── requirements.txt
+│   ├── bot.py                      # Telegram Bot V3.0（记账+交易识别+推送）
+│   ├── Dockerfile                  # 含Tesseract OCR
+│   └── ocr/                        # OCR识别模块
+│       ├── engine.py               # Tesseract封装
+│       ├── broker_detector.py      # 券商识别（关键词评分）
+│       └── parsers/                # 券商解析器
+│           ├── tonghuashun.py      # 同花顺
+│           ├── guangfa.py          # 广发证券
+│           ├── ibkr.py             # IBKR盈透
+│           └── binance_parser.py   # 币安
 │
 ├── telegram-bot-assistant/
-│   ├── bot_assistant.py            # Telegram助手Bot（指令桥）
-│   ├── Dockerfile
-│   └── requirements.txt
+│   └── bot_assistant.py            # Telegram助手Bot（指令桥）
 │
 ├── scripts/
 │   └── import_holdings_from_excel.py  # Excel持仓导入
 │
-├── compose.yaml                    # Docker编排
+├── compose.yaml                    # Docker编排（9个服务）
 ├── VERSION.md                      # 版本历史
 └── README.md
 ```
 
-### 核心文件说明
-
-| 文件 | 功能 |
-|------|------|
-| `backend/api/main.py` | 资产聚合、NAV计算、汇率刷新、观察池等核心端点 |
-| `backend/api/endpoints/transactions.py` | 交易记录、月度统计、预算管理 |
-| `backend/api/endpoints/tasks.py` | 任务队列CRUD（Telegram ↔ Claude Code桥） |
-| `frontend/public/assets/js/dashboard.js` | 仪表板交互（风险饼图、净值走势、汇率卡片） |
-| `telegram-bot-assistant/bot_assistant.py` | Telegram助手Bot（接收指令、投递响应） |
-
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 前置要求
 - Docker & Docker Compose
@@ -147,7 +142,10 @@ pams/
 2. **配置环境变量**
    ```bash
    cp .env.example .env
-   # 编辑.env文件，设置PostgreSQL密码、Telegram Bot Token等
+   # 编辑 .env，设置：
+   # - POSTGRES_PASSWORD
+   # - TELEGRAM_BOT_TOKEN
+   # - OWNER_CHAT_ID（用于每日推送）
    ```
 
 3. **启动服务**
@@ -157,224 +155,123 @@ pams/
 
 4. **访问应用**
    - 主应用：`http://pams.local` 或 `http://localhost:80`
-   - API文档：`http://localhost:8090/docs`（FastAPI自动生成）
+   - API文档：`http://localhost:8090/docs`
    - Firefly III：`http://localhost:8082`
-
-5. **初始化数据库**
-   ```bash
-   docker exec -it pams-postgres psql -U pams -d pams -f /path/to/schema/005_transactions.sql
-   ```
 
 ### 端口映射
 
-| 服务 | 对外端口 | 内部端口 | 用途 |
-|------|---------|---------|------|
-| Caddy | 80 | 80 | 反向代理 |
-| pams-web | 8080 | 80 | 前端Nginx |
-| pams-api | 8090 | 8000 | FastAPI后端 |
-| pams-firefly | 8082 | 8080 | Firefly III记账系统 |
-| pams-postgres | 5432 | 5432 | PostgreSQL数据库 |
-| pams-adguard | 53/8081/3000 | 53/80/3000 | DNS/广告屏蔽 |
-| pams-telegram-bot | — | — | Telegram记账Bot |
-| pams-assistant-bot | — | — | Telegram助手Bot |
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| Caddy | 80 | 反向代理 |
+| pams-web | 8080 | 前端 |
+| pams-api | 8090 | FastAPI后端 |
+| pams-firefly | 8082 | Firefly III |
+| pams-adguard | 53/8081 | DNS |
 
 ---
 
-## 📡 API文档
+## API文档
 
-### 资产管理端点
-
-| 端点 | 方法 | 功能 | 参数 |
-|------|------|------|------|
-| `/holdings/latest` | GET | 获取最新持仓快照 | `venue`, `account`, `limit=500` |
-| `/holdings/as-of` | GET | 获取特定日期持仓 | `date=YYYY-MM-DD`, `venue`, `account` |
-| `/holdings/by-category/{category}` | GET | 按分类获取持仓 | `limit=500` |
-| `/summary/latest` | GET | 汇总统计（按type） | `venue`, `account` |
-| `/summary2/latest` | GET | 新汇总统计（按asset_class） | `venue`, `account` |
-| `/overview` | GET | 仪表板综合数据 | `baseCurrency=CNY` |
-| `/nav/recent` | GET | 最近NAV数据 | `limit=60` |
-| `/nav/drawdown` | GET | 回撤分析 | `limit=365` |
-
-### 交易管理端点
-
-| 端点 | 方法 | 功能 | 参数 |
-|------|------|------|------|
-| `/api/transactions` | POST | 创建交易记录 | JSON body |
-| `/api/transactions/recent` | GET | 获取最近交易 | `limit=50` |
-| `/api/transactions/monthly/{month}` | GET | 月度统计 | `month=YYYY-MM` |
-| `/api/transactions/daily/{month}` | GET | 每日统计 | `month=YYYY-MM` |
-| `/api/transactions/categories-by-range` | GET | 时间段分类占比 | `start=YYYY-MM-DD`, `end=YYYY-MM-DD` |
-| `/api/transactions/budgets/{month}` | GET | 预算执行情况 | `month=YYYY-MM` |
-| `/api/transactions/budgets` | POST | 创建预算 | `category`, `month`, `amount` |
-
-### 任务队列端点（Telegram桥）
+### 资产管理
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
-| `/api/tasks` | POST | 创建任务（Bot调用） |
-| `/api/tasks/pending` | GET | 获取待处理任务 |
-| `/api/tasks/{id}/claim` | PATCH | 认领任务 |
-| `/api/tasks/{id}/complete` | PATCH | 提交任务响应 |
-| `/api/tasks/completed` | GET | 获取已完成任务（Bot轮询） |
-| `/api/tasks/{id}/ack` | DELETE | 确认投递并删除 |
+| `/holdings/latest` | GET | 最新持仓快照 |
+| `/holdings/as-of` | GET | 特定日期持仓 |
+| `/holdings/by-category/{cat}` | GET | 按分类持仓 |
+| `/overview` | GET | 仪表板综合数据 |
+| `/nav/recent` | GET | NAV数据 |
+| `/nav/drawdown` | GET | 回撤分析 |
 
-### 汇率端点
+### 交易识别（V1.5）
 
 | 端点 | 方法 | 功能 |
 |------|------|------|
-| `/api/fx-rates/latest` | GET | 获取最新汇率 |
-| `/api/fx-rates/refresh` | POST | 从公开API刷新汇率 |
+| `/api/holdings/trade` | POST | 持仓交易UPSERT |
 
-**完整API文档**：访问 `http://localhost:8090/docs` 查看Swagger UI
+### 通知推送（V1.5）
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/notifications` | POST | 创建通知 |
+| `/api/notifications/pending` | GET | 获取待发送通知 |
+| `/api/notifications/{id}/sent` | PATCH | 标记已发送 |
+
+### 收支管理
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/transactions` | POST | 创建交易 |
+| `/api/transactions/recent` | GET | 最近交易 |
+| `/api/transactions/monthly/{month}` | GET | 月度统计 |
+| `/api/transactions/budgets/{month}` | GET | 预算执行 |
+
+### 价格与汇率
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/fx-rates/latest` | GET | 最新汇率 |
+| `/api/fx-rates/refresh` | POST | 刷新汇率 |
+| `/api/prices/crypto` | POST | 刷新加密价格 |
+| `/api/prices/us-stock` | POST | 刷新美股价格 |
+
+**完整API文档**：`http://localhost:8090/docs`
 
 ---
 
-## ✨ 功能特性
+## Telegram Bot 使用
 
-### 1. 多平台资产聚合
-
-**支持的平台：**
-- ✅ 国信证券/同花顺（A股）
-- ✅ Interactive Brokers（美股）
-- ✅ 腾讯理财通（基金/理财）
-- ✅ 建设银行（银行账户）
-- ⏳ 币安 Binance（加密货币）
-- ✅ 华为ESOP（员工持股）
-- ✅ 微信/财付通（现金）
-
-### 2. 智能收支分析
-
-**自动分类引擎**：
-- 基于关键词匹配（支持优先级和置信度）
-- 18条预定义规则（午餐/晚餐/打车/房租等）
-- 自学习机制（match_count统计）
-
-**可视化图表**：
-- 📊 按日/按月收支折线图
-- 🥧 支出分类饼图（hover联动）
-- 📈 累计vs单日分类对比
-
-### 3. 风险监控
-
-**集中度检查**：
-- 单一标的占比 >30% → warn，>50% → crit
-- 单一类别占比 >40% → warn，>60% → crit
-
-**回撤分析**：
-- 基于NAV日度数据计算历史最大回撤
-- 实时回撤曲线展示
-
-**数据完整性**：
-- 自动检测数据跨度异常（>30%判定为incomplete）
-
-### 4. 数据库设计
-
-**核心表结构**：
-```sql
-pams_holdings_snapshot      -- 持仓快照（支持as_of查询）
-pams_transactions           -- 交易记录（多币种+自动分类）
-pams_budgets                -- 预算管理
-pams_category_rules         -- 自动分类规则
-pams_nav_daily              -- 日度NAV
-pams_fx_rates_daily         -- 汇率表
-pams_watchlist              -- 观察池
-pams_asset_class_map        -- 资产类别映射
-pams_task_queue             -- Telegram任务队列
+### 快速记账
+```
+-50 餐饮          → Santander/MXN 支出
++5000 工资        → Santander/MXN 收入
 ```
 
-**关键约束**：
-- 账户白名单：11个标准账户（腾讯理财通/建行/币安/IBKR等）
-- 币种支持：CNY/USD/MXN
-- 视图：`v_transactions_cny`（自动汇率换算）
+### 交易识别
+```
+买入 贵州茅台 100股 @1800     → 同花顺账户
+卖出 AAPL 50 @195.5          → IBKR账户
+buy BTC 0.5 @97000           → 币安账户
+```
+或直接发送券商持仓截图（同花顺/广发/IBKR/币安）。
+
+### 命令
+- `/start` - 帮助信息
+- `/record` - 详细记账（选账户/币种/分类）
+- `/portfolio` - 持仓概览
+- `/stats` - 本月统计
+- `/list` - 最近记录
 
 ---
 
-## 🔮 下一步计划
+## 下一步计划
 
-### V1.4 - Dashboard增强 & Telegram助手 ✅
-- [x] **Dashboard重构** - 风险分布饼图、净值走势、收支趋势、持仓明细
-- [x] **汇率双向获取** - CNY/USD/MXN独立获取，支持正反向切换
-- [x] **Telegram助手Bot** - 任务队列系统，通过Telegram下发指令
+### V1.5 - 交易Bot + 前端重构 ✅
+- [x] Telegram交易识别Bot（OCR + 文字指令）
+- [x] 每日持仓推送 + 通知框架
+- [x] 持仓子页面合并（配置驱动）
+- [x] 定时价格调度器
 
-### V1.5 - 外部集成（2周）
-- [ ] **Binance API集成** - 加密货币实时数据同步
-- [ ] **Firefly III API对接** - cashflow端点完整集成
+### V1.6 - 外部集成
+- [ ] Binance API 实时数据同步
+- [ ] OCR 精度调优（真实截图测试）
+- [ ] 投资资讯推送
 
-### V1.6 - 前端优化（3周）
-- [ ] **Vue 3重构** - 替代原生JS，提升可维护性
-- [ ] **移动端适配** - 响应式设计，支持iOS/Android
-- [ ] **PWA支持** - 离线访问能力
+### V1.7 - 前端优化
+- [ ] 移动端适配
+- [ ] PWA 支持
+- [ ] 更多交互图表
 
-### V1.7 - 智能分析（4周）
-- [ ] **机器学习分类** - 改进auto_classify算法
-- [ ] **趋势预测** - 基于历史数据的支出预测
-- [ ] **异常检测** - 自动识别异常交易
-
-### V2.0 - 企业级特性（长期）
-- [ ] **多用户支持** - 认证/授权机制
-- [ ] **API限流** - 防止滥用
-- [ ] **数据导出** - PDF报表生成
-- [ ] **单元测试** - 覆盖率>80%
+### V2.0 - 长期目标
+- [ ] 多用户支持
+- [ ] 机器学习分类
+- [ ] 数据导出 / PDF报表
 
 ---
 
-## 🤝 贡献指南
+## 许可证
 
-### 开发环境设置
-
-1. **安装依赖**
-   ```bash
-   cd backend/api
-   pip install -r requirements.txt
-   ```
-
-2. **运行开发服务器**
-   ```bash
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-3. **数据库迁移**
-   ```bash
-   psql -U pams -d pams -f database/postgres/schema/005_transactions.sql
-   ```
-
-### 代码规范
-
-- **Python**: PEP 8
-- **JavaScript**: ES6+ 标准
-- **SQL**: PostgreSQL标准语法
-- **提交信息**: 使用 Conventional Commits 格式
-
-### 提交流程
-
-1. Fork本仓库
-2. 创建特性分支（`git checkout -b feature/AmazingFeature`）
-3. 提交更改（`git commit -m 'feat: Add AmazingFeature'`）
-4. 推送到分支（`git push origin feature/AmazingFeature`）
-5. 开启Pull Request
-
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
-
----
-
-## 🙏 致谢
-
-- [FastAPI](https://fastapi.tiangolo.com/) - 现代化Python Web框架
-- [Chart.js](https://www.chartjs.org/) - 简单灵活的JavaScript图表库
-- [Firefly III](https://www.firefly-iii.org/) - 开源个人财务管理器
-- [Caddy](https://caddyserver.com/) - 自动HTTPS的Web服务器
-- [AdGuard Home](https://adguard.com/en/adguard-home/overview.html) - 网络广告和跟踪器拦截器
-
----
-
-## 📞 联系方式
-
-- 问题反馈：[GitHub Issues](https://github.com/hzfzzzi-ui/pams/issues)
-- 版本历史：[VERSION.md](VERSION.md)
+MIT License - 详见 [LICENSE](LICENSE)
 
 ---
 

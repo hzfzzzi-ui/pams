@@ -4,114 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAMS · 收支分析</title>
-  <link rel="stylesheet" href="/assets/css/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
   <style>
-    .month-selector {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-      justify-content: center;
-    }
-    .month-selector button {
-      padding: 6px 16px;
-      background: rgba(106,166,255,.15);
-      border: 1px solid rgba(106,166,255,.3);
-      color: #6aa6ff;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    .month-selector button:hover {
-      background: rgba(106,166,255,.25);
-    }
-    .month-selector span {
-      font-size: 18px;
-      font-weight: 600;
-      color: #cfe0ff;
-      min-width: 100px;
-      text-align: center;
-    }
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .kpi-card {
-      background: rgba(36,48,85,.45);
-      padding: 16px;
-      border-radius: 8px;
-      border: 1px solid rgba(106,166,255,.2);
-    }
-    .kpi-label {
-      font-size: 13px;
-      color: #8ea0c7;
-      margin-bottom: 8px;
-    }
-    .kpi-value {
-      font-size: 28px;
-      font-weight: 600;
-      color: #cfe0ff;
-    }
-    .kpi-value.income { color: #43d19e; }
-    .kpi-value.expense { color: #ff6b6b; }
-    .kpi-value.net.positive { color: #43d19e; }
-    .kpi-value.net.negative { color: #ff6b6b; }
-    .transaction-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 12px;
-    }
-    .transaction-table th {
-      text-align: left;
-      padding: 10px;
-      border-bottom: 1px solid rgba(106,166,255,.2);
-      color: #8ea0c7;
-      font-weight: 500;
-      font-size: 13px;
-    }
-    .transaction-table td {
-      padding: 10px;
-      border-bottom: 1px solid rgba(36,48,85,.5);
-      color: #cfe0ff;
-      font-size: 14px;
-    }
-    .transaction-table tr:hover {
-      background: rgba(106,166,255,.05);
-    }
-    .amount-income { color: #43d19e; }
-    .amount-expense { color: #ff6b6b; }
-    .chart-container {
-      height: 300px;
-      margin-top: 16px;
-    }
-    .tab-buttons {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-    .tab-btn {
-      padding: 6px 16px;
-      background: rgba(36,48,85,.45);
-      border: 1px solid rgba(106,166,255,.2);
-      color: #8ea0c7;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      transition: all 0.2s;
-    }
-    .tab-btn:hover {
-      background: rgba(106,166,255,.15);
-      border-color: rgba(106,166,255,.3);
-    }
-    .tab-btn.active {
-      background: rgba(106,166,255,.25);
-      border-color: rgba(106,166,255,.4);
-      color: #6aa6ff;
-      font-weight: 600;
-    }
+    .month-selector{display:flex;align-items:center;gap:12px;margin-bottom:16px;justify-content:center}
+    .month-selector button{padding:6px 16px;background:rgba(42,37,32,.45);border:1px solid rgba(42,37,32,.7);color:var(--text);border-radius:4px;cursor:pointer;font-size:14px}
+    .month-selector button:hover{background:rgba(42,37,32,.7);border-color:var(--accent)}
+    .month-selector span{font-size:18px;font-weight:600;color:var(--text);min-width:100px;text-align:center}
+    .amount-income{color:var(--good)}
+    .amount-expense{color:var(--bad)}
+    .chart-container{height:300px;margin-top:16px}
+    .tab-buttons{display:flex;gap:8px;margin-bottom:12px}
+    .tab-btn{padding:6px 16px;background:rgba(42,37,32,.45);border:1px solid rgba(42,37,32,.7);color:var(--muted);border-radius:4px;cursor:pointer;font-size:13px;transition:all .2s}
+    .tab-btn:hover{background:rgba(42,37,32,.7);border-color:var(--accent)}
+    .tab-btn.active{background:rgba(42,37,32,.7);border-color:var(--accent);color:var(--text);font-weight:600}
+    .formLabel{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
+    .formInput{width:100%;padding:8px;background:rgba(42,37,32,.45);border:1px solid rgba(42,37,32,.7);color:var(--text);border-radius:4px}
   </style>
 </head>
 <body>
@@ -122,19 +30,19 @@
         <div class="muted">查看月度收支统计和交易记录</div>
       </div>
       <div class="right">
-        <a class="pill" href="/index.html">返回 Dashboard</a>
+        <a class="pill" href="index.html">返回 Dashboard</a>
       </div>
     </div>
 
     <div class="nav" style="margin-bottom:12px">
-      <a data-nav href="/index.html">总览</a>
-      <a data-nav href="/strategy.html">策略</a>
-      <a data-nav href="/watchlist.html">观察池</a>
-      <a data-nav href="/holdings.html">持仓</a>
-      <a data-nav href="/cashflow.html">收支</a>
+      <a data-nav href="index.html">总览</a>
+      <a data-nav href="strategy.html">策略</a>
+      <a data-nav href="watchlist.html">观察池</a>
+      <a data-nav href="holdings.html">持仓</a>
+      <a data-nav href="cashflow.html">收支</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6)"></div>
+    <div id="err" class="card" style="display:none;border-color:rgba(196,62,62,.6)"></div>
 
     <!-- 月份选择器 -->
     <div class="month-selector">
@@ -144,18 +52,20 @@
     </div>
 
     <!-- 月度 KPI -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">总收入</div>
-        <div class="kpi-value income" id="kpiIncome">¥0.00</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">总支出</div>
-        <div class="kpi-value expense" id="kpiExpense">¥0.00</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">结余</div>
-        <div class="kpi-value net" id="kpiNet">¥0.00</div>
+    <div class="card">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+        <div class="kpi">
+          <div class="kpi-label">总收入</div>
+          <div class="kpi-value income" id="kpiIncome">¥0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">总支出</div>
+          <div class="kpi-value expense" id="kpiExpense">¥0.00</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">结余</div>
+          <div class="kpi-value net" id="kpiNet">¥0.00</div>
+        </div>
       </div>
     </div>
 
@@ -187,37 +97,36 @@
     <!-- 添加交易记录 -->
     <div class="card">
       <div class="sectionTitle"><h3>添加交易</h3></div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px">
         <div>
-          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">金额</label>
-          <input type="number" id="txAmount" placeholder="输入金额" step="0.01"
-            style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+          <label class="formLabel">金额</label>
+          <input type="number" id="txAmount" placeholder="输入金额" step="0.01" class="formInput">
         </div>
         <div>
-          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">类型</label>
-          <select id="txType" style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+          <label class="formLabel">类型</label>
+          <select id="txType" class="formInput">
             <option value="expense">支出</option>
             <option value="income">收入</option>
           </select>
         </div>
         <div>
-          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">币种</label>
-          <select id="txCurrency" style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+          <label class="formLabel">币种</label>
+          <select id="txCurrency" class="formInput">
             <option value="MXN" selected>MXN (墨西哥比索)</option>
             <option value="CNY">CNY (人民币)</option>
             <option value="USD">USD (美元)</option>
           </select>
         </div>
         <div>
-          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">账户</label>
-          <select id="txAccount" style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
-            <option value="Santander" selected>Santander</option>
+          <label class="formLabel">账户</label>
+          <select id="txAccount" class="formInput">
+            <option value="Santander" selected>桑坦德银行</option>
             <option value="腾讯理财通">腾讯理财通</option>
             <option value="建行">建行</option>
             <option value="华为账户">华为账户</option>
             <option value="公积金账户">公积金账户</option>
             <option value="币安">币安</option>
-            <option value="IBKR">IBKR</option>
+            <option value="IBKR">盈透证券</option>
             <option value="广发">广发</option>
             <option value="同花顺">同花顺</option>
             <option value="借款">借款</option>
@@ -225,42 +134,40 @@
           </select>
         </div>
         <div>
-          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">分类</label>
-          <input type="text" id="txCategory" placeholder="如：餐饮、交通"
-            style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+          <label class="formLabel">分类</label>
+          <input type="text" id="txCategory" placeholder="如：餐饮、交通" class="formInput">
         </div>
         <div>
-          <label style="display: block; margin-bottom: 4px; color: #8ea0c7; font-size: 13px;">备注</label>
-          <input type="text" id="txDescription" placeholder="说明（可选）"
-            style="width: 100%; padding: 8px; background: rgba(36,48,85,.45); border: 1px solid rgba(106,166,255,.2); color: #cfe0ff; border-radius: 4px;">
+          <label class="formLabel">备注</label>
+          <input type="text" id="txDescription" placeholder="说明（可选）" class="formInput">
         </div>
       </div>
-      <button id="btnAddTransaction" style="margin-top: 12px; padding: 8px 24px; background: rgba(106,166,255,.25); border: 1px solid rgba(106,166,255,.4); color: #6aa6ff; border-radius: 4px; cursor: pointer; font-size: 14px;">
-        添加交易
-      </button>
-      <div id="addTxMsg" style="margin-top: 8px; font-size: 13px;"></div>
+      <button id="btnAddTransaction" class="btn primary" style="margin-top:12px">添加交易</button>
+      <div id="addTxMsg" style="margin-top:8px;font-size:13px"></div>
     </div>
 
     <!-- 最近交易 -->
     <div class="card">
       <div class="sectionTitle"><h3>最近交易记录</h3></div>
-      <table class="transaction-table" id="transactionTable">
-        <thead>
-          <tr>
-            <th>日期</th>
-            <th>分类</th>
-            <th>备注</th>
-            <th>币种</th>
-            <th>账户</th>
-            <th style="text-align:right">金额</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <div class="tableWrap" style="margin-top:10px">
+        <table id="transactionTable">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>分类</th>
+              <th>备注</th>
+              <th>币种</th>
+              <th>账户</th>
+              <th class="num">金额</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
       <div class="muted" id="txNote" style="margin-top:12px"></div>
     </div>
   </div>
 
-  <script type="module" src="/assets/cashflow.js"></script>
+  <script type="module" src="assets/cashflow.js"></script>
 </body>
 </html>

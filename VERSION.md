@@ -1,5 +1,50 @@
 # 版本历史
 
+## V1.5 (2026-02-15)
+**Telegram 交易 Bot + 前端持仓重构**
+
+### 新增功能
+- **交易识别 Bot**：Telegram Bot V3.0，支持图片 OCR 和文字指令录入持仓交易
+  - Tesseract OCR 识别券商截图（同花顺/广发/IBKR/币安）
+  - 文字交易解析（`买入 贵州茅台 100股 @1800`）
+  - 确认流程：识别 → 展示确认消息 → 用户确认 → UPSERT 入库
+- **每日持仓推送**：UTC 15:00（CST 9:00）自动推送持仓日报
+- **通知推送框架**：Agent/外部服务可通过 API 投递消息，Bot 轮询发送
+- **持仓交易 API**：`POST /api/holdings/trade` UPSERT 持仓快照
+- **通知 API**：创建/轮询/标记已发送通知
+- **定时价格调度器**：汇率、股价、加密货币价格定时刷新
+
+### 前端重构
+- **持仓子页面合并**：4 个独立页面（A股/美股/加密/其他）合并为配置驱动的 `holdings_detail.html`
+- **共享工具模块**：新建 `utils.js`，提取 `safeNum`/`pnlPct`/`showError`/`createLineChart`
+- **持仓分类页增强**：新增贵金属分类卡片、价格走势图、涨跌幅显示
+- **收支页面优化**：HTML 精简 40%，JS 模块化重构
+
+### 架构变更
+- 新增 `backend/scheduler/` 定时调度服务
+- 新增 `backend/api/endpoints/prices.py` 价格刷新端点
+- 新增 `telegram-bot/ocr/` OCR 识别模块（4 个券商 Parser）
+- 新增 `database/postgres/schema/009_notifications.sql` 通知表
+- Telegram Bot Dockerfile 集成 Tesseract OCR + 中英文语言包
+
+### 清理
+- 删除 4 个持仓子页面（holdings_a_stock/us_stock/crypto/other .html + .js）
+- 删除废弃后端文件（account_mapper.py、type_mapper.py、endpoints_overview.py）
+- 删除废弃前端文件（test_api.html、cashflow.js 旧版）
+- 删除 SQLite 备用 schema、Node.js 旧导入脚本
+
+---
+
+## V1.4 (2026-02-15)
+**Dashboard增强 & Telegram助手Bot**
+
+### 新增功能
+- Dashboard 重构：风险分布饼图、净值走势、收支趋势、持仓明细
+- 汇率双向获取：CNY/USD/MXN 独立获取，支持正反向切换
+- Telegram 助手 Bot：任务队列系统，通过 Telegram 下发指令
+
+---
+
 ## V1.3 (2026-02-15)
 **项目文档重构与架构说明**
 

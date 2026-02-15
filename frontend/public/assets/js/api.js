@@ -56,54 +56,6 @@ export const TYPE_LABELS = {
   '借款': '借款',
 };
 
-export const VENUE_LABELS = {
-  // 平台/交易所映射
-  'guosen': '国信证券',
-  '国信证券': '国信证券',
-
-  'tencent_licaitong': '腾讯理财通',
-  'licaitong': '腾讯理财通',
-  '腾讯理财通': '腾讯理财通',
-
-  'ibkr': '盈透证券',
-  'IBKR': '盈透证券',
-  '盈透证券': '盈透证券',
-
-  'binance': '币安',
-  'Binance': '币安',
-  '币安': '币安',
-
-  'ccb': '建设银行',
-  'CCB': '建设银行',
-  '建行': '建设银行',
-
-  'santander': 'Santander',
-  'Santander': 'Santander',
-
-  'tonghuashun': '同花顺',
-  'ths': '同花顺',
-  '同花顺': '同花顺',
-
-  'guangfa': '广发银行',
-  'gf': '广发银行',
-  '广发': '广发银行',
-
-  'manual': '手动录入',
-  '手动录入': '手动录入',
-
-  'wechat': '微信',
-  'weixin': '微信',
-  '微信': '微信',
-
-  'Unknown': '未知',
-  'unknown': '未知',
-  '未知': '未知',
-};
-
-export function venueLabel(v){
-  return VENUE_LABELS[v] || v || '';
-}
-
 export const ACCOUNT_LABELS = {
   // 标准账户映射（基于资产负债表）
   'tencent_licaitong': '腾讯理财通',
@@ -124,17 +76,17 @@ export const ACCOUNT_LABELS = {
 
   'binance': '币安',
 
-  'ibkr': 'IBKR',
-  'us_main': 'IBKR',  // 美股主账户映射到IBKR
+  'ibkr': '盈透证券',
+  'us_main': '盈透证券',  // 美股主账户映射到盈透证券
 
   'gf': '广发',
   'guangfa': '广发',
   'gf_7443': '广发',
   'gf_9711': '广发',
 
-  'santander': 'Santander',
-  'santander4209': 'Santander',
-  'santander4209_cash': 'Santander',
+  'santander': '桑坦德银行',
+  'santander4209': '桑坦德银行',
+  'santander4209_cash': '桑坦德银行',
 
   'tonghuashun': '同花顺',
   'ths': '同花顺',
@@ -181,5 +133,5 @@ export function fmt2(x){
   if(x==null || x==='') return '';
   const n = Number(x);
   if (Number.isNaN(n)) return String(x);
-  return n.toLocaleString('zh-CN',{maximumFractionDigits:2});
+  return n.toLocaleString('zh-CN',{minimumFractionDigits:3,maximumFractionDigits:3});
 }

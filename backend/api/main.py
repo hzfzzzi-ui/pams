@@ -18,12 +18,18 @@ from pydantic import BaseModel
 # 导入端点路由
 from endpoints import transactions
 from endpoints import tasks
+from endpoints import prices
+from endpoints import holdings_trade
+from endpoints import notifications
 
 app = FastAPI(title="pams-api-v2", version="2.0.0")
 
 # 注册路由
 app.include_router(transactions.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
+app.include_router(prices.router, prefix="/api")
+app.include_router(holdings_trade.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
@@ -476,7 +482,8 @@ def holdings_latest_compat(limit: int = Query(500, ge=1, le=5000)):
                     symbol, name, currency, market_value,
                     COALESCE(holding_pnl, 0) AS holding_pnl,
                     0 AS daily_pnl,
-                    major_category, minor_category, as_of
+                    major_category, minor_category, as_of,
+                    quantity, buy_price, current_price
                 FROM pams_holdings_snapshot
                 WHERE as_of = %s
                 ORDER BY market_value DESC NULLS LAST
@@ -504,21 +511,23 @@ def holdings_by_category(category: str, limit: int = Query(500, ge=1, le=5000)):
             if category == '其他':
                 cur.execute("""
                     SELECT account_code AS account, minor_category, symbol, name,
-                           currency, market_value,
+                           currency, market_value, cost,
                            COALESCE(holding_pnl, 0) AS holding_pnl,
-                           0 AS daily_pnl, major_category
+                           0 AS daily_pnl, major_category,
+                           quantity, buy_price, current_price
                     FROM pams_holdings_snapshot
                     WHERE as_of = %s AND asset_liability = '资产'
-                      AND major_category NOT IN ('A股', '美股', '加密')
+                      AND major_category NOT IN ('A股', '美股', '加密', '贵金属')
                     ORDER BY market_value DESC NULLS LAST
                     LIMIT %s
                 """, (as_of, limit))
             else:
                 cur.execute("""
                     SELECT account_code AS account, minor_category, symbol, name,
-                           currency, market_value,
+                           currency, market_value, cost,
                            COALESCE(holding_pnl, 0) AS holding_pnl,
-                           0 AS daily_pnl, major_category
+                           0 AS daily_pnl, major_category,
+                           quantity, buy_price, current_price
                     FROM pams_holdings_snapshot
                     WHERE as_of = %s AND major_category = %s
                     ORDER BY market_value DESC NULLS LAST
@@ -551,7 +560,7 @@ def holdings_history_by_category(
                     SELECT {date_expr} AS date, SUM(market_value) AS value
                     FROM pams_holdings_snapshot
                     WHERE as_of >= %s AND asset_liability = '资产'
-                      AND major_category NOT IN ('A股', '美股', '加密')
+                      AND major_category NOT IN ('A股', '美股', '加密', '贵金属')
                     GROUP BY {date_expr}
                     ORDER BY date
                 """, (start_date,))

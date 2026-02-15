@@ -54,19 +54,19 @@ async function main(){
     data: {
       labels,
       datasets: [
-        { type:'line', label:'总市值', data: navs, yAxisID:'y', borderColor:'#6aa6ff', backgroundColor:'rgba(106,166,255,.15)', tension:.25 },
-        { type:'line', label:'回撤(%)', data: drawdowns, yAxisID:'y1', borderColor:'#ff6b6b', backgroundColor:'rgba(255,107,107,.12)', tension:.25 },
+        { type:'line', label:'总市值', data: navs, yAxisID:'y', borderColor:'#b33b3b', backgroundColor:'rgba(179,59,59,.15)', tension:.25 },
+        { type:'line', label:'回撤(%)', data: drawdowns, yAxisID:'y1', borderColor:'#c43e3e', backgroundColor:'rgba(196,62,62,.12)', tension:.25 },
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      plugins: { legend: { labels: { color: '#cfe0ff' } } },
+      plugins: { legend: { labels: { color: '#e8e4dc' } } },
       scales: {
-        x: { ticks: { color: '#8ea0c7' }, grid: { color: 'rgba(36,48,85,.45)' } },
-        y: { position:'left', ticks: { color: '#8ea0c7' }, grid: { color: 'rgba(36,48,85,.45)' } },
-        y1: { position:'right', ticks: { color: '#8ea0c7', callback: (v)=>v+'%' }, grid: { drawOnChartArea: false } },
+        x: { ticks: { color: '#8a8578' }, grid: { color: 'rgba(42,37,32,.45)' } },
+        y: { position:'left', ticks: { color: '#8a8578' }, grid: { color: 'rgba(42,37,32,.45)' } },
+        y1: { position:'right', ticks: { color: '#8a8578', callback: (v)=>v+'%' }, grid: { drawOnChartArea: false } },
       }
     }
   });

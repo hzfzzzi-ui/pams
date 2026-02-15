@@ -1,44 +1,69 @@
 import { jget, fmt2, accountLabel } from './api.js';
 import { setActiveNav } from './ui.js';
+import { safeNum, pnlPct, createLineChart } from './utils.js';
 
-function safeNum(x){
-  const n=Number(x);return Number.isNaN(n)?0:n;
+// 渲染行: A股/美股 (7列: 代码,名称,买入价格,数量,当前价格,持仓市值,盈亏比)
+function renderRowStock(r){
+  const pct = pnlPct(r);
+  return `
+    <td class="nowrap">${r.symbol||'—'}</td>
+    <td class="name">${r.name||''}</td>
+    <td class="mono num">${r.buy_price ? fmt2(r.buy_price) : '—'}</td>
+    <td class="mono num">${r.quantity ? fmt2(r.quantity) : '—'}</td>
+    <td class="mono num">${r.current_price ? fmt2(r.current_price) : '—'}</td>
+    <td class="mono num">${fmt2(r.market_value)}</td>
+    <td class="mono num" style="color:${pct>=0?'var(--good)':'var(--bad)'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td>
+  `;
+}
+
+// 渲染行: 加密 (6列: 名称,买入价格,数量,当前价格,持仓市值,盈亏比)
+function renderRowCrypto(r){
+  const pct = pnlPct(r);
+  return `
+    <td class="name">${r.name||''}</td>
+    <td class="mono num">${r.buy_price ? fmt2(r.buy_price) : '—'}</td>
+    <td class="mono num">${r.quantity ? fmt2(r.quantity) : '—'}</td>
+    <td class="mono num">${r.current_price ? fmt2(r.current_price) : '—'}</td>
+    <td class="mono num">${fmt2(r.market_value)}</td>
+    <td class="mono num" style="color:${pct>=0?'var(--good)':'var(--bad)'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td>
+  `;
+}
+
+// 渲染行: 其他 (6列: 账户,小类,名称,币种,市值,盈亏比)
+function renderRowOther(r){
+  const pct = pnlPct(r);
+  return `
+    <td class="nowrap">${accountLabel(r.account)}</td>
+    <td class="nowrap">${r.minor_category||''}</td>
+    <td class="name">${r.name||''}</td>
+    <td class="nowrap">${r.currency||''}</td>
+    <td class="mono num">${fmt2(r.market_value)}</td>
+    <td class="mono num" style="color:${pct>=0?'var(--good)':'var(--bad)'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td>
+  `;
 }
 
 // 渲染持仓表格和汇总统计
-function renderRows(rows, tbodyId, countId, totalValueId, totalPnlId, dailyPnlId, countKpiId){
+function renderSection(rows, renderRowFn, tbodyId, countId, totalValueId, totalPnlId, dailyPnlId, countKpiId, holdingPnlId, fxRates){
   const tbody = document.getElementById(tbodyId);
   tbody.innerHTML='';
 
-  // 计算汇总
   let totalValue = 0;
   let totalPnl = 0;
   let dailyPnl = 0;
 
   for(const r of rows){
     const tr=document.createElement('tr');
-    tr.innerHTML = `
-      <td class="nowrap">${accountLabel(r.account)}</td>
-      <td class="nowrap">${r.minor_category||''}</td>
-      <td class="name">${r.name||''}</td>
-      <td class="nowrap">${r.currency||''}</td>
-      <td class="mono num">${fmt2(r.market_value)}</td>
-      <td class="mono num" style="color:${safeNum(r.holding_pnl)>=0?'var(--good)':'var(--bad)'}"> ${fmt2(r.holding_pnl)}</td>
-      <td class="mono num" style="color:${safeNum(r.daily_pnl)>=0?'var(--good)':'var(--bad)'}"> ${fmt2(r.daily_pnl)}</td>
-    `;
+    tr.innerHTML = renderRowFn(r);
     tbody.appendChild(tr);
 
-    // 累加汇总数据
-    totalValue += safeNum(r.market_value);
-    totalPnl += safeNum(r.holding_pnl);
-    dailyPnl += safeNum(r.daily_pnl);
+    const fx = (fxRates && r.currency) ? (fxRates[r.currency] || 1) : 1;
+    totalValue += safeNum(r.market_value) * fx;
+    totalPnl += safeNum(r.holding_pnl) * fx;
+    dailyPnl += safeNum(r.daily_pnl) * fx;
   }
 
-  // 更新计数
   document.getElementById(countId).textContent = rows.length;
   document.getElementById(countKpiId).textContent = rows.length;
-
-  // 更新汇总KPI
   document.getElementById(totalValueId).textContent = fmt2(totalValue);
 
   const pnlElem = document.getElementById(totalPnlId);
@@ -48,78 +73,110 @@ function renderRows(rows, tbodyId, countId, totalValueId, totalPnlId, dailyPnlId
   const dailyElem = document.getElementById(dailyPnlId);
   dailyElem.textContent = fmt2(dailyPnl);
   dailyElem.style.color = dailyPnl >= 0 ? 'var(--good)' : 'var(--bad)';
-}
 
-// 渲染折线图
-function renderChart(canvasId, category, color, interval = 'daily'){
-  return jget(`/holdings/history/${category}?days=90&interval=${interval}`)
-    .then(history => {
-      const labels = history.series.map(d => d.date);
-      const values = history.series.map(d => d.value);
+  if (holdingPnlId) {
+    const hpElem = document.getElementById(holdingPnlId);
+    const sectionCost = totalValue - totalPnl;
+    const sectionPct = sectionCost > 0 ? (totalPnl / sectionCost * 100) : 0;
+    hpElem.textContent = (sectionPct >= 0 ? '+' : '') + sectionPct.toFixed(2) + '%';
+    hpElem.style.color = sectionPct >= 0 ? 'var(--good)' : 'var(--bad)';
+  }
 
-      const ctx = document.getElementById(canvasId);
-      new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: `${category}市值`,
-            data: values,
-            borderColor: color,
-            backgroundColor: color.replace(')', ', 0.1)').replace('rgb', 'rgba'),
-            fill: true,
-            tension: 0.1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false }
-          },
-          scales: {
-            y: {
-              beginAtZero: false,
-              ticks: {
-                callback: function(value) {
-                  return '¥' + value.toLocaleString();
-                }
-              }
-            }
-          }
-        }
-      });
-    });
+  return { totalValue, totalPnl, dailyPnl };
 }
 
 async function main(){
   setActiveNav();
 
   try {
-    // 并行加载所有4个类别的数据
-    const [aStock, usStock, crypto, other] = await Promise.all([
+    const [aStock, usStock, crypto, preciousMetal, other, fxData] = await Promise.all([
       jget('/holdings/by-category/A股?limit=500'),
       jget('/holdings/by-category/美股?limit=500'),
       jget('/holdings/by-category/加密?limit=500'),
-      jget('/holdings/by-category/其他?limit=500')
+      jget('/holdings/by-category/贵金属?limit=500'),
+      jget('/holdings/by-category/其他?limit=500'),
+      jget('/api/fx-rates/latest?base_currency=CNY')
     ]);
 
-    // 设置快照时间（取第一个有效值）
-    const asof = aStock.as_of || usStock.as_of || crypto.as_of || other.as_of || '--';
+    // 构建汇率映射: {CNY: 1, USD: 7.25, MXN: 0.35, ...}
+    const fxRates = { CNY: 1 };
+    for (const r of fxData.rates || []) {
+      fxRates[r.quote_currency] = Number(r.rate);
+    }
+
+    const asof = aStock.as_of || usStock.as_of || crypto.as_of || preciousMetal.as_of || other.as_of || '--';
     document.getElementById('asof').textContent = asof;
 
-    // 渲染持仓表格和汇总统计
-    renderRows(aStock.rows || [], 'rowsAStock', 'countAStock', 'totalValueAStock', 'totalPnlAStock', 'dailyPnlAStock', 'countKpiAStock');
-    renderRows(usStock.rows || [], 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock');
-    renderRows(crypto.rows || [], 'rowsCrypto', 'countCrypto', 'totalValueCrypto', 'totalPnlCrypto', 'dailyPnlCrypto', 'countKpiCrypto');
-    renderRows(other.rows || [], 'rowsOther', 'countOther', 'totalValueOther', 'totalPnlOther', 'dailyPnlOther', 'countKpiOther');
+    const categories = [
+      { label: 'A股', color: '#b33b3b', ...renderSection(aStock.rows || [], renderRowStock, 'rowsAStock', 'countAStock', 'totalValueAStock', 'totalPnlAStock', 'dailyPnlAStock', 'countKpiAStock', 'holdingPnlAStock', fxRates) },
+      { label: '美股', color: '#c9a84c', ...renderSection(usStock.rows || [], renderRowStock, 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock', 'holdingPnlUSStock', fxRates) },
+      { label: '加密', color: '#8a6d3b', ...renderSection(crypto.rows || [], renderRowCrypto, 'rowsCrypto', 'countCrypto', 'totalValueCrypto', 'totalPnlCrypto', 'dailyPnlCrypto', 'countKpiCrypto', 'holdingPnlCrypto', fxRates) },
+      { label: '贵金属', color: '#d4a24e', ...renderSection(preciousMetal.rows || [], renderRowCrypto, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates) },
+      { label: '其他', color: '#6b5b4e', ...renderSection(other.rows || [], renderRowOther, 'rowsOther', 'countOther', 'totalValueOther', 'totalPnlOther', 'dailyPnlOther', 'countKpiOther', 'holdingPnlOther', fxRates) },
+    ];
 
-    // 并行渲染所有图表
+    // 汇总统计（所有值已通过FX转换为CNY）
+    const grandValue = categories.reduce((s, c) => s + c.totalValue, 0);
+    const grandPnl = categories.reduce((s, c) => s + c.totalPnl, 0);
+    const grandDaily = categories.reduce((s, c) => s + c.dailyPnl, 0);
+    const grandCost = grandValue - grandPnl;
+    const pnlPct = grandCost > 0 ? (grandPnl / grandCost * 100) : 0;
+
+    document.getElementById('grandTotalValue').textContent = '¥' + fmt2(grandValue);
+
+    const gpElem = document.getElementById('grandTotalPnl');
+    gpElem.textContent = (grandPnl >= 0 ? '+¥' : '-¥') + fmt2(Math.abs(grandPnl));
+    gpElem.style.color = grandPnl >= 0 ? 'var(--good)' : 'var(--bad)';
+
+    const pctElem = document.getElementById('grandTotalPnlPct');
+    pctElem.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
+    pctElem.style.color = pnlPct >= 0 ? 'var(--good)' : 'var(--bad)';
+
+    const gdElem = document.getElementById('grandDailyPnl');
+    gdElem.textContent = (grandDaily >= 0 ? '+¥' : '-¥') + fmt2(Math.abs(grandDaily));
+    gdElem.style.color = grandDaily >= 0 ? 'var(--good)' : 'var(--bad)';
+
+    // 资产分布饼图（带百分比标签）
+    const pieData = categories.filter(c => c.totalValue > 0);
+    const pieTotal = pieData.reduce((s, c) => s + c.totalValue, 0);
+    const pieCtx = document.getElementById('categoryPieChart');
+    new Chart(pieCtx, {
+      type: 'doughnut',
+      data: {
+        labels: pieData.map(c => {
+          const pct = ((c.totalValue / pieTotal) * 100).toFixed(1);
+          return `${c.label} ${pct}%`;
+        }),
+        datasets: [{
+          data: pieData.map(c => c.totalValue),
+          backgroundColor: pieData.map(c => c.color),
+          borderColor: '#141414',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e8e4dc', padding: 16 } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const pct = ((ctx.raw / pieTotal) * 100).toFixed(1);
+                return `${ctx.label}: ¥${fmt2(ctx.raw)} (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+
     await Promise.all([
-      renderChart('chartAStock', 'A股', '#36A2EB', 'daily'),
-      renderChart('chartUSStock', '美股', '#FF6384', 'daily'),
-      renderChart('chartCrypto', '加密', '#FFCE56', 'daily'),
-      renderChart('chartOther', '其他', '#4BC0C0', 'weekly')
+      createLineChart('chartAStock', '/holdings/history/A股', '#b33b3b', 'A股市值', 'daily'),
+      createLineChart('chartUSStock', '/holdings/history/美股', '#c9a84c', '美股市值', 'daily'),
+      createLineChart('chartCrypto', '/holdings/history/加密', '#8a6d3b', '加密市值', 'daily'),
+      createLineChart('chartPreciousMetal', '/holdings/history/贵金属', '#d4a24e', '贵金属市值', 'daily'),
+      createLineChart('chartOther', '/holdings/history/其他', '#6b5b4e', '其他市值', 'weekly')
     ]);
 
   } catch (err) {

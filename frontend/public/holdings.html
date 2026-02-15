@@ -27,7 +27,30 @@
       <a data-nav href="cashflow.html">收支</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6)"></div>
+    <div id="err" class="card" style="display:none;border-color:rgba(196,62,62,.6)"></div>
+
+    <!-- 持仓汇总统计 -->
+    <div class="card">
+      <h3>持仓汇总</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px;margin-top:12px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="grandTotalValue">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="grandTotalPnl">--</div>
+          <div class="muted" id="grandTotalPnlPct" style="margin-top:4px"></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">昨日收益</div>
+          <div class="kpi-value" id="grandDailyPnl">--</div>
+        </div>
+      </div>
+      <div style="max-width:360px;margin:0 auto">
+        <canvas id="categoryPieChart" style="max-height:300px"></canvas>
+      </div>
+    </div>
 
     <!-- 全部持仓总览 -->
     <div class="card">
@@ -39,13 +62,13 @@
         <table class="tableWide">
           <thead>
             <tr>
-              <th class="nowrap" style="width:120px">账户</th>
-              <th class="nowrap" style="width:80px">类型</th>
-              <th style="width:300px">名称</th>
-              <th class="nowrap" style="width:60px">币种</th>
-              <th class="nowrap num" style="width:120px">市值</th>
-              <th class="nowrap num" style="width:120px">持仓收益</th>
-              <th class="nowrap num" style="width:120px">昨日收益</th>
+              <th class="nowrap" style="width:100px">代码</th>
+              <th style="width:220px">名称</th>
+              <th class="nowrap num" style="width:90px">买入价格</th>
+              <th class="nowrap num" style="width:80px">数量</th>
+              <th class="nowrap num" style="width:90px">当前价格</th>
+              <th class="nowrap num" style="width:110px">持仓市值</th>
+              <th class="nowrap num" style="width:110px">盈亏比</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -60,6 +83,7 @@
         <a class="pill" href="#section-a-stock">A股</a>
         <a class="pill" href="#section-us-stock">美股</a>
         <a class="pill" href="#section-crypto">加密</a>
+        <a class="pill" href="#section-precious-metal">贵金属</a>
         <a class="pill" href="#section-other">其他</a>
       </div>
     </div>
@@ -91,6 +115,10 @@
           <div class="kpi-label">持仓数量</div>
           <div class="kpi-value" id="countKpiAStock">--</div>
         </div>
+        <div class="kpi">
+          <div class="kpi-label">盈亏比</div>
+          <div class="kpi-value" id="holdingPnlAStock">--</div>
+        </div>
       </div>
 
       <div>
@@ -102,13 +130,13 @@
           <table class="tableWide">
             <thead>
               <tr>
-                <th class="nowrap" style="width:120px">账户</th>
-                <th class="nowrap" style="width:80px">小类</th>
-                <th style="width:300px">名称</th>
-                <th class="nowrap" style="width:60px">币种</th>
-                <th class="nowrap num" style="width:120px">市值</th>
-                <th class="nowrap num" style="width:120px">持仓收益</th>
-                <th class="nowrap num" style="width:120px">昨日收益</th>
+                <th class="nowrap" style="width:100px">代码</th>
+                <th style="width:220px">名称</th>
+                <th class="nowrap num" style="width:90px">买入价格</th>
+                <th class="nowrap num" style="width:80px">数量</th>
+                <th class="nowrap num" style="width:90px">当前价格</th>
+                <th class="nowrap num" style="width:110px">持仓市值</th>
+                <th class="nowrap num" style="width:110px">盈亏比</th>
               </tr>
             </thead>
             <tbody id="rowsAStock"></tbody>
@@ -144,6 +172,10 @@
           <div class="kpi-label">持仓数量</div>
           <div class="kpi-value" id="countKpiUSStock">--</div>
         </div>
+        <div class="kpi">
+          <div class="kpi-label">盈亏比</div>
+          <div class="kpi-value" id="holdingPnlUSStock">--</div>
+        </div>
       </div>
 
       <div>
@@ -155,13 +187,13 @@
           <table class="tableWide">
             <thead>
               <tr>
-                <th class="nowrap" style="width:120px">账户</th>
-                <th class="nowrap" style="width:80px">小类</th>
-                <th style="width:300px">名称</th>
-                <th class="nowrap" style="width:60px">币种</th>
-                <th class="nowrap num" style="width:120px">市值</th>
-                <th class="nowrap num" style="width:120px">持仓收益</th>
-                <th class="nowrap num" style="width:120px">昨日收益</th>
+                <th class="nowrap" style="width:100px">代码</th>
+                <th style="width:220px">名称</th>
+                <th class="nowrap num" style="width:90px">买入价格</th>
+                <th class="nowrap num" style="width:80px">数量</th>
+                <th class="nowrap num" style="width:90px">当前价格</th>
+                <th class="nowrap num" style="width:110px">持仓市值</th>
+                <th class="nowrap num" style="width:110px">盈亏比</th>
               </tr>
             </thead>
             <tbody id="rowsUSStock"></tbody>
@@ -197,6 +229,10 @@
           <div class="kpi-label">持仓数量</div>
           <div class="kpi-value" id="countKpiCrypto">--</div>
         </div>
+        <div class="kpi">
+          <div class="kpi-label">盈亏比</div>
+          <div class="kpi-value" id="holdingPnlCrypto">--</div>
+        </div>
       </div>
 
       <div>
@@ -208,13 +244,12 @@
           <table class="tableWide">
             <thead>
               <tr>
-                <th class="nowrap" style="width:120px">账户</th>
-                <th class="nowrap" style="width:80px">小类</th>
-                <th style="width:300px">名称</th>
-                <th class="nowrap" style="width:60px">币种</th>
-                <th class="nowrap num" style="width:120px">市值</th>
-                <th class="nowrap num" style="width:120px">持仓收益</th>
-                <th class="nowrap num" style="width:120px">昨日收益</th>
+                <th style="width:260px">名称</th>
+                <th class="nowrap num" style="width:100px">买入价格</th>
+                <th class="nowrap num" style="width:90px">数量</th>
+                <th class="nowrap num" style="width:100px">当前价格</th>
+                <th class="nowrap num" style="width:120px">持仓市值</th>
+                <th class="nowrap num" style="width:120px">盈亏比</th>
               </tr>
             </thead>
             <tbody id="rowsCrypto"></tbody>
@@ -223,9 +258,65 @@
       </div>
     </div>
 
+    <!-- ========== 贵金属持仓 ========== -->
+    <div id="section-precious-metal" class="card">
+      <h2>四、贵金属持仓</h2>
+
+      <div style="margin-bottom:20px">
+        <h3>市值走势（近90天）</h3>
+        <canvas id="chartPreciousMetal" style="max-height:250px"></canvas>
+      </div>
+
+      <!-- 汇总统计 -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="totalValuePreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="totalPnlPreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">昨日收益</div>
+          <div class="kpi-value" id="dailyPnlPreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓数量</div>
+          <div class="kpi-value" id="countKpiPreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">盈亏比</div>
+          <div class="kpi-value" id="holdingPnlPreciousMetal">--</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sectionTitle">
+          <h3>持仓明细</h3>
+          <div class="muted">总计：<span id="countPreciousMetal">0</span> 条</div>
+        </div>
+        <div class="tableWrap" style="margin-top:10px">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th style="width:260px">名称</th>
+                <th class="nowrap num" style="width:100px">买入价格</th>
+                <th class="nowrap num" style="width:90px">数量</th>
+                <th class="nowrap num" style="width:100px">当前价格</th>
+                <th class="nowrap num" style="width:120px">持仓市值</th>
+                <th class="nowrap num" style="width:120px">盈亏比</th>
+              </tr>
+            </thead>
+            <tbody id="rowsPreciousMetal"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- ========== 其他持仓 ========== -->
     <div id="section-other" class="card">
-      <h2>四、其他持仓</h2>
+      <h2>五、其他持仓</h2>
 
       <div style="margin-bottom:20px">
         <h3>市值走势（近90天，按周）</h3>
@@ -250,6 +341,10 @@
           <div class="kpi-label">持仓数量</div>
           <div class="kpi-value" id="countKpiOther">--</div>
         </div>
+        <div class="kpi">
+          <div class="kpi-label">盈亏比</div>
+          <div class="kpi-value" id="holdingPnlOther">--</div>
+        </div>
       </div>
 
       <div>
@@ -257,18 +352,17 @@
           <h3>持仓明细</h3>
           <div class="muted">总计：<span id="countOther">0</span> 条</div>
         </div>
-        <div class="muted" style="margin-top:-4px">包含贵金属、理财、现金、公积金、借款、欠款</div>
+        <div class="muted" style="margin-top:-4px">包含理财、现金、公积金、借款、欠款</div>
         <div class="tableWrap" style="margin-top:10px">
           <table class="tableWide">
             <thead>
               <tr>
                 <th class="nowrap" style="width:120px">账户</th>
                 <th class="nowrap" style="width:80px">小类</th>
-                <th style="width:300px">名称</th>
+                <th style="width:260px">名称</th>
                 <th class="nowrap" style="width:60px">币种</th>
                 <th class="nowrap num" style="width:120px">市值</th>
-                <th class="nowrap num" style="width:120px">持仓收益</th>
-                <th class="nowrap num" style="width:120px">昨日收益</th>
+                <th class="nowrap num" style="width:120px">盈亏比</th>
               </tr>
             </thead>
             <tbody id="rowsOther"></tbody>

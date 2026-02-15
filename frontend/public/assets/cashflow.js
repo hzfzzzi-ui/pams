@@ -1,8 +1,9 @@
 import { jget, fmt2 } from './js/api.js';
 import { setActiveNav } from './js/ui.js';
 
-// 当前月份 (YYYY-MM)
-let currentMonth = new Date().toISOString().slice(0, 7);
+// 当前月份 (YYYY-MM) — 使用本地时间，避免 UTC 时区偏移
+const _now = new Date();
+let currentMonth = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
 
 // 当前视图模式：'daily' | 'monthly'
 let currentView = 'daily';
@@ -144,7 +145,7 @@ function renderCategoryChart(categories) {
     }
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#8ea0c7';
+    ctx.fillStyle = '#8a8578';
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('该时段暂无支出数据', canvas.width / 2, canvas.height / 2);
@@ -152,8 +153,8 @@ function renderCategoryChart(categories) {
   }
 
   const colors = [
-    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
-    '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+    '#b33b3b', '#c9a84c', '#8a6d3b', '#6b5b4e',
+    '#d46a6a', '#a08050', '#7a6e62', '#4a3f35'
   ];
 
   // 如果图表已存在，使用update方法（性能优化）
@@ -173,7 +174,7 @@ function renderCategoryChart(categories) {
       datasets: [{
         data: categories.map(c => c.amount),
         backgroundColor: colors.slice(0, categories.length),
-        borderColor: '#0b0f14',
+        borderColor: '#0a0a0a',
         borderWidth: 2
       }]
     },
@@ -185,7 +186,7 @@ function renderCategoryChart(categories) {
         legend: {
           position: 'right',
           labels: {
-            color: '#cfe0ff',
+            color: '#e8e4dc',
             font: { size: 12 },
             padding: 12
           }
@@ -221,7 +222,7 @@ async function renderDailyChart() {
     if (!dailyData || dailyData.length === 0) {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#8ea0c7';
+      ctx.fillStyle = '#8a8578';
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('本月暂无数据', canvas.width / 2, canvas.height / 2);
@@ -236,16 +237,16 @@ async function renderDailyChart() {
           {
             label: '收入',
             data: dailyData.map(d => d.income || 0),
-            borderColor: '#43d19e',
-            backgroundColor: 'rgba(67, 209, 158, 0.1)', // 降低透明度
+            borderColor: '#c9a84c',
+            backgroundColor: 'rgba(201, 168, 76, 0.1)', // 降低透明度
             tension: 0.3, // 平滑曲线
             fill: true
           },
           {
             label: '支出',
             data: dailyData.map(d => d.expense || 0),
-            borderColor: '#ff6b6b',
-            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+            borderColor: '#c43e3e',
+            backgroundColor: 'rgba(196, 62, 62, 0.1)',
             tension: 0.3,
             fill: true
           }
@@ -285,7 +286,7 @@ async function renderDailyChart() {
           legend: {
             position: 'top',
             labels: {
-              color: '#cfe0ff',
+              color: '#e8e4dc',
               font: { size: 12 },
               padding: 12,
               usePointStyle: true
@@ -303,15 +304,15 @@ async function renderDailyChart() {
         },
         scales: {
           x: {
-            ticks: { color: '#8ea0c7' },
-            grid: { color: 'rgba(36, 48, 85, 0.35)' }
+            ticks: { color: '#8a8578' },
+            grid: { color: 'rgba(42, 37, 32, 0.35)' }
           },
           y: {
             ticks: {
-              color: '#8ea0c7',
+              color: '#8a8578',
               callback: (value) => '¥' + fmt2(value)
             },
-            grid: { color: 'rgba(36, 48, 85, 0.35)' }
+            grid: { color: 'rgba(42, 37, 32, 0.35)' }
           }
         }
       }
@@ -364,24 +365,24 @@ async function renderMonthlyChart() {
           {
             label: '收入',
             data: monthlyData.map(d => d.total_income || 0),
-            borderColor: '#43d19e',
-            backgroundColor: 'rgba(67, 209, 158, 0.1)',
+            borderColor: '#c9a84c',
+            backgroundColor: 'rgba(201, 168, 76, 0.1)',
             tension: 0.3,
             fill: true
           },
           {
             label: '支出',
             data: monthlyData.map(d => d.total_expense || 0),
-            borderColor: '#ff6b6b',
-            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+            borderColor: '#c43e3e',
+            backgroundColor: 'rgba(196, 62, 62, 0.1)',
             tension: 0.3,
             fill: true
           },
           {
             label: '结余',
             data: monthlyData.map(d => d.net || 0),
-            borderColor: '#6aa6ff',
-            backgroundColor: 'rgba(106, 166, 255, 0.1)',
+            borderColor: '#b33b3b',
+            backgroundColor: 'rgba(179, 59, 59, 0.1)',
             tension: 0.3,
             fill: true,
             borderDash: [5, 5]
@@ -420,7 +421,7 @@ async function renderMonthlyChart() {
           legend: {
             position: 'top',
             labels: {
-              color: '#cfe0ff',
+              color: '#e8e4dc',
               font: { size: 12 },
               padding: 12,
               usePointStyle: true
@@ -438,15 +439,15 @@ async function renderMonthlyChart() {
         },
         scales: {
           x: {
-            ticks: { color: '#8ea0c7' },
-            grid: { color: 'rgba(36, 48, 85, 0.35)' }
+            ticks: { color: '#8a8578' },
+            grid: { color: 'rgba(42, 37, 32, 0.35)' }
           },
           y: {
             ticks: {
-              color: '#8ea0c7',
+              color: '#8a8578',
               callback: (value) => '¥' + fmt2(value)
             },
-            grid: { color: 'rgba(36, 48, 85, 0.35)' }
+            grid: { color: 'rgba(42, 37, 32, 0.35)' }
           }
         }
       }
@@ -481,7 +482,7 @@ async function loadRecentTransactions() {
     tbody.innerHTML = '';
 
     if (!transactions || transactions.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#8ea0c7;padding:20px;">暂无交易记录</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#8a8578;padding:20px;">暂无交易记录</td></tr>';
       document.getElementById('txNote').textContent = '';
       return;
     }
@@ -573,7 +574,7 @@ async function addTransaction() {
 function showAddTxMessage(msg, type) {
   const msgEl = document.getElementById('addTxMsg');
   msgEl.textContent = msg;
-  msgEl.style.color = type === 'success' ? '#43d19e' : '#ff6b6b';
+  msgEl.style.color = type === 'success' ? '#c9a84c' : '#c43e3e';
 
   // 3秒后清除消息
   setTimeout(() => {
@@ -592,7 +593,9 @@ function showError(msg) {
 function changeMonth(delta) {
   const [year, month] = currentMonth.split('-').map(Number);
   const date = new Date(year, month - 1 + delta, 1);
-  currentMonth = date.toISOString().slice(0, 7);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  currentMonth = `${y}-${m}`;
   document.getElementById('currentMonth').textContent = currentMonth;
 
   // 清除hover计时器
