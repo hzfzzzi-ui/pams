@@ -2,7 +2,7 @@
 
 > **个人资产管理系统** - 多平台资产聚合、智能收支分析、风险监控一体化解决方案
 
-[![Version](https://img.shields.io/badge/version-1.3-blue.svg)](./VERSION.md)
+[![Version](https://img.shields.io/badge/version-1.4-blue.svg)](./VERSION.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com/)
@@ -26,7 +26,7 @@
 
 ### 资产管理
 - **多平台聚合**：支持A股、美股、加密货币、基金、现金、员工持股等6大类资产
-- **实时汇率转换**：CNY/USD/MXN自动换算，统一币种视图
+- **实时汇率转换**：CNY/USD/MXN双向独立获取，支持正反向切换
 - **智能分类**：基于资产类型和账户自动分类，支持4个主要持仓视图
 - **风险监控**：集中度检查、回撤分析、数据完整性检测
 
@@ -49,8 +49,8 @@
 ### 后端
 - **框架**: FastAPI 0.115.8 + Uvicorn 0.30.6
 - **语言**: Python 3.11
-- **数据库**: PostgreSQL 16（主） + SQLite（备）
-- **数据库驱动**: asyncpg 0.29.0（异步） + psycopg2 2.9.9（同步）
+- **数据库**: PostgreSQL 16
+- **数据库驱动**: psycopg2 2.9.9
 - **特点**: 原生SQL查询，无ORM
 
 ### 前端
@@ -64,6 +64,7 @@
 - **反向代理**: Caddy 2
 - **DNS**: AdGuard Home（局域网DNS）
 - **集成**: Firefly III（开源记账系统）
+- **Bot**: Telegram Bot（记账 + 助手指令桥）
 
 ---
 
@@ -73,9 +74,10 @@
 pams/
 ├── backend/
 │   └── api/
-│       ├── main.py                 # 核心API端点（1071行）
+│       ├── main.py                 # 核心API端点（汇率刷新、NAV、持仓等）
 │       ├── endpoints/
-│       │   └── transactions.py     # 交易API（618行）
+│       │   ├── transactions.py     # 交易API
+│       │   └── tasks.py            # 任务队列API（Telegram桥）
 │       ├── account_mapper.py       # 账户标准化
 │       ├── type_mapper.py          # 资产分类映射
 │       └── requirements.txt
@@ -83,7 +85,8 @@ pams/
 ├── database/
 │   └── postgres/schema/
 │       ├── 005_transactions.sql    # 交易/预算/分类规则表
-│       └── 006_update_accounts.sql # 账户约束和视图
+│       ├── 006_update_accounts.sql # 账户约束和视图
+│       └── 008_task_queue.sql      # 任务队列表
 │
 ├── frontend/public/
 │   ├── index.html                  # 仪表板首页
@@ -99,8 +102,16 @@ pams/
 │   └── Caddyfile                   # 反向代理配置
 │
 ├── telegram-bot/
-│   ├── bot.py                      # Telegram机器人
+│   ├── bot.py                      # Telegram记账机器人
 │   └── requirements.txt
+│
+├── telegram-bot-assistant/
+│   ├── bot_assistant.py            # Telegram助手Bot（指令桥）
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── scripts/
+│   └── import_holdings_from_excel.py  # Excel持仓导入
 │
 ├── compose.yaml                    # Docker编排
 ├── VERSION.md                      # 版本历史
@@ -109,13 +120,13 @@ pams/
 
 ### 核心文件说明
 
-| 文件 | 行数 | 功能 |
-|------|------|------|
-| `backend/api/main.py` | 1071 | 资产聚合、NAV计算、观察池等核心端点 |
-| `backend/api/endpoints/transactions.py` | 618 | 交易记录、月度统计、预算管理 |
-| `database/postgres/schema/005_transactions.sql` | 126 | 交易表、预算表、分类规则表定义 |
-| `frontend/public/cashflow.html` | 9563 | 收支分析页（含Chart.js配置） |
-| `frontend/public/holdings.html` | 10793 | 持仓管理页（完整表格） |
+| 文件 | 功能 |
+|------|------|
+| `backend/api/main.py` | 资产聚合、NAV计算、汇率刷新、观察池等核心端点 |
+| `backend/api/endpoints/transactions.py` | 交易记录、月度统计、预算管理 |
+| `backend/api/endpoints/tasks.py` | 任务队列CRUD（Telegram ↔ Claude Code桥） |
+| `frontend/public/assets/js/dashboard.js` | 仪表板交互（风险饼图、净值走势、汇率卡片） |
+| `telegram-bot-assistant/bot_assistant.py` | Telegram助手Bot（接收指令、投递响应） |
 
 ---
 
@@ -135,8 +146,8 @@ pams/
 
 2. **配置环境变量**
    ```bash
-   cp config/.env.example .env
-   # 编辑.env文件，设置PostgreSQL密码等
+   cp .env.example .env
+   # 编辑.env文件，设置PostgreSQL密码、Telegram Bot Token等
    ```
 
 3. **启动服务**
@@ -164,6 +175,8 @@ pams/
 | pams-firefly | 8082 | 8080 | Firefly III记账系统 |
 | pams-postgres | 5432 | 5432 | PostgreSQL数据库 |
 | pams-adguard | 53/8081/3000 | 53/80/3000 | DNS/广告屏蔽 |
+| pams-telegram-bot | — | — | Telegram记账Bot |
+| pams-assistant-bot | — | — | Telegram助手Bot |
 
 ---
 
@@ -193,6 +206,24 @@ pams/
 | `/api/transactions/categories-by-range` | GET | 时间段分类占比 | `start=YYYY-MM-DD`, `end=YYYY-MM-DD` |
 | `/api/transactions/budgets/{month}` | GET | 预算执行情况 | `month=YYYY-MM` |
 | `/api/transactions/budgets` | POST | 创建预算 | `category`, `month`, `amount` |
+
+### 任务队列端点（Telegram桥）
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/tasks` | POST | 创建任务（Bot调用） |
+| `/api/tasks/pending` | GET | 获取待处理任务 |
+| `/api/tasks/{id}/claim` | PATCH | 认领任务 |
+| `/api/tasks/{id}/complete` | PATCH | 提交任务响应 |
+| `/api/tasks/completed` | GET | 获取已完成任务（Bot轮询） |
+| `/api/tasks/{id}/ack` | DELETE | 确认投递并删除 |
+
+### 汇率端点
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/fx-rates/latest` | GET | 获取最新汇率 |
+| `/api/fx-rates/refresh` | POST | 从公开API刷新汇率 |
 
 **完整API文档**：访问 `http://localhost:8090/docs` 查看Swagger UI
 
@@ -248,6 +279,7 @@ pams_nav_daily              -- 日度NAV
 pams_fx_rates_daily         -- 汇率表
 pams_watchlist              -- 观察池
 pams_asset_class_map        -- 资产类别映射
+pams_task_queue             -- Telegram任务队列
 ```
 
 **关键约束**：
@@ -259,17 +291,21 @@ pams_asset_class_map        -- 资产类别映射
 
 ## 🔮 下一步计划
 
-### V1.4 - 外部集成增强（2周）
+### V1.4 - Dashboard增强 & Telegram助手 ✅
+- [x] **Dashboard重构** - 风险分布饼图、净值走势、收支趋势、持仓明细
+- [x] **汇率双向获取** - CNY/USD/MXN独立获取，支持正反向切换
+- [x] **Telegram助手Bot** - 任务队列系统，通过Telegram下发指令
+
+### V1.5 - 外部集成（2周）
 - [ ] **Binance API集成** - 加密货币实时数据同步
 - [ ] **Firefly III API对接** - cashflow端点完整集成
-- [ ] **Telegram机器人完善** - 交易记录快捷输入
 
-### V1.5 - 前端优化（3周）
+### V1.6 - 前端优化（3周）
 - [ ] **Vue 3重构** - 替代原生JS，提升可维护性
 - [ ] **移动端适配** - 响应式设计，支持iOS/Android
 - [ ] **PWA支持** - 离线访问能力
 
-### V1.6 - 智能分析（4周）
+### V1.7 - 智能分析（4周）
 - [ ] **机器学习分类** - 改进auto_classify算法
 - [ ] **趋势预测** - 基于历史数据的支出预测
 - [ ] **异常检测** - 自动识别异常交易
