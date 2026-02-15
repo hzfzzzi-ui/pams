@@ -59,7 +59,7 @@ async function renderTrendChart(){
           beginAtZero: false,
           ticks: {
             callback: function(value) {
-              return '$' + value.toLocaleString();
+              return '¥' + value.toLocaleString();
             }
           }
         }

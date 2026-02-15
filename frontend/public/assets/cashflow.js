@@ -474,7 +474,8 @@ function getRecentMonths(n) {
 // 加载最近交易
 async function loadRecentTransactions() {
   try {
-    const transactions = await jget('/api/transactions/recent?limit=30');
+    const resp = await jget('/api/transactions/recent?limit=30');
+    const transactions = resp.transactions || [];
 
     const tbody = document.querySelector('#transactionTable tbody');
     tbody.innerHTML = '';
@@ -487,15 +488,17 @@ async function loadRecentTransactions() {
 
     transactions.forEach(tx => {
       const row = document.createElement('tr');
-      const amountClass = tx.amount >= 0 ? 'amount-income' : 'amount-expense';
-      const amountText = tx.amount >= 0 ? '+' + formatAmount(tx.amount) : '-' + formatAmount(Math.abs(tx.amount));
+      const amt = parseFloat(tx.amount_cny != null ? tx.amount_cny : tx.amount);
+      const amountClass = amt >= 0 ? 'amount-income' : 'amount-expense';
+      const amountText = amt >= 0 ? '+' + formatAmount(amt) : '-' + formatAmount(Math.abs(amt));
+      const acctName = tx.account_name || tx.account_code || 'Santander';
 
       row.innerHTML = `
         <td>${tx.date}</td>
         <td>${tx.category}${tx.subcategory ? ' · ' + tx.subcategory : ''}</td>
         <td>${tx.description || '-'}</td>
         <td>${tx.currency || 'CNY'}</td>
-        <td>${tx.account || 'Santander'}</td>
+        <td>${acctName}</td>
         <td style="text-align:right" class="${amountClass}">${amountText}</td>
       `;
       tbody.appendChild(row);
@@ -532,10 +535,11 @@ async function addTransaction() {
   const transaction = {
     amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
     currency: currency,
-    account: account,
+    account_code: account,
     category: category,
     description: description || null,
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    source: 'web'
   };
 
   try {

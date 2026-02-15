@@ -1,617 +1,409 @@
 """
-PAMS 收支记账 API 端点
-
-实现功能：
-- 创建交易记录
-- 查询交易记录
-- 月度统计
-- 自动分类
-- 预算管理
+交易记录API V2 - 支持收支同步到holdings现金持仓
 """
-
-from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field
-from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional
+from datetime import date as Date, datetime
 from decimal import Decimal
-import asyncpg
-import os
-import traceback
 
-router = APIRouter(prefix="/transactions", tags=["transactions"])
+import psycopg2
+import psycopg2.extras
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
-# 数据库连接配置
-DB_CONFIG = {
-    'host': os.getenv('PGHOST', 'localhost'),
-    'port': int(os.getenv('PGPORT', 5432)),
-    'database': os.getenv('PGDATABASE', 'pams'),
-    'user': os.getenv('PGUSER', 'pams'),
-    'password': os.getenv('PGPASSWORD', os.getenv('POSTGRES_PASSWORD', ''))
+router = APIRouter()
+
+# 账户币种映射
+ACCOUNT_CURRENCY_MAP = {
+    'santander': 'MXN',
+    'ibkr': 'MXN',
+    'binance': 'USD',
+    # 其他账户默认CNY
 }
 
+def get_conn():
+    import os
+    return psycopg2.connect(
+        host=os.environ.get("PGHOST", "pams-postgres"),
+        port=int(os.environ.get("PGPORT", "5432")),
+        dbname=os.environ.get("PGDATABASE", "pams"),
+        user=os.environ.get("PGUSER", "pams"),
+        password=os.environ.get("PGPASSWORD", ""),
+    )
 
-async def get_db_pool():
-    """获取数据库连接池"""
-    return await asyncpg.create_pool(**DB_CONFIG)
+def _norm(v):
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    from decimal import Decimal
+    if isinstance(v, Decimal):
+        return str(v)
+    return v
 
+def get_account_currency(account_code: str) -> str:
+    """根据account_code获取币种"""
+    return ACCOUNT_CURRENCY_MAP.get(account_code, 'CNY')
 
-# ===== 数据模型 =====
+# ==================== 数据模型 ====================
 
 class TransactionCreate(BaseModel):
-    """创建交易请求"""
-    amount: float = Field(..., description="金额（正数=收入，负数=支出）")
-    category: str = Field(..., description="分类")
-    description: Optional[str] = Field(None, description="备注")
-    date: Optional[str] = Field(None, description="日期 YYYY-MM-DD")
-    location: Optional[str] = Field(None, description="地点")
-    account: Optional[str] = Field("Santander", description="账户")
-    currency: str = Field("MXN", description="币种")
-    source: str = Field("manual", description="数据来源")
-
-
-class TransactionResponse(BaseModel):
-    """交易响应"""
-    id: int
-    date: date
+    date: str  # YYYY-MM-DD
     amount: float
+    currency: Optional[str] = None  # 如果不提供，根据account自动推断
+    account_code: str
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    auto_classified: bool = False
+    source: str = "telegram"
+
+class BudgetCreate(BaseModel):
     category: str
-    subcategory: Optional[str]
-    description: Optional[str]
-    location: Optional[str]
-    auto_classified: bool
-    account: Optional[str]
-    currency: str
-    source: str
-    created_at: datetime
+    month: str  # YYYY-MM
+    amount: float
+    currency: str = "CNY"
+    alert_threshold: float = 0.8
 
+# ==================== 同步逻辑 ====================
 
-class MonthlyStats(BaseModel):
-    """月度统计"""
-    month: str
-    total_income: float
-    total_expense: float
-    net: float
-    by_category: Optional[List[dict]] = []
-
-
-# ===== 自动分类引擎 =====
-
-async def auto_classify(description: str, pool) -> tuple[str, Optional[str], float]:
+def sync_transaction_to_holdings(
+    conn,
+    transaction_id: int,
+    account_code: str,
+    amount: float,
+    currency: str,
+    tx_date: Date,
+    description: str
+):
     """
-    根据描述自动分类
-
-    返回: (category, subcategory, confidence)
+    同步交易到holdings表的现金持仓
+    - 收入：增加现金持仓
+    - 支出：减少现金持仓
     """
-    if not description:
-        return ("其他", None, 0.0)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # 检查该账户是否有现金持仓记录
+        cur.execute("""
+            SELECT id, market_value
+            FROM pams_holdings_snapshot
+            WHERE account_code = %s
+              AND minor_category = '现金/活期'
+              AND as_of = %s
+        """, (account_code, tx_date))
 
-    # 查询匹配规则
-    query = """
-        SELECT category, subcategory, priority
-        FROM pams_category_rules
-        WHERE active = TRUE
-          AND $1 ILIKE '%' || keyword || '%'
-        ORDER BY priority DESC, LENGTH(keyword) DESC
-        LIMIT 1;
-    """
+        holding = cur.fetchone()
 
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, description)
+        if holding:
+            # 更新现有持仓
+            new_value = float(holding['market_value']) + amount
+            cur.execute("""
+                UPDATE pams_holdings_snapshot
+                SET market_value = %s,
+                    cost = market_value,  -- 现金成本=市值
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (new_value, holding['id']))
 
-        if row:
-            # 更新匹配计数
-            await conn.execute(
-                "UPDATE pams_category_rules SET match_count = match_count + 1 WHERE category = $1 AND keyword = $2",
-                row['category'], description
-            )
-            return (row['category'], row['subcategory'], 0.9)
-
-    # 无匹配规则
-    return ("其他", None, 0.0)
-
-
-# ===== API 端点 =====
-
-@router.post("/test")
-async def test_endpoint(request: Request):
-    """测试端点 - 验证请求体接收"""
-    try:
-        body = await request.json()
-        return {"received": body, "status": "ok"}
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
-
-
-@router.post("", response_model=TransactionResponse)
-async def create_transaction(tx: TransactionCreate):
-    """
-    创建新交易记录
-
-    - 自动分类识别
-    - 数据验证
-    - 存入数据库
-    """
-    print(f"[DEBUG] Received transaction: {tx}")  # Debug logging
-    pool = await get_db_pool()
-
-    try:
-        # 自动分类（如果有备注）
-        if tx.description:
-            category, subcategory, confidence = await auto_classify(tx.description, pool)
-            auto_classified = confidence > 0.6
-            if auto_classified:
-                tx.category = category
+            holding_id = holding['id']
         else:
-            subcategory = None
-            confidence = 0.0
-            auto_classified = False
+            # 创建新的现金持仓记录
+            # 获取账户显示名称
+            cur.execute("SELECT display_name FROM pams_accounts WHERE account_code = %s", (account_code,))
+            acc_row = cur.fetchone()
+            display_name = acc_row['display_name'] if acc_row else account_code
 
-        # 存入数据库
-        query = """
-            INSERT INTO pams_transactions
-            (date, amount, currency, category, subcategory, description,
-             location, account, auto_classified, confidence, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING *;
-        """
+            cash_name = f"{display_name}现金"
 
-        # 处理日期
-        if tx.date:
-            transaction_date = datetime.strptime(tx.date, '%Y-%m-%d').date()
-        else:
-            transaction_date = date.today()
+            cur.execute("""
+                INSERT INTO pams_holdings_snapshot (
+                    symbol, name, asset_liability, currency, account_code,
+                    major_category, minor_category, market_value, cost, as_of
+                ) VALUES (
+                    NULL, %s, '资产', %s, %s, '现金', '现金/活期', %s, %s, %s
+                )
+                RETURNING id
+            """, (cash_name, currency, account_code, amount, amount, tx_date))
 
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                query,
-                transaction_date,
-                float(tx.amount),
-                tx.currency,
-                tx.category,
-                subcategory,
-                tx.description,
-                tx.location,
-                tx.account,
-                auto_classified,
-                confidence,
-                tx.source
+            holding_id = cur.fetchone()['id']
+
+        # 记录同步日志（调试用）
+        sync_type = 'income' if amount > 0 else 'expense'
+        cur.execute("""
+            INSERT INTO pams_transaction_sync_log (
+                transaction_id, holding_id, sync_type, amount
+            ) VALUES (%s, %s, %s, %s)
+        """, (transaction_id, holding_id, sync_type, abs(amount)))
+
+        conn.commit()
+
+# ==================== API端点 ====================
+
+@router.post("/transactions")
+def create_transaction(tx: TransactionCreate):
+    """创建交易记录并同步到holdings"""
+    # 自动推断币种
+    if not tx.currency:
+        tx.currency = get_account_currency(tx.account_code)
+
+    # 解析日期
+    try:
+        tx_date = datetime.strptime(tx.date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式错误，应为YYYY-MM-DD")
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 验证账户存在
+            cur.execute("SELECT account_code FROM pams_accounts WHERE account_code = %s", (tx.account_code,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail=f"账户 {tx.account_code} 不存在")
+
+            # 自动分类（如果未提供category）
+            if not tx.category and tx.description:
+                cur.execute("""
+                    SELECT category, subcategory
+                    FROM pams_category_rules
+                    WHERE active = true AND %s ILIKE '%%' || keyword || '%%'
+                    ORDER BY priority ASC, id ASC
+                    LIMIT 1
+                """, (tx.description,))
+                rule = cur.fetchone()
+                if rule:
+                    tx.category = rule['category']
+                    tx.subcategory = rule['subcategory']
+                    tx.auto_classified = True
+
+                    # 更新匹配次数
+                    cur.execute("""
+                        UPDATE pams_category_rules
+                        SET match_count = match_count + 1
+                        WHERE category = %s AND subcategory = %s
+                    """, (tx.category, tx.subcategory))
+
+            # 插入交易记录
+            cur.execute("""
+                INSERT INTO pams_transactions (
+                    date, amount, currency, category, subcategory,
+                    account_code, description, location,
+                    auto_classified, source, created_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                )
+                RETURNING id
+            """, (
+                tx_date, tx.amount, tx.currency, tx.category, tx.subcategory,
+                tx.account_code, tx.description, tx.location,
+                tx.auto_classified, tx.source
+            ))
+
+            transaction_id = cur.fetchone()['id']
+            conn.commit()
+
+        # 同步到holdings（仅Telegram来源的收支）
+        if tx.source == "telegram":
+            sync_transaction_to_holdings(
+                conn, transaction_id, tx.account_code,
+                tx.amount, tx.currency, tx_date, tx.description or ""
             )
 
-        return TransactionResponse(
-            id=row['id'],
-            date=row['date'],
-            amount=float(row['amount']),
-            category=row['category'],
-            subcategory=row['subcategory'],
-            description=row['description'],
-            location=row['location'],
-            auto_classified=row['auto_classified'],
-            account=row['account'],
-            currency=row['currency'],
-            source=row['source'],
-            created_at=row['created_at']
-        )
+    return {
+        "success": True,
+        "transaction_id": transaction_id,
+        "message": f"交易记录已创建{'并同步到持仓' if tx.source == 'telegram' else ''}"
+    }
 
-    except Exception as e:
-        print(f"[ERROR] Create transaction failed: {str(e)}")  # Debug logging
-        print(f"[ERROR] Traceback: {traceback.format_exc()}")  # Full traceback
-        raise HTTPException(status_code=500, detail=f"创建交易失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.get("/recent", response_model=List[TransactionResponse])
-async def get_recent_transactions(limit: int = Query(50, ge=1, le=500)):
-    """获取最近交易记录"""
-    pool = await get_db_pool()
-
-    try:
-        query = """
-            SELECT * FROM pams_transactions
-            ORDER BY date DESC, created_at DESC
-            LIMIT $1;
-        """
-
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(query, limit)
-
-        return [
-            TransactionResponse(
-                id=row['id'],
-                date=row['date'],
-                amount=float(row['amount']),
-                category=row['category'],
-                subcategory=row['subcategory'],
-                description=row['description'],
-                location=row['location'],
-                auto_classified=row['auto_classified'],
-                account=row['account'],
-                currency=row['currency'],
-                source=row['source'],
-                created_at=row['created_at']
-            )
-            for row in rows
-        ]
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.get("/monthly/{month}", response_model=MonthlyStats)
-async def get_monthly_stats(month: str):
-    """
-    获取月度统计
-
-    - month格式：YYYY-MM
-    - 返回收入、支出、净额、分类占比
-    """
-    pool = await get_db_pool()
-
-    try:
-        # Query monthly totals with currency conversion
-        totals_query = """
-            WITH base_currency AS (
-                SELECT 'CNY' AS currency
-            ),
-            converted AS (
+@router.get("/transactions/recent")
+def get_recent_transactions(limit: int = Query(50, ge=1, le=200)):
+    """获取最近交易（含CNY换算金额）"""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                WITH latest_fx AS (
+                    SELECT quote_currency, rate
+                    FROM pams_fx_rates_daily
+                    WHERE base_currency = 'CNY'
+                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
+                )
                 SELECT
-                    t.date,
-                    t.amount,
-                    t.currency,
-                    -- 如果币种是CNY，汇率为1；否则查询汇率表
-                    CASE
-                        WHEN t.currency = 'CNY' THEN 1.0
-                        ELSE COALESCE(
-                            (SELECT fx.rate
-                             FROM pams_fx_rates_daily fx
-                             WHERE fx.base_currency = 'CNY'
-                               AND fx.quote_currency = t.currency
-                               AND fx.as_of <= t.date
-                             ORDER BY fx.as_of DESC
-                             LIMIT 1),
-                            1.0  -- 如果没有汇率数据，默认1:1
-                        )
-                    END AS fx_rate
+                    t.id, t.date, t.amount, t.currency, t.category, t.subcategory,
+                    t.account_code, t.description, t.location, t.auto_classified,
+                    t.source, t.created_at,
+                    a.display_name as account_name,
+                    ROUND((t.amount * COALESCE(fx.rate, 1))::numeric, 2) as amount_cny
                 FROM pams_transactions t
-                WHERE TO_CHAR(t.date, 'YYYY-MM') = $1
-            )
-            SELECT
-                TO_CHAR(date, 'YYYY-MM') AS month,
-                COALESCE(SUM(CASE WHEN amount > 0 THEN amount * fx_rate ELSE 0 END), 0) AS total_income,
-                COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount * fx_rate) ELSE 0 END), 0) AS total_expense,
-                COALESCE(SUM(amount * fx_rate), 0) AS net
-            FROM converted
-            GROUP BY TO_CHAR(date, 'YYYY-MM');
-        """
+                LEFT JOIN pams_accounts a ON a.account_code = t.account_code
+                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                ORDER BY t.date DESC, t.created_at DESC
+                LIMIT %s
+            """, (limit,))
+            rows = cur.fetchall()
 
-        # Query category breakdown with currency conversion
-        category_query = """
-            WITH converted AS (
+    return {"transactions": [{k: _norm(v) for k, v in dict(r).items()} for r in rows]}
+
+@router.get("/transactions/monthly/{month}")
+def get_monthly_stats(month: str):
+    """获取月度统计（YYYY-MM）"""
+    try:
+        year, mon = month.split('-')
+        start_date = f"{year}-{mon}-01"
+        # 计算月末日期
+        import calendar
+        last_day = calendar.monthrange(int(year), int(mon))[1]
+        end_date = f"{year}-{mon}-{last_day}"
+    except:
+        raise HTTPException(status_code=400, detail="月份格式错误，应为YYYY-MM")
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 总收入/支出（含汇率换算到CNY）
+            cur.execute("""
+                WITH latest_fx AS (
+                    SELECT quote_currency, rate
+                    FROM pams_fx_rates_daily
+                    WHERE base_currency = 'CNY'
+                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
+                )
                 SELECT
-                    t.category,
-                    t.amount,
-                    CASE
-                        WHEN t.currency = 'CNY' THEN 1.0
-                        ELSE COALESCE(
-                            (SELECT fx.rate
-                             FROM pams_fx_rates_daily fx
-                             WHERE fx.base_currency = 'CNY'
-                               AND fx.quote_currency = t.currency
-                               AND fx.as_of <= t.date
-                             ORDER BY fx.as_of DESC
-                             LIMIT 1),
-                            1.0
-                        )
-                    END AS fx_rate
+                    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount * COALESCE(fx.rate, 1) ELSE 0 END), 0) as total_income,
+                    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount * COALESCE(fx.rate, 1)) ELSE 0 END), 0) as total_expense,
+                    COALESCE(SUM(t.amount * COALESCE(fx.rate, 1)), 0) as net
                 FROM pams_transactions t
-                WHERE TO_CHAR(t.date, 'YYYY-MM') = $1
-                  AND t.amount < 0
-            )
-            SELECT
-                category,
-                SUM(ABS(amount * fx_rate)) AS amount,
-                COUNT(*) AS count
-            FROM converted
-            GROUP BY category;
-        """
+                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                WHERE t.date >= %s::date AND t.date <= %s::date
+            """, (start_date, end_date))
+            totals = cur.fetchone()
 
-        async with pool.acquire() as conn:
-            # Get totals
-            totals_row = await conn.fetchrow(totals_query, month)
+            # 按分类统计支出（含汇率换算）
+            cur.execute("""
+                WITH latest_fx AS (
+                    SELECT quote_currency, rate
+                    FROM pams_fx_rates_daily
+                    WHERE base_currency = 'CNY'
+                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
+                )
+                SELECT category,
+                       ROUND(SUM(ABS(t.amount * COALESCE(fx.rate, 1)))::numeric, 2) as amount,
+                       COUNT(*) as count
+                FROM pams_transactions t
+                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                WHERE t.date >= %s::date AND t.date <= %s::date AND t.amount < 0
+                GROUP BY category
+                ORDER BY amount DESC
+            """, (start_date, end_date))
+            by_category = cur.fetchall()
 
-            # Get category breakdown
-            category_rows = await conn.fetch(category_query, month)
+    return {
+        "month": month,
+        "total_income": str(totals['total_income']),
+        "total_expense": str(totals['total_expense']),
+        "net": str(totals['net']),
+        "by_category": [{k: _norm(v) for k, v in dict(r).items()} for r in by_category]
+    }
 
-        # If no data for this month, return zeros
-        if not totals_row or totals_row['month'] is None:
-            return MonthlyStats(
-                month=month,
-                total_income=0.0,
-                total_expense=0.0,
-                net=0.0,
-                by_category=[]
-            )
-
-        # Build category breakdown list
-        by_category = [
-            {
-                'category': r['category'],
-                'amount': float(r['amount']),
-                'count': r['count']
-            }
-            for r in category_rows
-        ]
-
-        return MonthlyStats(
-            month=totals_row['month'],
-            total_income=float(totals_row['total_income']),
-            total_expense=float(totals_row['total_expense']),
-            net=float(totals_row['net']),
-            by_category=by_category
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"统计失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.get("/daily/{month}")
-async def get_daily_stats(month: str):
-    """
-    获取指定月份的每日统计
-
-    - month格式：YYYY-MM
-    - 返回每日的收入、支出数据数组
-    """
-    pool = await get_db_pool()
-
+@router.get("/transactions/daily/{month}")
+def get_daily_stats(month: str):
+    """获取每日统计"""
     try:
-        query = """
-            WITH converted AS (
+        year, mon = month.split('-')
+        start_date = f"{year}-{mon}-01"
+        import calendar
+        last_day = calendar.monthrange(int(year), int(mon))[1]
+        end_date = f"{year}-{mon}-{last_day}"
+    except:
+        raise HTTPException(status_code=400, detail="月份格式错误")
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                WITH latest_fx AS (
+                    SELECT quote_currency, rate
+                    FROM pams_fx_rates_daily
+                    WHERE base_currency = 'CNY'
+                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
+                )
                 SELECT
-                    t.date,
-                    t.amount,
-                    CASE
-                        WHEN t.currency = 'CNY' THEN 1.0
-                        ELSE COALESCE(
-                            (SELECT fx.rate
-                             FROM pams_fx_rates_daily fx
-                             WHERE fx.base_currency = 'CNY'
-                               AND fx.quote_currency = t.currency
-                               AND fx.as_of <= t.date
-                             ORDER BY fx.as_of DESC
-                             LIMIT 1),
-                            1.0
-                        )
-                    END AS fx_rate
+                    DATE_PART('day', t.date)::int as day,
+                    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount * COALESCE(fx.rate, 1) ELSE 0 END), 0) as income,
+                    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount * COALESCE(fx.rate, 1)) ELSE 0 END), 0) as expense
                 FROM pams_transactions t
-                WHERE TO_CHAR(t.date, 'YYYY-MM') = $1
-            )
-            SELECT
-                TO_CHAR(date, 'DD') AS day,
-                COALESCE(SUM(CASE WHEN amount > 0 THEN amount * fx_rate ELSE 0 END), 0) AS income,
-                COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount * fx_rate) ELSE 0 END), 0) AS expense
-            FROM converted
-            GROUP BY date
-            ORDER BY date;
-        """
+                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                WHERE t.date >= %s::date AND t.date <= %s::date
+                GROUP BY DATE_PART('day', t.date)
+                ORDER BY day
+            """, (start_date, end_date))
+            rows = cur.fetchall()
 
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(query, month)
+    return [{k: _norm(v) for k, v in dict(r).items()} for r in rows]
 
-        # Convert to list of dicts
-        daily_stats = [
-            {
-                'day': r['day'],
-                'income': float(r['income']),
-                'expense': float(r['expense'])
-            }
-            for r in rows
-        ]
-
-        return daily_stats
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取每日统计失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.get("/categories-by-range")
-async def get_categories_by_range(start: str, end: str):
-    """
-    获取指定时间段的支出分类
-
-    - start/end格式：YYYY-MM-DD
-    - 返回分类占比数组
-    """
-    pool = await get_db_pool()
-
-    try:
-        # 将字符串转换为date对象
-        from datetime import datetime as dt
-        start_date = dt.strptime(start, '%Y-%m-%d').date()
-        end_date = dt.strptime(end, '%Y-%m-%d').date()
-
-        query = """
-            WITH converted AS (
-                SELECT
-                    t.category,
-                    t.amount,
-                    CASE
-                        WHEN t.currency = 'CNY' THEN 1.0
-                        ELSE COALESCE(
-                            (SELECT fx.rate
-                             FROM pams_fx_rates_daily fx
-                             WHERE fx.base_currency = 'CNY'
-                               AND fx.quote_currency = t.currency
-                               AND fx.as_of <= t.date
-                             ORDER BY fx.as_of DESC
-                             LIMIT 1),
-                            1.0
-                        )
-                    END AS fx_rate
+@router.get("/transactions/categories-by-range")
+def get_categories_by_range(start: str, end: str):
+    """获取时间段内的分类占比（用于图表联动，含汇率换算）"""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                WITH latest_fx AS (
+                    SELECT quote_currency, rate
+                    FROM pams_fx_rates_daily
+                    WHERE base_currency = 'CNY'
+                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
+                )
+                SELECT category,
+                       ROUND(SUM(ABS(t.amount * COALESCE(fx.rate, 1)))::numeric, 2) as amount,
+                       COUNT(*) as count
                 FROM pams_transactions t
-                WHERE t.date >= $1
-                  AND t.date <= $2
-                  AND t.amount < 0  -- 只统计支出
-            )
-            SELECT
-                category,
-                SUM(ABS(amount * fx_rate)) AS amount,
-                COUNT(*) AS count
-            FROM converted
-            GROUP BY category
-            ORDER BY amount DESC;
-        """
+                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                WHERE t.date >= %s::date AND t.date <= %s::date AND t.amount < 0
+                GROUP BY category
+                ORDER BY amount DESC
+            """, (start, end))
+            rows = cur.fetchall()
 
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(query, start_date, end_date)
+    return [{k: _norm(v) for k, v in dict(r).items()} for r in rows]
 
-        return [
-            {
-                'category': r['category'],
-                'amount': float(r['amount']),
-                'count': r['count']
-            }
-            for r in rows
-        ]
+@router.get("/transactions/budgets/{month}")
+def get_budgets(month: str):
+    """获取预算执行情况"""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT b.category, b.budget_amount, b.currency, b.alert_threshold,
+                       COALESCE(SUM(ABS(t.amount)), 0) as actual_expense
+                FROM pams_budgets b
+                LEFT JOIN pams_transactions t
+                    ON t.category = b.category
+                    AND TO_CHAR(t.date, 'YYYY-MM') = b.month
+                    AND t.amount < 0
+                WHERE b.month = %s::date
+                GROUP BY b.category, b.budget_amount, b.currency, b.alert_threshold
+            """, (f"{month}-01",))
+            rows = cur.fetchall()
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取分类数据失败: {str(e)}")
-    finally:
-        await pool.close()
+    budgets = []
+    for r in rows:
+        budget_dict = {k: _norm(v) for k, v in dict(r).items()}
+        budget_dict['usage_pct'] = (float(r['actual_expense']) / float(r['budget_amount'])) if r['budget_amount'] > 0 else 0
+        budget_dict['alert'] = budget_dict['usage_pct'] >= float(r['alert_threshold'])
+        budgets.append(budget_dict)
 
+    return {"budgets": budgets}
 
-@router.get("/categories")
-async def get_categories():
-    """获取所有分类列表"""
-    pool = await get_db_pool()
-
+@router.post("/transactions/budgets")
+def create_budget(budget: BudgetCreate):
+    """创建预算"""
     try:
-        query = """
-            SELECT DISTINCT category, COUNT(*) AS count
-            FROM pams_transactions
-            GROUP BY category
-            ORDER BY count DESC;
-        """
+        month_date = f"{budget.month}-01"
+        datetime.strptime(month_date, "%Y-%m-%d")
+    except:
+        raise HTTPException(status_code=400, detail="月份格式错误")
 
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(query)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO pams_budgets (category, month, budget_amount, currency, alert_threshold)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (category, month) DO UPDATE
+                SET budget_amount = EXCLUDED.budget_amount,
+                    currency = EXCLUDED.currency,
+                    alert_threshold = EXCLUDED.alert_threshold
+            """, (budget.category, month_date, budget.amount, budget.currency, budget.alert_threshold))
+            conn.commit()
 
-        return [{"name": r["category"], "count": r["count"]} for r in rows]
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.delete("/{transaction_id}")
-async def delete_transaction(transaction_id: int):
-    """删除交易记录"""
-    pool = await get_db_pool()
-
-    try:
-        query = "DELETE FROM pams_transactions WHERE id = $1 RETURNING id;"
-
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(query, transaction_id)
-
-        if not row:
-            raise HTTPException(status_code=404, detail="交易记录不存在")
-
-        return {"message": "删除成功", "id": row['id']}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.get("/budgets/{month}")
-async def get_budget_status(month: str):
-    """
-    获取预算执行情况
-
-    返回各分类的预算、实际支出、进度
-    """
-    pool = await get_db_pool()
-
-    try:
-        query = """
-            SELECT
-                b.category,
-                b.budget_amount,
-                b.alert_threshold,
-                COALESCE(SUM(ABS(t.amount)) FILTER (WHERE t.amount < 0), 0) AS spent,
-                CASE
-                    WHEN b.budget_amount > 0 THEN
-                        COALESCE(SUM(ABS(t.amount)) FILTER (WHERE t.amount < 0), 0) / b.budget_amount
-                    ELSE 0
-                END AS progress
-            FROM pams_budgets b
-            LEFT JOIN pams_transactions t
-                ON b.category = t.category
-                AND TO_CHAR(t.date, 'YYYY-MM') = TO_CHAR(b.month, 'YYYY-MM')
-            WHERE TO_CHAR(b.month, 'YYYY-MM') = $1
-            GROUP BY b.category, b.budget_amount, b.alert_threshold;
-        """
-
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(query, month)
-
-        return [
-            {
-                "category": r["category"],
-                "budget": float(r["budget_amount"]),
-                "spent": float(r["spent"]),
-                "remaining": float(r["budget_amount"]) - float(r["spent"]),
-                "progress": float(r["progress"]),
-                "alert": r["progress"] >= r["alert_threshold"]
-            }
-            for r in rows
-        ]
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
-    finally:
-        await pool.close()
-
-
-@router.post("/budgets")
-async def create_budget(category: str, month: str, amount: float):
-    """创建月度预算"""
-    pool = await get_db_pool()
-
-    try:
-        # 月份格式转换 YYYY-MM -> YYYY-MM-01
-        month_date = f"{month}-01"
-
-        query = """
-            INSERT INTO pams_budgets (category, month, budget_amount)
-            VALUES ($1, $2::date, $3)
-            ON CONFLICT (category, month)
-            DO UPDATE SET budget_amount = $3
-            RETURNING *;
-        """
-
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(query, category, month_date, amount)
-
-        return {
-            "id": row['id'],
-            "category": row['category'],
-            "month": row['month'].strftime('%Y-%m'),
-            "budget_amount": float(row['budget_amount'])
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"创建失败: {str(e)}")
-    finally:
-        await pool.close()
+    return {"success": True, "message": "预算已创建"}

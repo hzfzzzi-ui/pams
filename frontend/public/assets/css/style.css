@@ -10,20 +10,39 @@ a{color:inherit;text-decoration:none}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .brand{font-weight:800;letter-spacing:.4px}
 .nav{display:flex;gap:10px;flex-wrap:wrap}
-.nav a{padding:6px 10px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted)}
+.nav a{padding:6px 10px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted);transition:all .15s}
+.nav a:hover{border-color:var(--accent);color:var(--text)}
 .nav a.active{border-color:var(--accent);color:#cfe0ff;box-shadow:0 0 0 2px rgba(106,166,255,.12) inset}
 .right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .pill{border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--muted)}
 
-/* (tabs removed: right panel uses stacked charts in v1.0) */
+/* Dashboard Row 1: KPIs + FX Rates */
+.dashRow1{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:stretch}
+.kpiGroup{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.fxCard{min-width:200px;display:flex;flex-direction:column;justify-content:center}
+.fxHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.fxTitle{font-size:12px;color:var(--muted);font-weight:700}
+.fxToggle{background:transparent;border:1px solid var(--line);border-radius:6px;color:var(--accent);font-size:14px;padding:2px 8px;cursor:pointer;transition:all .15s;line-height:1}
+.fxToggle:hover{border-color:var(--accent);background:rgba(106,166,255,.08)}
+.fxBody{display:flex;flex-direction:column;gap:4px}
+.fxRow{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.fxPair{color:var(--muted);font-weight:600}
+.fxRate{font-variant-numeric:tabular-nums;font-weight:700;color:var(--text)}
 
+/* Alert strip */
+.alertStrip{padding:8px 12px}
+.alertStripInner{display:flex;gap:10px;overflow-x:auto;flex-wrap:nowrap;align-items:stretch}
+.alertItem{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.02);font-size:12px;white-space:nowrap}
+.alertItem .tag{margin-right:0}
+
+/* Grids */
 .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .gridTall{align-items:stretch}
-/* wider left panel (charts) + narrower top-holdings */
 .grid2Wide{grid-template-columns:1.35fr .65fr}
 @media (max-width: 980px){
   .grid2Wide{grid-template-columns:1fr}
+  .grid2{grid-template-columns:1fr}
 }
 
 .pies2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -33,40 +52,76 @@ a{color:inherit;text-decoration:none}
 .card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));border:1px solid var(--line);border-radius:14px;padding:12px}
 .flexCol{display:flex;flex-direction:column}
 .scrollBox{overflow:auto;border-radius:12px}
-.kpi .label{font-size:12px;color:var(--muted)}
+
+/* KPI */
+.kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .kpi .value{font-size:22px;font-weight:800;margin-top:6px;letter-spacing:.2px}
 .kpi .delta{margin-top:6px;font-size:12px;color:var(--muted)}
+
+/* Section title */
+.sectionTitle{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sectionTitle h3{margin:0;font-size:14px;font-weight:700;color:var(--text)}
+
+/* MDD Badge */
+.mddBadge{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid rgba(255,107,107,.4);background:rgba(255,107,107,.08);color:#ff9a9a;font-weight:600;font-variant-numeric:tabular-nums}
+
 .mono{font-variant-numeric:tabular-nums}
 .muted{color:var(--muted);font-size:12px;line-height:1.4}
 .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px dashed rgba(36,48,85,.7)}
 .row:last-child{border-bottom:none}
+
+/* Alert tags */
 .alert{padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02)}
 .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;margin-right:8px;border:1px solid var(--line);color:var(--muted)}
-.tag.risk{border-color:rgba(255,107,107,.6);color:#ff9a9a}
-.tag.data{border-color:rgba(106,166,255,.6);color:#b9d6ff}
+.tag.risk,.tag.crit{border-color:rgba(255,107,107,.6);color:#ff9a9a}
+.tag.data,.tag.info{border-color:rgba(106,166,255,.6);color:#b9d6ff}
 .tag.warn{border-color:rgba(255,209,102,.6);color:#ffe2a3}
+
+/* Holdings analysis */
+.analysisList{display:flex;flex-direction:column;gap:6px}
+.analysisRow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed rgba(36,48,85,.5)}
+.analysisRow:last-child{border-bottom:none}
+.analysisLabel{font-size:13px;color:var(--muted)}
+.analysisValue{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.analysisSub{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Cashflow list */
+.cashflowList .txRow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed rgba(36,48,85,.5);font-size:12px}
+.cashflowList .txRow:last-child{border-bottom:none}
+.txDesc{color:var(--text);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.txMeta{color:var(--muted);font-size:11px}
+.txAmt{font-weight:700;font-variant-numeric:tabular-nums}
+
+/* Tables */
 .tableWrap{overflow:auto;max-height:520px;border-radius:12px;border:1px solid rgba(36,48,85,.7)}
-/* tables: keep readable spacing; allow horizontal scroll instead of squeezing */
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;table-layout:fixed}
-/* only detail tables should enforce a wide min-width */
 .tableWide{min-width:980px}
 th,td{border-bottom:1px solid rgba(36,48,85,.6);padding:9px 10px;text-align:left;vertical-align:top;line-height:1.3}
 th{color:var(--muted);font-weight:700;position:sticky;top:0;background:rgba(17,26,51,.96);backdrop-filter: blur(6px)}
-
 td.nowrap, th.nowrap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* default cells: avoid ugly wraps for ids */
 td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* allow name column to wrap */
 td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* numeric alignment */
 .num{text-align:right}
 
-.btn{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;font-size:13px}
+.btn{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;font-size:13px;transition:all .15s}
+.btn:hover{border-color:var(--accent)}
 .btn.primary{border-color:var(--accent);box-shadow:0 0 0 2px rgba(106,166,255,.12) inset}
 hr.sep{border:none;border-top:1px solid rgba(36,48,85,.7);margin:10px 0}
 
-/* charts */
+/* Charts */
 .chartWrap{height:260px;width:100%;position:relative}
-.chartWrap canvas{width:100% !important;height:100% !important;display:block}
+.chartWrapSm{height:200px;width:100%;position:relative}
+.chartWrap canvas,.chartWrapSm canvas{width:100% !important;height:100% !important;display:block}
 
-@media (max-width: 1000px){.grid5{grid-template-columns:repeat(2,1fr)} .grid2{grid-template-columns:1fr}}
+/* Up/Down indicators */
+.up{color:var(--good)}
+.down{color:var(--bad)}
+
+@media (max-width: 1000px){
+  .grid5{grid-template-columns:repeat(2,1fr)}
+  .dashRow1{grid-template-columns:1fr}
+  .kpiGroup{grid-template-columns:repeat(3,1fr)}
+}
+@media (max-width: 640px){
+  .kpiGroup{grid-template-columns:1fr}
+}

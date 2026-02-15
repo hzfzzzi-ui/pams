@@ -14,7 +14,7 @@
         <div class="muted">快照：<span id="asof">--</span> · <span id="api">--</span></div>
       </div>
       <div class="right">
-        <span class="pill" style="background:rgba(67,209,158,.15);border-color:rgba(67,209,158,.4);color:#43d19e">V1.0</span>
+        <span class="pill" style="background:rgba(67,209,158,.15);border-color:rgba(67,209,158,.4);color:#43d19e">V2.0</span>
       </div>
     </div>
 
@@ -28,50 +28,75 @@
 
     <div id="err" class="card" style="display:none;border-color:rgba(255,107,107,.6);margin-bottom:12px"></div>
 
-    <!-- KPI Cards -->
-    <div class="grid5" style="margin-bottom:12px" id="kpis"></div>
-
-    <!-- Main Content: Left = Charts, Right = Alerts + Status -->
-    <div class="grid2 grid2Wide">
-      <!-- Left: Charts -->
-      <div class="flexCol" style="gap:12px">
-        <!-- Asset Pie + By-Type List -->
-        <div class="card">
-          <div class="sectionTitle"><h3>资产结构</h3></div>
-          <div class="pies2" style="margin-top:8px">
-            <div class="chartWrap"><canvas id="pie"></canvas></div>
-            <div class="scrollBox" id="byType" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px"></div>
-          </div>
+    <!-- Row 1: KPIs (3) + FX Rates -->
+    <div class="dashRow1" style="margin-bottom:12px">
+      <div id="kpis" class="kpiGroup"></div>
+      <div class="card fxCard" id="fxRates">
+        <div class="fxHeader">
+          <span class="fxTitle">今日汇率</span>
+          <button class="fxToggle" id="fxToggleBtn" title="切换方向">⇄</button>
         </div>
-
-        <!-- Liability Pie -->
-        <div class="card">
-          <div class="sectionTitle"><h3>负债结构</h3></div>
-          <div class="chartWrap" style="margin-top:8px"><canvas id="liabilityPie"></canvas></div>
-        </div>
-
-        <!-- NAV Curve -->
-        <div class="card">
-          <div class="sectionTitle"><h3>净资产曲线</h3></div>
-          <div class="chartWrap" style="margin-top:8px"><canvas id="navChart"></canvas></div>
-        </div>
-
-        <!-- Cashflow Mini -->
-        <div class="card">
-          <div class="sectionTitle"><h3>近期收支（30天）</h3></div>
-          <div class="chartWrap" style="margin-top:8px"><canvas id="cashflowMini"></canvas></div>
+        <div class="fxBody" id="fxBody">
+          <div class="muted">加载中...</div>
         </div>
       </div>
+    </div>
 
-      <!-- Right: Alerts + Status -->
-      <div class="flexCol" style="gap:12px">
+    <!-- Row 2: Alerts strip -->
+    <div class="card alertStrip" id="alertStrip" style="margin-bottom:12px">
+      <div class="alertStripInner" id="alerts">
+        <div class="muted">加载中...</div>
+      </div>
+    </div>
+
+    <!-- Row 3: Asset + Liability side by side -->
+    <div class="grid2" style="margin-bottom:12px">
+      <div class="card">
+        <div class="sectionTitle"><h3>资产结构</h3></div>
+        <div class="pies2" style="margin-top:8px">
+          <div class="chartWrap chartWrapSm"><canvas id="pie"></canvas></div>
+          <div class="scrollBox" id="byType" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sectionTitle"><h3>负债结构</h3></div>
+        <div class="pies2" style="margin-top:8px">
+          <div class="chartWrap chartWrapSm"><canvas id="liabilityPie"></canvas></div>
+          <div class="scrollBox" id="liabilityList" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 4: NAV Curve (with MDD) + Holdings PnL Analysis -->
+    <div class="grid2" style="margin-bottom:12px">
+      <div class="flexCol" style="gap:10px">
         <div class="card">
-          <div class="sectionTitle"><h3>提醒/告警</h3></div>
-          <div id="alerts" style="margin-top:8px"></div>
+          <div class="sectionTitle">
+            <h3>净资产曲线</h3>
+            <span class="mddBadge" id="mddBadge">MDD: --</span>
+          </div>
+          <div class="chartWrap" style="margin-top:8px"><canvas id="navChart"></canvas></div>
         </div>
         <div class="card">
-          <div class="sectionTitle"><h3>系统状态</h3></div>
-          <div id="status" style="margin-top:8px"></div>
+          <div class="sectionTitle"><h3>分类净值曲线</h3></div>
+          <div class="chartWrap" style="margin-top:8px"><canvas id="catNavChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sectionTitle"><h3>持仓收益分析</h3></div>
+        <div id="holdingsAnalysis" style="margin-top:8px">
+          <div class="muted">加载中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 5: Recent Cashflow -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="sectionTitle"><h3>近期支出</h3></div>
+      <div class="grid2" style="margin-top:8px">
+        <div class="chartWrap"><canvas id="cashflowMini"></canvas></div>
+        <div class="scrollBox cashflowList" id="recentTxList" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px;max-height:260px">
+          <div class="muted">加载中...</div>
         </div>
       </div>
     </div>

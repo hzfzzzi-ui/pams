@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PAMS Telegram Bot - 收支记账助手
+PAMS Telegram Bot V2.1
 
-支持功能：
-- /start - 开始使用
-- /record - 快速记账
-- /stats - 查看统计
-- /list - 查看记录
-- 直接发送金额进行记账（如：-50 午餐）
+流程A - 快速记账：直接发送 "-50 餐饮"
+  → 默认 Santander / MXN，自动提交
+
+流程B - 详细记账：/record
+  → 输入金额备注 → 选收入/支出 → 选账户 → 选币种 → 选分类 → 完成
 """
 
 import os
 import re
 import logging
-from datetime import datetime, date
-from typing import Optional
+from datetime import date
 import requests
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -29,513 +27,415 @@ from telegram.ext import (
     filters,
 )
 
-# 配置日志
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# API 配置
-API_BASE = os.getenv('PAMS_API_BASE', 'http://localhost:8090/api')
+API_BASE = os.getenv('PAMS_API_BASE', 'http://pams-api:8000/api')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 
+# 快速记账默认值
+DEFAULT_ACCOUNT = 'santander'
+DEFAULT_CURRENCY = 'MXN'
+
 # 对话状态
-WAITING_AMOUNT, WAITING_CATEGORY, WAITING_NOTE = range(3)
+(
+    ST_AMOUNT,       # 输入金额备注
+    ST_DIRECTION,    # 选收入/支出
+    ST_ACCOUNT,      # 选账户
+    ST_CURRENCY,     # 选币种
+    ST_CATEGORY,     # 选分类
+) = range(5)
 
-# 分类列表
-CATEGORIES = {
-    'expense': [
-        '🍜 餐饮', '🚗 交通', '🛍️ 购物', '🎮 娱乐',
-        '🏠 居住', '💊 医疗', '📚 教育', '📱 通讯', '📦 其他'
-    ],
-    'income': [
-        '💰 工资', '💼 奖金', '🎁 红包', '📈 投资', '💵 其他'
-    ]
-}
+# 11个标准账户
+ACCOUNTS = [
+    ('santander',         'Santander',  'MXN'),
+    ('ibkr',              'IBKR',       'MXN'),
+    ('binance',           '币安',        'USD'),
+    ('jianhang',          '建行',        'CNY'),
+    ('tencent_licaitong', '腾讯理财通',  'CNY'),
+    ('tonghuashun',       '同花顺',      'CNY'),
+    ('wechat',            '微信',        'CNY'),
+    ('guangfa',           '广发',        'CNY'),
+    ('huawei',            '华为账户',    'CNY'),
+    ('gongjijin',         '公积金账户',  'CNY'),
+    ('jiekuan',           '借款',        'CNY'),
+]
 
+ACCOUNT_MAP = {code: (name, cur) for code, name, cur in ACCOUNTS}
 
-class TransactionContext:
-    """交易上下文，存储待提交的交易信息"""
-    def __init__(self):
-        self.amount: float = 0
-        self.type: str = 'expense'  # expense | income
-        self.category: str = ''
-        self.note: str = ''
-        self.date: str = date.today().isoformat()
-        self.currency: str = 'MXN'  # 默认币种：比索
+CURRENCIES = ['MXN', 'CNY', 'USD']
 
+EXPENSE_CATS = ['餐饮', '交通', '购物', '娱乐', '居住', '医疗', '教育', '通讯', '其他']
+INCOME_CATS = ['工资', '奖金', '红包', '投资收益', '其他']
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /start 命令"""
-    user = update.effective_user
-    welcome_text = f"""
-👋 你好 {user.mention_html()}！
+# ==================== 工具函数 ====================
 
-我是 PAMS 记账助手，可以帮你快速记录收支。
+def parse_amount_text(text):
+    """解析金额文本，返回 (amount, note) 或 None"""
+    text = text.strip()
+    m = re.match(r'^([+-]?\d+(?:\.\d+)?)\s*(.*)', text)
+    if not m:
+        return None
+    return float(m.group(1)), m.group(2).strip()
 
-🚀 <b>快速记账</b>
-直接发送金额和备注，如：
-• <code>-50 午餐</code> （支出50比索，默认币种）
-• <code>-100 CNY 购物</code> （支出100人民币）
-• <code>+500 USD 工资</code> （收入500美元）
+def submit_transaction(tx_data):
+    """提交交易到API"""
+    try:
+        resp = requests.post(f"{API_BASE}/transactions", json=tx_data, timeout=10)
+        if resp.status_code == 200:
+            return resp.json()
+        return {'success': False, 'message': resp.json().get('detail', '未知错误')}
+    except Exception as e:
+        logger.error(f"提交失败: {e}")
+        return {'success': False, 'message': str(e)}
 
-💱 <b>支持币种</b>
-MXN(比索-默认)、CNY(人民币)、USD(美元)、JPY(日元)、EUR(欧元)、GBP(英镑)
+def format_success(amount, currency, account_code, category, note):
+    """格式化成功消息"""
+    acc_name = ACCOUNT_MAP.get(account_code, (account_code, ''))[0]
+    direction = '收入' if amount > 0 else '支出'
+    return (
+        f"✅ 记账成功！\n\n"
+        f"💰 {direction}：{abs(amount)} {currency}\n"
+        f"📁 账户：{acc_name}\n"
+        f"📂 分类：{category}\n"
+        f"📝 备注：{note or '-'}\n"
+        f"📅 日期：{date.today().isoformat()}\n\n"
+        f"🔄 已同步到资产持仓"
+    )
 
-📋 <b>命令列表</b>
-/record - 详细记账
-/stats - 查看统计
-/list - 查看记录
-/help - 帮助信息
+# ==================== 流程A：快速记账 ====================
 
-试试直接发送 <code>-25 咖啡</code> 开始记账吧！
+async def quick_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-
-    await update.message.reply_html(welcome_text)
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """处理 /help 命令"""
-    help_text = """
-📖 <b>使用帮助</b>
-
-<b>1. 快速记账（推荐）</b>
-直接发送消息，格式：<code>金额 [币种] 备注</code>
-
-示例：
-• <code>-50 午餐</code> → 支出50比索（默认），分类：餐饮
-• <code>-100 CNY 购物</code> → 支出100人民币，分类：购物
-• <code>-25 USD 咖啡</code> → 支出25美元，分类：餐饮
-• <code>+5000 工资 MXN</code> → 收入5000比索（币种可在前或后）
-
-<b>💱 支持币种</b>
-• MXN - 墨西哥比索（默认）
-• CNY - 人民币
-• USD - 美元
-• JPY - 日元
-• EUR - 欧元
-• GBP - 英镑
-
-<b>2. 详细记账</b>
-使用 /record 命令，按步骤选择：
-• 收入/支出
-• 分类
-• 金额
-• 备注
-
-<b>3. 查看统计</b>
-/stats - 查看本月收支统计（自动换算为基准币种）
-
-<b>4. 查看记录</b>
-/list - 查看最近记录
-
-<b>提示</b>
-• 支出用负数（-50）或不带符号（50）
-• 收入用正数（+500）
-• 系统会自动识别分类
+    快速记账：直接发送 "-50 餐饮" 或 "50 午餐"
+    默认 Santander / MXN / 支出
     """
+    parsed = parse_amount_text(update.message.text)
+    if not parsed:
+        return  # 不是金额格式，忽略
 
-    await update.message.reply_html(help_text)
+    amount, note = parsed
 
+    # 负数或无符号都视为支出
+    if amount > 0 and not update.message.text.strip().startswith('+'):
+        amount = -amount
+
+    # 尝试自动匹配分类
+    category = note if note else '其他'
+    # 检查note是否恰好是分类名
+    all_cats = EXPENSE_CATS + INCOME_CATS
+    matched_cat = None
+    for cat in all_cats:
+        if cat in note:
+            matched_cat = cat
+            break
+
+    if matched_cat:
+        category = matched_cat
+        # 如果note就是分类名，备注留空
+        if note == matched_cat:
+            note = ''
+
+    result = submit_transaction({
+        'date': date.today().isoformat(),
+        'amount': amount,
+        'currency': DEFAULT_CURRENCY,
+        'account_code': DEFAULT_ACCOUNT,
+        'category': category,
+        'description': note or category,
+        'source': 'telegram'
+    })
+
+    if result.get('success'):
+        await update.message.reply_text(
+            format_success(amount, DEFAULT_CURRENCY, DEFAULT_ACCOUNT, category, note)
+        )
+    else:
+        await update.message.reply_text(f"❌ 记账失败：{result.get('message')}")
+
+# ==================== 流程B：详细记账 ====================
 
 async def record_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """开始详细记账流程"""
-    keyboard = [
-        [
-            InlineKeyboardButton("💸 支出", callback_data="type_expense"),
-            InlineKeyboardButton("💰 收入", callback_data="type_income"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # 初始化交易上下文
-    context.user_data['transaction'] = TransactionContext()
+    """开始详细记账 - 输入金额和备注"""
+    context.user_data['tx'] = {}
 
     await update.message.reply_text(
-        "请选择记账类型：",
-        reply_markup=reply_markup
+        "💰 请输入金额和备注：\n"
+        "例如：<code>50 午餐</code> 或 <code>5000 工资</code>\n\n"
+        "发送 /cancel 取消",
+        parse_mode='HTML'
     )
+    return ST_AMOUNT
 
-    return WAITING_AMOUNT
+
+async def on_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理金额输入 → 选择收入/支出"""
+    parsed = parse_amount_text(update.message.text)
+    if not parsed:
+        await update.message.reply_text("❌ 请输入数字金额，如：<code>50 午餐</code>", parse_mode='HTML')
+        return ST_AMOUNT
+
+    amount, note = parsed
+    context.user_data['tx']['raw_amount'] = abs(amount)
+    context.user_data['tx']['note'] = note
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💸 支出", callback_data="dir_expense"),
+            InlineKeyboardButton("💰 收入", callback_data="dir_income"),
+        ],
+        [InlineKeyboardButton("❌ 取消", callback_data="cancel")],
+    ])
+
+    await update.message.reply_text(
+        f"金额：{abs(amount)}  备注：{note or '-'}\n\n"
+        f"📌 收入还是支出？",
+        reply_markup=keyboard
+    )
+    return ST_DIRECTION
 
 
-async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """选择收入/支出类型"""
+async def on_direction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理收入/支出选择 → 选择账户"""
     query = update.callback_query
     await query.answer()
 
-    tx_type = query.data.split('_')[1]  # type_expense -> expense
-    context.user_data['transaction'].type = tx_type
+    if query.data == 'cancel':
+        await query.edit_message_text("已取消")
+        return ConversationHandler.END
+
+    is_expense = query.data == 'dir_expense'
+    raw = context.user_data['tx']['raw_amount']
+    context.user_data['tx']['amount'] = -raw if is_expense else raw
+    context.user_data['tx']['is_expense'] = is_expense
+
+    # 账户键盘（3列）
+    rows = []
+    row = []
+    for code, name, cur in ACCOUNTS:
+        row.append(InlineKeyboardButton(f"{name}", callback_data=f"acc_{code}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("❌ 取消", callback_data="cancel")])
+
+    direction_text = '支出' if is_expense else '收入'
+    await query.edit_message_text(
+        f"{'💸' if is_expense else '💰'} {direction_text} {raw}\n\n"
+        f"📁 请选择账户：",
+        reply_markup=InlineKeyboardMarkup(rows)
+    )
+    return ST_ACCOUNT
+
+
+async def on_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理账户选择 → 选择币种"""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'cancel':
+        await query.edit_message_text("已取消")
+        return ConversationHandler.END
+
+    account_code = query.data.replace('acc_', '')
+    context.user_data['tx']['account_code'] = account_code
+
+    acc_name, acc_default_cur = ACCOUNT_MAP[account_code]
+
+    # 币种键盘（默认币种排第一）
+    ordered = [acc_default_cur] + [c for c in CURRENCIES if c != acc_default_cur]
+    cur_buttons = [
+        InlineKeyboardButton(
+            f"{'✅ ' if c == acc_default_cur else ''}{c}",
+            callback_data=f"cur_{c}"
+        )
+        for c in ordered
+    ]
 
     await query.edit_message_text(
-        f"{'💸 支出' if tx_type == 'expense' else '💰 收入'} - 请输入金额（仅数字）："
+        f"📁 账户：{acc_name}\n\n"
+        f"💱 请选择币种（默认 {acc_default_cur}）：",
+        reply_markup=InlineKeyboardMarkup([
+            cur_buttons,
+            [InlineKeyboardButton("❌ 取消", callback_data="cancel")],
+        ])
+    )
+    return ST_CURRENCY
+
+
+async def on_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理币种选择 → 选择分类"""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'cancel':
+        await query.edit_message_text("已取消")
+        return ConversationHandler.END
+
+    currency = query.data.replace('cur_', '')
+    context.user_data['tx']['currency'] = currency
+
+    is_expense = context.user_data['tx']['is_expense']
+    cats = EXPENSE_CATS if is_expense else INCOME_CATS
+
+    rows = []
+    row = []
+    for cat in cats:
+        row.append(InlineKeyboardButton(cat, callback_data=f"cat_{cat}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("❌ 取消", callback_data="cancel")])
+
+    tx = context.user_data['tx']
+    acc_name = ACCOUNT_MAP[tx['account_code']][0]
+    direction = '支出' if is_expense else '收入'
+
+    await query.edit_message_text(
+        f"{'💸' if is_expense else '💰'} {direction} {tx['raw_amount']} {currency}\n"
+        f"📁 账户：{acc_name}\n\n"
+        f"📂 请选择分类：",
+        reply_markup=InlineKeyboardMarkup(rows)
+    )
+    return ST_CATEGORY
+
+
+async def on_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理分类选择 → 提交"""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'cancel':
+        await query.edit_message_text("已取消")
+        return ConversationHandler.END
+
+    category = query.data.replace('cat_', '')
+    tx = context.user_data['tx']
+
+    result = submit_transaction({
+        'date': date.today().isoformat(),
+        'amount': tx['amount'],
+        'currency': tx['currency'],
+        'account_code': tx['account_code'],
+        'category': category,
+        'description': tx['note'] or category,
+        'source': 'telegram'
+    })
+
+    if result.get('success'):
+        await query.edit_message_text(
+            format_success(tx['amount'], tx['currency'], tx['account_code'], category, tx['note'])
+        )
+    else:
+        await query.edit_message_text(f"❌ 记账失败：{result.get('message')}")
+
+    return ConversationHandler.END
+
+# ==================== 查询命令 ====================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_html(
+        f"👋 你好 {update.effective_user.mention_html()}！\n\n"
+        f"<b>快速记账</b>：直接发送金额\n"
+        f"  <code>-50 餐饮</code> → Santander/MXN\n"
+        f"  <code>+5000 工资</code> → Santander/MXN收入\n\n"
+        f"<b>详细记账</b>：/record\n"
+        f"  选账户 → 选币种 → 选分类\n\n"
+        f"<b>其他</b>\n"
+        f"  /stats - 本月统计\n"
+        f"  /list - 最近记录"
     )
 
-    return WAITING_CATEGORY
 
-
-async def input_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """输入金额"""
-    text = update.message.text.strip()
-
-    # 验证金额
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    current_month = date.today().strftime('%Y-%m')
     try:
-        amount = float(text)
-        if amount <= 0:
-            await update.message.reply_text("❌ 金额必须大于0，请重新输入：")
-            return WAITING_CATEGORY
-
-        tx: TransactionContext = context.user_data['transaction']
-        tx.amount = amount
-
-        # 显示分类选择
-        categories = CATEGORIES[tx.type]
-        keyboard = []
-        for i in range(0, len(categories), 2):
-            row = [
-                InlineKeyboardButton(categories[i], callback_data=f"cat_{i}")
-            ]
-            if i + 1 < len(categories):
-                row.append(
-                    InlineKeyboardButton(categories[i+1], callback_data=f"cat_{i+1}")
-                )
-            keyboard.append(row)
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"金额：¥{amount:.2f}\n\n请选择分类：",
-            reply_markup=reply_markup
-        )
-
-        return WAITING_NOTE
-
-    except ValueError:
-        await update.message.reply_text("❌ 金额格式错误，请输入数字：")
-        return WAITING_CATEGORY
+        resp = requests.get(f"{API_BASE}/transactions/monthly/{current_month}", timeout=10)
+        if resp.status_code == 200:
+            d = resp.json()
+            text = f"📊 <b>{current_month} 月度统计</b>\n\n"
+            text += f"💰 收入：{d['total_income']}\n"
+            text += f"💸 支出：{d['total_expense']}\n"
+            text += f"💵 结余：{d['net']}\n"
+            if d['by_category']:
+                text += "\n📂 <b>支出分类</b>\n"
+                for c in d['by_category'][:5]:
+                    text += f"  • {c['category']}: {c['amount']} ({c['count']}笔)\n"
+            await update.message.reply_html(text)
+        else:
+            await update.message.reply_text("❌ 获取统计失败")
+    except Exception as e:
+        await update.message.reply_text(f"❌ {e}")
 
 
-async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """选择分类"""
-    query = update.callback_query
-    await query.answer()
-
-    tx: TransactionContext = context.user_data['transaction']
-    cat_index = int(query.data.split('_')[1])
-    category_full = CATEGORIES[tx.type][cat_index]
-
-    # 提取分类名称（去掉emoji）
-    category = category_full.split(' ')[1]
-    tx.category = category
-
-    await query.edit_message_text(
-        f"金额：¥{tx.amount:.2f}\n"
-        f"分类：{category_full}\n\n"
-        f"请输入备注（或发送 /skip 跳过）："
-    )
-
-    return ConversationHandler.END
-
-
-async def input_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """输入备注并提交"""
-    tx: TransactionContext = context.user_data['transaction']
-    tx.note = update.message.text.strip()
-
-    # 提交交易
-    result = await submit_transaction(tx)
-
-    if result['success']:
-        await update.message.reply_text(
-            f"✅ 记账成功！\n\n"
-            f"{'💸 支出' if tx.type == 'expense' else '💰 收入'}：¥{tx.amount:.2f}\n"
-            f"分类：{tx.category}\n"
-            f"备注：{tx.note or '无'}"
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ 记账失败：{result['error']}"
-        )
-
-    # 清理上下文
-    context.user_data.clear()
-
-    return ConversationHandler.END
-
-
-async def skip_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """跳过备注，直接提交"""
-    tx: TransactionContext = context.user_data['transaction']
-
-    # 提交交易
-    result = await submit_transaction(tx)
-
-    if result['success']:
-        await update.message.reply_text(
-            f"✅ 记账成功！\n\n"
-            f"{'💸 支出' if tx.type == 'expense' else '💰 收入'}：¥{tx.amount:.2f}\n"
-            f"分类：{tx.category}"
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ 记账失败：{result['error']}"
-        )
-
-    # 清理上下文
-    context.user_data.clear()
-
-    return ConversationHandler.END
+async def list_recent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        resp = requests.get(f"{API_BASE}/transactions/recent?limit=10", timeout=10)
+        if resp.status_code == 200:
+            txs = resp.json()['transactions']
+            if not txs:
+                await update.message.reply_text("暂无记录")
+                return
+            text = "📝 <b>最近10条</b>\n\n"
+            for t in txs:
+                amt = float(t['amount'])
+                emoji = '💰' if amt > 0 else '💸'
+                text += f"{emoji} {t['date']} | {abs(amt)} {t['currency']} | {t['category']}\n"
+                text += f"   {t.get('account_name', '')} - {t['description'] or '-'}\n\n"
+            await update.message.reply_html(text)
+        else:
+            await update.message.reply_text("❌ 获取失败")
+    except Exception as e:
+        await update.message.reply_text(f"❌ {e}")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """取消记账"""
-    await update.message.reply_text("❌ 已取消记账")
-    context.user_data.clear()
+    await update.message.reply_text("已取消")
     return ConversationHandler.END
 
-
-async def quick_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """快速记账：解析消息并记账"""
-    text = update.message.text.strip()
-
-    # 解析格式：
-    # -50 午餐            (默认MXN)
-    # -50 MXN 午餐        (指定币种)
-    # -50 午餐 CNY        (币种在后面)
-    # +500 工资 USD       (收入指定币种)
-
-    # 提取币种（如果存在）
-    currency = 'MXN'  # 默认币种改为比索
-    note_clean = text
-
-    # 尝试从文本中提取币种
-    currency_match = re.search(r'\b(CNY|USD|MXN|JPY|EUR|GBP)\b', text, re.IGNORECASE)
-    if currency_match:
-        currency = currency_match.group(1).upper()
-        # 移除币种标识
-        note_clean = re.sub(r'\b(CNY|USD|MXN|JPY|EUR|GBP)\b', '', text, flags=re.IGNORECASE).strip()
-
-    # 解析金额和备注
-    match = re.match(r'^([+-]?\d+(?:\.\d+)?)\s*(.*)$', note_clean)
-
-    if not match:
-        return  # 不是记账格式，忽略
-
-    amount_str, note = match.groups()
-    amount = float(amount_str)
-
-    # 判断收入/支出
-    if amount > 0:
-        tx_type = 'income'
-    else:
-        tx_type = 'expense'
-        amount = abs(amount)
-
-    # 自动识别分类
-    category = auto_categorize(note, tx_type)
-
-    # 构造交易
-    tx = TransactionContext()
-    tx.amount = amount
-    tx.type = tx_type
-    tx.category = category
-    tx.note = note
-    tx.currency = currency  # 存储币种
-
-    # 提交
-    result = await submit_transaction(tx)
-
-    if result['success']:
-        # 获取币种符号
-        currency_symbol = get_currency_symbol(currency)
-        await update.message.reply_text(
-            f"✅ 记账成功！\n\n"
-            f"{'💸 支出' if tx_type == 'expense' else '💰 收入'}：{currency_symbol}{amount:.2f} ({currency})\n"
-            f"分类：{category}\n"
-            f"备注：{note or '无'}"
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ 记账失败：{result['error']}"
-        )
-
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """查看统计"""
-    month = date.today().strftime('%Y-%m')
-
-    try:
-        response = requests.get(f"{API_BASE}/transactions/monthly/{month}", timeout=5)
-        response.raise_for_status()
-        data = response.json()
-
-        total_income = data.get('total_income', 0)
-        total_expense = data.get('total_expense', 0)
-        net = data.get('net', 0)
-
-        stats_text = f"""
-📊 <b>{month} 月度统计</b>
-
-💰 总收入：¥{total_income:.2f}
-💸 总支出：¥{total_expense:.2f}
-💵 结余：¥{net:.2f}
-
-{'📈 收大于支' if net > 0 else '📉 支大于收' if net < 0 else '⚖️ 收支平衡'}
-        """
-
-        await update.message.reply_html(stats_text)
-
-    except Exception as e:
-        logger.error(f"获取统计失败: {e}")
-        await update.message.reply_text("❌ 获取统计失败，请检查后端API是否运行")
-
-
-async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """查看最近记录"""
-    try:
-        response = requests.get(f"{API_BASE}/transactions/recent?limit=10", timeout=5)
-        response.raise_for_status()
-        records = response.json()
-
-        if not records:
-            await update.message.reply_text("📝 暂无记录")
-            return
-
-        list_text = "<b>📋 最近记录</b>\n\n"
-
-        for record in records:
-            amount = record['amount']
-            symbol = '💰' if amount > 0 else '💸'
-            sign = '+' if amount > 0 else ''
-
-            list_text += (
-                f"{symbol} {sign}¥{amount:.2f} - {record['category']}\n"
-                f"   {record.get('description', '无备注')} ({record['date']})\n\n"
-            )
-
-        await update.message.reply_html(list_text)
-
-    except Exception as e:
-        logger.error(f"获取记录失败: {e}")
-        await update.message.reply_text("❌ 获取记录失败，请检查后端API是否运行")
-
-
-async def submit_transaction(tx: TransactionContext) -> dict:
-    """提交交易到后端API"""
-    try:
-        # 构造请求数据
-        data = {
-            'amount': tx.amount if tx.type == 'income' else -tx.amount,
-            'category': tx.category,
-            'description': tx.note or None,
-            'date': tx.date,
-            'currency': tx.currency,  # 使用实际币种
-            'account': 'telegram'
-        }
-
-        response = requests.post(
-            f"{API_BASE}/transactions",
-            json=data,
-            timeout=5
-        )
-        response.raise_for_status()
-
-        return {'success': True}
-
-    except Exception as e:
-        logger.error(f"提交交易失败: {e}")
-        return {'success': False, 'error': str(e)}
-
-
-def get_currency_symbol(currency: str) -> str:
-    """获取币种符号"""
-    symbols = {
-        'CNY': '¥',
-        'JPY': '¥',
-        'USD': '$',
-        'MXN': 'MXN$',
-        'EUR': '€',
-        'GBP': '£'
-    }
-    return symbols.get(currency, currency + ' ')
-
-
-def auto_categorize(note: str, tx_type: str) -> str:
-    """根据备注自动识别分类"""
-    note_lower = note.lower()
-
-    if tx_type == 'expense':
-        if any(kw in note_lower for kw in ['午餐', '晚餐', '早餐', '餐', '饭', '吃', '咖啡', '奶茶']):
-            return '餐饮'
-        elif any(kw in note_lower for kw in ['打车', '地铁', '公交', '出租', '滴滴', '交通']):
-            return '交通'
-        elif any(kw in note_lower for kw in ['超市', '淘宝', '京东', '购物', '买']):
-            return '购物'
-        elif any(kw in note_lower for kw in ['电影', '游戏', '娱乐', 'ktv']):
-            return '娱乐'
-        elif any(kw in note_lower for kw in ['房租', '水电', '物业', '居住']):
-            return '居住'
-        elif any(kw in note_lower for kw in ['药', '医院', '医疗', '看病']):
-            return '医疗'
-        elif any(kw in note_lower for kw in ['书', '课程', '培训', '教育']):
-            return '教育'
-        elif any(kw in note_lower for kw in ['话费', '流量', '宽带', '通讯']):
-            return '通讯'
-        else:
-            return '其他'
-    else:  # income
-        if any(kw in note_lower for kw in ['工资', '薪水']):
-            return '工资'
-        elif any(kw in note_lower for kw in ['奖金', '年终奖']):
-            return '奖金'
-        elif any(kw in note_lower for kw in ['红包', '转账']):
-            return '红包'
-        elif any(kw in note_lower for kw in ['理财', '投资', '股票', '基金']):
-            return '投资'
-        else:
-            return '其他'
-
+# ==================== 主函数 ====================
 
 def main():
-    """主函数"""
     if not BOT_TOKEN:
-        logger.error("未设置 TELEGRAM_BOT_TOKEN 环境变量")
+        logger.error("缺少 TELEGRAM_BOT_TOKEN")
         return
 
-    # 创建应用
-    application = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
 
-    # 详细记账对话处理器
-    record_conv_handler = ConversationHandler(
+    # 详细记账对话
+    record_handler = ConversationHandler(
         entry_points=[CommandHandler('record', record_start)],
         states={
-            WAITING_AMOUNT: [CallbackQueryHandler(select_type, pattern=r'^type_')],
-            WAITING_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_amount)],
-            WAITING_NOTE: [
-                CallbackQueryHandler(select_category, pattern=r'^cat_'),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, input_note),
-                CommandHandler('skip', skip_note),
-            ],
+            ST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_amount)],
+            ST_DIRECTION: [CallbackQueryHandler(on_direction)],
+            ST_ACCOUNT: [CallbackQueryHandler(on_account)],
+            ST_CURRENCY: [CallbackQueryHandler(on_currency)],
+            ST_CATEGORY: [CallbackQueryHandler(on_category)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=False,
     )
 
-    # 注册处理器
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(record_conv_handler)
-    application.add_handler(CommandHandler('stats', stats_command))
-    application.add_handler(CommandHandler('list', list_command))
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('stats', stats))
+    app.add_handler(CommandHandler('list', list_recent))
+    app.add_handler(record_handler)
 
-    # 快速记账（处理所有文本消息）
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, quick_record)
-    )
+    # 快速记账：匹配以数字或+-开头的消息
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r'^\s*[+-]?\d'),
+        quick_record
+    ))
 
-    # 启动
-    logger.info("🤖 PAMS Telegram Bot 启动中...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("Bot started")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == '__main__':
