@@ -47,6 +47,7 @@ REASON_CODES = {
     "RC_S001_SENT_NEUTRAL": "Sentiment: neutral",
     "RC_S101_SENT_HOT": "Sentiment: hot (reduce size)",
     "RC_S102_SENT_PANIC": "Sentiment: panic (tighten rules)",
+    "RC_S103_CROWDED_TRADE": "Sentiment: top-20 hot stock (crowded trade warning)",
     # Hard Veto
     "RC_V001_BREAK_MA60_VOL_SPIKE": "Hard veto: break MA60 with volume spike",
     "RC_V002_CLOSE_BELOW_PULLBACK_BAND": "Hard veto: close below pullback zone lower band",

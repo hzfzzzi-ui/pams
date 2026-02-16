@@ -81,11 +81,13 @@ def fetch_fundamental_akshare(symbol: str) -> Dict[str, Any]:
 
 
 def _safe_float(val: Any) -> Optional[float]:
-    """安全转换为 float，失败返回 None。"""
+    """安全转换为 float，NaN 和失败返回 None。"""
     if val is None:
         return None
     try:
-        return float(val)
+        import math
+        f = float(val)
+        return None if math.isnan(f) else f
     except (ValueError, TypeError):
         return None
 
@@ -197,23 +199,81 @@ def check_cashflow_trend(
 
 # ==================== 行业趋势 ====================
 
+_INDUSTRY_CACHE: Dict[str, Tuple[float, float]] = {}
+
+
+def _get_stock_industry(symbol: str) -> Optional[str]:
+    """通过 AkShare 获取个股所属行业板块名称。"""
+    try:
+        import akshare as ak
+        code = _to_akshare_code(symbol)
+        df = ak.stock_individual_info_em(symbol=code)
+        if df is None or df.empty:
+            return None
+        row = df[df["item"] == "行业"]
+        if row.empty:
+            return None
+        return str(row.iloc[0]["value"])
+    except Exception as e:
+        logger.warning("%s: 行业信息获取失败: %s", symbol, e)
+        return None
+
+
+def _get_industry_ma(industry_name: str) -> Optional[Tuple[float, float]]:
+    """获取行业板块指数的 MA20 和 MA60，带会话内缓存。"""
+    if industry_name in _INDUSTRY_CACHE:
+        return _INDUSTRY_CACHE[industry_name]
+
+    try:
+        import akshare as ak
+        df = ak.stock_board_industry_hist_em(
+            symbol=industry_name, period="日k", adjust="qfq",
+        )
+        if df is None or len(df) < 60:
+            return None
+
+        closes = df["收盘"].astype(float).tolist()
+        ma20 = sum(closes[:20]) / 20
+        ma60 = sum(closes[:60]) / 60
+
+        _INDUSTRY_CACHE[industry_name] = (ma20, ma60)
+        return (ma20, ma60)
+
+    except Exception as e:
+        logger.warning("行业 %s MA 计算失败: %s", industry_name, e)
+        return None
+
+
 def check_industry_regime(
     conn,
     symbol: str,
 ) -> Tuple[bool, List[str]]:
     """
-    简版行业趋势检查。
+    行业趋势检查。
 
-    从 pams_ohlcv_daily 获取标的行业指数代理的 MA20/MA60，
-    若 MA20 < MA60 视为行业下行趋势。
+    通过 AkShare 获取个股所属行业板块的指数数据，
+    计算 MA20/MA60，若 MA20 < MA60 视为行业下行趋势。
 
-    当前简版: 无行业映射表，返回 (False, [])，不阻断。
-    后续可通过 AkShare 行业分类接口补全。
+    Returns:
+        (downtrend_found, reason_codes)
     """
-    # TODO: 实现行业指数代理检查
-    # 1. 从 symbol → industry_code 映射
-    # 2. 获取行业指数 OHLCV
-    # 3. 计算 MA20/MA60，判断趋势
+    industry = _get_stock_industry(symbol)
+    if not industry:
+        return False, []
+
+    ma_result = _get_industry_ma(industry)
+    if not ma_result:
+        return False, []
+
+    ma20, ma60 = ma_result
+
+    if ma20 < ma60:
+        logger.info(
+            "%s: 行业 %s 下行趋势 (MA20=%.1f < MA60=%.1f)",
+            symbol, industry, ma20, ma60,
+        )
+        return True, ["RC_F102_INDUSTRY_DOWNTREND"]
+
     return False, []
 
 
@@ -248,7 +308,20 @@ def refresh_fundamental(conn, symbol: str) -> Dict[str, Any]:
     reason_codes = [*reason_codes, *cf_reasons]
 
     # 行业趋势
-    ind_downtrend, ind_reasons = check_industry_regime(conn, symbol)
+    industry_name = _get_stock_industry(symbol)
+    ind_downtrend = False
+    ind_reasons: List[str] = []
+    if industry_name:
+        ma_result = _get_industry_ma(industry_name)
+        if ma_result:
+            ma20, ma60 = ma_result
+            if ma20 < ma60:
+                ind_downtrend = True
+                ind_reasons = ["RC_F102_INDUSTRY_DOWNTREND"]
+                logger.info(
+                    "%s: 行业 %s 下行趋势 (MA20=%.1f < MA60=%.1f)",
+                    symbol, industry_name, ma20, ma60,
+                )
     reason_codes = [*reason_codes, *ind_reasons]
 
     # 写入 pams_fundamental_snapshot
@@ -274,25 +347,30 @@ def refresh_fundamental(conn, symbol: str) -> Dict[str, Any]:
                 op_cashflow_ttm = EXCLUDED.op_cashflow_ttm,
                 net_profit_ttm = EXCLUDED.net_profit_ttm,
                 quality_score = EXCLUDED.quality_score,
-                cashflow_deterioration = EXCLUDED.cashflow_deterioration
+                cashflow_deterioration = EXCLUDED.cashflow_deterioration,
+                industry_code = EXCLUDED.industry_code,
+                industry_trend = EXCLUDED.industry_trend
         """, (
             symbol, today,
             data.get("roe"), data.get("gross_margin"), data.get("debt_ratio"),
             data.get("op_cashflow_ttm"), data.get("net_profit_ttm"),
             quality_score, cf_deterioration,
-            None, None,
+            industry_name, "DOWN" if ind_downtrend else "UP",
         ))
         conn.commit()
 
     logger.info(
-        "%s: 基本面刷新完成 — quality=%.1f, cf_deterioration=%s",
+        "%s: 基本面刷新完成 — quality=%.1f, cf=%s, industry=%s(%s)",
         symbol, quality_score, cf_deterioration,
+        industry_name, "DOWN" if ind_downtrend else "UP",
     )
 
     return {
         "symbol": symbol,
         "quality_score": quality_score,
         "cashflow_deterioration": cf_deterioration,
+        "industry_downtrend": ind_downtrend,
+        "industry_name": industry_name,
         "roe": data.get("roe"),
         "gross_margin": data.get("gross_margin"),
         "debt_ratio": data.get("debt_ratio"),

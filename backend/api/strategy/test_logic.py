@@ -264,7 +264,14 @@ def main():
         reason_codes = add_reason(reason_codes, "RC_E002_MANUAL_CONFIRM_REQUIRED")
 
         flow_score = flow.get("flow_score", 50)
-        confirm_score = round(50 + flow_score * 0.5, 1)
+        quality_score = 50.0  # test 简化: 无基本面数据时默认 50
+        sent_score = 50.0     # test 简化: 无情绪数据时默认 50
+        w_flow = satellite.get("confirm_score", {}).get("weights", {}).get("flow", 0.5)
+        w_fund = satellite.get("confirm_score", {}).get("weights", {}).get("fundamental", 0.2)
+        w_sent = satellite.get("confirm_score", {}).get("weights", {}).get("sent", 0.3)
+        confirm_score = round(
+            flow_score * w_flow + quality_score * w_fund + sent_score * w_sent, 1,
+        )
 
         print(f"  仓位: {position_size}股 × ¥{entry_price:.3f} = ¥{pos_value:,.0f} "
               f"({pos_value_pct*100:.1f}%)")

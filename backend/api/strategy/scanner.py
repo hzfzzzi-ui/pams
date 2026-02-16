@@ -31,7 +31,7 @@ from .cooldown import check_cooldown
 from .event_monitor import check_event_veto, check_suspension
 from .fundamental import refresh_fundamental
 from .hard_veto import check_hard_veto
-from .sentiment import get_sent_score, refresh_sentiment
+from .sentiment import check_symbol_heat, fetch_social_heat, get_sent_score, refresh_sentiment
 from .risk_sizing import (
     calculate_position_size,
     check_concurrent_risk,
@@ -435,6 +435,11 @@ def run_eod_scan(conn) -> Dict[str, Any]:
             reason_codes = add_reason(reason_codes, "RC_S102_SENT_PANIC")
         else:
             reason_codes = add_reason(reason_codes, "RC_S001_SENT_NEUTRAL")
+
+        # 个股热度检查 (拥挤交易预警)
+        heat_rank = check_symbol_heat(symbol)
+        if heat_rank is not None and heat_rank <= 20:
+            reason_codes = add_reason(reason_codes, "RC_S103_CROWDED_TRADE")
 
         # HOT 模式 → 仓位减半 (保持 100 股整手)
         if global_sent_state == "HOT":
