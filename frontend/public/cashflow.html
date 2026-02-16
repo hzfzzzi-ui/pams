@@ -4,37 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAMS · 收支分析</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
   <style>
-    .month-selector{display:flex;align-items:center;gap:12px;margin-bottom:16px;justify-content:center}
-    .month-selector button{padding:6px 16px;background:rgba(42,37,32,.45);border:1px solid rgba(42,37,32,.7);color:var(--text);border-radius:4px;cursor:pointer;font-size:14px}
-    .month-selector button:hover{background:rgba(42,37,32,.7);border-color:var(--accent)}
-    .month-selector span{font-size:18px;font-weight:600;color:var(--text);min-width:100px;text-align:center}
     .amount-income{color:var(--good)}
     .amount-expense{color:var(--bad)}
     .chart-container{height:300px;margin-top:16px}
-    .tab-buttons{display:flex;gap:8px;margin-bottom:12px}
-    .tab-btn{padding:6px 16px;background:rgba(42,37,32,.45);border:1px solid rgba(42,37,32,.7);color:var(--muted);border-radius:4px;cursor:pointer;font-size:13px;transition:all .2s}
-    .tab-btn:hover{background:rgba(42,37,32,.7);border-color:var(--accent)}
-    .tab-btn.active{background:rgba(42,37,32,.7);border-color:var(--accent);color:var(--text);font-weight:600}
-    .formLabel{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
-    .formInput{width:100%;padding:8px;background:rgba(42,37,32,.45);border:1px solid rgba(42,37,32,.7);color:var(--text);border-radius:4px}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div>
-        <div class="brand">收支分析</div>
-        <div class="muted">查看月度收支统计和交易记录</div>
-      </div>
-      <div class="right">
-        <a class="pill" href="index.html">返回 Dashboard</a>
-      </div>
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">收支分析</span>
     </div>
+    <div class="status-right">
+      <a class="pill" href="index.html">Dashboard</a>
+    </div>
+  </div>
 
-    <div class="nav" style="margin-bottom:12px">
+  <div class="wrap">
+    <div class="nav">
       <a data-nav href="index.html">总览</a>
       <a data-nav href="strategy.html">策略</a>
       <a data-nav href="watchlist.html">观察池</a>
@@ -42,7 +36,7 @@
       <a data-nav href="cashflow.html">收支</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(196,62,62,.6)"></div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
     <!-- 月份选择器 -->
     <div class="month-selector">
@@ -53,7 +47,7 @@
 
     <!-- 月度 KPI -->
     <div class="card">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+      <div class="kpiGrid">
         <div class="kpi">
           <div class="kpi-label">总收入</div>
           <div class="kpi-value income" id="kpiIncome">¥0.00</div>
@@ -70,7 +64,7 @@
     </div>
 
     <!-- 图表区域 - 两列布局 -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+    <div class="grid2" style="margin-bottom:20px">
       <!-- 开支统计 -->
       <div class="card">
         <div class="sectionTitle">
@@ -97,7 +91,7 @@
     <!-- 添加交易记录 -->
     <div class="card">
       <div class="sectionTitle"><h3>添加交易</h3></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px">
+      <div class="kpiGrid" style="margin-top:12px">
         <div>
           <label class="formLabel">金额</label>
           <input type="number" id="txAmount" placeholder="输入金额" step="0.01" class="formInput">

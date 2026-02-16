@@ -4,22 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAMS · 持仓</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div>
-        <div class="brand">持仓明细</div>
-        <div class="muted">最新快照：<span id="asof">--</span></div>
-      </div>
-      <div class="right">
-        <a class="pill" href="index.html">返回 Dashboard</a>
-      </div>
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">持仓明细</span>
+      <span class="status-item" id="asof">--</span>
     </div>
+    <div class="status-right">
+      <a class="pill" href="index.html">Dashboard</a>
+    </div>
+  </div>
 
-    <div class="nav" style="margin-bottom:12px">
+  <div class="wrap">
+    <div class="nav">
       <a data-nav href="index.html">总览</a>
       <a data-nav href="strategy.html">策略</a>
       <a data-nav href="watchlist.html">观察池</a>
@@ -27,12 +32,12 @@
       <a data-nav href="cashflow.html">收支</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(196,62,62,.6)"></div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
     <!-- 持仓汇总统计 -->
     <div class="card">
       <h3>持仓汇总</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px;margin-top:12px">
+      <div class="kpiGrid" style="margin-bottom:20px;margin-top:12px">
         <div class="kpi">
           <div class="kpi-label">当前市值</div>
           <div class="kpi-value" id="grandTotalValue">--</div>
@@ -98,7 +103,7 @@
       </div>
 
       <!-- 汇总统计 -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpiGrid" style="margin-bottom:20px">
         <div class="kpi">
           <div class="kpi-label">当前市值</div>
           <div class="kpi-value" id="totalValueAStock">--</div>
@@ -155,7 +160,7 @@
       </div>
 
       <!-- 汇总统计 -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpiGrid" style="margin-bottom:20px">
         <div class="kpi">
           <div class="kpi-label">当前市值</div>
           <div class="kpi-value" id="totalValueUSStock">--</div>
@@ -212,7 +217,7 @@
       </div>
 
       <!-- 汇总统计 -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpiGrid" style="margin-bottom:20px">
         <div class="kpi">
           <div class="kpi-label">当前市值</div>
           <div class="kpi-value" id="totalValueCrypto">--</div>
@@ -268,7 +273,7 @@
       </div>
 
       <!-- 汇总统计 -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpiGrid" style="margin-bottom:20px">
         <div class="kpi">
           <div class="kpi-label">当前市值</div>
           <div class="kpi-value" id="totalValuePreciousMetal">--</div>
@@ -324,7 +329,7 @@
       </div>
 
       <!-- 汇总统计 -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpiGrid" style="margin-bottom:20px">
         <div class="kpi">
           <div class="kpi-label">当前市值</div>
           <div class="kpi-value" id="totalValueOther">--</div>

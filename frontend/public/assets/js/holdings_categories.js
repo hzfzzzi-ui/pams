@@ -108,11 +108,11 @@ async function main(){
     document.getElementById('asof').textContent = asof;
 
     const categories = [
-      { label: 'A股', color: '#b33b3b', ...renderSection(aStock.rows || [], renderRowStock, 'rowsAStock', 'countAStock', 'totalValueAStock', 'totalPnlAStock', 'dailyPnlAStock', 'countKpiAStock', 'holdingPnlAStock', fxRates) },
-      { label: '美股', color: '#c9a84c', ...renderSection(usStock.rows || [], renderRowStock, 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock', 'holdingPnlUSStock', fxRates) },
-      { label: '加密', color: '#8a6d3b', ...renderSection(crypto.rows || [], renderRowCrypto, 'rowsCrypto', 'countCrypto', 'totalValueCrypto', 'totalPnlCrypto', 'dailyPnlCrypto', 'countKpiCrypto', 'holdingPnlCrypto', fxRates) },
-      { label: '贵金属', color: '#d4a24e', ...renderSection(preciousMetal.rows || [], renderRowCrypto, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates) },
-      { label: '其他', color: '#6b5b4e', ...renderSection(other.rows || [], renderRowOther, 'rowsOther', 'countOther', 'totalValueOther', 'totalPnlOther', 'dailyPnlOther', 'countKpiOther', 'holdingPnlOther', fxRates) },
+      { label: 'A股', color: '#f85149', ...renderSection(aStock.rows || [], renderRowStock, 'rowsAStock', 'countAStock', 'totalValueAStock', 'totalPnlAStock', 'dailyPnlAStock', 'countKpiAStock', 'holdingPnlAStock', fxRates) },
+      { label: '美股', color: '#58a6ff', ...renderSection(usStock.rows || [], renderRowStock, 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock', 'holdingPnlUSStock', fxRates) },
+      { label: '加密', color: '#bc8cff', ...renderSection(crypto.rows || [], renderRowCrypto, 'rowsCrypto', 'countCrypto', 'totalValueCrypto', 'totalPnlCrypto', 'dailyPnlCrypto', 'countKpiCrypto', 'holdingPnlCrypto', fxRates) },
+      { label: '贵金属', color: '#d29922', ...renderSection(preciousMetal.rows || [], renderRowCrypto, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates) },
+      { label: '其他', color: '#6e7681', ...renderSection(other.rows || [], renderRowOther, 'rowsOther', 'countOther', 'totalValueOther', 'totalPnlOther', 'dailyPnlOther', 'countKpiOther', 'holdingPnlOther', fxRates) },
     ];
 
     // 汇总统计（所有值已通过FX转换为CNY）
@@ -150,7 +150,7 @@ async function main(){
         datasets: [{
           data: pieData.map(c => c.totalValue),
           backgroundColor: pieData.map(c => c.color),
-          borderColor: '#141414',
+          borderColor: '#161a1e',
           borderWidth: 2
         }]
       },
@@ -158,7 +158,7 @@ async function main(){
         responsive: true,
         maintainAspectRatio: true,
         plugins: {
-          legend: { position: 'bottom', labels: { color: '#e8e4dc', padding: 16 } },
+          legend: { position: 'bottom', labels: { color: '#e1e4e8', padding: 16 } },
           tooltip: {
             callbacks: {
               label: (ctx) => {
@@ -172,11 +172,11 @@ async function main(){
     });
 
     await Promise.all([
-      createLineChart('chartAStock', '/holdings/history/A股', '#b33b3b', 'A股市值', 'daily'),
-      createLineChart('chartUSStock', '/holdings/history/美股', '#c9a84c', '美股市值', 'daily'),
-      createLineChart('chartCrypto', '/holdings/history/加密', '#8a6d3b', '加密市值', 'daily'),
-      createLineChart('chartPreciousMetal', '/holdings/history/贵金属', '#d4a24e', '贵金属市值', 'daily'),
-      createLineChart('chartOther', '/holdings/history/其他', '#6b5b4e', '其他市值', 'weekly')
+      createLineChart('chartAStock', '/holdings/history/A股', '#f85149', 'A股市值', 'daily'),
+      createLineChart('chartUSStock', '/holdings/history/美股', '#58a6ff', '美股市值', 'daily'),
+      createLineChart('chartCrypto', '/holdings/history/加密', '#bc8cff', '加密市值', 'daily'),
+      createLineChart('chartPreciousMetal', '/holdings/history/贵金属', '#d29922', '贵金属市值', 'daily'),
+      createLineChart('chartOther', '/holdings/history/其他', '#6e7681', '其他市值', 'weekly')
     ]);
 
   } catch (err) {

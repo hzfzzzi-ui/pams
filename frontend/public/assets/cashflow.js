@@ -145,16 +145,16 @@ function renderCategoryChart(categories) {
     }
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#8a8578';
-    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#6e7681';
+    ctx.font = "14px 'Inter', sans-serif";
     ctx.textAlign = 'center';
     ctx.fillText('该时段暂无支出数据', canvas.width / 2, canvas.height / 2);
     return;
   }
 
   const colors = [
-    '#b33b3b', '#c9a84c', '#8a6d3b', '#6b5b4e',
-    '#d46a6a', '#a08050', '#7a6e62', '#4a3f35'
+    '#f85149', '#58a6ff', '#bc8cff', '#d29922',
+    '#3fb950', '#6e7681', '#da3633', '#1f6feb'
   ];
 
   // 如果图表已存在，使用update方法（性能优化）
@@ -174,7 +174,7 @@ function renderCategoryChart(categories) {
       datasets: [{
         data: categories.map(c => c.amount),
         backgroundColor: colors.slice(0, categories.length),
-        borderColor: '#0a0a0a',
+        borderColor: '#0b0e11',
         borderWidth: 2
       }]
     },
@@ -186,7 +186,7 @@ function renderCategoryChart(categories) {
         legend: {
           position: 'right',
           labels: {
-            color: '#e8e4dc',
+            color: '#e1e4e8',
             font: { size: 12 },
             padding: 12
           }
@@ -222,8 +222,8 @@ async function renderDailyChart() {
     if (!dailyData || dailyData.length === 0) {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#8a8578';
-      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#6e7681';
+      ctx.font = "14px 'Inter', sans-serif";
       ctx.textAlign = 'center';
       ctx.fillText('本月暂无数据', canvas.width / 2, canvas.height / 2);
       return;
@@ -237,16 +237,16 @@ async function renderDailyChart() {
           {
             label: '收入',
             data: dailyData.map(d => d.income || 0),
-            borderColor: '#c9a84c',
-            backgroundColor: 'rgba(201, 168, 76, 0.1)', // 降低透明度
+            borderColor: '#3fb950',
+            backgroundColor: 'rgba(63, 185, 80, 0.08)', // 降低透明度
             tension: 0.3, // 平滑曲线
             fill: true
           },
           {
             label: '支出',
             data: dailyData.map(d => d.expense || 0),
-            borderColor: '#c43e3e',
-            backgroundColor: 'rgba(196, 62, 62, 0.1)',
+            borderColor: '#f85149',
+            backgroundColor: 'rgba(248, 81, 73, 0.08)',
             tension: 0.3,
             fill: true
           }
@@ -286,7 +286,7 @@ async function renderDailyChart() {
           legend: {
             position: 'top',
             labels: {
-              color: '#e8e4dc',
+              color: '#e1e4e8',
               font: { size: 12 },
               padding: 12,
               usePointStyle: true
@@ -304,15 +304,15 @@ async function renderDailyChart() {
         },
         scales: {
           x: {
-            ticks: { color: '#8a8578' },
-            grid: { color: 'rgba(42, 37, 32, 0.35)' }
+            ticks: { color: '#6e7681' },
+            grid: { color: 'rgba(110, 118, 129, 0.12)' }
           },
           y: {
             ticks: {
-              color: '#8a8578',
+              color: '#6e7681',
               callback: (value) => '¥' + fmt2(value)
             },
-            grid: { color: 'rgba(42, 37, 32, 0.35)' }
+            grid: { color: 'rgba(110, 118, 129, 0.12)' }
           }
         }
       }
@@ -365,24 +365,24 @@ async function renderMonthlyChart() {
           {
             label: '收入',
             data: monthlyData.map(d => d.total_income || 0),
-            borderColor: '#c9a84c',
-            backgroundColor: 'rgba(201, 168, 76, 0.1)',
+            borderColor: '#3fb950',
+            backgroundColor: 'rgba(63, 185, 80, 0.08)',
             tension: 0.3,
             fill: true
           },
           {
             label: '支出',
             data: monthlyData.map(d => d.total_expense || 0),
-            borderColor: '#c43e3e',
-            backgroundColor: 'rgba(196, 62, 62, 0.1)',
+            borderColor: '#f85149',
+            backgroundColor: 'rgba(248, 81, 73, 0.08)',
             tension: 0.3,
             fill: true
           },
           {
             label: '结余',
             data: monthlyData.map(d => d.net || 0),
-            borderColor: '#b33b3b',
-            backgroundColor: 'rgba(179, 59, 59, 0.1)',
+            borderColor: '#58a6ff',
+            backgroundColor: 'rgba(88, 166, 255, 0.08)',
             tension: 0.3,
             fill: true,
             borderDash: [5, 5]
@@ -421,7 +421,7 @@ async function renderMonthlyChart() {
           legend: {
             position: 'top',
             labels: {
-              color: '#e8e4dc',
+              color: '#e1e4e8',
               font: { size: 12 },
               padding: 12,
               usePointStyle: true
@@ -439,15 +439,15 @@ async function renderMonthlyChart() {
         },
         scales: {
           x: {
-            ticks: { color: '#8a8578' },
-            grid: { color: 'rgba(42, 37, 32, 0.35)' }
+            ticks: { color: '#6e7681' },
+            grid: { color: 'rgba(110, 118, 129, 0.12)' }
           },
           y: {
             ticks: {
-              color: '#8a8578',
+              color: '#6e7681',
               callback: (value) => '¥' + fmt2(value)
             },
-            grid: { color: 'rgba(42, 37, 32, 0.35)' }
+            grid: { color: 'rgba(110, 118, 129, 0.12)' }
           }
         }
       }
@@ -482,7 +482,7 @@ async function loadRecentTransactions() {
     tbody.innerHTML = '';
 
     if (!transactions || transactions.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#8a8578;padding:20px;">暂无交易记录</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6e7681;padding:20px;">暂无交易记录</td></tr>';
       document.getElementById('txNote').textContent = '';
       return;
     }
@@ -574,7 +574,7 @@ async function addTransaction() {
 function showAddTxMessage(msg, type) {
   const msgEl = document.getElementById('addTxMsg');
   msgEl.textContent = msg;
-  msgEl.style.color = type === 'success' ? '#c9a84c' : '#c43e3e';
+  msgEl.style.color = type === 'success' ? '#3fb950' : '#f85149';
 
   // 3秒后清除消息
   setTimeout(() => {

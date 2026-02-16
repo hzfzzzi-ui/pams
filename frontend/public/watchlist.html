@@ -4,21 +4,25 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAMS · 观察池</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div>
-        <div class="brand">观察池 / 决策树承载页</div>
-        <div class="muted">这里承载候选池/观察池/买入区间/反证条件（将由筛选器自动填充）。</div>
-      </div>
-      <div class="right">
-        <a class="pill" href="index.html">返回 Dashboard</a>
-      </div>
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">观察池</span>
     </div>
+    <div class="status-right">
+      <a class="pill" href="index.html">Dashboard</a>
+    </div>
+  </div>
 
-    <div class="nav" style="margin-bottom:12px">
+  <div class="wrap">
+    <div class="nav">
       <a data-nav href="index.html">总览</a>
       <a data-nav href="strategy.html">策略</a>
       <a data-nav href="watchlist.html">观察池</a>
@@ -26,20 +30,96 @@
       <a data-nav href="cashflow.html">收支</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(196,62,62,.6)"></div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
-    <div class="card">
-      <div class="sectionTitle"><h3>观察池列表</h3><div class="muted">来自 pams_watchlist</div></div>
-      <div class="tableWrap">
-        <table>
+    <!-- 入池逻辑说明 (可折叠) -->
+    <div class="card" id="entryLogicGuide" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle" style="cursor:pointer" id="entryLogicToggle">
+        <h3>入池逻辑说明 ▸</h3>
+        <div class="muted">观察池从哪来、怎么筛、状态含义</div>
+      </div>
+      <div id="entryLogicBody" style="display:none;margin-top:10px"></div>
+    </div>
+
+    <!-- 扫描控制 -->
+    <div class="card" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <div>
+          <h3 style="margin:0">扫描控制</h3>
+          <div class="muted">手动扫描入池 / 退出检查 | 自动: 周五收盘后入池、每日退出检查</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="btnWlScan" class="pill" style="background:var(--accent);color:#000;border:none;padding:6px 16px;cursor:pointer;font-weight:600;font-size:var(--fs-sm)">扫描入池</button>
+          <button id="btnExitCheck" class="pill" style="background:var(--warn);color:#000;border:none;padding:6px 16px;cursor:pointer;font-weight:600;font-size:var(--fs-sm)">退出检查</button>
+        </div>
+      </div>
+      <div id="scanResult" style="display:none;margin-top:8px"></div>
+    </div>
+
+    <!-- 市场快报 -->
+    <div class="grid2" id="marketBrief" style="margin-bottom:var(--sp-3)"></div>
+
+    <!-- 策略候选 -->
+    <div class="card" id="wlCandidates" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>策略候选</h3>
+        <div class="muted">IPS 筛选通过、不在当前持仓中的候选标的</div>
+      </div>
+      <div class="tableWrap" style="margin-top:10px">
+        <table class="tableWide">
           <thead>
             <tr>
-              <th>市场</th><th>代码</th><th>名称</th><th>状态</th><th>核心观点</th>
+              <th style="width:80px">代码</th>
+              <th style="width:100px">名称</th>
+              <th style="width:70px">阶段</th>
+              <th class="num" style="width:70px">收盘</th>
+              <th class="num" style="width:70px">入场</th>
+              <th class="num" style="width:70px">止损</th>
+              <th class="num" style="width:60px">评分</th>
+            </tr>
+          </thead>
+          <tbody id="wlCandidateRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 事件监控 -->
+    <div class="card" id="wlEvents" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>事件监控</h3>
+        <div class="muted">最近公告与风险事件</div>
+      </div>
+      <div id="eventList" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="sectionTitle">
+        <h3>观察池列表</h3>
+        <div class="muted">共 <span id="wlCount">0</span> 只 | 来自 pams_watchlist</div>
+      </div>
+      <div class="tableWrap" style="margin-top:10px">
+        <table class="tableWide">
+          <thead>
+            <tr>
+              <th style="width:60px">市场</th>
+              <th style="width:90px">代码</th>
+              <th style="width:90px">名称</th>
+              <th style="width:70px">状态</th>
+              <th>核心观点</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- 退出历史 -->
+    <div class="card" style="margin-top:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>退出历史</h3>
+        <div class="muted">最近移出观察池的标的及退出原因</div>
+      </div>
+      <div id="exitHistory" style="margin-top:10px"></div>
     </div>
   </div>
 

@@ -177,8 +177,8 @@ function renderAssetStructure(byClass, children) {
     if (window.__pie) window.__pie.destroy();
     window.__pie = new Chart(pieEl, {
       type: 'doughnut',
-      data: { labels, datasets: [{ data, backgroundColor: ['#b33b3b','#c9a84c','#8a6d3b','#6b5b4e','#d46a6a','#a08050','#7a6e62','#4a3f35'], borderColor: 'rgba(42,37,32,.7)', borderWidth: 1 }] },
-      options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'bottom', labels: { color: '#e8e4dc', font: { size: 11 }, padding: 8 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ¥ ${fmt2(ctx.raw)}` } } } }
+      data: { labels, datasets: [{ data, backgroundColor: ['#f85149','#58a6ff','#bc8cff','#d29922','#3fb950','#6e7681','#da3633','#1f6feb'], borderColor: '#161a1e', borderWidth: 1 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'bottom', labels: { color: '#e1e4e8', font: { size: 11 }, padding: 8 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ¥ ${fmt2(ctx.raw)}` } } } }
     });
   }
 }
@@ -222,8 +222,8 @@ function renderLiabilityStructure(byClass, children) {
     if (window.__liab) window.__liab.destroy();
     window.__liab = new Chart(liabEl, {
       type: 'doughnut',
-      data: { labels, datasets: [{ data, backgroundColor: ['#c43e3e','#c9a84c','#8a6d3b','#a08050','#b33b3b','#6b5b4e','#7a6e62'], borderColor: 'rgba(42,37,32,.7)', borderWidth: 1 }] },
-      options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'bottom', labels: { color: '#e8e4dc', font: { size: 11 }, padding: 8 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ¥ ${fmt2(ctx.raw)}` } } } }
+      data: { labels, datasets: [{ data, backgroundColor: ['#f85149','#58a6ff','#bc8cff','#d29922','#3fb950','#6e7681','#da3633'], borderColor: '#161a1e', borderWidth: 1 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'bottom', labels: { color: '#e1e4e8', font: { size: 11 }, padding: 8 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ¥ ${fmt2(ctx.raw)}` } } } }
     });
   }
 }
@@ -245,8 +245,8 @@ function renderNavChart(navResp) {
       datasets: [{
         label: '净资产（CNY）',
         data,
-        borderColor: '#b33b3b',
-        backgroundColor: 'rgba(179,59,59,.1)',
+        borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.08)',
         tension: 0.25,
         fill: true,
         pointRadius: labels.length > 30 ? 0 : 2,
@@ -262,8 +262,8 @@ function renderNavChart(navResp) {
         tooltip: { callbacks: { label: ctx => `¥ ${fmt2(ctx.raw)}` } }
       },
       scales: {
-        x: { ticks: { color: '#8a8578', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: 'rgba(42,37,32,.3)' } },
-        y: { ticks: { color: '#8a8578', callback: v => '¥' + fmt2(v) }, grid: { color: 'rgba(42,37,32,.3)' } }
+        x: { ticks: { color: '#6e7681', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: 'rgba(110,118,129,.12)' } },
+        y: { ticks: { color: '#6e7681', callback: v => '¥' + fmt2(v) }, grid: { color: 'rgba(110,118,129,.12)' } }
       }
     }
   });
@@ -294,24 +294,24 @@ function renderCategoryNavChart(aStock, usStock, crypto) {
         {
           label: 'A股',
           data: labels.map(d => aMap.get(d) ?? null),
-          borderColor: '#b33b3b',
-          backgroundColor: 'rgba(179,59,59,.08)',
+          borderColor: '#f85149',
+          backgroundColor: 'rgba(248,81,73,.08)',
           tension: 0.25, fill: false, borderWidth: 2,
           pointRadius: labels.length > 30 ? 0 : 2,
         },
         {
           label: '美股',
           data: labels.map(d => uMap.get(d) ?? null),
-          borderColor: '#c9a84c',
-          backgroundColor: 'rgba(201,168,76,.08)',
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,.08)',
           tension: 0.25, fill: false, borderWidth: 2,
           pointRadius: labels.length > 30 ? 0 : 2,
         },
         {
           label: '加密',
           data: labels.map(d => cMap.get(d) ?? null),
-          borderColor: '#8a6d3b',
-          backgroundColor: 'rgba(138,109,59,.08)',
+          borderColor: '#bc8cff',
+          backgroundColor: 'rgba(188,140,255,.08)',
           tension: 0.25, fill: false, borderWidth: 2,
           pointRadius: labels.length > 30 ? 0 : 2,
         },
@@ -323,12 +323,12 @@ function renderCategoryNavChart(aStock, usStock, crypto) {
       animation: false,
       spanGaps: true,
       plugins: {
-        legend: { position: 'top', labels: { color: '#e8e4dc', font: { size: 11 }, padding: 10, usePointStyle: true } },
+        legend: { position: 'top', labels: { color: '#e1e4e8', font: { size: 11 }, padding: 10, usePointStyle: true } },
         tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ¥ ${fmt2(ctx.raw)}` } }
       },
       scales: {
-        x: { ticks: { color: '#8a8578', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: 'rgba(42,37,32,.3)' } },
-        y: { ticks: { color: '#8a8578', callback: v => '¥' + fmt2(v) }, grid: { color: 'rgba(42,37,32,.3)' } }
+        x: { ticks: { color: '#6e7681', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: 'rgba(110,118,129,.12)' } },
+        y: { ticks: { color: '#6e7681', callback: v => '¥' + fmt2(v) }, grid: { color: 'rgba(110,118,129,.12)' } }
       }
     }
   });
@@ -454,8 +454,8 @@ async function renderCashflowSection(txResp) {
         datasets: [{
           label: '支出',
           data: expense,
-          borderColor: '#c43e3e',
-          backgroundColor: 'rgba(196,62,62,.1)',
+          borderColor: '#f85149',
+          backgroundColor: 'rgba(248,81,73,.08)',
           tension: 0.3,
           fill: true,
           pointRadius: labels.length > 20 ? 0 : 3,
@@ -471,16 +471,16 @@ async function renderCashflowSection(txResp) {
           tooltip: { callbacks: { label: ctx => `支出: ¥ ${fmt2(ctx.raw)}` } }
         },
         scales: {
-          x: { ticks: { color: '#8a8578', maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(42,37,32,.25)' } },
-          y: { ticks: { color: '#8a8578', callback: v => '¥' + fmt2(v) }, grid: { color: 'rgba(42,37,32,.25)' } }
+          x: { ticks: { color: '#6e7681', maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(110,118,129,.12)' } },
+          y: { ticks: { color: '#6e7681', callback: v => '¥' + fmt2(v) }, grid: { color: 'rgba(110,118,129,.12)' } }
         }
       }
     });
   } else if (cfEl) {
     const ctx = cfEl.getContext('2d');
     ctx.clearRect(0, 0, cfEl.width, cfEl.height);
-    ctx.fillStyle = '#8a8578';
-    ctx.font = '13px sans-serif';
+    ctx.fillStyle = '#6e7681';
+    ctx.font = "13px 'Inter', sans-serif";
     ctx.textAlign = 'center';
     ctx.fillText('本月暂无支出数据', cfEl.width / 2, cfEl.height / 2);
   }

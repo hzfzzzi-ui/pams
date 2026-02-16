@@ -45,11 +45,17 @@ export function createLineChart(canvasId, apiPath, color, label, interval = 'dai
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: {
+            x: {
+              ticks: { color: '#6e7681', maxRotation: 0, autoSkip: true },
+              grid: { color: 'rgba(110,118,129,.12)' }
+            },
             y: {
               beginAtZero: false,
               ticks: {
+                color: '#6e7681',
                 callback: (value) => '¥' + value.toLocaleString()
-              }
+              },
+              grid: { color: 'rgba(110,118,129,.12)' }
             }
           }
         }

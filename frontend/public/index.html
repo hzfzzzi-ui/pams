@@ -4,21 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAMS · 总览</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div>
-        <div class="brand">PAMS 总览</div>
-        <div class="muted">快照：<span id="asof">--</span> · <span id="api">--</span></div>
-      </div>
-      <div class="right">
-        <span class="pill" style="background:rgba(179,59,59,.15);border-color:rgba(179,59,59,.4);color:#b33b3b">V2.0</span>
-      </div>
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item" id="asof">--</span>
+      <span class="status-item" id="api">--</span>
     </div>
+    <div class="status-right">
+      <span class="pill">V1.5</span>
+    </div>
+  </div>
 
-    <div class="nav" style="margin-bottom:12px">
+  <div class="wrap">
+    <div class="nav">
       <a data-nav href="index.html">总览</a>
       <a data-nav href="strategy.html">策略</a>
       <a data-nav href="watchlist.html">观察池</a>
@@ -26,7 +31,7 @@
       <a data-nav href="cashflow.html">收支</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(196,62,62,.6);margin-bottom:12px"></div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
     <!-- Row 1: KPIs (3) + FX Rates -->
     <div class="dashRow1" style="margin-bottom:12px">
@@ -55,14 +60,14 @@
         <div class="sectionTitle"><h3>资产结构</h3></div>
         <div class="pies2" style="margin-top:8px">
           <div class="chartWrap chartWrapSm"><canvas id="pie"></canvas></div>
-          <div class="scrollBox" id="byType" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px"></div>
+          <div class="scrollBox scrollPanel" id="byType"></div>
         </div>
       </div>
       <div class="card">
         <div class="sectionTitle"><h3>负债结构</h3></div>
         <div class="pies2" style="margin-top:8px">
           <div class="chartWrap chartWrapSm"><canvas id="liabilityPie"></canvas></div>
-          <div class="scrollBox" id="liabilityList" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px"></div>
+          <div class="scrollBox scrollPanel" id="liabilityList"></div>
         </div>
       </div>
     </div>
@@ -95,7 +100,7 @@
       <div class="sectionTitle"><h3>近期支出</h3></div>
       <div class="grid2" style="margin-top:8px">
         <div class="chartWrap"><canvas id="cashflowMini"></canvas></div>
-        <div class="scrollBox cashflowList" id="recentTxList" style="padding:8px;background:rgba(0,0,0,.2);border-radius:10px;max-height:260px">
+        <div class="scrollBox cashflowList scrollPanel" id="recentTxList" style="max-height:260px">
           <div class="muted">加载中...</div>
         </div>
       </div>
