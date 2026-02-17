@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAMS · 回测</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+</head>
+<body>
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> BACKTEST</div>
+      <span class="status-item">HV Alpha Model</span>
+    </div>
+    <div class="status-right">
+      <a class="pill" href="index.html">Dashboard</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="nav">
+      <a data-nav href="index.html">总览</a>
+      <a data-nav href="strategy.html">策略</a>
+      <a data-nav href="watchlist.html">观察池</a>
+      <a data-nav href="holdings.html">持仓</a>
+      <a data-nav href="cashflow.html">收支</a>
+      <a data-nav href="backtest.html">回测</a>
+    </div>
+
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
+
+    <!-- 参数面板 -->
+    <div class="card" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>回测参数</h3>
+        <div class="muted" id="stratDesc">HV Alpha Model · 20日突破 + 金字塔加仓 + 3ATR移动止损</div>
+      </div>
+
+      <div style="margin-top:8px;display:flex;gap:16px;font-size:var(--fs-sm)">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="strategy" id="stratV1" value="v1" checked />
+          <span>V1 HV Alpha</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="strategy" id="stratV2" value="v2" />
+          <span>V2 Risk Protocol</span>
+        </label>
+      </div>
+
+      <div class="grid3" style="margin-top:12px;gap:16px">
+        <div>
+          <label class="formLabel">起始日期</label>
+          <input id="startDate" type="date" class="formInput" value="2025-10-01" />
+        </div>
+        <div>
+          <label class="formLabel">结束日期</label>
+          <input id="endDate" type="date" class="formInput" value="2026-02-01" />
+        </div>
+        <div>
+          <label class="formLabel">初始资金 (CNY)</label>
+          <input id="capital" type="number" class="formInput" value="100000" step="10000" min="10000" />
+        </div>
+      </div>
+
+      <div class="grid3" style="margin-top:12px;gap:16px">
+        <div>
+          <label class="formLabel">单笔风险 % (RISK_ON)</label>
+          <input id="riskPct" type="number" class="formInput" value="2" step="0.5" min="0.5" max="10" />
+        </div>
+        <div>
+          <label class="formLabel">NEUTRAL 风险 %</label>
+          <input id="riskNeutral" type="number" class="formInput" value="1" step="0.5" min="0.5" max="5" />
+        </div>
+        <div>
+          <label class="formLabel">最大持仓数</label>
+          <input id="maxPos" type="number" class="formInput" value="3" step="1" min="1" max="10" />
+        </div>
+      </div>
+
+      <div class="grid3" style="margin-top:12px;gap:16px">
+        <div>
+          <label class="formLabel">初始止损 ATR 倍数</label>
+          <input id="stopAtr" type="number" class="formInput" value="2.5" step="0.1" min="1" max="5" />
+        </div>
+        <div>
+          <label class="formLabel">移动止损 ATR 倍数</label>
+          <input id="trailingAtr" type="number" class="formInput" value="3.0" step="0.5" min="1" max="10" />
+        </div>
+        <div>
+          <label class="formLabel">单票上限 %</label>
+          <input id="maxValuePct" type="number" class="formInput" value="50" step="5" min="10" max="100" />
+        </div>
+      </div>
+
+      <div class="grid3" style="margin-top:12px;gap:16px">
+        <div>
+          <label class="formLabel">突破周期 (日)</label>
+          <input id="breakoutLookback" type="number" class="formInput" value="20" step="5" min="5" max="60" />
+        </div>
+        <div>
+          <label class="formLabel">放量确认倍数</label>
+          <input id="volumeMult" type="number" class="formInput" value="1.2" step="0.1" min="0.5" max="3" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="btnRun" class="pill" style="background:var(--accent);color:#000;border:none;padding:10px 32px;cursor:pointer;font-weight:700;font-size:var(--fs-base);width:100%">
+            运行回测
+          </button>
+        </div>
+      </div>
+
+      <!-- 金字塔加仓 -->
+      <div style="margin-top:16px">
+        <div style="cursor:pointer;display:flex;align-items:center;gap:8px" id="pyramidToggle">
+          <span class="muted" style="font-size:var(--fs-sm)">金字塔加仓 ▸</span>
+        </div>
+        <div id="pyramidBody" style="display:none;margin-top:8px">
+          <div class="grid3" style="gap:16px">
+            <div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:var(--fs-sm)">
+                <input type="checkbox" id="pyramidEnabled" checked />
+                <span>启用加仓</span>
+              </label>
+            </div>
+            <div>
+              <label class="formLabel">最大加仓次数</label>
+              <input id="pyramidMaxAdds" type="number" class="formInput" value="2" step="1" min="0" max="5" />
+            </div>
+            <div>
+              <label class="formLabel">加仓风险比例 %</label>
+              <input id="pyramidRiskFrac" type="number" class="formInput" value="50" step="10" min="10" max="100" />
+            </div>
+          </div>
+          <div class="grid3" style="gap:16px;margin-top:8px">
+            <div>
+              <label class="formLabel">加仓触发 (xR)</label>
+              <input id="pyramidTriggerR" type="number" class="formInput" value="1.0" step="0.5" min="0.5" max="5" />
+            </div>
+            <div></div>
+            <div></div>
+          </div>
+          <div class="muted" style="font-size:var(--fs-xs);margin-top:6px;line-height:1.5">
+            条件: 盈利达 +1R + 10日新高 + 成交量确认。每次加仓风险 = 初始风险 × 50%。最多加仓 2 次（总 3 笔）。
+          </div>
+        </div>
+      </div>
+
+      <!-- 股票池选择 -->
+      <div style="margin-top:12px">
+        <div style="cursor:pointer;display:flex;align-items:center;gap:8px" id="poolToggle">
+          <span class="muted" style="font-size:var(--fs-sm)">股票池选择 ▸</span>
+        </div>
+        <div id="poolBody" style="display:none;margin-top:8px">
+          <div style="display:flex;gap:16px;margin-bottom:8px;font-size:var(--fs-sm)">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="radio" name="poolMode" id="poolDynamic" value="dynamic" checked />
+              <span>观察池每周扫描</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="radio" name="poolMode" id="poolCustom" value="custom" />
+              <span>手动选择</span>
+            </label>
+          </div>
+          <div id="poolDynamicPanel">
+            <div class="muted" style="font-size:var(--fs-xs);line-height:1.6">
+              从板块龙头池 + 观察池中自动筛选。每 <input id="screenInterval" type="number" class="formInput" value="5" min="1" max="20" style="width:48px;display:inline-block;padding:2px 6px;text-align:center" /> 个交易日重新筛选。<br/>
+              筛选条件: MA20&gt;MA60 + RS&ge;0 + 流动性 (&ge;2亿日均成交额)
+            </div>
+          </div>
+          <div id="poolCustomPanel" style="display:none">
+            <input id="customSymbols" type="text" class="formInput" placeholder="输入股票代码，逗号分隔 (如 601899,002594 或 sh601899,sz002594)" style="width:100%" />
+            <div class="muted" style="font-size:var(--fs-xs);margin-top:4px">支持 6 位代码 (自动识别沪深) 或 sh/sz 前缀格式</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Risk Protocol (V2 only) -->
+      <div id="rpSection" style="margin-top:12px;display:none">
+        <div style="cursor:pointer;display:flex;align-items:center;gap:8px" id="rpToggle">
+          <span class="muted" style="font-size:var(--fs-sm)">Risk Protocol ▸</span>
+        </div>
+        <div id="rpBody" style="display:none;margin-top:8px">
+          <div class="grid3" style="gap:16px">
+            <div>
+              <label class="formLabel">NORMAL R%</label>
+              <input id="rpNormalRisk" type="number" class="formInput" value="2.5" step="0.5" min="0.5" max="10" />
+            </div>
+            <div>
+              <label class="formLabel">DEGRADED R%</label>
+              <input id="rpDegradedRisk" type="number" class="formInput" value="1.5" step="0.5" min="0.5" max="5" />
+            </div>
+            <div>
+              <label class="formLabel">CONSERVATIVE R%</label>
+              <input id="rpConservativeRisk" type="number" class="formInput" value="1" step="0.5" min="0.5" max="3" />
+            </div>
+          </div>
+          <div class="grid3" style="gap:16px;margin-top:8px">
+            <div>
+              <label class="formLabel">连亏触发 (笔)</label>
+              <input id="rpStreakThreshold" type="number" class="formInput" value="12" min="3" max="30" />
+            </div>
+            <div>
+              <label class="formLabel">回撤触发 %</label>
+              <input id="rpDdEnter" type="number" class="formInput" value="25" min="5" max="50" />
+            </div>
+            <div>
+              <label class="formLabel">资金锁倍数</label>
+              <input id="rpCapitalLockMult" type="number" class="formInput" value="2.0" step="0.5" min="1.5" max="5" />
+            </div>
+          </div>
+          <div class="muted" style="font-size:var(--fs-xs);margin-top:6px;line-height:1.5">
+            Trigger A: 连续12笔亏损&rarr;DEGRADED(20笔) | Trigger B: DD&ge;25%&rarr;DEGRADED(至DD&lt;15%) | Trigger C: 9月负收益+指数&lt;MA200&rarr;CONSERVATIVE
+          </div>
+        </div>
+      </div>
+
+      <div id="runStatus" style="display:none;margin-top:12px"></div>
+    </div>
+
+    <!-- 结果概览 -->
+    <div id="summaryCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>回测结果</h3>
+        <div class="muted" id="summaryMeta"></div>
+      </div>
+      <div id="summaryKpi" class="kpiGrid" style="margin-top:10px"></div>
+    </div>
+
+    <!-- 分析报告 -->
+    <div id="reportCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>回测分析报告</h3>
+        <div class="muted" id="reportGrade"></div>
+      </div>
+      <div id="reportBody" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Risk Protocol Events (V2 only) -->
+    <div id="rpEventsCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle" style="cursor:pointer" id="rpEventsToggle">
+        <h3>Risk Protocol Events ▾</h3>
+      </div>
+      <div id="rpEventsBody" style="margin-top:10px">
+        <div id="rpSummaryKpi" class="kpiGrid" style="margin-bottom:12px"></div>
+        <div class="tableWrap">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap">日期</th>
+                <th class="nowrap">事件</th>
+                <th class="nowrap">详情</th>
+              </tr>
+            </thead>
+            <tbody id="rpEventsRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 权益曲线 -->
+    <div id="equityCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle"><h3>权益曲线 vs 上证指数</h3></div>
+      <div class="chartWrap" style="height:300px;margin-top:8px">
+        <canvas id="equityChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 回撤曲线 -->
+    <div id="drawdownCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle"><h3>回撤曲线</h3></div>
+      <div class="chartWrap" style="height:260px;margin-top:8px">
+        <canvas id="drawdownChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 股票池变更 -->
+    <div id="poolChangesCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle" style="cursor:pointer" id="poolChangesToggle">
+        <h3>股票池变更 ▾</h3>
+      </div>
+      <div id="poolChangesBody" style="margin-top:10px">
+        <div class="tableWrap">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap">筛选日期</th>
+                <th class="nowrap num">活跃数</th>
+                <th class="nowrap">新增</th>
+                <th class="nowrap">移除</th>
+              </tr>
+            </thead>
+            <tbody id="poolChangesRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 每周快照 -->
+    <div id="weeklyCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle" style="cursor:pointer" id="weeklyToggle">
+        <h3>每周市值快照 ▾</h3>
+      </div>
+      <div id="weeklyBody" style="margin-top:10px">
+        <div class="tableWrap">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap">日期</th>
+                <th class="nowrap num">权益</th>
+                <th class="nowrap num">收益率</th>
+                <th class="nowrap num">回撤</th>
+                <th class="nowrap num">持仓数</th>
+                <th class="nowrap num">现金</th>
+              </tr>
+            </thead>
+            <tbody id="weeklyRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 交易明细 -->
+    <div id="tradesCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle" style="cursor:pointer" id="tradesToggle">
+        <h3>交易明细 ▾</h3>
+      </div>
+      <div id="tradesBody" style="margin-top:10px">
+        <div class="tableWrap">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap">日期</th>
+                <th class="nowrap">操作</th>
+                <th class="nowrap">标的</th>
+                <th class="nowrap num">价格</th>
+                <th class="nowrap num">股数</th>
+                <th class="nowrap num">金额</th>
+                <th class="nowrap num">盈亏</th>
+                <th class="nowrap">原因</th>
+              </tr>
+            </thead>
+            <tbody id="tradeRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="assets/js/backtest.js"></script>
+</body>
+</html>
