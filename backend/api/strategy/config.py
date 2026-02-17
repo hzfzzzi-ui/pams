@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 REASON_CODES = {
     # Universe
     "RC_U001_ELIGIBLE": "Eligible by universe filters",
+    "RC_U001_FROM_HOLDINGS": "Source: current holdings",
+    "RC_U001_FROM_WATCHLIST": "Source: watchlist",
+    "RC_U001_FROM_BOTH": "Source: holdings + watchlist",
     "RC_U101_EXCLUDE_ST": "Excluded: ST/delisting risk",
     "RC_U102_EXCLUDE_SUSP": "Excluded: long suspension/abnormal halt",
     "RC_U103_LIQUIDITY_FAIL": "Excluded: liquidity below threshold",
@@ -68,6 +71,23 @@ REASON_CODES = {
     "RC_E002_MANUAL_CONFIRM_REQUIRED": "Manual confirmation required",
     "RC_E003_AUTO_EXECUTED": "Auto executed",
     "RC_E101_KILL_SWITCH": "Kill switch triggered",
+    # v1.2 Trend Gate
+    "RC_T103_RS_BELOW_ZERO": "Trend gate fail: RS < 0 vs HS300",
+    "RC_T104_MA20_SLOPE_NEG": "Trend gate fail: MA20 slope <= 0",
+    # v1.2 Pullback
+    "RC_T203_PULLBACK_TOUCH_5D": "Pullback: past 5d LOW touched MA20±ATR",
+    "RC_T204_NO_PULLBACK_TOUCH": "Reject: no touch in past 5d",
+    # v1.2 Flow
+    "RC_FL102_DISTRIBUTION_DAY": "Flow fail: distribution day (close<open, vol>1.3×avg)",
+    # v1.2 Stop
+    "RC_T403_STOP_TOO_WIDE": "Reject: stop distance > 12%",
+    # v1.2 Risk
+    "RC_R104_LOT_ROUNDING_EXCESS": "Blocked: lot rounding risk > 1.2× budget",
+    # v1.2 Exit
+    "RC_X001_TIME_STOP": "Exit: time stop (5-7d no +0.8R)",
+    "RC_X002_PROFIT_1R": "Partial exit: 1R profit (sell 1/3, stop→entry)",
+    "RC_X003_PROFIT_2R": "Partial exit: 2R profit (sell 1/3)",
+    "RC_X004_TRAILING_EXIT": "Exit: trailing stop hit",
 }
 
 

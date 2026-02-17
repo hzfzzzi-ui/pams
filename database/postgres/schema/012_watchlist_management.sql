@@ -1,4 +1,22 @@
--- 012: 观察池管理 — 入池/退出日志表
+-- 012: 观察池管理 — 主表 + 入池/退出日志表
+
+-- ① 观察池主表
+CREATE TABLE IF NOT EXISTS pams_watchlist (
+    id          SERIAL PRIMARY KEY,
+    market      VARCHAR(10) NOT NULL DEFAULT 'CN',
+    symbol      VARCHAR(20) NOT NULL,
+    name        VARCHAR(100),
+    thesis      TEXT,
+    status      VARCHAR(20) NOT NULL DEFAULT 'watch'
+                CHECK (status IN ('watch', 'candidate', 'hold', 'avoid')),
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(market, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_watchlist_status ON pams_watchlist(status);
+CREATE INDEX IF NOT EXISTS idx_watchlist_market ON pams_watchlist(market);
+
+-- ② 观察池变更日志
 -- 记录观察池的所有变更事件（入池、退出、状态变更）
 
 CREATE TABLE IF NOT EXISTS pams_watchlist_log (

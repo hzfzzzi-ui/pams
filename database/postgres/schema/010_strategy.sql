@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS pams_strategy_candidates (
     valid_until     DATE,
     position_size   INT,
     risk_amount_cny NUMERIC(12,2),
+    quality_score   NUMERIC(5,1),
+    sent_state      VARCHAR(10),
+    sent_score      NUMERIC(5,1),
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(symbol, market, scan_date)
 );

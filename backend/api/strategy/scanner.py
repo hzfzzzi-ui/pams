@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from datetime import date
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import psycopg2.extras
 
@@ -18,7 +18,13 @@ from .config import (
     get_satellite_cn_config,
     load_strategy_config,
 )
-from .data_feed import fetch_and_store_batch, get_ohlcv_from_db
+from .data_feed import (
+    fetch_and_store_batch,
+    fetch_index_ohlcv_akshare,
+    get_index_ohlcv_from_db,
+    get_ohlcv_from_db,
+    store_ohlcv,
+)
 from .flow_confirm import compute_flow_confirm
 from .indicators import (
     calc_entry_stop,
@@ -49,15 +55,58 @@ logger = logging.getLogger(__name__)
 
 
 def _get_symbol_name(conn, symbol: str) -> str:
-    """从持仓或 OHLCV 获取标的名称。"""
+    """从持仓 → 观察池 → AkShare 逐级获取标的名称。"""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # 1. 持仓快照
         cur.execute("""
             SELECT name FROM pams_holdings_snapshot
-            WHERE symbol = %s AND name IS NOT NULL
+            WHERE symbol = %s AND name IS NOT NULL AND name != ''
             ORDER BY as_of DESC LIMIT 1
         """, (symbol,))
         row = cur.fetchone()
-    return row["name"] if row else symbol
+        if row:
+            return row["name"]
+
+        # 2. 观察池
+        cur.execute("""
+            SELECT name FROM pams_watchlist
+            WHERE symbol = %s AND name IS NOT NULL AND name != ''
+            LIMIT 1
+        """, (symbol,))
+        row = cur.fetchone()
+        if row:
+            return row["name"]
+
+    # 3. AkShare 兜底
+    try:
+        import akshare as ak
+        s = symbol.strip().lower()
+        code = s
+        for prefix in ("sh", "sz", "bj"):
+            if s.startswith(prefix):
+                code = s[len(prefix):]
+                break
+        df = ak.stock_individual_info_em(symbol=code)
+        if df is not None and not df.empty:
+            name_row = df[df["item"] == "股票简称"]
+            if not name_row.empty:
+                return str(name_row.iloc[0]["value"])
+    except Exception as e:
+        logger.debug("%s: AkShare 名称获取失败: %s", symbol, e)
+
+    return symbol
+
+
+def _get_cached_quality_score(conn, symbol: str) -> Optional[float]:
+    """从 pams_fundamental_snapshot 读取缓存的质量评分（不调 API）。"""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT quality_score FROM pams_fundamental_snapshot
+            WHERE symbol = %s
+            ORDER BY as_of DESC LIMIT 1
+        """, (symbol,))
+        row = cur.fetchone()
+    return float(row["quality_score"]) if row and row["quality_score"] is not None else None
 
 
 def _save_candidate(conn, candidate: Dict[str, Any]) -> int:
@@ -251,10 +300,12 @@ def run_eod_scan(conn) -> Dict[str, Any]:
         risk_state = {**risk_state, "risk_mode": "defensive"}
         risk_budget = get_risk_budget(config, "defensive")
 
-    # 2. 收集 Universe
-    symbols = get_universe_symbols(conn)
-    if not symbols:
+    # 2. 收集 Universe (带来源标注)
+    universe_map = get_universe_symbols(conn)
+    if not universe_map:
         return {"scan_date": today, "total_scanned": 0, "error": "无候选 symbol"}
+
+    symbols = list(universe_map.keys())
 
     # 3. 过滤 ST
     symbols, st_excluded = filter_st_delist(symbols)
@@ -266,9 +317,28 @@ def run_eod_scan(conn) -> Dict[str, Any]:
     logger.info("开始拉取 %d 个 symbol 的 OHLCV 数据...", len(symbols))
     fetch_and_store_batch(conn, symbols, days=120)
 
+    # 5b. v1.2: 拉取指数 OHLCV（HS300，用于 RS 计算）
+    index_ohlcv = get_index_ohlcv_from_db(conn, "sh000300", 120)
+    if len(index_ohlcv) < 60:
+        logger.info("指数数据不足，从 AkShare 获取 HS300...")
+        try:
+            idx_rows = fetch_index_ohlcv_akshare("sh000300", 120)
+            if idx_rows:
+                store_ohlcv(conn, idx_rows)
+                index_ohlcv = get_index_ohlcv_from_db(conn, "sh000300", 120)
+        except Exception as e:
+            logger.warning("指数数据获取失败，RS 将使用默认值: %s", e)
+
     # 6. 过滤流动性
     min_turnover = satellite.get("universe", {}).get("liquidity_floor", {}).get("avg_turnover_20d_cny", 200_000_000)
     symbols, liq_excluded = filter_liquidity(conn, symbols, min_turnover)
+
+    # 来源 → reason code 映射
+    _SOURCE_RC = {
+        "holdings":  "RC_U001_FROM_HOLDINGS",
+        "watchlist": "RC_U001_FROM_WATCHLIST",
+        "both":      "RC_U001_FROM_BOTH",
+    }
 
     # 统计
     total_scanned = len(symbols) + len(st_excluded) + len(bl_excluded) + len(liq_excluded)
@@ -279,17 +349,29 @@ def run_eod_scan(conn) -> Dict[str, Any]:
     orders_created = 0
     all_candidates = []
 
+    # 全局情绪字段 (注入每个候选)
+    _global_sent = {
+        "sent_state": global_sent_state,
+        "sent_score": global_sent_score,
+    }
+
     # 7. 逐标的技术扫描
     for symbol in symbols:
         name = _get_symbol_name(conn, symbol)
+        source = universe_map.get(symbol, "watchlist")
         ohlcv = get_ohlcv_from_db(conn, symbol, days=120)
-        indicators = compute_indicators(ohlcv)
+        indicators = compute_indicators(ohlcv, index_ohlcv)
 
         if not indicators:
             logger.warning("%s: 指标计算失败，跳过", symbol)
             continue
 
-        reason_codes = ["RC_U001_ELIGIBLE"]
+        reason_codes = [_SOURCE_RC.get(source, "RC_U001_FROM_WATCHLIST")]
+
+        # 公共技术指标字段
+        _tech = {k: indicators.get(k) for k in [
+            "close", "ma20", "ma60", "atr14", "high_20d", "low_20d", "max_return_40d",
+        ]}
 
         # 停牌检查
         is_suspended, susp_reason = check_suspension(symbol)
@@ -299,9 +381,7 @@ def run_eod_scan(conn) -> Dict[str, Any]:
                 "symbol": symbol, "name": name, "market": "CN_A",
                 "scan_date": today, "stage": "UNIVERSE_PASS",
                 "reason_codes": reason_codes,
-                **{k: indicators.get(k) for k in [
-                    "close", "ma20", "ma60", "atr14", "high_20d", "low_20d", "max_return_40d",
-                ]},
+                **_tech, **_global_sent,
             }
             _save_candidate(conn, candidate)
             all_candidates.append(candidate)
@@ -315,9 +395,7 @@ def run_eod_scan(conn) -> Dict[str, Any]:
                 "symbol": symbol, "name": name, "market": "CN_A",
                 "scan_date": today, "stage": "UNIVERSE_PASS",
                 "reason_codes": reason_codes,
-                **{k: indicators.get(k) for k in [
-                    "close", "ma20", "ma60", "atr14", "high_20d", "low_20d", "max_return_40d",
-                ]},
+                **_tech, **_global_sent,
             }
             _save_candidate(conn, candidate)
             all_candidates.append(candidate)
@@ -332,9 +410,7 @@ def run_eod_scan(conn) -> Dict[str, Any]:
                 "symbol": symbol, "name": name, "market": "CN_A",
                 "scan_date": today, "stage": "UNIVERSE_PASS",
                 "reason_codes": reason_codes,
-                **{k: indicators.get(k) for k in [
-                    "close", "ma20", "ma60", "atr14", "high_20d", "low_20d", "max_return_40d",
-                ]},
+                **_tech, **_global_sent,
             }
             _save_candidate(conn, candidate)
             all_candidates.append(candidate)
@@ -342,18 +418,18 @@ def run_eod_scan(conn) -> Dict[str, Any]:
 
         trend_pass_count += 1
 
-        # 回调区间
-        zone_ok, zone_reasons = check_pullback_zone(indicators, satellite)
+        # 回调区间 (v1.2: 传入 ohlcv 用于 5日 touch 检查)
+        zone_ok, zone_reasons = check_pullback_zone(ohlcv, indicators, satellite)
         reason_codes = add_reasons(reason_codes, zone_reasons)
 
         if not zone_ok:
+            cached_qs = _get_cached_quality_score(conn, symbol)
             candidate = {
                 "symbol": symbol, "name": name, "market": "CN_A",
                 "scan_date": today, "stage": "TREND_PASS",
                 "reason_codes": reason_codes,
-                **{k: indicators.get(k) for k in [
-                    "close", "ma20", "ma60", "atr14", "high_20d", "low_20d", "max_return_40d",
-                ]},
+                "quality_score": cached_qs,
+                **_tech, **_global_sent,
             }
             _save_candidate(conn, candidate)
             all_candidates.append(candidate)
@@ -366,13 +442,20 @@ def run_eod_scan(conn) -> Dict[str, Any]:
         reason_codes = add_reasons(reason_codes, trigger_reasons)
 
         if not trigger_ok:
+            # PULLBACK_ZONE: 优先读缓存，无缓存则主动获取基本面
+            cached_qs = _get_cached_quality_score(conn, symbol)
+            if cached_qs is None:
+                try:
+                    fund = refresh_fundamental(conn, symbol)
+                    cached_qs = fund.get("quality_score")
+                except Exception as e:
+                    logger.warning("%s: PULLBACK_ZONE 基本面获取失败: %s", symbol, e)
             candidate = {
                 "symbol": symbol, "name": name, "market": "CN_A",
                 "scan_date": today, "stage": "PULLBACK_ZONE",
                 "reason_codes": reason_codes,
-                **{k: indicators.get(k) for k in [
-                    "close", "ma20", "ma60", "atr14", "high_20d", "low_20d", "max_return_40d",
-                ]},
+                "quality_score": cached_qs,
+                **_tech, **_global_sent,
             }
             _save_candidate(conn, candidate)
             all_candidates.append(candidate)
@@ -400,9 +483,27 @@ def run_eod_scan(conn) -> Dict[str, Any]:
         flow = compute_flow_confirm(ohlcv, indicators, satellite)
         reason_codes = add_reasons(reason_codes, flow["reason_codes"])
 
-        # 计算 entry/stop
-        entry_stop = calc_entry_stop(indicators, satellite)
+        # 计算 entry/stop (v1.2: 传入 ohlcv + 12%拒绝处理)
+        entry_stop = calc_entry_stop(ohlcv, indicators, satellite)
         reason_codes = add_reasons(reason_codes, entry_stop["reason_codes"])
+
+        # v1.2: 止损过宽拒绝 → 保存 candidate 但标记 ineligible
+        if entry_stop.get("rejected"):
+            candidate = {
+                "symbol": symbol, "name": name, "market": "CN_A",
+                "scan_date": today, "stage": "TRIGGERED",
+                "eligible": False, "hard_veto_hit": False,
+                "reason_codes": reason_codes,
+                "entry_price": entry_stop["entry_price"],
+                "stop_price": entry_stop["stop_price"],
+                **_tech, **_global_sent,
+                "quality_score": quality_score,
+                "flow_result": flow["flow_result"],
+                "flow_score": flow.get("flow_score", 50),
+            }
+            _save_candidate(conn, candidate)
+            all_candidates.append(candidate)
+            continue
 
         # 仓位计算
         sizing = calculate_position_size(

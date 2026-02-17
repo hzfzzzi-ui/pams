@@ -156,7 +156,7 @@ def calculate_position_size(
     max_loss_cny = position_size * risk_per_share
 
     # 单笔市值限制
-    max_equity_pct = limits.get("max_single_position_value_pct", {}).get("equity", 0.08)
+    max_equity_pct = limits.get("max_single_position_value_pct", {}).get("equity", 0.10)  # v1.2: 10%
     if position_value_pct > max_equity_pct:
         # 缩减到限制内
         max_value = b_nav * max_equity_pct
@@ -165,6 +165,35 @@ def calculate_position_size(
         position_value_pct = position_value / b_nav if b_nav > 0 else 0
         max_loss_cny = position_size * risk_per_share
         reason_codes.append("RC_R103_POSITION_VALUE_CAP")
+
+    # v1.2: lot rounding 超限检查
+    # 100股取整后实际风险可能 > 预算×1.2，需降1手或拒绝
+    if position_size > 0:
+        actual_risk = position_size * risk_per_share
+        lot_rounding_cap = risk_amount * 1.2
+        if actual_risk > lot_rounding_cap:
+            position_size -= 100  # 降1手
+            if position_size <= 0:
+                return {
+                    "position_size": 0,
+                    "risk_amount_cny": 0,
+                    "position_value_pct": 0,
+                    "max_loss_cny": 0,
+                    "reason_codes": [*reason_codes, "RC_R104_LOT_ROUNDING_EXCESS"],
+                }
+            # 重新计算降手后的值
+            position_value = position_size * entry_price
+            position_value_pct = position_value / b_nav if b_nav > 0 else 0
+            max_loss_cny = position_size * risk_per_share
+            # 再次检查是否仍超限
+            if max_loss_cny > lot_rounding_cap:
+                return {
+                    "position_size": 0,
+                    "risk_amount_cny": 0,
+                    "position_value_pct": 0,
+                    "max_loss_cny": 0,
+                    "reason_codes": [*reason_codes, "RC_R104_LOT_ROUNDING_EXCESS"],
+                }
 
     return {
         "position_size": position_size,

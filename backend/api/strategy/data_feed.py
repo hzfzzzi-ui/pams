@@ -158,6 +158,79 @@ def fetch_and_store_batch(
     return result
 
 
+def fetch_index_ohlcv_akshare(
+    index_symbol: str = "sh000300",
+    days: int = 120,
+    end_date: Optional[date] = None,
+) -> List[Dict[str, Any]]:
+    """
+    通过 AkShare stock_zh_index_daily 获取指数日线 OHLCV（如 HS300）。
+
+    Args:
+        index_symbol: 指数代码，如 sh000300（沪深300）
+        days: 获取天数
+        end_date: 截止日期，默认今天
+
+    Returns:
+        标准化 OHLCV dict 列表（market='CN_INDEX'），按 trade_date ASC 排序
+    """
+    import akshare as ak
+
+    if end_date is None:
+        end_date = date.today()
+    start_date = end_date - timedelta(days=days + 30)
+
+    try:
+        df = ak.stock_zh_index_daily(symbol=index_symbol)
+    except Exception as e:
+        logger.error("AkShare 指数获取失败 %s: %s", index_symbol, e)
+        return []
+
+    if df is None or df.empty:
+        logger.warning("AkShare 指数无数据: %s", index_symbol)
+        return []
+
+    # 列名统一为小写
+    df.columns = [c.lower() for c in df.columns]
+
+    # 按日期过滤
+    import pandas as pd
+    df["date"] = pd.to_datetime(df["date"])
+    mask = (df["date"] >= pd.Timestamp(start_date)) & (df["date"] <= pd.Timestamp(end_date))
+    df = df.loc[mask]
+
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "symbol": index_symbol,
+            "market": "CN_INDEX",
+            "trade_date": r["date"].strftime("%Y-%m-%d"),
+            "open": float(r["open"]),
+            "high": float(r["high"]),
+            "low": float(r["low"]),
+            "close": float(r["close"]),
+            "volume": int(r.get("volume", 0)),
+            "turnover": float(r.get("turnover", 0) or 0),
+        })
+
+    logger.info("指数 %s 获取 %d 条日线", index_symbol, len(rows))
+    return sorted(rows, key=lambda x: x["trade_date"])
+
+
+def get_index_ohlcv_from_db(
+    conn,
+    index_symbol: str = "sh000300",
+    days: int = 120,
+) -> List[Dict[str, Any]]:
+    """
+    从 DB 读取指数 OHLCV（market='CN_INDEX'），委托给 get_ohlcv_from_db。
+
+    Returns:
+        OHLCV dict 列表，按 trade_date ASC 排序
+    """
+    return get_ohlcv_from_db(conn, index_symbol, days, market="CN_INDEX")
+
+
 def get_ohlcv_from_db(
     conn,
     symbol: str,

@@ -28,6 +28,7 @@
       <a data-nav href="watchlist.html">观察池</a>
       <a data-nav href="holdings.html">持仓</a>
       <a data-nav href="cashflow.html">收支</a>
+      <a data-nav href="backtest.html">回测</a>
     </div>
 
     <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
@@ -114,15 +115,15 @@
             <tr>
               <th class="nowrap" style="width:90px">代码</th>
               <th style="width:130px">名称</th>
-              <th class="nowrap" style="width:90px">阶段</th>
+              <th class="nowrap" style="width:90px" title="趋势通过→回调区→触发→下单">阶段</th>
               <th class="nowrap num" style="width:80px">收盘</th>
-              <th class="nowrap num" style="width:80px">MA20</th>
-              <th class="nowrap num" style="width:80px">MA60</th>
-              <th class="nowrap num" style="width:70px">ATR</th>
+              <th class="nowrap num" style="width:80px" title="20日均线">MA20</th>
+              <th class="nowrap num" style="width:80px" title="60日均线">MA60</th>
+              <th class="nowrap num" style="width:70px" title="14日平均波幅">ATR</th>
               <th class="nowrap num" style="width:80px">入场价</th>
               <th class="nowrap num" style="width:80px">止损价</th>
-              <th class="nowrap" style="width:60px">Flow</th>
-              <th class="nowrap num" style="width:60px">评分</th>
+              <th class="nowrap" style="width:70px" title="量价确认：回调缩量+触发放量">量价</th>
+              <th class="nowrap num" style="width:60px" title="综合评分=量价50%+质量20%+情绪30%">评分</th>
             </tr>
           </thead>
           <tbody id="candidateRows"></tbody>

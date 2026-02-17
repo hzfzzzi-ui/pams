@@ -14,12 +14,17 @@ def compute_flow_confirm(
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    量价确认计算。
+    量价确认计算 (v1.2)。
 
     指标:
     1. 回调段均量 < 冲击段均量 → 缩量回调
     2. 触发日成交量 > 1.2 × 回调段均量 → 放量触发
     3. 回调期间是否存在 ret < -2.5% 且 vol > 冲击段均量 → 大阴线否决
+    4. (v1.2) Distribution Day 否决: close<open AND vol>avg_vol_20d×1.3
+
+    v1.2 变更:
+    - peak 计算排除当日（trigger day），避免触发日污染分段
+    - 新增 Distribution Day 否决
 
     Returns:
         {flow_result: "PASS"|"WEAK"|"FAIL", flow_score: float, reason_codes: list}
@@ -31,22 +36,30 @@ def compute_flow_confirm(
             "reason_codes": ["RC_FL202_FLOW_WEAK"],
         }
 
-    high_20d = indicators["high_20d"]
+    avg_vol_20d = float(indicators.get("avg_vol_20d", 0))
     reason_codes = []
 
-    # 找到最近 20 日最高价对应的位置，划分冲击段/回调段
-    recent = ohlcv[-40:] if len(ohlcv) >= 40 else ohlcv
+    # v1.2: peak 计算排除最后一根（trigger day），避免触发日污染
+    # 取 [-41:-1] 共 40 根用于寻峰，trigger day 单独处理
+    history_bars = ohlcv[-41:-1] if len(ohlcv) > 41 else ohlcv[:-1]
+    if len(history_bars) < 10:
+        return {
+            "flow_result": "WEAK",
+            "flow_score": 60.0,
+            "reason_codes": ["RC_FL202_FLOW_WEAK"],
+        }
+
     peak_idx = 0
-    peak_high = 0
-    for i, bar in enumerate(recent):
+    peak_high = 0.0
+    for i, bar in enumerate(history_bars):
         if float(bar["high"]) >= peak_high:
             peak_high = float(bar["high"])
             peak_idx = i
 
     # 冲击段: peak_idx 之前的 bars（至少取 5 根）
-    impulse_bars = recent[max(0, peak_idx - 10):peak_idx + 1]
-    # 回调段: peak_idx 之后的 bars
-    pullback_bars = recent[peak_idx + 1:]
+    impulse_bars = history_bars[max(0, peak_idx - 10):peak_idx + 1]
+    # 回调段: peak_idx 之后的所有 bars（不含 trigger day）
+    pullback_bars = history_bars[peak_idx + 1:]
 
     if not impulse_bars or not pullback_bars:
         return {
@@ -72,18 +85,31 @@ def compute_flow_confirm(
     # 指标 3: 大阴线否决
     hard_fail = False
     for bar in pullback_bars:
-        close = float(bar["close"])
-        open_p = float(bar["open"])
-        vol = float(bar["volume"])
-        if open_p > 0:
-            day_ret = (close - open_p) / open_p
-            if day_ret < -0.025 and vol > avg_vol_impulse:
+        bar_close = float(bar["close"])
+        bar_open = float(bar["open"])
+        bar_vol = float(bar["volume"])
+        if bar_open > 0:
+            day_ret = (bar_close - bar_open) / bar_open
+            if day_ret < -0.025 and bar_vol > avg_vol_impulse:
                 hard_fail = True
                 reason_codes.append("RC_FL101_HARD_FAIL_BIG_RED")
                 break
 
+    # v1.2 指标 4: Distribution Day 否决
+    # 回调期间出现 close<open 且 vol > avg_vol_20d × 1.3 → FAIL
+    distribution_day = False
+    if not hard_fail and avg_vol_20d > 0:
+        for bar in pullback_bars:
+            bar_close = float(bar["close"])
+            bar_open = float(bar["open"])
+            bar_vol = float(bar["volume"])
+            if bar_close < bar_open and bar_vol > avg_vol_20d * 1.3:
+                distribution_day = True
+                reason_codes.append("RC_FL102_DISTRIBUTION_DAY")
+                break
+
     # 综合判定
-    if hard_fail:
+    if hard_fail or distribution_day:
         flow_result = "FAIL"
         flow_score = 0.0
         reason_codes.append("RC_FL203_FLOW_FAIL")

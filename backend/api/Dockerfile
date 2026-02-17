@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py ./
 COPY endpoints/ ./endpoints/
 COPY strategy/ ./strategy/
+COPY backtest/ ./backtest/
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000

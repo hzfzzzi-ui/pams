@@ -10,21 +10,21 @@ import psycopg2.extras
 logger = logging.getLogger(__name__)
 
 
-def get_universe_symbols(conn) -> List[str]:
+def get_universe_symbols(conn) -> Dict[str, str]:
     """
-    从持仓和观察池收集 A 股候选 symbol。
+    从持仓和观察池收集 A 股候选 symbol，标注来源。
 
     来源:
     1. pams_holdings_snapshot: major_category='A股' 的 symbol
     2. pams_watchlist: market='CN' 的 symbol
 
     Returns:
-        去重后的 symbol 列表
+        {symbol: "holdings"|"watchlist"|"both"}
     """
-    symbols = set()
+    holdings_set: set = set()
+    watchlist_set: set = set()
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # 持仓中的 A 股
         cur.execute("""
             SELECT DISTINCT symbol
             FROM pams_holdings_snapshot
@@ -33,19 +33,24 @@ def get_universe_symbols(conn) -> List[str]:
               AND as_of = (SELECT MAX(as_of) FROM pams_holdings_snapshot)
         """)
         for row in cur.fetchall():
-            symbols.add(row["symbol"])
+            holdings_set.add(row["symbol"])
 
-        # 观察池中的 CN 标的
         cur.execute("""
             SELECT DISTINCT symbol
             FROM pams_watchlist
             WHERE market = 'CN' AND symbol IS NOT NULL AND symbol != ''
         """)
         for row in cur.fetchall():
-            symbols.add(row["symbol"])
+            watchlist_set.add(row["symbol"])
 
-    result = sorted(symbols)
-    logger.info("Universe 收集: %d 个 symbol", len(result))
+    result: Dict[str, str] = {}
+    for s in sorted(holdings_set | watchlist_set):
+        in_h = s in holdings_set
+        in_w = s in watchlist_set
+        result[s] = "both" if (in_h and in_w) else ("holdings" if in_h else "watchlist")
+
+    logger.info("Universe 收集: %d 个 symbol (持仓%d, 观察池%d)",
+                len(result), len(holdings_set), len(watchlist_set))
     return result
 
 

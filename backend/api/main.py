@@ -22,6 +22,7 @@ from endpoints import prices
 from endpoints import holdings_trade
 from endpoints import notifications
 from strategy.router import router as strategy_router
+from backtest.router import router as backtest_router
 
 app = FastAPI(title="pams-api-v2", version="2.0.0")
 
@@ -32,6 +33,7 @@ app.include_router(prices.router, prefix="/api")
 app.include_router(holdings_trade.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(strategy_router, prefix="/api")
+app.include_router(backtest_router, prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,

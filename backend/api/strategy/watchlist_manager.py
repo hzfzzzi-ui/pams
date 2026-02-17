@@ -12,10 +12,17 @@ from typing import Any, Dict, List, Set, Tuple
 import psycopg2.extras
 
 from .config import load_strategy_config, get_satellite_cn_config
-from .data_feed import fetch_and_store_batch, get_ohlcv_from_db
+from .data_feed import (
+    fetch_and_store_batch,
+    fetch_index_ohlcv_akshare,
+    get_index_ohlcv_from_db,
+    get_ohlcv_from_db,
+    store_ohlcv,
+)
 from .event_monitor import check_event_veto
 from .fundamental import refresh_fundamental
 from .indicators import compute_indicators, check_trend_gate
+from .scanner import _get_symbol_name
 from .universe_filter import filter_blacklist, filter_liquidity, filter_st_delist
 
 logger = logging.getLogger(__name__)
@@ -79,17 +86,6 @@ def _get_sector_symbols(sector: str) -> List[str]:
         return []
 
 
-def _get_symbol_name(conn, symbol: str) -> str:
-    """从持仓快照或 OHLCV 获取标的名称。"""
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("""
-            SELECT name FROM pams_holdings_snapshot
-            WHERE symbol = %s AND name IS NOT NULL
-            ORDER BY as_of DESC LIMIT 1
-        """, (symbol,))
-        row = cur.fetchone()
-    return row["name"] if row else symbol
-
 
 def _log_watchlist_event(
     conn, symbol: str, market: str, name: str,
@@ -129,6 +125,20 @@ def run_watchlist_scan(conn) -> Dict[str, Any]:
 
     config = load_strategy_config(conn)
     satellite = get_satellite_cn_config(config) if config else {}
+
+    # v1.2: 获取指数 OHLCV (HS300)，用于 RS 计算
+    rs_benchmark = (
+        satellite.get("technical_engine", {})
+        .get("rs_benchmark", {})
+        .get("index_code", "sh000300")
+    )
+    index_ohlcv = get_index_ohlcv_from_db(conn, rs_benchmark, 120)
+    if not index_ohlcv:
+        logger.info("指数 %s 本地无数据，从 AkShare 拉取...", rs_benchmark)
+        idx_rows = fetch_index_ohlcv_akshare(rs_benchmark, 120)
+        if idx_rows:
+            store_ohlcv(conn, idx_rows)
+            index_ohlcv = get_index_ohlcv_from_db(conn, rs_benchmark, 120)
 
     existing = _get_existing_symbols(conn)
     held = _get_held_symbols(conn)
@@ -181,7 +191,7 @@ def run_watchlist_scan(conn) -> Dict[str, Any]:
     for symbol in all_symbols:
         try:
             ohlcv = get_ohlcv_from_db(conn, symbol, days=120)
-            ind = compute_indicators(ohlcv)
+            ind = compute_indicators(ohlcv, index_ohlcv)
             if ind is None:
                 continue
 

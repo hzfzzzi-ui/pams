@@ -23,22 +23,26 @@ const SENT_TAGS = {
 // ==================== 候选表格 ====================
 
 const STAGE_TAGS = {
-  'TRIGGERED':     '<span class="tag risk">触发</span>',
-  'PULLBACK_ZONE': '<span class="tag warn">回调区</span>',
-  'TREND_PASS':    '<span class="tag data">趋势</span>',
-  'UNIVERSE_PASS': '<span class="tag">Universe</span>',
+  'TRIGGERED':     '<span class="tag risk" title="收盘站上MA20且收阳，满足买入触发条件">触发</span>',
+  'PULLBACK_ZONE': '<span class="tag warn" title="处于MA20附近回调区间，等待收阳确认">回调区</span>',
+  'TREND_PASS':    '<span class="tag data" title="MA20>MA60多头排列，趋势向上但尚未回调到位">趋势通过</span>',
+  'UNIVERSE_PASS': '<span class="tag" title="进入扫描池但未通过趋势门">待筛选</span>',
+  'INVALIDATED':   '<span class="tag" style="opacity:.5" title="曾经触发但已失效（跌破止损或过期）">已失效</span>',
 };
 
 const FLOW_TAGS = {
-  'PASS': '<span class="tag data">PASS</span>',
-  'WEAK': '<span class="tag warn">WEAK</span>',
-  'FAIL': '<span class="tag risk">FAIL</span>',
+  'PASS': '<span class="tag data" title="量价齐升：回调缩量+触发放量，买盘确认">量价确认</span>',
+  'WEAK': '<span class="tag warn" title="量价信号不明显，缩量或放量条件只满足一个">信号偏弱</span>',
+  'FAIL': '<span class="tag risk" title="出现放量大阴线或量价背离，买盘不足">量价否决</span>',
 };
 
 // ==================== Reason Code 中文映射 ====================
 
 const REASON_LABELS = {
-  'RC_U001_ELIGIBLE':                  { label: 'Universe 通过', cat: 'pass' },
+  'RC_U001_ELIGIBLE':                  { label: '进入扫描池', cat: 'pass' },
+  'RC_U001_FROM_HOLDINGS':             { label: '来自持仓', cat: 'pass' },
+  'RC_U001_FROM_WATCHLIST':            { label: '来自观察池', cat: 'pass' },
+  'RC_U001_FROM_BOTH':                 { label: '持仓+观察池', cat: 'pass' },
   'RC_U101_EXCLUDE_ST':                { label: 'ST/退市风险排除', cat: 'fail' },
   'RC_U102_EXCLUDE_SUSP':              { label: '长期停牌排除', cat: 'fail' },
   'RC_U103_LIQUIDITY_FAIL':            { label: '流动性不足排除', cat: 'fail' },
@@ -160,11 +164,11 @@ function renderTrail(reasonCodes){
 
 function renderCandidateDetail(r){
   const vetoTag = r.hard_veto_hit === true || r.hard_veto_hit === 'true'
-    ? '<span class="tag risk">VETO</span>'
-    : '<span class="tag data">PASS</span>';
+    ? '<span class="tag risk" title="触发硬否决规则（跌破MA60放量、流动性枯竭等），一票否决">否决</span>'
+    : '<span class="tag data" title="未触发任何硬否决规则">通过</span>';
   const eligibleTag = r.eligible === true || r.eligible === 'true'
-    ? '<span class="tag data">ELIGIBLE</span>'
-    : '<span class="tag risk">BLOCKED</span>';
+    ? '<span class="tag data" title="通过全部检查，可以下单">可下单</span>'
+    : '<span class="tag risk" title="未通过风控或量价检查，暂不可下单">不可下单</span>';
 
   return `
     <div class="detail-grid">
@@ -186,14 +190,25 @@ function renderCandidateDetail(r){
       </div>
       <div class="detail-section">
         <h4>风控摘要</h4>
-        <div class="detail-item"><span class="dl">Flow</span><span class="dv">${FLOW_TAGS[r.flow_result]||'—'}</span></div>
-        <div class="detail-item"><span class="dl">综合评分</span><span class="dv">${r.confirm_score?fmtNum(r.confirm_score,1):'—'}</span></div>
-        <div class="detail-item"><span class="dl">质量分</span><span class="dv">${r.quality_score!=null?fmtNum(r.quality_score,1):'—'}</span></div>
-        <div class="detail-item"><span class="dl">情绪</span><span class="dv">${r.sent_state?(SENT_TAGS[r.sent_state]||r.sent_state):'—'} ${r.sent_score!=null?fmtNum(r.sent_score,0):''}</span></div>
-        <div class="detail-item"><span class="dl">Hard Veto</span><span class="dv">${vetoTag}</span></div>
+        <div class="detail-item"><span class="dl" title="量价确认：回调是否缩量、触发是否放量">量价</span><span class="dv">${FLOW_TAGS[r.flow_result]||'—'}</span></div>
+        <div class="detail-item"><span class="dl" title="综合评分 = 量价×50% + 质量×20% + 情绪×30%">综合评分</span><span class="dv">${r.confirm_score?fmtNum(r.confirm_score,1):'—'}</span></div>
+        <div class="detail-item"><span class="dl" title="基本面质量 (ROE/毛利率/负债率/现金流)">质量分</span><span class="dv">${r.quality_score!=null?fmtNum(r.quality_score,1):'—'}</span></div>
+        <div class="detail-item"><span class="dl" title="市场情绪 (涨跌家数/涨跌停/社交热度)">情绪</span><span class="dv">${r.sent_state?(SENT_TAGS[r.sent_state]||r.sent_state):'—'} ${r.sent_score!=null?fmtNum(r.sent_score,0):''}</span></div>
+        <div class="detail-item"><span class="dl" title="硬否决：跌破MA60放量、流动性枯竭、重大负面事件等一票否决">硬否决</span><span class="dv">${vetoTag}</span></div>
         <div class="detail-item"><span class="dl">结论</span><span class="dv">${eligibleTag}</span></div>
         <div class="detail-item"><span class="dl">仓位</span><span class="dv">${r.position_size||'—'} 股</span></div>
         <div class="detail-item"><span class="dl">风险额</span><span class="dv">${r.risk_amount_cny?'¥'+fmtNum(r.risk_amount_cny,0):'—'}</span></div>
+      </div>
+    </div>
+    <div class="detail-legend" style="margin-top:12px;padding:10px;border-radius:var(--radius-md);background:var(--bg-surface);border:1px solid var(--line);font-size:var(--fs-sm);line-height:1.8">
+      <div style="font-weight:600;margin-bottom:4px;color:var(--text-secondary)">指标说明</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px">
+        <div><span class="muted">阶段</span> 趋势通过 → 回调区 → 触发 → 下单</div>
+        <div><span class="muted">MA20/60</span> 20/60日均线，MA20>MA60=多头趋势</div>
+        <div><span class="muted">量价</span> 回调缩量+触发放量=买盘确认</div>
+        <div><span class="muted">ATR14</span> 14日平均波幅，用于算止损距离</div>
+        <div><span class="muted">综合评分</span> 量价50% + 基本面20% + 情绪30%</div>
+        <div><span class="muted">硬否决</span> 跌破MA60放量等极端信号，一票否决</div>
       </div>
     </div>
   `;
@@ -313,7 +328,7 @@ function renderOrderCards(data){
       <div class="row" style="margin-bottom:8px">
         <div>
           <span class="mono" style="font-weight:700">${o.symbol}</span>
-          <span class="muted" style="margin-left:8px">${o.name||''}</span>
+          <span class="muted" style="margin-left:8px">${o.name||o.symbol||''}</span>
         </div>
         <div>
           <span class="tag warn">${o.risk_mode||'defensive'}</span>
