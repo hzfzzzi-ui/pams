@@ -1,5 +1,57 @@
 # 版本历史
 
+## V1.7 (2026-02-17)
+**HV Alpha 回测引擎 + Risk Protocol 状态机**
+
+### 新增功能
+- **HV Alpha V1 回测引擎**：完整的量化回测系统
+  - 20日高点突破 + 量价确认 + ATR 止损 + 金字塔加仓
+  - 动态股票池：定期筛选流动性充足的活跃标的（AkShare 行情数据）
+  - 宏观过滤：沪深300指数 MA200 趋势判定（RISK_ON / NEUTRAL）
+  - 金字塔加仓：盈利 1R 后追加仓位，最多加仓 2 次
+  - 跟踪止损：3x ATR 动态止损，锁定利润
+  - 分析报告：7 大板块（概述/资金曲线/交易统计/每周回顾/月度归因/改进建议）
+- **HV Alpha V2 Risk Protocol**：三级风险状态机
+  - NORMAL (R=2.5%) → DEGRADED (R=1.5%) → CONSERVATIVE (R=1.0%)
+  - Trigger A：连续12笔亏损 → DEGRADED | Trigger B：回撤>=25% → DEGRADED
+  - Trigger C：连续9月负收益+指数<MA200 → CONSERVATIVE
+  - 资金锁：权益翻倍 → R 永久降 0.3%
+  - CONSERVATIVE 信号过滤：综合评分仅放行 top 20%
+  - V1 引擎零修改，V2 通过组合/导入完全复用 V1 函数
+- **回测前端页面**：V1/V2 策略切换、参数面板、资金曲线图表、交易明细表、RP 事件卡片
+
+### 架构变更
+- 新增 `backend/api/backtest/` 回测引擎模块（engine.py + engine_v2.py + risk_protocol.py + router.py）
+- 新增 `frontend/public/backtest.html` + `backtest.js` 回测前端
+- 新增 `strategy/backtest_pams.py` 独立回测脚本
+- 新增回测 API 端点：`POST /api/backtest/run`、`POST /api/backtest/run_v2`、`GET /api/backtest/watchlist`
+
+---
+
+## V1.6 (2026-02-16)
+**A股量化策略引擎**
+
+### 新增功能
+- **多阶段选股流水线**：Universe → 趋势判定 → 回踩区间 → 突破触发 → 量价确认
+- **技术指标体系**：MA10/MA20/MA50 趋势门、ATR 止损/加仓、相对强度 RS、放量突破
+- **量价确认 (Flow Confirm)**：成交量放大比、主力资金流向、大单净买入综合评分
+- **风险仓位管理**：基于 ATR 的头寸计算、并发风险控制、板块集中度检查
+- **订单生命周期**：候选 → 订单草稿 → 确认 → 执行 → 过期，全流程管理
+- **盘中刷新**：15分钟级别实时扫描，Telegram 推送触发信号
+- **黑名单 & 冷却期**：止损后 30 天冷却，ST/退市/停牌自动过滤
+- **事件监控**：财报季、解禁日、重大事件自动标记
+- **市场情绪**：涨停/跌停数、主力资金流、社交热度综合评分
+- **观察池管理**：板块扫描入池、退出条件检查、入池/退出历史追踪
+
+### 架构变更
+- 新增 `backend/api/strategy/` 策略引擎模块（17 个文件）
+- 新增 `database/postgres/schema/010_strategy.sql` 策略候选/订单/黑名单/风控表
+- 新增 `database/postgres/schema/012_watchlist_management.sql` 观察池管理表
+- 新增策略 API 端点（候选/订单/扫描/风控/事件/情绪/观察池等 20+ 端点）
+- 前端策略页面增强、全站导航新增回测入口
+
+---
+
 ## V1.5 (2026-02-15)
 **Telegram 交易 Bot + 前端持仓重构**
 
