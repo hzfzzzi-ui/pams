@@ -9,13 +9,66 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <style>
+    .result-card { display: none; }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: var(--sp-4);
+      margin-top: var(--sp-3);
+    }
+    .metric-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      text-align: center;
+    }
+    .metric-label {
+      font-size: var(--fs-xs);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .metric-value {
+      font-size: var(--fs-xl);
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .history-item {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      margin-bottom: var(--sp-2);
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .history-item:hover {
+      border-color: var(--line-bright);
+      transform: translateX(4px);
+    }
+    .collapse-btn {
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .collapse-btn:hover {
+      opacity: 0.8;
+    }
+  </style>
 </head>
 <body>
   <div class="statusbar">
     <div class="status-left">
       <span class="brand">PAMS</span>
-      <div class="status-item"><span class="status-dot"></span> BACKTEST</div>
-      <span class="status-item">HV Alpha Model</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">回测引擎</span>
     </div>
     <div class="status-right">
       <a class="pill" href="index.html">Dashboard</a>
@@ -32,315 +85,157 @@
       <a data-nav href="backtest.html">回测</a>
     </div>
 
-    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
+    <!-- 运行回测表单 -->
+    <div class="card">
+      <h3>🚀 运行回测</h3>
 
-    <!-- 参数面板 -->
-    <div class="card" style="margin-bottom:var(--sp-3)">
-      <div class="sectionTitle">
-        <h3>回测参数</h3>
-        <div class="muted" id="stratDesc">HV Alpha Model · 20日突破 + 金字塔加仓 + 3ATR移动止损</div>
-      </div>
-
-      <div style="margin-top:8px;display:flex;gap:16px;font-size:var(--fs-sm)">
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="radio" name="strategy" id="stratV1" value="v1" checked />
-          <span>V1 HV Alpha</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="radio" name="strategy" id="stratV2" value="v2" />
-          <span>V2 Risk Protocol</span>
-        </label>
-      </div>
-
-      <div class="grid3" style="margin-top:12px;gap:16px">
-        <div>
-          <label class="formLabel">起始日期</label>
-          <input id="startDate" type="date" class="formInput" value="2025-10-01" />
+      <!-- 时间参数 -->
+      <div style="margin-top:var(--sp-5)">
+        <div class="sectionTitle" style="margin-bottom:var(--sp-3)">
+          <h4 style="font-size:var(--fs-md);color:var(--text-secondary)">📅 时间范围</h4>
         </div>
-        <div>
-          <label class="formLabel">结束日期</label>
-          <input id="endDate" type="date" class="formInput" value="2026-02-01" />
-        </div>
-        <div>
-          <label class="formLabel">初始资金 (CNY)</label>
-          <input id="capital" type="number" class="formInput" value="100000" step="10000" min="10000" />
-        </div>
-      </div>
-
-      <div class="grid3" style="margin-top:12px;gap:16px">
-        <div>
-          <label class="formLabel">单笔风险 % (RISK_ON)</label>
-          <input id="riskPct" type="number" class="formInput" value="2" step="0.5" min="0.5" max="10" />
-        </div>
-        <div>
-          <label class="formLabel">NEUTRAL 风险 %</label>
-          <input id="riskNeutral" type="number" class="formInput" value="1" step="0.5" min="0.5" max="5" />
-        </div>
-        <div>
-          <label class="formLabel">最大持仓数</label>
-          <input id="maxPos" type="number" class="formInput" value="3" step="1" min="1" max="10" />
-        </div>
-      </div>
-
-      <div class="grid3" style="margin-top:12px;gap:16px">
-        <div>
-          <label class="formLabel">初始止损 ATR 倍数</label>
-          <input id="stopAtr" type="number" class="formInput" value="2.5" step="0.1" min="1" max="5" />
-        </div>
-        <div>
-          <label class="formLabel">移动止损 ATR 倍数</label>
-          <input id="trailingAtr" type="number" class="formInput" value="3.0" step="0.5" min="1" max="10" />
-        </div>
-        <div>
-          <label class="formLabel">单票上限 %</label>
-          <input id="maxValuePct" type="number" class="formInput" value="50" step="5" min="10" max="100" />
-        </div>
-      </div>
-
-      <div class="grid3" style="margin-top:12px;gap:16px">
-        <div>
-          <label class="formLabel">突破周期 (日)</label>
-          <input id="breakoutLookback" type="number" class="formInput" value="20" step="5" min="5" max="60" />
-        </div>
-        <div>
-          <label class="formLabel">放量确认倍数</label>
-          <input id="volumeMult" type="number" class="formInput" value="1.2" step="0.1" min="0.5" max="3" />
-        </div>
-        <div style="display:flex;align-items:flex-end">
-          <button id="btnRun" class="pill" style="background:var(--accent);color:#000;border:none;padding:10px 32px;cursor:pointer;font-weight:700;font-size:var(--fs-base);width:100%">
-            运行回测
-          </button>
-        </div>
-      </div>
-
-      <!-- 金字塔加仓 -->
-      <div style="margin-top:16px">
-        <div style="cursor:pointer;display:flex;align-items:center;gap:8px" id="pyramidToggle">
-          <span class="muted" style="font-size:var(--fs-sm)">金字塔加仓 ▸</span>
-        </div>
-        <div id="pyramidBody" style="display:none;margin-top:8px">
-          <div class="grid3" style="gap:16px">
-            <div>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:var(--fs-sm)">
-                <input type="checkbox" id="pyramidEnabled" checked />
-                <span>启用加仓</span>
-              </label>
-            </div>
-            <div>
-              <label class="formLabel">最大加仓次数</label>
-              <input id="pyramidMaxAdds" type="number" class="formInput" value="2" step="1" min="0" max="5" />
-            </div>
-            <div>
-              <label class="formLabel">加仓风险比例 %</label>
-              <input id="pyramidRiskFrac" type="number" class="formInput" value="50" step="10" min="10" max="100" />
-            </div>
+        <div class="grid3" style="gap:var(--sp-4)">
+          <div>
+            <label class="formLabel">开始日期</label>
+            <input id="startDate" type="date" class="formInput" value="2024-01-01" />
           </div>
-          <div class="grid3" style="gap:16px;margin-top:8px">
-            <div>
-              <label class="formLabel">加仓触发 (xR)</label>
-              <input id="pyramidTriggerR" type="number" class="formInput" value="1.0" step="0.5" min="0.5" max="5" />
-            </div>
-            <div></div>
-            <div></div>
+          <div>
+            <label class="formLabel">结束日期</label>
+            <input id="endDate" type="date" class="formInput" value="2025-12-31" />
           </div>
-          <div class="muted" style="font-size:var(--fs-xs);margin-top:6px;line-height:1.5">
-            条件: 盈利达 +1R + 10日新高 + 成交量确认。每次加仓风险 = 初始风险 × 50%。最多加仓 2 次（总 3 笔）。
+          <div>
+            <label class="formLabel">初始资金</label>
+            <input id="capital" type="number" class="formInput" value="100000" step="10000" />
           </div>
         </div>
       </div>
 
-      <!-- 股票池选择 -->
-      <div style="margin-top:12px">
-        <div style="cursor:pointer;display:flex;align-items:center;gap:8px" id="poolToggle">
-          <span class="muted" style="font-size:var(--fs-sm)">股票池选择 ▸</span>
+      <!-- 策略配置 -->
+      <div style="margin-top:var(--sp-6)">
+        <div class="sectionTitle" style="margin-bottom:var(--sp-3)">
+          <h4 style="font-size:var(--fs-md);color:var(--text-secondary)">⚙️ 策略配置</h4>
         </div>
-        <div id="poolBody" style="display:none;margin-top:8px">
-          <div style="display:flex;gap:16px;margin-bottom:8px;font-size:var(--fs-sm)">
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-              <input type="radio" name="poolMode" id="poolDynamic" value="dynamic" checked />
-              <span>观察池每周扫描</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-              <input type="radio" name="poolMode" id="poolCustom" value="custom" />
-              <span>手动选择</span>
-            </label>
+        <div class="grid2" style="gap:var(--sp-4)">
+          <div>
+            <label class="formLabel">策略类型</label>
+            <select id="strategy" class="formInput">
+              <optgroup label="均线策略">
+                <option value="sma_cross">均线交叉</option>
+                <option value="sma_cross_regime">均线交叉 + 市场状态</option>
+              </optgroup>
+              <optgroup label="多因子策略">
+                <option value="multifactor" selected>多因子综合</option>
+                <option value="mf_rank">多因子排名</option>
+              </optgroup>
+              <optgroup label="趋势策略">
+                <option value="trend">趋势跟踪</option>
+                <option value="trend_quality">趋势质量</option>
+              </optgroup>
+              <optgroup label="风险管理">
+                <option value="atr_risk">ATR风险管理</option>
+              </optgroup>
+            </select>
           </div>
-          <div id="poolDynamicPanel">
-            <div class="muted" style="font-size:var(--fs-xs);line-height:1.6">
-              从板块龙头池 + 观察池中自动筛选。每 <input id="screenInterval" type="number" class="formInput" value="5" min="1" max="20" style="width:48px;display:inline-block;padding:2px 6px;text-align:center" /> 个交易日重新筛选。<br/>
-              筛选条件: MA20&gt;MA60 + RS&ge;0 + 流动性 (&ge;2亿日均成交额)
+          <div>
+            <label class="formLabel">Universe 范围</label>
+            <select id="universeLimit" class="formInput">
+              <option value="100">小盘 (Top 100)</option>
+              <option value="300">中盘 (Top 300)</option>
+              <option value="1000" selected>大盘 (Top 1000)</option>
+              <option value="3000">全市场 (All)</option>
+            </select>
+            <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">
+              按市值/流动性排名筛选股票池
             </div>
-          </div>
-          <div id="poolCustomPanel" style="display:none">
-            <input id="customSymbols" type="text" class="formInput" placeholder="输入股票代码，逗号分隔 (如 601899,002594 或 sh601899,sz002594)" style="width:100%" />
-            <div class="muted" style="font-size:var(--fs-xs);margin-top:4px">支持 6 位代码 (自动识别沪深) 或 sh/sz 前缀格式</div>
           </div>
         </div>
-      </div>
-
-      <!-- Risk Protocol (V2 only) -->
-      <div id="rpSection" style="margin-top:12px;display:none">
-        <div style="cursor:pointer;display:flex;align-items:center;gap:8px" id="rpToggle">
-          <span class="muted" style="font-size:var(--fs-sm)">Risk Protocol ▸</span>
-        </div>
-        <div id="rpBody" style="display:none;margin-top:8px">
-          <div class="grid3" style="gap:16px">
-            <div>
-              <label class="formLabel">NORMAL R%</label>
-              <input id="rpNormalRisk" type="number" class="formInput" value="2.5" step="0.5" min="0.5" max="10" />
+        <div style="margin-top:var(--sp-4)">
+          <div>
+            <label class="formLabel">股票池 (可选)</label>
+            <input id="symbols" type="text" class="formInput" placeholder="留空使用Universe范围，或手动输入如: 600000.SH,000001.SZ" />
+            <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">
+              提示：多个股票用逗号分隔。如指定具体股票，将忽略Universe范围
             </div>
-            <div>
-              <label class="formLabel">DEGRADED R%</label>
-              <input id="rpDegradedRisk" type="number" class="formInput" value="1.5" step="0.5" min="0.5" max="5" />
-            </div>
-            <div>
-              <label class="formLabel">CONSERVATIVE R%</label>
-              <input id="rpConservativeRisk" type="number" class="formInput" value="1" step="0.5" min="0.5" max="3" />
-            </div>
-          </div>
-          <div class="grid3" style="gap:16px;margin-top:8px">
-            <div>
-              <label class="formLabel">连亏触发 (笔)</label>
-              <input id="rpStreakThreshold" type="number" class="formInput" value="12" min="3" max="30" />
-            </div>
-            <div>
-              <label class="formLabel">回撤触发 %</label>
-              <input id="rpDdEnter" type="number" class="formInput" value="25" min="5" max="50" />
-            </div>
-            <div>
-              <label class="formLabel">资金锁倍数</label>
-              <input id="rpCapitalLockMult" type="number" class="formInput" value="2.0" step="0.5" min="1.5" max="5" />
-            </div>
-          </div>
-          <div class="muted" style="font-size:var(--fs-xs);margin-top:6px;line-height:1.5">
-            Trigger A: 连续12笔亏损&rarr;DEGRADED(20笔) | Trigger B: DD&ge;25%&rarr;DEGRADED(至DD&lt;15%) | Trigger C: 9月负收益+指数&lt;MA200&rarr;CONSERVATIVE
           </div>
         </div>
       </div>
 
-      <div id="runStatus" style="display:none;margin-top:12px"></div>
+      <!-- 运行按钮 -->
+      <div style="margin-top:var(--sp-6);padding-top:var(--sp-4);border-top:1px solid var(--line)">
+        <button id="btnRun" class="pill" style="background:var(--accent);color:#000;border:none;padding:12px 32px;cursor:pointer;font-weight:700;font-size:var(--fs-md)">
+          ▶ 开始运行回测
+        </button>
+      </div>
+
+      <div id="runStatus" style="display:none;margin-top:var(--sp-4);padding:var(--sp-4);background:var(--accent-dim);border-radius:var(--radius-md)"></div>
+
+      <!-- 进度条 -->
+      <div id="progressBar" style="display:none;margin-top:var(--sp-4)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <span id="progressStage" style="font-size:var(--fs-sm);color:var(--text)">准备运行...</span>
+          <span id="progressTime" style="font-size:var(--fs-sm);color:var(--muted);font-family:'JetBrains Mono',monospace">0s</span>
+        </div>
+        <div style="height:4px;background:var(--line);border-radius:2px;overflow:hidden">
+          <div id="progressFill" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s"></div>
+        </div>
+        <div id="progressHint" style="margin-top:8px;font-size:var(--fs-xs);color:var(--muted)"></div>
+      </div>
     </div>
 
-    <!-- 结果概览 -->
-    <div id="summaryCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle">
-        <h3>回测结果</h3>
-        <div class="muted" id="summaryMeta"></div>
-      </div>
-      <div id="summaryKpi" class="kpiGrid" style="margin-top:10px"></div>
-    </div>
+    <!-- 回测结果 -->
+    <div id="resultCard" class="card result-card" style="margin-top:var(--sp-4)">
+      <h3>📊 回测结果</h3>
 
-    <!-- 分析报告 -->
-    <div id="reportCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle">
-        <h3>回测分析报告</h3>
-        <div class="muted" id="reportGrade"></div>
+      <!-- 关键指标 -->
+      <div class="metric-grid">
+        <div class="metric-box">
+          <div class="metric-label">年化收益率</div>
+          <div class="metric-value" id="metricCAGR" style="color:var(--good)">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">最大回撤</div>
+          <div class="metric-value" id="metricMDD" style="color:var(--bad)">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">夏普比率</div>
+          <div class="metric-value" id="metricSharpe">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">胜率</div>
+          <div class="metric-value" id="metricWinRate">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">交易次数</div>
+          <div class="metric-value" id="metricTrades">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">总收益</div>
+          <div class="metric-value" id="metricReturn">--</div>
+        </div>
       </div>
-      <div id="reportBody" style="margin-top:10px"></div>
-    </div>
 
-    <!-- Risk Protocol Events (V2 only) -->
-    <div id="rpEventsCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle" style="cursor:pointer" id="rpEventsToggle">
-        <h3>Risk Protocol Events ▾</h3>
+      <!-- 净值曲线 -->
+      <div style="margin-top:var(--sp-6)">
+        <h4 style="margin-bottom:var(--sp-3)">净值曲线</h4>
+        <canvas id="navChart" style="max-height:300px"></canvas>
       </div>
-      <div id="rpEventsBody" style="margin-top:10px">
-        <div id="rpSummaryKpi" class="kpiGrid" style="margin-bottom:12px"></div>
-        <div class="tableWrap">
+
+      <!-- 交易明细 -->
+      <div style="margin-top:var(--sp-6)">
+        <div class="sectionTitle">
+          <h4>交易明细</h4>
+          <div class="muted">最近20笔</div>
+        </div>
+        <div class="tableWrap" style="margin-top:var(--sp-2)">
           <table class="tableWide">
             <thead>
               <tr>
-                <th class="nowrap">日期</th>
-                <th class="nowrap">事件</th>
-                <th class="nowrap">详情</th>
-              </tr>
-            </thead>
-            <tbody id="rpEventsRows"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- 权益曲线 -->
-    <div id="equityCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle"><h3>权益曲线 vs 上证指数</h3></div>
-      <div class="chartWrap" style="height:300px;margin-top:8px">
-        <canvas id="equityChart"></canvas>
-      </div>
-    </div>
-
-    <!-- 回撤曲线 -->
-    <div id="drawdownCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle"><h3>回撤曲线</h3></div>
-      <div class="chartWrap" style="height:260px;margin-top:8px">
-        <canvas id="drawdownChart"></canvas>
-      </div>
-    </div>
-
-    <!-- 股票池变更 -->
-    <div id="poolChangesCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle" style="cursor:pointer" id="poolChangesToggle">
-        <h3>股票池变更 ▾</h3>
-      </div>
-      <div id="poolChangesBody" style="margin-top:10px">
-        <div class="tableWrap">
-          <table class="tableWide">
-            <thead>
-              <tr>
-                <th class="nowrap">筛选日期</th>
-                <th class="nowrap num">活跃数</th>
-                <th class="nowrap">新增</th>
-                <th class="nowrap">移除</th>
-              </tr>
-            </thead>
-            <tbody id="poolChangesRows"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- 每周快照 -->
-    <div id="weeklyCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle" style="cursor:pointer" id="weeklyToggle">
-        <h3>每周市值快照 ▾</h3>
-      </div>
-      <div id="weeklyBody" style="margin-top:10px">
-        <div class="tableWrap">
-          <table class="tableWide">
-            <thead>
-              <tr>
-                <th class="nowrap">日期</th>
-                <th class="nowrap num">权益</th>
-                <th class="nowrap num">收益率</th>
-                <th class="nowrap num">回撤</th>
-                <th class="nowrap num">持仓数</th>
-                <th class="nowrap num">现金</th>
-              </tr>
-            </thead>
-            <tbody id="weeklyRows"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- 交易明细 -->
-    <div id="tradesCard" class="card" style="display:none;margin-bottom:var(--sp-3)">
-      <div class="sectionTitle" style="cursor:pointer" id="tradesToggle">
-        <h3>交易明细 ▾</h3>
-      </div>
-      <div id="tradesBody" style="margin-top:10px">
-        <div class="tableWrap">
-          <table class="tableWide">
-            <thead>
-              <tr>
-                <th class="nowrap">日期</th>
-                <th class="nowrap">操作</th>
-                <th class="nowrap">标的</th>
-                <th class="nowrap num">价格</th>
-                <th class="nowrap num">股数</th>
-                <th class="nowrap num">金额</th>
-                <th class="nowrap num">盈亏</th>
-                <th class="nowrap">原因</th>
+                <th>日期</th>
+                <th>标的</th>
+                <th>操作</th>
+                <th class="num">价格</th>
+                <th class="num">数量</th>
+                <th class="num">盈亏</th>
               </tr>
             </thead>
             <tbody id="tradeRows"></tbody>
@@ -349,8 +244,575 @@
       </div>
     </div>
 
+    <!-- 历史实验 -->
+    <div class="card" style="margin-top:var(--sp-4)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3>📜 历史实验</h3>
+        <span class="collapse-btn" onclick="toggleHistory()">
+          <span id="historyIcon">▼</span>
+          <span id="historyText">收起</span>
+        </span>
+      </div>
+
+      <div id="historyList" style="margin-top:var(--sp-3)">
+        <div class="muted" style="text-align:center;padding:var(--sp-6)">
+          暂无历史实验
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script type="module" src="assets/js/backtest.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script>
+    // 标记当前页面为active
+    document.querySelectorAll('.nav a').forEach(el => {
+      if (el.getAttribute('href') === 'backtest.html') {
+        el.classList.add('active');
+      }
+    });
+
+    let navChart = null;
+    let historyCollapsed = false;
+    let progressInterval = null;
+    let progressStartTime = null;
+
+    // 回测阶段定义（根据后端实际阶段）
+    const BACKTEST_STAGES = [
+      { name: '成分解析', duration: 2, hint: '加载股票池和过滤条件' },
+      { name: '数据加载', duration: 8, hint: '从数据库读取历史行情' },
+      { name: '预计算指标', duration: 15, hint: '计算技术指标和因子' },
+      { name: '仿真执行', duration: 60, hint: '逐日模拟交易策略' },
+      { name: '产物写盘', duration: 3, hint: '保存回测结果' },
+      { name: '报告生成', duration: 2, hint: '生成分析报告' }
+    ];
+
+    // 更新进度条
+    function updateProgress(elapsed) {
+      const progressBar = document.getElementById('progressBar');
+      const progressFill = document.getElementById('progressFill');
+      const progressStage = document.getElementById('progressStage');
+      const progressTime = document.getElementById('progressTime');
+      const progressHint = document.getElementById('progressHint');
+
+      if (!progressBar || progressBar.style.display === 'none') return;
+
+      // 计算当前应该在哪个阶段
+      let cumulative = 0;
+      let currentStage = BACKTEST_STAGES[0];
+      let progress = 0;
+
+      for (let i = 0; i < BACKTEST_STAGES.length; i++) {
+        const stage = BACKTEST_STAGES[i];
+        if (elapsed < cumulative + stage.duration) {
+          currentStage = stage;
+          const stageProgress = (elapsed - cumulative) / stage.duration;
+          progress = (cumulative + stageProgress * stage.duration) / 90 * 100; // 总预估90秒
+          break;
+        }
+        cumulative += stage.duration;
+      }
+
+      // 如果超过预估时间，保持99%
+      if (elapsed > 90) {
+        progress = 99;
+        currentStage = { name: '处理中...', hint: '数据量较大，请耐心等待' };
+      }
+
+      progressFill.style.width = `${Math.min(progress, 99)}%`;
+      progressStage.textContent = `${currentStage.name}`;
+      progressTime.textContent = `${elapsed}s`;
+      progressHint.textContent = currentStage.hint;
+
+      // 超时警告（超过3分钟）
+      if (elapsed > 180) {
+        progressHint.textContent = '⚠️ 执行时间较长，可能遇到问题。请检查控制台日志';
+        progressHint.style.color = 'var(--warn)';
+      }
+    }
+
+    // 开始进度追踪
+    function startProgress() {
+      const progressBar = document.getElementById('progressBar');
+      progressBar.style.display = 'block';
+      progressStartTime = Date.now();
+
+      if (progressInterval) clearInterval(progressInterval);
+      progressInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - progressStartTime) / 1000);
+        updateProgress(elapsed);
+      }, 500); // 每500ms更新一次
+    }
+
+    // 停止进度追踪
+    function stopProgress(success = true) {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
+
+      const progressBar = document.getElementById('progressBar');
+      const progressFill = document.getElementById('progressFill');
+      const progressStage = document.getElementById('progressStage');
+      const progressHint = document.getElementById('progressHint');
+
+      if (success) {
+        progressFill.style.width = '100%';
+        progressStage.textContent = '完成';
+        progressHint.textContent = '回测执行成功';
+        progressHint.style.color = 'var(--good)';
+
+        // 3秒后隐藏进度条
+        setTimeout(() => {
+          progressBar.style.display = 'none';
+        }, 3000);
+      } else {
+        progressFill.style.background = 'var(--bad)';
+        progressStage.textContent = '失败';
+        progressHint.style.color = 'var(--bad)';
+      }
+    }
+
+    // 折叠/展开历史
+    function toggleHistory() {
+      historyCollapsed = !historyCollapsed;
+      const list = document.getElementById('historyList');
+      const icon = document.getElementById('historyIcon');
+      const text = document.getElementById('historyText');
+
+      if (historyCollapsed) {
+        list.style.display = 'none';
+        icon.textContent = '▶';
+        text.textContent = '展开';
+      } else {
+        list.style.display = 'block';
+        icon.textContent = '▼';
+        text.textContent = '收起';
+      }
+    }
+
+    // 运行回测
+    document.getElementById('btnRun').addEventListener('click', async () => {
+      const btn = document.getElementById('btnRun');
+      const status = document.getElementById('runStatus');
+      const resultCard = document.getElementById('resultCard');
+
+      // 禁用按钮
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.textContent = '⏳ 运行中...';
+
+      // 显示状态
+      status.style.display = 'block';
+      status.innerHTML = '<div style="color:var(--accent)">正在运行回测，请稍候...</div>';
+
+      // 隐藏旧结果
+      resultCard.style.display = 'none';
+
+      // 启动进度追踪
+      startProgress();
+
+      try {
+        // 获取参数
+        const symbolsInput = document.getElementById('symbols').value.split(',').map(s => s.trim()).filter(Boolean);
+        const universeLimit = parseInt(document.getElementById('universeLimit').value);
+
+        // 根据universe_limit调整筛选参数
+        let poolSource = 'pit';  // 使用PIT universe
+        let screenMinTurnover = 200_000_000; // 默认2亿成交额
+
+        // 根据universe范围调整流动性阈值
+        if (universeLimit <= 100) {
+          screenMinTurnover = 500_000_000; // 小盘：5亿
+        } else if (universeLimit <= 300) {
+          screenMinTurnover = 300_000_000; // 中盘：3亿
+        } else if (universeLimit <= 1000) {
+          screenMinTurnover = 200_000_000; // 大盘：2亿
+        } else {
+          screenMinTurnover = 100_000_000; // 全市场：1亿
+        }
+
+        // 构建符合BacktestRequestUnified格式的参数
+        const params = {
+          strategy: 'pipeline',  // 固定使用pipeline策略
+          start_date: document.getElementById('startDate').value,
+          end_date: document.getElementById('endDate').value,
+          initial_capital: parseFloat(document.getElementById('capital').value),
+          symbols: symbolsInput.length > 0 ? symbolsInput : null,
+          pool_source: symbolsInput.length > 0 ? 'custom' : poolSource,
+          screen_min_turnover: screenMinTurnover,
+          // 使用合理的默认值
+          max_positions: 6,
+          risk_per_trade_pct: 0.04,
+          max_position_value_pct: 0.35,
+          stop_atr_mult: 2.2,
+          enable_regime_overlay: true,
+          enable_level2_constraints: false
+        };
+
+        // 🔍 调试：打印请求参数
+        console.group('📤 发送到后端的参数');
+        console.log('Universe范围:', universeLimit, '→ 流动性阈值:', screenMinTurnover);
+        console.log('完整params:', params);
+        console.log('API endpoint: POST /api/backtest/run_unified');
+        console.groupEnd();
+
+        // 调用正确的API端点（带超时控制）
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          console.error('⚠️ 请求超时 (5分钟)');
+        }, 5 * 60 * 1000); // 5分钟超时
+
+        const response = await fetch('/api/backtest/run_unified', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+
+        const result = await response.json();
+
+        // 调试：打印原始响应
+        console.log('API响应:', result);
+
+        // 验证响应格式
+        if (!result || typeof result !== 'object') {
+          throw new Error('API返回格式错误');
+        }
+
+        // 显示结果
+        displayResults(result);
+
+        // 添加到历史（只有在有summary时才添加）
+        if (result.summary && result.summary.ann_ret !== undefined) {
+          addToHistory(params, result);
+        }
+
+        status.innerHTML = '<div style="color:var(--good)">✓ 回测完成</div>';
+        stopProgress(true);
+
+      } catch (err) {
+        console.error('回测失败:', err);
+        console.error('完整错误信息:', err.stack);
+        status.innerHTML = `<div style="color:var(--bad)">✗ 回测失败: ${err.message}</div>`;
+        stopProgress(false);
+      } finally {
+        // 恢复按钮
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.textContent = '▶ 开始运行';
+      }
+    });
+
+    // 显示回测结果
+    function displayResults(result) {
+      const resultCard = document.getElementById('resultCard');
+      resultCard.style.display = 'block';
+
+      // 后端实际返回格式: { summary: {...}, trades: [...], equity_curve: [...], report: {...} }
+      const summary = result.summary || {};
+      const navData = result.equity_curve || [];
+      const tradesData = result.trades || [];
+
+      console.log('Summary:', summary);
+      console.log('Trades count:', tradesData.length);
+      console.log('Nav points:', navData.length);
+
+      // 数据完整性检查
+      if (navData.length === 0) {
+        console.warn('⚠️ 净值曲线数据为空');
+      }
+      if (tradesData.length === 0) {
+        console.warn('⚠️ 交易记录为空');
+      }
+      if (summary.sharpe_ratio === 0 || !summary.sharpe_ratio) {
+        console.warn('⚠️ 夏普比率为0或未定义，可能数据不足或计算异常');
+      }
+      if (navData.length > 0) {
+        const firstDate = navData[0].date || navData[0].trade_date;
+        const lastDate = navData[navData.length - 1].date || navData[navData.length - 1].trade_date;
+        console.log(`📅 净值曲线时间范围: ${firstDate} ~ ${lastDate}`);
+      }
+
+      // 显示指标 - 匹配 report_normalizer.py 的实际字段名
+      // ann_ret (年化收益率), max_drawdown, sharpe_ratio, win_rate, total_trades, total_return_pct
+      const cagr = summary.ann_ret ?? summary.CAGR ?? 0;
+      const mdd = summary.max_drawdown ?? summary.MDD ?? 0;
+      const sharpe = summary.sharpe_ratio ?? summary.Sharpe ?? 0;
+      let winRate = summary.win_rate ?? summary.winRate ?? 0;
+      const trades = summary.total_trades ?? summary.trades_count ?? 0;
+      let totalReturn = summary.total_return_pct ?? summary.net_return_pct ?? summary.gross_return_pct ?? 0;
+
+      // 🔍 详细数据调试
+      console.group('📊 后端返回的原始指标值');
+      console.log('ann_ret:', summary.ann_ret, '→ CAGR:', cagr);
+      console.log('max_drawdown:', summary.max_drawdown, '→ MDD:', mdd);
+      console.log('sharpe_ratio:', summary.sharpe_ratio, '→ Sharpe:', sharpe);
+      console.log('win_rate:', summary.win_rate, '→ winRate:', winRate);
+      console.log('total_trades:', summary.total_trades, '→ trades:', trades);
+      console.log('total_return_pct:', summary.total_return_pct, '→ totalReturn:', totalReturn);
+      console.log('完整summary对象:', summary);
+      console.groupEnd();
+
+      // 数据验证：如果胜率或总收益已经是百分比格式(>1)，不再乘100
+      if (winRate > 1) {
+        console.warn('⚠️ Win rate > 1, assuming already in percentage:', winRate);
+        winRate = winRate / 100; // 转换回小数
+      }
+      if (totalReturn > 1 && totalReturn < 100) {
+        console.warn('⚠️ Total return > 1 but < 100, assuming already in percentage:', totalReturn);
+        totalReturn = totalReturn / 100;
+      }
+
+      document.getElementById('metricCAGR').textContent =
+        (cagr * 100).toFixed(2) + '%';
+      document.getElementById('metricMDD').textContent =
+        (Math.abs(mdd) * 100).toFixed(2) + '%';
+      document.getElementById('metricSharpe').textContent =
+        sharpe !== 0 ? sharpe.toFixed(2) : '--';
+      document.getElementById('metricWinRate').textContent =
+        winRate !== 0 ? (winRate * 100).toFixed(1) + '%' : '--';
+      document.getElementById('metricTrades').textContent =
+        trades || '--';
+      document.getElementById('metricReturn').textContent =
+        (totalReturn * 100).toFixed(2) + '%';
+
+      // 绘制净值曲线（包含基准对比）
+      if (navData && navData.length > 0) {
+        const benchmarkData = result.benchmark_curve || result.benchmark || null;
+        drawNavChart(navData, benchmarkData);
+      }
+
+      // 显示交易明细
+      if (tradesData && tradesData.length > 0) {
+        displayTrades(tradesData.slice(-20));
+      }
+
+      // 滚动到结果
+      resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // 绘制净值曲线
+    function drawNavChart(navData, benchmarkData = null) {
+      const ctx = document.getElementById('navChart').getContext('2d');
+
+      if (navChart) {
+        navChart.destroy();
+      }
+
+      // 兼容多种格式: { date, value } 或 { date, equity } 或 { trade_date, equity }
+      const labels = navData.map(d => d.date || d.trade_date || '');
+      const values = navData.map(d => d.value || d.equity || 0);
+
+      // 归一化：将第一个值作为基准1.0
+      const firstValue = values[0] || 1;
+      const normalizedValues = values.map(v => v / firstValue);
+
+      const datasets = [{
+        label: '策略净值',
+        data: normalizedValues,
+        borderColor: 'rgb(88, 166, 255)',
+        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.1,
+        yAxisID: 'y'
+      }];
+
+      // 添加基准对比
+      if (benchmarkData && benchmarkData.length > 0) {
+        const benchmarkValues = benchmarkData.map(d => d.equity || d.value || d.close || 0);
+        const firstBenchmark = benchmarkValues[0] || 1;
+        const normalizedBenchmark = benchmarkValues.map(v => v / firstBenchmark);
+
+        datasets.push({
+          label: '基准指数',
+          data: normalizedBenchmark,
+          borderColor: 'rgba(210, 153, 34, 0.8)',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          borderDash: [5, 5],
+          fill: false,
+          tension: 0.1,
+          yAxisID: 'y'
+        });
+      }
+
+      navChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              display: datasets.length > 1,
+              position: 'top',
+              labels: { color: '#e1e4e8', font: { size: 11 } }
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: function(context) {
+                  let label = context.dataset.label || '';
+                  if (label) label += ': ';
+                  label += context.parsed.y.toFixed(3);
+                  return label;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: {
+                color: '#6e7681',
+                maxRotation: 45,
+                maxTicksLimit: 12
+              }
+            },
+            y: {
+              type: 'linear',
+              position: 'left',
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: {
+                color: '#6e7681',
+                callback: function(value) {
+                  return value.toFixed(2);
+                }
+              },
+              title: {
+                display: true,
+                text: '归一化净值 (起始=1.0)',
+                color: '#6e7681',
+                font: { size: 10 }
+              }
+            }
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+          }
+        }
+      });
+    }
+
+    // 显示交易明细
+    function displayTrades(trades) {
+      const tbody = document.getElementById('tradeRows');
+      tbody.innerHTML = trades.map(trade => {
+        // 兼容多种字段命名格式
+        const date = trade.date || trade.trade_date || trade.entry_date || '--';
+        const symbol = trade.symbol || trade.code || '--';
+        const side = trade.side || trade.direction || trade.action || 'UNKNOWN';
+        const price = trade.price || trade.entry_price || trade.fill_price || 0;
+        const quantity = trade.quantity || trade.qty || trade.shares || trade.volume || 0;
+        const pnl = trade.pnl ?? trade.profit ?? trade.realized_pnl ?? null;
+
+        return `
+          <tr>
+            <td>${date}</td>
+            <td>${symbol}</td>
+            <td><span class="${side === 'BUY' || side === 'buy' ? 'tag info' : (side === 'SELL' || side === 'sell' ? 'tag warn' : 'tag')}">${side}</span></td>
+            <td class="num mono">${typeof price === 'number' ? price.toFixed(2) : '--'}</td>
+            <td class="num mono">${typeof quantity === 'number' ? quantity : quantity || '--'}</td>
+            <td class="num mono" style="color:${pnl !== null && pnl >= 0 ? 'var(--good)' : 'var(--bad)'}">
+              ${pnl !== null ? ((pnl >= 0 ? '+' : '') + pnl.toFixed(2)) : '--'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // 添加到历史
+    function addToHistory(params, result) {
+      const historyList = document.getElementById('historyList');
+      const now = new Date().toLocaleString('zh-CN');
+
+      // Universe 描述
+      let universeDesc = '';
+      if (params.symbols && params.symbols.length > 0) {
+        universeDesc = `自定义${params.symbols.length}只`;
+      } else if (params.universe_limit) {
+        const limitMap = {
+          100: '小盘100',
+          300: '中盘300',
+          1000: '大盘1000',
+          3000: '全市场'
+        };
+        universeDesc = limitMap[params.universe_limit] || `Top${params.universe_limit}`;
+      }
+
+      // 报告路径
+      const reportPath = result.report_path || null;
+      const runId = result.run_id || null;
+
+      const item = document.createElement('div');
+      item.className = 'history-item';
+
+      // 如果有报告路径，添加点击事件
+      if (reportPath || runId) {
+        item.style.cursor = 'pointer';
+        item.title = reportPath ? `查看报告: ${reportPath}` : '查看详情';
+        item.addEventListener('click', () => {
+          if (reportPath) {
+            // 如果有报告路径，尝试打开
+            window.open(`/api/backtest/report?path=${encodeURIComponent(reportPath)}`, '_blank');
+          } else if (runId) {
+            // 否则显示run_id供用户复制
+            alert(`Run ID: ${runId}\n\n使用此ID可在后端查询详细结果`);
+          }
+        });
+      }
+
+      item.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1">
+            <div style="font-weight:600;margin-bottom:4px">
+              ${params.strategy} | ${params.start_date} ~ ${params.end_date}
+              ${reportPath ? '<span style="margin-left:8px;font-size:var(--fs-xs);color:var(--accent)">📄</span>' : ''}
+            </div>
+            <div style="font-size:var(--fs-sm);color:var(--muted)">
+              ${universeDesc} · ${now}
+              ${runId ? ` · <span style="font-family:JetBrains Mono;font-size:10px">${runId.slice(0, 8)}</span>` : ''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:var(--fs-lg);font-weight:700;font-family:'JetBrains Mono',monospace;color:${(result.summary.ann_ret || 0) >= 0 ? 'var(--good)' : 'var(--bad)'}">
+              ${((result.summary.ann_ret || 0) * 100).toFixed(2)}%
+            </div>
+            <div style="font-size:var(--fs-xs);color:var(--muted)">CAGR</div>
+          </div>
+        </div>
+      `;
+
+      // 清空"暂无"提示
+      if (historyList.querySelector('.muted')) {
+        historyList.innerHTML = '';
+      }
+
+      // 插入到顶部
+      historyList.insertBefore(item, historyList.firstChild);
+
+      // 最多保留10条
+      while (historyList.children.length > 10) {
+        historyList.removeChild(historyList.lastChild);
+      }
+    }
+
+    // 页面加载时加载历史（从localStorage）
+    // TODO: 从后端API加载历史实验
+  </script>
 </body>
 </html>
