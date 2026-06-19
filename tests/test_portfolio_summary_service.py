@@ -265,3 +265,28 @@ def test_apply_return_attribution_pnl_to_summary_splits_total_and_current_float(
     assert out["totals"]["holding_pnl"] == "17.00"
     assert out["totals"]["current_float_pnl"] == "12.00"
     assert out["totals"]["closed_realized_pnl"] == "5.00"
+
+
+def test_apply_return_attribution_pnl_to_summary_prefers_canonical_total():
+    payload = {
+        "as_of": "2026-06-19",
+        "base_currency": "CNY",
+        "totals": {"market_value": "300.00", "holding_pnl": "12.00", "daily_pnl": "0"},
+        "by_asset_class": [],
+        "children": [],
+    }
+    attribution = {
+        "total_pnl_cny": "17.00",
+        "canonical_total_pnl_cny": "20.00",
+        "dimensions": {
+            "holding": [
+                {"name": "Current", "market_value_cny": "300.00", "pnl_cny": "12.00"},
+            ]
+        },
+    }
+
+    out = apply_return_attribution_pnl_to_summary(payload, attribution)
+
+    assert out["totals"]["holding_pnl"] == "20.00"
+    assert out["totals"]["current_float_pnl"] == "12.00"
+    assert out["totals"]["closed_realized_pnl"] == "8.00"

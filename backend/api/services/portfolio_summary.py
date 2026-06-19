@@ -454,8 +454,14 @@ def apply_return_attribution_pnl_to_summary(
         )
     totals["current_float_pnl"] = str(current_float_pnl)
 
-    if attribution_payload and attribution_payload.get("total_pnl_cny") not in (None, ""):
-        total_pnl = _decimal(attribution_payload.get("total_pnl_cny"))
+    if attribution_payload:
+        canonical_total = attribution_payload.get("canonical_total_pnl_cny")
+        raw_total = attribution_payload.get("total_pnl_cny")
+        total_source = canonical_total if canonical_total not in (None, "") else raw_total
+    else:
+        total_source = None
+    if total_source not in (None, ""):
+        total_pnl = _decimal(total_source)
         totals["holding_pnl"] = str(total_pnl)
         totals["closed_realized_pnl"] = str(total_pnl - current_float_pnl)
 

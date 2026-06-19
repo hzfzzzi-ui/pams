@@ -282,6 +282,49 @@ def test_return_reconciliation_units_close_section_target_without_exposure_pollu
     assert meta["sections"][0]["section"] == "a_stock"
 
 
+def test_return_reconciliation_sets_canonical_total_without_visible_unit(monkeypatch) -> None:
+    monkeypatch.setattr(return_attribution, "_latest_snapshot_date", lambda cur: "2026-06-19")
+    monkeypatch.setattr(
+        return_attribution,
+        "_section_target_payloads",
+        lambda *args, **kwargs: (
+            {
+                "a_stock": {
+                    "market_value_cny": 120.0,
+                    "pnl_cny": -20.0,
+                    "daily_pnl_cny": 3.0,
+                }
+            },
+            [],
+        ),
+    )
+
+    payload = build_return_attribution_from_positions(
+        [
+            {
+                "account_code": "tonghuashun",
+                "asset_name": "紫金矿业",
+                "symbol": "601899",
+                "asset_type": "stock_cn",
+                "currency": "CNY",
+                "market_value_cny": 100.0,
+                "holding_pnl_cny": -30.0,
+                "daily_pnl_cny": 1.0,
+            }
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+        account_cfg={"defaults": {"owner_ratio": 1}, "accounts": {"tonghuashun": {"owner_ratio": 1}}},
+        reconciliation_cur=object(),
+        portfolio_nav_cny=120.0,
+    )
+
+    assert payload["total_pnl_cny"] == pytest.approx(-30.0)
+    assert payload["canonical_total_pnl_cny"] == pytest.approx(-20.0)
+    assert payload["canonical_daily_pnl_cny"] == pytest.approx(3.0)
+    assert not any("RETURN_RECONCILIATION" in str(row.get("symbol")) for row in payload["dimensions"]["holding"])
+    assert payload["quality"]["return_reconciliation"]["sections"][0]["pnl_delta_cny"] == pytest.approx(10.0)
+
+
 def test_return_attribution_uses_exposure_dimensions_without_cash_in_industry() -> None:
     payload = build_return_attribution_from_positions(
         [

@@ -371,6 +371,38 @@ def _account_initial_capital_cny(account_code: str) -> Decimal | None:
     return Decimal(str(values[account_key]))
 
 
+def _apply_reported_account_performance(payload: dict[str, Any], account_code: str) -> dict[str, Any]:
+    """Overlay platform-confirmed account PnL while preserving economic audit fields."""
+    cfg = ((_reported_returns_cfg().get("account_performance") or {}).get(account_code)) or {}
+    if not isinstance(cfg, dict) or not cfg.get("use_reported_anchor"):
+        return payload
+
+    reported_total: Decimal | None = None
+    if cfg.get("total_return") not in (None, ""):
+        reported_total = Decimal(str(cfg["total_return"]))
+    elif cfg.get("total_return_gross") not in (None, ""):
+        reported_total = Decimal(str(cfg["total_return_gross"])) * _account_owner_ratio(account_code)
+    elif cfg.get("total_ytd_pnl") not in (None, ""):
+        reported_total = Decimal(str(cfg["total_ytd_pnl"])) * _account_owner_ratio(account_code)
+    if reported_total is None:
+        return payload
+
+    out = dict(payload)
+    out["economic_total_pnl_cny"] = out.get("total_pnl_cny")
+    out["total_pnl_cny"] = str(reported_total)
+    holding_pnl = Decimal(str(out.get("holding_pnl_cny") or "0"))
+    out["realized_pnl_cny"] = str(reported_total - holding_pnl)
+    out["return_basis"] = "reported_platform"
+    out["reported_performance"] = {
+        "as_of": str(cfg.get("as_of") or ""),
+        "basis": cfg.get("basis"),
+        "note": cfg.get("note"),
+        "cash_balance_gross": str(cfg.get("cash_balance_gross")) if cfg.get("cash_balance_gross") not in (None, "") else None,
+        "total_return_gross": str(cfg.get("total_return_gross")) if cfg.get("total_return_gross") not in (None, "") else None,
+    }
+    return out
+
+
 
 
 
@@ -667,7 +699,7 @@ def account_performance(account_code: str):
             )
             if payload is None:
                 raise HTTPException(status_code=404, detail=f"Account {account_code} has no holdings snapshot")
-            return json(payload)
+            return json(_apply_reported_account_performance(payload, account_code))
 @app.get("/holdings/history/{category}")
 def holdings_history_by_category(
     category: str,

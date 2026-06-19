@@ -68,6 +68,7 @@ SECTION_CORRECTION_LABELS = {
     "us_stock": "\u7f8e\u80a1/\u6d77\u5916\u6536\u76ca\u53e3\u5f84\u6821\u51c6",
     "precious_metal": "\u8d35\u91d1\u5c5e\u6536\u76ca\u53e3\u5f84\u6821\u51c6",
 }
+CANONICAL_RECONCILIATION_SECTIONS = {"a_stock"}
 RETURN_ATTRIBUTION_MAJOR_CATEGORIES = {"A股", "美股", "ESOP", "贵金属", "加密"}
 RETURN_ATTRIBUTION_ASSET_TYPES = {
     "a_share_stock",
@@ -1259,6 +1260,7 @@ def build_return_attribution_from_positions(
     instrument_units, exposure_units = _build_units(normalized, underlyings, enriched_positions, cfg=cfg)
     reconciliation_meta: dict[str, Any] = {"sections": []}
     reconciliation_warnings: list[str] = []
+    reconciliation_units: list[AttributionUnit] = []
     if reconciliation_cur is not None and account_cfg is not None:
         targets, reconciliation_warnings = _section_target_payloads(
             reconciliation_cur,
@@ -1266,14 +1268,20 @@ def build_return_attribution_from_positions(
             base_currency=base_currency,
             view_as_of=_latest_snapshot_date(reconciliation_cur),
         )
+        targets = {
+            section: target
+            for section, target in targets.items()
+            if section in CANONICAL_RECONCILIATION_SECTIONS
+        }
         reconciliation_units, reconciliation_meta = _return_reconciliation_units(instrument_units, targets)
-        instrument_units.extend(reconciliation_units)
 
     total_market_value = _metric_sum(instrument_units, "market_value_cny")
     total_pnl = _metric_sum(instrument_units, "pnl_cny")
     total_daily_pnl = _metric_sum(instrument_units, "daily_pnl_cny")
     total_daily_price = _metric_sum(instrument_units, "daily_price_pnl_cny")
     total_daily_fx = _metric_sum(instrument_units, "daily_fx_pnl_cny")
+    canonical_total_pnl = total_pnl + _metric_sum(reconciliation_units, "pnl_cny")
+    canonical_daily_pnl = total_daily_pnl + _metric_sum(reconciliation_units, "daily_pnl_cny")
     nav_value = _num(portfolio_nav_cny) if portfolio_nav_cny is not None else _num(lookthrough.get("portfolio_nav_cny"))
 
     dimensions = {
@@ -1347,14 +1355,16 @@ def build_return_attribution_from_positions(
     if lookthrough.get("quality", {}).get("uncovered_value_cny"):
         notes.append("未穿透残差会承接基金收益，但不进入主题主图。")
 
-    return {
+    payload = {
         "status": "ok" if positions else "empty",
         "as_of": lookthrough.get("as_of"),
         "portfolio_nav_cny": nav_value,
         "gross_exposure_cny": total_market_value,
         "total_market_value_cny": total_market_value,
         "total_pnl_cny": total_pnl,
+        "canonical_total_pnl_cny": canonical_total_pnl,
         "daily_pnl_cny": total_daily_pnl,
+        "canonical_daily_pnl_cny": canonical_daily_pnl,
         "daily_price_pnl_cny": total_daily_price,
         "daily_fx_pnl_cny": total_daily_fx,
         "dimensions": dimensions,
@@ -1362,6 +1372,7 @@ def build_return_attribution_from_positions(
         "notes": notes,
         "model_version": "return_attribution_v1",
     }
+    return payload
 
 
 def build_return_attribution_payload(
@@ -1408,7 +1419,7 @@ def build_return_attribution_payload(
         asset_master_cur=cur,
         sync_asset_master=sync_asset_master,
         account_cfg=account_cfg,
-        reconciliation_cur=None,
+        reconciliation_cur=cur if (account_cfg.get("accounts") or {}) else None,
         base_currency=base_currency,
         portfolio_nav_cny=portfolio_nav_cny,
     )
