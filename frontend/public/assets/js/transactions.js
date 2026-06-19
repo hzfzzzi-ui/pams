@@ -1812,8 +1812,18 @@ function TradeReviewWorkbenchLegacy(payload) {
 function TradeReviewWorkbench(payload) {
   const workbench = payload?.workbench || {};
   return `
-    <div class="tradeReviewWorkbench tradeReviewAssetWorkbench">
-      ${TradeReviewAssetHeatmap(payload, workbench)}
+    <div class="tradeReviewWorkbench tradeReviewModeOnly">
+      <section class="tradeReviewModeAttribution">
+        <header class="tradeReviewModeAttributionHead">
+          <div>
+            <span>交易动作归因</span>
+            <strong>只看哪些交易动作在贡献或拖累</strong>
+          </div>
+          <small>标的实际盈亏热力图已移到收益归因。</small>
+        </header>
+        ${TradeReviewDirectionalTradePanel(payload)}
+        ${TradeReviewDetailPanels(workbench, payload)}
+      </section>
     </div>
   `;
 }

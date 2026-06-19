@@ -283,10 +283,10 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
     assert "assets/js/holdings.js?v=20260617-linkage-v1" in html
     assert "assets/js/holdings_categories.js?v=20260619-valuation-state-v1" in html
-    assert "assets/js/lookthrough.js?v=20260618-nav-field-v1" in html
+    assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
-    assert "style.css?v=20260619-asset-heatmap-v1" in html
+    assert "style.css?v=20260619-return-asset-heatmap-v2" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -394,7 +394,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260619-asset-heatmap-v1" in investments_html
+    assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -769,6 +769,9 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "TradeReviewPatternPanel" not in asset_heatmap_block
     assert "TradeReviewDataGaps" not in asset_heatmap_block
     assert "<strong>模式</strong>" not in asset_heatmap_block
+    workbench_block = tx_js.split("function TradeReviewWorkbench(payload)", 1)[1].split("function TradeAttributionPanelV2", 1)[0]
+    assert "TradeReviewAssetHeatmap(payload" not in workbench_block
+    assert "标的实际盈亏热力图已移到收益归因" in workbench_block
     assert "tradeReviewHeatTile" in tx_js
     assert "面积≈交易规模" in tx_js
     assert "pattern_universe" in tx_js
@@ -825,7 +828,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260619-asset-heatmap-v1" in html
+    assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -884,6 +887,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     ui_js = _read_public("assets/js/ui.js")
     holdings_js = _read_public("assets/js/holdings_categories.js")
     lookthrough_js = _read_public("assets/js/lookthrough.js")
+    css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     assert "API_CACHE_PREFIX" in api_js
@@ -902,11 +906,11 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
-    assert "assets/css/style.css?v=20260619-asset-heatmap-v1" in ui_js
+    assert "assets/css/style.css?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/holdings.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260618-return-date-v4" in ui_js
-    assert "assets/js/lookthrough.js?v=20260618-nav-field-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260619-asset-heatmap-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in ui_js
+    assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/more.js?v=20260607-more-ia-v1" in ui_js
@@ -922,6 +926,16 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "returnAttributionOverride" not in lookthrough_js
     assert "holdingsKpiSummary" not in lookthrough_js
     assert "盈亏总额以持仓页最终 KPI 为准" not in lookthrough_js
+    assert "ReturnAttributionAssetHeatmap" in lookthrough_js
+    assert "returnAttributionHeatmapRows" in lookthrough_js
+    assert "dimensions?.[dimension]" in lookthrough_js
+    assert "data-return-asset-heat-row" in lookthrough_js
+    assert "标的盈亏热力图" in lookthrough_js
+    assert "returnAttributionCompactName(label" in lookthrough_js
+    assert "returnAttributionCompactSymbol" not in lookthrough_js
+    assert "returnAttributionCards" not in lookthrough_js
+    assert "returnAssetHeatmapCanvas" in css
+    assert "--return-asset-name" in css
 
 
 def test_holding_summary_uses_market_view_date() -> None:
