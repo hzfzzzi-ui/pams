@@ -14,6 +14,8 @@ if str(API_ROOT) not in sys.path:
 import services.return_attribution as return_attribution  # noqa: E402
 from services.exposure_engine import UNMAPPED_INDUSTRY  # noqa: E402
 from services.return_attribution import (  # noqa: E402
+    _daily_row_to_position,
+    _is_return_attribution_row,
     _merge_daily_positions,
     _merge_realized_trade_positions,
     _return_reconciliation_units,
@@ -23,6 +25,31 @@ from services.return_attribution import (  # noqa: E402
 
 def _row(rows: list[dict], name: str) -> dict:
     return next(item for item in rows if item["name"] == name)
+
+
+def _mojibake(text: str) -> str:
+    return text.encode("utf-8").decode("gbk")
+
+
+def test_daily_closed_row_repairs_mojibake_category_for_return_attribution() -> None:
+    position = _daily_row_to_position(
+        {
+            "account_code": "ibkr",
+            "symbol": "000660.KS",
+            "name": "000660.KS - SK HYNIX INC",
+            "major_category": _mojibake("美股"),
+            "minor_category": _mojibake("美股基金"),
+            "currency": "KRW",
+            "market_value_cny": 0.0,
+            "holding_pnl_cny": 3885.76,
+            "daily_pnl_cny": 0.0,
+        }
+    )
+
+    assert position["major_category"] == "美股"
+    assert position["minor_category"] == "美股基金"
+    assert position["asset_type"] == "us_stock"
+    assert _is_return_attribution_row(position)
 
 
 def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(monkeypatch) -> None:
@@ -95,10 +122,33 @@ def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(
             "underlying_holdings": [],
         }
 
+    def fake_daily_positions(cur, account_cfg):
+        return [
+            {
+                "account_code": "ibkr",
+                "symbol": "000660.KS",
+                "asset_name": "SK HYNIX INC",
+                "asset_type": "us_stock",
+                "major_category": "美股",
+                "minor_category": "美股个股",
+                "currency": "KRW",
+                "market_value_cny": 0.0,
+                "cost_cny": 0.0,
+                "holding_pnl_cny": -5.0,
+                "daily_pnl_cny": 0.0,
+                "daily_price_pnl_cny": 0.0,
+                "daily_fx_pnl_cny": 0.0,
+                "daily_total_pnl_cny": 0.0,
+                "as_of": "2026-06-12",
+                "source_type": "holdings_view_closed",
+            }
+        ]
+
     monkeypatch.setattr(return_attribution, "_load_accounts_config", lambda: {"defaults": {"owner_ratio": 1}, "accounts": {}})
     monkeypatch.setattr(return_attribution, "_latest_snapshot_date", lambda cur: "2026-06-12")
     monkeypatch.setattr(return_attribution, "_load_sw_l1_lookup", lambda cur: {})
     monkeypatch.setattr(return_attribution, "build_holdings_latest_payload", fake_holdings_latest)
+    monkeypatch.setattr(return_attribution, "_load_daily_attribution_positions", fake_daily_positions)
     monkeypatch.setattr(return_attribution, "load_lookthrough_config", lambda config=None: {"asset_mapping": [], "asset_lookthrough": []})
     monkeypatch.setattr(
         return_attribution,
@@ -118,9 +168,12 @@ def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(
     assert payload["portfolio_nav_cny"] == pytest.approx(120.0)
     assert payload["gross_exposure_cny"] == pytest.approx(100.0)
     assert payload["total_market_value_cny"] == pytest.approx(100.0)
-    assert payload["total_pnl_cny"] == pytest.approx(12.0)
+    assert payload["total_pnl_cny"] == pytest.approx(7.0)
     assert payload["daily_pnl_cny"] == pytest.approx(3.0)
     assert _row(payload["dimensions"]["holding"], "Hengtong")["pnl_cny"] == pytest.approx(12.0)
+    closed = _row(payload["dimensions"]["holding"], "SK HYNIX INC")
+    assert closed["market_value_cny"] == pytest.approx(0.0)
+    assert closed["pnl_cny"] == pytest.approx(-5.0)
     assert not any("RETURN_RECONCILIATION" in str(row.get("symbol")) for row in payload["dimensions"]["holding"])
     assert "return_reconciliation" not in payload["quality"]
 

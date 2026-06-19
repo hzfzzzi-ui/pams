@@ -102,6 +102,17 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _repair_mojibake_text(value: Any) -> str:
+    text = _text(value)
+    if not text:
+        return ""
+    try:
+        repaired = text.encode("gbk").decode("utf-8")
+    except UnicodeError:
+        return text
+    return repaired or text
+
+
 def _metric_value(row: dict[str, Any], *keys: str) -> float:
     for key in keys:
         if row.get(key) not in (None, ""):
@@ -147,16 +158,17 @@ def _daily_row_to_position(row: dict[str, Any]) -> dict[str, Any]:
     daily_price = _num(row.get("daily_pnl_cny"))
     daily_fx = _num(row.get("daily_fx_pnl_cny"))
     daily_total = daily_price + daily_fx
-    major = row.get("major_category")
-    minor = row.get("minor_category")
+    major = _repair_mojibake_text(row.get("major_category"))
+    minor = _repair_mojibake_text(row.get("minor_category"))
     symbol = row.get("symbol")
     name = row.get("name") or symbol
+    asset_row = {**row, "major_category": major, "minor_category": minor, "asset_liability": "资产"}
     return {
         "account_code": row.get("account") or row.get("account_code"),
         "asset_id": symbol or name,
         "symbol": symbol,
         "asset_name": name,
-        "asset_type": _asset_type({"major_category": major, "minor_category": minor, "asset_liability": "资产"}),
+        "asset_type": _asset_type(asset_row),
         "major_category": major,
         "minor_category": minor,
         "quantity": row.get("quantity"),
@@ -179,12 +191,19 @@ def _daily_row_to_position(row: dict[str, Any]) -> dict[str, Any]:
 
 def _is_return_attribution_row(row: dict[str, Any]) -> bool:
     """Keep return attribution on the same investment universe as lookthrough."""
-    if str(row.get("asset_liability") or "资产") in {"负债", "liability", "debt"}:
+    asset_liability = _repair_mojibake_text(row.get("asset_liability") or "资产")
+    if asset_liability in {"负债", "liability", "debt"}:
         return False
-    major = _text(row.get("major_category"))
+    major = _repair_mojibake_text(row.get("major_category"))
     if major in RETURN_ATTRIBUTION_MAJOR_CATEGORIES or "基金" in major:
         return True
-    return _asset_type(row) in RETURN_ATTRIBUTION_ASSET_TYPES
+    asset_row = {
+        **row,
+        "major_category": major,
+        "minor_category": _repair_mojibake_text(row.get("minor_category")),
+        "asset_liability": asset_liability,
+    }
+    return _asset_type(asset_row) in RETURN_ATTRIBUTION_ASSET_TYPES
 
 
 def _symbol_digits(value: Any) -> str:
@@ -1368,6 +1387,12 @@ def build_return_attribution_payload(cur, *, base_currency: str = "CNY") -> dict
         for row in holdings.get("rows") or []
         if _is_return_attribution_row(row)
     ]
+    daily_positions = [
+        position
+        for position in _load_daily_attribution_positions(cur, account_cfg)
+        if _is_return_attribution_row(position)
+    ]
+    positions = _merge_daily_positions(positions, daily_positions)
     industry_l1_by_symbol = _load_sw_l1_lookup(cur)
     return build_return_attribution_from_positions(
         positions,
