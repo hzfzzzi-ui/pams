@@ -23,6 +23,7 @@ const state = {
   rows: [],
   summary: {},
   attribution: null,
+  attributionLoadPromise: null,
   campaigns: null,
   showAll: false,
 };
@@ -988,18 +989,26 @@ function tradeReviewAssetFullLabel(asset) {
 }
 
 function tradeReviewAssetWeight(asset) {
+  const actual = Math.abs(tradeReviewNumber(asset?.actual_total_pnl_cny, NaN));
   const effect = Math.abs(tradeReviewNumber(asset?.estimated_decision_effect_cny, 0));
   const weight = Math.abs(tradeReviewNumber(asset?.weight_cny, 0));
   const count = Math.max(0, tradeReviewNumber(asset?.trade_count, 0));
+  if (Number.isFinite(actual) && actual > 0.01) return actual;
   if (effect > 0.01) return effect;
   if (weight > 0.01) return weight;
   return Math.max(count * 120, 1);
 }
 
+function tradeReviewAssetPrimaryPnl(asset) {
+  const actual = tradeReviewNumber(asset?.actual_total_pnl_cny, NaN);
+  if (Number.isFinite(actual)) return actual;
+  return tradeReviewNumber(asset?.estimated_decision_effect_cny, 0);
+}
+
 function tradeReviewAssetTone(asset) {
   const tone = String(asset?.impact_tone || '').toLowerCase();
   if (['gain', 'loss', 'flat'].includes(tone)) return tone;
-  return tradeReviewHeatTone(asset?.estimated_decision_effect_cny);
+  return tradeReviewHeatTone(tradeReviewAssetPrimaryPnl(asset));
 }
 
 function tradeReviewAssetTiles(payload) {
@@ -1131,6 +1140,50 @@ function tradeReviewTradeReason(trade) {
   return trade?.contribution_reason || trade?.auto_summary || trade?.label || '暂时只有金额贡献，缺少可解释标签。';
 }
 
+function tradeReviewAssetStatusText(asset) {
+  if (asset?.attribution_status === 'partial_with_actual_pnl') return '真实收益已接入';
+  return '仅动作时点';
+}
+
+function tradeReviewAssetBreakdownValue(item) {
+  if (item?.value_cny == null || item?.value_cny === '') return '待接入';
+  return formatCnyEffect(item.value_cny);
+}
+
+function tradeReviewAssetBreakdownTone(item) {
+  if (item?.value_cny == null || item?.value_cny === '') return 'flat';
+  return pctTone(item.value_cny);
+}
+
+function TradeReviewAssetAttributionBridge(asset) {
+  const rows = asset?.attribution_breakdown || [];
+  return `
+    <div class="tradeReviewAttributionBridge">
+      ${rows.map((item) => `
+        <div class="tradeReviewAttributionBridgeItem ${escapeHtml(item.status || '')}">
+          <span>${escapeHtml(item.label || '')}</span>
+          <strong class="${tradeReviewAssetBreakdownTone(item)}">${escapeHtml(tradeReviewAssetBreakdownValue(item))}</strong>
+          <small>${escapeHtml(item.note || '')}</small>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function TradeReviewAssetRuleInsights(asset) {
+  const insights = asset?.rule_insights || [];
+  return `
+    <div class="tradeReviewRuleInsightList">
+      ${insights.length ? insights.map((item) => `
+        <div class="tradeReviewRuleInsight ${workbenchTone(item.level)}">
+          <strong>${escapeHtml(item.title || '--')}</strong>
+          <p>${escapeHtml(item.detail || '')}</p>
+        </div>
+      `).join('') : '<div class="emptyState">暂无规则建议。</div>'}
+    </div>
+  `;
+}
+
 function tradeReviewTradeTags(trade) {
   const seen = new Set();
   const values = [];
@@ -1214,21 +1267,25 @@ function TradeReviewAssetAttributionDetail(asset, selected) {
   const trades = (asset.trades || []).slice(0, 8);
   const positiveCount = asset.positive_count ?? trades.filter((trade) => tradeReviewTradeTone(trade) === 'gain').length;
   const negativeCount = asset.negative_count ?? trades.filter((trade) => tradeReviewTradeTone(trade) === 'loss').length;
+  const actualPnl = tradeReviewAssetPrimaryPnl(asset);
   return `
     <section class="tradeReviewAssetDetail tradeReviewAssetAttributionDetail" data-asset-heat-detail="${escapeHtml(asset.key)}"${selected ? '' : ' hidden'}>
       <div class="tradeReviewAssetDetailHead">
         <div>
           <span>${escapeHtml(tradeReviewAssetMeta(asset))}</span>
           <strong>${escapeHtml(tradeReviewAssetName(asset))}</strong>
+          <small>${escapeHtml(tradeReviewAssetStatusText(asset))}</small>
         </div>
-        <em class="${pctTone(asset.estimated_decision_effect_cny)}">${escapeHtml(formatCnyEffect(asset.estimated_decision_effect_cny))}</em>
+        <em class="${pctTone(actualPnl)}">${escapeHtml(formatCnyEffect(actualPnl))}</em>
       </div>
       <div class="tradeReviewAssetDetailStats">
         <span>${escapeHtml(asset.trade_count || 0)} 笔</span>
         <span>正 ${escapeHtml(positiveCount)}</span>
         <span>负 ${escapeHtml(negativeCount)}</span>
-        <span>${escapeHtml(formatPctPoint(asset.avg_return_pct, 1))}</span>
+        <span>动作 ${escapeHtml(formatCnyEffect(asset.estimated_decision_effect_cny))}</span>
       </div>
+      ${TradeReviewAssetAttributionBridge(asset)}
+      ${TradeReviewAssetRuleInsights(asset)}
       ${tradeReviewAssetTags(asset) ? `<div class="tradeReviewAssetTagStrip">${tradeReviewAssetTags(asset)}</div>` : ''}
       <div class="tradeReviewAssetTradeList attribution">
         ${trades.length ? trades.map(TradeReviewAssetTradeCard).join('') : '<div class="emptyState">暂无可打开的交易。</div>'}
@@ -1359,8 +1416,8 @@ function TradeReviewAssetHeatmap(payload, workbench) {
     <section class="tradeReviewAssetHeatmapPanel" data-asset-heatmap-panel>
       <div class="tradeReviewAssetHeatmapHead">
         <div>
-          <span>标的热力图</span>
-          <strong>${escapeHtml(assets.length)} 个标的 · ${escapeHtml(payload?.asset_heatmap?.trade_count || payload?.sample_count || 0)} 笔动作</strong>
+          <span>标的归因热力图</span>
+          <strong>${escapeHtml(assets.length)} 个标的 · 真实盈亏优先</strong>
         </div>
         <div class="tradeReviewAssetLegend">
           <span class="loss">负向动作 ${escapeHtml(lossCount)}</span>
@@ -1371,8 +1428,10 @@ function TradeReviewAssetHeatmap(payload, workbench) {
         ${layout.map((item) => {
           const { asset, rect } = item;
           const text = tradeReviewAssetTileText(asset, rect);
-          const effectText = formatCnyEffectCompact(asset.estimated_decision_effect_cny);
-          const fullLabel = `${tradeReviewAssetFullLabel(asset)} ${effectText}`;
+          const primaryPnl = tradeReviewAssetPrimaryPnl(asset);
+          const effectText = formatCnyEffectCompact(primaryPnl);
+          const actionText = formatCnyEffectCompact(asset.estimated_decision_effect_cny);
+          const fullLabel = `${tradeReviewAssetFullLabel(asset)} 真实 ${effectText} / 动作 ${actionText}`;
           return `
             <button type="button"
               class="tradeReviewAssetTile ${tradeReviewAssetTone(asset)} ${tradeReviewAssetTileClass(rect)}"
@@ -1383,7 +1442,7 @@ function TradeReviewAssetHeatmap(payload, workbench) {
               <span>${escapeHtml(text.meta)}</span>
               <strong>${escapeHtml(text.name)}</strong>
               <em>${escapeHtml(effectText)}</em>
-              <small>${escapeHtml(asset.trade_count || 0)} 笔 · ${escapeHtml(formatPctPoint(asset.avg_return_pct, 1))}</small>
+              <small>${escapeHtml(asset.trade_count || 0)} 笔 · 动作 ${escapeHtml(actionText)}</small>
             </button>
           `;
         }).join('')}
@@ -1397,12 +1456,12 @@ function TradeReviewAssetHeatmap(payload, workbench) {
       </div>
       <details class="tradeReviewAnalysisFold tradeReviewCompactFold">
         <summary>
-          <strong>动作归因</strong>
-          <span>正向 / 负向动作</span>
+          <strong>高影响动作</strong>
+          <span>逐笔正负贡献证据</span>
         </summary>
         ${TradeReviewDirectionalTradePanel(payload)}
       </details>
-      <p class="tradeReviewAssetHint">真实盈亏看交易页；这里看动作时点。</p>
+      <p class="tradeReviewAssetHint">热力图面积按真实盈亏优先；动作贡献用于解释买卖时点，基准/行业超额后续继续拆分。</p>
     </section>
   `;
 }
@@ -1798,16 +1857,16 @@ function TradeReviewWorkbenchLegacy(payload) {
 function TradeReviewWorkbench(payload) {
   const workbench = payload?.workbench || {};
   return `
-    <div class="tradeReviewWorkbench tradeReviewModeOnly">
+    <div class="tradeReviewWorkbench tradeReviewAttributionWorkbench">
       <section class="tradeReviewModeAttribution">
         <header class="tradeReviewModeAttributionHead">
           <div>
-            <span>交易动作归因</span>
-            <strong>只看哪些交易动作在贡献或拖累</strong>
+            <span>交易归因闭环</span>
+            <strong>先看标的真实盈亏，再解释买卖动作</strong>
           </div>
-          <small>标的实际盈亏热力图已移到收益归因。</small>
+          <small>真实盈亏来自收益归因；动作贡献解释交易时点，未解释差额等待基准归因。</small>
         </header>
-        ${TradeReviewDirectionalTradePanel(payload)}
+        ${TradeReviewAssetHeatmap(payload, workbench)}
         ${TradeReviewDetailPanels(workbench, payload)}
       </section>
     </div>
@@ -2721,13 +2780,41 @@ async function loadLedger() {
 }
 
 function requestAttributionSummaryLoad() {
-  return loadAttributionSummary().catch(() => {
+  if (state.attributionLoadPromise) return state.attributionLoadPromise;
+  state.attributionLoadPromise = loadAttributionSummary().catch(() => {
     renderTradeAttribution({
       sample_count: 0,
       missing_price_count: 0,
       groups: { buy_reason: [], sell_reason: [] },
       data_quality: { note: '自动归因暂时不可用。' },
     });
+  }).finally(() => {
+    state.attributionLoadPromise = null;
+  });
+  return state.attributionLoadPromise;
+}
+
+function shouldLoadVisibleTradeAttribution() {
+  const panel = document.getElementById('trade-attribution-analysis');
+  if (!panel) return false;
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  return hash === 'trade-attribution-analysis' || panel.hidden === false;
+}
+
+function requestVisibleTradeAttributionLoad() {
+  if (shouldLoadVisibleTradeAttribution()) {
+    requestAttributionSummaryLoad();
+  }
+}
+
+function requestInitialVisibleTradeAttributionLoad() {
+  if (state.attribution) return;
+  requestVisibleTradeAttributionLoad();
+}
+
+function scheduleInitialTradeAttributionLoadProbe() {
+  [0, 300, 1200, 3000].forEach((delay) => {
+    window.setTimeout(requestInitialVisibleTradeAttributionLoad, delay);
   });
 }
 
@@ -2856,6 +2943,7 @@ function bindEvents() {
   window.addEventListener('pams:load-trade-attribution', () => {
     requestAttributionSummaryLoad();
   });
+  window.addEventListener('hashchange', requestVisibleTradeAttributionLoad);
   document.addEventListener('click', async (event) => {
     const autoTagButton = event.target?.closest?.('[data-auto-tag]');
     if (autoTagButton) {
@@ -3060,9 +3148,11 @@ async function init() {
   setActiveNav();
   bindEvents();
   setDefaultFilters();
+  scheduleInitialTradeAttributionLoadProbe();
   await loadOptions();
   setDefaultFilters();
   await loadLedger();
+  requestInitialVisibleTradeAttributionLoad();
 }
 
 init().catch(showError);

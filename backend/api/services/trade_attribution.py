@@ -1608,6 +1608,29 @@ def _trade_exposure_cny(row: dict[str, Any]) -> Decimal:
     return gross * fx
 
 
+def _trade_fee_drag_cny(row: dict[str, Any]) -> Decimal:
+    fee = abs(dec(row.get("fee_amount"))) + abs(dec(row.get("tax_amount")))
+    if fee <= 0:
+        return Decimal("0")
+    fx = dec(row.get("fx_rate_to_cny"))
+    if fx <= 0:
+        fx = Decimal("1")
+    return -fee * fx
+
+
+def _trade_realized_pnl_cny(row: dict[str, Any]) -> Decimal:
+    realized_cny = dec(row.get("realized_pnl_cny"))
+    if realized_cny:
+        return realized_cny
+    realized = dec(row.get("realized_pnl"))
+    if not realized:
+        return Decimal("0")
+    fx = dec(row.get("fx_rate_to_cny"))
+    if fx <= 0:
+        fx = Decimal("1")
+    return realized * fx
+
+
 def _decision_effect_cny(row: dict[str, Any], payload: dict[str, Any]) -> Decimal | None:
     metrics = payload.get("event_metrics") or {}
     if metrics.get("coverage") != "ok":
@@ -1792,6 +1815,9 @@ def _event_review_record(row: dict[str, Any], payload: dict[str, Any]) -> dict[s
         "buy_reason": row.get("buy_reason"),
         "sell_reason": row.get("sell_reason"),
         "review_tags": row.get("review_tags") or [],
+        "trade_intent": row.get("trade_intent"),
+        "trade_plan": row.get("trade_plan"),
+        "review_note": row.get("review_note"),
         "initial_position_identity": row.get("initial_position_identity"),
         "current_position_identity": row.get("current_position_identity"),
         "current_return_pct": metrics.get("current_return_pct"),
@@ -1802,13 +1828,241 @@ def _event_review_record(row: dict[str, Any], payload: dict[str, Any]) -> dict[s
         "attribution_end_reason": metrics.get("attribution_end_reason"),
         "gross_exposure_cny": _trade_exposure_cny(row),
         "estimated_decision_effect_cny": effect,
+        "fee_drag_cny": _trade_fee_drag_cny(row),
+        "realized_pnl_cny": _trade_realized_pnl_cny(row),
         "auto_review": auto,
         "judgement": (payload.get("judgements") or [{}])[0],
         "priority_score": _review_priority_score(row, payload, effect),
     }
 
 
-def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str, Any]:
+def _asset_lookup_keys(*values: Any) -> set[str]:
+    keys: set[str] = set()
+    for value in values:
+        clean = _text(value)
+        if not clean:
+            continue
+        keys.add(clean.casefold())
+        keys.update(_symbol_name_keys(clean))
+        if " - " in clean:
+            left, right = clean.split(" - ", 1)
+            if left.strip():
+                keys.add(left.strip().casefold())
+                keys.update(_symbol_name_keys(left.strip()))
+            if right.strip():
+                keys.add(right.strip().casefold())
+    return {key for key in keys if key}
+
+
+def _load_actual_pnl_by_asset(cur, *, base_currency: str = "CNY") -> dict[str, dict[str, Any]]:
+    """Map canonical return-attribution PnL to trade attribution assets.
+
+    Trade attribution explains decision quality; return attribution is the
+    canonical source for actual holding/closed-position PnL. This bridge keeps
+    both numbers visible without treating event-level timing estimates as the
+    true account PnL.
+    """
+    try:
+        from services.return_attribution import build_return_attribution_payload
+
+        payload = build_return_attribution_payload(cur, base_currency=base_currency)
+    except Exception:
+        return {}
+
+    lookup: dict[str, dict[str, Any]] = {}
+    rows = ((payload or {}).get("dimensions") or {}).get("holding") or []
+    for row in rows:
+        item = {
+            "actual_total_pnl_cny": dec(row.get("total_pnl_cny") or row.get("pnl_cny") or row.get("value_cny")),
+            "actual_daily_pnl_cny": dec(row.get("daily_pnl_cny")),
+            "actual_daily_price_pnl_cny": dec(row.get("daily_price_pnl_cny")),
+            "actual_daily_fx_pnl_cny": dec(row.get("daily_fx_pnl_cny")),
+            "market_value_cny": dec(row.get("market_value_cny")),
+            "source": "return_attribution",
+        }
+        keys = _asset_lookup_keys(row.get("symbol"), row.get("name"), row.get("display_name"))
+        for detail in row.get("source_details") or []:
+            keys.update(
+                _asset_lookup_keys(
+                    detail.get("source_symbol"),
+                    detail.get("source_asset_name"),
+                    detail.get("underlying_symbol"),
+                    detail.get("underlying_name"),
+                )
+            )
+        for key in keys:
+            lookup.setdefault(key, item)
+    return lookup
+
+
+def _asset_actual_pnl(
+    actual_pnl_by_asset: dict[str, dict[str, Any]] | None,
+    *,
+    key: str,
+    name: Any,
+    symbol: Any,
+) -> dict[str, Any] | None:
+    if not actual_pnl_by_asset:
+        return None
+    for lookup_key in _asset_lookup_keys(key, name, symbol):
+        item = actual_pnl_by_asset.get(lookup_key)
+        if item:
+            return item
+    return None
+
+
+def _asset_attribution_breakdown(bucket: dict[str, Any], actual: dict[str, Any] | None) -> list[dict[str, Any]]:
+    effect = dec(bucket.get("estimated_decision_effect_cny"))
+    buy_effect = dec(bucket.get("buy_timing_effect_cny"))
+    sell_effect = dec(bucket.get("sell_timing_effect_cny"))
+    fee_drag = dec(bucket.get("fee_drag_cny"))
+    breakdown = [
+        {
+            "key": "decision_timing",
+            "label": "动作时点",
+            "value_cny": effect,
+            "status": "estimated",
+            "note": "买入后上涨记正，卖出后上涨记机会成本。",
+        },
+        {
+            "key": "buy_timing",
+            "label": "买入时点",
+            "value_cny": buy_effect,
+            "status": "estimated",
+            "note": "只统计买入动作后的价格表现。",
+        },
+        {
+            "key": "sell_timing",
+            "label": "卖出时点",
+            "value_cny": sell_effect,
+            "status": "estimated",
+            "note": "卖出后下跌为避亏，卖出后上涨为卖飞。",
+        },
+        {
+            "key": "fees",
+            "label": "税费成本",
+            "value_cny": fee_drag,
+            "status": "actual",
+            "note": "来自交易事实表的手续费和税费。",
+        },
+    ]
+    if actual:
+        actual_total = dec(actual.get("actual_total_pnl_cny"))
+        unexplained = actual_total - effect - fee_drag
+        breakdown.insert(
+            0,
+            {
+                "key": "actual_total",
+                "label": "真实总盈亏",
+                "value_cny": actual_total,
+                "status": "actual",
+                "note": "来自收益归因口径，包含已清仓和当前浮盈亏。",
+            },
+        )
+        breakdown.append(
+            {
+                "key": "unexplained",
+                "label": "持有/市场未解释",
+                "value_cny": unexplained,
+                "status": "needs_benchmark",
+                "note": "真实盈亏扣除动作时点和税费后的差额，后续接入基准归因继续拆分。",
+            }
+        )
+    else:
+        breakdown.append(
+            {
+                "key": "actual_total",
+                "label": "真实总盈亏",
+                "value_cny": None,
+                "status": "missing",
+                "note": "收益归因中未找到该标的，暂只能看动作时点。",
+            }
+        )
+    return [{k: norm(v) for k, v in item.items()} for item in breakdown]
+
+
+def _asset_rule_insights(bucket: dict[str, Any], actual: dict[str, Any] | None) -> list[dict[str, Any]]:
+    insights: list[dict[str, Any]] = []
+    effect = dec(bucket.get("estimated_decision_effect_cny"))
+    buy_effect = dec(bucket.get("buy_timing_effect_cny"))
+    sell_effect = dec(bucket.get("sell_timing_effect_cny"))
+    fee_drag = dec(bucket.get("fee_drag_cny"))
+    plan_count = int(dec(bucket.get("planned_trade_count")))
+    trade_count = int(dec(bucket.get("trade_count")))
+    actual_total = dec(actual.get("actual_total_pnl_cny")) if actual else None
+
+    if actual_total is not None and effect and (actual_total > 0 > effect or actual_total < 0 < effect):
+        insights.append(
+            {
+                "level": "warn",
+                "title": "真实盈亏与动作贡献方向不同",
+                "detail": "说明后续持有、市场环境、仓位大小或未接入基准因素占主导，不能只按动作时点下结论。",
+            }
+        )
+    if buy_effect < Decimal("-500"):
+        insights.append(
+            {
+                "level": "bad",
+                "title": "买入时点拖累",
+                "detail": "买入后表现为负，优先检查入场确认、分批规则和止损触发。",
+            }
+        )
+    elif buy_effect > Decimal("500"):
+        insights.append(
+            {
+                "level": "good",
+                "title": "买入时点有效",
+                "detail": "买入动作贡献为正，可保留当时的入场条件作为复盘样本。",
+            }
+        )
+    if sell_effect < Decimal("-500"):
+        insights.append(
+            {
+                "level": "bad",
+                "title": "卖出机会成本明显",
+                "detail": "卖出后继续上涨，优先检查止盈阈值、减仓节奏和是否过早落袋。",
+            }
+        )
+    elif sell_effect > Decimal("500"):
+        insights.append(
+            {
+                "level": "good",
+                "title": "卖出起到保护作用",
+                "detail": "卖出后价格下跌，退出纪律或再平衡动作对组合有帮助。",
+            }
+        )
+    if fee_drag < Decimal("-200"):
+        insights.append(
+            {
+                "level": "warn",
+                "title": "税费成本需要纳入交易阈值",
+                "detail": "该标的交易税费拖累较大，小幅波段需要更高胜率或更宽价差。",
+            }
+        )
+    if trade_count and plan_count < trade_count:
+        insights.append(
+            {
+                "level": "warn",
+                "title": "交易计划记录不完整",
+                "detail": "部分交易缺少计划或意图字段，系统无法判断是计划内分批还是临时操作。",
+            }
+        )
+    if not insights:
+        insights.append(
+            {
+                "level": "neutral",
+                "title": "暂无强信号",
+                "detail": "当前样本没有明显动作拖累，后续重点补齐基准归因和交易计划字段。",
+            }
+        )
+    return insights[:4]
+
+
+def _build_trade_asset_heatmap(
+    event_records: list[dict[str, Any]],
+    *,
+    actual_pnl_by_asset: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     grouped: dict[str, dict[str, Any]] = {}
     directional_trades: list[dict[str, Any]] = []
     for record in event_records:
@@ -1831,7 +2085,13 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
                 "negative_count": 0,
                 "flat_count": 0,
                 "estimated_decision_effect_cny": Decimal("0"),
+                "buy_timing_effect_cny": Decimal("0"),
+                "sell_timing_effect_cny": Decimal("0"),
+                "fee_drag_cny": Decimal("0"),
+                "realized_pnl_cny": Decimal("0"),
                 "gross_exposure_cny": Decimal("0"),
+                "planned_trade_count": 0,
+                "closed_trade_count": 0,
                 "_returns": [],
                 "_tags": defaultdict(int),
                 "latest_trade_date": None,
@@ -1853,6 +2113,16 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
             bucket["flat_count"] += 1
         bucket["estimated_decision_effect_cny"] += value
         bucket["gross_exposure_cny"] += dec(record.get("gross_exposure_cny"))
+        bucket["fee_drag_cny"] += dec(record.get("fee_drag_cny"))
+        bucket["realized_pnl_cny"] += dec(record.get("realized_pnl_cny"))
+        if side == "buy":
+            bucket["buy_timing_effect_cny"] += value
+        elif side == "sell":
+            bucket["sell_timing_effect_cny"] += value
+        if _text(record.get("trade_plan")) or _text(record.get("trade_intent")):
+            bucket["planned_trade_count"] += 1
+        if _text(record.get("position_lifecycle_status")) == "closed":
+            bucket["closed_trade_count"] += 1
         current_return = record.get("current_return_pct")
         if current_return not in (None, ""):
             bucket["_returns"].append(dec(current_return))
@@ -1877,6 +2147,8 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
             "buy_reason": record.get("buy_reason"),
             "sell_reason": record.get("sell_reason"),
             "review_tags": record.get("review_tags") or [],
+            "trade_intent": record.get("trade_intent"),
+            "trade_plan": record.get("trade_plan"),
             "current_return_pct": record.get("current_return_pct"),
             "max_adverse_excursion_pct": record.get("max_adverse_excursion_pct"),
             "max_favorable_excursion_pct": record.get("max_favorable_excursion_pct"),
@@ -1884,6 +2156,8 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
             "attribution_end_price": record.get("attribution_end_price"),
             "attribution_end_reason": record.get("attribution_end_reason"),
             "estimated_decision_effect_cny": value,
+            "fee_drag_cny": record.get("fee_drag_cny"),
+            "realized_pnl_cny": record.get("realized_pnl_cny"),
             "label": contribution.get("auto_label")
             or (record.get("auto_review") or {}).get("label")
             or (record.get("judgement") or {}).get("label"),
@@ -1908,6 +2182,14 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
         trade_count = bucket["trade_count"]
         avg_return = sum(returns, Decimal("0")) / Decimal(len(returns)) if returns else None
         trades = bucket["trades"]
+        actual = _asset_actual_pnl(
+            actual_pnl_by_asset,
+            key=str(bucket.get("key") or ""),
+            name=bucket.get("name"),
+            symbol=bucket.get("symbol"),
+        )
+        actual_total = dec(actual.get("actual_total_pnl_cny")) if actual else None
+        impact_value = actual_total if actual_total is not None else effect
         trades.sort(
             key=lambda item: (
                 abs(dec(item.get("estimated_decision_effect_cny"))),
@@ -1916,13 +2198,23 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
             ),
             reverse=True,
         )
-        weight = abs(effect)
+        weight = abs(impact_value)
         assets.append(
             {
                 **bucket,
                 "avg_return_pct": avg_return,
                 "weight_cny": weight,
-                "impact_tone": "gain" if effect > Decimal("0.01") else "loss" if effect < Decimal("-0.01") else "flat",
+                "impact_tone": "gain" if impact_value > Decimal("0.01") else "loss" if impact_value < Decimal("-0.01") else "flat",
+                "actual_total_pnl_cny": actual.get("actual_total_pnl_cny") if actual else None,
+                "actual_daily_pnl_cny": actual.get("actual_daily_pnl_cny") if actual else None,
+                "actual_daily_price_pnl_cny": actual.get("actual_daily_price_pnl_cny") if actual else None,
+                "actual_daily_fx_pnl_cny": actual.get("actual_daily_fx_pnl_cny") if actual else None,
+                "market_value_cny": actual.get("market_value_cny") if actual else None,
+                "unexplained_pnl_cny": actual_total - effect - dec(bucket.get("fee_drag_cny")) if actual_total is not None else None,
+                "attribution_status": "partial_with_actual_pnl" if actual else "timing_only",
+                "missing_components": ["benchmark_market", "industry_relative"],
+                "attribution_breakdown": _asset_attribution_breakdown(bucket, actual),
+                "rule_insights": _asset_rule_insights(bucket, actual),
                 "tags": [
                     {"key": key, "count": count}
                     for key, count in sorted(tags.items(), key=lambda item: (item[1], item[0]), reverse=True)[:5]
@@ -1962,7 +2254,7 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
         "estimated_decision_effect_cny": norm(total_effect),
         "assets": [{k: norm(v) for k, v in item.items()} for item in assets],
         "directional_trades": [{k: norm(v) for k, v in item.items()} for item in directional_trades],
-        "note": "按标的聚合同一批事件级交易动作；颜色代表交易后时点影响，不等同账户最终盈亏。",
+        "note": "按标的聚合真实盈亏和事件级交易动作；基准/行业超额仍为待接入项。",
     }
 
 
@@ -2304,7 +2596,8 @@ def build_trade_attribution_summary_payload(
         sample_count=len(events),
         missing_price=missing_price,
     )
-    asset_heatmap = _build_trade_asset_heatmap(event_records)
+    actual_pnl_by_asset = _load_actual_pnl_by_asset(cur, base_currency="CNY")
+    asset_heatmap = _build_trade_asset_heatmap(event_records, actual_pnl_by_asset=actual_pnl_by_asset)
     return {
         "as_of": as_of.isoformat(),
         "start": start.isoformat() if start else None,

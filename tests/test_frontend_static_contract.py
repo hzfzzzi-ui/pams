@@ -289,12 +289,12 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/holdings.js?v=20260620-trade-attribution-v2" in html
     assert "assets/js/holdings_categories.js?v=20260620-return-events-v1" in html
-    assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in html
-    assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in html
-    assert "style.css?v=20260619-trade-ledger-v1" in html
+    assert "assets/js/lookthrough.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/portfolio_config.js?v=20260620-trade-attribution-v2" in html
+    assert "style.css?v=20260620-trade-attribution-v2" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -413,7 +413,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in investments_html
+    assert "assets/js/transactions.js?v=20260620-trade-attribution-v2" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -766,6 +766,12 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeReviewDirectionFilterToggle" in css
     assert "tradeReviewDirectionFilters[hidden]" in css
     assert "contribution_reason" in tx_js
+    assert "actual_total_pnl_cny" in tx_js
+    assert "tradeReviewAssetPrimaryPnl" in tx_js
+    assert "TradeReviewAssetAttributionBridge" in tx_js
+    assert "TradeReviewAssetRuleInsights" in tx_js
+    assert "tradeReviewAttributionBridge" in css
+    assert "tradeReviewRuleInsight" in css
     assert "正贡献" in tx_js
     assert "负贡献" in tx_js
     assert "tradeReviewAssetTradeList.attribution" in css
@@ -776,11 +782,14 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeReviewAssetDetail" in css
     assert "--asset-name" in css
     assert "grid-column: span var(--asset-col" not in css
-    assert "标的热力图" in tx_js
-    assert "真实盈亏看交易页；这里看动作时点" in tx_js
+    assert "标的归因热力图" in tx_js
+    assert "交易归因闭环" in tx_js
+    assert "真实盈亏优先" in tx_js
+    assert "热力图面积按真实盈亏优先" in tx_js
+    assert "未解释差额等待基准归因" in tx_js
     assert "交易动作明细" in tx_js
-    assert "动作归因" in tx_js
-    assert "正向 / 负向动作" in tx_js
+    assert "高影响动作" in tx_js
+    assert "逐笔正负贡献证据" in tx_js
     assert ".slice(0, 6)" not in tx_js
     assert "负向动作" in tx_js
     assert "正向动作" in tx_js
@@ -790,8 +799,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "TradeReviewDataGaps" not in asset_heatmap_block
     assert "<strong>模式</strong>" not in asset_heatmap_block
     workbench_block = tx_js.split("function TradeReviewWorkbench(payload)", 1)[1].split("function TradeAttributionPanelV2", 1)[0]
-    assert "TradeReviewAssetHeatmap(payload" not in workbench_block
-    assert "标的实际盈亏热力图已移到收益归因" in workbench_block
+    assert "TradeReviewAssetHeatmap(payload" in workbench_block
+    assert "标的实际盈亏热力图已移到收益归因" not in workbench_block
     assert "tradeReviewHeatTile" in tx_js
     assert "面积≈交易规模" in tx_js
     assert "pattern_universe" in tx_js
@@ -845,6 +854,14 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     load_ledger_body = tx_js.split("async function loadLedger()", 1)[1].split("function requestAttributionSummaryLoad()", 1)[0]
     assert "loadAttributionSummary" not in load_ledger_body
     assert "pams:load-trade-attribution" in tx_js
+    assert "attributionLoadPromise" in tx_js
+    assert "shouldLoadVisibleTradeAttribution" in tx_js
+    assert "requestVisibleTradeAttributionLoad" in tx_js
+    assert "requestInitialVisibleTradeAttributionLoad" in tx_js
+    assert "scheduleInitialTradeAttributionLoadProbe" in tx_js
+    assert "hash === 'trade-attribution-analysis' || panel.hidden === false" in tx_js
+    assert "window.addEventListener('hashchange', requestVisibleTradeAttributionLoad)" in tx_js
+    assert "[0, 300, 1200, 3000]" in tx_js
     assert "TradeAttributionPanel(state.attribution)" not in tx_js
     assert "tradeAutoAttribution" in tx_js
     assert "tradeAttributionGrid" in css
@@ -852,7 +869,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/transactions.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/css/style.css?v=20260620-trade-attribution-v2" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
