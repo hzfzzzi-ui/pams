@@ -320,6 +320,23 @@ function formatOptionalMoney(value, currency = 'CNY', options = {}) {
     : '--';
 }
 
+function resolvePortfolioLiabilitiesCny(valuationState, portfolioSummary, fallback = 0) {
+  const valuationLiabilities = valuationState?.liabilities_cny;
+  if (Number.isFinite(Number(valuationLiabilities))) return Math.abs(safeNum(valuationLiabilities));
+
+  const summaryLiabilities = portfolioSummary?.valuation_state?.liabilities_cny;
+  if (Number.isFinite(Number(summaryLiabilities))) return Math.abs(safeNum(summaryLiabilities));
+
+  const liabilityClass = (portfolioSummary?.by_asset_class || []).find(
+    row => String(row.asset_class || '').toUpperCase() === 'LIABILITY'
+  );
+  if (liabilityClass && Number.isFinite(Number(liabilityClass.market_value))) {
+    return Math.abs(safeNum(liabilityClass.market_value));
+  }
+
+  return Math.max(0, safeNum(fallback));
+}
+
 function mobileHeroMetaItem(label, value, tone = '') {
   if (value == null || value === '') return '';
   return `
@@ -440,6 +457,7 @@ function makeMobileHeroProfiles({
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
+  const totalLiabilities = Math.max(0, safeNum(summary.totalLiabilities));
   const allProfile = {
     key: '全部',
     hideHeader: true,
@@ -455,6 +473,7 @@ function makeMobileHeroProfiles({
     miniMetrics: [
       { label: '总市值', value: formatOptionalMoney(totalMarketValue) },
       { label: '当前浮盈', value: formatOptionalMoney(currentFloatPnl, 'CNY', { signed: true }), tone: currentFloatPnl < 0 ? 'down' : 'up' },
+      { label: '总负债', value: formatOptionalMoney(totalLiabilities), tone: totalLiabilities > 0 ? 'down' : '' },
       { label: '现金/活期', value: formatOptionalMoney(netCash, 'CNY', { signed: netCash < 0 }), tone: netCash < 0 ? 'down' : '' },
       { label: '仓位占比', value: `${Math.max(0, positionRatio * 100).toFixed(1)}%` },
     ],
@@ -582,6 +601,7 @@ function bindMobileMethodology(summary, dataIssues, asOf) {
       <div class="rowDetailGrid">
         <div><strong>快照日期</strong><span>${esc(asOf || '待核准')}</span></div>
         <div><strong>组合价值</strong><span class="mono">${formatCompactCurrency(summary.marketValue)}</span></div>
+        <div><strong>总负债</strong><span class="mono">${formatCompactCurrency(safeNum(summary.totalLiabilities))}</span></div>
         <div><strong>现金/活期</strong><span class="mono">${formatCompactCurrency(summary.cashActiveValue, 'CNY', { signed: safeNum(summary.cashActiveValue) < 0 })}</span></div>
         <div><strong>现金负债</strong><span class="mono">${formatCompactCurrency(-safeNum(summary.cashActiveLiabilities), 'CNY', { signed: safeNum(summary.cashActiveLiabilities) > 0 })}</span></div>
         <div><strong>今日收益</strong><span class="mono">${formatCompactCurrency(summary.dailyPnl, 'CNY', { signed: true })}</span></div>
@@ -2409,6 +2429,7 @@ function publishHoldingsKpiSummary(summary, categories) {
       .reduce((sum, row) => sum + row.fxDailyPnl, 0),
     twr: safeNum(summary.twr),
     asOf: summary.asOf,
+    totalLiabilities: safeNum(summary.totalLiabilities),
     cashActiveValue: safeNum(summary.cashActiveValue),
     cashActiveAssets: safeNum(summary.cashActiveAssets),
     cashActiveLiabilities: safeNum(summary.cashActiveLiabilities),
@@ -3092,6 +3113,12 @@ async function main(){
       pctElem.style.color = pnlPct >= 0 ? 'var(--good)' : 'var(--bad)';
     }
 
+    const valuationState = portfolioValuationState || portfolioSummary?.valuation_state || null;
+    const portfolioLiabilities = resolvePortfolioLiabilitiesCny(
+      valuationState,
+      portfolioSummary,
+      accountCash.cashLiabilities + Math.max(-ibkrCashValue, 0)
+    );
     const dashboardSummary = {
       marketValue: grandValue,
       totalPnl: grandPnl,
@@ -3105,7 +3132,8 @@ async function main(){
       cashActiveValue: accountCash.netCash,
       cashActiveAssets: accountCash.cashAssets,
       cashActiveLiabilities: accountCash.cashLiabilities,
-      valuationState: portfolioValuationState || portfolioSummary?.valuation_state || null,
+      totalLiabilities: portfolioLiabilities,
+      valuationState,
     };
     const dashboardCategories = [
       categoryMetric('A股个股', aStockSummary, aStockReturn),
