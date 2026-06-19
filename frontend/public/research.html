@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PAMS" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PAMS · 研究</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    .researchToolbar { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .researchToolbar .btn { padding:6px 10px; }
+    .ipsStatusStrip { display:grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap:8px; }
+    .ipsStatusItem { border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg-surface); padding:10px 12px; min-width:0; }
+    .ipsStatusLabel { color:var(--muted); font-size:var(--fs-xs); font-weight:800; }
+    .ipsStatusValue { margin-top:4px; font-family:'JetBrains Mono', monospace; font-size:18px; font-weight:900; font-variant-numeric:tabular-nums; }
+    .researchTable { width:100%; min-width:980px; table-layout:fixed; }
+    .researchTable th:nth-child(1), .researchTable td:nth-child(1) { width:110px; }
+    .researchTable th:nth-child(2), .researchTable td:nth-child(2) { width:140px; }
+    .researchTable th:nth-child(3), .researchTable td:nth-child(3) { width:110px; }
+    .researchTable th:nth-child(4), .researchTable td:nth-child(4) { width:100px; }
+    .researchTable th:nth-child(5), .researchTable td:nth-child(5) { width:220px; }
+    .researchTable th:nth-child(6), .researchTable td:nth-child(6) { width:120px; }
+    .researchTable th:nth-child(7), .researchTable td:nth-child(7) { width:120px; }
+    .researchTable th:nth-child(8), .researchTable td:nth-child(8) { width:120px; }
+    .decisionLog { width:100%; min-width:780px; table-layout:fixed; }
+    .decisionLog th:nth-child(1), .decisionLog td:nth-child(1) { width:120px; }
+    .decisionLog th:nth-child(2), .decisionLog td:nth-child(2) { width:120px; }
+    .decisionLog th:nth-child(3), .decisionLog td:nth-child(3) { width:120px; }
+    .alignTable { width:100%; min-width:720px; table-layout:fixed; }
+    .alignTable .num { text-align:right; }
+    .researchPrimaryGrid { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.42fr); gap:var(--sp-3); margin-bottom:var(--sp-3); }
+    @media (max-width: 980px) {
+      .ipsStatusStrip { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .researchPrimaryGrid { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body class="page-research">
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">观察池 / IPS</span>
+    </div>
+    <div class="status-right"></div>
+  </div>
+
+  <div class="wrap">
+    <div class="nav">
+      <a data-nav href="investments.html">投资</a>
+      <a data-nav href="ledger.html">收支</a>
+      <a data-nav href="more.html">更多</a>
+    </div>
+    <div class="pageHeader">
+      <div>
+        <h1>观察池 / IPS 状态</h1>
+      </div>
+      <div class="researchToolbar">
+        <button id="btnEodScan" class="btn">EOD 扫描</button>
+        <button id="btnIntradayRefresh" class="btn">盘中刷新</button>
+        <button id="btnRiskRefresh" class="btn">刷新风控</button>
+      </div>
+    </div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
+
+    <div id="scanActionResult" style="display:none;margin-bottom:var(--sp-3)"></div>
+
+    <div class="researchPrimaryGrid">
+      <div class="card" id="ipsLive">
+        <div class="sectionTitle">
+          <h3>IPS 状态</h3>
+          <span class="miniBadge data"><span id="ipsDate">--</span></span>
+        </div>
+        <div id="ipsGauges" class="ipsStatusStrip" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card" id="pendingOrdersCard" style="display:none">
+        <div class="sectionTitle">
+          <h3>行动草案</h3>
+          <div class="muted" id="orderCount">0 笔</div>
+        </div>
+        <div id="orderCards" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>观察池</h3>
+        <span class="miniBadge data">最近扫描 <span id="scanDate">--</span> · <span id="candidateCount">0</span> 条</span>
+      </div>
+      <div class="tableWrap" style="margin-top:10px">
+        <div id="candidateList" class="researchMobileList"></div>
+      </div>
+      <div class="tableWrap desktopResearchTable" style="margin-top:10px">
+        <table class="researchTable">
+          <thead>
+            <tr>
+              <th>代码</th>
+              <th>名称</th>
+              <th>主题</th>
+              <th>状态</th>
+              <th>触发条件</th>
+              <th>IPS 匹配</th>
+              <th>风险</th>
+              <th>下次复盘</th>
+            </tr>
+          </thead>
+          <tbody id="candidateRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="eventRiskCard" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>事件风险</h3>
+        <div class="muted" id="eventRiskCount">0 条活跃事件</div>
+      </div>
+      <div id="eventRiskList" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" id="cooldownCard" style="display:none;margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>冷却期</h3>
+        <div class="muted" id="cooldownCount">0 个活跃</div>
+      </div>
+      <div id="cooldownList" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" id="ipsHoldings" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>持仓 vs IPS</h3>
+        <span class="miniBadge pending">当前 / 目标</span>
+      </div>
+      <div id="holdingsAlign" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--sp-3)">
+      <div class="sectionTitle">
+        <h3>决策日志</h3>
+        <span class="miniBadge pending">扫描 / 事件</span>
+      </div>
+      <div id="decisionLogList" class="researchMobileList"></div>
+      <div class="tableWrap desktopDecisionTable">
+        <table class="decisionLog">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>标的</th>
+              <th>结论</th>
+              <th>理由</th>
+              <th>后续动作</th>
+            </tr>
+          </thead>
+          <tbody id="decisionLogRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <details class="card" id="funnelCard" style="margin-bottom:var(--sp-3)">
+      <summary><strong>扫描漏斗</strong></summary>
+      <div id="funnelChart" class="funnel" style="margin-top:var(--sp-2)"></div>
+    </details>
+
+    <details class="card" id="ipsParams" style="margin-bottom:var(--sp-3)">
+      <summary><strong>策略参数</strong></summary>
+      <div id="paramsBody" style="margin-top:10px"></div>
+    </details>
+
+    <details class="card" style="margin-bottom:var(--sp-3)">
+      <summary><strong>扫描历史</strong></summary>
+      <div id="scanHistBody" style="margin-top:10px"></div>
+    </details>
+
+    <details class="card" id="flowGuide" style="margin-bottom:var(--sp-3)">
+      <summary><strong>策略流程</strong></summary>
+      <div id="flowBody" style="margin-top:10px"></div>
+    </details>
+
+    <details class="card" style="margin-bottom:var(--sp-3)">
+      <summary><strong>黑名单</strong></summary>
+      <div class="sectionTitle" style="cursor:pointer" id="blacklistToggle">
+        <h3>活跃黑名单</h3>
+      </div>
+      <div id="blacklistBody" style="margin-top:10px"></div>
+    </details>
+  </div>
+
+  <script type="module" src="assets/js/research.js?v=20260606-refresh-v3"></script>
+</body>
+</html>

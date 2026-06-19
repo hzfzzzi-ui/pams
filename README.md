@@ -1,365 +1,160 @@
-# PAMS - Personal Asset Management System
+# PAMS
 
-> **个人资产管理系统** - 多平台资产聚合、智能收支分析、A股量化策略、回测引擎、风险监控一体化解决方案
+PAMS 是一个面向个人资产管理的本地化系统，核心目标是把多账户、多市场、多币种的资产、交易、收益和风险口径统一到同一套事实表和 API 上，避免页面各自重复计算导致的口径漂移。
 
-[![Version](https://img.shields.io/badge/version-1.7-blue.svg)](./VERSION.md)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com/)
-
----
+当前应用以移动端 dark app 体验为主，主要入口包括：投资、收支、更多，以及投资页内的持仓、分析、交易、风险、配置五个子页面。
 
 ## 核心功能
 
-### 资产管理
-- **多平台聚合**：支持A股、美股、加密货币、基金、贵金属、现金等6大类资产
-- **实时汇率转换**：CNY/USD/MXN双向独立获取
-- **智能分类**：基于资产类型和账户自动分类，配置驱动的持仓详情视图
-- **风险监控**：集中度检查、回撤分析、数据完整性检测
+### 投资持仓
 
-### A股量化策略引擎（V1.6 新增）
-- **多阶段选股流水线**：Universe 筛选 → 趋势判定 → 回踩区间 → 突破触发 → 量价确认
-- **技术指标体系**：MA10/MA20/MA50 趋势门、ATR 止损/加仓、相对强度 RS、放量突破
-- **量价确认 (Flow Confirm)**：成交量放大比、主力资金流向、大单净买入综合评分
-- **风险仓位管理**：基于 ATR 的头寸计算、并发风险控制、板块集中度检查
-- **订单生命周期**：候选 → 订单草稿 → 确认 → 执行 → 过期，全流程管理
-- **盘中刷新**：15分钟级别实时扫描，Telegram 推送触发信号
-- **黑名单 & 冷却期**：止损后 30 天冷却，ST/退市/停牌自动过滤
-- **事件监控**：财报季、解禁日、重大事件自动标记
-- **市场情绪**：涨停/跌停数、主力资金流、社交热度综合评分
-- **观察池管理**：板块扫描入池、退出条件检查、入池/退出历史追踪
+- 汇总 A 股、港股、美股、韩国股票、场外基金、贵金属、现金和非上市权益。
+- 持仓页以 `pams_holdings_snapshot` 和投资交易事实表为基础展示当前持仓。
+- 顶层组合价值优先使用已发布估值状态，避免美股杠杆市值、现金和负债重复计算。
+- 美股账户按净清算价值口径纳入组合，即：持仓市值加券商现金，再扣除账户负债。
 
-### HV Alpha 回测引擎（V1.7 新增）
-- **V1 HV Alpha Model**：20日高点突破 + 量价确认 + ATR 止损 + 金字塔加仓
-  - 动态股票池：定期筛选流动性充足的活跃标的
-  - 宏观过滤：沪深300指数 MA200 趋势判定（RISK_ON / NEUTRAL）
-  - 金字塔加仓：盈利 1R 后追加仓位，最多加仓 2 次
-  - 跟踪止损：3x ATR 动态止损，锁定利润
-  - 分析报告：7 大板块（概述/资金曲线/交易统计/每周回顾/月度归因/改进建议）
-- **V2 Risk Protocol**：在 V1 基础上叠加三级风险状态机
-  - **NORMAL** (R=2.5%) → **DEGRADED** (R=1.5%) → **CONSERVATIVE** (R=1.0%)
-  - Trigger A：连续 12 笔亏损 → DEGRADED（持续 20 笔交易）
-  - Trigger B：回撤 >= 25% → DEGRADED（至回撤恢复 < 15%）
-  - Trigger C：连续 9 月负收益 + 指数 < MA200 → CONSERVATIVE
-  - 资金锁：权益翻倍 → R 永久降 0.3%
-  - CONSERVATIVE 信号过滤：综合评分（RS 40% + 放量比 30% + 突破幅度 30%），仅放行 top 20%
-  - V1 引擎零修改，V2 通过组合/导入完全复用 V1 函数
-- **交互式前端**：V1/V2 策略切换、参数面板、资金曲线图表、交易明细表、RP 事件卡片
+### 分析页
 
-### 交易识别（V1.5）
-- **OCR 截图识别**：发送券商持仓截图，Tesseract OCR 自动识别交易数据
-- **文字指令**：`买入 贵州茅台 100股 @1800` / `sell AAPL 50 @195.5`
-- **确认入账**：识别结果展示 → 用户确认 → UPSERT 持仓快照
-- **支持券商**：同花顺、广发证券、IBKR盈透、币安
+- 展示组合收益率、区间收益、NAV 变化和 Top 贡献。
+- 收益曲线按统一交易日期对齐亚太市场和美股市场，不把美东日期单独漂移到另一自然日。
+- NAV 图使用完整资产口径，包含银行卡、现金账户、券商现金、负债和 ESOP 等资产。
+- 区间终点使用已发布估值状态，保证分析页与持仓页的组合价值一致。
 
-### 收支分析
-- **智能分类引擎**：基于关键词规则自动分类交易（18条预定义规则）
-- **多维度统计**：按日/按月统计，支持收入、支出、结余分析
-- **预算管理**：分类预算设置、执行跟踪、预警机制
-- **交互式图表**：折线图/饼图联动，hover实时显示分类占比
+### 交易页
 
-### 每日推送
-- **持仓日报**：每日 9:00 CST 自动推送资产总值、分类占比、盈亏变动
-- **通知框架**：预留 Agent 消息推送接口，支持外部服务投递通知
+- 交易事实表为 `pams_investment_trade_fact`。
+- 支持买入、卖出、入金、出金、分红、费用、换汇等投资流水。
+- 页面展示使用中文业务方向，不直接暴露 `deposit`、`withdraw` 等原始枚举。
+- 交易页负责记录事实，收益、风险和配置页面不直接重算交易流水。
 
----
+### 风险页
 
-## 技术栈
+- 风险页消费统一的风险状态和持仓穿透结果。
+- 用七类检查项披露组合风险：杠杆与融资、集中度、市场方向、行业主题、币种、流动性、数据质量。
+- 风险项展示检查结果、当前值、阈值和调整方向。
+- 风险披露只作为约束和提醒，不直接改变组合配置目标。
 
-### 后端
-- **框架**: FastAPI 0.115 + Uvicorn
-- **语言**: Python 3.11
-- **数据库**: PostgreSQL 16（原生SQL，无ORM）
-- **行情数据**: AkShare（A股/指数 OHLCV）
-- **OCR**: Tesseract 5.5 + pytesseract（中英文语言包）
+### 配置页
 
-### 前端
-- **架构**: 多页面应用（MPA），ES Module
-- **核心**: 原生JavaScript（ES6+）
-- **图表**: Chart.js 4.4
-- **样式**: 自定义CSS（Samurai Black 主题）
+- 配置页维护目标配置规则，并与当前真实持仓做偏离对比。
+- 结构按三层展开：大类配置、小类配置、具体标的。
+- 目标配置用于指导再平衡，不直接作为持仓事实来源。
+- 负债单独展示，不并入现金缓冲池。
 
-### 基础设施
-- **容器化**: Docker & Docker Compose（9个服务）
-- **反向代理**: Caddy 2
-- **DNS**: AdGuard Home（局域网DNS）
-- **定时调度**: APScheduler（Bot内）+ 独立Scheduler服务
-- **Bot**: Telegram Bot（记账 + 交易识别 + 助手指令桥）
+### 收支和账户
 
----
+- 收支事实表为 `pams_cashflow_fact`。
+- 银行卡、现金账户、投资入金和内部划转按 cashflow fact 管理。
+- 投资账户入金需要在现金事实表和投资交易事实表之间建立对应关系，避免现金和投资资产双算。
 
-## 项目结构
+## 数据口径
 
-```
-pams/
-├── backend/
-│   ├── api/
-│   │   ├── main.py                 # 核心API（汇率、NAV、持仓汇总等）
-│   │   ├── endpoints/
-│   │   │   ├── transactions.py     # 交易/预算API
-│   │   │   ├── holdings_trade.py   # 持仓交易UPSERT API
-│   │   │   ├── notifications.py    # 通知推送API
-│   │   │   ├── prices.py           # 价格刷新API
-│   │   │   └── tasks.py            # 任务队列API
-│   │   ├── strategy/               # A股量化策略引擎
-│   │   │   ├── router.py           # 策略API端点
-│   │   │   ├── scanner.py          # EOD扫描主编排
-│   │   │   ├── indicators.py       # 技术指标（MA/ATR/RS/突破）
-│   │   │   ├── universe_filter.py  # 选股池过滤（流动性/ST/黑名单）
-│   │   │   ├── flow_confirm.py     # 量价确认评分
-│   │   │   ├── risk_sizing.py      # 风险仓位计算
-│   │   │   ├── order_lifecycle.py  # 订单生命周期管理
-│   │   │   ├── data_feed.py        # AkShare行情数据获取
-│   │   │   ├── watchlist_manager.py # 观察池板块扫描
-│   │   │   ├── sentiment.py        # 市场情绪评分
-│   │   │   ├── event_monitor.py    # 事件监控（财报/解禁）
-│   │   │   ├── macro_trend.py      # 宏观趋势状态
-│   │   │   ├── cooldown.py         # 止损冷却期
-│   │   │   ├── hard_veto.py        # 硬性否决条件
-│   │   │   ├── fundamental.py      # 基本面快照
-│   │   │   ├── intraday.py         # 盘中15分钟刷新
-│   │   │   └── config.py           # 策略配置加载
-│   │   └── backtest/               # HV Alpha 回测引擎
-│   │       ├── router.py           # 回测API端点（V1 + V2）
-│   │       ├── engine.py           # V1 HV Alpha Model（~1300行）
-│   │       ├── engine_v2.py        # V2 Risk Protocol 引擎
-│   │       └── risk_protocol.py    # 三级风险状态机
-│   └── scheduler/
-│       └── scheduler.py            # 定时价格刷新调度器
-│
-├── database/postgres/schema/
-│   ├── 005_transactions.sql        # 交易/预算/分类规则表
-│   ├── 006_update_accounts.sql     # 账户约束和视图
-│   ├── 008_task_queue.sql          # 任务队列表
-│   ├── 009_notifications.sql       # 通知推送表
-│   ├── 010_strategy.sql            # 策略候选/订单/黑名单/风控表
-│   └── 012_watchlist_management.sql # 观察池管理表
-│
-├── frontend/public/
-│   ├── index.html                  # 仪表板首页
-│   ├── cashflow.html               # 收支分析页
-│   ├── holdings.html               # 持仓汇总页
-│   ├── holdings_categories.html    # 持仓分类页
-│   ├── holdings_detail.html        # 持仓详情页（配置驱动）
-│   ├── strategy.html               # 投资策略页
-│   ├── watchlist.html              # 观察池页
-│   ├── backtest.html               # 回测页面（V1/V2切换）
-│   └── assets/js/
-│       ├── utils.js                # 共享工具模块
-│       ├── dashboard.js            # 仪表板交互
-│       ├── holdings.js             # 持仓汇总
-│       ├── holdings_categories.js  # 持仓分类（价格走势）
-│       ├── holdings_detail.js      # 持仓详情（A股/美股/加密/贵金属/其他）
-│       ├── strategy.js             # 策略候选/订单/扫描交互
-│       └── backtest.js             # 回测参数/图表/报告交互
-│
-├── telegram-bot/
-│   ├── bot.py                      # Telegram Bot V3.0（记账+交易识别+推送）
-│   ├── Dockerfile                  # 含Tesseract OCR
-│   └── ocr/                        # OCR识别模块
-│       ├── engine.py               # Tesseract封装
-│       ├── broker_detector.py      # 券商识别（关键词评分）
-│       └── parsers/                # 券商解析器
-│           ├── tonghuashun.py      # 同花顺
-│           ├── guangfa.py          # 广发证券
-│           ├── ibkr.py             # IBKR盈透
-│           └── binance_parser.py   # 币安
-│
-├── telegram-bot-assistant/
-│   └── bot_assistant.py            # Telegram助手Bot（指令桥）
-│
-├── strategy/
-│   └── backtest_pams.py            # 独立回测脚本
-│
-├── scripts/
-│   └── import_holdings_from_excel.py  # Excel持仓导入
-│
-├── compose.yaml                    # Docker编排（9个服务）
-├── VERSION.md                      # 版本历史
-└── README.md
+系统的核心链路是：
+
+```text
+原始导入表
+  -> 业务事实表
+  -> 当前状态 / 资产底表 / 穿透引擎
+  -> 页面 API
+  -> 前端展示
 ```
 
----
+页面只消费 API 结果，不在多个前端组件里重复实现分类、收益或估值逻辑。
 
-## 快速开始
+### 已发布估值状态
 
-### 前置要求
-- Docker & Docker Compose
-- Git
+当前组合总值以 `pams_portfolio_valuation_state` 为统一发布口径。它用于解决不同页面对组合价值、净清算价值、现金和负债重复计算的问题。
 
-### 安装步骤
+核心字段：
 
-1. **克隆仓库**
-   ```bash
-   git clone https://github.com/hzfzzzi-ui/pams.git
-   cd pams
-   ```
+- `assets_cny`：总资产，包含持仓市值、银行卡、现金账户和券商现金。
+- `liabilities_cny`：总负债，包含融资、保证金负债等。
+- `net_liquidation_value_cny`：净清算价值。
+- `status`：估值状态，例如 `complete`、`partial`。
+- `quality_flags`：缺失账户、估值来源或数据质量提示。
 
-2. **配置环境变量**
-   ```bash
-   cp .env.example .env
-   # 编辑 .env，设置：
-   # - POSTGRES_PASSWORD
-   # - TELEGRAM_BOT_TOKEN
-   # - OWNER_CHAT_ID（用于每日推送）
-   ```
+统一公式：
 
-3. **启动服务**
-   ```bash
-   docker compose up -d
-   ```
-
-4. **访问应用**
-   - 主应用：`http://pams.local` 或 `http://localhost:80`
-   - API文档：`http://localhost:8090/docs`
-   - Firefly III：`http://localhost:8082`
-
-### 端口映射
-
-| 服务 | 端口 | 用途 |
-|------|------|------|
-| Caddy | 80 | 反向代理 |
-| pams-web | 8080 | 前端 |
-| pams-api | 8090 | FastAPI后端 |
-| pams-firefly | 8082 | Firefly III |
-| pams-adguard | 53/8081 | DNS |
-
----
-
-## API文档
-
-### 资产管理
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/holdings/latest` | GET | 最新持仓快照 |
-| `/holdings/by-category/{cat}` | GET | 按分类持仓 |
-| `/summary2/latest` | GET | 仪表板综合数据 |
-| `/nav/series` | GET | NAV时间序列 |
-| `/nav/drawdown` | GET | 回撤分析 |
-
-### 策略引擎（V1.6）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/strategy/candidates` | GET | 候选标的列表 |
-| `/api/strategy/orders` | GET | 订单草稿列表 |
-| `/api/strategy/orders/{id}/action` | POST | 确认/取消订单 |
-| `/api/strategy/orders/{id}/execute` | POST | 标记订单已执行 |
-| `/api/strategy/scan/eod` | POST | 手动触发EOD扫描 |
-| `/api/strategy/risk-snapshot` | GET | 风控快照 |
-| `/api/strategy/blacklist` | GET/POST | 黑名单管理 |
-| `/api/strategy/cooldowns` | GET | 冷却期查询 |
-| `/api/strategy/sentiment` | GET | 市场情绪状态 |
-| `/api/strategy/events` | GET | 事件监控列表 |
-| `/api/strategy/watchlist/scan` | POST | 观察池板块扫描 |
-| `/api/strategy/intraday/refresh` | POST | 盘中15分钟刷新 |
-
-### 回测引擎（V1.7）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/backtest/run` | POST | V1 HV Alpha 回测 |
-| `/api/backtest/run_v2` | POST | V2 Risk Protocol 回测 |
-| `/api/backtest/watchlist` | GET | 默认股票池 |
-
-### 交易识别（V1.5）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/holdings/trade` | POST | 持仓交易UPSERT |
-
-### 通知推送（V1.5）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/notifications` | POST | 创建通知 |
-| `/api/notifications/pending` | GET | 获取待发送通知 |
-| `/api/notifications/{id}/sent` | PATCH | 标记已发送 |
-
-### 收支管理
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/transactions` | POST | 创建交易 |
-| `/api/transactions/recent` | GET | 最近交易 |
-| `/api/transactions/monthly/{month}` | GET | 月度统计 |
-| `/api/transactions/budgets/{month}` | GET | 预算执行 |
-
-### 价格与汇率
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/fx-rates/latest` | GET | 最新汇率 |
-| `/api/fx-rates/refresh` | POST | 刷新汇率 |
-| `/api/prices/crypto` | POST | 刷新加密价格 |
-| `/api/prices/us-stock` | POST | 刷新美股价格 |
-
-**完整API文档**：`http://localhost:8090/docs`
-
----
-
-## Telegram Bot 使用
-
-### 快速记账
-```
--50 餐饮          → Santander/MXN 支出
-+5000 工资        → Santander/MXN 收入
+```text
+净清算价值 = 总资产 - 总负债
 ```
 
-### 交易识别
+持仓页、分析页、风险页、配置页应共享同一个已发布估值状态作为组合顶层价值。
+
+## 主要 API
+
+| API | 说明 |
+| --- | --- |
+| `GET /summary2/latest` | 投资总览，顶层组合价值使用已发布估值状态 |
+| `GET /api/portfolio/valuation-state` | 查询当前已发布估值状态 |
+| `POST /api/portfolio/valuation-state/publish` | 发布或重算组合估值状态 |
+| `GET /nav/weekly?latest=true` | NAV 序列，终点对齐已发布估值状态 |
+| `GET /investment/return-series` | 收益曲线，终点对齐已发布估值状态 |
+| `GET /api/portfolio/risk-disclosure` | 风险披露页数据 |
+| `GET /api/portfolio/config` | 配置页目标规则和偏离数据 |
+| `GET /api/investment-transactions` | 投资交易事实列表 |
+
+## 重要目录
+
+```text
+backend/api/main.py                         FastAPI 主入口和页面 API
+backend/api/endpoints/                      分业务路由
+backend/api/services/                       业务服务层
+database/postgres/schema/                   PostgreSQL 结构迁移
+frontend/public/                            前端静态页面
+frontend/public/assets/js/                  前端 ES modules
+tests/                                      回归测试
 ```
-买入 贵州茅台 100股 @1800     → 同花顺账户
-卖出 AAPL 50 @195.5          → IBKR账户
-buy BTC 0.5 @97000           → 币安账户
+
+估值和收益口径相关模块：
+
+```text
+backend/api/services/portfolio_valuation_state.py
+backend/api/services/portfolio_summary.py
+backend/api/services/valuation_nav.py
+backend/api/services/investment_returns.py
+backend/api/services/return_attribution.py
+backend/api/services/risk_state.py
 ```
-或直接发送券商持仓截图（同花顺/广发/IBKR/币安）。
 
-### 命令
-- `/start` - 帮助信息
-- `/record` - 详细记账（选账户/币种/分类）
-- `/portfolio` - 持仓概览
-- `/stats` - 本月统计
-- `/list` - 最近记录
+## 本地运行
 
----
+```powershell
+docker compose up -d --build pams-api pams-web
+```
 
-## 下一步计划
+常用地址：
 
-### V1.7 - 回测引擎 + Risk Protocol ✅
-- [x] HV Alpha V1 回测引擎（20日突破 + ATR止损 + 金字塔加仓）
-- [x] HV Alpha V2 Risk Protocol 三级风险状态机
-- [x] 回测前端页面（策略切换、参数面板、图表、报告）
+- 前端：`http://pams.local`
+- 本地前端端口：`http://localhost:8080`
+- API 文档：`http://localhost:8090/docs`
 
-### V1.6 - A股策略引擎 ✅
-- [x] 多阶段选股流水线（Universe → 趋势 → 回踩 → 触发 → 量价确认）
-- [x] 订单生命周期管理 + 风险仓位计算
-- [x] 盘中15分钟刷新 + Telegram推送
-- [x] 观察池板块扫描 + 退出条件检查
+当前 `pams-web` 是构建镜像，不挂载本地 `frontend/public`。修改前端文件后必须重建 `pams-web`，否则浏览器不会看到新版本。
 
-### V1.5 - 交易Bot + 前端重构 ✅
-- [x] Telegram交易识别Bot（OCR + 文字指令）
-- [x] 每日持仓推送 + 通知框架
-- [x] 持仓子页面合并（配置驱动）
-- [x] 定时价格调度器
+## 回归验证
 
-### V1.8 - 外部集成（计划中）
-- [ ] Binance API 实时数据同步
-- [ ] OCR 精度调优（真实截图测试）
-- [ ] 回测参数优化（网格搜索 + 蒙特卡洛）
+核心验证命令：
 
-### V2.0 - 长期目标
-- [ ] 移动端适配 + PWA
-- [ ] 多用户支持
-- [ ] 机器学习分类
-- [ ] 数据导出 / PDF报表
+```powershell
+python -m pytest tests/test_valuation_nav_service.py tests/test_return_attribution.py tests/test_risk_state_service.py tests/test_portfolio_state_contract.py tests/test_portfolio_valuation_state.py tests/test_portfolio_valuation_linkage.py tests/test_holding_return_snapshot.py tests/test_investment_returns_service.py tests/test_holdings_view_service.py tests/test_portfolio_summary_service.py tests/test_frontend_static_contract.py tests/test_cashflow_fact_service.py tests/test_investment_trade_fact_service.py -q
+node --check frontend\public\assets\js\api.js
+node --check frontend\public\assets\js\dashboard.js
+node --check frontend\public\assets\js\holdings_categories.js
+```
 
----
+涉及运行态时额外确认：
 
-## 许可证
+```powershell
+docker compose up -d --build pams-api pams-web
+docker ps --filter "name=pams-web" --filter "name=pams-api"
+```
 
-MIT License - 详见 [LICENSE](LICENSE)
+## 开发约束
 
----
-
-**Built with ❤️ by hzfzzzi**
+- 前端只展示 API 结果，不在组件里重复维护行业、主题、地区、币种、资产类型或收益分类。
+- 投资持仓页以持仓快照和交易 fact 为准。
+- 收支页以 cashflow fact 为准。
+- 交易页以 investment trade fact 为准。
+- 分析页和风控页消费统一服务层结果，不直接绕过服务层查表重算。
+- 新增字段需要保持向后兼容。
+- 不在 endpoint 中写运行时 DDL，表结构变更应放在 `database/postgres/schema/`。

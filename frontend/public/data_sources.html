@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PAMS" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PAMS · 数据源健康</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    .sourceHero { display:grid; grid-template-columns: minmax(0, 1fr) minmax(320px,.55fr); gap:var(--sp-3); margin-bottom:var(--sp-3); }
+    .sourceTodo {
+      border: 1px solid var(--line);
+      background: var(--bg-surface);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      line-height: 1.6;
+    }
+    .statusLine {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--sp-2);
+      margin: 0 0 var(--sp-3);
+    }
+    .sourceNote { border:1px solid var(--line); border-radius:var(--radius-md); padding:10px 12px; background:transparent; }
+    .sourceNote summary { cursor:pointer; color:var(--info); font-weight:900; }
+    .actionChecklist { display:grid; gap:8px; }
+    .actionChecklist label { display:flex; gap:8px; align-items:flex-start; }
+    .pipeline { display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:8px; margin-top:var(--sp-3); }
+    .pipelineStep { border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg-surface); padding:10px; text-align:center; font-weight:900; }
+    .sourceMatrix { width:100%; min-width:900px; table-layout:fixed; }
+    .sourceMatrix th, .sourceMatrix td { padding-left:8px; padding-right:8px; }
+    .sourceMatrix th:nth-child(1), .sourceMatrix td:nth-child(1) { width:220px; }
+    .sourceMatrix th:nth-child(2), .sourceMatrix td:nth-child(2) { width:110px; }
+    .sourceMatrix th:nth-child(3), .sourceMatrix td:nth-child(3) { width:210px; }
+    .sourceMatrix th:nth-child(4), .sourceMatrix td:nth-child(4) { width:80px; text-align:right; }
+    .sourceMatrix th:nth-child(5), .sourceMatrix td:nth-child(5) { width:84px; }
+    .sourceMatrix th:nth-child(6), .sourceMatrix td:nth-child(6) { width:96px; }
+    .sourceMatrix td { vertical-align:top; }
+    .qualityGrid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .qualityBox {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      min-width: 0;
+      background: var(--bg-surface);
+    }
+    .qualityBox h4 {
+      margin: 0 0 8px;
+      font-size: var(--fs-sm);
+      color: var(--muted);
+    }
+    .qualityList {
+      display: grid;
+      gap: 6px;
+      font-size: var(--fs-sm);
+      line-height: 1.45;
+    }
+    .qualityRow {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 6px;
+    }
+    .qualityRow:last-child { border-bottom: 0; padding-bottom: 0; }
+    .qualityAction {
+      display: grid;
+      gap: 4px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+    .qualityAction:last-child { border-bottom: 0; padding-bottom: 0; }
+    .qualityAction a {
+      color: var(--accent);
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .qualityAction span {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 980px) {
+      .sourceHero, .statusLine, .qualityGrid, .pipeline { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="page-data-sources">
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">数据源健康</span>
+      <span class="status-item" id="asof">--</span>
+    </div>
+    <div class="status-right">
+      <a class="pill" href="ledger.html#accountIssueStrip">核准</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="nav">
+      <a data-nav href="investments.html">投资</a>
+      <a data-nav href="ledger.html">收支</a>
+      <a data-nav href="more.html">更多</a>
+    </div>
+
+    <div class="pageHeader">
+      <div>
+        <h1>同步中心</h1>
+        <div class="pageSubtitle">四类同步分开看</div>
+      </div>
+      <div class="pageMeta">
+        <details class="sourceNote sourceNoteInline">
+          <summary>口径</summary>
+          <div class="sourceTodo" style="margin-top:10px">只同步本地数据，不保存券商密码，不执行交易；缺口通过账户核准和投资页补齐。</div>
+        </details>
+        <a class="pill" href="investments.html">投资</a>
+      </div>
+    </div>
+
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
+
+    <div class="statusLine" id="statusLine"></div>
+
+    <div class="sectionTitle" style="margin: var(--sp-4) 0 var(--sp-3);">
+      <h3>同步矩阵</h3>
+      <span class="miniBadge pending">点击看详情</span>
+    </div>
+    <div id="sourceList" class="sourceHealthList"></div>
+    <div class="tableWrap desktopSourceTable">
+      <table id="syncMatrix" class="sourceMatrix">
+        <thead>
+          <tr>
+            <th>数据源</th>
+            <th>同步类型</th>
+            <th>最新时间</th>
+            <th class="num">记录数</th>
+            <th>状态</th>
+            <th>动作</th>
+          </tr>
+        </thead>
+        <tbody id="sourceGrid"></tbody>
+      </table>
+    </div>
+
+    <div class="sectionTitle" style="margin: var(--sp-4) 0 var(--sp-3);">
+      <h3>同步口径</h3>
+      <span class="miniBadge pending">Workflow</span>
+    </div>
+    <div class="card sourceActionCard">
+      <div id="todayActions" class="sourceTodo">读取中...</div>
+    </div>
+
+    <div class="sectionTitle" style="margin: var(--sp-4) 0 var(--sp-3);">
+      <h3>统一质量</h3>
+      <span class="miniBadge data">PortfolioState</span>
+    </div>
+    <div id="dataQuality" class="card">读取中...</div>
+
+    <details class="sourceNote" style="margin-top:var(--sp-3)">
+      <summary>链路</summary>
+      <div class="pipeline">
+        <div class="pipelineStep">数据源</div>
+        <div class="pipelineStep">标准化</div>
+        <div class="pipelineStep">核准</div>
+        <div class="pipelineStep">投资/流水</div>
+        <div class="pipelineStep">风控/研究</div>
+      </div>
+    </details>
+  </div>
+
+  <script type="module" src="assets/js/data_sources.js?v=20260606-refresh-v3"></script>
+</body>
+</html>

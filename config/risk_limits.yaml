@@ -1,0 +1,146 @@
+base_currency: CNY
+
+data:
+  default_owner_ratio: 1.0
+  # 非本人全额持有账户在这里配置个人占比；同花顺 A 股个股账户当前为 25万 / 40万 = 62.5%。
+  account_owner_ratios:
+    a_share_stock: 0.625
+    tonghuashun: 0.625
+  # 这里记录账户整体期初本金，系统会再乘以 owner_ratio 得到个人期初本金。
+  account_initial_capital_cny:
+    tonghuashun: 400000
+  fx_rates_to_cny:
+    CNY: 1.0
+    USD: 7.2
+    HKD: 0.92
+    MXN: 0.42
+    KRW: 0.0052
+    EUR: 7.8
+  cash_asset_types:
+    - cash
+    - money_market
+    - short_bond
+  defensive_asset_types:
+    - cash
+    - money_market
+    - short_bond
+    - gold
+
+limits:
+  blocking_level: red
+  gross_exposure:
+    yellow: 0.95
+    red: 1.10
+  negative_cash_ratio:
+    yellow: 0.01
+    red: 0.03
+  account_weight:
+    default:
+      yellow: 0.35
+      red: 0.50
+    by_account:
+      a_share_stock:
+        yellow: 0.25
+        red: 0.40
+      ibkr:
+        yellow: 0.35
+        red: 0.50
+      esop:
+        yellow: 0.20
+        red: 0.30
+  position_weight:
+    default:
+      yellow: 0.10
+      red: 0.15
+    by_asset_type:
+      cash:
+        yellow: 1.00
+        red: 1.01
+      money_market:
+        yellow: 1.00
+        red: 1.01
+      short_bond:
+        yellow: 0.60
+        red: 0.80
+      gold:
+        yellow: 0.12
+        red: 0.18
+      crypto:
+        yellow: 0.05
+        red: 0.10
+      esop:
+        yellow: 0.20
+        red: 0.30
+  factor_exposure:
+    CN_EQUITY:
+      yellow: 0.30
+      red: 0.45
+    US_EQUITY:
+      yellow: 0.35
+      red: 0.55
+    CRYPTO:
+      yellow: 0.05
+      red: 0.10
+    GOLD:
+      yellow: 0.12
+      red: 0.18
+    ESOP_SINGLE_COMPANY:
+      yellow: 0.20
+      red: 0.30
+    CASH:
+      yellow: 0.80
+      red: 1.01
+  stress_loss:
+    yellow: 0.08
+    red: 0.15
+  concentration:
+    industry:
+      yellow: 0.30
+      red: 0.40
+    investment_style:
+      yellow: 0.45
+      red: 0.60
+    style:
+      yellow: 0.45
+      red: 0.60
+    region_currency:
+      yellow: 0.75
+      red: 0.90
+    region:
+      yellow: 0.75
+      red: 0.90
+    currency:
+      yellow: 0.75
+      red: 0.90
+    special:
+      yellow: 0.30
+      red: 0.45
+
+stress_tests:
+  equity_global_down_20:
+    label: Global equity -20%
+    shocks:
+      CN_EQUITY: -0.20
+      US_EQUITY: -0.20
+      ESOP_SINGLE_COMPANY: -0.25
+      CRYPTO: -0.35
+  cn_equity_down_25:
+    label: China equity -25%
+    shocks:
+      CN_EQUITY: -0.25
+      ESOP_SINGLE_COMPANY: -0.20
+  usd_down_5:
+    label: USD/CNY -5%
+    shocks:
+      USD_FX: -0.05
+  crypto_down_50:
+    label: Crypto -50%
+    shocks:
+      CRYPTO: -0.50
+  liquidity_risk_off:
+    label: Risk-off liquidity shock
+    shocks:
+      CN_EQUITY: -0.15
+      US_EQUITY: -0.12
+      CRYPTO: -0.30
+      GOLD: 0.05

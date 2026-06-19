@@ -1,0 +1,337 @@
+defaults:
+  base_currency: CNY
+  owner_ratio: 1.0
+  include_in_nav: true
+
+excluded_accounts:
+  - binance
+  - wechat
+  - ccb_cny
+  - cgb_cny
+  - gongjijin
+  - guangfa
+  - huawei
+  - jianhang
+  - jiekuan
+  - loan
+
+account_roots:
+  ccb:
+    display_name: 建设银行
+    sort_order: 10
+  icbc_6689:
+    display_name: 工商银行
+    sort_order: 20
+  santander:
+    display_name: Santander
+    sort_order: 30
+  wechat:
+    display_name: 微信
+    sort_order: 40
+  alipay:
+    display_name: 支付宝
+    sort_order: 50
+  ibkr:
+    display_name: IBKR
+    sort_order: 60
+  tonghuashun:
+    display_name: 同花顺
+    sort_order: 70
+  tencent_licaitong:
+    display_name: 腾讯理财通
+    sort_order: 80
+  huawei:
+    display_name: 华为
+    sort_order: 90
+  hpf:
+    display_name: 深圳公积金
+    sort_order: 100
+  medical_insurance:
+    display_name: 深圳医保
+    sort_order: 110
+  guangfa_credit:
+    display_name: 广发银行
+    sort_order: 120
+
+accounts:
+  ccb_7332:
+    display_name: 建行7332国内储蓄卡
+    account_type: funding
+    parent_account_code: ccb
+    institution: 建设银行
+    base_currency: CNY
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 国内储蓄卡
+    manual_balance:
+      amount: 84756.92
+      currency: CNY
+      as_of: 2026-06-01
+      source: user_confirmed_fund_subscription_closed
+      note: 2026-06-01 用户确认无其他现金/转账变动；按 2026-05-25 账单余额 90,756.92 扣除当日基金申购支出 6,000.00 后临时估算。2026-06-02 用户确认 016440 5,000.00 和 110020 1,000.00 均已转入正式基金持仓；后续导入 2026-06-01 或更新银行账单后，以银行账单余额自动覆盖。
+
+  santander:
+    display_name: Santander4209海外储蓄卡
+    account_type: funding
+    institution: Santander Mexico
+    base_currency: MXN
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 海外储蓄卡
+
+  icbc_6689_cny:
+    display_name: 工行6689国内储蓄卡
+    account_type: funding
+    parent_account_code: icbc_6689
+    institution: 工商银行
+    base_currency: CNY
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 人民币现金账户
+
+  icbc_6689_usd:
+    display_name: 工行6689海外储蓄卡
+    account_type: funding
+    parent_account_code: icbc_6689
+    institution: 工商银行
+    base_currency: USD
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 美元现金账户
+
+  wechat:
+    display_name: 微信
+    account_type: wallet_group
+    institution: 微信支付
+    base_currency: CNY
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 微信账户组
+
+  wechat_balance:
+    display_name: 微信零钱
+    account_type: funding
+    parent_account_code: wechat
+    institution: 微信支付
+    base_currency: CNY
+    truth_source: manual
+    reconcile_method: balance
+    role: 钱包现金
+    manual_balance:
+      amount: 17.43
+      currency: CNY
+      as_of: 2026-05-31
+      source: user_screenshot
+      note: 2026-05-31 微信钱包截图确认
+
+  wechat_lqt:
+    display_name: 微信零钱通
+    account_type: cash_management
+    parent_account_code: wechat
+    institution: 微信支付
+    base_currency: CNY
+    truth_source: manual
+    reconcile_method: balance
+    role: 现金管理/货币基金
+    manual_balance:
+      amount: 548.61
+      currency: CNY
+      as_of: 2026-05-31
+      source: user_screenshot
+      note: 2026-05-31 微信钱包截图确认
+
+  alipay:
+    display_name: 支付宝
+    account_type: funding
+    institution: 支付宝
+    base_currency: CNY
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 支付宝余额
+
+  ccb_credit_0453:
+    display_name: 建行0453人民币信用卡
+    account_type: liability
+    parent_account_code: ccb
+    institution: 建设银行
+    base_currency: CNY
+    include_in_nav: true
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 人民币信用卡
+
+  ccb_yhs300_fund:
+    display_name: 建行理财
+    account_type: fund_platform
+    parent_account_code: ccb
+    institution: 建设银行
+    base_currency: CNY
+    include_in_nav: true
+    truth_source: manual
+    reconcile_method: position_nav
+    nature_label: 基金持仓
+    role: 建行渠道基金持仓
+    manual_balance:
+      amount: 22488.13
+      currency: CNY
+      as_of: 2026-06-02
+      source: user_confirmed_fund_subscription
+      note: 建行流水核对：110020 易沪深300 自 2025-12-15 至 2026-05-25 共 21 笔定投，累计扣款 21,000.00，未见赎回；2026-06-02 用户确认新增定投 1,000.00，确认份额 506.22，确认净值 1.9520，手续费 11.86，成交后份额 11,520.56，持仓市值更新为 22,488.13。
+
+  ccb_fund_subscription_pending:
+    display_name: 建行基金申购在途
+    account_type: bridge
+    parent_account_code: ccb
+    institution: 建设银行
+    base_currency: CNY
+    include_in_nav: true
+    truth_source: manual
+    reconcile_method: in_transit
+    role: 建行7332基金申购待确认
+    manual_balance:
+      amount: 0.00
+      currency: CNY
+      as_of: 2026-06-02
+      source: user_confirmed_fund_subscription_closed
+      note: 2026-06-02 用户确认 110020 易沪深300 1,000.00 已确认份额 506.22，确认净值 1.9520，手续费 11.86；016440 华夏中证红利质量ETF发起式联接A 5,000.00 已确认份额 4,093.79，单位净值 1.2199，手续费 5.99；建行基金申购在途余额已清零。
+
+  ccb_gold_accumulation:
+    display_name: 建行黄金积存金
+    account_type: fund_platform
+    parent_account_code: ccb
+    institution: 建设银行
+    base_currency: CNY
+    include_in_nav: true
+    truth_source: manual
+    reconcile_method: position_nav
+    nature_label: 黄金积存金
+    role: 建行黄金积存金
+    manual_balance:
+      amount: 9852.10
+      currency: CNY
+      as_of: 2026-05-31
+      source: user_confirmed_ccb_app
+      note: 建行流水核对：2026-01-29 积存金买入 11,998.30，未见卖出；当前持仓市值由用户确认。
+
+  ccb_receivable_loan:
+    display_name: 建行外借款
+    account_type: receivable
+    parent_account_code: ccb
+    institution: 建设银行
+    base_currency: CNY
+    include_in_nav: true
+    truth_source: manual
+    reconcile_method: balance
+    role: 他人外借待归还
+    manual_balance:
+      amount: 50000.00
+      currency: CNY
+      as_of: 2026-05-31
+      source: user_confirmed
+      note: 他人外借 50,000 元，待归还；作为建行名下应收款子账户核准。
+  gf_7443:
+    display_name: 广发7443人民币信用卡
+    account_type: liability
+    parent_account_code: guangfa_credit
+    institution: 广发银行
+    base_currency: CNY
+    include_in_nav: true
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 人民币信用卡
+
+  gf_9711:
+    display_name: 广发9711美元信用卡
+    account_type: liability
+    parent_account_code: guangfa_credit
+    institution: 广发银行
+    base_currency: USD
+    include_in_nav: true
+    truth_source: bank_statement
+    reconcile_method: balance
+    role: 美元信用卡
+
+  ibkr:
+    display_name: IBKR
+    account_type: brokerage
+    institution: Interactive Brokers
+    base_currency: USD
+    truth_source: ibkr_flex
+    reconcile_method: position_nav
+    role: 美股券商账户
+    funding_source: santander
+
+  ibkr_in_transit_mxn:
+    display_name: IBKR 入金在途 MXN
+    account_type: bridge
+    active: false
+    include_in_nav: false
+    exclude_from_reconcile: true
+    parent_account_code: ibkr
+    institution: Interactive Brokers
+    base_currency: MXN
+    truth_source: manual
+    reconcile_method: in_transit
+    role: Santander 已扣款、IBKR 尚未确认的入金
+    manual_balance:
+      amount: 0
+      currency: MXN
+      as_of: 2026-06-02
+      source: user_confirmed_arrived
+      note: 2026-06-02 用户确认 80,000 MXN 已到账 IBKR，原 2026-05-30 Santander 转 IBKR 在途资金已核销；同日买入 4,626 USD，消除部分 USD 负现金。
+
+  tonghuashun:
+    display_name: 同花顺
+    account_type: brokerage
+    institution: 同花顺
+    base_currency: CNY
+    owner_ratio: 0.625
+    truth_source: platform_snapshot
+    reconcile_method: position_nav
+    role: A股个股券商账户
+    capital_base: 400000
+    personal_capital: 250000
+    funding_source: ccb_7332
+    manual_balance:
+      amount: 367653.64
+      currency: CNY
+      as_of: 2026-06-09
+      source: user_confirmed_tonghuashun_total_assets
+      note: 用户确认 2026-06-09 同花顺账户总资产 367,653.64，持仓总市值 366,290.00，可用现金 1,363.64；个人口径按 0.625 乘数计算，账户绩效应以净清算价值而不是仅持仓市值计算。
+
+  tencent_licaitong:
+    display_name: 腾讯理财通
+    account_type: fund_platform
+    institution: 腾讯理财通
+    base_currency: CNY
+    truth_source: platform_snapshot
+    reconcile_method: position_nav
+    role: 基金、黄金、理财产品平台
+
+  huawei_stock:
+    display_name: 华为 ESOP
+    account_type: brokerage
+    parent_account_code: huawei
+    institution: 华为
+    base_currency: CNY
+    truth_source: manual
+    reconcile_method: position_nav
+    role: 员工持股账户
+
+  hpf:
+    display_name: 深圳公积金
+    account_type: benefit
+    institution: 深圳住房公积金管理中心
+    base_currency: CNY
+    truth_source: official_statement
+    reconcile_method: balance
+    role: 住房公积金账户
+
+  medical_insurance:
+    display_name: 深圳医保
+    account_type: benefit
+    institution: 深圳医保
+    base_currency: CNY
+    truth_source: official_statement
+    reconcile_method: balance
+    role: 医保个人账户

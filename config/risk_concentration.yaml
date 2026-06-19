@@ -1,0 +1,310 @@
+symbols:
+  HUAWEI_ESOP:
+    industry: 内部股份
+    style: 非流动单一公司
+    style_exposures:
+      非流动单一公司: 1.0
+      单一公司风险: 1.0
+      人民币资产: 1.0
+  CCB_GOLD_ACCUM:
+    industry: 贵金属
+    style: 黄金
+    style_exposures:
+      黄金/贵金属避险: 1.0
+      防守收益: 0.4
+      人民币资产: 1.0
+  "110020":
+    industry: 宽基指数
+    style: 沪深300
+    industry_exposures:
+      金融地产: 0.25
+      消费医药: 0.25
+      工业制造: 0.25
+      信息技术: 0.15
+      能源材料: 0.10
+    style_exposures:
+      大盘: 1.0
+      价值: 0.45
+      成长: 0.35
+      人民币资产: 1.0
+
+  QQQ:
+    industry: 美股科技
+    style: 成长/大盘
+    industry_exposures:
+      半导体: 0.25
+      软件服务: 0.25
+      互联网平台: 0.25
+      消费科技: 0.20
+      医疗科技: 0.05
+    style_exposures:
+      美股权益: 1.0
+      科技成长: 1.0
+      成长: 0.90
+      大盘: 0.90
+      美元资产: 1.0
+  005930.KS:
+    industry: 半导体
+    style: 科技硬件
+    style_exposures:
+      科技成长: 0.8
+      大盘: 0.7
+      成长: 0.6
+      韩股权益: 1.0
+      韩元资产: 1.0
+  MU:
+    industry: 半导体
+    style: 周期成长
+    style_exposures:
+      科技成长: 0.9
+      半导体周期: 0.8
+      美股权益: 0.8
+      成长: 0.7
+      美元资产: 1.0
+  NVDA:
+    industry: 半导体
+    style: 高成长
+    style_exposures:
+      科技成长: 1.0
+      美股权益: 1.0
+      成长: 1.0
+      大盘: 0.9
+      美元资产: 1.0
+  GOOG:
+    industry: 互联网平台
+    style: 成长/大盘
+    style_exposures:
+      美股权益: 1.0
+      科技成长: 0.8
+      成长: 0.8
+      大盘: 1.0
+      美元资产: 1.0
+  "3690":
+    industry: 互联网平台
+    style: 港股权益
+    style_exposures:
+      科技成长: 0.8
+      成长: 0.8
+      港股权益: 1.0
+      港币资产: 1.0
+      中盘: 0.6
+  PLTR:
+    industry: 软件服务
+    style: 高成长
+    style_exposures:
+      美股权益: 1.0
+      科技成长: 1.0
+      成长: 1.0
+      中小盘: 0.7
+      美元资产: 1.0
+
+  "011613":
+    industry: 科创科技
+    style: 成长
+    industry_exposures:
+      半导体: 0.45
+      科创科技: 0.30
+      医药科技: 0.15
+      新能源: 0.10
+    style_exposures:
+      科技成长: 1.0
+      成长: 1.0
+      中小盘: 0.7
+      人民币资产: 1.0
+  "501016":
+    industry: 证券
+    style: 周期金融
+    style_exposures:
+      周期金融: 1.0
+      价值: 0.6
+      人民币资产: 1.0
+  "001412":
+    industry: 主动权益
+    style: 均衡成长
+    industry_exposures:
+      消费医药: 0.30
+      科技制造: 0.25
+      金融地产: 0.20
+      周期资源: 0.15
+      现金增强: 0.10
+    style_exposures:
+      成长: 0.6
+      价值: 0.35
+      中小盘: 0.5
+      人民币资产: 1.0
+  "008585":
+    industry: 人工智能
+    style: 成长
+    industry_exposures:
+      人工智能: 0.50
+      半导体: 0.25
+      软件服务: 0.15
+      通信设备: 0.10
+    style_exposures:
+      AI链: 1.0
+      科技成长: 1.0
+      成长: 1.0
+      人民币资产: 1.0
+  "016440":
+    industry: 红利质量
+    style: 红利/质量
+    industry_exposures:
+      金融地产: 0.35
+      能源材料: 0.25
+      公用事业: 0.20
+      交通运输: 0.20
+    style_exposures:
+      防守收益: 1.0
+      价值: 0.8
+      大盘: 0.8
+      人民币资产: 1.0
+  "016186":
+    industry: 公用事业
+    style: 防守/红利
+    style_exposures:
+      防守收益: 1.0
+      价值: 0.7
+      人民币资产: 1.0
+  "025197":
+    industry: 港股科技
+    style: 成长
+    industry_exposures:
+      互联网平台: 0.55
+      软件服务: 0.20
+      消费科技: 0.15
+      半导体: 0.10
+    style_exposures:
+      港股权益: 1.0
+      科技成长: 1.0
+      成长: 0.9
+      中小盘: 0.6
+      人民币资产: 1.0
+  "020509":
+    industry: 低波固收
+    style: 现金增强
+    style_exposures:
+      现金增强: 1.0
+      防守收益: 0.5
+      人民币资产: 1.0
+
+  "601899":
+    industry: 有色金属
+    style: 资源周期
+    style_exposures:
+      周期资源: 1.0
+      价值: 0.4
+      人民币资产: 1.0
+  "600487":
+    industry: 通信设备
+    style: 科技制造
+    style_exposures:
+      科技成长: 0.7
+      成长: 0.6
+      中小盘: 0.8
+      人民币资产: 1.0
+  "600584":
+    industry: 半导体
+    style: 科技成长
+    style_exposures:
+      科技成长: 1.0
+      成长: 0.8
+      中小盘: 0.8
+      人民币资产: 1.0
+  "000630":
+    industry: 有色金属
+    style: 资源周期
+    style_exposures:
+      周期资源: 1.0
+      价值: 0.5
+      人民币资产: 1.0
+  "002185":
+    industry: 半导体
+    style: 科技成长
+    style_exposures:
+      科技成长: 1.0
+      成长: 0.8
+      中小盘: 0.8
+      人民币资产: 1.0
+  "601872":
+    industry: 航运港口
+    style: 周期价值
+    style_exposures:
+      周期运输: 0.8
+      价值: 0.8
+      人民币资产: 1.0
+  "600550":
+    industry: 电力设备
+    style: 周期成长
+    style_exposures:
+      周期制造: 0.5
+      成长: 0.5
+      中小盘: 0.8
+      人民币资产: 1.0
+  "000735":
+    industry: 农林牧渔
+    style: 周期消费
+    style_exposures:
+      农业消费: 0.6
+      价值: 0.5
+      中小盘: 0.8
+      人民币资产: 1.0
+
+asset_types:
+  a_share_stock:
+    industry: A股个股
+    style: 权益
+    style_exposures:
+      人民币资产: 1.0
+  a_share_fund:
+    industry: 低波固收
+    style: 现金增强
+    industry_exposures:
+      低波固收: 1.0
+    style_exposures:
+      现金增强: 1.0
+      防守收益: 0.5
+      人民币资产: 1.0
+  cn_etf:
+    industry: A股ETF
+    style: 基金
+    style_exposures:
+      人民币资产: 1.0
+  us_stock:
+    industry: 海外权益
+    style: 权益
+    style_exposures:
+      美元资产: 1.0
+      美股权益: 1.0
+  us_etf:
+    industry: 海外ETF
+    style: 基金
+    style_exposures:
+      美元资产: 1.0
+      美股权益: 1.0
+  global_fund:
+    industry: 全球基金
+    style: 基金
+    style_exposures:
+      成长: 0.5
+      大盘: 0.5
+  gold:
+    industry: 贵金属
+    style: 黄金
+    style_exposures:
+      黄金/贵金属避险: 1.0
+      防守收益: 0.4
+      人民币资产: 1.0
+  esop:
+    industry: 内部股份
+    style: 非流动单一公司
+    style_exposures:
+      非流动单一公司: 1.0
+      单一公司风险: 1.0
+      人民币资产: 1.0
+  manual_asset:
+    industry: 其他投资
+    style: 非标资产
+
+default:
+  industry: 未分类
+  style: 未分类

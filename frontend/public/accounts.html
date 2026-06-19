@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PAMS" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PAMS · 账户</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css?v=20260606-mobile-app-v1" />
+  <style>
+    .reconcileGrid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
+    .profileList { display: grid; gap: 10px; }
+    .profileItem { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 12px; background: var(--bg-surface); cursor: pointer; }
+    .profileItem.active { border-color: rgba(88,166,255,.7); background: rgba(88,166,255,.08); }
+    .profileTitle { font-weight: 800; }
+    .fileBox { min-height: 150px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    .truthNote { border: 1px solid rgba(210,153,34,.22); background: transparent; color: var(--text); border-radius: var(--radius-md); padding: 10px 12px; line-height: 1.6; }
+    .truthNote summary { cursor:pointer; color:var(--warn); font-weight:800; }
+    .summaryCards { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; }
+    .metricPanel { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 10px; background: var(--bg-surface); min-height: 64px; }
+    .metricPanel .label { color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 800; }
+    .metricPanel .value { margin-top: 3px; font-family: 'JetBrains Mono', monospace; font-size: 20px; line-height:1.15; font-weight: 900; font-variant-numeric: tabular-nums; }
+    .previewTable { min-width: 1100px; }
+    .relationshipGrid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--sp-3); }
+    .matchTable { min-width: 1360px; }
+    .unmatchedTable { min-width: 1280px; }
+    .accountTabs { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 10px; border-bottom:1px solid var(--line); }
+    .accountTabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); border-radius: 0; padding: 0 0 8px; cursor: pointer; font-weight: 800; }
+    .accountTabs button.active { color: var(--text); border-bottom-color: var(--accent); background: transparent; }
+    .accountPanel[hidden] { display: none; }
+    .accountTable { min-width: 880px; }
+    .balanceTable { min-width: 1080px; }
+    .accountTable th, .accountTable td,
+    .balanceTable th, .balanceTable td { padding: 7px 8px; height: 36px; font-size: 13px; }
+    .accountTable .col-account { width: 205px; }
+    .accountTable .col-currency { width: 50px; }
+    .accountTable .col-amount { width: 84px; }
+    .accountTable .col-basis { width: 110px; }
+    .accountTable .col-status { width: 70px; }
+    .accountTable .col-focus { width: 270px; }
+    .accountTable .col-action { width: 91px; }
+    .balanceTable .col-account { width: 280px; }
+    .balanceTable .col-basis { width: 140px; }
+    .balanceTable .col-currency { width: 70px; }
+    .balanceTable .col-balance { width: 125px; }
+    .balanceTable .col-status { width: 90px; }
+    .balanceTable .col-action { width: 100px; }
+    .accountTable th:nth-child(2), .accountTable td:nth-child(2),
+    .balanceTable th:nth-child(3), .balanceTable td:nth-child(3) { text-align: center; }
+    .accountTable th:nth-child(3), .accountTable td:nth-child(3),
+    .balanceTable th:nth-child(n+4):nth-child(-n+7), .balanceTable td:nth-child(n+4):nth-child(-n+7) { padding-right: 18px; }
+    .accountCell,
+    .focusCell,
+    .focusCell .muted { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; word-break: break-word; }
+    .accountCell .muted { font-size: 12px; margin-top: 2px; }
+    .focusCell { line-height: 1.35; }
+    .focusCell .muted { margin-top: 3px; font-size: 12px; }
+    .accountTable .balanceBreakdown,
+    .balanceTable .balanceBreakdown { justify-content: flex-end; }
+    .accountGroupRow td { background: rgba(88,166,255,.08); color: var(--text); font-weight: 900; border-top: 1px solid rgba(88,166,255,.22); height:34px; }
+    .accountGroupRow { cursor:pointer; }
+    tr.accountCollapsed { display:none; }
+    .groupMeta { color: var(--muted); font-weight: 600; margin-left: 8px; font-size: var(--fs-xs); }
+    .statusChip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px 6px; font-size: 11px; font-weight: 900; white-space:nowrap; }
+    .statusChip.ready_for_review { color: var(--warn); border-color: rgba(210,153,34,.38); background: rgba(210,153,34,.08); }
+    .statusChip.in_transit { color: var(--info); border-color: rgba(88,166,255,.38); background: rgba(88,166,255,.08); }
+    .statusChip.missing_statement, .statusChip.missing_platform, .statusChip.missing_manual, .statusChip.missing_data { color: var(--bad); border-color: rgba(248,81,73,.38); background: rgba(248,81,73,.08); }
+    .statusChip.approved { color: var(--good); border-color: rgba(63,185,80,.38); background: rgba(63,185,80,.08); }
+    .statusChip.missing_deferred { color: var(--muted); border-color: var(--line); background: rgba(139,148,158,.08); }
+    .reviewActions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .reviewBtn { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text); padding: 4px 7px; font-size: 11px; font-weight: 900; cursor: pointer; }
+    .reviewBtn.primary { border-color: rgba(63,185,80,.5); color: var(--good); background: rgba(63,185,80,.08); }
+    .reviewBtn.warn { border-color: rgba(210,153,34,.5); color: var(--warn); background: rgba(210,153,34,.08); }
+    .reviewBtn:disabled { opacity: .55; cursor: not-allowed; }
+    .balanceBreakdown { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .balancePill { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px 6px; font-family: 'JetBrains Mono', monospace; font-size: var(--fs-xs); }
+    .basisBadge { display:inline-flex; align-items:center; border:1px solid rgba(88,166,255,.28); color:var(--info); background:rgba(88,166,255,.05); border-radius:999px; padding:2px 6px; font-size:11px; font-weight:900; white-space:nowrap; }
+    .accountIssueQueue { display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:8px; margin-top:10px; }
+    .issueQueueItem { border:1px solid var(--line); border-left:3px solid var(--muted); border-radius:var(--radius-md); padding:7px 9px; background:var(--bg-surface); min-width:0; }
+    .issueQueueItem.warn { border-left-color:var(--warn); }
+    .issueQueueItem.risk { border-left-color:var(--bad); }
+    .issueQueueItem.data { border-left-color:var(--info); }
+    .issueQueueTitle { font-weight:900; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; }
+    .issueQueueMeta { color:var(--muted); font-size:11px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .accountMobileHero,
+    .mobileAccountList { display:none; }
+    .focusCell details > summary { cursor:pointer; color:var(--info); font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .focusCell details > summary::after {
+      content:"详情";
+      display:inline-flex;
+      align-items:center;
+      margin-left:6px;
+      padding:1px 5px;
+      border:1px solid rgba(88,166,255,.24);
+      border-radius:999px;
+      color:var(--muted);
+      font-size:10px;
+      font-weight:900;
+      vertical-align:1px;
+    }
+    .focusCell details[open] > summary::after { content:"收起"; color:var(--info); }
+    @media (max-width: 980px) {
+      .reconcileGrid, .summaryCards, .relationshipGrid, .accountIssueQueue { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .page-accounts .pageHeader { display:none; }
+      .page-accounts .truthNote { display:none; }
+      .page-accounts .accountTabs {
+        gap: 22px;
+        margin: 2px 0 12px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+      }
+      .page-accounts .accountTabs::-webkit-scrollbar { display:none; }
+      .page-accounts .accountTabs button {
+        flex: 0 0 auto;
+        font-size: 16px;
+        line-height: 28px;
+        padding-bottom: 8px;
+      }
+      .accountMobileHero {
+        display:block;
+        margin: 0 0 10px;
+        padding: 2px 2px 6px;
+      }
+      .accountMobileLabel { color:var(--muted); font-size:12px; font-weight:900; }
+      .accountMobileValue {
+        margin-top: 5px;
+        font-family:'JetBrains Mono', monospace;
+        font-size: clamp(36px, 10vw, 42px);
+        line-height: 1;
+        font-weight: 900;
+      }
+      .accountMobileStats {
+        display:grid;
+        grid-template-columns: repeat(3, minmax(0,1fr));
+        gap:6px;
+        margin-top:10px;
+      }
+      .accountMobileStat {
+        min-width:0;
+        padding:8px;
+        border:1px solid rgba(255,255,255,.08);
+        border-radius:14px;
+        background:#0d131b;
+      }
+      .accountMobileStat span {
+        display:block;
+        color:var(--muted);
+        font-size:11px;
+        font-weight:800;
+      }
+      .accountMobileStat strong {
+        display:block;
+        margin-top:3px;
+        font-family:'JetBrains Mono', monospace;
+        font-size:15px;
+        font-weight:900;
+      }
+      .page-accounts .summaryCards { display:none; }
+      .page-accounts .accountIssueQueue {
+        display:flex;
+        gap:8px;
+        margin:0 0 10px;
+        overflow-x:auto;
+        scrollbar-width:none;
+      }
+      .page-accounts .accountIssueQueue::-webkit-scrollbar { display:none; }
+      .page-accounts .accountIssueQueue > * { flex:0 0 auto; }
+      .mobileAccountList {
+        display:grid;
+        gap:8px;
+        margin-top:10px;
+      }
+      .mobileAccountRow {
+        width:100%;
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        gap:12px;
+        align-items:center;
+        min-height:74px;
+        padding:12px;
+        border:1px solid rgba(255,255,255,.08);
+        border-radius:16px;
+        background:#0d131b;
+        color:var(--text);
+        text-align:left;
+      }
+      .mobileAccountRow:active { transform:scale(.99); }
+      .mobileAccountMain { min-width:0; }
+      .mobileAccountMain strong {
+        display:block;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+        font-size:15px;
+        line-height:1.25;
+      }
+      .mobileAccountMain small {
+        display:block;
+        margin-top:6px;
+        color:var(--muted);
+        font-size:12px;
+      }
+      .mobileAccountValue {
+        display:grid;
+        gap:5px;
+        justify-items:end;
+        white-space:nowrap;
+      }
+      .mobileAccountValue b { font-size:15px; font-weight:900; }
+      .mobileAccountValue small { font-size:12px; font-weight:900; color:var(--muted); }
+      .page-accounts [data-account-panel="overview"] .card .tableWrap { display:none; }
+      .page-accounts [data-account-panel="overview"] .card {
+        margin-top:0 !important;
+        padding:0;
+        border:0;
+        border-radius:0;
+        background:transparent;
+        box-shadow:none;
+      }
+      .page-accounts [data-account-panel="overview"] .sectionTitle { display:none; }
+    }
+  </style>
+</head>
+<body class="page-accounts">
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">账户核准</span>
+    </div>
+    <div class="status-right"></div>
+  </div>
+
+  <div class="wrap">
+    <div class="nav">
+      <a data-nav href="investments.html">投资</a>
+      <a data-nav href="ledger.html">收支</a>
+      <a data-nav href="more.html">更多</a>
+    </div>
+    <div class="pageHeader" style="display:none">
+      <div>
+        <h1>账户核准</h1>
+        <div class="pageSubtitle">差异、在途、缺数据与导入核准。</div>
+      </div>
+      <div class="pageMeta">
+        <a class="pill" href="ledger.html">查看流水</a>
+      </div>
+    </div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
+
+    <section class="appPageHero">
+      <div class="appHeroTop">
+        <div>
+          <span class="appHeroEyebrow">Accounts Center</span>
+          <h2>账户</h2>
+          <p>以账户核准为主线，把余额、在途、导入和转账放在同一工作流里，减少在流水页和更多页之间来回跳转。</p>
+        </div>
+        <div class="appHeroLinks">
+          <a class="pill" href="ledger.html">流水</a>
+          <a class="pill" href="data_sources.html#dataQuality">数据源</a>
+        </div>
+      </div>
+      <div class="appShortcutGrid" aria-label="账户工作流">
+        <a class="appShortcutCard" href="#overview">
+          <strong>核准总览</strong>
+          <small>先看缺口、差异、过期和负余额</small>
+        </a>
+        <a class="appShortcutCard" href="#balance">
+          <strong>余额矩阵</strong>
+          <small>账单、平台、手动和采用值对比</small>
+        </a>
+        <a class="appShortcutCard" href="#transfers">
+          <strong>转账匹配</strong>
+          <small>识别在途和未确认内部流转</small>
+        </a>
+        <a class="appShortcutCard" href="#sources">
+          <strong>账单导入</strong>
+          <small>模板、预览、暂存和导入记录</small>
+        </a>
+      </div>
+    </section>
+
+    <details class="truthNote" style="margin-bottom: var(--sp-3);">
+      <summary>核准口径</summary>
+      <div style="margin-top:8px">账户页是 PAMS 的资金核准中心：银行/支付账单验证资金流，投资平台验证资产余额，内部划转只解释资金去向，不重复计入净资产。</div>
+    </details>
+
+    <div class="accountTabs" role="tablist">
+      <button class="active" data-account-tab="overview" type="button">总览</button>
+      <button data-account-tab="balance" type="button">余额</button>
+      <button data-account-tab="transfers" type="button">转账</button>
+      <button data-account-tab="sources" type="button">导入</button>
+    </div>
+
+    <section id="overview" class="accountPanel" data-account-panel="overview">
+      <div id="accountMobileHero" class="accountMobileHero"></div>
+      <div id="accountKpis" class="summaryCards"></div>
+      <div id="accountIssueQueue" class="accountIssueQueue"></div>
+      <div class="card" style="margin-top: var(--sp-3);">
+        <div class="sectionTitle">
+          <h3>核准清单</h3>
+          <span class="miniBadge data">按账户 / 子账户</span>
+        </div>
+        <div class="tableWrap" style="margin-top: 10px;">
+          <table class="accountTable">
+            <colgroup>
+              <col class="col-account">
+              <col class="col-currency">
+              <col class="col-amount">
+              <col class="col-status">
+              <col class="col-focus">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>账户 / 子账户</th>
+                <th>币种</th>
+                <th class="num">金额</th>
+                <th>状态</th>
+                <th>问题</th>
+              </tr>
+            </thead>
+            <tbody id="accountOverviewRows"></tbody>
+          </table>
+        </div>
+        <div id="mobileAccountList" class="mobileAccountList"></div>
+      </div>
+    </section>
+
+    <section id="balance" class="accountPanel" data-account-panel="balance" hidden>
+      <div class="card">
+        <div class="sectionTitle">
+          <h3>余额核准矩阵</h3>
+          <div class="muted">首次核准时重点看账单余额、平台余额、手动/在途余额是否符合你的真实资产</div>
+        </div>
+        <div class="tableWrap" style="margin-top: 10px;">
+          <table class="balanceTable">
+            <colgroup>
+              <col class="col-account">
+              <col class="col-basis">
+              <col class="col-currency">
+              <col class="col-balance">
+              <col class="col-balance">
+              <col class="col-balance">
+              <col class="col-balance">
+              <col class="col-status">
+              <col class="col-action">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>账户 / 子账户</th>
+                <th>核准依据</th>
+                <th>币种</th>
+                <th class="num">账单/官方</th>
+                <th class="num">平台/持仓</th>
+                <th class="num">手动/在途</th>
+                <th class="num">当前采用</th>
+                <th>核准状态</th>
+                <th>审批</th>
+              </tr>
+            </thead>
+            <tbody id="accountBalanceRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="transfers" class="accountPanel" data-account-panel="transfers" hidden>
+      <div class="card">
+        <div class="sectionTitle">
+          <h3>账户关系与内部转账</h3>
+          <div class="right">
+            <button id="btnMatchTransfers" class="btn">运行匹配</button>
+          </div>
+        </div>
+        <div id="relationshipList" class="relationshipGrid" style="margin-top: 12px;"></div>
+        <div id="transferMatchSummary" class="summaryCards" style="margin-top: 12px;"></div>
+        <div class="tableWrap" style="margin-top: 10px;">
+          <table class="matchTable">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>类型</th>
+                <th>账户关系</th>
+                <th class="num">金额</th>
+                <th class="num">置信度</th>
+                <th>说明</th>
+                <th>来源流水</th>
+                <th>匹配流水</th>
+              </tr>
+            </thead>
+            <tbody id="transferMatchRows"></tbody>
+          </table>
+        </div>
+        <div class="sectionTitle" style="margin-top: var(--sp-4);">
+          <h3>待确认流水</h3>
+          <div class="muted">自动规则未能完整匹配的流水：包括完全未匹配，以及只有银行侧、缺平台侧的内部划转</div>
+        </div>
+        <div id="unmatchedSummary" class="summaryCards" style="margin-top: 12px;"></div>
+        <div class="tableWrap" style="margin-top: 10px;">
+          <table class="unmatchedTable">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>问题</th>
+                <th>账户</th>
+                <th class="num">金额</th>
+                <th>分类</th>
+                <th>摘要</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody id="unmatchedRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="sources" class="accountPanel" data-account-panel="sources" hidden>
+      <div class="reconcileGrid">
+        <div class="card">
+          <div class="sectionTitle"><h3>数据源模板</h3></div>
+          <div id="profileList" class="profileList" style="margin-top: 12px;"></div>
+        </div>
+
+        <div class="card">
+          <div class="sectionTitle">
+            <h3>账单导入</h3>
+            <div class="right">
+              <button id="btnPreview" class="btn">预览</button>
+              <button id="btnImport" class="btn primary">导入暂存</button>
+            </div>
+          </div>
+          <div class="kpiGrid" style="margin-top: 12px;">
+            <div>
+              <label class="formLabel">起始日期</label>
+              <input id="since" class="formInput" type="date" value="2026-01-01" />
+            </div>
+            <div>
+              <label class="formLabel">当前模板</label>
+              <input id="profileCode" class="formInput" type="text" readonly />
+            </div>
+          </div>
+          <div style="margin-top: 12px;">
+            <label class="formLabel">账单文件路径（一行一个）</label>
+            <textarea id="filePaths" class="formInput fileBox"></textarea>
+          </div>
+          <div id="opMsg" class="muted" style="margin-top: 10px;"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: var(--sp-3);">
+        <div class="sectionTitle"><h3>导入账户汇总</h3></div>
+        <div id="summaryCards" class="summaryCards" style="margin-top: 12px;"></div>
+      </div>
+
+      <div class="card" style="margin-top: var(--sp-3);">
+        <div class="sectionTitle"><h3>暂存导入记录</h3></div>
+        <div class="tableWrap" style="margin-top: 10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>模板</th>
+                <th>账户</th>
+                <th>文件</th>
+                <th class="num">行数</th>
+                <th class="num">账单余额</th>
+              </tr>
+            </thead>
+            <tbody id="importRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: var(--sp-3);">
+        <div class="sectionTitle"><h3>流水预览</h3><div class="muted" id="rowMeta">待加载</div></div>
+        <div class="tableWrap" style="margin-top: 10px;">
+          <table class="previewTable">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>账户</th>
+                <th>分类</th>
+                <th>摘要</th>
+                <th>备注</th>
+                <th class="num">金额</th>
+                <th class="num">余额</th>
+              </tr>
+            </thead>
+            <tbody id="previewRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="assets/js/bank_reconcile.js?v=20260606-refresh-v3"></script>
+</body>
+</html>
