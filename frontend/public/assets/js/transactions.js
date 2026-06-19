@@ -519,29 +519,32 @@ function TransactionSummaryPanel(summary, rows) {
   ].join(' 至 ');
   const filterActive = hasActiveTradeFilters();
   return `
-    <div class="transactionSummaryGrid">
-      <div class="investmentHeroMetric info">
-        <div class="label">筛选记录</div>
-        <div class="value">${summary?.count ?? 0}</div>
-        <div class="help">${escapeHtml(rangeText)}</div>
+    <div class="transactionOverview">
+      <div class="transactionOverviewHead">
+        <div>
+          <span>筛选记录</span>
+          <strong>${summary?.count ?? 0}</strong>
+          <small>${escapeHtml(rangeText)}</small>
+        </div>
       </div>
-      <div class="investmentHeroMetric">
-        <div class="label">个人买入</div>
-        <div class="value">${formatCurrency(buy)}</div>
-        <div class="help">${ownerAdjusted ? `账户原始 ${formatCurrency(buyRaw)}` : '与账户原始一致'}</div>
-      </div>
-      <div class="investmentHeroMetric">
-        <div class="label">个人卖出</div>
-        <div class="value">${formatCurrency(sell)}</div>
-        <div class="help">${ownerAdjusted ? `账户原始 ${formatCurrency(sellRaw)}` : '与账户原始一致'}</div>
-      </div>
-      <div class="investmentHeroMetric ${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
-        <div class="label">个人税费</div>
-        <div class="value">${feeRate == null ? '无法计算' : formatPercent(feeRate)}</div>
-        <div class="help">${formatCurrency(fees)} · 账户原始 ${formatCurrency(feesRaw)}</div>
+      <div class="transactionOverviewMetrics">
+        <div>
+          <span>个人买入</span>
+          <strong>${formatCurrency(buy)}</strong>
+          <small>${ownerAdjusted ? `账户原始 ${formatCurrency(buyRaw)}` : '与账户原始一致'}</small>
+        </div>
+        <div>
+          <span>个人卖出</span>
+          <strong>${formatCurrency(sell)}</strong>
+          <small>${ownerAdjusted ? `账户原始 ${formatCurrency(sellRaw)}` : '与账户原始一致'}</small>
+        </div>
+        <div class="${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
+          <span>个人税费</span>
+          <strong>${feeRate == null ? '无法计算' : formatPercent(feeRate)}</strong>
+          <small>${formatCurrency(fees)} · 账户原始 ${formatCurrency(feesRaw)}</small>
+        </div>
       </div>
     </div>
-    ${TradeAttributionAnalysisEntry(state.attribution)}
     <div class="recentTradePanel">
       <div class="sectionTitle">
         <h3>交易明细</h3>
@@ -635,23 +638,6 @@ function AttributionBucketList(title, rows, emptyText) {
         `).join('') : `<div class="emptyState">${escapeHtml(emptyText)}</div>`}
       </div>
     </div>
-  `;
-}
-
-function TradeAttributionAnalysisEntry(payload) {
-  const count = payload?.sample_count ?? payload?.total_count ?? null;
-  const queueCount = payload?.workbench?.priority_items?.length ?? null;
-  const coverageText = queueCount != null
-    ? `待复盘 ${escapeHtml(queueCount)} 笔 · 有价样本 ${escapeHtml(count || 0)}`
-    : (count != null ? `已纳入 ${escapeHtml(count)} 笔样本` : '按复盘标注汇总');
-  return `
-    <a class="tradeAttributionEntry" href="#trade-attribution-analysis" aria-label="查看整体交易归因">
-      <div>
-        <span>交易动作归因</span>
-        <strong>${escapeHtml(payload?.workbench?.headline?.title || '去分析页查看')}</strong>
-      </div>
-      <small>${coverageText} · 按正负动作复盘</small>
-    </a>
   `;
 }
 

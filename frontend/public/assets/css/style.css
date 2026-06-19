@@ -3058,41 +3058,57 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
   background: var(--bg-surface);
   padding: var(--sp-3);
 }
-.tradeAttributionEntry {
+.transactionOverview {
   display: grid;
-  gap: 6px;
-  margin-top: var(--sp-3);
-  padding: 12px 14px;
-  border: 1px solid rgba(76,141,255,.28);
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(76,141,255,.12), rgba(255,255,255,.025));
-  color: var(--text);
-  text-decoration: none;
+  gap: 14px;
+  margin-top: var(--sp-2);
+  padding: 2px 0 16px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
 }
-.tradeAttributionEntry div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.tradeAttributionEntry span {
+.transactionOverviewHead span,
+.transactionOverviewMetrics span {
+  display: block;
   color: var(--muted);
   font-size: 12px;
   font-weight: 850;
 }
-.tradeAttributionEntry strong {
-  color: #9ecbff;
-  font-size: 13px;
+.transactionOverviewHead strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: clamp(34px, 8vw, 54px);
   font-weight: 950;
+  line-height: .98;
+  font-variant-numeric: tabular-nums;
 }
-.tradeAttributionEntry small {
+.transactionOverviewHead small,
+.transactionOverviewMetrics small {
+  display: block;
+  margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.35;
 }
-.tradeAttributionEntry:hover {
-  border-color: rgba(76,141,255,.5);
-  background: linear-gradient(135deg, rgba(76,141,255,.18), rgba(255,255,255,.04));
+.transactionOverviewMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.transactionOverviewMetrics > div {
+  min-width: 0;
+}
+.transactionOverviewMetrics strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: clamp(19px, 3.2vw, 26px);
+  font-weight: 900;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.transactionOverviewMetrics .warn strong {
+  color: #f2cc60;
 }
 body.page-investments[data-invest-tab="risk"] #investment-conclusion {
   display: none !important;
@@ -12921,6 +12937,21 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px !important;
     margin-bottom: 10px !important;
+  }
+
+  .page-investments #investment-ledger .transactionOverview {
+    margin-top: 0 !important;
+    padding-bottom: 14px !important;
+    gap: 12px !important;
+  }
+
+  .page-investments #investment-ledger .transactionOverviewMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px 16px !important;
+  }
+
+  .page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) {
+    grid-column: 1 / -1 !important;
   }
 
   .page-investments #investment-ledger .investmentHeroMetric,

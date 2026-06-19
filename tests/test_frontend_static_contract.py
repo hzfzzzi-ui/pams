@@ -286,7 +286,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "assets/js/lookthrough.js?v=20260619-return-tabs-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
-    assert "style.css?v=20260619-holding-row-v2" in html
+    assert "style.css?v=20260619-trade-ledger-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -405,7 +405,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in investments_html
+    assert "assets/js/transactions.js?v=20260619-trade-ledger-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -717,7 +717,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "/api/investment-transactions/attribution/summary" in tx_js
     assert "/api/investment-transactions/campaigns" in tx_js
     assert "/api/investment-transactions/${encodeURIComponent(tradeId)}/attribution" in tx_js
-    assert "TradeAttributionAnalysisEntry" in tx_js
+    assert "TradeAttributionAnalysisEntry" not in tx_js
+    assert 'href="#trade-attribution-analysis" aria-label="查看整体交易归因"' not in tx_js
     assert "tradeAttributionPanel" in tx_js
     assert "TradeReviewWorkbench" in tx_js
     assert "priority_items" in tx_js
@@ -829,17 +830,18 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "个人买入" in tx_js
     assert "账户原始" in tx_js
     assert "个人口径" in tx_js
-    ledger_summary_grid_css = css.split(".page-investments #investment-ledger .transactionSummaryGrid", 1)[1].split("}", 1)[0]
-    assert "display: grid !important" in ledger_summary_grid_css
-    assert "display: none" not in ledger_summary_grid_css
+    assert "transactionOverview" in tx_js
+    transaction_overview_css = css.split(".transactionOverview {", 1)[1].split("}", 1)[0]
+    assert "border-bottom" in transaction_overview_css
+    assert "display: grid" in transaction_overview_css
     assert "TradeAttributionPanel(state.attribution)" not in tx_js
     assert "tradeAutoAttribution" in tx_js
     assert "tradeAttributionGrid" in css
-    assert "tradeAttributionEntry" in css
+    assert "tradeAttributionEntry" not in css
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in html
+    assert "assets/js/transactions.js?v=20260619-trade-ledger-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -917,11 +919,11 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
-    assert "assets/css/style.css?v=20260619-holding-row-v2" in ui_js
+    assert "assets/css/style.css?v=20260619-trade-ledger-v1" in ui_js
     assert "assets/js/holdings.js?v=20260619-holding-row-v2" in ui_js
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260619-return-tabs-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in ui_js
+    assert "assets/js/transactions.js?v=20260619-trade-ledger-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/more.js?v=20260607-more-ia-v1" in ui_js
