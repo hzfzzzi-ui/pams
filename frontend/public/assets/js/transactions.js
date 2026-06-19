@@ -1,4 +1,4 @@
-﻿import { accountLabel, fmt2, jget, jpost } from './api.js?v=20260617-linkage-v1';
+import { accountLabel, fmt2, jget, jpost } from './api.js?v=20260619-investment-hardening-v1';
 import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260614-trade-mode-attribution-v12';
 import {
   byId as $,
@@ -2718,7 +2718,10 @@ async function loadLedger() {
   fillTradeNameOptions(state.rows);
   renderSummary(state.summary);
   renderTransactionSummary(state.summary, state.rows);
-  loadAttributionSummary().catch(() => {
+}
+
+function requestAttributionSummaryLoad() {
+  return loadAttributionSummary().catch(() => {
     renderTradeAttribution({
       sample_count: 0,
       missing_price_count: 0,
@@ -2850,6 +2853,9 @@ function bindEvents() {
     await loadLedger();
   });
   $('btnCreateTrade').addEventListener('click', createTrade);
+  window.addEventListener('pams:load-trade-attribution', () => {
+    requestAttributionSummaryLoad();
+  });
   document.addEventListener('click', async (event) => {
     const autoTagButton = event.target?.closest?.('[data-auto-tag]');
     if (autoTagButton) {

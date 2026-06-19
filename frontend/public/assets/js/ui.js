@@ -1,4 +1,4 @@
-﻿import { warmApiCache } from './api.js?v=20260617-linkage-v1';
+import { warmApiCache } from './api.js?v=20260619-investment-hardening-v1';
 
 export function setActiveNav() {
   const rawPath = location.pathname || '/';
@@ -186,16 +186,16 @@ function setupAppPreload(activePath, path) {
       ['more.html', 'document'],
       ['risk.html', 'document'],
       ['assets/css/style.css?v=20260619-trade-ledger-v1', 'style'],
-      ['assets/js/api.js?v=20260617-linkage-v1', 'script'],
+      ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ui.js?v=20260614-trade-mode-attribution-v12', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20260619-holding-row-v2', 'script'],
-      ['assets/js/holdings_categories.js?v=20260619-mobile-position-v1', 'script'],
-      ['assets/js/lookthrough.js?v=20260619-return-tabs-v1', 'script'],
+      ['assets/js/holdings.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/holdings_categories.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/lookthrough.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ledger_cashflow.js?v=20260607-shared-format-v1', 'script'],
-      ['assets/js/transactions.js?v=20260619-trade-ledger-v1', 'script'],
-      ['assets/js/portfolio_risk.js?v=20260617-linkage-v1', 'script'],
-      ['assets/js/portfolio_config.js?v=20260617-linkage-v1', 'script'],
+      ['assets/js/transactions.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/portfolio_config.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/more.js?v=20260607-more-ia-v1', 'script'],
       ['assets/js/risk_metrics.js?v=20260607-risk-metrics-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));

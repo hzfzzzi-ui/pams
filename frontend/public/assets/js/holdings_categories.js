@@ -1,7 +1,11 @@
-﻿import { jget, fmt2, accountLabel } from './api.js?v=20260617-linkage-v1';
+﻿import { jget, fmt2, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
 import { openBottomSheet, setActiveNav } from './ui.js?v=20260614-trade-mode-attribution-v12';
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20260606-astock-fact-return-v1';
 import { accountCashBreakdown } from './account_cash.js?v=20260606-cash-active-v1';
+
+function jgetFresh(path) {
+  return jget(path, { cache: false });
+}
 
 function cnyValue(r, key) {
   const cnyKey = `${key}_cny`;
@@ -335,6 +339,50 @@ function resolvePortfolioLiabilitiesCny(valuationState, portfolioSummary, fallba
   }
 
   return Math.max(0, safeNum(fallback));
+}
+
+
+function canonicalPortfolioDashboardSummary({
+  categories = [],
+  portfolioSummary = null,
+  portfolioValuationState = null,
+  accountCash = null,
+  fallbackAsOf = '--',
+}) {
+  const categoryValue = categories.reduce((sum, category) => sum + safeNum(category.totalValue), 0);
+  const categoryPnl = categories.reduce((sum, category) => sum + safeNum(category.totalPnl), 0);
+  const categoryDaily = categories
+    .filter(category => !isInternalInvestmentLabel(category.label))
+    .reduce((sum, category) => sum + safeNum(category.dailyPnl), 0);
+  const categoryCost = categories.reduce(
+    (sum, category) => sum + safeNum(category.totalCost ?? Math.max(safeNum(category.totalValue) - safeNum(category.totalPnl), 0)),
+    0
+  );
+  const totals = portfolioSummary?.totals || {};
+  const valuationState = portfolioValuationState || portfolioSummary?.valuation_state || null;
+  const marketValue = valuationState?.net_liquidation_value != null
+    ? safeNum(valuationState.net_liquidation_value)
+    : (totals.market_value != null ? safeNum(totals.market_value) : categoryValue);
+  const totalPnl = totals.holding_pnl != null ? safeNum(totals.holding_pnl) : categoryPnl;
+  const currentFloatPnl = totals.current_float_pnl != null ? safeNum(totals.current_float_pnl) : totalPnl;
+  const dailyPnl = totals.daily_pnl != null ? safeNum(totals.daily_pnl) : categoryDaily;
+  const totalCost = totals.cost != null ? safeNum(totals.cost) : categoryCost;
+  const totalLiabilities = resolvePortfolioLiabilitiesCny(
+    valuationState,
+    portfolioSummary,
+    safeNum(accountCash?.cashLiabilities)
+  );
+  return {
+    marketValue,
+    totalPnl,
+    currentFloatPnl,
+    dailyPnl,
+    totalCost,
+    pnlPct: totalCost > 0 ? totalPnl / totalCost * 100 : 0,
+    asOf: valuationState?.as_of || portfolioSummary?.valuation_state?.as_of || portfolioSummary?.as_of || fallbackAsOf,
+    totalLiabilities,
+    valuationState,
+  };
 }
 
 function mobileHeroMetaItem(label, value, tone = '') {
@@ -2852,20 +2900,20 @@ async function main(){
       portfolioSummary,
       portfolioValuationState,
     ] = await Promise.all([
-      jget('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true'),
-      jget(withClosedParam('/holdings/by-category/A股?minor_category=A股基金&limit=500')),
-      jget('/holdings/by-category/A股?minor_category=A股基金&limit=500&include_closed=true'),
-      jget(withClosedParam('/holdings/by-category/美股?limit=500')),
-      jget(withClosedParam('/holdings/by-category/贵金属?limit=500')),
-      jget(withClosedParam('/holdings/by-category/ESOP?limit=500')),
-      jget('/holdings/latest?limit=500').catch(() => null),
-      jget('/api/accounts/overview').catch(() => null),
-      jget('/api/fx-rates/latest?base_currency=CNY'),
-      jget('/api/ibkr/performance').catch(() => null),
-      jget('/api/account-performance/tonghuashun').catch(() => null),
-      jget('/api/investment-returns/reported').catch(() => null),
-      jget('/summary2/latest?baseCurrency=CNY').catch(() => null),
-      jget('/api/portfolio/valuation-state?baseCurrency=CNY').catch(() => null),
+      jgetFresh('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true'),
+      jgetFresh(withClosedParam('/holdings/by-category/A股?minor_category=A股基金&limit=500')),
+      jgetFresh('/holdings/by-category/A股?minor_category=A股基金&limit=500&include_closed=true'),
+      jgetFresh(withClosedParam('/holdings/by-category/美股?limit=500')),
+      jgetFresh(withClosedParam('/holdings/by-category/贵金属?limit=500')),
+      jgetFresh(withClosedParam('/holdings/by-category/ESOP?limit=500')),
+      jgetFresh('/holdings/latest?limit=500').catch(() => null),
+      jgetFresh('/api/accounts/overview').catch(() => null),
+      jgetFresh('/api/fx-rates/latest?base_currency=CNY'),
+      jgetFresh('/api/ibkr/performance').catch(() => null),
+      jgetFresh('/api/account-performance/tonghuashun').catch(() => null),
+      jgetFresh('/api/investment-returns/reported').catch(() => null),
+      jgetFresh('/summary2/latest?baseCurrency=CNY').catch(() => null),
+      jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(() => null),
     ]);
     const aStockReturn = null;
     const aFundReturn = null;
@@ -3025,24 +3073,21 @@ async function main(){
     ];
     if (Math.abs(cashCategory.totalValue) >= 0.005) categories.push(cashCategory);
 
-    // 汇总统计（所有值已通过FX转换为CNY）
-    let grandValue = categories.reduce((s, c) => s + c.totalValue, 0);
-    let grandPnl = categories.reduce((s, c) => s + c.totalPnl, 0);
-    let grandDaily = categories.reduce((s, c) => s + c.dailyPnl, 0);
-    let grandCost = categories.reduce((s, c) => s + (c.totalCost ?? Math.max(c.totalValue - c.totalPnl, 0)), 0);
-    let pnlPct = grandCost > 0 ? (grandPnl / grandCost * 100) : 0;
-    if (portfolioValuationState?.net_liquidation_value != null) {
-      grandValue = safeNum(portfolioValuationState.net_liquidation_value);
-    } else if (portfolioSummary?.totals?.market_value != null) {
-      grandValue = safeNum(portfolioSummary.totals.market_value);
-    }
-    if (portfolioSummary?.totals?.holding_pnl != null) {
-      grandPnl = safeNum(portfolioSummary.totals.holding_pnl);
-      pnlPct = grandCost > 0 ? (grandPnl / grandCost * 100) : 0;
-    }
-    const currentFloatPnl = portfolioSummary?.totals?.current_float_pnl != null
-      ? safeNum(portfolioSummary.totals.current_float_pnl)
-      : grandPnl;
+    const canonicalSummary = canonicalPortfolioDashboardSummary({
+      categories,
+      portfolioSummary,
+      portfolioValuationState,
+      accountCash: {
+        ...accountCash,
+        cashLiabilities: accountCash.cashLiabilities + Math.max(-ibkrCashValue, 0),
+      },
+      fallbackAsOf: asof,
+    });
+    let grandValue = canonicalSummary.marketValue;
+    let grandPnl = canonicalSummary.totalPnl;
+    let grandDaily = canonicalSummary.dailyPnl;
+    const pnlPct = canonicalSummary.pnlPct;
+    const currentFloatPnl = canonicalSummary.currentFloatPnl;
 
     document.getElementById('grandTotalValue').textContent = fmtCny(grandValue);
 
@@ -3095,45 +3140,19 @@ async function main(){
     });
     }
 
-    const returnSeriesSummary = null;
-    if (returnSeriesSummary?.latest) {
-      const latest = returnSeriesSummary.latest;
-      const previous = returnSeriesSummary.previous;
-      grandValue = safeNum(latest.market_value);
-      grandPnl = safeNum(latest.total_pnl);
-      grandDaily = returnSeriesSummary.todayWindow?.total_return != null
-        ? safeNum(returnSeriesSummary.todayWindow.total_return)
-        : (previous ? grandPnl - safeNum(previous.total_pnl) : 0);
-      pnlPct = safeNum(latest.time_weighted_return_rate ?? latest.return_rate) * 100;
-
-      document.getElementById('grandTotalValue').textContent = fmtCny(grandValue);
-      gpElem.textContent = fmtSignedCny(grandPnl);
-      gpElem.style.color = grandPnl >= 0 ? 'var(--good)' : 'var(--bad)';
-      pctElem.textContent = `时间加权 ${(pnlPct >= 0 ? '+' : '')}${pnlPct.toFixed(2)}%`;
-      pctElem.style.color = pnlPct >= 0 ? 'var(--good)' : 'var(--bad)';
-    }
-
-    const valuationState = portfolioValuationState || portfolioSummary?.valuation_state || null;
-    const portfolioLiabilities = resolvePortfolioLiabilitiesCny(
-      valuationState,
-      portfolioSummary,
-      accountCash.cashLiabilities + Math.max(-ibkrCashValue, 0)
-    );
     const dashboardSummary = {
       marketValue: grandValue,
       totalPnl: grandPnl,
       currentFloatPnl,
-      twr: returnSeriesSummary?.latest
-        ? safeNum(returnSeriesSummary.latest.time_weighted_return_rate ?? returnSeriesSummary.latest.return_rate)
-        : pnlPct / 100,
+      twr: pnlPct / 100,
       dailyPnl: grandDaily,
       ytdPnl: grandPnl,
-      asOf: portfolioValuationState?.as_of || portfolioSummary?.valuation_state?.as_of || returnSeriesSummary?.latest?.date || asof,
+      asOf: canonicalSummary.asOf,
       cashActiveValue: accountCash.netCash,
       cashActiveAssets: accountCash.cashAssets,
       cashActiveLiabilities: accountCash.cashLiabilities,
-      totalLiabilities: portfolioLiabilities,
-      valuationState,
+      totalLiabilities: canonicalSummary.totalLiabilities,
+      valuationState: canonicalSummary.valuationState,
     };
     const dashboardCategories = [
       categoryMetric('A股个股', aStockSummary, aStockReturn),

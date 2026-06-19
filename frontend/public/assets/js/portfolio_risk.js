@@ -1,4 +1,4 @@
-﻿import { jget } from './api.js?v=20260617-linkage-v1';
+import { jget } from './api.js?v=20260619-investment-hardening-v1';
 
 let currentCategories = [];
 let expandedRiskCategoryId = null;

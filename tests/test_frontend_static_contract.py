@@ -223,7 +223,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "dailyPnl: null" in holdings_js
     assert "flexCoversPositionDate" in holdings_js
     assert "accountNetLiquidationFromHoldings" in holdings_js
-    assert "jget('/holdings/latest?limit=500').catch(() => null)" in holdings_js
+    assert "jgetFresh('/holdings/latest?limit=500').catch(() => null)" in holdings_js
     assert "accountPrimaryBalanceCny(accountOverview, 'ibkr', fxRates)" in holdings_js
     assert "ibkrOverviewCoversPositionDate" in holdings_js
     assert "safeNum(ibkrOverviewBalance.amountCny) > 0" in holdings_js
@@ -281,11 +281,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260619-holding-row-v2" in html
-    assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in html
-    assert "assets/js/lookthrough.js?v=20260619-return-tabs-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
-    assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
+    assert "assets/js/holdings.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in html
     assert "style.css?v=20260619-trade-ledger-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -405,7 +405,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260619-trade-ledger-v1" in investments_html
+    assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -834,6 +834,9 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     transaction_overview_css = css.split(".transactionOverview {", 1)[1].split("}", 1)[0]
     assert "border-bottom" in transaction_overview_css
     assert "display: grid" in transaction_overview_css
+    load_ledger_body = tx_js.split("async function loadLedger()", 1)[1].split("function requestAttributionSummaryLoad()", 1)[0]
+    assert "loadAttributionSummary" not in load_ledger_body
+    assert "pams:load-trade-attribution" in tx_js
     assert "TradeAttributionPanel(state.attribution)" not in tx_js
     assert "tradeAutoAttribution" in tx_js
     assert "tradeAttributionGrid" in css
@@ -841,7 +844,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260619-trade-ledger-v1" in html
+    assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -904,6 +907,8 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     assert "API_CACHE_PREFIX" in api_js
+    assert "__page_refresh" in api_js
+    assert "pageRefreshToken" in api_js
     assert "sessionStorage" in api_js
     assert "localStorage" in api_js
     assert "warmApiCache" in api_js
@@ -920,12 +925,12 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
     assert "assets/css/style.css?v=20260619-trade-ledger-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260619-holding-row-v2" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20260619-return-tabs-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260619-trade-ledger-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in ui_js
     assert "assets/js/more.js?v=20260607-more-ia-v1" in ui_js
     assert "assets/js/risk_metrics.js?v=20260607-risk-metrics-v1" in ui_js
     assert "/api/risk/summary" in api_js + ui_js
@@ -958,6 +963,11 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "returnAttributionCompactName(label" in lookthrough_js
     assert "returnAttributionCompactSymbol" not in lookthrough_js
     assert "returnAttributionCards" not in lookthrough_js
+    assert "safeStorageGet" in lookthrough_js
+    assert "safeStorageSet" in lookthrough_js
+    assert "localStorage.getItem('pams.lookthrough.dimension')" not in lookthrough_js
+    assert "jget('/summary2/latest?baseCurrency=CNY', { cache: false })" in lookthrough_js
+    assert "pams:load-trade-attribution" in lookthrough_js
     assert "returnAssetHeatmapCanvas" in css
     assert "--return-asset-name" in css
 
@@ -974,10 +984,15 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
     api_js = _read_public("assets/js/api.js")
 
     assert "/summary2/latest?baseCurrency=CNY" in holdings_js
-    assert "portfolioSummary?.totals?.daily_pnl" in holdings_js
-    assert "portfolioSummary?.totals?.market_value" in holdings_js
-    assert "portfolioSummary?.totals?.holding_pnl" in holdings_js
-    assert "portfolioSummary?.totals?.current_float_pnl" in holdings_js
+    assert "function canonicalPortfolioDashboardSummary" in holdings_js
+    assert "jgetFresh('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true')" in holdings_js
+    assert "jgetFresh(withClosedParam('/holdings/by-category/美股?limit=500'))" in holdings_js
+    assert "jgetFresh('/summary2/latest?baseCurrency=CNY')" in holdings_js
+    assert "jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY')" in holdings_js
+    assert "totals.daily_pnl" in holdings_js
+    assert "totals.market_value" in holdings_js
+    assert "totals.holding_pnl" in holdings_js
+    assert "totals.current_float_pnl" in holdings_js
     assert "当前浮盈" in holdings_js
     assert "总负债" in holdings_js
     assert "liabilities_cny" in holdings_js
@@ -985,3 +1000,14 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
     assert "dashboardSummary.dailyPnl = authoritativeDailyPnl" in holdings_js
     assert 'raw.includes("/api/portfolio/risk-disclosure")' in api_js
     assert "return 120_000" in api_js
+
+
+def test_investment_holding_rows_escape_imported_fields() -> None:
+    holdings_js = _read_public("assets/js/holdings.js")
+
+    assert "function esc(value)" in holdings_js
+    assert "${esc(r.symbol || '—')}" in holdings_js
+    assert "${esc(r.name || '')}${closedBadge(r)}" in holdings_js
+    assert "${esc(holdingGroupLabel(r))}" in holdings_js
+    assert "${esc(row.name || row.symbol || '缺数据')}" in holdings_js
+    assert "${row.name || row.symbol || '缺数据'}" not in holdings_js

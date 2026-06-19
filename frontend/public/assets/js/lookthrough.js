@@ -1,4 +1,4 @@
-﻿import { jget } from './api.js?v=20260617-linkage-v1';
+import { jget } from './api.js?v=20260619-investment-hardening-v1';
 import { openBottomSheet } from './ui.js?v=20260614-trade-mode-attribution-v12';
 
 const DIMENSIONS = [
@@ -75,14 +75,30 @@ const EXPOSURE_COLORS = [
   '#ec4899',
 ];
 
-let activeDimension = localStorage.getItem('pams.lookthrough.dimension') || 'asset_type';
+function safeStorageGet(key) {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+  } catch {
+    // Browser privacy settings should not block rendering.
+  }
+}
+
+let activeDimension = safeStorageGet('pams.lookthrough.dimension') || 'asset_type';
 if (activeDimension === 'underlying_asset') activeDimension = 'underlying_exposure';
 if (!DIMENSION_KEYS.has(activeDimension)) activeDimension = 'asset_type';
 
 let activeThemeFamily = '全部';
 let underlyingSort = 'value';
 let lookthroughData = null;
-let activeReturnAttributionDimension = localStorage.getItem('pams.returnAttribution.dimension') || 'holding';
+let activeReturnAttributionDimension = safeStorageGet('pams.returnAttribution.dimension') || 'holding';
 if (!RETURN_ATTRIBUTION_KEYS.has(activeReturnAttributionDimension)) activeReturnAttributionDimension = 'holding';
 const RETURN_ATTRIBUTION_DEFAULT_LIMIT = 5;
 let returnAttributionShowAll = false;
@@ -96,7 +112,7 @@ function analysisPanelFromHash(hash = window.location.hash) {
   return null;
 }
 
-let activeAnalysisPanel = analysisPanelFromHash() || localStorage.getItem('pams.analysis.panel') || 'return_attribution';
+let activeAnalysisPanel = analysisPanelFromHash() || safeStorageGet('pams.analysis.panel') || 'return_attribution';
 if (!ANALYSIS_PANEL_KEYS.has(activeAnalysisPanel)) activeAnalysisPanel = 'return_attribution';
 let lookthroughLoadPromise = null;
 let returnAttributionLoadPromise = null;
@@ -173,7 +189,7 @@ function loadReturnAttributionHoldingDailySummary() {
     return Promise.resolve(returnAttributionHoldingDailySummary);
   }
   if (returnAttributionHoldingDailyLoadPromise) return returnAttributionHoldingDailyLoadPromise;
-  returnAttributionHoldingDailyLoadPromise = jget('/summary2/latest?baseCurrency=CNY')
+  returnAttributionHoldingDailyLoadPromise = jget('/summary2/latest?baseCurrency=CNY', { cache: false })
     .then((data) => {
       setReturnAttributionHoldingDailySummary(data);
       return data;
@@ -1281,7 +1297,7 @@ function bindEvents() {
     if (panelSwitch) {
       activeAnalysisPanel = panelSwitch.dataset.analysisPanelSwitch || 'return_attribution';
       if (!ANALYSIS_PANEL_KEYS.has(activeAnalysisPanel)) activeAnalysisPanel = 'return_attribution';
-      localStorage.setItem('pams.analysis.panel', activeAnalysisPanel);
+      safeStorageSet('pams.analysis.panel', activeAnalysisPanel);
       renderAnalysisPanelSwitch();
       loadActiveAnalysisPanel();
       return;
@@ -1291,7 +1307,7 @@ function bindEvents() {
     if (returnTab) {
       activeReturnAttributionDimension = returnTab.dataset.returnAttrDim;
       returnAttributionShowAll = false;
-      localStorage.setItem('pams.returnAttribution.dimension', activeReturnAttributionDimension);
+      safeStorageSet('pams.returnAttribution.dimension', activeReturnAttributionDimension);
       renderReturnAttribution();
       return;
     }
@@ -1306,7 +1322,7 @@ function bindEvents() {
     const tab = event.target?.closest?.('[data-lookthrough-dim]');
     if (tab) {
       activeDimension = tab.dataset.lookthroughDim;
-      localStorage.setItem('pams.lookthrough.dimension', activeDimension);
+      safeStorageSet('pams.lookthrough.dimension', activeDimension);
       renderLookthrough();
       return;
     }
@@ -1416,6 +1432,12 @@ function loadReturnAttributionData() {
   if (!panel) return Promise.resolve();
   if (returnAttributionData) {
     renderReturnAttribution();
+    if (!returnAttributionHoldingDailySummary) {
+      return loadReturnAttributionHoldingDailySummary().then(() => {
+        renderReturnAttribution();
+        return returnAttributionData;
+      });
+    }
     return Promise.resolve(returnAttributionData);
   }
   if (returnAttributionLoadPromise) return returnAttributionLoadPromise;
@@ -1444,6 +1466,7 @@ function loadActiveAnalysisPanel() {
     return loadReturnAttributionData().catch(() => {});
   }
   if (activeAnalysisPanel === 'trade_attribution') {
+    window.dispatchEvent(new CustomEvent('pams:load-trade-attribution'));
     return Promise.resolve();
   }
   return loadLookthroughData().catch(() => {});
@@ -1466,7 +1489,7 @@ function scheduleVisibleAnalysisLoad() {
   const hashPanel = analysisPanelFromHash();
   if (hashPanel && hashPanel !== activeAnalysisPanel) {
     activeAnalysisPanel = hashPanel;
-    localStorage.setItem('pams.analysis.panel', activeAnalysisPanel);
+    safeStorageSet('pams.analysis.panel', activeAnalysisPanel);
   }
   renderAnalysisPanelSwitch();
   if (isAnalysisPanelVisible()) loadActiveAnalysisPanel();

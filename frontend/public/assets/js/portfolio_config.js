@@ -1,4 +1,4 @@
-﻿import { jget } from './api.js?v=20260617-linkage-v1';
+import { jget } from './api.js?v=20260619-investment-hardening-v1';
 import { openBottomSheet } from './ui.js?v=20260614-trade-mode-attribution-v12';
 
 let currentRules = [];

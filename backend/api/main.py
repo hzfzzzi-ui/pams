@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import date as Date, datetime, timedelta
 from decimal import Decimal
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
 import yaml
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -136,9 +137,48 @@ app.include_router(strategy_router, prefix="/api")
 app.include_router(backtest_router, prefix="/api")
 app.include_router(datahub_router, prefix="/api")
 
+def _allowed_web_origins() -> list[str]:
+    raw = os.environ.get("PAMS_ALLOWED_ORIGINS", "")
+    configured = [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+    defaults = [
+        "http://pams.local",
+        "http://localhost",
+        "http://localhost:8080",
+        "http://localhost:8090",
+        "http://127.0.0.1",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:8090",
+    ]
+    return sorted(set(configured or defaults))
+
+
+ALLOWED_WEB_ORIGINS = _allowed_web_origins()
+LOCAL_WRITE_HOSTS = {"pams.local", "localhost", "127.0.0.1", "::1"}
+MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _is_allowed_write_origin(value: str | None) -> bool:
+    if not value:
+        return True
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return host in LOCAL_WRITE_HOSTS or origin in ALLOWED_WEB_ORIGINS
+
+
+@app.middleware("http")
+async def local_write_origin_guard(request: Request, call_next):
+    if request.method.upper() in MUTATING_METHODS:
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        if not _is_allowed_write_origin(origin) or (not origin and not _is_allowed_write_origin(referer)):
+            return JSONResponse({"detail": "write request origin is not allowed"}, status_code=403)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_WEB_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
