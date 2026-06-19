@@ -405,6 +405,40 @@ def build_summary2_from_holdings_latest_payload(
     }
 
 
+def apply_return_attribution_pnl_to_summary(
+    payload: dict[str, Any],
+    attribution_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Use return attribution as the cumulative PnL basis for summary2.
+
+    Current holdings snapshots only contain open-position floating PnL. Return
+    attribution also includes zero-value closed positions, so it is the better
+    source for the user-facing cumulative total PnL while still exposing the
+    current floating PnL separately.
+    """
+    out = dict(payload)
+    totals = dict(out.get("totals") or {})
+    current_float_pnl = _decimal(totals.get("holding_pnl"))
+    rows = ((attribution_payload or {}).get("dimensions") or {}).get("holding") or []
+    if rows:
+        current_float_pnl = sum(
+            (
+                _decimal(row.get("pnl_cny", row.get("total_pnl_cny", row.get("value_cny"))))
+                for row in rows
+                if abs(_decimal(row.get("market_value_cny"))) > Decimal("0.0001")
+            ),
+            Decimal("0"),
+        )
+    totals["current_float_pnl"] = str(current_float_pnl)
+
+    if attribution_payload and attribution_payload.get("total_pnl_cny") not in (None, ""):
+        total_pnl = _decimal(attribution_payload.get("total_pnl_cny"))
+        totals["holding_pnl"] = str(total_pnl)
+        totals["closed_realized_pnl"] = str(total_pnl - current_float_pnl)
+
+    out["totals"] = totals
+    return out
+
 def apply_published_valuation_state_to_summary(
     payload: dict[str, Any],
     valuation_state: dict[str, Any] | None,

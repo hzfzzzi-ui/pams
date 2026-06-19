@@ -282,11 +282,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260617-linkage-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260619-valuation-state-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260619-current-float-pnl-v1" in html
     assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
-    assert "style.css?v=20260619-return-asset-heatmap-v2" in html
+    assert "style.css?v=20260619-current-float-pnl-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -906,9 +906,9 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
-    assert "assets/css/style.css?v=20260619-return-asset-heatmap-v2" in ui_js
+    assert "assets/css/style.css?v=20260619-current-float-pnl-v1" in ui_js
     assert "assets/js/holdings.js?v=20260617-linkage-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260618-return-date-v4" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260619-current-float-pnl-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
@@ -953,6 +953,8 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
     assert "portfolioSummary?.totals?.daily_pnl" in holdings_js
     assert "portfolioSummary?.totals?.market_value" in holdings_js
     assert "portfolioSummary?.totals?.holding_pnl" in holdings_js
+    assert "portfolioSummary?.totals?.current_float_pnl" in holdings_js
+    assert "当前浮盈" in holdings_js
     assert "const authoritativeDailyPnl" in holdings_js
     assert "dashboardSummary.dailyPnl = authoritativeDailyPnl" in holdings_js
     assert 'raw.includes("/api/portfolio/risk-disclosure")' in api_js

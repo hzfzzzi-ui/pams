@@ -70,11 +70,13 @@ from services.investment_view_date import (
     market_data_candidate_date as _market_data_candidate_date,
 )
 from services.portfolio_summary import (
+    apply_return_attribution_pnl_to_summary as _apply_return_attribution_pnl_to_summary,
     apply_published_valuation_state_to_summary as _apply_published_valuation_state_to_summary,
     build_holdings_by_account_payload as _build_holdings_by_account_payload,
     build_holdings_summary_payload as _build_holdings_summary_payload,
     build_summary2_from_holdings_latest_payload as _build_summary2_from_holdings_latest_payload,
 )
+from services.return_attribution import build_return_attribution_payload as _build_return_attribution_payload
 from services.portfolio_state import (
     _load_accounts_config as _load_portfolio_accounts_config,
     load_account_balances as _load_account_balances,
@@ -540,6 +542,8 @@ def summary2_latest():
                 base_currency=base_currency,
                 account_balances=account_balances,
             )
+            attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
+            summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
             valuation_state = _latest_published_portfolio_valuation_state(
                 cur,
                 base_currency=base_currency,

@@ -201,11 +201,13 @@ function InvestmentSummaryHeaderCompact(summary) {
   const hasReturnRate = Number.isFinite(Number(summary.twr));
   const returnRate = hasReturnRate ? Number(summary.twr) : null;
   const dailyPnl = Number.isFinite(Number(summary.dailyPnl)) ? Number(summary.dailyPnl) : null;
+  const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? Number(summary.currentFloatPnl) : null;
   return `
     ${metricCard('投资组合价值', formatCompactCurrency(summary.marketValue), '含持仓与现金/活期', 'info')}
     ${metricCard('收益率', hasReturnRate ? formatPercentRate(returnRate) : '待核准', '时间加权收益率', toneFromNumber(returnRate))}
     ${metricCard('今日收益', dailyPnl == null ? '待核准' : formatCompactCurrency(dailyPnl, 'CNY', { signed: true }), '今日投资收益变化', toneFromNumber(dailyPnl), DailyReturnBreakdown(summary.dailyBreakdown))}
     ${metricCard('总收益', formatCompactCurrency(summary.totalPnl, 'CNY', { signed: true }), '累计投资收益', summary.totalPnl >= 0 ? 'good' : 'bad')}
+    ${metricCard('当前浮盈', currentFloatPnl == null ? '待核准' : formatCompactCurrency(currentFloatPnl, 'CNY', { signed: true }), '仍持仓标的浮动盈亏', toneFromNumber(currentFloatPnl))}
   `;
 }
 
@@ -437,6 +439,7 @@ function makeMobileHeroProfiles({
     : safeNum(usProfileCategory.totalReturnRate);
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
+  const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
   const allProfile = {
     key: '全部',
     hideHeader: true,
@@ -451,6 +454,7 @@ function makeMobileHeroProfiles({
     share: 1,
     miniMetrics: [
       { label: '总市值', value: formatOptionalMoney(totalMarketValue) },
+      { label: '当前浮盈', value: formatOptionalMoney(currentFloatPnl, 'CNY', { signed: true }), tone: currentFloatPnl < 0 ? 'down' : 'up' },
       { label: '现金/活期', value: formatOptionalMoney(netCash, 'CNY', { signed: netCash < 0 }), tone: netCash < 0 ? 'down' : '' },
       { label: '仓位占比', value: `${Math.max(0, positionRatio * 100).toFixed(1)}%` },
     ],
@@ -1142,11 +1146,12 @@ function renderRowStock(r){
   const pct = displayPnlPct(r);
   const symbol = r.symbol || '—';
   const name = r.name || '';
+  const quantityText = r.quantity ? formatTableNumber(r.quantity, 3) : '数量缺失';
   return `
     <td class="nowrap" title="${esc(symbol)}">${esc(symbol)}</td>
-    <td class="name" title="${esc(name)}">${esc(name)}${closedBadge(r)}</td>
+    <td class="name" title="${esc(name)}"><span class="mobileHoldingQtyPill">${esc(quantityText)}</span><span class="holdingNameText">${esc(name)}</span>${closedBadge(r)}</td>
     <td class="mono num">${r.buy_price ? formatTableNumber(r.buy_price, 3) : '价格缺失'}</td>
-    <td class="mono num">${r.quantity ? formatTableNumber(r.quantity, 3) : '数量缺失'}</td>
+    <td class="mono num">${quantityText}</td>
     <td class="mono num">${r.current_price ? formatTableNumber(r.current_price, 3) : '价格缺失'}</td>
     <td class="mono num">${formatCurrency(cnyValue(r, 'market_value'), 'CNY', { maximumFractionDigits: 2 })}</td>
     <td class="mono num" style="color:${pct>=0?'var(--good)':'var(--bad)'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td>
@@ -1157,10 +1162,11 @@ function renderRowStock(r){
 function renderRowFundLike(r){
   const pct = displayPnlPct(r);
   const name = r.name || '';
+  const quantityText = r.quantity ? formatTableNumber(r.quantity, 3) : '份额缺失';
   return `
-    <td class="name" title="${esc(name)}">${esc(name)}${closedBadge(r)}</td>
+    <td class="name" title="${esc(name)}"><span class="mobileHoldingQtyPill">${esc(quantityText)}</span><span class="holdingNameText">${esc(name)}</span>${closedBadge(r)}</td>
     <td class="mono num">${r.buy_price ? formatTableNumber(r.buy_price, 3) : '净值型/待核准'}</td>
-    <td class="mono num">${r.quantity ? formatTableNumber(r.quantity, 3) : '份额缺失'}</td>
+    <td class="mono num">${quantityText}</td>
     <td class="mono num">${r.current_price ? formatTableNumber(r.current_price, 3) : '净值型/待核准'}</td>
     <td class="mono num">${formatCurrency(cnyValue(r, 'market_value'), 'CNY', { maximumFractionDigits: 2 })}</td>
     <td class="mono num" style="color:${pct>=0?'var(--good)':'var(--bad)'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td>
@@ -2393,6 +2399,7 @@ function publishHoldingsKpiSummary(summary, categories) {
     source: 'holdings_page',
     marketValue: safeNum(summary.marketValue),
     totalPnl: safeNum(summary.totalPnl),
+    currentFloatPnl: safeNum(summary.currentFloatPnl),
     dailyPnl: safeNum(summary.dailyPnl),
     dailyPricePnl: categoryRows
       .filter((row) => !isInternalInvestmentLabel(row.label))
@@ -2492,7 +2499,7 @@ function renderInvestmentDashboard({
   if (summaryEl) summaryEl.innerHTML = InvestmentSummaryHeaderCompact(summary);
 
   mobileHeroContext = {
-    profiles: mobileProfiles || { '全部': { value: summary.marketValue, dailyPnl: summary.dailyPnl, totalPnl: summary.totalPnl, totalRate: summary.twr, share: 1 } },
+    profiles: mobileProfiles || { '全部': { value: summary.marketValue, dailyPnl: summary.dailyPnl, totalPnl: summary.totalPnl, currentFloatPnl: summary.currentFloatPnl, totalRate: summary.twr, share: 1 } },
     dataIssues,
     asOf,
     syncAt,
@@ -3012,6 +3019,9 @@ async function main(){
       grandPnl = safeNum(portfolioSummary.totals.holding_pnl);
       pnlPct = grandCost > 0 ? (grandPnl / grandCost * 100) : 0;
     }
+    const currentFloatPnl = portfolioSummary?.totals?.current_float_pnl != null
+      ? safeNum(portfolioSummary.totals.current_float_pnl)
+      : grandPnl;
 
     document.getElementById('grandTotalValue').textContent = fmtCny(grandValue);
 
@@ -3085,6 +3095,7 @@ async function main(){
     const dashboardSummary = {
       marketValue: grandValue,
       totalPnl: grandPnl,
+      currentFloatPnl,
       twr: returnSeriesSummary?.latest
         ? safeNum(returnSeriesSummary.latest.time_weighted_return_rate ?? returnSeriesSummary.latest.return_rate)
         : pnlPct / 100,

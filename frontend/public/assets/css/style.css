@@ -1192,6 +1192,10 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.mobileHoldingQtyPill {
+  display: none;
+}
 .tradeHoldingMeta {
   display: block;
   margin-top: 3px;
@@ -9900,9 +9904,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "symbol value"
-      "name rate"
-      "qty qty";
-    min-height: 72px;
+      "name rate";
+    min-height: 58px;
   }
 
   .page-investments .investmentCategorySection .tableWide tbody#rowsAStockEquity td:nth-child(1),
@@ -9917,17 +9920,45 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .page-investments .investmentCategorySection .tableWide tbody#rowsAFund td:nth-child(2),
   .page-investments .investmentCategorySection .tableWide tbody#rowsUSStock td:nth-child(2) {
     grid-area: name;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  .page-investments .investmentCategorySection .tableWide .holdingNameText {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page-investments .investmentCategorySection .tableWide .mobileHoldingQtyPill {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    height: 18px;
+    padding: 0 6px;
+    border: 1px solid rgba(139,148,158,.22);
+    border-radius: 999px;
+    background: rgba(139,148,158,.10);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
   .page-investments .investmentCategorySection .tableWide tbody#rowsAStockEquity td:nth-child(3),
+  .page-investments .investmentCategorySection .tableWide tbody#rowsAStockEquity td:nth-child(4),
   .page-investments .investmentCategorySection .tableWide tbody#rowsAStockEquity td:nth-child(5),
   .page-investments .investmentCategorySection .tableWide tbody#rowsAFund td:nth-child(3),
+  .page-investments .investmentCategorySection .tableWide tbody#rowsAFund td:nth-child(4),
   .page-investments .investmentCategorySection .tableWide tbody#rowsAFund td:nth-child(5),
   .page-investments .investmentCategorySection .tableWide tbody#rowsUSStock td:nth-child(3),
+  .page-investments .investmentCategorySection .tableWide tbody#rowsUSStock td:nth-child(4),
   .page-investments .investmentCategorySection .tableWide tbody#rowsUSStock td:nth-child(5) {
     display: none !important;
   }
@@ -9970,13 +10001,16 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "name value"
-      "qty rate";
-    min-height: 66px;
+      "name rate";
+    min-height: 58px;
   }
 
   .page-investments .investmentCategorySection .tableWide tbody#rowsPreciousMetal td:nth-child(1),
   .page-investments .investmentCategorySection .tableWide tbody#rowsESOP td:nth-child(1) {
     grid-area: name;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     color: var(--text);
     font-weight: 900;
     overflow: hidden;
@@ -9985,8 +10019,10 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .page-investments .investmentCategorySection .tableWide tbody#rowsPreciousMetal td:nth-child(2),
+  .page-investments .investmentCategorySection .tableWide tbody#rowsPreciousMetal td:nth-child(3),
   .page-investments .investmentCategorySection .tableWide tbody#rowsPreciousMetal td:nth-child(4),
   .page-investments .investmentCategorySection .tableWide tbody#rowsESOP td:nth-child(2),
+  .page-investments .investmentCategorySection .tableWide tbody#rowsESOP td:nth-child(3),
   .page-investments .investmentCategorySection .tableWide tbody#rowsESOP td:nth-child(4) {
     display: none !important;
   }
