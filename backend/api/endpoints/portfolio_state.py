@@ -43,14 +43,11 @@ def portfolio_risk_disclosure(baseCurrency: str = Query("CNY")):
 @router.get("/portfolio/valuation-state")
 def portfolio_valuation_state(
     baseCurrency: str = Query("CNY"),
-    refresh: bool = Query(False),
-    cycle: str = Query("manual_publish"),
 ):
     """Return the canonical published portfolio valuation state."""
     return build_portfolio_valuation_state_payload(
         base_currency=baseCurrency,
-        refresh=refresh,
-        cycle=cycle,
+        refresh=False,
     )
 
 

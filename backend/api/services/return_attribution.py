@@ -1236,6 +1236,7 @@ def build_return_attribution_from_positions(
     as_of: Any | None = None,
     industry_l1_by_symbol: dict[str, str] | None = None,
     asset_master_cur: Any | None = None,
+    sync_asset_master: bool = False,
     account_cfg: dict[str, Any] | None = None,
     reconciliation_cur: Any | None = None,
     base_currency: str = "CNY",
@@ -1250,6 +1251,7 @@ def build_return_attribution_from_positions(
         as_of=as_of,
         industry_l1_by_symbol=industry_l1_by_symbol,
         asset_master_cur=asset_master_cur,
+        sync_asset_master=sync_asset_master,
         portfolio_nav_cny=portfolio_nav_cny,
     )
     normalized = list(lookthrough.get("normalized_holdings") or [])
@@ -1362,7 +1364,12 @@ def build_return_attribution_from_positions(
     }
 
 
-def build_return_attribution_payload(cur, *, base_currency: str = "CNY") -> dict[str, Any]:
+def build_return_attribution_payload(
+    cur,
+    *,
+    base_currency: str = "CNY",
+    sync_asset_master: bool = False,
+) -> dict[str, Any]:
     """Build the /api/analysis/return-attribution payload from current holdings."""
     account_cfg = _load_accounts_config()
     account_balances = load_account_balances(cur, base_currency, account_cfg)
@@ -1399,6 +1406,7 @@ def build_return_attribution_payload(cur, *, base_currency: str = "CNY") -> dict
         as_of=holdings.get("as_of") or view_as_of,
         industry_l1_by_symbol=industry_l1_by_symbol,
         asset_master_cur=cur,
+        sync_asset_master=sync_asset_master,
         account_cfg=account_cfg,
         reconciliation_cur=None,
         base_currency=base_currency,

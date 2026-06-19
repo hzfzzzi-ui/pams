@@ -54,6 +54,7 @@ def test_daily_closed_row_repairs_mojibake_category_for_return_attribution() -> 
 
 def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(monkeypatch) -> None:
     calls: dict[str, object] = {}
+    derive_kwargs: dict[str, object] = {}
 
     class FakeCursor:
         pass
@@ -105,6 +106,7 @@ def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(
         }
 
     def fake_derive_lookthrough(positions, config, **kwargs):
+        derive_kwargs.update(kwargs)
         return {
             "as_of": kwargs.get("as_of"),
             "normalized_holdings": [
@@ -176,6 +178,41 @@ def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(
     assert closed["pnl_cny"] == pytest.approx(-5.0)
     assert not any("RETURN_RECONCILIATION" in str(row.get("symbol")) for row in payload["dimensions"]["holding"])
     assert "return_reconciliation" not in payload["quality"]
+    assert derive_kwargs["sync_asset_master"] is False
+
+
+def test_return_attribution_forwards_explicit_asset_master_sync(monkeypatch) -> None:
+    derive_kwargs: dict[str, object] = {}
+
+    def fake_derive_lookthrough(positions, config, **kwargs):
+        derive_kwargs.update(kwargs)
+        return {
+            "as_of": kwargs.get("as_of"),
+            "normalized_holdings": [],
+            "underlying_holdings": [],
+            "portfolio_nav_cny": kwargs.get("portfolio_nav_cny"),
+        }
+
+    monkeypatch.setattr(return_attribution, "derive_lookthrough_payload", fake_derive_lookthrough)
+
+    build_return_attribution_from_positions(
+        [
+            {
+                "asset_name": "NVIDIA",
+                "symbol": "NVDA",
+                "asset_type": "stock_us",
+                "currency": "USD",
+                "market_value_cny": 100.0,
+                "holding_pnl_cny": 10.0,
+            }
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+        asset_master_cur=object(),
+        sync_asset_master=True,
+        portfolio_nav_cny=100.0,
+    )
+
+    assert derive_kwargs["sync_asset_master"] is True
 
 
 def test_daily_overlay_does_not_override_snapshot_total_value_or_pnl() -> None:

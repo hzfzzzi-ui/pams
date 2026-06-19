@@ -21,6 +21,7 @@ from services.asset_master import (
     build_asset_master_payload,
     enrich_positions_with_asset_master,
     enrich_units_with_asset_master,
+    load_asset_master_lookup,
     sync_asset_master_from_analysis,
 )
 from services.exposure_engine import build_exposure_analysis_payload
@@ -1241,6 +1242,7 @@ def derive_lookthrough_payload(
     as_of: Any | None = None,
     industry_l1_by_symbol: dict[str, str] | None = None,
     asset_master_cur: Any | None = None,
+    sync_asset_master: bool = False,
     portfolio_nav_cny: float | Decimal | None = None,
 ) -> dict[str, Any]:
     """Derive lookthrough exposures from normalized investment positions."""
@@ -1273,12 +1275,15 @@ def derive_lookthrough_payload(
 
     master_payload: dict[str, Any] = {"status": "not_configured", "model_version": "asset_master_v1"}
     if asset_master_cur is not None:
-        master_lookup = sync_asset_master_from_analysis(
-            asset_master_cur,
-            positions=positive_positions,
-            units=units,
-            config=cfg,
-        )
+        if sync_asset_master:
+            master_lookup = sync_asset_master_from_analysis(
+                asset_master_cur,
+                positions=positive_positions,
+                units=units,
+                config=cfg,
+            )
+        else:
+            master_lookup = load_asset_master_lookup(asset_master_cur, ensure_schema=False)
         positive_positions = enrich_positions_with_asset_master(positive_positions, master_lookup)
         units = enrich_units_with_asset_master(units, master_lookup)
         master_payload = build_asset_master_payload(
@@ -1336,7 +1341,12 @@ def derive_lookthrough_payload(
     }
 
 
-def build_lookthrough_payload(cur, *, base_currency: str = "CNY") -> dict[str, Any]:
+def build_lookthrough_payload(
+    cur,
+    *,
+    base_currency: str = "CNY",
+    sync_asset_master: bool = False,
+) -> dict[str, Any]:
     """Build the /api/analysis/lookthrough payload from current PAMS holdings."""
     account_cfg = _load_accounts_config()
     account_balances = load_account_balances(cur, base_currency, account_cfg)
@@ -1350,5 +1360,6 @@ def build_lookthrough_payload(cur, *, base_currency: str = "CNY") -> dict[str, A
         positions,
         industry_l1_by_symbol=industry_l1_by_symbol,
         asset_master_cur=cur,
+        sync_asset_master=sync_asset_master,
         portfolio_nav_cny=portfolio_nav_cny,
     )

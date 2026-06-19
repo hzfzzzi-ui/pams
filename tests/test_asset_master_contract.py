@@ -22,6 +22,7 @@ from services.asset_master import (  # noqa: E402
     build_asset_master_missing_mapping_report,
     build_asset_master_payload,
     build_lookthrough_seed_units,
+    load_asset_master_lookup,
     sync_asset_master_from_lookthrough_config,
     validate_asset_master_whitelists,
 )
@@ -33,6 +34,15 @@ class FakeCursor:
 
     def execute(self, sql: str, params=None) -> None:
         self.statements.append(sql)
+
+
+class ReadOnlyLookupCursor(FakeCursor):
+    def __init__(self) -> None:
+        super().__init__()
+        self._results: list[list[dict]] = [[], [], [], []]
+
+    def fetchall(self) -> list[dict]:
+        return self._results.pop(0) if self._results else []
 
 
 def test_asset_master_schema_declares_core_tables() -> None:
@@ -57,6 +67,19 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "rental_income_annual",
     ]:
         assert column_name in SCHEMA_SQL
+
+
+def test_asset_master_lookup_can_skip_schema_writes_for_read_paths() -> None:
+    cur = ReadOnlyLookupCursor()
+
+    lookup = load_asset_master_lookup(cur, ensure_schema=False)
+
+    assert lookup == {"assets": {}, "alias_to_id": {}}
+    joined = "\n".join(cur.statements).upper()
+    assert "CREATE TABLE" not in joined
+    assert "INSERT " not in joined
+    assert "UPDATE " not in joined
+    assert "SELECT * FROM PAMS_ASSET_MASTER" in joined
 
 
 def test_holding_asset_identity_migration_backfills_asset_id_contract() -> None:

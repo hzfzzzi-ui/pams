@@ -938,8 +938,9 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def load_asset_master_lookup(cur) -> dict[str, Any]:
-    ensure_asset_master_schema(cur)
+def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, Any]:
+    if ensure_schema:
+        ensure_asset_master_schema(cur)
     cur.execute("SELECT * FROM pams_asset_master")
     assets = [{k: _jsonable(v) for k, v in row.items()} for row in cur.fetchall()]
     by_id = {row["asset_id"]: {**row, "aliases": [], "industry": None, "themes": []} for row in assets}
