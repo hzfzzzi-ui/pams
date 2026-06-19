@@ -641,14 +641,14 @@ def _concentration_rules_payload(limits: dict[str, Any]) -> dict[str, Any]:
             "label": "区域暴露",
             "yellow": region["yellow"],
             "red": region["red"],
-            "method": "多标签口径，单独观察 A股、港股、美股、韩股、海外权益等市场区域暴露。",
+            "method": "多标签口径，单独观察 A股、港股、美股、欧股、韩股、海外权益等市场区域暴露。",
         },
         {
             "key": "currency",
             "label": "币种暴露",
             "yellow": currency["yellow"],
             "red": currency["red"],
-            "method": "多标签口径，单独观察人民币、美元、港币、韩元等币种敞口；币种风险不等同于市场区域风险。",
+            "method": "多标签口径，单独观察人民币、美元、港币、瑞典克朗、韩元等币种敞口；币种风险不等同于市场区域风险。",
         },
         {
             "key": "special",

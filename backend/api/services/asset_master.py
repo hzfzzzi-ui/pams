@@ -175,11 +175,11 @@ CREATE TABLE IF NOT EXISTS pams_asset_real_asset_profile (
 );
 """
 
-EQUITY_TYPES = {"A股个股", "港股个股", "美股个股"}
+EQUITY_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股"}
 NON_THEME_TYPES = {"现金", "债券 / 货币基金", "非上市股权", "房地产 / 实物资产", "应收款 / 待到账"}
-VALID_CURRENCIES = {"CNY", "HKD", "USD", "KRW", "MXN"}
-VALID_MARKETS = {"A股", "港股", "美股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"}
-VALID_REGIONS = {"中国大陆", "香港", "美国", "韩国", "全球", "其他"}
+VALID_CURRENCIES = {"CNY", "HKD", "USD", "SEK", "KRW", "MXN"}
+VALID_MARKETS = {"A股", "港股", "美股", "欧股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"}
+VALID_REGIONS = {"中国大陆", "香港", "美国", "欧洲", "瑞典", "韩国", "全球", "其他"}
 VALID_THEME_NAMES = {name for name, _family in THEME_DEFINITIONS.values()}
 VALID_AI_SUB_THEME_NAMES = set(AI_SUB_THEME_DEFINITIONS.values())
 REAL_LOOKTHROUGH_TYPES = {"FULL_HOLDINGS", "TOP10", "INDEX_PROXY", "MANUAL"}
@@ -312,6 +312,7 @@ def _exposure_policy(asset_type: str) -> str:
         "A股个股": "listed_equity",
         "港股个股": "listed_equity",
         "美股个股": "listed_equity",
+        "欧股个股": "listed_equity",
         "ETF / 基金": "fund_lookthrough",
         "现金": "cash",
         "债券 / 货币基金": "fixed_income",
@@ -509,8 +510,8 @@ def _upsert_asset(cur, raw: dict[str, Any], *, source: str = "system") -> str:
             END,
             currency = CASE
                 WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.currency
-                WHEN EXCLUDED.currency IN ('CNY', 'HKD', 'USD', 'KRW', 'MXN') THEN EXCLUDED.currency
-                WHEN pams_asset_master.currency IN ('CNY', 'HKD', 'USD', 'KRW', 'MXN') THEN pams_asset_master.currency
+                WHEN EXCLUDED.currency IN ('CNY', 'HKD', 'USD', 'SEK', 'KRW', 'MXN') THEN EXCLUDED.currency
+                WHEN pams_asset_master.currency IN ('CNY', 'HKD', 'USD', 'SEK', 'KRW', 'MXN') THEN pams_asset_master.currency
                 ELSE NULLIF(EXCLUDED.currency, '')
             END,
             valuation_method = CASE

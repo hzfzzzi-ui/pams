@@ -274,7 +274,7 @@ def test_portfolio_config_rules_are_derived_from_risk_and_lookthrough() -> None:
     assert [child["name"] for child in rules["stock"]["children"]] == [
         "美国权益",
         "中国/港股权益",
-        "韩国/其他权益",
+        "韩国/欧洲/其他权益",
     ]
     assert sum(child["amount_cny"] for child in rules["stock"]["children"]) == rules["stock"]["current_amount_cny"]
     assert rules["stock"]["current_amount_cny"] == 560_000

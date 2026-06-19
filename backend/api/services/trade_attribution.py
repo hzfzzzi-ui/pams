@@ -104,6 +104,8 @@ def _market_hint(row: dict[str, Any]) -> str | None:
         return "HK_STOCK"
     if currency == "KRW":
         return "KR_STOCK"
+    if currency == "SEK":
+        return "SE_STOCK"
     if currency == "USD":
         return "YF"
 
@@ -119,6 +121,8 @@ def _market_hint(row: dict[str, Any]) -> str | None:
         return "HK_STOCK"
     if any(token in raw for token in ("KR", "韩股")):
         return "KR_STOCK"
+    if any(token in raw for token in ("SE", "SEK", "SWEDEN", "SVERIGE", "STOCKHOLM", "欧股", "瑞典")):
+        return "SE_STOCK"
     return row.get("market") or None
 
 

@@ -12,6 +12,9 @@ if str(API_ROOT) not in sys.path:
 from services.asset_master import (  # noqa: E402
     ASSET_MASTER_FIELD_PRIORITY,
     SCHEMA_SQL,
+    VALID_CURRENCIES,
+    VALID_MARKETS,
+    VALID_REGIONS,
     _apply_asset_to_raw,
     _asset_record_from_raw,
     _find_asset,
@@ -96,6 +99,27 @@ def test_gold_spot_benchmark_migration_seeds_non_holding_price_asset() -> None:
     assert "benchmark_only" in sql
     assert "is_holding" in sql
     assert "akshare_sge_daily:Au99.99" in sql
+
+
+def test_europe_sweden_mapping_migration_seeds_sive_and_sek_cash() -> None:
+    sql = Path("database/postgres/schema/049_europe_sweden_asset_mapping.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "'ASSET_SIVE'" in sql
+    assert "'欧股个股'" in sql
+    assert "'欧股'" in sql
+    assert "'瑞典'" in sql
+    assert "'SEK'" in sql
+    assert "'ASSET_CASH_SEK'" in sql
+    assert "UPPER(COALESCE(symbol, '')) = 'SIVE'" in sql
+    assert "UPPER(COALESCE(symbol, '')) = 'CASH_SEK'" in sql
+
+
+def test_asset_master_whitelist_allows_europe_sweden_and_sek() -> None:
+    assert "欧股" in VALID_MARKETS
+    assert {"欧洲", "瑞典"}.issubset(VALID_REGIONS)
+    assert "SEK" in VALID_CURRENCIES
 
 
 def test_asset_master_id_canonicalizes_known_aliases() -> None:

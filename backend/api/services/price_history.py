@@ -50,6 +50,17 @@ MARKET_ALIASES = {
     "HK_STOCK": "YF",
     "KR": "YF",
     "KR_STOCK": "YF",
+    "EU": "YF",
+    "EU_STOCK": "YF",
+    "EUROPE": "YF",
+    "SE": "YF",
+    "SEK": "YF",
+    "SE_STOCK": "YF",
+    "SWEDEN": "YF",
+    "SVERIGE": "YF",
+    "STOCKHOLM": "YF",
+    "欧股": "YF",
+    "瑞典": "YF",
 }
 
 
@@ -144,6 +155,8 @@ def _yf_symbol(symbol: str, market_hint: str | None = None) -> str:
         return f"{raw.zfill(4)}.HK"
     if hint in {"KR", "KR_STOCK"} and raw.isdigit():
         return f"{raw.zfill(6)}.KS"
+    if hint in {"SE", "SEK", "SE_STOCK", "SWEDEN", "SVERIGE", "STOCKHOLM", "瑞典"} and "." not in raw:
+        return f"{raw.upper()}.ST"
     if raw.isdigit() and 1 <= len(raw) <= 5:
         return f"{raw.zfill(4)}.HK"
     return raw.upper() if "." not in raw else raw.upper()

@@ -19,6 +19,7 @@ AssetType = Literal[
     "A股个股",
     "港股个股",
     "美股个股",
+    "欧股个股",
     "ETF / 基金",
     "现金",
     "债券 / 货币基金",
@@ -58,9 +59,9 @@ class HoldingNormalized(TypedDict, total=False):
     id: str
     symbol: str
     name: str
-    market: Literal["A股", "港股", "美股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"]
-    region: Literal["中国大陆", "香港", "美国", "韩国", "全球", "其他"]
-    currency: Literal["CNY", "HKD", "USD", "KRW", "MXN", "其他"]
+    market: Literal["A股", "港股", "美股", "欧股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"]
+    region: Literal["中国大陆", "香港", "美国", "欧洲", "瑞典", "韩国", "全球", "其他"]
+    currency: Literal["CNY", "HKD", "USD", "SEK", "KRW", "MXN", "其他"]
     assetType: AssetType
     assetSubtype: str
     marketValue: float
@@ -106,6 +107,7 @@ ASSET_TYPES: tuple[AssetType, ...] = (
     "A股个股",
     "港股个股",
     "美股个股",
+    "欧股个股",
     "ETF / 基金",
     "现金",
     "债券 / 货币基金",
@@ -184,6 +186,7 @@ FORBIDDEN_INDUSTRY_LABELS = {
     "出海链",
     "A股个股",
     "美股个股",
+    "欧股个股",
 }
 FORBIDDEN_INDUSTRY_LABELS.discard("半导体")
 FORBIDDEN_INDUSTRY_LABELS.discard("互联网平台")
@@ -195,6 +198,7 @@ FORBIDDEN_THEME_LABELS = {
     "非上市股权",
     "A股个股",
     "美股个股",
+    "欧股个股",
     "人民币资产",
     "美元资产",
     "中国资产",
@@ -546,9 +550,9 @@ def _role(score: float) -> Literal["core", "strong", "related", "weak"]:
     return "weak"
 
 
-def _currency(value: Any) -> Literal["CNY", "HKD", "USD", "KRW", "MXN", "其他"]:
+def _currency(value: Any) -> Literal["CNY", "HKD", "USD", "SEK", "KRW", "MXN", "其他"]:
     cur = _text(value).upper()
-    return cur if cur in {"CNY", "HKD", "USD", "KRW", "MXN"} else "其他"
+    return cur if cur in {"CNY", "HKD", "USD", "SEK", "KRW", "MXN"} else "其他"
 
 
 def _symbol_digits(value: Any) -> str:
@@ -617,6 +621,8 @@ def _infer_stock_asset_class(symbol: Any, currency: Any = "", region: Any = "") 
         return "stock_hk"
     if _is_kr_symbol(symbol) or cur == "KRW" or region_key in {"korea", "south korea", "kr", "韩国"}:
         return "stock_kr"
+    if cur == "SEK" or region_key in {"europe", "eu", "欧洲", "sweden", "se", "sverige", "瑞典"}:
+        return "stock_eu"
     if _is_cn_equity_symbol(symbol) or (cur == "CNY" and len(_symbol_digits(symbol)) == 6):
         return "stock_cn"
     if cur == "USD" or region_key in {"united states", "us", "usa", "美国"}:
@@ -635,7 +641,7 @@ def resolveAssetType(holding: dict[str, Any]) -> AssetType:
     currency = _text(holding.get("currency") or holding.get("underlying_currency")).upper()
     raw_symbol = holding.get("symbol") or holding.get("underlying_symbol")
     stock_hint = (
-        asset_type in {"stock_hk", "hk_stock", "stock_us", "us_stock", "stock_cn", "a_share_stock", "cn_stock", "stock_kr", "kr_stock"}
+        asset_type in {"stock_hk", "hk_stock", "stock_us", "us_stock", "stock_cn", "a_share_stock", "cn_stock", "stock_kr", "kr_stock", "stock_eu", "eu_stock", "stock_se", "se_stock", "europe_stock", "swedish_stock"}
         or _is_hk_symbol(raw_symbol)
         or _is_kr_symbol(raw_symbol)
         or _is_cn_equity_symbol(raw_symbol)
@@ -686,6 +692,8 @@ def resolveAssetType(holding: dict[str, Any]) -> AssetType:
         return "港股个股"
     if _is_kr_symbol(raw_symbol) or asset_type in {"stock_kr", "kr_stock"} or currency == "KRW":
         return "美股个股"
+    if asset_type in {"stock_eu", "eu_stock", "stock_se", "se_stock", "europe_stock", "swedish_stock"} or currency == "SEK":
+        return "欧股个股"
     if _is_cn_equity_symbol(raw_symbol):
         return "A股个股"
     if asset_type in {"stock_hk", "hk_stock"} or currency == "HKD":
@@ -705,8 +713,6 @@ def resolve_market(holding: dict[str, Any], asset_type: AssetType | None = None)
     raw_asset_type = _key(holding.get("asset_type") or holding.get("asset_class") or holding.get("underlying_asset_class"))
     currency = _currency(holding.get("currency") or holding.get("underlying_currency"))
     raw_symbol = holding.get("symbol") or holding.get("underlying_symbol")
-    if raw_asset_type in {"stock_kr", "kr_stock"} or _is_kr_symbol(raw_symbol):
-        return "韩股"
     if asset_type == "现金":
         return "现金"
     if asset_type == "债券 / 货币基金":
@@ -717,12 +723,18 @@ def resolve_market(holding: dict[str, Any], asset_type: AssetType | None = None)
         return "非上市 / 内部"
     if asset_type == "ETF / 基金":
         return "基金"
+    if raw_asset_type in {"stock_kr", "kr_stock"} or _is_kr_symbol(raw_symbol):
+        return "韩股"
+    if raw_asset_type in {"stock_eu", "eu_stock", "stock_se", "se_stock", "europe_stock", "swedish_stock"} or currency == "SEK":
+        return "欧股"
     if asset_type == "A股个股" or _is_cn_equity_symbol(raw_symbol):
         return "A股"
     if asset_type == "港股个股" or currency == "HKD" or _is_hk_symbol(raw_symbol):
         return "港股"
     if asset_type == "美股个股" or currency == "USD":
         return "美股"
+    if asset_type == "欧股个股" or currency == "SEK":
+        return "欧股"
     return "其他"
 
 
@@ -747,6 +759,8 @@ def resolve_region(holding: dict[str, Any], market: str | None = None) -> str:
             return "美国"
         if currency == "KRW":
             return "韩国"
+        if currency == "SEK":
+            return "瑞典"
     if symbol in CHINA_ECONOMIC_EXPOSURE_SYMBOLS or any(token in name for token in ("中国", "华为", "招商", "紫金", "铜陵", "比亚迪", "美团", "腾讯", "阿里", "小米", "快手", "中芯")):
         return "中国大陆"
     if region_raw in {"china", "cn", "mainland china", "中国", "中国大陆"}:
@@ -759,6 +773,10 @@ def resolve_region(holding: dict[str, Any], market: str | None = None) -> str:
         return "美国"
     if region_raw in {"korea", "south korea", "kr", "韩国"} or _is_kr_symbol(raw_symbol):
         return "韩国"
+    if region_raw in {"sweden", "se", "sverige", "瑞典"}:
+        return "瑞典"
+    if region_raw in {"europe", "eu", "欧洲"}:
+        return "欧洲"
     if region_raw in {"global", "全球"}:
         return "全球"
     market = market or resolve_market(holding)
@@ -768,6 +786,8 @@ def resolve_region(holding: dict[str, Any], market: str | None = None) -> str:
         return "美国"
     if market == "韩股":
         return "韩国"
+    if market == "欧股":
+        return "欧洲"
     if market in {"A股", "基金", "现金"}:
         return "中国大陆"
     return "其他"
@@ -964,7 +984,7 @@ def normalizeHoldings(rawHoldings: list[dict[str, Any]]) -> list[HoldingNormaliz
         lookthrough_status = "not_applicable"
         if asset_type == "ETF / 基金":
             lookthrough_status = "lookthrough_available" if raw.get("has_lookthrough") else "lookthrough_missing"
-        elif asset_type in {"A股个股", "港股个股", "美股个股", "黄金 / 商品"}:
+        elif asset_type in {"A股个股", "港股个股", "美股个股", "欧股个股", "黄金 / 商品"}:
             lookthrough_status = "direct"
         item: HoldingNormalized = {
             "id": _text(raw.get("id") or raw.get("asset_id") or symbol or name),
@@ -1202,7 +1222,7 @@ def _aggregate_contributions(contributions: list[dict[str, Any]], denominator: f
 
 
 def _is_industry_eligible(asset_type: str) -> bool:
-    return asset_type in {"A股个股", "港股个股", "美股个股", "ETF / 基金"}
+    return asset_type in {"A股个股", "港股个股", "美股个股", "欧股个股", "ETF / 基金"}
 
 
 def _is_theme_eligible(asset_type: str) -> bool:

@@ -242,6 +242,42 @@ def test_overseas_region_and_index_proxy_underlying_mapping_contracts() -> None:
     assert "Nasdaq-100 constituent" in by_symbol["WMT"]["indexMembershipTags"]
 
 
+def test_european_sek_holding_maps_to_sweden_region_and_currency() -> None:
+    holdings = normalizeHoldings(
+        [
+            {
+                "asset_name": "SIVE - SIVERS SEMICONDUCTORS AB",
+                "symbol": "SIVE",
+                "asset_type": "stock_eu",
+                "market_value_cny": 100.0,
+                "currency": "SEK",
+                "region": "Sweden",
+                "industry": "Semiconductors",
+            },
+            {
+                "asset_name": "Cash SEK",
+                "symbol": "CASH_SEK",
+                "asset_type": "cash",
+                "market_value_cny": 10.0,
+                "currency": "SEK",
+            },
+        ]
+    )
+    by_symbol = _by_symbol(holdings)
+
+    assert by_symbol["SIVE"]["assetType"] == "欧股个股"
+    assert by_symbol["SIVE"]["market"] == "欧股"
+    assert by_symbol["SIVE"]["region"] == "瑞典"
+    assert by_symbol["SIVE"]["currency"] == "SEK"
+    assert by_symbol["SIVE"]["industryBucket"] == "科技TMT"
+    assert by_symbol["CASH_SEK"]["assetType"] == "现金"
+    assert by_symbol["CASH_SEK"]["region"] == "瑞典"
+    assert by_symbol["CASH_SEK"]["currency"] == "SEK"
+
+    market = {row["name"]: row for row in calculateMarketExposure(holdings, [])}
+    assert market["欧股"]["value_cny"] == pytest.approx(100.0)
+
+
 def test_fund_underlying_prefers_underlying_region_currency_and_symbol_market() -> None:
     payload = build_exposure_analysis_payload(
         positions=[

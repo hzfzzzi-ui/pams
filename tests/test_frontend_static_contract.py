@@ -448,7 +448,7 @@ def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
         "融资负债",
         "美国权益",
         "中国/港股权益",
-        "韩国/其他权益",
+        "韩国/欧洲/其他权益",
         "其他/待映射权益",
         "美股宽基",
         "美股/海外个股",
