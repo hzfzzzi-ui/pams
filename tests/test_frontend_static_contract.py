@@ -286,7 +286,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "assets/js/lookthrough.js?v=20260618-nav-field-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
-    assert "style.css?v=20260617-return-window-v1" in html
+    assert "style.css?v=20260619-asset-heatmap-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -394,7 +394,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260617-linkage-v1" in investments_html
+    assert "assets/js/transactions.js?v=20260619-asset-heatmap-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -728,6 +728,12 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "directional_trades" in tx_js
     assert "positive_action_count" in tx_js
     assert "negative_action_count" in tx_js
+    assert "tradeReviewAssetTileText" in tx_js
+    assert "tradeReviewAssetFullLabel" in tx_js
+    assert "tradeReviewCompactSymbol" in tx_js
+    assert "title=\"${escapeHtml(fullLabel)}\"" in tx_js
+    assert "effect * 6" not in tx_js
+    assert "Math.pow(tradeReviewAssetWeight(asset), 0.9)" in tx_js
     assert "tradeReviewDirectionGrid" in css
     assert "tradeReviewDirectionTrade" in css
     assert 'data-direction-limit="${escapeHtml(limit)}"' in tx_js
@@ -819,7 +825,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260617-linkage-v1" in html
+    assert "assets/js/transactions.js?v=20260619-asset-heatmap-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -896,11 +902,11 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
-    assert "assets/css/style.css?v=20260617-return-window-v1" in ui_js
+    assert "assets/css/style.css?v=20260619-asset-heatmap-v1" in ui_js
     assert "assets/js/holdings.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260618-return-date-v4" in ui_js
     assert "assets/js/lookthrough.js?v=20260618-nav-field-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260617-linkage-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260619-asset-heatmap-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/more.js?v=20260607-more-ia-v1" in ui_js

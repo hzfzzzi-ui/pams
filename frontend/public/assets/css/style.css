@@ -3965,9 +3965,13 @@ body.page-investments[data-invest-tab="risk"] #investment-conclusion {
   font-size: var(--asset-meta, 10px);
   font-weight: 900;
   line-height: 1.05;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: break-word;
   z-index: 1;
+}
+.tradeReviewAssetTile span:empty {
+  display: none;
 }
 .tradeReviewAssetTile strong {
   display: -webkit-box;
@@ -3977,6 +3981,8 @@ body.page-investments[data-invest-tab="risk"] #investment-conclusion {
   font-size: var(--asset-name, 12px);
   font-weight: 950;
   line-height: 1.03;
+  overflow-wrap: break-word;
+  word-break: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: var(--asset-lines, 1);
   text-wrap: balance;
@@ -3989,7 +3995,7 @@ body.page-investments[data-invest-tab="risk"] #investment-conclusion {
   font-weight: 950;
   line-height: 1.1;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
   z-index: 1;
 }
@@ -4002,28 +4008,53 @@ body.page-investments[data-invest-tab="risk"] #investment-conclusion {
 .tradeReviewAssetTile.is-xs small {
   display: none;
 }
+.tradeReviewAssetTile.is-xs strong {
+  display: block;
+  font-size: clamp(5.8px, var(--asset-name), 7.2px);
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+}
 .tradeReviewAssetTile.is-xs em {
   max-width: 100%;
+  font-size: clamp(5.8px, var(--asset-value), 7.6px);
 }
 .tradeReviewAssetTile.is-micro {
   align-items: center;
   border-radius: 5px;
   padding: 1px 2px;
   text-align: center;
+  gap: 1px;
 }
 .tradeReviewAssetTile.is-micro span,
-.tradeReviewAssetTile.is-micro em,
 .tradeReviewAssetTile.is-micro small {
   display: none;
 }
 .tradeReviewAssetTile.is-micro strong {
+  display: block;
   max-width: 100%;
-  font-size: clamp(6.8px, var(--asset-name), 8.5px);
+  font-size: clamp(6.6px, var(--asset-name), 8.5px);
   line-height: 1;
-  -webkit-line-clamp: 1;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+}
+.tradeReviewAssetTile.is-micro em {
+  display: block;
+  max-width: 100%;
+  font-size: clamp(5.8px, var(--asset-value), 7.4px);
+  line-height: 1;
 }
 .tradeReviewAssetTile.is-sm small {
   display: none;
+}
+.tradeReviewAssetTile.is-sm strong {
+  display: block;
+  font-size: clamp(6.2px, var(--asset-name), 9px);
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+}
+.tradeReviewAssetTile.is-sm em {
+  font-size: clamp(6.2px, var(--asset-value), 9px);
 }
 .tradeReviewAssetFloatLayer[hidden] {
   display: none !important;
@@ -12677,16 +12708,32 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-investments .tradeReviewAssetTile span,
   .page-investments .tradeReviewAssetTile small {
-    font-size: min(var(--asset-meta, 10px), 9.5px);
+    font-size: clamp(6px, var(--asset-meta, 10px), 9.5px);
   }
 
   .page-investments .tradeReviewAssetTile strong {
-    font-size: min(var(--asset-name, 12px), 13px);
+    font-size: clamp(7px, var(--asset-name, 12px), 14px);
     line-height: 1.02;
   }
 
   .page-investments .tradeReviewAssetTile em {
-    font-size: min(var(--asset-value, 12px), 12px);
+    font-size: clamp(6.5px, var(--asset-value, 12px), 13.5px);
+  }
+
+  .page-investments .tradeReviewAssetTile.is-xs strong {
+    font-size: clamp(5.8px, var(--asset-name, 7px), 7.2px);
+  }
+
+  .page-investments .tradeReviewAssetTile.is-xs em {
+    font-size: clamp(5.8px, var(--asset-value, 7px), 7.6px);
+  }
+
+  .page-investments .tradeReviewAssetTile.is-sm strong {
+    font-size: clamp(6.2px, var(--asset-name, 9px), 9px);
+  }
+
+  .page-investments .tradeReviewAssetTile.is-sm em {
+    font-size: clamp(6.2px, var(--asset-value, 9px), 9px);
   }
 
   .page-investments .tradeReviewAssetFloatLayer {

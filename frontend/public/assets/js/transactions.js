@@ -879,18 +879,18 @@ function formatCnyEffect(value) {
 
 function formatCnyEffectCompact(value) {
   const numeric = tradeReviewNumber(value, 0);
-  if (!numeric) return '0';
+  if (!numeric) return '¥0';
   const sign = numeric > 0 ? '+' : '-';
   const abs = Math.abs(numeric);
   const compact = (n, digits = 0) => n.toLocaleString('zh-CN', {
     maximumFractionDigits: digits,
     minimumFractionDigits: 0,
   });
-  if (abs >= 100000000) return `${sign}${compact(abs / 100000000, 1)}亿`;
-  if (abs >= 10000) return `${sign}${compact(abs / 10000, abs >= 100000 ? 0 : 1)}万`;
-  if (abs >= 1000) return `${sign}${compact(abs, 0)}`;
-  if (abs >= 100) return `${sign}${compact(abs, 0)}`;
-  return `${sign}${compact(abs, abs >= 10 ? 1 : 2)}`;
+  if (abs >= 100000000) return `${sign}¥${compact(abs / 100000000, 1)}亿`;
+  if (abs >= 10000) return `${sign}¥${compact(abs / 10000, abs >= 100000 ? 1 : 2)}万`;
+  if (abs >= 1000) return `${sign}¥${compact(abs, 0)}`;
+  if (abs >= 100) return `${sign}¥${compact(abs, 0)}`;
+  return `${sign}¥${compact(abs, abs >= 10 ? 1 : 2)}`;
 }
 
 function tradeReviewNumber(value, fallback = 0) {
@@ -935,11 +935,79 @@ function tradeReviewAssetMeta(asset) {
   return symbol || name || '--';
 }
 
+function tradeReviewAssetCleanName(asset) {
+  const name = String(asset?.name || '').trim();
+  const symbol = String(asset?.symbol || '').trim();
+  if (!name) return symbol || '--';
+  if (symbol && name.toUpperCase().startsWith(`${symbol.toUpperCase()} - `)) {
+    return name.slice(symbol.length + 3).trim() || symbol;
+  }
+  return name;
+}
+
+function tradeReviewCompactSymbol(symbol) {
+  const value = String(symbol || '').trim();
+  if (!value) return '';
+  if (value.length <= 10) return value;
+  const parts = value.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return parts.slice(0, 2).join(' ');
+  return value.slice(0, 10);
+}
+
+function tradeReviewAssetShortLabel(asset) {
+  const symbol = String(asset?.symbol || '').trim();
+  const cleanName = tradeReviewAssetCleanName(asset);
+  if (symbol && /^[A-Z0-9._-]+$/i.test(symbol)) return tradeReviewCompactSymbol(symbol);
+  if (cleanName.length <= 6) return cleanName;
+  return String(asset?.key || cleanName).trim() || cleanName;
+}
+
+function tradeReviewAssetTileText(asset, rect) {
+  const area = rect.w * rect.h;
+  const shortSide = Math.min(rect.w, rect.h);
+  const symbol = String(asset?.symbol || '').trim();
+  const name = tradeReviewAssetName(asset);
+  const cleanName = tradeReviewAssetCleanName(asset);
+  const compactSymbol = tradeReviewCompactSymbol(symbol);
+  const symbolIsPrimary = Boolean(symbol && name === symbol && cleanName && cleanName !== symbol);
+  if (area < 120 || shortSide < 6.8) {
+    return {
+      meta: '',
+      name: tradeReviewAssetShortLabel(asset),
+    };
+  }
+  if (area < 420 || shortSide < 12) {
+    if (shortSide < 12) {
+      return {
+        meta: '',
+        name: tradeReviewAssetShortLabel(asset),
+      };
+    }
+    return {
+      meta: symbolIsPrimary ? '' : compactSymbol,
+      name: name.length > 6 ? tradeReviewAssetShortLabel(asset) : name,
+    };
+  }
+  return {
+    meta: symbolIsPrimary ? cleanName : compactSymbol,
+    name,
+  };
+}
+
+function tradeReviewAssetFullLabel(asset) {
+  const symbol = String(asset?.symbol || '').trim();
+  const cleanName = tradeReviewAssetCleanName(asset);
+  if (symbol && cleanName && cleanName !== symbol) return `${symbol} · ${cleanName}`;
+  return cleanName || symbol || '--';
+}
+
 function tradeReviewAssetWeight(asset) {
-  const weight = Math.abs(tradeReviewNumber(asset?.weight_cny, 0));
   const effect = Math.abs(tradeReviewNumber(asset?.estimated_decision_effect_cny, 0));
+  const weight = Math.abs(tradeReviewNumber(asset?.weight_cny, 0));
   const count = Math.max(0, tradeReviewNumber(asset?.trade_count, 0));
-  return Math.max(weight, effect * 6, count * 1000, 1);
+  if (effect > 0.01) return effect;
+  if (weight > 0.01) return weight;
+  return Math.max(count * 120, 1);
 }
 
 function tradeReviewAssetTone(asset) {
@@ -955,7 +1023,7 @@ function tradeReviewAssetTiles(payload) {
 }
 
 function tradeReviewTreemapWeight(asset) {
-  return Math.max(Math.pow(tradeReviewAssetWeight(asset), 0.72), 1);
+  return Math.max(Math.pow(tradeReviewAssetWeight(asset), 0.9), 1);
 }
 
 function tradeReviewTreemapSplit(items) {
@@ -1025,12 +1093,12 @@ function tradeReviewClamp(value, min, max) {
 function tradeReviewAssetTileStyle(rect) {
   const area = rect.w * rect.h;
   const shortSide = Math.min(rect.w, rect.h);
-  const rawBase = Math.sqrt(area) * 0.62 + shortSide * 0.12;
-  const base = tradeReviewClamp(Math.min(rawBase, rect.w * 0.36 + 2.5, rect.h * 0.55 + 2), 7.2, 17);
-  const meta = tradeReviewClamp(Math.min(base * 0.58, rect.w * 0.24 + 1.5), 6.6, 10);
-  const value = tradeReviewClamp(Math.min(base * 0.84, rect.w * 0.28 + 1.5), 7, 14.5);
-  const pad = tradeReviewClamp(shortSide * 0.38, 2, 10);
-  const lines = rect.h >= 16 && rect.w >= 12 ? 2 : 1;
+  const rawBase = Math.sqrt(area) * 0.72 + shortSide * 0.16;
+  const base = tradeReviewClamp(Math.min(rawBase, rect.w * 0.5 + 2.5, rect.h * 0.58 + 2), 7, 18);
+  const meta = tradeReviewClamp(Math.min(base * 0.56, rect.w * 0.3 + 1.5), 6.2, 10.5);
+  const value = tradeReviewClamp(Math.min(base * 0.9, rect.w * 0.42 + 2), 7, 15.5);
+  const pad = tradeReviewClamp(shortSide * 0.34, 1.5, 9);
+  const lines = rect.h >= 15 && rect.w >= 10 ? 2 : 1;
   return [
     `--asset-x:${rect.x.toFixed(3)}%`,
     `--asset-y:${rect.y.toFixed(3)}%`,
@@ -1316,15 +1384,19 @@ function TradeReviewAssetHeatmap(payload, workbench) {
       <div class="tradeReviewAssetHeatmapCanvas" data-asset-heatmap>
         ${layout.map((item) => {
           const { asset, rect } = item;
+          const text = tradeReviewAssetTileText(asset, rect);
+          const effectText = formatCnyEffectCompact(asset.estimated_decision_effect_cny);
+          const fullLabel = `${tradeReviewAssetFullLabel(asset)} ${effectText}`;
           return `
             <button type="button"
               class="tradeReviewAssetTile ${tradeReviewAssetTone(asset)} ${tradeReviewAssetTileClass(rect)}"
               style="${tradeReviewAssetTileStyle(rect)}"
               data-asset-heat-select="${escapeHtml(asset.key)}"
+              title="${escapeHtml(fullLabel)}"
               aria-pressed="false">
-              <span>${escapeHtml(tradeReviewAssetMeta(asset))}</span>
-              <strong>${escapeHtml(tradeReviewAssetName(asset))}</strong>
-              <em>${escapeHtml(formatCnyEffectCompact(asset.estimated_decision_effect_cny))}</em>
+              <span>${escapeHtml(text.meta)}</span>
+              <strong>${escapeHtml(text.name)}</strong>
+              <em>${escapeHtml(effectText)}</em>
               <small>${escapeHtml(asset.trade_count || 0)} 笔 · ${escapeHtml(formatPctPoint(asset.avg_return_pct, 1))}</small>
             </button>
           `;

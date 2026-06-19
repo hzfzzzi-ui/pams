@@ -1912,7 +1912,7 @@ def _build_trade_asset_heatmap(event_records: list[dict[str, Any]]) -> dict[str,
             ),
             reverse=True,
         )
-        weight = max(abs(exposure), abs(effect) * Decimal("6"), Decimal(trade_count) * Decimal("1000"))
+        weight = abs(effect)
         assets.append(
             {
                 **bucket,
