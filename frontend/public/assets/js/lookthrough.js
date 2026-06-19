@@ -103,6 +103,9 @@ let activeAnalysisPanel = analysisPanelFromHash() || localStorage.getItem('pams.
 if (!ANALYSIS_PANEL_KEYS.has(activeAnalysisPanel)) activeAnalysisPanel = 'return_attribution';
 let lookthroughLoadPromise = null;
 let returnAttributionLoadPromise = null;
+let returnAttributionHoldingDailySummary = null;
+let returnAttributionHoldingDailyLoadPromise = null;
+let returnAttributionHoldingDailyMap = new Map();
 
 function renderAnalysisPanelSwitch() {
   document.querySelectorAll('[data-analysis-panel-switch]').forEach((button) => {
@@ -126,6 +129,84 @@ function esc(value) {
 function n(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function returnAttributionDailyKey(value) {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ');
+}
+
+function returnAttributionAddDailyKey(map, prefix, value, amount) {
+  const key = returnAttributionDailyKey(value);
+  if (!key) return;
+  const fullKey = `${prefix}:${key}`;
+  map.set(fullKey, n(map.get(fullKey)) + amount);
+}
+
+function returnAttributionNameWithoutSymbol(name, symbol) {
+  const rawName = String(name || '').trim();
+  const rawSymbol = String(symbol || '').trim();
+  if (!rawName || !rawSymbol) return rawName;
+  if (rawName.toUpperCase().startsWith(`${rawSymbol.toUpperCase()} - `)) {
+    return rawName.slice(rawSymbol.length + 3).trim();
+  }
+  return rawName;
+}
+
+function buildReturnAttributionHoldingDailyMap(summary) {
+  const map = new Map();
+  (summary?.children || []).forEach((row) => {
+    const daily = n(row?.daily_pnl);
+    returnAttributionAddDailyKey(map, 'symbol', row?.symbol, daily);
+    returnAttributionAddDailyKey(map, 'name', row?.name, daily);
+    returnAttributionAddDailyKey(map, 'name', returnAttributionNameWithoutSymbol(row?.name, row?.symbol), daily);
+  });
+  return map;
+}
+
+function setReturnAttributionHoldingDailySummary(summary) {
+  returnAttributionHoldingDailySummary = summary || null;
+  returnAttributionHoldingDailyMap = buildReturnAttributionHoldingDailyMap(summary);
+}
+
+function loadReturnAttributionHoldingDailySummary() {
+  if (returnAttributionHoldingDailySummary) {
+    return Promise.resolve(returnAttributionHoldingDailySummary);
+  }
+  if (returnAttributionHoldingDailyLoadPromise) return returnAttributionHoldingDailyLoadPromise;
+  returnAttributionHoldingDailyLoadPromise = jget('/summary2/latest?baseCurrency=CNY')
+    .then((data) => {
+      setReturnAttributionHoldingDailySummary(data);
+      return data;
+    })
+    .catch(() => {
+      setReturnAttributionHoldingDailySummary(null);
+      return null;
+    })
+    .finally(() => {
+      returnAttributionHoldingDailyLoadPromise = null;
+    });
+  return returnAttributionHoldingDailyLoadPromise;
+}
+
+function returnAttributionLookupHoldingDaily(row) {
+  const keys = [
+    ['symbol', row?.symbol],
+    ['symbol', row?.source_symbol],
+    ['name', row?.display_name],
+    ['name', row?.name],
+    ['name', row?.source_asset_name],
+    ['name', returnAttributionNameWithoutSymbol(row?.display_name || row?.name, row?.symbol || row?.source_symbol)],
+  ];
+  for (const [prefix, value] of keys) {
+    const key = returnAttributionDailyKey(value);
+    if (key && returnAttributionHoldingDailyMap.has(`${prefix}:${key}`)) {
+      return n(returnAttributionHoldingDailyMap.get(`${prefix}:${key}`));
+    }
+  }
+  return 0;
 }
 
 function fmtMoney(value) {
@@ -897,6 +978,7 @@ function ReturnAttributionAssetHeatmap(data) {
         ${layout.map((item) => {
           const { row, rect, index } = item;
           const pnl = returnAttributionAssetPnl(row);
+          const dailyPnl = returnAttributionLookupHoldingDaily(row);
           const text = returnAttributionTileText(row, rect);
           const title = `${returnAttributionAssetMeta(row) || row.symbol || ''} ${returnAttributionAssetLabel(row)} ${fmtSignedMoney(pnl)}`.trim();
           return `
@@ -908,7 +990,7 @@ function ReturnAttributionAssetHeatmap(data) {
               <span>${esc(text.meta)}</span>
               <strong>${esc(text.name)}</strong>
               <em>${esc(fmtCompactSignedMoney(pnl))}</em>
-              <small>今日 ${esc(fmtCompactSignedMoney(row.daily_pnl_cny))}</small>
+              <small>今日 ${esc(fmtCompactSignedMoney(dailyPnl))}</small>
             </button>
           `;
         }).join('')}
@@ -954,7 +1036,11 @@ function renderReturnAttributionSummary() {
 
 function returnAttributionRowHtml(row, index, maxAbsPnl) {
   const pnl = n(row.pnl_cny ?? row.total_pnl_cny ?? row.value_cny);
-  const daily = n(row.daily_pnl_cny);
+  const daily = activeReturnAttributionDimension === 'holding'
+    ? returnAttributionLookupHoldingDaily(row)
+    : n(row.daily_pnl_cny);
+  const dailyPrice = activeReturnAttributionDimension === 'holding' ? daily : n(row.daily_price_pnl_cny);
+  const dailyFx = activeReturnAttributionDimension === 'holding' ? 0 : n(row.daily_fx_pnl_cny);
   const width = maxAbsPnl > 0 ? Math.max(Math.abs(pnl) / maxAbsPnl * 100, 2) : 0;
   const isClosed = isClosedAttributionRow(row);
   const sourceLine = (row.top_sources || row.source_details || [])
@@ -977,7 +1063,7 @@ function returnAttributionRowHtml(row, index, maxAbsPnl) {
       <div class="returnAttributionPnlBar"><i style="width:${width}%"></i></div>
       <div class="returnAttributionRowMeta">
         <span>${esc(meta)}</span>
-        <em>今日 ${fmtSignedMoney(daily)} · 价格 ${fmtSignedMoney(row.daily_price_pnl_cny)} · 汇率 ${fmtSignedMoney(row.daily_fx_pnl_cny)}</em>
+        <em>今日 ${fmtSignedMoney(daily)} · 价格 ${fmtSignedMoney(dailyPrice)} · 汇率 ${fmtSignedMoney(dailyFx)}</em>
       </div>
     </button>
   `;
@@ -1014,14 +1100,18 @@ function renderReturnAttribution() {
   renderReturnAttributionList();
 }
 
-function returnAttributionDetailHtml(row) {
+function returnAttributionDetailHtml(row, options = {}) {
   const details = row.source_details || [];
+  const useHoldingDaily = options.useHoldingDaily === true || activeReturnAttributionDimension === 'holding';
+  const dailyPnl = useHoldingDaily ? returnAttributionLookupHoldingDaily(row) : n(row.daily_pnl_cny);
+  const dailyPricePnl = useHoldingDaily ? dailyPnl : n(row.daily_price_pnl_cny);
+  const dailyFxPnl = useHoldingDaily ? 0 : n(row.daily_fx_pnl_cny);
   return `
     <div class="sheetGrid">
       <div class="sheetMetric"><span>持仓盈亏</span><strong>${fmtSignedMoney(row.pnl_cny ?? row.value_cny)}</strong></div>
-      <div class="sheetMetric"><span>今日盈亏</span><strong>${fmtSignedMoney(row.daily_pnl_cny)}</strong></div>
-      <div class="sheetMetric"><span>价格收益</span><strong>${fmtSignedMoney(row.daily_price_pnl_cny)}</strong></div>
-      <div class="sheetMetric"><span>汇率收益</span><strong>${fmtSignedMoney(row.daily_fx_pnl_cny)}</strong></div>
+      <div class="sheetMetric"><span>今日盈亏</span><strong>${fmtSignedMoney(dailyPnl)}</strong></div>
+      <div class="sheetMetric"><span>价格收益</span><strong>${fmtSignedMoney(dailyPricePnl)}</strong></div>
+      <div class="sheetMetric"><span>汇率收益</span><strong>${fmtSignedMoney(dailyFxPnl)}</strong></div>
       <div class="sheetMetric"><span>敞口金额</span><strong>${fmtMoney(row.market_value_cny)}</strong></div>
       <div class="sheetMetric"><span>敞口占比</span><strong>${fmtPct(row.exposure_weight ?? row.weight)}</strong></div>
     </div>
@@ -1037,7 +1127,7 @@ function returnAttributionDetailHtml(row) {
             </div>
             <div>
               <b>${fmtSignedMoney(source.pnl_cny)}</b>
-              <span>今日 ${fmtSignedMoney(source.daily_pnl_cny)}</span>
+              <span>今日 ${fmtSignedMoney(useHoldingDaily ? returnAttributionLookupHoldingDaily(source) : source.daily_pnl_cny)}</span>
             </div>
           </div>
         `).join('') : '<p>暂无来源明细</p>'}
@@ -1255,7 +1345,7 @@ function bindEvents() {
     if (returnAssetHeatButton && returnAttributionData) {
       const index = Number(returnAssetHeatButton.dataset.returnAssetHeatRow);
       const row = returnAttributionHeatmapRows()[index];
-      if (row) openBottomSheet(`收益归因：${row.display_name || row.name}`, returnAttributionDetailHtml(row));
+      if (row) openBottomSheet(`收益归因：${row.display_name || row.name}`, returnAttributionDetailHtml(row, { useHoldingDaily: true }));
     }
 
     const returnRowButton = event.target?.closest?.('[data-return-attr-row]');
@@ -1282,8 +1372,11 @@ async function loadLookthrough() {
       const el = document.getElementById('lookthroughList');
       if (el) el.innerHTML = `<div class="lookthroughEmpty">穿透接口暂不可用：${esc(error?.message || error)}</div>`;
     });
-  const attributionRequest = jget('/api/analysis/return-attribution?baseCurrency=CNY')
-    .then((data) => {
+  const attributionRequest = Promise.all([
+    jget('/api/analysis/return-attribution?baseCurrency=CNY'),
+    loadReturnAttributionHoldingDailySummary(),
+  ])
+    .then(([data]) => {
       returnAttributionData = data;
       renderReturnAttribution();
     })
@@ -1329,8 +1422,11 @@ function loadReturnAttributionData() {
     return Promise.resolve(returnAttributionData);
   }
   if (returnAttributionLoadPromise) return returnAttributionLoadPromise;
-  returnAttributionLoadPromise = jget('/api/analysis/return-attribution?baseCurrency=CNY')
-    .then((data) => {
+  returnAttributionLoadPromise = Promise.all([
+    jget('/api/analysis/return-attribution?baseCurrency=CNY'),
+    loadReturnAttributionHoldingDailySummary(),
+  ])
+    .then(([data]) => {
       returnAttributionData = data;
       renderReturnAttribution();
       return data;

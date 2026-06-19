@@ -283,7 +283,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
     assert "assets/js/holdings.js?v=20260619-holding-row-v2" in html
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in html
-    assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in html
+    assert "assets/js/lookthrough.js?v=20260619-return-heatmap-daily-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
     assert "style.css?v=20260619-holding-row-v2" in html
@@ -920,7 +920,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/style.css?v=20260619-holding-row-v2" in ui_js
     assert "assets/js/holdings.js?v=20260619-holding-row-v2" in ui_js
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in ui_js
+    assert "assets/js/lookthrough.js?v=20260619-return-heatmap-daily-v1" in ui_js
     assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
@@ -937,8 +937,10 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "returnAttributionOverride" not in lookthrough_js
     assert "holdingsKpiSummary" not in lookthrough_js
     assert "盈亏总额以持仓页最终 KPI 为准" not in lookthrough_js
+    assert "/summary2/latest?baseCurrency=CNY" in lookthrough_js
     assert "ReturnAttributionAssetHeatmap" in lookthrough_js
     assert "returnAttributionHeatmapRows" in lookthrough_js
+    assert "returnAttributionLookupHoldingDaily" in lookthrough_js
     assert "dimensions?.[dimension]" in lookthrough_js
     assert "data-return-asset-heat-row" in lookthrough_js
     assert "标的盈亏热力图" in lookthrough_js

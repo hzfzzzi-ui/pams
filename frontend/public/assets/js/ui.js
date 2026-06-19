@@ -191,7 +191,7 @@ function setupAppPreload(activePath, path) {
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
       ['assets/js/holdings.js?v=20260619-holding-row-v2', 'script'],
       ['assets/js/holdings_categories.js?v=20260619-mobile-position-v1', 'script'],
-      ['assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2', 'script'],
+      ['assets/js/lookthrough.js?v=20260619-return-heatmap-daily-v1', 'script'],
       ['assets/js/ledger_cashflow.js?v=20260607-shared-format-v1', 'script'],
       ['assets/js/transactions.js?v=20260619-return-asset-heatmap-v2', 'script'],
       ['assets/js/portfolio_risk.js?v=20260617-linkage-v1', 'script'],
