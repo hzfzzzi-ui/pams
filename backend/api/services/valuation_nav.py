@@ -291,11 +291,14 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
                    balance AS statement_balance
             FROM pams_bank_statement_rows
             WHERE account_code = ANY(%s::text[])
-              AND transaction_date > %s
+              AND (
+                  transaction_date > %s
+                  OR (transaction_date <= %s AND balance IS NOT NULL)
+              )
               AND transaction_date <= %s
             ORDER BY account_code, transaction_date, id
             """,
-            (account_codes, start_date, terminal_date),
+            (account_codes, start_date, start_date, terminal_date),
         )
     elif exists.get("cashflow_fact_exists"):
         cur.execute(
@@ -317,13 +320,22 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
                    ), '') AS statement_balance
             FROM pams_cashflow_fact
             WHERE account_code = ANY(%s::text[])
-              AND affects_nav IS TRUE
-              AND event_date > %s
+              AND (
+                  event_date > %s
+                  OR (
+                      event_date <= %s
+                      AND NULLIF(COALESCE(
+                          raw_json #>> '{statement_row,balance}',
+                          raw_json #>> '{statement_row,raw_json,balance}',
+                          raw_json #>> '{balance}'
+                      ), '') IS NOT NULL
+                  )
+              )
               AND event_date <= %s
               AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
             ORDER BY account_code, event_date, cashflow_id
             """,
-            (account_codes, start_date, terminal_date),
+            (account_codes, start_date, start_date, terminal_date),
         )
     else:
         return {}
