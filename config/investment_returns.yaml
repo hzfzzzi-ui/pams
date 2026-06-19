@@ -1,0 +1,78 @@
+as_of: 2026-06-02
+source: 建设银行收益中心截图/腾讯理财通收益中心截图/用户确认
+
+account_performance:
+  tonghuashun:
+    label: 同花顺A股个股
+    account_code: tonghuashun
+    as_of: 2026-05-31
+    use_reported_anchor: false
+    currency: CNY
+    total_return_gross: -18958.88
+    total_return_rate: -0.0171
+    annualized_return_rate: -0.1879
+    ytd_return_rate: -0.0022
+    one_month_return_rate: -0.0254
+    three_month_return_rate: -0.1280
+    basis: TradingView投资组合表现截图
+    note: 平台表现页口径仅保留审计；PAMS收益率按同花顺入金流水和个人确认累计投入25万元计算。
+
+  tencent_licaitong:
+    label: 腾讯理财通
+    account_code: tencent_licaitong
+    as_of: 2026-06-02
+    currency: CNY
+    total_ytd_pnl: 14564.68
+    ytd_return_rate: null
+    yesterday_pnl: 2125.11
+    holding_snapshot_market_value: 115928.61
+    excluded_history_total_pnl: 18018.96
+    basis: 用户确认腾讯理财通 2026 年收益中心口径
+    note: 平台官方收益口径；不同于当前持仓浮动盈亏/当前持仓成本收益率。
+
+sections:
+  a_share_fund:
+    label: A股基金收益明细
+    major_category: A股
+    minor_category: A股基金
+    currency: CNY
+    total_ytd_pnl: 5418.60
+    summary_note: 建行收益中心 2026 年基金收益；账户核准页不记录该收益，只记录对应余额。
+    entries:
+      - name: 建信上海金ETF联接A
+        ytd_pnl: 2837.89
+        basis: 建行收益中心截图
+      - name: 南方中证半导体产业指数发起A
+        ytd_pnl: 2069.07
+        basis: 建行收益中心截图
+      - name: 易沪深300
+        symbol: "110020"
+        ytd_pnl: 716.63
+        first_buy: 2025-12-15
+        last_buy: 2026-05-25
+        bank_cash_cost: 21000.00
+        current_market_value: 21700.45
+        basis: 建行流水识别 21 笔定投，收益按建行收益中心截图
+      - name: 汇添富美元债债券（QDII）人民币A
+        ytd_pnl: -43.11
+        basis: 建行收益中心截图
+      - name: 嘉实中证稀土ETF联接A
+        ytd_pnl: -161.88
+        basis: 建行收益中心截图
+
+  precious_metals:
+    label: 贵金属收益明细
+    major_category: 贵金属
+    minor_category: 黄金
+    currency: CNY
+    total_ytd_pnl: -2109.20
+    summary_note: 建行积存金 2026 年收益；账户核准页只记录当前金额。
+    entries:
+      - name: 建行黄金积存金
+        symbol: CCB_GOLD_ACCUM
+        ytd_pnl: -2109.20
+        first_buy: 2026-01-29
+        last_buy: 2026-01-29
+        bank_cash_cost: 11998.30
+        current_market_value: 9852.10
+        basis: 建行流水识别积存金买入，收益按建行收益中心截图

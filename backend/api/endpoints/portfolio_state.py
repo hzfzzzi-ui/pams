@@ -1,0 +1,66 @@
+"""PortfolioState contract endpoint."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Query
+
+from services.portfolio_config import build_portfolio_config_payload
+from services.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload
+from services.portfolio_state import build_portfolio_data_quality, build_portfolio_state
+from services.portfolio_valuation_state import (
+    build_portfolio_valuation_state_payload,
+    publish_portfolio_valuation_state_payload,
+)
+
+
+router = APIRouter()
+
+
+@router.get("/portfolio/state")
+def portfolio_state(baseCurrency: str = Query("CNY")):
+    """Return the unified read-only PortfolioState payload."""
+    return build_portfolio_state(base_currency=baseCurrency)
+
+
+@router.get("/portfolio/data-quality")
+def portfolio_data_quality(baseCurrency: str = Query("CNY")):
+    """Return only read-only PortfolioState data-quality metadata."""
+    return build_portfolio_data_quality(base_currency=baseCurrency)
+
+
+@router.get("/portfolio/config")
+def portfolio_config(baseCurrency: str = Query("CNY")):
+    """Return target allocation rules and rebalance actions for the config page."""
+    return build_portfolio_config_payload(base_currency=baseCurrency)
+
+
+@router.get("/portfolio/risk-disclosure")
+def portfolio_risk_disclosure(baseCurrency: str = Query("CNY")):
+    """Return seven-surface risk disclosure for the investment risk page."""
+    return build_portfolio_risk_disclosure_payload(base_currency=baseCurrency)
+
+
+@router.get("/portfolio/valuation-state")
+def portfolio_valuation_state(
+    baseCurrency: str = Query("CNY"),
+    refresh: bool = Query(False),
+    cycle: str = Query("manual_publish"),
+):
+    """Return the canonical published portfolio valuation state."""
+    return build_portfolio_valuation_state_payload(
+        base_currency=baseCurrency,
+        refresh=refresh,
+        cycle=cycle,
+    )
+
+
+@router.post("/portfolio/valuation-state/publish")
+def portfolio_valuation_state_publish(
+    baseCurrency: str = Query("CNY"),
+    cycle: str = Query("manual_publish"),
+):
+    """Publish the current PortfolioState valuation as the canonical state."""
+    return publish_portfolio_valuation_state_payload(
+        base_currency=baseCurrency,
+        cycle=cycle,
+    )

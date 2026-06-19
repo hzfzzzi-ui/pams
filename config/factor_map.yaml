@@ -1,0 +1,72 @@
+symbols:
+  CASH_CNY:
+    CASH: 1.0
+  CASH_USD:
+    CASH: 1.0
+    USD_FX: 1.0
+  GOLD:
+    GOLD: 1.0
+  XAU:
+    GOLD: 1.0
+  GLD:
+    GOLD: 1.0
+    USD_FX: 1.0
+  BTC:
+    CRYPTO: 1.0
+    USD_FX: 1.0
+  ETH:
+    CRYPTO: 1.0
+    USD_FX: 1.0
+  AAPL:
+    US_EQUITY: 1.0
+    USD_FX: 1.0
+  MSFT:
+    US_EQUITY: 1.0
+    USD_FX: 1.0
+  NVDA:
+    US_EQUITY: 1.0
+    USD_FX: 1.0
+
+asset_types:
+  cash:
+    CASH: 1.0
+  money_market:
+    CASH: 1.0
+  short_bond:
+    CASH: 0.7
+    DURATION: 0.3
+  a_share_stock:
+    CN_EQUITY: 1.0
+  a_share_fund:
+    CN_EQUITY: 0.9
+    CASH: 0.1
+  cn_etf:
+    CN_EQUITY: 1.0
+  us_stock:
+    US_EQUITY: 1.0
+    USD_FX: 1.0
+  us_etf:
+    US_EQUITY: 1.0
+    USD_FX: 1.0
+  global_fund:
+    US_EQUITY: 0.6
+    CN_EQUITY: 0.2
+    USD_FX: 0.6
+  crypto:
+    CRYPTO: 1.0
+    USD_FX: 1.0
+  gold:
+    GOLD: 1.0
+  esop:
+    ESOP_SINGLE_COMPANY: 1.0
+  manual_asset:
+    OTHER: 1.0
+
+accounts:
+  ibkr:
+    USD_FX: 1.0
+  esop:
+    ESOP_SINGLE_COMPANY: 1.0
+
+default:
+  OTHER: 1.0

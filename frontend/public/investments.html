@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PAMS" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>PAMS · 投资</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css?v=20260617-return-window-v1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body id="top" class="page-investments">
+  <div class="statusbar">
+    <div class="status-left">
+      <span class="brand">PAMS</span>
+      <div class="status-item"><span class="status-dot"></span> LIVE</div>
+      <span class="status-item">投资</span>
+      <span class="status-item" id="asof">--</span>
+    </div>
+    <div class="status-right"></div>
+  </div>
+
+  <div class="wrap">
+    <div class="nav">
+      <a data-nav href="investments.html">投资</a>
+      <a data-nav href="ledger.html">收支</a>
+      <a data-nav href="more.html">更多</a>
+    </div>
+    <div class="pageHeader">
+      <div>
+        <h1>投资</h1>
+        <div class="pageSubtitle">持仓、收益分析、交易流水与穿透暴露</div>
+      </div>
+      <div class="pageMeta">
+        <a class="pill" href="accounts.html">账户核准</a>
+      </div>
+    </div>
+    <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
+
+    <section id="investment-conclusion" class="card investmentHero">
+      <div id="mobilePortfolioHero" class="mobilePortfolioHero" aria-live="polite">
+        <div class="mobileHeroLabel">投资组合价值</div>
+        <div class="mobileHeroValue skeletonLine"></div>
+        <div class="mobileHeroStats">
+          <div class="skeletonLine"></div>
+          <div class="skeletonLine"></div>
+        </div>
+        <div class="mobileHeroMeta">
+          <span id="mobileInvestmentFreshness">--</span>
+        </div>
+      </div>
+
+      <div class="desktopInvestmentHeroContent">
+        <div class="sectionTitle">
+          <div>
+            <h2>今日收益</h2>
+          </div>
+          <div class="right">
+            <span id="investmentDataFreshness" class="statusBadge statusBadge-data">数据加载中</span>
+          </div>
+        </div>
+        <div id="investmentSummaryHeader" class="investmentHeroGrid">
+          <div class="skeletonCard"></div><div class="skeletonCard"></div><div class="skeletonCard"></div><div class="skeletonCard"></div>
+        </div>
+        <div id="investmentConclusionText" class="investmentConclusionText skeletonLine"></div>
+      </div>
+    </section>
+
+    <div class="investAnchorNav" aria-label="投资页导航">
+      <a class="is-active" href="#holdings-smart-table" data-invest-tab="holdings">持仓</a>
+      <a href="#return-trend" data-invest-tab="analysis">分析</a>
+      <a href="#investment-ledger" data-invest-tab="transactions">交易</a>
+      <a href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>
+      <a href="#portfolio-constraints" data-invest-tab="allocation">配置</a>
+    </div>
+
+    <!-- 全部投资资产总览 -->
+    <div id="holdings-smart-table" class="card" data-invest-panel="holdings">
+      <div class="sectionTitle">
+        <h2>持仓</h2>
+        <select id="holdingGroupFilter" class="holdingGroupSelect" aria-label="持仓分类"></select>
+      </div>
+      <div id="mobileHoldingFilterChips" class="mobileHoldingFilterChips" aria-label="持仓分类"></div>
+      <div class="tableWrap" style="margin-top:10px">
+        <table class="tableWide" style="min-width:1120px">
+          <thead>
+            <tr>
+              <th class="nowrap" style="width:90px">代码</th>
+              <th style="width:220px">名称</th>
+              <th style="width:92px">类别</th>
+              <th style="width:100px">账户</th>
+              <th class="nowrap num" style="width:110px">市值</th>
+              <th class="nowrap num" style="width:96px">份数</th>
+              <th class="nowrap num" style="width:90px">现价</th>
+              <th class="nowrap num" style="width:120px">今日盈亏</th>
+              <th class="nowrap num" style="width:120px">累计盈亏</th>
+              <th style="width:140px">说明</th>
+              <th style="width:86px">数据</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="mobileHoldingList" class="mobileHoldingList"></div>
+    </div>
+
+    <!-- 投资汇总统计 -->
+    <div id="return-trend" class="card" data-invest-panel="analysis">
+      <div class="sectionTitle">
+        <div>
+          <h2>分析</h2>
+        </div>
+      </div>
+      <div id="returnMethodBar" class="returnMethodBar"></div>
+      <div class="kpiGrid" hidden>
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="grandTotalValue">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">投资收益</div>
+          <div class="kpi-value" id="grandTotalPnl">--</div>
+          <div class="muted" id="grandTotalPnlPct" style="margin-top:4px"></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">今日收益</div>
+          <div class="kpi-value" id="grandDailyPnl">--</div>
+        </div>
+      </div>
+      <div class="investmentMainGrid investmentMainGrid-single" style="margin-top:12px">
+        <div class="returnChartPanel">
+          <div class="returnChartHeader">
+            <div class="returnChartTitleBlock">
+              <h3>组合收益率 <span class="miniBadge pending">近似TWR</span></h3>
+              <div class="returnChartHint">区间内收益率走势，剔除投入资金扰动</div>
+            </div>
+            <div id="investmentReturnWindowToggle" class="returnWindowSegment" aria-label="收益率曲线时间范围切换"></div>
+          </div>
+          <div class="returnSeriesRail" aria-label="收益率曲线对象">
+            <span>曲线</span>
+            <div id="investmentReturnToggle" class="returnSeriesToggle" aria-label="收益率曲线切换"></div>
+          </div>
+          <div class="chartWrap" style="margin-top:8px">
+            <canvas id="investmentReturnChart"></canvas>
+            <div id="returnEventHotspots" class="returnEventHotspots" aria-label="收益曲线关键点"></div>
+            <div id="returnEventPopover" class="returnEventPopover" hidden></div>
+          </div>
+          <div class="returnNavPanel">
+            <div class="returnChartHeader returnNavHeader">
+              <div class="returnChartTitleBlock">
+                <h3>NAV变化 <span id="investmentNavRange" class="miniBadge data">同区间</span></h3>
+                <div class="returnChartHint">完整 NAV 口径，含银行卡、现金账户和负债回溯</div>
+              </div>
+              <div id="investmentNavStats" class="returnNavStats" aria-label="NAV变化摘要"></div>
+            </div>
+            <div class="chartWrapSm returnNavChartWrap">
+              <canvas id="investmentNavChart"></canvas>
+            </div>
+          </div>
+          <div class="returnInsightGrid returnInsightGrid-single">
+            <div id="profitContributionPanel" class="returnInsightCard profitContributionPanel">
+              <div class="muted">正在计算收益贡献...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="analysisSwitch" id="analysisSwitch" role="tablist" aria-label="分析模块切换">
+        <button type="button" class="active" role="tab" aria-selected="true" data-analysis-panel-switch="return_attribution">收益归因</button>
+        <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="trade_attribution">交易归因</button>
+        <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="asset_master">资产底表</button>
+      </div>
+      <div class="lookthroughTwinGrid analysisPanelStack">
+        <div id="return-attribution" class="lookthroughPanel returnAttributionPanel analysisPanelPage" data-analysis-panel-page="return_attribution">
+          <div class="sectionTitle">
+            <h3>收益归因 <span class="miniBadge data" id="returnAttributionBadge">待计算</span></h3>
+          </div>
+          <div id="returnAttributionSummary" class="returnAttributionSummary"></div>
+          <div id="returnAttributionTabs" class="lookthroughTabs" aria-label="收益归因维度"></div>
+          <div id="returnAttributionList" class="lookthroughList">
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+          </div>
+        </div>
+        <div id="trade-attribution-analysis" class="lookthroughPanel tradeAttributionAnalysisPanel analysisPanelPage" data-analysis-panel-page="trade_attribution" hidden>
+          <div class="sectionTitle">
+            <h3>交易归因 <span class="miniBadge data">复盘标注</span></h3>
+            <a class="miniBtn" href="#investment-ledger">回到交易</a>
+          </div>
+          <div id="tradeAttributionPanel" class="tradeAttributionPanel tradeAttributionPanelV2">
+            <div class="muted">正在计算复盘概览...</div>
+          </div>
+        </div>
+        <div id="asset-master-panel" class="lookthroughPanel assetMasterPanel analysisPanelPage" data-analysis-panel-page="asset_master" hidden>
+          <div class="lookthroughPanelHead">
+            <h3>资产底表 <span class="miniBadge data" id="assetMasterBadge">待同步</span></h3>
+          </div>
+          <div id="assetMasterSummary" class="assetMasterSummary">
+            <div class="lookthroughEmpty">资产底表数据待加载</div>
+          </div>
+          <div id="assetMasterList" class="assetMasterList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快速导航 -->
+    <div id="category-details" class="card" data-invest-panel="analysis">
+      <div class="sectionTitle">
+        <div>
+          <h2>分类</h2>
+          <div class="muted">默认单类展开。</div>
+        </div>
+      </div>
+      <div id="categoryTabs" class="investmentTabs" role="tablist" aria-label="投资分类">
+        <button class="investmentTab active" type="button" data-category-target="section-a-stock-equity">A股个股</button>
+        <button class="investmentTab" type="button" data-category-target="section-a-fund">基金</button>
+        <button class="investmentTab" type="button" data-category-target="section-us-stock">美股/海外</button>
+        <button class="investmentTab" type="button" data-category-target="section-precious-metal">贵金属</button>
+        <button class="investmentTab" type="button" data-category-target="section-esop">内部股份/分红</button>
+      </div>
+    </div>
+
+    <!-- ========== A股个股持仓 ========== -->
+    <div id="section-a-stock-equity" class="card investmentCategorySection" data-invest-panel="analysis">
+      <h2>一、A股个股持仓</h2>
+
+      <div style="margin-bottom:20px">
+        <h3>收益率曲线（剔除投入资金）</h3>
+        <canvas id="chartAStockEquity" style="max-height:250px"></canvas>
+      </div>
+
+      <!-- 汇总统计 -->
+      <div class="kpiGrid" style="margin-bottom:20px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="totalValueAStockEquity">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="totalPnlAStockEquity">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">今日收益</div>
+          <div class="kpi-value" id="dailyPnlAStockEquity">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓数量</div>
+          <div class="kpi-value" id="countKpiAStockEquity">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">收益率</div>
+          <div class="kpi-value" id="holdingPnlAStockEquity">--</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sectionTitle">
+          <h3>持仓明细</h3>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="pill" style="cursor:pointer">
+              <input class="showClosedPositionsToggle" type="checkbox" style="margin-right:6px;vertical-align:middle">
+              显示已平仓
+            </label>
+            <div class="muted">总计：<span id="countAStockEquity">0</span> 条</div>
+          </div>
+        </div>
+        <div class="tableWrap" style="margin-top:10px">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap" style="width:100px">代码</th>
+                <th style="width:220px">名称</th>
+                <th class="nowrap num" style="width:90px">买入价格</th>
+                <th class="nowrap num" style="width:80px">数量</th>
+                <th class="nowrap num" style="width:90px">当前价格</th>
+                <th class="nowrap num" style="width:110px">持仓市值</th>
+                <th class="nowrap num" style="width:110px">收益率</th>
+              </tr>
+            </thead>
+            <tbody id="rowsAStockEquity"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 基金持仓 ========== -->
+    <div id="section-a-fund" class="card investmentCategorySection" data-invest-panel="analysis">
+      <h2>二、基金持仓</h2>
+
+      <div style="margin-bottom:20px">
+        <h3>收益率曲线（剔除投入资金）</h3>
+        <canvas id="chartAFund" style="max-height:250px"></canvas>
+      </div>
+
+      <!-- 汇总统计 -->
+      <div class="kpiGrid" style="margin-bottom:20px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="totalValueAFund">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="totalPnlAFund">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">今日收益</div>
+          <div class="kpi-value" id="dailyPnlAFund">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓数量</div>
+          <div class="kpi-value" id="countKpiAFund">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">收益率</div>
+          <div class="kpi-value" id="holdingPnlAFund">--</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sectionTitle">
+          <h3>持仓明细</h3>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="pill" style="cursor:pointer">
+              <input class="showClosedPositionsToggle" type="checkbox" style="margin-right:6px;vertical-align:middle">
+              显示已平仓
+            </label>
+            <div class="muted">总计：<span id="countAFund">0</span> 条</div>
+          </div>
+        </div>
+        <div class="tableWrap" style="margin-top:10px">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap" style="width:100px">代码</th>
+                <th style="width:220px">名称</th>
+                <th class="nowrap num" style="width:90px">买入价格</th>
+                <th class="nowrap num" style="width:80px">数量</th>
+                <th class="nowrap num" style="width:90px">当前价格</th>
+                <th class="nowrap num" style="width:110px">持仓市值</th>
+                <th class="nowrap num" style="width:110px">收益率</th>
+              </tr>
+            </thead>
+            <tbody id="rowsAFund"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="returnNotesAFund" style="margin-top:16px"></div>
+    </div>
+
+    <!-- ========== 美股持仓 ========== -->
+    <div id="section-us-stock" class="card investmentCategorySection" data-invest-panel="analysis">
+      <h2>三、美股持仓</h2>
+
+      <div style="margin-bottom:20px">
+        <h3>收益率曲线（剔除投入资金）</h3>
+        <canvas id="chartUSStock" style="max-height:250px"></canvas>
+      </div>
+
+      <!-- 汇总统计 -->
+      <div class="kpiGrid" style="margin-bottom:20px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="totalValueUSStock">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="totalPnlUSStock">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">今日收益</div>
+          <div class="kpi-value" id="dailyPnlUSStock">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓数量</div>
+          <div class="kpi-value" id="countKpiUSStock">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">收益率</div>
+          <div class="kpi-value" id="holdingPnlUSStock">--</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sectionTitle">
+          <h3>持仓明细</h3>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="pill" style="cursor:pointer">
+              <input class="showClosedPositionsToggle" type="checkbox" style="margin-right:6px;vertical-align:middle">
+              显示已平仓
+            </label>
+            <div class="muted">总计：<span id="countUSStock">0</span> 条</div>
+          </div>
+        </div>
+        <div class="tableWrap" style="margin-top:10px">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th class="nowrap" style="width:100px">代码</th>
+                <th style="width:220px">名称</th>
+                <th class="nowrap num" style="width:90px">买入价格</th>
+                <th class="nowrap num" style="width:80px">数量</th>
+                <th class="nowrap num" style="width:90px">当前价格</th>
+                <th class="nowrap num" style="width:110px">持仓市值</th>
+                <th class="nowrap num" style="width:110px">收益率</th>
+              </tr>
+            </thead>
+            <tbody id="rowsUSStock"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 贵金属持仓 ========== -->
+    <div id="section-precious-metal" class="card investmentCategorySection" data-invest-panel="analysis">
+      <h2>四、贵金属持仓</h2>
+
+      <div style="margin-bottom:20px">
+        <h3>收益率曲线（剔除投入资金）</h3>
+        <canvas id="chartPreciousMetal" style="max-height:250px"></canvas>
+      </div>
+
+      <!-- 汇总统计 -->
+      <div class="kpiGrid" style="margin-bottom:20px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="totalValuePreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="totalPnlPreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">今日收益</div>
+          <div class="kpi-value" id="dailyPnlPreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓数量</div>
+          <div class="kpi-value" id="countKpiPreciousMetal">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">收益率</div>
+          <div class="kpi-value" id="holdingPnlPreciousMetal">--</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sectionTitle">
+          <h3>持仓明细</h3>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="pill" style="cursor:pointer">
+              <input class="showClosedPositionsToggle" type="checkbox" style="margin-right:6px;vertical-align:middle">
+              显示已平仓
+            </label>
+            <div class="muted">总计：<span id="countPreciousMetal">0</span> 条</div>
+          </div>
+        </div>
+        <div class="tableWrap" style="margin-top:10px">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th style="width:260px">名称</th>
+                <th class="nowrap num" style="width:100px">买入价格</th>
+                <th class="nowrap num" style="width:90px">数量</th>
+                <th class="nowrap num" style="width:100px">当前价格</th>
+                <th class="nowrap num" style="width:120px">持仓市值</th>
+                <th class="nowrap num" style="width:120px">收益率</th>
+              </tr>
+            </thead>
+            <tbody id="rowsPreciousMetal"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="returnNotesPreciousMetal" style="margin-top:16px"></div>
+    </div>
+
+    <!-- ========== 内部股份分红 ========== -->
+    <div id="section-esop" class="card investmentCategorySection" data-invest-panel="analysis">
+      <h2>五、内部股份分红</h2>
+
+      <div class="kpiGrid" style="margin-bottom:20px">
+        <div class="kpi">
+          <div class="kpi-label">当前市值</div>
+          <div class="kpi-value" id="totalValueESOP">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓收益</div>
+          <div class="kpi-value" id="totalPnlESOP">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">今日收益</div>
+          <div class="kpi-value" id="dailyPnlESOP">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">持仓数量</div>
+          <div class="kpi-value" id="countKpiESOP">--</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">收益率</div>
+          <div class="kpi-value" id="holdingPnlESOP">--</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sectionTitle">
+          <h3>持仓明细</h3>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="pill" style="cursor:pointer">
+              <input class="showClosedPositionsToggle" type="checkbox" style="margin-right:6px;vertical-align:middle">
+              显示已平仓
+            </label>
+            <div class="muted">总计：<span id="countESOP">0</span> 条</div>
+          </div>
+        </div>
+        <div class="tableWrap" style="margin-top:10px">
+          <table class="tableWide">
+            <thead>
+              <tr>
+                <th style="width:260px">名称</th>
+                <th class="nowrap num" style="width:100px">买入价格</th>
+                <th class="nowrap num" style="width:90px">数量</th>
+                <th class="nowrap num" style="width:100px">当前价格</th>
+                <th class="nowrap num" style="width:120px">持仓市值</th>
+                <th class="nowrap num" style="width:120px">收益率</th>
+              </tr>
+            </thead>
+            <tbody id="rowsESOP"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 投资交易明细 ========== -->
+    <div id="investment-ledger" class="card" data-invest-panel="transactions">
+      <div class="sectionTitle">
+        <h2>交易流水与手动记录</h2>
+        <div class="right">
+          <button id="btnReload" class="btn">刷新</button>
+          <button id="btnReset" class="btn">重置</button>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:-6px;margin-bottom:var(--sp-3)">这里只记录投资买卖、入出金、换汇、分红和费用；银行/支付消费流水在流水页查看。</div>
+
+      <div id="manualTradeEntry" class="investmentPanel tradeEntryBlock" hidden>
+        <div class="sectionTitle">
+          <h3>手动交易记录录入</h3>
+          <button id="btnCloseTradeForm" class="btn" type="button">收起</button>
+        </div>
+        <div class="investmentFormGrid tradeSimpleFormGrid">
+          <div>
+            <label class="formLabel" for="tradeAccount">平台</label>
+            <select id="tradeAccount" class="formInput"></select>
+          </div>
+          <div>
+            <label class="formLabel" for="tradeDate">交易日期</label>
+            <input id="tradeDate" class="formInput" type="date" />
+          </div>
+          <div>
+            <label class="formLabel" for="tradeSide">方向</label>
+            <select id="tradeSide" class="formInput">
+              <option value="buy">买入</option>
+              <option value="sell">卖出</option>
+              <option value="deposit">入金</option>
+              <option value="withdraw">出金</option>
+              <option value="dividend">分红</option>
+              <option value="fx_conversion">换汇</option>
+              <option value="fee">费用</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+          <div>
+            <label class="formLabel" for="tradeCurrency">币种</label>
+            <select id="tradeCurrency" class="formInput">
+              <option value="CNY">CNY</option>
+              <option value="USD">USD</option>
+              <option value="HKD">HKD</option>
+              <option value="MXN">MXN</option>
+            </select>
+          </div>
+          <div class="investmentFormSpan">
+            <label class="formLabel" for="tradeName">标的名称</label>
+            <input id="tradeName" class="formInput" list="tradeNameList" placeholder="选择或输入标的名称" />
+          </div>
+          <div>
+            <label class="formLabel" for="tradeAmount">金额</label>
+            <input id="tradeAmount" class="formInput mono" type="number" step="0.01" />
+          </div>
+          <div>
+            <label class="formLabel" for="tradeQuantity">份数</label>
+            <input id="tradeQuantity" class="formInput mono" type="number" step="0.000001" />
+          </div>
+          <div>
+            <label class="formLabel" for="tradeFees">税费</label>
+            <input id="tradeFees" class="formInput mono" type="number" step="0.01" value="0" />
+          </div>
+        </div>
+        <datalist id="tradeNameList"></datalist>
+        <button id="btnCreateTrade" class="btn primary" style="margin-top: var(--sp-3); width:100%;">保存记录</button>
+        <div id="formMsg" class="muted" style="margin-top: var(--sp-2);"></div>
+      </div>
+
+      <div id="tradeFilterPanel" class="investmentPanel tradeFilterPanel" hidden></div>
+
+      <div id="transactionSummaryPanel" class="transactionSummaryPanel">
+        <div class="muted">正在读取交易流水...</div>
+      </div>
+    </div>
+
+    <div id="portfolio-risk-disclosure" class="card portfolioRiskPanel" data-invest-panel="risk">
+      <div class="portfolioRiskBlock portfolioRiskDashboardBlock">
+        <div id="portfolioRiskDashboard" class="portfolioRiskDashboardShell">
+          <div class="skeletonLine"></div>
+        </div>
+      </div>
+      <div class="portfolioRiskBlock portfolioExposureBlock">
+        <div id="lookthrough-exposure" class="lookthroughPanel portfolioExposurePanel">
+          <div class="sectionTitle">
+            <h3>风险暴露 <span class="miniBadge data" id="lookthroughCoverageBadge">待核准</span></h3>
+          </div>
+          <div id="lookthroughQuality" class="lookthroughQuality"></div>
+          <div id="lookthroughTabs" class="lookthroughTabs" aria-label="风险暴露维度"></div>
+          <div id="lookthroughList" class="lookthroughList">
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+          </div>
+        </div>
+      </div>
+      <div class="portfolioRiskBlock">
+        <div class="portfolioConfigHead">
+          <h3 data-risk-checklist-title>风险检查清单</h3>
+        </div>
+        <div id="portfolioRiskCategories" class="portfolioRiskCategoryList">
+          <div class="skeletonLine"></div>
+          <div class="skeletonLine"></div>
+          <div class="skeletonLine"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="portfolio-constraints" class="card portfolioConfigPanel" data-invest-panel="allocation">
+      <div class="sectionTitle">
+        <h2>组合配置</h2>
+      </div>
+      <div class="portfolioConfigGrid">
+        <section class="portfolioConfigBlock">
+          <div class="portfolioConfigHead">
+            <h3>目标配置规则</h3>
+            <span id="portfolioConfigAsOf" class="miniBadge data">读取中</span>
+          </div>
+          <div id="portfolioConfigRules" class="portfolioRuleList">
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+          </div>
+        </section>
+        <section class="portfolioConfigBlock">
+          <div class="portfolioConfigHead">
+            <h3>再平衡</h3>
+          </div>
+          <div id="portfolioRebalanceQueue" class="portfolioRebalanceList">
+            <div class="skeletonLine"></div>
+            <div class="skeletonLine"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 返回顶部 -->
+    <div class="card desktopOnlyCard" style="text-align:center">
+      <a class="pill" href="#top">返回顶部</a>
+    </div>
+  </div>
+
+  <script type="module" src="assets/js/holdings.js?v=20260617-linkage-v1"></script>
+  <script type="module" src="assets/js/holdings_categories.js?v=20260619-valuation-state-v1"></script>
+  <script type="module" src="assets/js/lookthrough.js?v=20260618-nav-field-v1"></script>
+  <script type="module" src="assets/js/transactions.js?v=20260617-linkage-v1"></script>
+  <script type="module" src="assets/js/portfolio_risk.js?v=20260617-linkage-v1"></script>
+  <script type="module" src="assets/js/portfolio_config.js?v=20260617-linkage-v1"></script>
+</body>
+</html>
