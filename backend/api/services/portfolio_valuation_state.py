@@ -54,6 +54,47 @@ def _date_key(value: Any) -> str | None:
     return str(value)[:10]
 
 
+def published_valuation_date_key(row: dict[str, Any] | None) -> str | None:
+    """Return the valuation date used for freshness checks."""
+    if not row:
+        return None
+    return _date_key(row.get("valuation_date") or row.get("as_of"))
+
+
+def is_published_valuation_fresh_for_date(
+    row: dict[str, Any] | None,
+    target_as_of: Any,
+) -> bool:
+    """True when a published valuation can safely override a target fact date."""
+    state_date = published_valuation_date_key(row)
+    if not state_date:
+        return False
+    target_date = _date_key(target_as_of)
+    if not target_date:
+        return True
+    return state_date >= target_date
+
+
+def published_valuation_stale_meta(
+    row: dict[str, Any] | None,
+    *,
+    target_as_of: Any,
+    reason: str = "stale_valuation_state",
+) -> dict[str, Any] | None:
+    """Return compact stale-overlay metadata without authorizing an override."""
+    meta = published_valuation_state_meta(row)
+    if not meta:
+        return None
+    meta.update(
+        {
+            "overlay_applied": False,
+            "overlay_reason": reason,
+            "target_as_of": _date_key(target_as_of) or "",
+        }
+    )
+    return meta
+
+
 def _state_as_of(
     account_balances: list[dict[str, Any]],
     investment_positions: list[dict[str, Any]],

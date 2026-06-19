@@ -85,6 +85,7 @@ from services.portfolio_state import (
 )
 from services.portfolio_valuation_state import (
     apply_published_valuation_state_to_return_series_payload as _apply_published_valuation_state_to_return_series_payload,
+    is_published_valuation_fresh_for_date as _is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state as _latest_published_portfolio_valuation_state,
     published_nav_bucket_from_row as _published_nav_bucket_from_row,
 )
@@ -799,18 +800,23 @@ def nav_weekly(
 
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
             published_state = (
                 _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
                 if latest
                 else None
             )
+            published_state_fresh = bool(
+                published_state
+                and _is_published_valuation_fresh_for_date(published_state, current_view_as_of)
+            )
             terminal_date = (
                 published_state["valuation_date"]
-                if published_state and published_state.get("valuation_date")
-                else (_investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE)
+                if published_state_fresh and published_state and published_state.get("valuation_date")
+                else current_view_as_of
             )
             terminal_nav_bucket = None
-            if published_state:
+            if published_state_fresh and published_state:
                 terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
             elif latest:
                 account_cfg = _load_portfolio_accounts_config()

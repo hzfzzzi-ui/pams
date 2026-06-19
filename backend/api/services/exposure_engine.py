@@ -20,6 +20,7 @@ AssetType = Literal[
     "港股个股",
     "美股个股",
     "欧股个股",
+    "韩股个股",
     "ETF / 基金",
     "现金",
     "债券 / 货币基金",
@@ -108,6 +109,7 @@ ASSET_TYPES: tuple[AssetType, ...] = (
     "港股个股",
     "美股个股",
     "欧股个股",
+    "韩股个股",
     "ETF / 基金",
     "现金",
     "债券 / 货币基金",
@@ -187,6 +189,7 @@ FORBIDDEN_INDUSTRY_LABELS = {
     "A股个股",
     "美股个股",
     "欧股个股",
+    "韩股个股",
 }
 FORBIDDEN_INDUSTRY_LABELS.discard("半导体")
 FORBIDDEN_INDUSTRY_LABELS.discard("互联网平台")
@@ -199,6 +202,7 @@ FORBIDDEN_THEME_LABELS = {
     "A股个股",
     "美股个股",
     "欧股个股",
+    "韩股个股",
     "人民币资产",
     "美元资产",
     "中国资产",
@@ -691,7 +695,7 @@ def resolveAssetType(holding: dict[str, Any]) -> AssetType:
     if _is_hk_symbol(raw_symbol):
         return "港股个股"
     if _is_kr_symbol(raw_symbol) or asset_type in {"stock_kr", "kr_stock"} or currency == "KRW":
-        return "美股个股"
+        return "韩股个股"
     if asset_type in {"stock_eu", "eu_stock", "stock_se", "se_stock", "europe_stock", "swedish_stock"} or currency == "SEK":
         return "欧股个股"
     if _is_cn_equity_symbol(raw_symbol):
@@ -731,6 +735,8 @@ def resolve_market(holding: dict[str, Any], asset_type: AssetType | None = None)
         return "A股"
     if asset_type == "港股个股" or currency == "HKD" or _is_hk_symbol(raw_symbol):
         return "港股"
+    if asset_type == "韩股个股" or currency == "KRW":
+        return "韩股"
     if asset_type == "美股个股" or currency == "USD":
         return "美股"
     if asset_type == "欧股个股" or currency == "SEK":
@@ -984,7 +990,7 @@ def normalizeHoldings(rawHoldings: list[dict[str, Any]]) -> list[HoldingNormaliz
         lookthrough_status = "not_applicable"
         if asset_type == "ETF / 基金":
             lookthrough_status = "lookthrough_available" if raw.get("has_lookthrough") else "lookthrough_missing"
-        elif asset_type in {"A股个股", "港股个股", "美股个股", "欧股个股", "黄金 / 商品"}:
+        elif asset_type in {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "黄金 / 商品"}:
             lookthrough_status = "direct"
         item: HoldingNormalized = {
             "id": _text(raw.get("id") or raw.get("asset_id") or symbol or name),
@@ -1222,7 +1228,7 @@ def _aggregate_contributions(contributions: list[dict[str, Any]], denominator: f
 
 
 def _is_industry_eligible(asset_type: str) -> bool:
-    return asset_type in {"A股个股", "港股个股", "美股个股", "欧股个股", "ETF / 基金"}
+    return asset_type in {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"}
 
 
 def _is_theme_eligible(asset_type: str) -> bool:

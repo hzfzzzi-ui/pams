@@ -225,6 +225,39 @@ def test_a_share_stock_fallback_is_direct_full_coverage() -> None:
     assert unit["effectiveMarketValue"] == 30500.0
 
 
+def test_overseas_stock_fallback_is_direct_full_coverage_for_kr_and_eu() -> None:
+    payload = derive_lookthrough_payload(
+        [
+            {
+                "asset_name": "Samsung Electronics",
+                "symbol": "005930.KS",
+                "asset_type": "stock_kr",
+                "currency": "KRW",
+                "market_value_cny": 100.0,
+                "as_of": "2026-06-05",
+            },
+            {
+                "asset_name": "Sivers Semiconductors",
+                "symbol": "SIVE",
+                "asset_type": "stock_eu",
+                "currency": "SEK",
+                "market_value_cny": 50.0,
+                "as_of": "2026-06-05",
+            },
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+        as_of="2026-06-05",
+    )
+
+    items = {item["symbol"]: item for item in payload["quality"]["items"]}
+    assert items["005930.KS"]["lookthrough_type"] == "DIRECT"
+    assert items["005930.KS"]["quality_status"] == "FULL"
+    assert items["SIVE"]["lookthrough_type"] == "DIRECT"
+    assert items["SIVE"]["quality_status"] == "FULL"
+    assert payload["quality"]["covered_value_cny"] == 150.0
+    assert payload["quality"]["product_tag_only_value_cny"] == 0.0
+
+
 def test_industry_bucket_prefers_sw_l1_and_falls_back_to_foreign_labels() -> None:
     config = {
         "asset_mapping": [

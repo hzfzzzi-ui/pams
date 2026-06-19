@@ -684,7 +684,7 @@ def build_portfolio_risk_disclosure_payload_from_inputs(
         equity_item = _combined_exposure_item(
             lookthrough,
             "asset_type",
-            ["非上市股权", "A股个股", "港股个股", "美股个股", "欧股个股", "ETF / 基金"],
+            ["非上市股权", "A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"],
             nav,
             item_id="equity_price",
             label="股票/权益价格",

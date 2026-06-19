@@ -21,7 +21,7 @@ DEFAULT_PLAN = {
 
 INDEX_SYMBOLS = {"QQQ", "SPY", "VOO", "VTI", "IVV", "SCHB", "SPLG", "VT", "ACWI"}
 CODE_PREFIX_RE = re.compile(r"^([A-Z]{1,8}(?:\.[A-Z]{1,4})?|\d{4,6}(?:\.[A-Z]{1,4})?)\s*[-–]\s*(.+)$", re.I)
-PUBLIC_EQUITY_ASSET_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股", "ETF / 基金"}
+PUBLIC_EQUITY_ASSET_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"}
 PUBLIC_EQUITY_MARKETS = {"A股", "港股", "美股", "欧股", "韩股"}
 NON_PUBLIC_EQUITY_ASSET_TYPES = {
     "非上市股权",
@@ -460,6 +460,16 @@ def _config_market(row: dict[str, Any]) -> str:
     if market in PUBLIC_EQUITY_MARKETS:
         return market
     asset_type = str(row.get("assetType") or row.get("asset_type") or "")
+    region = str(row.get("region") or "")
+    currency = str(row.get("currency") or "")
+    text = " ".join(
+        str(row.get(key) or "")
+        for key in ("name", "parentName", "underlyingName", "symbol", "underlyingSymbol", "assetSubtype")
+    )
+    if "韩国" in region or currency == "KRW" or re.search(r"(韩国|KOSPI|KOSDAQ|\.KS\b)", text, re.I):
+        return "韩股"
+    if "欧洲" in region or "瑞典" in region or currency == "SEK" or re.search(r"(欧洲|欧股|瑞典|Sweden|Sverige|Stockholm|SEK)", text, re.I):
+        return "欧股"
     if asset_type == "A股个股":
         return "A股"
     if asset_type == "港股个股":
@@ -468,22 +478,14 @@ def _config_market(row: dict[str, Any]) -> str:
         return "美股"
     if asset_type == "欧股个股":
         return "欧股"
-    text = " ".join(
-        str(row.get(key) or "")
-        for key in ("name", "parentName", "underlyingName", "symbol", "underlyingSymbol", "assetSubtype")
-    )
+    if asset_type == "韩股个股":
+        return "韩股"
     if re.search(r"(恒生|港股|港股通|香港|H股)", text, re.I):
         return "港股"
     if re.search(r"(Nasdaq|纳斯达克|标普|S&P|美股|美国|QQQ|VOO|VTI|SPY|IVV)", text, re.I):
         return "美股"
     if re.search(r"(韩国|KOSPI|KOSDAQ)", text, re.I):
         return "韩股"
-    if re.search(r"(欧洲|欧股|瑞典|Sweden|Sverige|Stockholm|SEK)", text, re.I):
-        return "欧股"
-    region = str(row.get("region") or "")
-    currency = str(row.get("currency") or "")
-    if "欧洲" in region or "瑞典" in region or currency == "SEK":
-        return "欧股"
     if "中国" in region or currency == "CNY" or re.search(r"(中证|沪深|创业|科创|A股)", text, re.I):
         return "A股"
     return market or "其他"
@@ -973,7 +975,7 @@ def build_portfolio_config_payload_from_inputs(
     kr_other_amount = _n(equity_amounts.get("kr_other_equity"))
     other_equity_amount = _n(equity_amounts.get("other_equity"))
     us_broad_amount = _broad_us_value(lookthrough)
-    overseas_stock_types = ["美股个股", "欧股个股"]
+    overseas_stock_types = ["美股个股", "欧股个股", "韩股个股"]
     overseas_stock_amount = _exposure_value(lookthrough, "asset_type", overseas_stock_types, look_total)
     semiconductor_amount = _exposure_value(lookthrough, "theme", "半导体", look_total)
     ai_compute_amount = _exposure_value(lookthrough, "theme", "AI / 算力", look_total)

@@ -358,8 +358,13 @@ function canonicalPortfolioDashboardSummary({
     (sum, category) => sum + safeNum(category.totalCost ?? Math.max(safeNum(category.totalValue) - safeNum(category.totalPnl), 0)),
     0
   );
-  const totals = portfolioSummary?.totals || {};
-  const valuationState = portfolioValuationState || portfolioSummary?.valuation_state || null;
+  const targetAsOf = latestDateKey(fallbackAsOf, portfolioSummary?.data_as_of_max, portfolioSummary?.as_of);
+  const summaryFresh = isFreshPayloadAsOf(portfolioSummary, targetAsOf);
+  const totals = summaryFresh ? (portfolioSummary?.totals || {}) : {};
+  const valuationState = freshValuationStateForTarget(
+    portfolioValuationState || portfolioSummary?.valuation_state || null,
+    targetAsOf
+  );
   const marketValue = valuationState?.net_liquidation_value != null
     ? safeNum(valuationState.net_liquidation_value)
     : (totals.market_value != null ? safeNum(totals.market_value) : categoryValue);
@@ -369,7 +374,7 @@ function canonicalPortfolioDashboardSummary({
   const totalCost = totals.cost != null ? safeNum(totals.cost) : categoryCost;
   const totalLiabilities = resolvePortfolioLiabilitiesCny(
     valuationState,
-    portfolioSummary,
+    summaryFresh ? portfolioSummary : null,
     safeNum(accountCash?.cashLiabilities)
   );
   return {
@@ -379,7 +384,7 @@ function canonicalPortfolioDashboardSummary({
     dailyPnl,
     totalCost,
     pnlPct: totalCost > 0 ? totalPnl / totalCost * 100 : 0,
-    asOf: valuationState?.as_of || portfolioSummary?.valuation_state?.as_of || portfolioSummary?.as_of || fallbackAsOf,
+    asOf: latestDateKey(valuationState?.as_of, summaryFresh ? portfolioSummary?.as_of : null, fallbackAsOf) || fallbackAsOf,
     totalLiabilities,
     valuationState,
   };
@@ -447,7 +452,8 @@ function categoryByLabel(categories, label) {
 }
 
 function isoDateKey(value) {
-  return value ? String(value).slice(0, 10) : '';
+  const key = value ? String(value).slice(0, 10) : '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : '';
 }
 
 function isSameOrAfterDate(left, right) {
@@ -455,6 +461,29 @@ function isSameOrAfterDate(left, right) {
   const rightKey = isoDateKey(right);
   if (!leftKey || !rightKey) return false;
   return leftKey >= rightKey;
+}
+
+function latestDateKey(...values) {
+  const keys = values.map(isoDateKey).filter(Boolean);
+  return keys.length ? keys.sort().at(-1) : '';
+}
+
+function isFreshPayloadAsOf(payload, targetAsOf) {
+  if (!payload) return false;
+  const targetKey = isoDateKey(targetAsOf);
+  if (!targetKey) return true;
+  return isSameOrAfterDate(payload.as_of || payload.asOf || payload.valuation_date, targetKey);
+}
+
+function freshValuationStateForTarget(valuationState, targetAsOf) {
+  if (!valuationState) return null;
+  return isFreshPayloadAsOf(
+    {
+      as_of: valuationState.as_of || valuationState.valuation_date,
+      valuation_date: valuationState.valuation_date,
+    },
+    targetAsOf
+  ) ? valuationState : null;
 }
 
 function makeMobileHeroProfiles({
@@ -2503,8 +2532,11 @@ function buildInvestmentConclusion(summary, categories, issues) {
   </div>`;
 }
 
-function deriveDataQualityIssues({ reportedReturns, ibkrPerf, esopRows, fundRows, preciousRows }) {
+function deriveDataQualityIssues({ reportedReturns, staleReportedReturns = false, ibkrPerf, esopRows, fundRows, preciousRows }) {
   const issues = [];
+  if (staleReportedReturns) {
+    issues.push('基金、贵金属平台收益日期早于当前持仓，已跳过旧口径覆盖');
+  }
   if (reportedReturns?.sections?.a_share_fund || reportedReturns?.sections?.precious_metals) {
     issues.push('基金、贵金属包含平台收益中心/截图口径');
   }
@@ -2930,7 +2962,9 @@ async function main(){
     const latestSyncAt = latestSyncTimestamp(latestHoldings);
     document.getElementById('asof').textContent = asof;
 
-    const fundReport = reportedReturns?.sections?.a_share_fund;
+    const reportedReturnsFresh = isFreshPayloadAsOf(reportedReturns, asof);
+    const fundReport = reportedReturnsFresh ? reportedReturns?.sections?.a_share_fund : null;
+    const preciousReport = reportedReturnsFresh ? reportedReturns?.sections?.precious_metals : null;
     const aStockEquityRows = (aStockEquity.rows || []).filter((row) => {
       if (!row.is_closed || showClosedPositions()) return true;
       return Math.abs(safeNum(cnyValue(row, 'daily_pnl'))) > 0.005;
@@ -2972,7 +3006,7 @@ async function main(){
     const preciousSummary = renderSection(preciousMetal.rows || [], renderRowFundLike, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates);
     const esopSummary = renderSection(esopRows, renderRowFundLike, 'rowsESOP', 'countESOP', 'totalValueESOP', 'totalPnlESOP', 'dailyPnlESOP', 'countKpiESOP', 'holdingPnlESOP', fxRates);
     renderReturnNotes(fundReport, 'returnNotesAFund');
-    renderReturnNotes(reportedReturns?.sections?.precious_metals, 'returnNotesPreciousMetal');
+    renderReturnNotes(preciousReport, 'returnNotesPreciousMetal');
     applySectionReturnMetrics(aStockReturn, { totalPnlId: 'totalPnlAStockEquity', dailyPnlId: 'dailyPnlAStockEquity', returnId: 'holdingPnlAStockEquity' });
     applySectionReturnMetrics(aFundReturn, { totalPnlId: 'totalPnlAFund', dailyPnlId: 'dailyPnlAFund', returnId: 'holdingPnlAFund' });
     applySectionReturnMetrics(usStockReturn, { totalPnlId: 'totalPnlUSStock', dailyPnlId: 'dailyPnlUSStock', returnId: 'holdingPnlUSStock' }, {
@@ -3164,7 +3198,8 @@ async function main(){
     if (Math.abs(cashCategory.totalValue) >= 0.005) dashboardCategories.push(cashCategory);
     const dashboardDailyCategories = dashboardCategories.filter(category => !isInternalInvestmentLabel(category.label));
     const dashboardDailyFromCategories = dashboardDailyCategories.reduce((sum, category) => sum + safeNum(category.dailyPnl), 0);
-    const authoritativeDailyPnl = portfolioSummary?.totals?.daily_pnl != null
+    const portfolioSummaryFreshForAsOf = isFreshPayloadAsOf(portfolioSummary, asof);
+    const authoritativeDailyPnl = portfolioSummaryFreshForAsOf && portfolioSummary?.totals?.daily_pnl != null
       ? safeNum(portfolioSummary.totals.daily_pnl)
       : dashboardDailyFromCategories;
     dashboardSummary.dailyPnl = authoritativeDailyPnl;
@@ -3182,7 +3217,8 @@ async function main(){
     }));
     publishHoldingsKpiSummary(dashboardSummary, dashboardCategories);
     const dataIssues = deriveDataQualityIssues({
-      reportedReturns,
+      reportedReturns: reportedReturnsFresh ? reportedReturns : null,
+      staleReportedReturns: Boolean(reportedReturns && !reportedReturnsFresh),
       ibkrPerf,
       esopRows,
       fundRows,

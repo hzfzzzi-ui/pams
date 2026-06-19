@@ -122,6 +122,50 @@ def test_asset_master_whitelist_allows_europe_sweden_and_sek() -> None:
     assert "SEK" in VALID_CURRENCIES
 
 
+def test_korea_asset_normalization_migration_updates_korean_equities() -> None:
+    sql = Path("database/postgres/schema/050_korea_overseas_asset_normalization.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "'ASSET_005930_KS'" in sql
+    assert "'ASSET_000660_KS'" in sql
+    assert "'韩股个股'" in sql
+    assert "'韩股'" in sql
+    assert "'韩国'" in sql
+    assert "'KRW'" in sql
+    assert "'海外个股'" not in sql
+
+
+def test_asset_master_normalizes_english_regions_to_whitelist() -> None:
+    korea = _asset_record_from_raw(
+        {
+            "symbol": "005930.KS",
+            "asset_name": "Samsung Electronics",
+            "asset_type": "stock_kr",
+            "currency": "KRW",
+            "region": "Korea",
+        },
+        source="test",
+    )
+    sweden = _asset_record_from_raw(
+        {
+            "symbol": "SIVE",
+            "asset_name": "Sivers Semiconductors",
+            "asset_type": "stock_eu",
+            "currency": "SEK",
+            "region": "Sweden",
+        },
+        source="test",
+    )
+
+    assert korea["asset_type"] == "韩股个股"
+    assert korea["market"] == "韩股"
+    assert korea["economic_region"] == "韩国"
+    assert korea["listing_region"] == "韩国"
+    assert sweden["economic_region"] == "瑞典"
+    assert sweden["listing_region"] == "瑞典"
+
+
 def test_asset_master_id_canonicalizes_known_aliases() -> None:
     assert asset_id_for("GOOG", "Alphabet", "stock_us") == asset_id_for("GOOGL", "Alphabet", "stock_us")
     assert asset_id_for("03690.HK", "Meituan", "stock_hk") == asset_id_for("3690", "Meituan", "stock_hk")

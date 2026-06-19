@@ -25,8 +25,10 @@ if str(ROOT) not in sys.path:
 from services.portfolio_state import build_portfolio_state  # noqa: E402
 from services.holdings_view import latest_complete_snapshot_date  # noqa: E402
 from services.portfolio_valuation_state import (  # noqa: E402
+    is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state,
     published_valuation_state_meta,
+    published_valuation_stale_meta,
 )
 from src.core.concentration import (  # noqa: E402
     concentration_exposure,
@@ -1736,6 +1738,21 @@ def _positions_reconciled_to_published_nav(
     raw_nav = total_nav(df, limits)
     if not valuation_state or valuation_state.get("net_liquidation_value") in (None, ""):
         return df, raw_nav, None
+
+    positions_as_of = ""
+    if "as_of" in df.columns and not df.empty:
+        dates = [str(value)[:10] for value in df["as_of"].dropna().tolist() if str(value or "")[:10]]
+        positions_as_of = max(dates) if dates else ""
+    if not is_published_valuation_fresh_for_date(valuation_state, positions_as_of):
+        meta = published_valuation_stale_meta(valuation_state, target_as_of=positions_as_of)
+        if meta is not None:
+            meta.update(
+                {
+                    "raw_positions_nav_cny": raw_nav,
+                    "nav_reconciliation_cny": 0.0,
+                }
+            )
+        return df, raw_nav, meta
 
     target_nav = _safe_float(valuation_state.get("net_liquidation_value"))
     adjustment = target_nav - raw_nav

@@ -238,6 +238,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "positionValue: ibkrPositionValue" in holdings_js
     assert "dailyPnl: usSummary.dailyPnl" in holdings_js
     assert "ibkrSummary: usCategorySummary" in holdings_js
+    assert "function freshValuationStateForTarget" in holdings_js
+    assert "const summaryFresh = isFreshPayloadAsOf(portfolioSummary, targetAsOf)" in holdings_js
+    assert "portfolioSummaryFreshForAsOf && portfolioSummary?.totals?.daily_pnl" in holdings_js
+    assert "const reportedReturnsFresh = isFreshPayloadAsOf(reportedReturns, asof)" in holdings_js
+    assert "staleReportedReturns" in holdings_js
     assert "valueLabel: '账户净值'" in holdings_js
     assert "btnLoadInvestmentReturnChart" not in holdings_js
     assert "加载收益曲线" not in holdings_js
@@ -282,7 +287,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260619-investment-hardening-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260619-investment-hardening-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260619-freshness-v1" in html
     assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in html
     assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in html

@@ -516,7 +516,7 @@ def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
         industry = "贵金属"
         theme = "黄金"
         style = "商品/避险"
-    elif asset_type in {"us_stock", "stock_us", "etf_us"}:
+    elif asset_type in {"us_stock", "stock_us", "kr_stock", "stock_kr", "eu_stock", "stock_eu", "se_stock", "stock_se", "etf_us"}:
         bucket = "US_GLOBAL_TECH"
         industry = "美股/海外"
         theme = "海外权益"
@@ -528,12 +528,19 @@ def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
         style = "中国权益"
     else:
         return None
+    fallback_region = {
+        "CNY": "China",
+        "HKD": "Hong Kong",
+        "USD": "United States",
+        "KRW": "Korea",
+        "SEK": "Sweden",
+    }.get(currency, "Unknown")
     return {
         "asset_name": name,
         "symbol": _norm_text(position.get("symbol") or position.get("asset_id") or name),
         "asset_class": asset_type or "other",
         "risk_bucket": bucket,
-        "region": "China" if currency == "CNY" else "Unknown",
+        "region": fallback_region,
         "currency": currency,
         "industry": industry,
         "theme": theme,
@@ -557,6 +564,11 @@ def _is_direct_asset(position: dict[str, Any], mapping: dict[str, Any] | None) -
         "stock_cn",
         "stock_us",
         "stock_kr",
+        "kr_stock",
+        "stock_eu",
+        "eu_stock",
+        "stock_se",
+        "se_stock",
         "stock_hk",
         "esop",
         "cash",

@@ -1097,7 +1097,7 @@ def _metric_sum(units: list[AttributionUnit], key: str) -> float:
 
 
 def _industry_attribution_eligible(unit: AttributionUnit) -> bool:
-    return unit.get("asset_type") in {"A股个股", "港股个股", "美股个股", "欧股个股", "ETF / 基金"}
+    return unit.get("asset_type") in {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"}
 
 
 def _source_detail(unit: AttributionUnit, scale: float = 1.0) -> dict[str, Any]:

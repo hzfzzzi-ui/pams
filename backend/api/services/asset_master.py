@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS pams_asset_real_asset_profile (
 );
 """
 
-EQUITY_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股"}
+EQUITY_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股"}
 NON_THEME_TYPES = {"现金", "债券 / 货币基金", "非上市股权", "房地产 / 实物资产", "应收款 / 待到账"}
 VALID_CURRENCIES = {"CNY", "HKD", "USD", "SEK", "KRW", "MXN"}
 VALID_MARKETS = {"A股", "港股", "美股", "欧股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"}
@@ -313,6 +313,7 @@ def _exposure_policy(asset_type: str) -> str:
         "港股个股": "listed_equity",
         "美股个股": "listed_equity",
         "欧股个股": "listed_equity",
+        "韩股个股": "listed_equity",
         "ETF / 基金": "fund_lookthrough",
         "现金": "cash",
         "债券 / 货币基金": "fixed_income",
@@ -397,8 +398,11 @@ def _asset_record_from_raw(raw: dict[str, Any], *, source: str) -> dict[str, Any
     symbol = _text(raw.get("symbol") or raw.get("underlying_symbol") or raw.get("asset_id"))
     asset_type = resolveAssetType(raw)
     market = _text(raw.get("market")) or resolve_market(raw, asset_type)
-    region = _text(raw.get("economic_region") or raw.get("region") or raw.get("underlying_region")) or resolve_region(raw, market)
     currency = _raw_currency(raw)
+    region_raw = _text(raw.get("economic_region") or raw.get("region") or raw.get("underlying_region"))
+    region = resolve_region({**raw, "region": region_raw, "currency": currency}, market)
+    listing_region_raw = _text(raw.get("listing_region") or raw.get("region") or raw.get("underlying_region"))
+    listing_region = resolve_region({**raw, "region": listing_region_raw, "currency": currency}, market) if listing_region_raw else region
     asset_id = asset_id_for(symbol, name, asset_type)
     confidence = _text(raw.get("mapping_confidence") or raw.get("confidence") or "medium").lower()
     if confidence not in {"high", "medium", "low"}:
@@ -414,7 +418,7 @@ def _asset_record_from_raw(raw: dict[str, Any], *, source: str) -> dict[str, Any
         "asset_type": asset_type,
         "asset_subtype": _text(raw.get("asset_subtype")) or _asset_subtype(raw, asset_type),
         "market": market,
-        "listing_region": _text(raw.get("listing_region") or raw.get("region") or raw.get("underlying_region")),
+        "listing_region": listing_region,
         "economic_region": region,
         "currency": currency,
         "valuation_method": _text(raw.get("valuation_method")) or _valuation_method(asset_type),

@@ -10,6 +10,10 @@ from decimal import Decimal
 from typing import Any
 
 from services.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from services.portfolio_valuation_state import (
+    is_published_valuation_fresh_for_date,
+    published_valuation_stale_meta,
+)
 
 
 def _norm(value: Any) -> Any:
@@ -18,6 +22,25 @@ def _norm(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     return value
+
+
+def _date_key(value: Any) -> str:
+    if not value:
+        return ""
+    text = str(value)[:10]
+    return text if len(text) == 10 and text[4:5] == "-" and text[7:8] == "-" else ""
+
+
+def _summary_fact_as_of(payload: dict[str, Any]) -> str:
+    """Return the freshest fact date represented by a summary payload."""
+    candidates = [
+        payload.get("data_as_of_max"),
+        payload.get("as_of"),
+        (payload.get("totals") or {}).get("as_of"),
+    ]
+    keys = [_date_key(value) for value in candidates]
+    keys = [value for value in keys if value]
+    return max(keys) if keys else ""
 
 
 def build_holdings_summary_payload(
@@ -443,9 +466,17 @@ def apply_published_valuation_state_to_summary(
     payload: dict[str, Any],
     valuation_state: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Use published portfolio valuation as the authoritative summary total."""
+    """Use a fresh published portfolio valuation as the authoritative total."""
     if not valuation_state or valuation_state.get("net_liquidation_value") in (None, ""):
         return payload
+    fact_as_of = _summary_fact_as_of(payload)
+    if not is_published_valuation_fresh_for_date(valuation_state, fact_as_of):
+        out = dict(payload)
+        stale_meta = published_valuation_stale_meta(valuation_state, target_as_of=fact_as_of)
+        if stale_meta:
+            out["valuation_state"] = stale_meta
+        return out
+
     out = dict(payload)
     totals = dict(out.get("totals") or {})
     totals["market_value"] = str(_decimal(valuation_state.get("net_liquidation_value")))
@@ -462,6 +493,7 @@ def apply_published_valuation_state_to_summary(
         "liabilities_cny": str(_decimal(valuation_state.get("liabilities_cny"))),
         "cash_cny": str(_decimal(valuation_state.get("cash_cny"))),
         "source_hash": valuation_state.get("source_hash"),
+        "overlay_applied": True,
     }
     return out
 
