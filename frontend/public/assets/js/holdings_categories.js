@@ -371,6 +371,9 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <i><b style="width:${Math.max(2, Math.min(100, shareWidth * 100))}%"></b></i>
       </div>
     </div>`}
+    <div class="mobileHeroMeta mobileHeroMetaTop">
+      <span>${`更新 ${esc(freshness)}`}</span>
+    </div>
     <div class="mobileHeroPrimaryGrid">
       <div class="mobileHeroPrimaryMetric main">
         <span>${esc(profile.valueLabel || '净清算价值')}</span>
@@ -388,9 +391,6 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       </div>
     </div>
     <div class="mobileHeroMiniGrid ${miniMetrics ? '' : 'mobileHeroMiniGrid-empty'}">${miniMetrics}</div>
-    <div class="mobileHeroMeta">
-      <span>${`更新 ${esc(freshness)}`}</span>
-    </div>
   `;
 }
 

@@ -531,11 +531,13 @@ function renderMobileHoldingRows(rows, options = {}) {
       ? (String(r.currency || 'CNY').toUpperCase() === 'CNY' ? '' : formatNumber(cashNative, 2))
       : holdingPriceText(r);
     const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
+    const quantityText = holdingQuantityText(r);
+    const quantityBadge = quantityText === '--' ? '' : `<span class="mobileHoldingQtyInline mono">${quantityText}</span>`;
     return `
       <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${String(r.name || name).replace(/"/g, '&quot;')}">
         <span class="mobileHoldingMain">
           <span class="mobileHoldingText">
-            <strong>${name}${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
+            <strong>${quantityBadge}<span class="mobileHoldingNameInline">${name}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
             <small>${holdingGroupLabel(r)}</small>
           </span>
           <span class="mobileHoldingQuote">
@@ -557,10 +559,6 @@ function renderMobileHoldingRows(rows, options = {}) {
             <em>今日盈亏</em>
             <strong class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</strong>
             ${dailyBreakdown ? `<small class="mobileHoldingFxImpact">${dailyBreakdown}</small>` : ''}
-          </span>
-          <span class="mobileHoldingMetric">
-            <em>份数</em>
-            <strong class="mono">${holdingQuantityText(r)}</strong>
           </span>
         </span>
       </button>
