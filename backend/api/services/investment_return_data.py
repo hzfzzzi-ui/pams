@@ -47,6 +47,16 @@ GOLD_PROXY_SYMBOLS = ("Au99.99.SGE", "Au99.99", "518880.SH", "sh518880")
 GOLD_PROXY_SOURCE_PATTERNS = ("%Au99.99%", "%518880%")
 GOLD_HOLDING_ASSET_IDS = ("ASSET_CCB_GOLD_ACCUM", "ASSET_CCB_GOLD_ACCUMULATION")
 GOLD_HOLDING_SYMBOLS = ("CCB_GOLD_ACCUM", "GOLD", "XAU")
+IBKR_EQUITY_MARKETS = (
+    "STK",
+    "\u7f8e\u80a1",
+    "\u7f8e\u80a1\u57fa\u91d1",
+    "\u6e2f\u80a1",
+    "\u97e9\u80a1",
+    "\u6b27\u80a1",
+    "\u6d77\u5916\u4e2a\u80a1",
+    "\u6d77\u5916ETF",
+)
 
 
 TRADE_FACT_MAJOR_EXPR = """
@@ -227,9 +237,10 @@ def _section_first_activity_date(cur, section: str) -> Date | None:
             SELECT MIN(trade_date) AS start_date
             FROM pams_investment_trade_fact
             WHERE account_code = 'ibkr'
-              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) IN ('STK', '美股', '美股基金')
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
               AND quantity IS NOT NULL
-            """
+            """,
+            (list(IBKR_EQUITY_MARKETS),),
         )
     else:
         minor = cfg.get("minor_category")
@@ -732,14 +743,14 @@ def _ibkr_trade_flow_events(
             currency
         FROM pams_investment_trade_fact
         WHERE account_code = 'ibkr'
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) IN ('STK', '美股', '美股基金')
+          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
           AND quantity IS NOT NULL
           AND trade_date >= %s
           AND trade_date <= %s
           AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
         ORDER BY trade_date, trade_id
         """,
-        (start_date - timedelta(days=1), end_date),
+        (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
     )
     events: list[tuple[Date, Decimal]] = []
     for row in cur.fetchall():

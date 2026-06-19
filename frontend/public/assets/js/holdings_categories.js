@@ -1462,9 +1462,20 @@ function returnWindowLabel(windowKey) {
   return RETURN_WINDOW_OPTIONS.find(item => item.key === windowKey)?.label || '年初至今';
 }
 
+function returnEventCapitalBase(row, prev) {
+  const prevMarketValue = Math.abs(safeNum(prev?.market_value));
+  if (prevMarketValue > 0.005) return prevMarketValue;
+  const prevCost = Math.abs(safeNum(prev?.cost));
+  if (prevCost > 0.005) return prevCost;
+  return Math.abs(safeNum(row?.market_value));
+}
+
+function returnEventAdjustedAmount(row, prev) {
+  return safeNum(row?.daily_return_rate) * returnEventCapitalBase(row, prev);
+}
+
 function returnEventMeta(row, prev) {
   const dailyRate = safeNum(row?.daily_return_rate);
-  const pnlDelta = safeNum(row?.total_pnl) - safeNum(prev?.total_pnl);
   const realizedDelta = safeNum(row?.realized_income) - safeNum(prev?.realized_income);
   const costDelta = safeNum(row?.cost) - safeNum(prev?.cost);
   const adjustment = safeNum(row?.reported_return_adjustment);
@@ -1486,7 +1497,8 @@ function buildReturnEvents(rows) {
     const row = rows[index];
     const prev = rows[index - 1];
     const dailyRate = safeNum(row.daily_return_rate);
-    const pnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl);
+    const pnlDelta = returnEventAdjustedAmount(row, prev);
+    const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl);
     const realizedDelta = safeNum(row.realized_income) - safeNum(prev.realized_income);
     const costDelta = safeNum(row.cost) - safeNum(prev.cost);
     const adjustment = safeNum(row.reported_return_adjustment);
@@ -1511,6 +1523,7 @@ function buildReturnEvents(rows) {
       tone: meta.tone,
       dailyRate,
       pnlDelta,
+      rawPnlDelta,
       realizedDelta,
       costDelta,
       score,

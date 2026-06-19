@@ -396,7 +396,11 @@ def test_ibkr_trade_flow_events_uses_effective_date_for_usd_trades():
         fx_timelines={"USD": [(date(2026, 6, 18), Decimal("7"))]},
     )
 
-    assert cur.executed[0][1] == (date(2026, 6, 17), date(2026, 6, 18))
+    markets, start_param, end_param = cur.executed[0][1]
+    assert start_param == date(2026, 6, 17)
+    assert end_param == date(2026, 6, 18)
+    assert "\u97e9\u80a1" in markets
+    assert "\u6b27\u80a1" in markets
     assert events == [(date(2026, 6, 18), Decimal("700"))]
 
 
@@ -425,6 +429,50 @@ def test_ibkr_trade_flow_events_keeps_non_usd_trades_on_trade_date():
     )
 
     assert events == [(date(2026, 6, 17), Decimal("90.0"))]
+
+
+def test_ibkr_trade_flow_events_includes_korea_and_europe_markets():
+    cur = FakeCursor(
+        [
+            [
+                {
+                    "trade_date": date(2026, 5, 11),
+                    "quantity": Decimal("10"),
+                    "gross_amount": Decimal("18760000"),
+                    "commission": Decimal("11256"),
+                    "net_cash": Decimal("-18771256"),
+                    "currency": "KRW",
+                },
+                {
+                    "trade_date": date(2026, 6, 18),
+                    "quantity": Decimal("1"),
+                    "gross_amount": Decimal("1000"),
+                    "commission": Decimal("2"),
+                    "net_cash": Decimal("-1002"),
+                    "currency": "SEK",
+                },
+            ]
+        ]
+    )
+
+    events = investment_return_data._ibkr_trade_flow_events(
+        cur,
+        start_date=date(2026, 5, 11),
+        end_date=date(2026, 6, 18),
+        base_currency="CNY",
+        fx_timelines={
+            "KRW": [(date(2026, 5, 11), Decimal("0.00447"))],
+            "SEK": [(date(2026, 6, 18), Decimal("0.74"))],
+        },
+    )
+
+    markets = cur.executed[0][1][0]
+    assert "\u97e9\u80a1" in markets
+    assert "\u6b27\u80a1" in markets
+    assert events == [
+        (date(2026, 5, 11), Decimal("83907.51432")),
+        (date(2026, 6, 18), Decimal("741.48")),
+    ]
 
 
 def test_snapshot_category_value_series_uses_complete_account_snapshots():
@@ -539,6 +587,53 @@ def test_ibkr_full_trade_return_series_delays_usd_trade_to_beijing_bucket(monkey
     assert costs[dates[0]] == Decimal("0")
     assert values[dates[1]] == Decimal("840")
     assert costs[dates[1]] == Decimal("700")
+    assert warnings == []
+
+
+def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest.MonkeyPatch):
+    dates = [date(2026, 5, 10), date(2026, 5, 11)]
+    cur = FakeCursor(
+        [
+            {"exists": True},
+            [],
+            [{"symbol": "000660.KS", "currency": "KRW"}],
+            [
+                {
+                    "trade_date": date(2026, 5, 11),
+                    "symbol": "000660.KS",
+                    "currency": "KRW",
+                    "quantity": Decimal("10"),
+                    "gross_amount": Decimal("18760000"),
+                    "commission": Decimal("11256"),
+                    "net_cash": Decimal("-18771256"),
+                }
+            ],
+        ]
+    )
+
+    monkeypatch.setattr(
+        investment_return_ibkr,
+        "_fetch_yfinance_closes",
+        lambda *args, **kwargs: (
+            {"000660.KS": {dates[1]: Decimal("200000")}},
+            [],
+        ),
+    )
+
+    values, costs, warnings = investment_return_ibkr._ibkr_full_trade_return_series(
+        cur,
+        dates=dates,
+        base_currency="CNY",
+        fx_timelines={"KRW": [(dates[1], Decimal("0.00447"))]},
+    )
+
+    symbol_query_markets = cur.executed[2][1][0]
+    trade_query_markets = cur.executed[3][1][2]
+    assert "\u97e9\u80a1" in symbol_query_markets
+    assert "\u97e9\u80a1" in trade_query_markets
+    assert values[dates[0]] == Decimal("0")
+    assert values[dates[1]] == Decimal("8940.00000")
+    assert costs[dates[1]] == Decimal("83907.51432")
     assert warnings == []
 
 

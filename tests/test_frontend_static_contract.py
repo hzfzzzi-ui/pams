@@ -209,6 +209,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "function renderInvestmentNavChart(rows, windowKey, isMobile)" in holdings_js
     assert "function createInvestmentReturnCanvasFallback(canvas, data)" in holdings_js
     assert "if (typeof Chart === 'undefined')" in holdings_js
+    assert "function returnEventAdjustedAmount(row, prev)" in holdings_js
+    assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in holdings_js
+    assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in holdings_js
     assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in holdings_js
     assert "function normalizeInvestmentNavRows(rows)" in holdings_js
     assert "row.netWorth ?? row.net_worth ?? row.market_value" in holdings_js
@@ -287,7 +290,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260619-investment-hardening-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260619-freshness-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260620-return-events-v1" in html
     assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in html
     assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in html
