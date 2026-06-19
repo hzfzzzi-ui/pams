@@ -281,12 +281,12 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260619-mobile-position-v1" in html
+    assert "assets/js/holdings.js?v=20260619-holding-row-v1" in html
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in html
     assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
-    assert "style.css?v=20260619-mobile-position-v1" in html
+    assert "style.css?v=20260619-holding-row-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -308,8 +308,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingAveragePriceText" in holding_rows_js
     assert "dilutedAveragePriceText" in holding_rows_js
     assert "currentFloatPnl" in holding_rows_js
-    assert "mobileHoldingQtyInline" in holding_rows_js
-    assert "<em>份数</em>" not in holding_rows_js
+    assert "mobileHoldingQtyInline" not in holding_rows_js
+    assert "mobileHoldingDailyLine" in holding_rows_js
+    assert "mobileHoldingChangePct" in holding_rows_js
+    assert "<em>份数</em>" in holding_rows_js
+    assert "<em>${isCash ? '本币' : '现价'}</em>" in holding_rows_js
     assert "mobileHeroMetaTop" in holdings_js
     assert "returnChartHeader" in html
     assert "returnWindowSegment" in html
@@ -912,8 +915,8 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
-    assert "assets/css/style.css?v=20260619-mobile-position-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260619-mobile-position-v1" in ui_js
+    assert "assets/css/style.css?v=20260619-holding-row-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260619-holding-row-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in ui_js

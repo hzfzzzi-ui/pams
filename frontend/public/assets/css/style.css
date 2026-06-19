@@ -13330,22 +13330,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     white-space: nowrap !important;
   }
 
-  .page-investments .mobileHoldingQtyInline {
-    flex: 0 0 auto !important;
-    max-width: 92px !important;
-    overflow: hidden !important;
-    padding: 2px 7px !important;
-    border: 1px solid rgba(139,148,158,.24) !important;
-    border-radius: 999px !important;
-    background: rgba(139,148,158,.10) !important;
-    color: var(--weak) !important;
-    font-size: 11px !important;
-    font-weight: 850 !important;
-    line-height: 1.25 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
   .page-investments .mobileHoldingNameInline {
     min-width: 0 !important;
     overflow: hidden !important;
@@ -13356,32 +13340,40 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .page-investments .mobileHoldingQuote {
     display: grid !important;
     justify-items: end !important;
-    gap: 3px !important;
+    gap: 4px !important;
+    min-width: 96px !important;
+    max-width: 150px !important;
     white-space: nowrap !important;
   }
 
-  .page-investments .mobileHoldingQuote b {
-    min-width: 66px !important;
-    padding: 4px 8px !important;
-    border-radius: 7px !important;
-    background: rgba(46,189,133,.14) !important;
-    color: var(--good) !important;
-    font-size: 13px !important;
-    font-weight: 900 !important;
-    line-height: 1 !important;
-    text-align: center !important;
+  .page-investments .mobileHoldingQuote span {
+    display: flex !important;
+    max-width: 100% !important;
+    align-items: baseline !important;
+    justify-content: flex-end !important;
+    gap: 5px !important;
+    color: var(--weak) !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    line-height: 1.15 !important;
   }
 
-  .page-investments .mobileHoldingQuote b.down {
-    background: rgba(246,70,93,.14) !important;
-    color: var(--bad) !important;
+  .page-investments .mobileHoldingQuote em {
+    flex: 0 0 auto !important;
+    color: var(--muted) !important;
+    font-style: normal !important;
+    font-weight: 800 !important;
   }
 
-  .page-investments .mobileHoldingQuote small {
+  .page-investments .mobileHoldingQuote strong {
+    min-width: 0 !important;
+    overflow: hidden !important;
     color: var(--weak) !important;
     font-size: 12px !important;
-    font-weight: 900 !important;
+    font-weight: 850 !important;
     line-height: 1.1 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
 
   .page-investments .mobileHoldingMetrics {
@@ -13418,13 +13410,32 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .page-investments .mobileHoldingMetric strong.up,
-  .page-investments .mobileHoldingQuote b.up {
+  .page-investments .mobileHoldingChangePct.up {
     color: var(--good) !important;
   }
 
   .page-investments .mobileHoldingMetric strong.down,
-  .page-investments .mobileHoldingQuote b.down {
+  .page-investments .mobileHoldingChangePct.down {
     color: var(--bad) !important;
+  }
+
+  .page-investments .mobileHoldingDailyLine {
+    display: flex !important;
+    min-width: 0 !important;
+    align-items: baseline !important;
+    gap: 6px !important;
+  }
+
+  .page-investments .mobileHoldingDailyLine strong {
+    min-width: 0 !important;
+  }
+
+  .page-investments .mobileHoldingChangePct {
+    flex: 0 0 auto !important;
+    color: var(--weak) !important;
+    font-size: 12px !important;
+    font-weight: 850 !important;
+    line-height: 1.1 !important;
   }
 
   .page-investments .mobileHoldingMetric small.mobileHoldingFxImpact {

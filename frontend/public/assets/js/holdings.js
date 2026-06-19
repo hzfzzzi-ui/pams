@@ -526,24 +526,24 @@ function renderMobileHoldingRows(rows, options = {}) {
     const name = shortHoldingName(r);
     const isCash = holdingGroupLabel(r) === '现金/活期';
     const cashNative = safeNum(r.market_value_native ?? r.market_value);
-    const quoteMain = isCash ? String(r.currency || 'CNY').toUpperCase() : signedPercentText(changePct);
     const quoteSub = isCash
       ? (String(r.currency || 'CNY').toUpperCase() === 'CNY' ? '' : formatNumber(cashNative, 2))
       : holdingPriceText(r);
     const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
     const quantityText = holdingQuantityText(r);
-    const quantityBadge = quantityText === '--' ? '' : `<span class="mobileHoldingQtyInline mono">${quantityText}</span>`;
+    const quoteItems = [
+      quantityText === '--' ? '' : `<span><em>份数</em><strong class="mono">${quantityText}</strong></span>`,
+      quoteSub ? `<span><em>${isCash ? '本币' : '现价'}</em><strong class="mono">${quoteSub}</strong></span>` : '',
+    ].filter(Boolean).join('');
+    const dailyChange = isCash ? '' : `<small class="mobileHoldingChangePct mono ${quoteTone}">${signedPercentText(changePct)}</small>`;
     return `
       <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${String(r.name || name).replace(/"/g, '&quot;')}">
         <span class="mobileHoldingMain">
           <span class="mobileHoldingText">
-            <strong>${quantityBadge}<span class="mobileHoldingNameInline">${name}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
+            <strong><span class="mobileHoldingNameInline">${name}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
             <small>${holdingGroupLabel(r)}</small>
           </span>
-          <span class="mobileHoldingQuote">
-            <b class="mono ${quoteTone}">${quoteMain}</b>
-            <small class="mono">${quoteSub}</small>
-          </span>
+          <span class="mobileHoldingQuote">${quoteItems}</span>
         </span>
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
@@ -557,7 +557,10 @@ function renderMobileHoldingRows(rows, options = {}) {
           </span>
           <span class="mobileHoldingMetric">
             <em>今日盈亏</em>
-            <strong class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</strong>
+            <span class="mobileHoldingDailyLine">
+              <strong class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</strong>
+              ${dailyChange}
+            </span>
             ${dailyBreakdown ? `<small class="mobileHoldingFxImpact">${dailyBreakdown}</small>` : ''}
           </span>
         </span>
