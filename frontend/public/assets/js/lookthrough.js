@@ -31,14 +31,11 @@ const UNDERLYING_SORTS = [
 ];
 
 const RETURN_ATTRIBUTION_DIMENSIONS = [
-  ['holding', '持仓'],
+  ['holding', '标的'],
   ['industry', '行业'],
-  ['theme', '主题'],
   ['region', '地区'],
-  ['currency', '币种'],
-  ['underlying', '底层'],
-  ['asset_type', '资产类型'],
-  ['market', '市种'],
+  ['theme', '主题'],
+  ['underlying', '基金底层'],
 ];
 
 const RETURN_ATTRIBUTION_KEYS = new Set(RETURN_ATTRIBUTION_DIMENSIONS.map(([key]) => key));

@@ -283,7 +283,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
     assert "assets/js/holdings.js?v=20260619-holding-row-v2" in html
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in html
-    assert "assets/js/lookthrough.js?v=20260619-return-heatmap-daily-v1" in html
+    assert "assets/js/lookthrough.js?v=20260619-return-tabs-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
     assert "style.css?v=20260619-holding-row-v2" in html
@@ -920,7 +920,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/style.css?v=20260619-holding-row-v2" in ui_js
     assert "assets/js/holdings.js?v=20260619-holding-row-v2" in ui_js
     assert "assets/js/holdings_categories.js?v=20260619-mobile-position-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20260619-return-heatmap-daily-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260619-return-tabs-v1" in ui_js
     assert "assets/js/transactions.js?v=20260619-return-asset-heatmap-v2" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
@@ -941,6 +941,15 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "ReturnAttributionAssetHeatmap" in lookthrough_js
     assert "returnAttributionHeatmapRows" in lookthrough_js
     assert "returnAttributionLookupHoldingDaily" in lookthrough_js
+    assert "['holding', '标的']" in lookthrough_js
+    assert "['industry', '行业']" in lookthrough_js
+    assert "['region', '地区']" in lookthrough_js
+    assert "['theme', '主题']" in lookthrough_js
+    assert "['underlying', '基金底层']" in lookthrough_js
+    return_attribution_dimensions = lookthrough_js.split("const RETURN_ATTRIBUTION_DIMENSIONS = [", 1)[1].split("];", 1)[0]
+    assert "['currency', '币种']" not in return_attribution_dimensions
+    assert "['asset_type', '资产类型']" not in return_attribution_dimensions
+    assert "['market', '市种']" not in return_attribution_dimensions
     assert "dimensions?.[dimension]" in lookthrough_js
     assert "data-return-asset-heat-row" in lookthrough_js
     assert "标的盈亏热力图" in lookthrough_js
