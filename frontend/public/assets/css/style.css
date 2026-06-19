@@ -13338,24 +13338,39 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .page-investments .mobileHoldingQuote {
-    display: grid !important;
+    display: flex !important;
     justify-items: end !important;
-    gap: 4px !important;
-    min-width: 96px !important;
-    max-width: 150px !important;
+    min-width: 0 !important;
+    max-width: 212px !important;
+    justify-content: flex-end !important;
     white-space: nowrap !important;
   }
 
-  .page-investments .mobileHoldingQuote span {
+  .page-investments .mobileHoldingQuoteLine {
     display: flex !important;
     max-width: 100% !important;
     align-items: baseline !important;
     justify-content: flex-end !important;
-    gap: 5px !important;
+    gap: 4px !important;
+    overflow: hidden !important;
     color: var(--weak) !important;
     font-size: 11px !important;
     font-weight: 800 !important;
-    line-height: 1.15 !important;
+    line-height: 1.2 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .page-investments .mobileHoldingQuoteLine span {
+    display: inline-flex !important;
+    min-width: 0 !important;
+    align-items: baseline !important;
+    gap: 3px !important;
+  }
+
+  .page-investments .mobileHoldingQuoteLine i {
+    color: rgba(139,148,158,.62) !important;
+    font-style: normal !important;
   }
 
   .page-investments .mobileHoldingQuote em {

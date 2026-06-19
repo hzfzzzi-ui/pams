@@ -534,7 +534,8 @@ function renderMobileHoldingRows(rows, options = {}) {
     const quoteItems = [
       quantityText === '--' ? '' : `<span><em>份数</em><strong class="mono">${quantityText}</strong></span>`,
       quoteSub ? `<span><em>${isCash ? '本币' : '现价'}</em><strong class="mono">${quoteSub}</strong></span>` : '',
-    ].filter(Boolean).join('');
+    ].filter(Boolean).join('<i aria-hidden="true">·</i>');
+    const quoteLine = quoteItems ? `<span class="mobileHoldingQuoteLine">${quoteItems}</span>` : '';
     const dailyChange = isCash ? '' : `<small class="mobileHoldingChangePct mono ${quoteTone}">${signedPercentText(changePct)}</small>`;
     return `
       <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${String(r.name || name).replace(/"/g, '&quot;')}">
@@ -543,7 +544,7 @@ function renderMobileHoldingRows(rows, options = {}) {
             <strong><span class="mobileHoldingNameInline">${name}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
             <small>${holdingGroupLabel(r)}</small>
           </span>
-          <span class="mobileHoldingQuote">${quoteItems}</span>
+          <span class="mobileHoldingQuote">${quoteLine}</span>
         </span>
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
