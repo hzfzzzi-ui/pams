@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260606-refresh-v3';
-import { setActiveNav } from './ui.js?v=20260606-refresh-v3';
+import { setActiveNav } from './ui.js?v=20260620-more-audit-v1';
 import { loadSyncCenter } from './sync_center.js?v=20260606-refresh-v3';
 
 function esc(value) {

@@ -1,5 +1,5 @@
 import { jget, jpost, fmtMoneyFixed2, fmtSignedMoneyFixed2 } from "./api.js?v=20260606-refresh-v3";
-import { openBottomSheet, setActiveNav } from "./ui.js?v=20260606-refresh-v3";
+import { openBottomSheet, setActiveNav } from "./ui.js?v=20260620-more-audit-v1";
 
 let config = null;
 let selectedProfile = null;

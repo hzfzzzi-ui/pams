@@ -6,8 +6,8 @@ export function setActiveNav() {
   const aliases = {
     index: 'index.html',
     'index.html': 'index.html',
-    accounts: 'accounts.html',
-    'accounts.html': 'accounts.html',
+    accounts: 'more.html',
+    'accounts.html': 'more.html',
     data_sources: 'more.html',
     'data_sources.html': 'more.html',
     research: 'more.html',
@@ -78,7 +78,7 @@ function enhanceMobileAppShell(activePath, path) {
   const nav = document.querySelector('.nav');
   if (nav) {
     const primary = new Set(['investments.html', 'ledger.html', 'more.html']);
-    const moreActive = new Set(['more.html', 'data_sources.html', 'research.html']);
+    const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html', 'risk.html']);
     const investActive = new Set(['investments.html']);
     const ledgerActive = new Set(['ledger.html']);
     nav.querySelectorAll('[data-nav]').forEach((a) => {
@@ -196,8 +196,8 @@ function setupAppPreload(activePath, path) {
       ['assets/js/transactions.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/portfolio_config.js?v=20260619-investment-hardening-v1', 'script'],
-      ['assets/js/more.js?v=20260607-more-ia-v1', 'script'],
-      ['assets/js/risk_metrics.js?v=20260607-risk-metrics-v1', 'script'],
+      ['assets/js/more.js?v=20260620-more-audit-v1', 'script'],
+      ['assets/js/risk_metrics.js?v=20260620-more-audit-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));
   }, 250);
 

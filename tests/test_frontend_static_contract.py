@@ -57,6 +57,9 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     assert "'more.html': { key: 'more', label: '更多' }" in mobile_tabs
     assert "index.html" not in mobile_tabs
     assert "accounts.html" not in mobile_tabs
+    assert "accounts: 'more.html'" in ui_js
+    assert "'accounts.html': 'more.html'" in ui_js
+    assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html', 'risk.html'])" in ui_js
     assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
 
     for page in [
@@ -876,6 +879,9 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
 def test_more_page_consolidates_low_frequency_entries() -> None:
     html = _read_public("more.html")
     accounts_html = _read_public("accounts.html")
+    data_sources_html = _read_public("data_sources.html")
+    research_html = _read_public("research.html")
+    risk_html = _read_public("risk.html")
 
     assert "appTaskList" not in html
     assert 'id="sync"' not in html
@@ -898,6 +904,11 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "investments.html#investment-ledger" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
+    assert "assets/js/more.js?v=20260620-more-audit-v1" in html
+    assert "assets/js/bank_reconcile.js?v=20260620-more-audit-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20260620-more-audit-v1" in data_sources_html
+    assert "assets/js/research.js?v=20260620-more-audit-v1" in research_html
+    assert "assets/js/risk_metrics.js?v=20260620-more-audit-v1" in risk_html
 
 
 def test_risk_page_prioritizes_user_configured_metrics() -> None:
@@ -957,8 +968,8 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/more.js?v=20260607-more-ia-v1" in ui_js
-    assert "assets/js/risk_metrics.js?v=20260607-risk-metrics-v1" in ui_js
+    assert "assets/js/more.js?v=20260620-more-audit-v1" in ui_js
+    assert "assets/js/risk_metrics.js?v=20260620-more-audit-v1" in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
     assert "gzip on;" in dockerfile

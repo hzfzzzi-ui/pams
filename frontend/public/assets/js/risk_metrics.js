@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260606-refresh-v3';
-import { setActiveNav } from './ui.js?v=20260606-refresh-v3';
+import { setActiveNav } from './ui.js?v=20260620-more-audit-v1';
 import { escapeHtml, formatCurrency, formatPercent, setText, showError, toFiniteNumber } from './utils.js?v=20260607-shared-format-v1';
 
 const LEVEL_META = {

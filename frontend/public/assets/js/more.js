@@ -1,4 +1,4 @@
-import { setActiveNav } from './ui.js?v=20260606-refresh-v3';
+import { setActiveNav } from './ui.js?v=20260620-more-audit-v1';
 import { setText } from './utils.js?v=20260607-shared-format-v1';
 
 function todayText() {
