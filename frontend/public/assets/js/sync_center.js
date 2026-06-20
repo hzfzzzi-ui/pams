@@ -1,5 +1,5 @@
 import { jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { openBottomSheet } from './ui.js?v=20260606-refresh-v3';
+import { openBottomSheet } from './ui.js?v=20260620-design-system-v2';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({

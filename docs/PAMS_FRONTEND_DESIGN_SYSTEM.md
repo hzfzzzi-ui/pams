@@ -33,7 +33,7 @@ design-system.css
   仅保留页面特有布局，后续逐步迁移到共享组件
 ```
 
-`design-system.css` 必须在 `style.css` 后加载。它不承载业务布局，不写接口相关样式，不直接绑定投资收益、风险、收支等业务含义。
+`design-system.css` 必须在带版本号的 `style.css?v=...` 后加载。它不承载业务布局，不写接口相关样式，不直接绑定投资收益、风险、收支等业务含义。
 
 正式页面的 `<body>` 必须带 `app-shell` 类。`ui.js` 仍会补充导航增强和预加载，但设计系统基础样式不能依赖 JS 执行后才生效。
 
@@ -103,6 +103,7 @@ docker compose up -d --build pams-web
 如果新增正式页面，必须接入：
 
 ```html
+<link rel="stylesheet" href="assets/css/style.css?v=20260620-design-system-v3" />
 <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v1" />
 ```
 

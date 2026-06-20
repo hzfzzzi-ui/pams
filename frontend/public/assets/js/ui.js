@@ -184,7 +184,7 @@ function setupAppPreload(activePath, path) {
       ['investments.html', 'document'],
       ['ledger.html', 'document'],
       ['more.html', 'document'],
-      ['assets/css/style.css?v=20260619-trade-ledger-v1', 'style'],
+      ['assets/css/style.css?v=20260620-design-system-v3', 'style'],
       ['assets/css/design-system.css?v=20260620-design-system-v1', 'style'],
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ui.js?v=20260620-design-system-v2', 'script'],
@@ -194,7 +194,7 @@ function setupAppPreload(activePath, path) {
       ['assets/js/lookthrough.js?v=20260620-design-system-v2', 'script'],
       ['assets/js/ledger_cashflow.js?v=20260620-design-system-v2', 'script'],
       ['assets/js/transactions.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2', 'script'],
       ['assets/js/portfolio_config.js?v=20260620-design-system-v2', 'script'],
       ['assets/js/more.js?v=20260620-design-system-v2', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));

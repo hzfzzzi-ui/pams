@@ -1,4 +1,4 @@
-﻿from html.parser import HTMLParser
+from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -16,6 +16,8 @@ class _StaticHtmlParser(HTMLParser):
         self.stylesheets: list[str] = []
         self.scripts: list[str] = []
         self.body_classes: list[str] = []
+        self.data_navs: list[dict[str, str]] = []
+        self._active_data_nav_index: int | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = {key: value or "" for key, value in attrs}
@@ -25,6 +27,17 @@ class _StaticHtmlParser(HTMLParser):
             self.scripts.append(attr["src"])
         if tag == "body":
             self.body_classes = attr.get("class", "").split()
+        if tag == "a" and "data-nav" in attr:
+            self.data_navs.append({"href": attr.get("href", ""), "text": ""})
+            self._active_data_nav_index = len(self.data_navs) - 1
+
+    def handle_data(self, data: str) -> None:
+        if self._active_data_nav_index is not None:
+            self.data_navs[self._active_data_nav_index]["text"] += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a":
+            self._active_data_nav_index = None
 
 
 def _parse_html(html: str) -> _StaticHtmlParser:
@@ -131,6 +144,19 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     assert "appHeroTop" not in legacy_css
     assert "appHeroLinks" not in legacy_css
     assert "appShortcutGrid" not in legacy_css
+    for removed_selector in [
+        "page-risk",
+        "page-dashboard",
+        "riskTerminal",
+        "riskCommandHero",
+        "dashboardHero",
+        "dashboardHoldingRow",
+        "metricStrip",
+        "metricTile",
+        "appHeroStrip",
+        "appHeroCopy",
+    ]:
+        assert removed_selector not in legacy_css
 
     for page in _formal_html_pages():
         html = _read_public(page)
@@ -140,15 +166,21 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         design_href = parsed.stylesheets[design_index]
 
         assert style_index < design_index
+        assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
         assert "app-shell" in parsed.body_classes
+        assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
+            ("investments.html", "投资"),
+            ("ledger.html", "收支"),
+            ("more.html", "更多"),
+        ]
         assert "appPageHero" not in html
         assert "page-risk" not in parsed.body_classes
         assert "page-dashboard" not in parsed.body_classes
 
     for phrase in [
         "PAMS 前端设计系统收敛 v1",
-        "`design-system.css` 必须在 `style.css` 后加载",
+        "`design-system.css` 必须在带版本号的 `style.css?v=...` 后加载",
         "不要恢复大 hero",
     ]:
         assert phrase in design_doc
@@ -384,7 +416,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "assets/js/lookthrough.js?v=20260620-design-system-v2" in html
     assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in html
     assert "assets/js/portfolio_config.js?v=20260620-design-system-v2" in html
-    assert "style.css?v=20260620-trade-attribution-v2" in html
+    assert "style.css?v=20260620-design-system-v3" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -960,7 +992,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
     assert "assets/js/transactions.js?v=20260620-design-system-v2" in html
-    assert "assets/css/style.css?v=20260620-trade-attribution-v2" in html
+    assert "assets/css/style.css?v=20260620-design-system-v3" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -968,6 +1000,8 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     accounts_html = _read_public("accounts.html")
     data_sources_html = _read_public("data_sources.html")
     research_html = _read_public("research.html")
+    data_sources_js = _read_public("assets/js/data_sources.js")
+    sync_center_js = _read_public("assets/js/sync_center.js")
 
     assert "appTaskList" not in html
     assert 'id="sync"' not in html
@@ -998,8 +1032,11 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "more.html#sync" not in html + accounts_html
     assert "assets/js/more.js?v=20260620-design-system-v2" in html
     assert "assets/js/bank_reconcile.js?v=20260620-design-system-v2" in accounts_html
-    assert "assets/js/data_sources.js?v=20260620-design-system-v2" in data_sources_html
+    assert "assets/js/data_sources.js?v=20260620-design-system-v3" in data_sources_html
     assert "assets/js/research.js?v=20260620-design-system-v2" in research_html
+    assert "./sync_center.js?v=20260620-design-system-v3" in data_sources_js
+    assert "./ui.js?v=20260620-design-system-v2" in sync_center_js
+    assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
 
 
 def test_risk_capability_lives_in_investment_subpage() -> None:
@@ -1051,14 +1088,14 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/css/style.css?v=20260619-trade-ledger-v1" in ui_js
+    assert "assets/css/style.css?v=20260620-design-system-v3" in ui_js
     assert "assets/css/design-system.css?v=20260620-design-system-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/holdings.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/lookthrough.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/transactions.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in ui_js
     assert "assets/js/portfolio_config.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/more.js?v=20260620-design-system-v2" in ui_js
     assert "risk_metrics.js" not in ui_js
