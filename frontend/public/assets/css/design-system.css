@@ -69,6 +69,7 @@ body.app-shell .returnChartHeader {
 body.app-shell .pageHeader h1,
 body.app-shell .sectionTitle h2,
 body.app-shell .sectionTitle h3,
+body.app-shell .appWorkHeader h2,
 body.app-shell .moreRow strong,
 body.app-shell .ledgerListMain strong,
 body.app-shell .syncCenterMain strong {
@@ -98,6 +99,97 @@ body.app-shell .portfolioRiskCategory:hover,
 body.app-shell .portfolioRuleNode:hover,
 body.app-shell .moreGroup:hover {
   transform: none;
+}
+
+body.app-shell .appWorkHeader {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 15px 16px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: linear-gradient(180deg, rgba(15,20,27,.98), rgba(9,13,19,.98));
+}
+
+body.app-shell .appWorkHeaderTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+body.app-shell .appWorkHeader h2 {
+  margin: 4px 0 0;
+  font-size: clamp(23px, 4vw, 30px);
+  line-height: 1.08;
+}
+
+body.app-shell .appWorkHeader p {
+  max-width: 760px;
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body.app-shell .appWorkEyebrow {
+  display: inline-flex;
+  align-items: center;
+  color: #9fc2ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+body.app-shell .appWorkLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+body.app-shell .appShortcutGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.app-shell .appShortcutCard {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  padding: 11px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-row);
+  background: var(--pams-surface-soft);
+  transition: border-color .16s ease, background .16s ease;
+}
+
+body.app-shell .appShortcutCard:hover {
+  border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-info) 8%, transparent);
+}
+
+body.app-shell .appShortcutCard strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-text);
+  font-size: 14px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .appShortcutCard small {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 body.app-shell .pill,
@@ -171,7 +263,6 @@ body.app-shell .ledgerListRow,
 body.app-shell .syncCenterRow,
 body.app-shell .accountIssueRow,
 body.app-shell .sourceHealthRow,
-body.app-shell .dashboardHoldingRow,
 body.app-shell .moreRow,
 body.app-shell .tradeReviewDirectionTrade,
 body.app-shell .portfolioRiskInlineItem,
@@ -234,6 +325,27 @@ body.app-shell :focus-visible {
   body.app-shell .sectionTitle h3 {
     font-size: 22px;
     line-height: 1.15;
+  }
+
+  body.app-shell .appWorkHeader {
+    margin-bottom: 12px;
+    padding: 13px 14px;
+  }
+
+  body.app-shell .appWorkHeaderTop {
+    grid-template-columns: 1fr;
+  }
+
+  body.app-shell .appWorkLinks {
+    justify-content: flex-start;
+  }
+
+  body.app-shell .appShortcutGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.app-shell .appShortcutCard {
+    min-height: 72px;
   }
 
   body.app-shell .nav {

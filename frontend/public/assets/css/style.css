@@ -304,94 +304,6 @@ a { color: inherit; text-decoration: none }
 /* ---- Layout ---- */
 .wrap { max-width: 1400px; margin: 0 auto; padding: var(--sp-4) var(--sp-5) }
 
-.appPageHero {
-  display: grid;
-  gap: 14px;
-  margin-bottom: var(--sp-4);
-  padding: 18px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at top right, rgba(88,166,255,.18), transparent 34%),
-    linear-gradient(180deg, rgba(15,20,27,.98), rgba(9,12,18,.98));
-  box-shadow: 0 16px 40px rgba(0,0,0,.24);
-}
-
-.appHeroTop {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.appHeroTop h1,
-.appHeroTop h2 {
-  margin: 6px 0 0;
-  font-size: clamp(24px, 5vw, 32px);
-  line-height: 1.08;
-}
-
-.appHeroTop p {
-  margin: 8px 0 0;
-  max-width: 760px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.appHeroEyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #9fc2ff;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-}
-
-.appHeroBadgeGroup,
-.appHeroLinks {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.appShortcutGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.appShortcutCard {
-  display: grid;
-  gap: 4px;
-  min-height: 92px;
-  padding: 12px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 18px;
-  background: rgba(255,255,255,.03);
-  transition: border-color .16s ease, transform .16s ease, background .16s ease;
-}
-
-.appShortcutCard:hover {
-  border-color: rgba(88,166,255,.42);
-  background: rgba(88,166,255,.08);
-  transform: translateY(-1px);
-}
-
-.appShortcutCard strong {
-  font-size: 15px;
-  line-height: 1.2;
-}
-
-.appShortcutCard small {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .appSectionBlock {
   margin-bottom: 12px;
 }
@@ -16613,42 +16525,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 .sheetSourceRow b { color: #f5f7fa; }
 .sheetSourceRow span { color: var(--muted); }
 @media (max-width: 760px) {
-  .appPageHero {
-    margin: 0 12px 12px;
-    padding: 16px 14px;
-    border-radius: 0;
-    border-left: 0;
-    border-right: 0;
-    background:
-      radial-gradient(circle at top right, rgba(88,166,255,.16), transparent 38%),
-      linear-gradient(180deg, rgba(15,20,27,.98), rgba(7,10,15,.98));
-  }
-
-  .appHeroTop {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .appHeroTop p {
-    max-width: none;
-  }
-
-  .appHeroBadgeGroup,
-  .appHeroLinks {
-    justify-content: flex-start;
-  }
-
-  .appShortcutGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .appShortcutCard {
-    min-height: 86px;
-    padding: 11px;
-    border-radius: 16px;
-  }
-
   .analysisSwitch { width: 100%; }
   .analysisSwitch button { flex: 1; }
   .lookthroughPanel { padding-top: 12px; }
@@ -16745,47 +16621,12 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 }
 
 @media (max-width: 760px) {
-  body.page-more .statusbar,
-  body.page-more .appPageHero {
+  body.page-more .statusbar {
     display: none !important;
   }
 
   body.page-more .wrap {
     padding: 12px 16px calc(96px + env(safe-area-inset-bottom, 0px)) !important;
-  }
-
-  .page-more #morePrimarySummary {
-    display: block !important;
-    min-height: 0;
-    margin: 0 0 14px;
-    padding: 18px 16px;
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 24px;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(76,141,255,.22), transparent 38%),
-      linear-gradient(180deg, rgba(16,22,30,.98), rgba(8,12,17,.98));
-    box-shadow: none;
-  }
-
-  .page-more .mobileHeroValue {
-    margin-top: 6px;
-    font-size: 34px;
-    line-height: 1;
-  }
-
-  .page-more .mobileHeroStats {
-    margin-top: 18px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .page-more .mobileHeroStat {
-    min-width: 0;
-  }
-
-  .page-more .mobileHeroStat strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .page-more .moreHub {

@@ -35,6 +35,8 @@ design-system.css
 
 `design-system.css` 必须在 `style.css` 后加载。它不承载业务布局，不写接口相关样式，不直接绑定投资收益、风险、收支等业务含义。
 
+正式页面的 `<body>` 必须带 `app-shell` 类。`ui.js` 仍会补充导航增强和预加载，但设计系统基础样式不能依赖 JS 执行后才生效。
+
 ## 页面骨架
 
 正式页面只保留三类主入口：
@@ -59,7 +61,7 @@ design-system.css
   -> 点击后底部浮层或详情
 ```
 
-不要恢复大 hero、状态栏大按钮、同步大入口条或旧独立风险页。
+不要恢复大 hero、状态栏大按钮、同步大入口条或旧独立风险页。低频工作台页面如果需要页面说明和快捷入口，使用 `.appWorkHeader`；不要恢复或新增 `appPageHero` / `appHero*`。
 
 ## 组件契约
 
@@ -69,6 +71,7 @@ design-system.css
 - 列表行：`.ledgerListRow`、`.syncCenterRow`、`.moreRow`
 - 状态标签：`.statusBadge`、`.tag`、`.statusChip`、`.flowTag`
 - 操作按钮：`.btn`、`.ledgerActionBtn`、`.reviewBtn`
+- 工作台头部：`.appWorkHeader`、`.appShortcutGrid`、`.appShortcutCard`
 - 底部浮层：`openBottomSheet`
 
 新增页面如果需要新的卡片或列表，应先判断是否能复用上述结构。不能为了单页视觉效果新增一套完整组件。

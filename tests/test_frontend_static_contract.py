@@ -1,4 +1,5 @@
-﻿from pathlib import Path
+﻿from html.parser import HTMLParser
+from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -7,6 +8,33 @@ PUBLIC_ROOT = REPO_ROOT / "frontend" / "public"
 
 def _read_public(path: str) -> str:
     return (PUBLIC_ROOT / path).read_text(encoding="utf-8")
+
+
+class _StaticHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stylesheets: list[str] = []
+        self.scripts: list[str] = []
+        self.body_classes: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {key: value or "" for key, value in attrs}
+        if tag == "link" and attr.get("rel") == "stylesheet":
+            self.stylesheets.append(attr.get("href", ""))
+        if tag == "script" and attr.get("src"):
+            self.scripts.append(attr["src"])
+        if tag == "body":
+            self.body_classes = attr.get("class", "").split()
+
+
+def _parse_html(html: str) -> _StaticHtmlParser:
+    parser = _StaticHtmlParser()
+    parser.feed(html)
+    return parser
+
+
+def _formal_html_pages() -> list[str]:
+    return sorted(path.name for path in PUBLIC_ROOT.glob("*.html"))
 
 
 def test_data_sources_page_exposes_portfolio_data_quality_panel() -> None:
@@ -77,6 +105,7 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
 def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     """Guard the shared design-system layer so new pages do not bypass it."""
 
+    legacy_css = _read_public("assets/css/style.css")
     design_css = _read_public("assets/css/design-system.css")
     design_doc = (REPO_ROOT / "docs" / "PAMS_FRONTEND_DESIGN_SYSTEM.md").read_text(encoding="utf-8")
 
@@ -89,6 +118,8 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell .ledgerListRow",
         "body.app-shell .syncCenterRow",
         "body.app-shell .moreRow",
+        "body.app-shell .appWorkHeader",
+        "body.app-shell .appShortcutGrid",
         "prefers-reduced-motion",
     ]:
         assert token in design_css
@@ -96,18 +127,24 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     for removed_shell in ["appActionRow", "riskAnchorNav", "appPageHero"]:
         assert removed_shell not in design_css
 
-    for page in [
-        "accounts.html",
-        "data_sources.html",
-        "investments.html",
-        "ledger.html",
-        "more.html",
-        "research.html",
-    ]:
+    assert "appPageHero" not in legacy_css
+    assert "appHeroTop" not in legacy_css
+    assert "appHeroLinks" not in legacy_css
+    assert "appShortcutGrid" not in legacy_css
+
+    for page in _formal_html_pages():
         html = _read_public(page)
-        assert "assets/css/style.css" in html
-        assert "assets/css/design-system.css?v=20260620-design-system-v1" in html
-        assert html.index("assets/css/style.css") < html.index("assets/css/design-system.css?v=20260620-design-system-v1")
+        parsed = _parse_html(html)
+        style_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith("assets/css/style.css"))
+        design_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith("assets/css/design-system.css"))
+        design_href = parsed.stylesheets[design_index]
+
+        assert style_index < design_index
+        assert "?v=" in design_href
+        assert "app-shell" in parsed.body_classes
+        assert "appPageHero" not in html
+        assert "page-risk" not in parsed.body_classes
+        assert "page-dashboard" not in parsed.body_classes
 
     for phrase in [
         "PAMS 前端设计系统收敛 v1",
@@ -342,11 +379,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260620-page-boundary-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260620-page-boundary-v1" in html
-    assert "assets/js/lookthrough.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/holdings.js?v=20260620-design-system-v2" in html
+    assert "assets/js/holdings_categories.js?v=20260620-design-system-v2" in html
+    assert "assets/js/lookthrough.js?v=20260620-design-system-v2" in html
     assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in html
-    assert "assets/js/portfolio_config.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/portfolio_config.js?v=20260620-design-system-v2" in html
     assert "style.css?v=20260620-trade-attribution-v2" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -465,8 +502,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20260620-design-system-v2" in ledger_html
+    assert "assets/js/transactions.js?v=20260620-design-system-v2" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -922,7 +959,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in html
+    assert "assets/js/transactions.js?v=20260620-design-system-v2" in html
     assert "assets/css/style.css?v=20260620-trade-attribution-v2" in html
 
 
@@ -959,10 +996,10 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260620-more-minimal-v1" in html
-    assert "assets/js/bank_reconcile.js?v=20260620-page-boundary-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20260620-page-boundary-v1" in data_sources_html
-    assert "assets/js/research.js?v=20260620-page-boundary-v1" in research_html
+    assert "assets/js/more.js?v=20260620-design-system-v2" in html
+    assert "assets/js/bank_reconcile.js?v=20260620-design-system-v2" in accounts_html
+    assert "assets/js/data_sources.js?v=20260620-design-system-v2" in data_sources_html
+    assert "assets/js/research.js?v=20260620-design-system-v2" in research_html
 
 
 def test_risk_capability_lives_in_investment_subpage() -> None:
@@ -1013,15 +1050,17 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260620-design-system-v2" in ui_js
     assert "assets/css/style.css?v=20260619-trade-ledger-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260620-page-boundary-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260620-page-boundary-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in ui_js
+    assert "assets/css/design-system.css?v=20260620-design-system-v1" in ui_js
+    assert "assets/js/ui.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/js/holdings.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/js/lookthrough.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/js/transactions.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/more.js?v=20260620-page-boundary-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/js/more.js?v=20260620-design-system-v2" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
