@@ -1,6 +1,6 @@
 import { jget } from './api.js?v=20260606-refresh-v3';
-import { setActiveNav } from './ui.js?v=20260620-design-system-v2';
-import { loadSyncCenter } from './sync_center.js?v=20260620-design-system-v3';
+import { renderDataState, setActiveNav } from './ui.js?v=20260620-data-state-v1';
+import { loadSyncCenter } from './sync_center.js?v=20260620-data-state-v1';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -25,6 +25,13 @@ function renderQuality(portfolio) {
   if (!el) return;
   const quality = portfolio?.data_quality;
   if (!quality) {
+    renderDataState(el, {
+      tone: 'empty',
+      title: '暂无统一数据质量信息',
+      detail: '等待 /api/portfolio/data-quality 返回覆盖率、缺口和行动提示。',
+      compact: true,
+    });
+    return;
     el.innerHTML = '<div class="muted">暂无统一数据质量信息</div>';
     return;
   }

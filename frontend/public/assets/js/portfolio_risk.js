@@ -1,4 +1,5 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
+import { dataStateHtml } from './ui.js?v=20260620-data-state-v1';
 
 let currentCategories = [];
 let expandedRiskCategoryId = null;
@@ -300,6 +301,15 @@ function checklistCard(category, index) {
 function renderRiskCategories() {
   const categoriesEl = document.getElementById('portfolioRiskCategories');
   if (!categoriesEl) return;
+  if (!currentCategories.length) {
+    categoriesEl.innerHTML = dataStateHtml({
+      tone: 'empty',
+      title: '暂无风险检查项',
+      detail: '等待风险披露接口返回七类 checklist。',
+      compact: true,
+    });
+    return;
+  }
   categoriesEl.innerHTML = currentCategories.map(checklistCard).join('')
     || '<div class="lookthroughEmpty">风险披露数据为空</div>';
 }
@@ -341,6 +351,22 @@ async function loadPortfolioRiskDisclosure() {
     const dashboardEl = document.getElementById('portfolioRiskDashboard');
     const categoriesEl = document.getElementById('portfolioRiskCategories');
     const message = esc(error?.message || error);
+    if (dashboardEl) {
+      dashboardEl.innerHTML = dataStateHtml({
+        tone: 'error',
+        title: '风险披露读取失败',
+        detail: message,
+      });
+    }
+    if (categoriesEl) {
+      categoriesEl.innerHTML = dataStateHtml({
+        tone: 'error',
+        title: '风险清单不可用',
+        detail: message,
+        compact: true,
+      });
+    }
+    return;
     if (dashboardEl) dashboardEl.innerHTML = `<div class="lookthroughEmpty">风险披露读取失败：${message}</div>`;
     if (categoriesEl) categoriesEl.innerHTML = '';
   }

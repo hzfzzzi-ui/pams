@@ -1,5 +1,5 @@
 import { jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { openBottomSheet } from './ui.js?v=20260620-design-system-v2';
+import { dataStateHtml, openBottomSheet } from './ui.js?v=20260620-data-state-v1';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -118,7 +118,17 @@ export function renderSyncSummary(el, data) {
 
 export function renderWorkflow(el, data) {
   if (!el) return;
-  el.innerHTML = (data.workflows || []).map((item) => `
+  const workflows = data.workflows || [];
+  if (!workflows.length) {
+    el.innerHTML = dataStateHtml({
+      tone: 'empty',
+      title: '暂无今日工作流',
+      detail: '当前没有需要展示的同步步骤。',
+      compact: true,
+    });
+    return;
+  }
+  el.innerHTML = workflows.map((item) => `
     <button class="syncWorkflowPill" type="button" title="${esc(item.description)}">
       <strong>${esc(item.label)}</strong>
       <small>${esc(item.description)}</small>
@@ -129,6 +139,15 @@ export function renderWorkflow(el, data) {
 export function renderSyncRows(el, data) {
   if (!el) return;
   const rows = data.rows || [];
+  if (!rows.length) {
+    el.innerHTML = dataStateHtml({
+      tone: 'empty',
+      title: '暂无同步数据',
+      detail: '当前没有可展示的数据源同步记录。',
+      compact: true,
+    });
+    return;
+  }
   el.innerHTML = rows.map(renderRow).join('') || '<div class="muted">暂无同步数据</div>';
 }
 
@@ -157,7 +176,26 @@ export async function triggerSync(row, { statusEl, after } = {}) {
 }
 
 export async function loadSyncCenter(targets = {}) {
-  const data = await jget('/api/sync/center');
+  let data;
+  try {
+    data = await jget('/api/sync/center');
+  } catch (error) {
+    const message = String(error?.message || error);
+    const stateHtml = dataStateHtml({
+      tone: 'error',
+      title: '同步中心读取失败',
+      detail: message,
+      compact: true,
+    });
+    if (targets.summaryEl) targets.summaryEl.innerHTML = stateHtml;
+    if (targets.workflowEl) targets.workflowEl.innerHTML = stateHtml;
+    if (targets.rowsEl) targets.rowsEl.innerHTML = stateHtml;
+    if (targets.tableBodyEl) {
+      targets.tableBodyEl.innerHTML = `<tr><td colspan="6">${stateHtml}</td></tr>`;
+    }
+    setStatus(targets.statusEl, `同步中心读取失败：${message}`, 'error');
+    return { rows: [], summary: {}, workflows: [], error: message };
+  }
   renderSyncSummary(targets.summaryEl, data);
   renderWorkflow(targets.workflowEl, data);
   renderSyncRows(targets.rowsEl, data);
