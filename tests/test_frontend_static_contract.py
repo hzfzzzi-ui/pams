@@ -895,6 +895,11 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert 'id="syncWorkflow"' not in html
     assert 'id="syncCenterRows"' not in html
     assert "data-sync-scope" not in html
+    assert "appPageHero" not in html
+    assert "morePrimarySummary" not in html
+    assert "moreHeroDate" not in html
+    assert "moreDataState" not in html
+    assert "moreToolState" not in html
 
     for href in [
         "data_sources.html#dataQuality",
@@ -911,7 +916,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260620-page-boundary-v1" in html
+    assert "assets/js/more.js?v=20260620-more-minimal-v1" in html
     assert "assets/js/bank_reconcile.js?v=20260620-page-boundary-v1" in accounts_html
     assert "assets/js/data_sources.js?v=20260620-page-boundary-v1" in data_sources_html
     assert "assets/js/research.js?v=20260620-page-boundary-v1" in research_html

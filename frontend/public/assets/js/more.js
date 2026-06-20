@@ -7,9 +7,7 @@ function todayText() {
 
 function boot() {
   setActiveNav();
-  const today = todayText();
-  setText('asof', today);
-  setText('moreHeroDate', today);
+  setText('asof', todayText());
 }
 
 boot();
