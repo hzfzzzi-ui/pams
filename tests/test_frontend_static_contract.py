@@ -152,6 +152,11 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell.app-low-frequency .lowFrequencyStack",
         "body.app-shell.app-low-frequency .appWorkHeader",
         "body.app-shell.app-low-frequency details.card > summary",
+        "PAMS Mobile Polish v1",
+        "@media (max-width: 430px)",
+        "--pams-mobile-gutter",
+        "body.app-shell .nav a[data-mobile-nav=\"primary\"]",
+        "body.app-shell .appBottomSheetPanel",
         "body.app-shell .appWorkHeader",
         "body.app-shell .appShortcutGrid",
         "body.app-shell .appBottomSheet",
@@ -233,7 +238,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
         assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260620-mobile-density-v1"
-        assert design_href == "assets/css/design-system.css?v=20260620-low-frequency-v1"
+        assert design_href == "assets/css/design-system.css?v=20260620-mobile-polish-v1"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
             ("investments.html", "投资"),
@@ -1184,7 +1189,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
-    assert "assets/css/design-system.css?v=20260620-low-frequency-v1" in ui_js
+    assert "assets/css/design-system.css?v=20260620-mobile-polish-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js

@@ -855,6 +855,117 @@ body.app-shell :focus-visible {
   }
 }
 
+/* PAMS Mobile Polish v1 */
+@media (max-width: 430px) {
+  body.app-shell {
+    --pams-mobile-gutter: 10px;
+    --pams-shell-gutter: var(--pams-mobile-gutter);
+    --pams-shell-gap: 9px;
+    --pams-card-pad: 11px;
+    --pams-list-gap: 6px;
+    --pams-list-row-pad-y: 8px;
+    --pams-list-row-pad-x: 10px;
+    overflow-x: hidden;
+  }
+
+  body.app-shell .wrap,
+  body.page-investments .wrap {
+    max-width: 430px;
+    padding-right: var(--pams-mobile-gutter) !important;
+    padding-left: var(--pams-mobile-gutter) !important;
+  }
+
+  body.app-shell .nav {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  body.app-shell .nav a[data-mobile-nav="primary"] {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 14px;
+    line-height: 36px;
+  }
+
+  body.app-shell .pageHeader {
+    gap: 7px !important;
+    margin-bottom: 9px !important;
+  }
+
+  body.app-shell .pageHeader h1 {
+    font-size: 23px !important;
+  }
+
+  body.app-shell .pageSubtitle,
+  body.app-shell .pageMeta,
+  body.app-shell .muted {
+    line-height: 1.38;
+  }
+
+  body.app-shell .sectionTitle {
+    align-items: flex-start;
+    gap: 7px !important;
+  }
+
+  body.app-shell .sectionTitle .right,
+  body.app-shell .pageMeta {
+    justify-content: flex-start;
+  }
+
+  body.app-shell .pill,
+  body.app-shell .tag,
+  body.app-shell .btn,
+  body.app-shell .statusBadge,
+  body.app-shell .statusChip,
+  body.app-shell .flowTag,
+  body.app-shell .basisBadge,
+  body.app-shell .miniBadge {
+    max-width: 100%;
+  }
+
+  body.app-shell .dataState,
+  body.app-shell .emptyState,
+  body.app-shell .qualityBox,
+  body.app-shell .sourceTodo {
+    padding: 10px;
+  }
+
+  body.app-shell .appBottomSheetPanel {
+    max-height: min(82vh, 640px);
+    padding-right: 12px;
+    padding-left: 12px;
+    border-radius: 20px 20px 0 0;
+  }
+
+  body.app-shell .analysisSwitch,
+  body.app-shell .lookthroughTabs,
+  body.app-shell .mobileHoldingFilterChips,
+  body.app-shell .returnSeriesRail,
+  body.app-shell .returnWindowSegment {
+    gap: 6px;
+    scrollbar-width: none;
+  }
+
+  body.app-shell .analysisSwitch::-webkit-scrollbar,
+  body.app-shell .lookthroughTabs::-webkit-scrollbar,
+  body.app-shell .mobileHoldingFilterChips::-webkit-scrollbar,
+  body.app-shell .returnSeriesRail::-webkit-scrollbar,
+  body.app-shell .returnWindowSegment::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  body.app-shell {
+    --pams-mobile-gutter: 8px;
+  }
+
+  body.app-shell .nav a[data-mobile-nav="primary"] {
+    padding: 0 8px;
+    font-size: 13px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body.app-shell *,
   body.app-shell *::before,
