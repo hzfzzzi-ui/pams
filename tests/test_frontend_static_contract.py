@@ -367,7 +367,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     ]:
         assert f'id="{element_id}"' in html
     assert "portfolioRiskInputs" not in html
-    assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">' in html
+    assert '<details id="category-detail-shell" class="investmentDetailFold" hidden>' in html
+    assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">' not in html
+    assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis" hidden>' not in html
     assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis" open>' not in html
 
     assert 'id="tradeFilterPanel" class="investmentPanel tradeFilterPanel" hidden' in html
@@ -400,6 +402,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "CategoryDetailTabs",
         "openCategoryDetailShell",
         "isCategoryDetailOpen",
+        "shell?.hidden",
         "normalizeHolding",
         "TransactionSummaryPanel",
         "tradeLedgerItem",
@@ -503,7 +506,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in html
+    assert "assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
@@ -1197,7 +1200,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in ui_js

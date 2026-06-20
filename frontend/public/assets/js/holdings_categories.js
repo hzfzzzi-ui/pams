@@ -2849,12 +2849,12 @@ function categoryDetailShell() {
 
 function isCategoryDetailOpen() {
   const shell = categoryDetailShell();
-  return !shell || shell.open;
+  return Boolean(shell && !shell.hidden && shell.open);
 }
 
 function openCategoryDetailShell() {
   const shell = categoryDetailShell();
-  if (shell) shell.open = true;
+  if (shell && !shell.hidden) shell.open = true;
 }
 
 function loadVisibleCategoryReturnChart() {
@@ -2906,6 +2906,7 @@ function setupAnalysisHeavyLoaders() {
 function CategoryDetailTabs() {
   const buttons = Array.from(document.querySelectorAll('[data-category-target]'));
   const shell = categoryDetailShell();
+  if (shell?.hidden) return;
   if (shell) {
     shell.addEventListener('toggle', () => {
       if (shell.open) queueVisibleCategoryReturnChart(120);
