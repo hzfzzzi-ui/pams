@@ -1,5 +1,5 @@
 /* ============================================================
-   PAMS Design System Layer v3
+   PAMS Design System Layer v4
 
    Loaded after the legacy stylesheet. Keep this file small:
    tokens, shared app-shell primitives, and cross-page density rules only.
@@ -7,25 +7,25 @@
    ============================================================ */
 
 :root {
-  --pams-bg: var(--bg, #05070a);
-  --pams-surface: #0b1017;
-  --pams-surface-raised: #0f151e;
-  --pams-surface-soft: rgba(255,255,255,.026);
-  --pams-border: rgba(255,255,255,.085);
-  --pams-border-strong: rgba(255,255,255,.14);
-  --pams-text: var(--text, #f3f6fb);
-  --pams-muted: var(--muted, #6f7888);
-  --pams-good: var(--good, #23c26b);
-  --pams-bad: var(--bad, #ff5b5b);
-  --pams-warn: var(--warn, #f5a524);
-  --pams-info: var(--info, #4c8dff);
-  --pams-radius-panel: 14px;
-  --pams-radius-row: 12px;
-  --pams-radius-control: 999px;
+  --pams-bg: var(--pams-bg-canvas, var(--bg, #05070a));
+  --pams-surface: var(--pams-bg-surface, #0b0f14);
+  --pams-surface-raised: var(--pams-bg-panel, #0f141b);
+  --pams-surface-soft: var(--pams-bg-soft, rgba(255,255,255,.026));
+  --pams-border: var(--pams-line-subtle, rgba(255,255,255,.085));
+  --pams-border-strong: var(--pams-line-strong, rgba(255,255,255,.14));
+  --pams-text: var(--pams-text-primary, var(--text, #f3f6fb));
+  --pams-muted: var(--pams-text-muted, var(--muted, #6f7888));
+  --pams-good: var(--pams-profit, var(--good, #23c26b));
+  --pams-bad: var(--pams-loss, var(--bad, #ff5b5b));
+  --pams-warn: var(--pams-warning, var(--warn, #f5a524));
+  --pams-info: #4c8dff;
+  --pams-radius-panel: var(--pams-radius-lg, 14px);
+  --pams-radius-row: var(--pams-radius-md, 8px);
+  --pams-radius-control: var(--pams-radius-pill, 999px);
   --pams-row-min: 58px;
   --pams-chip-height: 30px;
-  --pams-font-sans: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  --pams-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --pams-font-sans: var(--pams-font-ui, Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  --pams-font-mono: var(--pams-font-number, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
 html {

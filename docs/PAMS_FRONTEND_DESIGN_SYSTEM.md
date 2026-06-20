@@ -1,4 +1,4 @@
-# PAMS 前端设计系统收敛 v3
+# PAMS 前端设计系统收敛 v4
 
 本文件定义 PAMS 前端后续改动的视觉边界。目标不是重做 UI，而是把已经稳定的移动端 dark app 风格收敛成可维护的组件契约，减少同一类卡片、标签、列表在不同页面重复实现。
 
@@ -103,8 +103,8 @@ docker compose up -d --build pams-web
 如果新增正式页面，必须接入：
 
 ```html
-<link rel="stylesheet" href="assets/css/style.css?v=20260620-design-system-v3" />
-<link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v3" />
+<link rel="stylesheet" href="assets/css/style.css?v=20260620-mobile-density-v1" />
+<link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-tokens-v1" />
 ```
 
 并补充静态契约测试，防止页面绕开设计系统。
