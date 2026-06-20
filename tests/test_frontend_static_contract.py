@@ -124,10 +124,18 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
 
     for token in [
         "PAMS Design System Layer v4",
+        "PAMS Page Shell Template v1",
         "--pams-surface",
         "--pams-radius-panel",
         "--pams-row-min",
+        "--pams-shell-max-width",
+        "--pams-shell-gutter",
+        "--pams-card-pad",
+        "body.app-shell .wrap",
+        "body.app-shell .pageHeader",
+        "body.app-shell .pageSubtitle",
         "body.app-shell .card",
+        "body.app-shell .card + .card",
         "body.app-shell .ledgerListRow",
         "body.app-shell .syncCenterRow",
         "body.app-shell .moreRow",
@@ -212,7 +220,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
         assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260620-mobile-density-v1"
-        assert design_href == "assets/css/design-system.css?v=20260620-visual-tokens-v1"
+        assert design_href == "assets/css/design-system.css?v=20260620-page-shell-v1"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
             ("investments.html", "投资"),
@@ -1158,7 +1166,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
-    assert "assets/css/design-system.css?v=20260620-visual-tokens-v1" in ui_js
+    assert "assets/css/design-system.css?v=20260620-page-shell-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js
