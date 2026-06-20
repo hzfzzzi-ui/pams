@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css?v=20260620-design-system-v3" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20260620-investment-focus-v2" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v3" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -211,22 +211,30 @@
       </div>
     </div>
 
-    <!-- 快速导航 -->
-    <div id="category-details" class="card" data-invest-panel="analysis">
-      <div class="sectionTitle">
-        <div>
-          <h2>分类</h2>
-          <div class="muted">默认单类展开。</div>
+    <details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">
+      <summary class="investmentDetailSummary">
+        <span>
+          <strong>分类明细</strong>
+          <em>按需查看分类曲线、KPI 和持仓表。</em>
+        </span>
+        <b>展开</b>
+      </summary>
+      <div class="investmentDetailBody">
+        <!-- 快速导航 -->
+        <div id="category-details" class="card" data-invest-panel="analysis">
+          <div class="sectionTitle">
+            <div>
+              <h2>分类</h2>
+            </div>
+          </div>
+          <div id="categoryTabs" class="investmentTabs" role="tablist" aria-label="投资分类">
+            <button class="investmentTab active" type="button" data-category-target="section-a-stock-equity">A股个股</button>
+            <button class="investmentTab" type="button" data-category-target="section-a-fund">基金</button>
+            <button class="investmentTab" type="button" data-category-target="section-us-stock">美股/海外</button>
+            <button class="investmentTab" type="button" data-category-target="section-precious-metal">贵金属</button>
+            <button class="investmentTab" type="button" data-category-target="section-esop">内部股份/分红</button>
+          </div>
         </div>
-      </div>
-      <div id="categoryTabs" class="investmentTabs" role="tablist" aria-label="投资分类">
-        <button class="investmentTab active" type="button" data-category-target="section-a-stock-equity">A股个股</button>
-        <button class="investmentTab" type="button" data-category-target="section-a-fund">基金</button>
-        <button class="investmentTab" type="button" data-category-target="section-us-stock">美股/海外</button>
-        <button class="investmentTab" type="button" data-category-target="section-precious-metal">贵金属</button>
-        <button class="investmentTab" type="button" data-category-target="section-esop">内部股份/分红</button>
-      </div>
-    </div>
 
     <!-- ========== A股个股持仓 ========== -->
     <div id="section-a-stock-equity" class="card investmentCategorySection" data-invest-panel="analysis">
@@ -536,6 +544,8 @@
         </div>
       </div>
     </div>
+      </div>
+    </details>
 
     <!-- ========== 投资交易明细 ========== -->
     <div id="investment-ledger" class="card" data-invest-panel="transactions">
@@ -680,7 +690,7 @@
   </div>
 
   <script type="module" src="assets/js/holdings.js?v=20260620-data-state-v1"></script>
-  <script type="module" src="assets/js/holdings_categories.js?v=20260620-data-state-v1"></script>
+  <script type="module" src="assets/js/holdings_categories.js?v=20260620-investment-focus-v2"></script>
   <script type="module" src="assets/js/lookthrough.js?v=20260620-data-state-v1"></script>
   <script type="module" src="assets/js/transactions.js?v=20260620-data-state-v1"></script>
   <script type="module" src="assets/js/portfolio_risk.js?v=20260620-data-state-v1"></script>

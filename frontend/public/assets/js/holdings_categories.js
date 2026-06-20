@@ -2749,7 +2749,11 @@ function bindInvestmentPageTabs() {
     });
   }
 
-  window.addEventListener('hashchange', () => setActive(tabFromHash(window.location.hash)));
+  window.addEventListener('hashchange', () => {
+    const key = String(window.location.hash || '').replace(/^#/, '');
+    if (key === 'category-details' || CATEGORY_SECTION_IDS.includes(key)) openCategoryDetailShell();
+    setActive(tabFromHash(window.location.hash));
+  });
   media.addEventListener?.('change', () => setActive(activeTab));
   document.addEventListener('click', (event) => {
     if (event.target?.closest?.('[data-category-target]')) {
@@ -2839,8 +2843,22 @@ function loadCategoryReturnChart(spec) {
   });
 }
 
+function categoryDetailShell() {
+  return document.getElementById('category-detail-shell');
+}
+
+function isCategoryDetailOpen() {
+  const shell = categoryDetailShell();
+  return !shell || shell.open;
+}
+
+function openCategoryDetailShell() {
+  const shell = categoryDetailShell();
+  if (shell) shell.open = true;
+}
+
 function loadVisibleCategoryReturnChart() {
-  if (!canLoadAnalysisDetail()) return;
+  if (!canLoadAnalysisDetail() || !isCategoryDetailOpen()) return;
   const spec = CATEGORY_RETURN_CHART_SPECS.find(item => {
     const section = document.getElementById(item.targetId);
     return section && section.hidden === false;
@@ -2849,7 +2867,7 @@ function loadVisibleCategoryReturnChart() {
 }
 
 function loadAllCategoryReturnCharts() {
-  if (!canLoadAnalysisDetail()) return;
+  if (!canLoadAnalysisDetail() || !isCategoryDetailOpen()) return;
   CATEGORY_RETURN_CHART_SPECS.forEach(loadCategoryReturnChart);
 }
 
@@ -2882,13 +2900,20 @@ function setupAnalysisHeavyLoaders() {
   if (chartWrap) chartWrap.hidden = false;
   if (toggle) toggle.hidden = false;
   window.setTimeout(() => loadInvestmentReturnChartOnce().catch(() => null), 300);
-  window.setTimeout(loadAllCategoryReturnCharts, 900);
+  window.setTimeout(loadVisibleCategoryReturnChart, 900);
 }
 
 function CategoryDetailTabs() {
   const buttons = Array.from(document.querySelectorAll('[data-category-target]'));
+  const shell = categoryDetailShell();
+  if (shell) {
+    shell.addEventListener('toggle', () => {
+      if (shell.open) queueVisibleCategoryReturnChart(120);
+    });
+  }
   if (!buttons.length) return;
-  const show = (targetId) => {
+  const show = (targetId, options = {}) => {
+    if (options.openShell) openCategoryDetailShell();
     for (const id of CATEGORY_SECTION_IDS) {
       const el = document.getElementById(id);
       if (el) el.hidden = id !== targetId;
@@ -2899,11 +2924,20 @@ function CategoryDetailTabs() {
     queueVisibleCategoryReturnChart(150);
   };
   const hashTarget = window.location.hash ? window.location.hash.slice(1) : '';
+  const shouldOpenShell = hashTarget === 'category-details' || CATEGORY_SECTION_IDS.includes(hashTarget);
+  if (shouldOpenShell) {
+    openCategoryDetailShell();
+  }
   const initial = CATEGORY_SECTION_IDS.includes(hashTarget) ? hashTarget : CATEGORY_SECTION_IDS[0];
   show(initial);
+  window.addEventListener('hashchange', () => {
+    const key = window.location.hash ? window.location.hash.slice(1) : '';
+    if (key === 'category-details') openCategoryDetailShell();
+    if (CATEGORY_SECTION_IDS.includes(key)) show(key, { openShell: true });
+  });
   for (const btn of buttons) {
     btn.addEventListener('click', () => {
-      show(btn.dataset.categoryTarget);
+      show(btn.dataset.categoryTarget, { openShell: true });
       const anchor = document.getElementById('category-details');
       if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });

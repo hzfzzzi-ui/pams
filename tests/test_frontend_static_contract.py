@@ -299,6 +299,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "lookthroughList",
         "lookthroughQuality",
         "trade-attribution-analysis",
+        "category-detail-shell",
         "categoryTabs",
         "transactionSummaryPanel",
         "manualTradeEntry",
@@ -316,6 +317,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     ]:
         assert f'id="{element_id}"' in html
     assert "portfolioRiskInputs" not in html
+    assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">' in html
+    assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis" open>' not in html
 
     assert 'id="tradeFilterPanel" class="investmentPanel tradeFilterPanel" hidden' in html
 
@@ -332,6 +335,12 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "风险暴露" in risk_panel_html
     assert 'data-analysis-panel-switch="lookthrough"' not in analysis_panel_html
     assert 'data-analysis-panel-page="lookthrough"' not in analysis_panel_html
+    assert "investmentDetailFold" in _read_public("assets/css/style.css")
+    assert ".investmentDetailFold:not([open]) > .investmentDetailBody" in _read_public("assets/css/style.css")
+    assert "window.setTimeout(loadVisibleCategoryReturnChart, 900)" in holdings_js
+    assert "window.setTimeout(loadAllCategoryReturnCharts, 900)" not in holdings_js
+    assert "key === 'category-details' || CATEGORY_SECTION_IDS.includes(key)" in holdings_js
+    assert "CATEGORY_SECTION_IDS.includes(key)) show(key, { openShell: true })" in holdings_js
 
     for fn in [
         "InvestmentSummaryHeader",
@@ -339,6 +348,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "ReturnMethodBadge",
         "DataQualityBanner",
         "CategoryDetailTabs",
+        "openCategoryDetailShell",
+        "isCategoryDetailOpen",
         "normalizeHolding",
         "TransactionSummaryPanel",
         "tradeLedgerItem",
@@ -442,11 +453,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260620-data-state-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
-    assert "style.css?v=20260620-design-system-v3" in html
+    assert "style.css?v=20260620-investment-focus-v2" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -1022,7 +1033,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in html
-    assert "assets/css/style.css?v=20260620-design-system-v3" in html
+    assert "assets/css/style.css?v=20260620-investment-focus-v2" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -1127,11 +1138,11 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/css/style.css?v=20260620-design-system-v3" in ui_js
+    assert "assets/css/style.css?v=20260620-investment-focus-v2" in ui_js
     assert "assets/css/design-system.css?v=20260620-design-system-v3" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in ui_js
