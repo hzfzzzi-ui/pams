@@ -233,7 +233,7 @@ function setupAppPreload(activePath, path) {
       ['ledger.html', 'document'],
       ['more.html', 'document'],
       ['assets/css/style.css?v=20260620-mobile-density-v1', 'style'],
-      ['assets/css/design-system.css?v=20260620-mobile-polish-v1', 'style'],
+      ['assets/css/design-system.css?v=20260620-visual-cohesion-v1', 'style'],
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ui.js?v=20260620-data-state-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],

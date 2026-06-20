@@ -167,6 +167,11 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell .skeletonCard",
         "body.app-shell .statusChip.in_transit",
         "body.app-shell .ledgerActionBtn.confirm",
+        "PAMS Visual Cohesion v1",
+        "body.app-shell .statusbar",
+        "body.app-shell .appWorkHeader p",
+        "body.app-shell .moreRow.accent-data",
+        "body.app-shell .moreRow.accent-risk",
         "prefers-reduced-motion",
     ]:
         assert token in design_css
@@ -238,7 +243,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
         assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260620-mobile-density-v1"
-        assert design_href == "assets/css/design-system.css?v=20260620-mobile-polish-v1"
+        assert design_href == "assets/css/design-system.css?v=20260620-visual-cohesion-v1"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
             ("investments.html", "投资"),
@@ -1189,7 +1194,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
-    assert "assets/css/design-system.css?v=20260620-mobile-polish-v1" in ui_js
+    assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js
