@@ -74,6 +74,49 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
         assert "appActionRow" not in html
 
 
+def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
+    """Guard the shared design-system layer so new pages do not bypass it."""
+
+    design_css = _read_public("assets/css/design-system.css")
+    design_doc = (REPO_ROOT / "docs" / "PAMS_FRONTEND_DESIGN_SYSTEM.md").read_text(encoding="utf-8")
+
+    for token in [
+        "PAMS Design System Layer v1",
+        "--pams-surface",
+        "--pams-radius-panel",
+        "--pams-row-min",
+        "body.app-shell .card",
+        "body.app-shell .ledgerListRow",
+        "body.app-shell .syncCenterRow",
+        "body.app-shell .moreRow",
+        "prefers-reduced-motion",
+    ]:
+        assert token in design_css
+
+    for removed_shell in ["appActionRow", "riskAnchorNav", "appPageHero"]:
+        assert removed_shell not in design_css
+
+    for page in [
+        "accounts.html",
+        "data_sources.html",
+        "investments.html",
+        "ledger.html",
+        "more.html",
+        "research.html",
+    ]:
+        html = _read_public(page)
+        assert "assets/css/style.css" in html
+        assert "assets/css/design-system.css?v=20260620-design-system-v1" in html
+        assert html.index("assets/css/style.css") < html.index("assets/css/design-system.css?v=20260620-design-system-v1")
+
+    for phrase in [
+        "PAMS 前端设计系统收敛 v1",
+        "`design-system.css` 必须在 `style.css` 后加载",
+        "不要恢复大 hero",
+    ]:
+        assert phrase in design_doc
+
+
 def test_legacy_frontend_entrypoints_stay_removed() -> None:
     legacy_pages = [
         "bank_reconcile.html",
