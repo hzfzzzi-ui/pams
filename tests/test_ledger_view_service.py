@@ -10,7 +10,7 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services.ledger_view import _serialize_row, classify_ledger_row, summarize_period  # noqa: E402
+from services.ledger_view import _account_summary, _serialize_row, classify_ledger_row, summarize_period  # noqa: E402
 
 
 def test_classify_transfer_before_expense_without_amount_threshold() -> None:
@@ -96,3 +96,23 @@ def test_serialize_row_preserves_transfer_fields_for_frontend_filter() -> None:
     assert out["cashflow_type"] == "investment_funding"
     assert out["is_internal_transfer"] is True
     assert out["transfer_group_id"] == "case-1"
+
+
+def test_account_summary_groups_month_rows_by_account() -> None:
+    rows = [
+        {"account_code": "bank-a", "flow_type": "income", "amount_cny": 3000, "needs_review": False},
+        {"account_code": "bank-a", "flow_type": "expense", "amount_cny": -800, "needs_review": True},
+        {"account_code": "bank-a", "flow_type": "transfer", "amount_cny": -1000, "needs_review": False},
+        {"account_code": "wallet-b", "flow_type": "expense", "amount_cny": -120, "needs_review": False},
+    ]
+
+    result = _account_summary(rows)
+    by_account = {row["account_code"]: row for row in result}
+
+    assert by_account["bank-a"]["income"] == 3000
+    assert by_account["bank-a"]["expense"] == 800
+    assert by_account["bank-a"]["transfer"] == 1000
+    assert by_account["bank-a"]["net"] == 1200
+    assert by_account["bank-a"]["row_count"] == 3
+    assert by_account["bank-a"]["pending_count"] == 1
+    assert by_account["wallet-b"]["expense"] == 120

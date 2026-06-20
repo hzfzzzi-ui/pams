@@ -62,7 +62,7 @@
     .ruleItem:last-child { border-bottom:none }
     .ruleName { font-weight:800; margin-bottom:4px }
     .ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
-    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
+    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
     .ledgerAnchorNav a { position:relative; display:flex; align-items:center; justify-content:center; min-height:30px; padding:0 4px; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:13px; font-weight:850; text-decoration:none; white-space:nowrap }
     .ledgerAnchorNav a::after { content:""; position:absolute; left:50%; right:50%; bottom:-10px; height:2px; background:var(--info); transition:left .16s ease, right .16s ease }
     .ledgerAnchorNav a.is-active,
@@ -74,6 +74,19 @@
     .ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
     .ledgerFlowChip { min-height:32px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:var(--muted); font-size:12px; font-weight:850; cursor:pointer; }
     .ledgerFlowChip.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text); }
+    .recentAccountScope { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:850 }
+    .recentAccountScope strong { color:var(--text); font-weight:850 }
+    .recentAccountScope button { border:0; background:transparent; color:#79c0ff; font-size:12px; font-weight:850; cursor:pointer }
+    .accountFlowList { display:grid; border-top:1px solid var(--line) }
+    .accountFlowRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; min-height:70px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
+    .accountFlowMain { min-width:0 }
+    .accountFlowMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:16px; line-height:1.28; font-weight:850 }
+    .accountFlowMain small { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1; font-weight:800 }
+    .accountFlowStats { display:flex; align-items:center; gap:10px; margin-top:8px; color:var(--muted); font-size:11px; font-weight:850; flex-wrap:wrap }
+    .accountFlowStats span { white-space:nowrap }
+    .accountFlowSide { display:grid; gap:5px; justify-items:end; min-width:112px; white-space:nowrap }
+    .accountFlowSide b { font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:15px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
+    .accountFlowSide small { color:var(--muted); font-size:11px; font-weight:850 }
     .cashflowBridge { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
     .cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
     .cashflowBridgeItem:first-child { border-left:0; padding-left:0 }
@@ -190,7 +203,7 @@
       .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
       .cashflowBodyGrid { grid-template-columns:1fr }
       .cashflowBridge { grid-template-columns:repeat(2,minmax(0,1fr)) }
-      .ledgerAnchorNav { grid-template-columns:repeat(3,minmax(0,1fr)) }
+      .ledgerAnchorNav { grid-template-columns:repeat(4,minmax(0,1fr)) }
     }
     @media (max-width: 760px) {
       .page-ledger .wrap {
@@ -220,7 +233,7 @@
         top:0;
         z-index:20;
         display:grid;
-        grid-template-columns:repeat(3, minmax(0, 1fr));
+        grid-template-columns:repeat(4, minmax(0, 1fr));
         gap:0;
         padding:8px 12px 10px;
         margin:0 0 8px;
@@ -239,7 +252,6 @@
         padding-left: 12px;
         padding-right: 12px;
       }
-      .page-ledger .accountIssueStrip { margin-top:6px; }
       .ledgerTop {
         margin-top:0;
         padding:0;
@@ -326,6 +338,10 @@
       .ledgerListMain small { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
       .ledgerListSide { min-width:118px; gap:8px }
       .ledgerListMeta { justify-content:flex-end }
+      .accountFlowRow { min-height:72px; padding:12px 0; align-items:flex-start }
+      .accountFlowMain strong { font-size:15px }
+      .accountFlowStats { gap:8px }
+      .accountFlowSide { min-width:106px }
       .categoryBarRow { min-height:58px; grid-template-columns:26px minmax(0,1fr) auto; padding:9px 0 }
       .categoryBarName { font-size:15px }
       .categoryBarMeta { min-width:86px }
@@ -365,6 +381,7 @@
     <nav class="ledgerAnchorNav" aria-label="收支模块">
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
+      <a href="#account-cashflow-section" data-ledger-tab="account">账户</a>
       <a href="#review-section" data-ledger-tab="review">待确认</a>
     </nav>
 
@@ -440,39 +457,13 @@
     </div>
 
     <div class="ledgerPanelGroup" data-ledger-panel="account" hidden>
-      <section class="ledgerSection accountIssueStrip ledgerJumpCard" id="accountIssueStrip">
+      <section class="ledgerSection ledgerJumpCard" id="account-cashflow-section">
         <div class="sectionTitle">
-          <h3>账户异常</h3>
-          <a class="miniBadge data" href="accounts.html">详情</a>
+          <h3>按账户统计</h3>
+          <div class="muted">本月收入、消费、转账和待确认流水。</div>
         </div>
-        <div id="ledgerAccountIssueStrip" class="ledgerAccountIssueStrip">
-          <div class="skeletonLine"></div>
-          <div class="skeletonLine"></div>
-        </div>
+        <div id="accountFlowRows" class="accountFlowList"></div>
       </section>
-
-      <section class="ledgerSection" id="manual-import">
-        <div class="sectionTitle">
-          <h3>手动导入</h3>
-        </div>
-        <div class="appTaskList">
-          <a class="appTaskRow data" href="data_sources.html">
-            <span><strong>数据源健康</strong><small>IBKR / A股 / 基金 / 银行账单</small></span>
-            <em>›</em>
-          </a>
-          <a class="appTaskRow info" href="accounts.html#sources">
-            <span><strong>账单导入</strong><small>银行 / 钱包 / 信用卡底表</small></span>
-            <em>›</em>
-          </a>
-        </div>
-      </section>
-
-      <details class="ledgerRules">
-        <summary>粗分类规则</summary>
-        <div style="margin-top:10px">
-          <div id="classificationRules"></div>
-        </div>
-      </details>
     </div>
 
     <div class="ledgerPanelGroup" data-ledger-panel="transfer" hidden>
@@ -500,6 +491,7 @@
             <input id="recentSearch" class="formInput" type="search" placeholder="搜索摘要 / 商户 / 粗分类" />
           </div>
         </div>
+        <div id="recentAccountScope" class="recentAccountScope" hidden></div>
         <div id="recentFlowChips" class="ledgerFlowChips" aria-label="流水类型筛选">
           <button class="ledgerFlowChip active" type="button" data-ledger-flow-filter="">全部</button>
           <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="income">收入</button>
@@ -513,6 +505,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v3"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-flow-v1"></script>
 </body>
 </html>

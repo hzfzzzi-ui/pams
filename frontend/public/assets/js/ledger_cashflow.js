@@ -19,18 +19,20 @@ const state = {
   trendMode: 'monthly',
   activePanel: 'overview',
   recentFlowFilter: '',
+  recentAccountFilter: '',
 };
 
 const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
   recent: '#recent-flow-section',
+  account: '#account-cashflow-section',
   review: '#review-section',
 };
 
 const LEDGER_HASH_PANEL = {
   ...Object.fromEntries(Object.entries(LEDGER_PANEL_HASH).map(([panel, hash]) => [hash, panel])),
   '#income-section': 'recent',
-  '#accountIssueStrip': 'overview',
+  '#accountIssueStrip': 'account',
   '#transfers': 'recent',
 };
 
@@ -152,53 +154,74 @@ function renderLedgerMobileHero(data) {
   `;
 }
 
-function accountIssueTone(account) {
-  if (account.status === 'ready_for_review' || account.review_status === 'stale') return 'warn';
-  if (account.status === 'in_transit') return 'data';
-  if (account.status === 'missing_data') return 'pending';
-  if (num(account.primary_balance?.amount) < 0) return 'bad';
-  return 'ok';
+function accountDisplayName(accountCode) {
+  const account = (state.accounts?.accounts || []).find((item) => item.account_code === accountCode);
+  return account?.display_name || account?.subaccount_label || accountLabel(accountCode) || accountCode || '未命名账户';
 }
 
-function renderAccountIssueStrip(accountsResp) {
-  const el = $('ledgerAccountIssueStrip');
+function renderRecentAccountScope() {
+  const el = $('recentAccountScope');
   if (!el) return;
-  const summary = accountsResp?.summary || {};
-  const accounts = accountsResp?.accounts || [];
-  const issueRows = accounts
-    .filter((account) => (
-      account.status === 'ready_for_review' ||
-      account.status === 'in_transit' ||
-      account.status === 'missing_data' ||
-      account.review_status === 'stale' ||
-      num(account.primary_balance?.amount) < 0
-    ))
-    .slice(0, 4);
-  const chips = [
-    ['差异', summary.ready_for_review || 0, 'warn'],
-    ['过期', summary.stale_review || 0, 'warn'],
-    ['在途', summary.in_transit || 0, 'data'],
-    ['缺数据', summary.missing_data || 0, 'pending'],
-  ];
+  if (!state.recentAccountFilter) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
   el.innerHTML = `
-    <div class="accountIssueChips">
-      ${chips.map(([label, value, tone]) => `<a class="miniBadge ${value ? tone : 'ok'}" href="accounts.html">${escapeHtml(label)} ${escapeHtml(value)}</a>`).join('')}
-    </div>
-    <div class="accountIssueRows">
-      ${issueRows.length ? issueRows.map((account) => {
-        const amount = account.primary_balance?.amount;
-        const currency = account.primary_balance?.currency || account.base_currency || 'CNY';
-        const tone = accountIssueTone(account);
-        return `<a class="accountIssueRow" href="accounts.html">
-          <span>
-            <strong>${escapeHtml(account.display_name || account.subaccount_label || account.account_code)}</strong>
-            <small>${escapeHtml(account.status_label || account.review_hint || '待核对')}</small>
-          </span>
-          <em class="mono ${tone === 'bad' ? 'down' : ''}">${money(amount || 0, currency)}</em>
-        </a>`;
-      }).join('') : '<div class="muted">暂无账户异常</div>'}
-    </div>
+    <span>账户筛选 <strong>${escapeHtml(accountDisplayName(state.recentAccountFilter))}</strong></span>
+    <button type="button" data-clear-account-filter>清除</button>
   `;
+  el.querySelector('[data-clear-account-filter]')?.addEventListener('click', () => {
+    state.recentAccountFilter = '';
+    renderRecentAccountScope();
+    renderRows('recentRows', filteredRecentRows(), 120);
+  });
+}
+
+function openRecentForAccount(accountCode) {
+  state.recentAccountFilter = accountCode || '';
+  state.recentFlowFilter = '';
+  document.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
+    item.classList.toggle('active', (item.dataset.ledgerFlowFilter || '') === '');
+  });
+  renderRecentAccountScope();
+  renderRows('recentRows', filteredRecentRows(), 120);
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${LEDGER_PANEL_HASH.recent}`);
+  setLedgerPanel('recent');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderAccountFlowSummary(rows) {
+  const el = $('accountFlowRows');
+  if (!el) return;
+  if (!rows?.length) {
+    el.innerHTML = '<div class="ledgerEmpty">本月暂无账户流水</div>';
+    return;
+  }
+  el.innerHTML = rows.map((row) => {
+    const net = num(row.net);
+    return `
+      <button type="button" class="accountFlowRow" data-account-flow-filter="${escapeHtml(row.account_code || '')}">
+        <span class="accountFlowMain">
+          <strong>${escapeHtml(accountDisplayName(row.account_code))}</strong>
+          <small>${escapeHtml(row.account_code || '')}</small>
+          <span class="accountFlowStats">
+            <span>收入 ${escapeHtml(money(row.income || 0))}</span>
+            <span>消费 ${escapeHtml(money(row.expense || 0))}</span>
+            <span>转账 ${escapeHtml(money(row.transfer || 0))}</span>
+          </span>
+        </span>
+        <span class="accountFlowSide">
+          <b class="${net >= 0 ? 'up' : 'down'}">${signedMoney(net)}</b>
+          <small>${row.row_count || 0} 笔${row.pending_count ? ` · ${row.pending_count} 待确认` : ''}</small>
+        </span>
+      </button>
+    `;
+  }).join('');
+  el.querySelectorAll('[data-account-flow-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => openRecentForAccount(btn.dataset.accountFlowFilter || ''));
+  });
 }
 
 function investmentTransferAmount(rows) {
@@ -493,6 +516,7 @@ function filteredRecentRows() {
   const flow = state.recentFlowFilter || '';
   const search = ($('recentSearch')?.value || '').trim().toLowerCase();
   return (state.data?.recent_rows || []).filter((row) => {
+    if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
     if (flow === 'review' && !row.needs_review) return false;
     if (flow === 'investment_transfer' && !isInvestmentTransferRow(row)) return false;
     if (flow === 'internal_transfer' && !isInternalTransferRow(row)) return false;
@@ -507,7 +531,7 @@ function filteredRecentRows() {
 function renderAll(data) {
   renderLedgerMobileHero(data);
   renderKpis(data);
-  renderAccountIssueStrip(state.accounts);
+  renderAccountFlowSummary(data.account_summary || []);
   renderCategoryBars('expenseCategories', data.expense_categories || [], '本月暂无消费流水。');
   renderCategoryBars('incomeCategories', data.income_categories || [], '本月暂无收入流水。');
   renderTransferSummary(data.transfer_summary || []);
@@ -515,6 +539,7 @@ function renderAll(data) {
   renderTrendChart(data);
   renderCashflowBridge(data);
   renderReviewEntry(data);
+  renderRecentAccountScope();
   renderRows('reviewRows', data.review_rows || [], 60);
   renderRows('recentRows', filteredRecentRows(), 120);
 }

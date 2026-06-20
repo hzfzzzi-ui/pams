@@ -292,6 +292,52 @@ def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str,
     return sorted(result, key=lambda item: item["amount"], reverse=True)
 
 
+def _account_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        account_code = str(row.get("account_code") or "unknown")
+        item = grouped.setdefault(
+            account_code,
+            {
+                "account_code": account_code,
+                "income": 0.0,
+                "expense": 0.0,
+                "transfer": 0.0,
+                "net": 0.0,
+                "row_count": 0,
+                "pending_count": 0,
+            },
+        )
+        amount = _to_float(row.get("amount_cny"))
+        flow_type = row.get("flow_type")
+        item["row_count"] += 1
+        item["net"] += amount
+        if row.get("needs_review"):
+            item["pending_count"] += 1
+        if flow_type == "income" and amount > 0:
+            item["income"] += amount
+        elif flow_type == "expense" and amount < 0:
+            item["expense"] += abs(amount)
+        elif flow_type == "transfer":
+            item["transfer"] += abs(amount)
+
+    result = []
+    for item in grouped.values():
+        result.append(
+            {
+                "account_code": item["account_code"],
+                "income": round(item["income"], 2),
+                "expense": round(item["expense"], 2),
+                "transfer": round(item["transfer"], 2),
+                "net": round(item["net"], 2),
+                "row_count": item["row_count"],
+                "pending_count": item["pending_count"],
+                "activity": round(item["income"] + item["expense"] + item["transfer"], 2),
+            }
+        )
+    return sorted(result, key=lambda item: item["activity"], reverse=True)
+
+
 def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {"income": 0.0, "expense": 0.0})
     for row in rows:
@@ -510,6 +556,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         },
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
+        "account_summary": _account_summary(month_rows),
         "monthly_trend": _trend(enriched_rows, ytd_start, month_end, "monthly"),
         "weekly_trend": _trend(enriched_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,
