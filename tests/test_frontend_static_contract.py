@@ -324,6 +324,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'id="recentFlowFilter"' not in html
     assert "消费排行" in html
     assert "消费 Top 5" not in html
+    assert "reviewEntryHeader" in html
+    assert "reviewEntryStatus" in html
     assert "ledgerRowsTable" not in html
     assert "mobileReviewRows" not in html
     assert "<table" not in html
@@ -333,13 +335,17 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "categoryBarList" in js
     assert "categoryBarMeta" in js
     assert "categoryBarHead" not in js
+    assert "reviewEntryRow" in js
+    assert "reviewEntryStatus" in js
+    assert "高优先级" not in js
+    assert " / 详情" not in js
     assert "recentFlowFilter" in js
     assert "isInvestmentTransferRow" in js
     assert "isInternalTransferRow" in js
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert 'href="#review-section"' in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v2" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v3" in html
     assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
 
 
@@ -642,7 +648,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v2" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v3" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1209,7 +1215,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v2" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v3" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js

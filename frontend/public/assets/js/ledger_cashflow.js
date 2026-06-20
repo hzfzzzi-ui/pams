@@ -273,15 +273,21 @@ function renderReviewEntry(data) {
   const pending = Number(month.pending_count || 0);
   const rows = (data.review_rows || []).slice(0, 3);
   el.innerHTML = `
-    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
-      <a href="#review-section">待确认流水 ${pending}</a>
-      <span class="miniBadge ${pending ? 'warn' : 'ok'}">${pending ? '高优先级' : '已清空'}</span>
+    <div class="reviewEntryHeader">
+      <a class="reviewEntryTitle" href="#review-section">待确认流水</a>
+      <span class="reviewEntryStatus ${pending ? 'warn' : 'ok'}">${pending ? `${pending} 笔待处理` : '已清空'}</span>
     </div>
-    ${rows.length ? `<div style="margin-top:8px">${rows.map((row) => `
-      <div class="analysisRow">
-        <span class="analysisLabel">${escapeHtml(row.transaction_date || '')} ${escapeHtml(row.coarse_category || '')}</span>
-        <span class="analysisValue down">${signedMoney(row.amount_cny || row.amount || 0)} / 详情</span>
-      </div>
+    ${rows.length ? `<div class="reviewEntryList">${rows.map((row) => `
+      <a class="reviewEntryRow" href="#review-section">
+        <span class="reviewEntryMain">
+          <strong>${escapeHtml(row.coarse_category || '待确认支出')}</strong>
+          <small>${escapeHtml(row.transaction_date || '')}</small>
+        </span>
+        <span class="reviewEntrySide">
+          <b class="down">${signedMoney(row.amount_cny || row.amount || 0)}</b>
+          <small>去确认</small>
+        </span>
+      </a>
     `).join('')}</div>` : ''}
   `;
 }
