@@ -223,16 +223,24 @@ function renderCategoryBars(id, rows, emptyText) {
     el.innerHTML = `<div class="muted">${escapeHtml(emptyText)}</div>`;
     return;
   }
-  el.innerHTML = rows.map((row) => `
-    <div class="categoryBarRow">
-      <div class="categoryBarHead">
-        <span>${escapeHtml(row.category)}</span>
-        <span class="mono">${money(row.amount)} / ${formatPercent(row.share, 1)}</span>
-      </div>
-      <div class="categoryTrack"><div class="categoryFill" style="width:${Math.max(num(row.share) * 100, 2)}%"></div></div>
-      <div class="muted">${row.count || 0} 笔</div>
+  el.innerHTML = `
+    <div class="categoryBarList">
+      ${rows.map((row, index) => `
+        <div class="categoryBarRow">
+          <div class="categoryBarRank">${index + 1}</div>
+          <div class="categoryBarMain">
+            <div class="categoryBarName">${escapeHtml(row.category)}</div>
+            <div class="categoryTrack"><div class="categoryFill" style="width:${Math.max(num(row.share) * 100, 2)}%"></div></div>
+            <div class="categoryBarCount">${row.count || 0} 笔</div>
+          </div>
+          <div class="categoryBarMeta">
+            <b>${money(row.amount)}</b>
+            <span>${formatPercent(row.share, 1)}</span>
+          </div>
+        </div>
+      `).join('')}
     </div>
-  `).join('');
+  `;
 }
 
 function renderCashflowBridge(data) {
