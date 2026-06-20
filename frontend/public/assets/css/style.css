@@ -2772,13 +2772,6 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
 .contributionMain span, .contributionNumbers small { color: var(--muted); font-size: var(--fs-md) }
 .contributionNumbers { text-align: right; font-family: 'JetBrains Mono', monospace; white-space: nowrap }
 .contributionNumbers span { display: block; font-weight: 900 }
-.emptyState {
-  border: 1px dashed var(--line-bright);
-  border-radius: var(--radius-md);
-  padding: var(--sp-4);
-  color: var(--muted);
-  background: rgba(255,255,255,.02);
-}
 .investmentTabs { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3) }
 .investmentTab {
   border: 1px solid var(--line);
@@ -6425,21 +6418,6 @@ details[open].compactDetails > summary {
 .page-investments .mono {
   font-variant-numeric: tabular-nums;
 }
-.miniBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 7px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 999px;
-  background: #0f151d;
-  color: #8b949e;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.miniBadge.warn { color: #f2cc60; border-color: rgba(210,153,34,.35) }
-.miniBadge.pending { color: #d2a8ff; border-color: rgba(163,113,247,.38) }
-.miniBadge.ok { color: #7ee787; border-color: rgba(63,185,80,.35) }
-.miniBadge.data { color: #79c0ff; border-color: rgba(88,166,255,.35) }
 .metricLabel {
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -7286,7 +7264,6 @@ th.num,
 }
 
 .statusBadge,
-.miniBadge,
 .tag,
 .pill {
   border-radius: 8px;
@@ -7895,36 +7872,6 @@ details > summary {
 .page-investments #holdings-smart-table tbody tr:not(.rowDetail) td:nth-child(10),
 .page-investments #holdings-smart-table tbody tr:not(.rowDetail) td:nth-child(11) {
   display: none !important;
-}
-
-.skeletonCard,
-.skeletonLine,
-.skeletonList {
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  background: linear-gradient(90deg, rgba(255,255,255,.045), rgba(255,255,255,.09), rgba(255,255,255,.045));
-  background-size: 220% 100%;
-  animation: skeletonPulse 1.15s ease-in-out infinite;
-}
-
-.skeletonCard {
-  height: 78px;
-  border: 1px solid var(--line);
-}
-
-.skeletonLine {
-  height: 18px;
-  max-width: 420px;
-}
-
-.skeletonList {
-  height: 150px;
-}
-
-@keyframes skeletonPulse {
-  0% { background-position: 120% 0; }
-  100% { background-position: -120% 0; }
 }
 
 .issueFilterChip {
@@ -8742,8 +8689,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .btn,
   .pill,
   .tag,
-  .statusBadge,
-  .miniBadge {
+  .statusBadge {
     min-height: 30px;
     align-items: center;
   }
@@ -10288,78 +10234,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 .appTaskRow.warn { border-left-color: var(--warn); }
 .appTaskRow.data { border-left-color: #a371f7; }
 .appTaskRow.info { border-left-color: var(--info); }
-
-.appBottomSheet {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  display: none;
-}
-
-.appBottomSheet.open {
-  display: block;
-}
-
-.appBottomSheetScrim {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,.58);
-}
-
-.appBottomSheetPanel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  max-height: min(78vh, 620px);
-  padding: 8px 16px calc(18px + env(safe-area-inset-bottom));
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: 22px 22px 0 0;
-  background: #111820;
-  overflow: auto;
-  box-shadow: 0 -18px 50px rgba(0,0,0,.38);
-}
-
-.appBottomSheetHandle {
-  width: 42px;
-  height: 4px;
-  margin: 4px auto 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.18);
-}
-
-.appBottomSheetHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.appBottomSheetHead h3 {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.appBottomSheetClose {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255,255,255,.04);
-  color: var(--text-secondary);
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.sheet-open {
-  overflow: hidden;
-}
 
 @media (max-width: 760px) {
   body {

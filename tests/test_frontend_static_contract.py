@@ -123,7 +123,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     design_doc = (REPO_ROOT / "docs" / "PAMS_FRONTEND_DESIGN_SYSTEM.md").read_text(encoding="utf-8")
 
     for token in [
-        "PAMS Design System Layer v1",
+        "PAMS Design System Layer v2",
         "--pams-surface",
         "--pams-radius-panel",
         "--pams-row-min",
@@ -133,6 +133,12 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell .moreRow",
         "body.app-shell .appWorkHeader",
         "body.app-shell .appShortcutGrid",
+        "body.app-shell .appBottomSheet",
+        "body.app-shell .emptyState",
+        "body.app-shell .miniBadge",
+        "body.app-shell .skeletonCard",
+        "body.app-shell .statusChip.in_transit",
+        "body.app-shell .ledgerActionBtn.confirm",
         "prefers-reduced-motion",
     ]:
         assert token in design_css
@@ -144,6 +150,28 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     assert "appHeroTop" not in legacy_css
     assert "appHeroLinks" not in legacy_css
     assert "appShortcutGrid" not in legacy_css
+    for migrated_selector in [
+        ".emptyState {\n",
+        ".miniBadge {\n",
+        ".skeletonCard,\n.skeletonLine,\n.skeletonList",
+        ".appBottomSheet {\n",
+        "@keyframes skeletonPulse",
+    ]:
+        assert migrated_selector not in legacy_css
+
+    accounts_html = _read_public("accounts.html")
+    ledger_html = _read_public("ledger.html")
+    for duplicated_shared_style in [
+        ".statusChip { display",
+        ".reviewBtn { border",
+    ]:
+        assert duplicated_shared_style not in accounts_html
+    for duplicated_shared_style in [
+        ".flowTag { display",
+        ".ledgerActionBtn { min-width",
+    ]:
+        assert duplicated_shared_style not in ledger_html
+
     for removed_selector in [
         "page-risk",
         "page-dashboard",
@@ -179,7 +207,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "page-dashboard" not in parsed.body_classes
 
     for phrase in [
-        "PAMS 前端设计系统收敛 v1",
+        "PAMS 前端设计系统收敛 v2",
         "`design-system.css` 必须在带版本号的 `style.css?v=...` 后加载",
         "不要恢复大 hero",
     ]:
@@ -1089,7 +1117,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-design-system-v2" in ui_js
     assert "assets/css/style.css?v=20260620-design-system-v3" in ui_js
-    assert "assets/css/design-system.css?v=20260620-design-system-v1" in ui_js
+    assert "assets/css/design-system.css?v=20260620-design-system-v2" in ui_js
     assert "assets/js/ui.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/holdings.js?v=20260620-design-system-v2" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-design-system-v2" in ui_js

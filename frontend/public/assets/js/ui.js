@@ -185,7 +185,7 @@ function setupAppPreload(activePath, path) {
       ['ledger.html', 'document'],
       ['more.html', 'document'],
       ['assets/css/style.css?v=20260620-design-system-v3', 'style'],
-      ['assets/css/design-system.css?v=20260620-design-system-v1', 'style'],
+      ['assets/css/design-system.css?v=20260620-design-system-v2', 'style'],
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ui.js?v=20260620-design-system-v2', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],

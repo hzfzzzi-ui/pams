@@ -1,5 +1,5 @@
 /* ============================================================
-   PAMS Design System Layer v1
+   PAMS Design System Layer v2
 
    Loaded after the legacy stylesheet. Keep this file small:
    tokens, shared app-shell primitives, and cross-page density rules only.
@@ -210,6 +210,22 @@ body.app-shell .tradeReviewDirectionFilterToggle {
   letter-spacing: 0;
 }
 
+body.app-shell .miniBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-control);
+  background: var(--pams-surface-raised);
+  color: var(--pams-muted);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 body.app-shell .statusBadge,
 body.app-shell .statusChip,
 body.app-shell .tag,
@@ -222,10 +238,47 @@ body.app-shell .basisBadge {
   white-space: nowrap;
 }
 
+body.app-shell .flowTag {
+  min-width: 64px;
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+
+body.app-shell .ledgerActionBtn,
+body.app-shell .reviewBtn {
+  border: 1px solid var(--pams-border);
+  background: transparent;
+  color: var(--pams-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 850;
+}
+
+body.app-shell .ledgerActionBtn {
+  min-width: 72px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+body.app-shell .reviewBtn {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+body.app-shell .ledgerActionBtn:disabled,
+body.app-shell .reviewBtn:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
 body.app-shell .statusBadge-data,
 body.app-shell .tag.data,
 body.app-shell .flowTag.transfer,
-body.app-shell .basisBadge {
+body.app-shell .basisBadge,
+body.app-shell .miniBadge.data,
+body.app-shell .statusChip.in_transit {
   border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
   background: color-mix(in srgb, var(--pams-info) 11%, transparent);
   color: #9dc7ff;
@@ -233,7 +286,9 @@ body.app-shell .basisBadge {
 
 body.app-shell .tag.warn,
 body.app-shell .statusChip.ready_for_review,
-body.app-shell .reviewBtn.warn {
+body.app-shell .reviewBtn.warn,
+body.app-shell .flowTag.other,
+body.app-shell .miniBadge.warn {
   border-color: color-mix(in srgb, var(--pams-warn) 42%, transparent);
   background: color-mix(in srgb, var(--pams-warn) 10%, transparent);
   color: #ffd184;
@@ -253,10 +308,138 @@ body.app-shell .flowTag.expense {
 body.app-shell .tag.good,
 body.app-shell .statusChip.approved,
 body.app-shell .flowTag.income,
-body.app-shell .reviewBtn.primary {
+body.app-shell .reviewBtn.primary,
+body.app-shell .miniBadge.ok {
   border-color: color-mix(in srgb, var(--pams-good) 42%, transparent);
   background: color-mix(in srgb, var(--pams-good) 10%, transparent);
   color: #7ee2a6;
+}
+
+body.app-shell .miniBadge.pending {
+  border-color: color-mix(in srgb, #a371f7 42%, transparent);
+  background: color-mix(in srgb, #a371f7 10%, transparent);
+  color: #d9bdff;
+}
+
+body.app-shell .statusChip.missing_deferred,
+body.app-shell .ledgerActionBtn.ghost {
+  border-color: var(--pams-border);
+  background: color-mix(in srgb, white 4%, transparent);
+  color: var(--pams-muted);
+}
+
+body.app-shell .ledgerActionBtn.confirm {
+  border-color: var(--pams-border-strong);
+  background: color-mix(in srgb, white 5%, transparent);
+  color: var(--pams-text);
+}
+
+body.app-shell .emptyState {
+  border: 1px dashed var(--pams-border-strong);
+  border-radius: var(--pams-radius-row);
+  padding: var(--sp-4);
+  background: var(--pams-surface-soft);
+  color: var(--pams-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+body.app-shell .skeletonCard,
+body.app-shell .skeletonLine,
+body.app-shell .skeletonList {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(255,255,255,.045), rgba(255,255,255,.09), rgba(255,255,255,.045));
+  background-size: 220% 100%;
+  animation: pamsSkeletonPulse 1.15s ease-in-out infinite;
+}
+
+body.app-shell .skeletonCard {
+  height: 78px;
+  border: 1px solid var(--pams-border);
+}
+
+body.app-shell .skeletonLine {
+  height: 18px;
+  max-width: 420px;
+}
+
+body.app-shell .skeletonList {
+  height: 150px;
+}
+
+body.app-shell .appBottomSheet {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: none;
+}
+
+body.app-shell .appBottomSheet.open {
+  display: block;
+}
+
+body.app-shell .appBottomSheetScrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.58);
+}
+
+body.app-shell .appBottomSheetPanel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: min(78vh, 620px);
+  padding: 8px 16px calc(18px + env(safe-area-inset-bottom));
+  overflow: auto;
+  border: 1px solid var(--pams-border);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  background: var(--pams-surface-raised);
+  box-shadow: 0 -18px 50px rgba(0,0,0,.38);
+}
+
+body.app-shell .appBottomSheetHandle {
+  width: 42px;
+  height: 4px;
+  margin: 4px auto 12px;
+  border-radius: var(--pams-radius-control);
+  background: rgba(255,255,255,.18);
+}
+
+body.app-shell .appBottomSheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+body.app-shell .appBottomSheetHead h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .appBottomSheetClose {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-control);
+  background: var(--pams-surface-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+body.sheet-open {
+  overflow: hidden;
 }
 
 body.app-shell .ledgerListRow,
@@ -371,4 +554,9 @@ body.app-shell :focus-visible {
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
   }
+}
+
+@keyframes pamsSkeletonPulse {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
 }
