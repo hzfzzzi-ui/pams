@@ -9,10 +9,18 @@ and income buckets.
 from __future__ import annotations
 
 import calendar
+import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+import yaml
+
+
+ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
+LOCAL_ACCOUNTS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "accounts.yaml"
 
 
 TRANSFER_MATCH_TYPES = {
@@ -292,10 +300,23 @@ def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str,
     return sorted(result, key=lambda item: item["amount"], reverse=True)
 
 
-def _account_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _load_configured_account_codes() -> set[str]:
+    path = ACCOUNTS_CONFIG_PATH if ACCOUNTS_CONFIG_PATH.exists() else LOCAL_ACCOUNTS_CONFIG_PATH
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+    except Exception:
+        return set()
+    accounts = cfg.get("accounts") or {}
+    return {str(code) for code in accounts.keys() if code}
+
+
+def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] | None = None) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         account_code = str(row.get("account_code") or "unknown")
+        if configured_accounts and account_code not in configured_accounts:
+            continue
         item = grouped.setdefault(
             account_code,
             {
@@ -538,6 +559,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         match["amount_cny"] = _to_float(match.get("amount_cny"))
 
     month_rows = [r for r in enriched_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
+    configured_accounts = _load_configured_account_codes()
     recent_start = month_end - timedelta(days=max(recent_days, 1) - 1)
     recent_rows = [
         _serialize_row(r)
@@ -556,13 +578,14 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         },
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
-        "account_summary": _account_summary(month_rows),
+        "account_summary": _account_summary(month_rows, configured_accounts),
         "account_summary_ytd": _account_summary(
             [
                 row
                 for row in enriched_rows
                 if row.get("transaction_date_obj") and ytd_start <= row["transaction_date_obj"] <= month_end
-            ]
+            ],
+            configured_accounts,
         ),
         "monthly_trend": _trend(enriched_rows, ytd_start, month_end, "monthly"),
         "weekly_trend": _trend(enriched_rows, ytd_start, month_end, "weekly"),

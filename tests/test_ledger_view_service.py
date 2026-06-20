@@ -130,3 +130,14 @@ def test_account_summary_reports_raw_row_activity() -> None:
     assert result[0]["row_count"] == 2
     assert result[0]["transfer"] == 1300
     assert result[0]["net"] == -700
+
+
+def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:
+    rows = [
+        {"account_code": "ccb_7332", "flow_type": "transfer", "amount_cny": -1000, "needs_review": False},
+        {"account_code": "jianhang", "flow_type": "transfer", "amount_cny": -188.7, "needs_review": False},
+    ]
+
+    result = _account_summary(rows, {"ccb_7332"})
+
+    assert [row["account_code"] for row in result] == ["ccb_7332"]
