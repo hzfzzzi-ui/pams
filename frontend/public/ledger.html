@@ -55,7 +55,7 @@
     .ruleItem:last-child { border-bottom:none }
     .ruleName { font-weight:800; margin-bottom:4px }
     .ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
-    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
+    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
     .ledgerAnchorNav a { position:relative; display:flex; align-items:center; justify-content:center; min-height:30px; padding:0 4px; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:13px; font-weight:850; text-decoration:none; white-space:nowrap }
     .ledgerAnchorNav a::after { content:""; position:absolute; left:50%; right:50%; bottom:-10px; height:2px; background:var(--info); transition:left .16s ease, right .16s ease }
     .ledgerAnchorNav a.is-active,
@@ -64,6 +64,9 @@
     .ledgerAnchorNav a.is-active::after { left:12px; right:12px }
     .ledgerPanelGroup { display:grid; gap:12px }
     .ledgerPanelGroup[hidden] { display:none !important }
+    .ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+    .ledgerFlowChip { min-height:32px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:var(--muted); font-size:12px; font-weight:850; cursor:pointer; }
+    .ledgerFlowChip.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text); }
     .cashflowBridge { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
     .cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
     .cashflowBridgeItem:first-child { border-left:0; padding-left:0 }
@@ -199,7 +202,7 @@
         top:0;
         z-index:20;
         display:grid;
-        grid-template-columns:repeat(6, minmax(0, 1fr));
+        grid-template-columns:repeat(3, minmax(0, 1fr));
         gap:0;
         padding:8px 12px 10px;
         margin:0 0 8px;
@@ -211,6 +214,9 @@
       .ledgerAnchorNav a { min-height:32px; padding:0 0 6px; font-size:16px; font-weight:900; line-height:28px; letter-spacing:0 }
       .ledgerAnchorNav a::after { bottom:0; background:#58a6ff; }
       .ledgerAnchorNav a.is-active::after { left:0; right:0; }
+      .ledgerFlowChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none; }
+      .ledgerFlowChips::-webkit-scrollbar { display:none; }
+      .ledgerFlowChip { flex:0 0 auto; border-radius:999px !important; }
       .page-ledger .ledgerPanelGroup {
         padding-left: 12px;
         padding-right: 12px;
@@ -338,9 +344,6 @@
     <nav class="ledgerAnchorNav" aria-label="收支模块">
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
-      <a href="#income-section" data-ledger-tab="income">收入</a>
-      <a href="#accountIssueStrip" data-ledger-tab="account">账户</a>
-      <a href="#transfers" data-ledger-tab="transfer">转账</a>
       <a href="#review-section" data-ledger-tab="review">待确认</a>
     </nav>
 
@@ -471,23 +474,24 @@
     <div class="ledgerPanelGroup" data-ledger-panel="recent" hidden>
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section">
         <div class="sectionTitle">
-          <h3>最近 30 天流水</h3>
+          <h3>现金流水</h3>
           <div class="ledgerFilterGrid">
-            <select id="recentFlowFilter" class="formInput">
-              <option value="">全部类型</option>
-              <option value="income">收入</option>
-              <option value="expense">消费</option>
-              <option value="transfer">资金流转</option>
-              <option value="review">待确认</option>
-            </select>
             <input id="recentSearch" class="formInput" type="search" placeholder="搜索摘要 / 商户 / 粗分类" />
           </div>
+        </div>
+        <div id="recentFlowChips" class="ledgerFlowChips" aria-label="流水类型筛选">
+          <button class="ledgerFlowChip active" type="button" data-ledger-flow-filter="">全部</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="income">收入</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="expense">消费</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="investment_transfer">投资转账</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="internal_transfer">内部转账</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="review">待确认</button>
         </div>
         <div id="recentRows" class="ledgerList"></div>
       </section>
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260620-data-state-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v1"></script>
 </body>
 </html>

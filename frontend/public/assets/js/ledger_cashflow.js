@@ -18,20 +18,21 @@ const state = {
   accounts: null,
   trendMode: 'monthly',
   activePanel: 'overview',
+  recentFlowFilter: '',
 };
 
 const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
   recent: '#recent-flow-section',
-  income: '#income-section',
-  account: '#accountIssueStrip',
-  transfer: '#transfers',
   review: '#review-section',
 };
 
-const LEDGER_HASH_PANEL = Object.fromEntries(
-  Object.entries(LEDGER_PANEL_HASH).map(([panel, hash]) => [hash, panel]),
-);
+const LEDGER_HASH_PANEL = {
+  ...Object.fromEntries(Object.entries(LEDGER_PANEL_HASH).map(([panel, hash]) => [hash, panel])),
+  '#income-section': 'recent',
+  '#accountIssueStrip': 'overview',
+  '#transfers': 'recent',
+};
 
 function flowLabel(flowType) {
   const labels = {
@@ -204,6 +205,15 @@ function investmentTransferAmount(rows) {
   return (rows || [])
     .filter((row) => String(row.match_type || '').includes('investment'))
     .reduce((sum, row) => sum + num(row.amount), 0);
+}
+
+function isInvestmentTransferRow(row) {
+  const cashflowType = String(row.cashflow_type || '').toLowerCase();
+  return cashflowType === 'investment_funding' || cashflowType === 'investment_withdrawal';
+}
+
+function isInternalTransferRow(row) {
+  return row.flow_type === 'transfer' && !isInvestmentTransferRow(row);
 }
 
 function renderCategoryBars(id, rows, emptyText) {
@@ -466,11 +476,13 @@ function renderRows(id, rows, limit = 80) {
 }
 
 function filteredRecentRows() {
-  const flow = $('recentFlowFilter')?.value || '';
+  const flow = state.recentFlowFilter || '';
   const search = ($('recentSearch')?.value || '').trim().toLowerCase();
   return (state.data?.recent_rows || []).filter((row) => {
     if (flow === 'review' && !row.needs_review) return false;
-    if (flow && flow !== 'review' && row.flow_type !== flow) return false;
+    if (flow === 'investment_transfer' && !isInvestmentTransferRow(row)) return false;
+    if (flow === 'internal_transfer' && !isInternalTransferRow(row)) return false;
+    if (flow && !['review', 'investment_transfer', 'internal_transfer'].includes(flow) && row.flow_type !== flow) return false;
     if (search && !rowTitle(row).toLowerCase().includes(search) && !String(row.coarse_category || '').toLowerCase().includes(search)) {
       return false;
     }
@@ -524,7 +536,15 @@ function bindEvents() {
     $('trendMonthly')?.classList.remove('active');
     if (state.data) renderTrendChart(state.data);
   });
-  $('recentFlowFilter')?.addEventListener('change', () => renderRows('recentRows', filteredRecentRows(), 120));
+  document.querySelectorAll('[data-ledger-flow-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.recentFlowFilter = btn.dataset.ledgerFlowFilter || '';
+      document.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
+        item.classList.toggle('active', item === btn);
+      });
+      renderRows('recentRows', filteredRecentRows(), 120);
+    });
+  });
   $('recentSearch')?.addEventListener('input', () => renderRows('recentRows', filteredRecentRows(), 120));
 }
 

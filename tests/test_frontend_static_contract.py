@@ -308,24 +308,33 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     for href in [
         "#cashflow-workbench",
         "#recent-flow-section",
-        "#income-section",
-        "#accountIssueStrip",
-        "#transfers",
         "#review-section",
     ]:
         assert f'href="{href}"' in html
+    for removed_href in ["#income-section", "#accountIssueStrip", "#transfers"]:
+        assert f'data-ledger-tab' in html
+        assert f'href="{removed_href}" data-ledger-tab=' not in html
+
+    assert 'id="recentFlowChips" class="ledgerFlowChips"' in html
+    for flow_filter in ["income", "expense", "investment_transfer", "internal_transfer", "review"]:
+        assert f'data-ledger-flow-filter="{flow_filter}"' in html
 
     assert 'id="reviewRows" class="ledgerList"' in html
     assert 'id="recentRows" class="ledgerList"' in html
+    assert 'id="recentFlowFilter"' not in html
     assert "ledgerRowsTable" not in html
     assert "mobileReviewRows" not in html
     assert "<table" not in html
     assert "overflow-x:auto" not in html
 
     assert "ledgerListRow" in js
+    assert "recentFlowFilter" in js
+    assert "isInvestmentTransferRow" in js
+    assert "isInternalTransferRow" in js
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert 'href="#review-section"' in js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v1" in html
     assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
 
 
@@ -628,7 +637,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v1" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1195,7 +1204,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-unified-flow-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js

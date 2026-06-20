@@ -430,6 +430,9 @@ def _serialize_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "flow_type",
         "coarse_category",
         "needs_review",
+        "cashflow_type",
+        "is_internal_transfer",
+        "transfer_group_id",
     ]
     out = {key: row.get(key) for key in keys}
     if isinstance(out.get("transaction_date"), (date, datetime)):

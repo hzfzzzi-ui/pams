@@ -10,7 +10,7 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services.ledger_view import classify_ledger_row, summarize_period  # noqa: E402
+from services.ledger_view import _serialize_row, classify_ledger_row, summarize_period  # noqa: E402
 
 
 def test_classify_transfer_before_expense_without_amount_threshold() -> None:
@@ -75,3 +75,24 @@ def test_summarize_period_uses_one_way_transfer_matches() -> None:
     assert summary["expense"] == 300.0
     assert summary["net"] == 1700.0
     assert summary["internal_transfer"] == 1000.0
+
+
+def test_serialize_row_preserves_transfer_fields_for_frontend_filter() -> None:
+    row = {
+        "id": 21,
+        "transaction_date": date(2026, 6, 21),
+        "amount": -1000,
+        "amount_cny": -1000,
+        "flow_type": "transfer",
+        "coarse_category": "资金流转",
+        "needs_review": False,
+        "cashflow_type": "investment_funding",
+        "is_internal_transfer": True,
+        "transfer_group_id": "case-1",
+    }
+
+    out = _serialize_row(row)
+
+    assert out["cashflow_type"] == "investment_funding"
+    assert out["is_internal_transfer"] is True
+    assert out["transfer_group_id"] == "case-1"
