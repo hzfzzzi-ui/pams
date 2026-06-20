@@ -116,3 +116,17 @@ def test_account_summary_groups_month_rows_by_account() -> None:
     assert by_account["bank-a"]["row_count"] == 3
     assert by_account["bank-a"]["pending_count"] == 1
     assert by_account["wallet-b"]["expense"] == 120
+
+
+def test_account_summary_reports_raw_row_activity() -> None:
+    rows = [
+        {"account_code": "ccb_7332", "flow_type": "transfer", "amount_cny": -1000, "needs_review": False},
+        {"account_code": "ccb_7332", "flow_type": "transfer", "amount_cny": 300, "needs_review": False},
+    ]
+
+    result = _account_summary(rows)
+
+    assert result[0]["account_code"] == "ccb_7332"
+    assert result[0]["row_count"] == 2
+    assert result[0]["transfer"] == 1300
+    assert result[0]["net"] == -700

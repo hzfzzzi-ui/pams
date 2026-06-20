@@ -557,6 +557,13 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
         "account_summary": _account_summary(month_rows),
+        "account_summary_ytd": _account_summary(
+            [
+                row
+                for row in enriched_rows
+                if row.get("transaction_date_obj") and ytd_start <= row["transaction_date_obj"] <= month_end
+            ]
+        ),
         "monthly_trend": _trend(enriched_rows, ytd_start, month_end, "monthly"),
         "weekly_trend": _trend(enriched_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,

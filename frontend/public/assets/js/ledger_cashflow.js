@@ -20,6 +20,7 @@ const state = {
   activePanel: 'overview',
   recentFlowFilter: '',
   recentAccountFilter: '',
+  accountPeriod: 'month',
 };
 
 const LEDGER_PANEL_HASH = {
@@ -195,6 +196,11 @@ function openRecentForAccount(accountCode) {
 function renderAccountFlowSummary(rows) {
   const el = $('accountFlowRows');
   if (!el) return;
+  const hint = $('accountFlowHint');
+  if (hint) {
+    const periodLabel = state.accountPeriod === 'ytd' ? '年初至今' : '本月';
+    hint.textContent = `${periodLabel}账户流水统计；点击账户可进入流水明细核对。`;
+  }
   if (!rows?.length) {
     el.innerHTML = '<div class="ledgerEmpty">本月暂无账户流水</div>';
     return;
@@ -222,6 +228,10 @@ function renderAccountFlowSummary(rows) {
   el.querySelectorAll('[data-account-flow-filter]').forEach((btn) => {
     btn.addEventListener('click', () => openRecentForAccount(btn.dataset.accountFlowFilter || ''));
   });
+}
+
+function currentAccountSummary(data) {
+  return state.accountPeriod === 'ytd' ? data.account_summary_ytd || [] : data.account_summary || [];
 }
 
 function investmentTransferAmount(rows) {
@@ -531,7 +541,7 @@ function filteredRecentRows() {
 function renderAll(data) {
   renderLedgerMobileHero(data);
   renderKpis(data);
-  renderAccountFlowSummary(data.account_summary || []);
+  renderAccountFlowSummary(currentAccountSummary(data));
   renderCategoryBars('expenseCategories', data.expense_categories || [], '本月暂无消费流水。');
   renderCategoryBars('incomeCategories', data.income_categories || [], '本月暂无收入流水。');
   renderTransferSummary(data.transfer_summary || []);
@@ -582,6 +592,15 @@ function bindEvents() {
         item.classList.toggle('active', item === btn);
       });
       renderRows('recentRows', filteredRecentRows(), 120);
+    });
+  });
+  document.querySelectorAll('[data-account-period]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.accountPeriod = btn.dataset.accountPeriod || 'month';
+      document.querySelectorAll('[data-account-period]').forEach((item) => {
+        item.classList.toggle('active', item === btn);
+      });
+      if (state.data) renderAccountFlowSummary(currentAccountSummary(state.data));
     });
   });
   $('recentSearch')?.addEventListener('input', () => renderRows('recentRows', filteredRecentRows(), 120));
