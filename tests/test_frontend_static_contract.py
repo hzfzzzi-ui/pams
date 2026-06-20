@@ -59,11 +59,13 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     assert "accounts.html" not in mobile_tabs
     assert "accounts: 'more.html'" in ui_js
     assert "'accounts.html': 'more.html'" in ui_js
-    assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html', 'risk.html'])" in ui_js
+    assert "index: 'investments.html'" in ui_js
+    assert "'index.html': 'investments.html'" in ui_js
+    assert "'risk.html': 'investments.html'" in ui_js
+    assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html'])" in ui_js
     assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
 
     for page in [
-        "index.html",
         "accounts.html",
         "investments.html",
         "ledger.html",
@@ -94,7 +96,12 @@ def test_legacy_frontend_entrypoints_stay_removed() -> None:
         assert f"return 302 /{page}" not in dockerfile
 
     assert not (PUBLIC_ROOT / "assets/js/risk.js").exists()
-    assert (PUBLIC_ROOT / "risk.html").exists()
+    assert not (PUBLIC_ROOT / "index.html").exists()
+    assert not (PUBLIC_ROOT / "risk.html").exists()
+    assert not (PUBLIC_ROOT / "assets/js/dashboard.js").exists()
+    assert not (PUBLIC_ROOT / "assets/js/risk_metrics.js").exists()
+    assert "location = /index.html { return 302 /investments.html; }" in dockerfile
+    assert "location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }" in dockerfile
 
     for legacy_alias in ["bank_reconcile", "cashflow", "holdings", "strategy", "transactions", "watchlist"]:
         assert f"{legacy_alias}:" not in ui_js
@@ -292,8 +299,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260620-trade-attribution-v2" in html
-    assert "assets/js/holdings_categories.js?v=20260620-return-events-v1" in html
+    assert "assets/js/holdings.js?v=20260620-page-boundary-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260620-page-boundary-v1" in html
     assert "assets/js/lookthrough.js?v=20260620-trade-attribution-v2" in html
     assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in html
     assert "assets/js/portfolio_config.js?v=20260620-trade-attribution-v2" in html
@@ -416,7 +423,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260620-trade-attribution-v2" in investments_html
+    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -872,7 +879,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in html
     assert "assets/css/style.css?v=20260620-trade-attribution-v2" in html
 
 
@@ -881,7 +888,6 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     accounts_html = _read_public("accounts.html")
     data_sources_html = _read_public("data_sources.html")
     research_html = _read_public("research.html")
-    risk_html = _read_public("risk.html")
 
     assert "appTaskList" not in html
     assert 'id="sync"' not in html
@@ -895,44 +901,43 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
         "accounts.html#sources",
         "accounts.html#overview",
         "investments.html#asset-master-panel",
-        "risk.html",
+        "investments.html#portfolio-risk-disclosure",
         "research.html",
     ]:
         assert html.count(f'href="{href}"') == 1
     for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", "同步中心", "投资交易记录", "内部转账匹配"]:
         assert removed_text not in html
     assert "investments.html#investment-ledger" not in html
+    assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260620-more-audit-v1" in html
-    assert "assets/js/bank_reconcile.js?v=20260620-more-audit-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20260620-more-audit-v1" in data_sources_html
-    assert "assets/js/research.js?v=20260620-more-audit-v1" in research_html
-    assert "assets/js/risk_metrics.js?v=20260620-more-audit-v1" in risk_html
+    assert "assets/js/more.js?v=20260620-page-boundary-v1" in html
+    assert "assets/js/bank_reconcile.js?v=20260620-page-boundary-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20260620-page-boundary-v1" in data_sources_html
+    assert "assets/js/research.js?v=20260620-page-boundary-v1" in research_html
 
 
-def test_risk_page_prioritizes_user_configured_metrics() -> None:
-    html = _read_public("risk.html")
-    js = _read_public("assets/js/risk_metrics.js")
+def test_risk_capability_lives_in_investment_subpage() -> None:
+    html = _read_public("investments.html")
+    js = _read_public("assets/js/portfolio_risk.js")
     css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     for element_id in [
-        "riskHeroStatus",
-        "riskMetricGrid",
-        "riskPriorityList",
-        "riskSourceList",
-        "riskMethodNotes",
+        "portfolio-risk-disclosure",
+        "portfolioRiskDashboard",
+        "portfolioRiskCategories",
+        "lookthrough-exposure",
     ]:
         assert f'id="{element_id}"' in html
 
-    assert "/api/risk/summary" in js
-    assert "user_metrics" in js
-    assert "股票 / 权益暴露" not in js
-    assert "riskMetricDeck" in css
-    assert "riskLimitCard" in css
+    assert "/api/portfolio/risk-disclosure?baseCurrency=CNY" in js
+    assert "portfolioRiskInlineItem" in js
+    assert "portfolioRiskChecklistCard" in js
+    assert "portfolioRiskDashboard" in css
+    assert "portfolioRiskCategory" in css
     assert "riskAnchorNav" not in css
-    assert "location = /risk.html { return 404; }" not in dockerfile
+    assert "location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }" in dockerfile
 
 
 def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
@@ -962,14 +967,14 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
     assert "assets/css/style.css?v=20260619-trade-ledger-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260620-page-boundary-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260620-page-boundary-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in ui_js
-    assert "assets/js/more.js?v=20260620-more-audit-v1" in ui_js
-    assert "assets/js/risk_metrics.js?v=20260620-more-audit-v1" in ui_js
+    assert "assets/js/more.js?v=20260620-page-boundary-v1" in ui_js
+    assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
     assert "gzip on;" in dockerfile
