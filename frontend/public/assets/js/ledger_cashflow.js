@@ -44,6 +44,12 @@ const LEDGER_HASH_PANEL = {
   '#review-section': 'account',
 };
 
+const RECENT_SORT_OPTIONS = [
+  { value: '', label: '默认排序', hint: '按流水日期显示' },
+  { value: 'amount_desc', label: '金额从大到小', hint: '优先查看大额收入、消费和转账' },
+  { value: 'amount_asc', label: '金额从小到大', hint: '优先查看小额零散流水' },
+];
+
 const ACCOUNT_GROUPS = [
   { code: 'ccb', label: '建设银行', children: ['ccb_7332', 'ccb_credit_0453', 'ccb_yhs300_fund'] },
   { code: 'icbc_6689', label: '工商银行', children: ['icbc_6689_cny', 'icbc_6689_usd'], forceChildren: true },
@@ -1172,10 +1178,34 @@ function renderRecentPeriodButtons() {
   });
 }
 
-function renderRecentSortButtons() {
-  document.querySelectorAll('[data-recent-sort]').forEach((btn) => {
-    btn.classList.toggle('active', (btn.dataset.recentSort || '') === state.recentAmountSort);
-  });
+function renderRecentSortButton() {
+  const btn = $('recentSortToggle');
+  if (!btn) return;
+  const hasSort = Boolean(state.recentAmountSort);
+  const label = RECENT_SORT_OPTIONS.find((item) => item.value === state.recentAmountSort)?.label || '流水排序';
+  btn.classList.toggle('active', hasSort);
+  btn.setAttribute('aria-pressed', String(hasSort));
+  btn.title = label;
+}
+
+function recentSortSheetHtml() {
+  return `
+    <div class="ledgerOptionSheet">
+      ${RECENT_SORT_OPTIONS.map((option) => `
+        <button type="button" class="ledgerOptionButton ${option.value === state.recentAmountSort ? 'active' : ''}" data-recent-sort-option="${escapeHtml(option.value)}">
+          <span>
+            <strong>${escapeHtml(option.label)}</strong>
+            <small>${escapeHtml(option.hint)}</small>
+          </span>
+          ${option.value === state.recentAmountSort ? '<em>✓</em>' : ''}
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function openRecentSortSheet() {
+  openBottomSheet('流水排序', recentSortSheetHtml());
 }
 
 function renderAccountFlowSummary(rows) {
@@ -1583,7 +1613,7 @@ function renderAll(data) {
   renderCashflowBridge(data);
   renderRecentSearchButton();
   renderRecentPeriodButtons();
-  renderRecentSortButtons();
+  renderRecentSortButton();
   renderRecentAccountScope();
   renderRecentRows();
 }
@@ -1630,13 +1660,6 @@ function bindEvents() {
       renderRecentRows();
     });
   });
-  document.querySelectorAll('[data-recent-sort]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.recentAmountSort = btn.dataset.recentSort || '';
-      renderRecentSortButtons();
-      renderRecentRows();
-    });
-  });
   document.querySelectorAll('[data-recent-period]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.recentPeriod = btn.dataset.recentPeriod || 'month';
@@ -1649,7 +1672,19 @@ function bindEvents() {
   recentSearchToggle?.addEventListener('click', () => {
     openRecentSearchSheet();
   });
+  $('recentSortToggle')?.addEventListener('click', () => {
+    openRecentSortSheet();
+  });
+  document.addEventListener('click', (event) => {
+    const sortOption = event.target?.closest?.('[data-recent-sort-option]');
+    if (!sortOption) return;
+    state.recentAmountSort = sortOption.dataset.recentSortOption || '';
+    renderRecentSortButton();
+    renderRecentRows();
+    closeBottomSheet();
+  });
   renderRecentSearchButton();
+  renderRecentSortButton();
 }
 
 function setLedgerPanel(panel = 'overview') {
