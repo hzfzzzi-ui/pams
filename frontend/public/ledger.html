@@ -313,30 +313,17 @@
         background:transparent;
         box-shadow:none;
       }
-      body.page-ledger.app-shell .ledgerTop > .sectionTitle {
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-        align-items:start;
-        gap:8px;
-        margin-bottom:6px;
-      }
       body.page-ledger.app-shell .ledgerTop > .sectionTitle h3 {
         margin:0;
         min-width:0;
         white-space:nowrap;
         line-height:1.08;
       }
-      body.page-ledger.app-shell .ledgerTop .ledgerToolbar {
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) auto !important;
-        width:100%;
-        gap:8px;
-        justify-content:stretch;
+      body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle {
+        min-width:0;
       }
-      body.page-ledger.app-shell .ledgerTop .ledgerToolbar .formInput,
-      body.page-ledger.app-shell .ledgerTop .ledgerToolbar .btn {
-        width:100% !important;
-        min-height:38px;
+      body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle .accountPeriodButton {
+        padding:0 8px;
       }
       .ledgerMobileHero {
         display:block;
@@ -460,10 +447,10 @@
     <div class="ledgerPanelGroup" data-ledger-panel="overview">
       <section class="ledgerSection ledgerTop ledgerJumpCard" id="cashflow-workbench" style="border-radius:0 !important;border:0 !important;background:transparent !important;box-shadow:none !important;">
         <div class="sectionTitle">
-          <h3>本月现金流</h3>
-          <div class="ledgerToolbar">
-            <input id="monthPicker" class="formInput mono" type="month" style="width:150px" />
-            <button id="btnReloadLedger" class="btn">刷新</button>
+          <h3 id="overviewTitle">总览</h3>
+          <div class="accountPeriodToggle ledgerOverviewPeriodToggle" aria-label="总览统计周期">
+            <button class="accountPeriodButton" type="button" data-overview-period="month">本月至今</button>
+            <button class="accountPeriodButton active" type="button" data-overview-period="ytd">本年至今</button>
           </div>
         </div>
 
@@ -575,6 +562,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v2"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-period-v2"></script>
 </body>
 </html>

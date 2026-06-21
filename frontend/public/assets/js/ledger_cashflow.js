@@ -19,6 +19,7 @@ const state = {
   accounts: null,
   trendMode: 'monthly',
   activePanel: 'overview',
+  overviewPeriod: 'ytd',
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',
@@ -482,37 +483,77 @@ function ledgerEditSheetHtml(row) {
   `;
 }
 
+function overviewPeriodKey() {
+  return state.overviewPeriod === 'month' ? 'month' : 'ytd';
+}
+
+function overviewPeriodLabel() {
+  return overviewPeriodKey() === 'month' ? '本月至今' : '本年至今';
+}
+
+function currentOverviewPeriod(data) {
+  return data.periods?.[overviewPeriodKey()] || {};
+}
+
+function currentOverviewTransferSummary(data) {
+  if (overviewPeriodKey() === 'month') return data.transfer_summary_month || data.transfer_summary || [];
+  return data.transfer_summary_ytd || data.transfer_summary || [];
+}
+
+function currentOverviewCategories(data, flowType) {
+  const period = overviewPeriodKey();
+  const keys = {
+    month: {
+      expense: 'expense_categories_month',
+      income: 'income_categories_month',
+    },
+    ytd: {
+      expense: 'expense_categories_ytd',
+      income: 'income_categories_ytd',
+    },
+  };
+  const fallbackKey = flowType === 'income' ? 'income_categories' : 'expense_categories';
+  const key = keys[period]?.[flowType];
+  return (key && data[key]) || data[fallbackKey] || [];
+}
+
+function renderOverviewPeriodButtons() {
+  document.querySelectorAll('[data-overview-period]').forEach((btn) => {
+    btn.classList.toggle('active', (btn.dataset.overviewPeriod || 'ytd') === overviewPeriodKey());
+  });
+}
+
 function renderKpis(data) {
-  const month = data.periods?.month || {};
-  const investmentTransfer = investmentTransferAmount(data.transfer_summary || []);
-  const totalTransfer = num(month.internal_transfer || 0);
+  const period = currentOverviewPeriod(data);
+  const investmentTransfer = investmentTransferAmount(currentOverviewTransferSummary(data));
+  const totalTransfer = num(period.internal_transfer || 0);
   const internalTransfer = Math.max(totalTransfer - investmentTransfer, 0);
-  setText('kpiMonthIncome', money(month.income || 0));
-  setText('kpiMonthExpense', money(month.expense || 0));
-  setText('kpiDisposableNet', signedMoney(month.net || 0));
+  setText('kpiMonthIncome', money(period.income || 0));
+  setText('kpiMonthExpense', money(period.expense || 0));
+  setText('kpiDisposableNet', signedMoney(period.net || 0));
   setText('kpiInvestmentTransfer', money(investmentTransfer || 0));
   setText('kpiTransfer', money(internalTransfer || 0));
-  setText('kpiPending', String(month.pending_count || 0));
+  setText('kpiPending', String(period.pending_count || 0));
   const netEl = $('kpiDisposableNet');
   if (netEl) {
-    netEl.classList.toggle('up', num(month.net) >= 0);
-    netEl.classList.toggle('down', num(month.net) < 0);
+    netEl.classList.toggle('up', num(period.net) >= 0);
+    netEl.classList.toggle('down', num(period.net) < 0);
   }
   const pendingEl = $('kpiPending');
-  if (pendingEl) pendingEl.classList.toggle('down', num(month.pending_count) > 0);
+  if (pendingEl) pendingEl.classList.toggle('down', num(period.pending_count) > 0);
 }
 
 function renderLedgerMobileHero(data) {
   const el = $('ledgerMobileHero');
   if (!el) return;
-  const month = data.periods?.month || {};
-  const investmentTransfer = investmentTransferAmount(data.transfer_summary || []);
-  const totalTransfer = num(month.internal_transfer || 0);
+  const period = currentOverviewPeriod(data);
+  const investmentTransfer = investmentTransferAmount(currentOverviewTransferSummary(data));
+  const totalTransfer = num(period.internal_transfer || 0);
   const internalTransfer = Math.max(totalTransfer - investmentTransfer, 0);
-  const net = num(month.net || 0);
-  const pending = num(month.pending_count || 0);
+  const net = num(period.net || 0);
+  const pending = num(period.pending_count || 0);
   el.innerHTML = `
-    <div class="ledgerMobileLabel">本月净流入</div>
+    <div class="ledgerMobileLabel">${overviewPeriodLabel()}净流入</div>
     <div class="ledgerMobileValue ${net >= 0 ? 'up' : 'down'}">${signedMoney(net)}</div>
     <div class="ledgerMobileStats">
       <div class="ledgerMobileStat">
@@ -521,7 +562,7 @@ function renderLedgerMobileHero(data) {
       </div>
       <div class="ledgerMobileStat">
         <span>收入</span>
-        <strong>${money(month.income || 0)}</strong>
+        <strong>${money(period.income || 0)}</strong>
       </div>
       <div class="ledgerMobileStat">
         <span>转账</span>
@@ -860,17 +901,17 @@ function renderCategoryBars(id, rows, emptyText) {
 function renderCashflowBridge(data) {
   const el = $('cashflowBridge');
   if (!el) return;
-  const month = data.periods?.month || {};
-  const totalTransfer = num(month.internal_transfer || 0);
-  const investTransfer = investmentTransferAmount(data.transfer_summary || []);
+  const period = currentOverviewPeriod(data);
+  const totalTransfer = num(period.internal_transfer || 0);
+  const investTransfer = investmentTransferAmount(currentOverviewTransferSummary(data));
   const otherTransfer = Math.max(totalTransfer - investTransfer, 0);
   const rows = [
-    ['收入', money(month.income || 0), 'good'],
-    ['消费', signedMoney(-Math.abs(num(month.expense || 0))), 'bad'],
-    ['可支配净流入', signedMoney(month.net || 0), num(month.net || 0) >= 0 ? 'good' : 'bad'],
+    ['收入', money(period.income || 0), 'good'],
+    ['消费', signedMoney(-Math.abs(num(period.expense || 0))), 'bad'],
+    ['可支配净流入', signedMoney(period.net || 0), num(period.net || 0) >= 0 ? 'good' : 'bad'],
     ['投资转账', signedMoney(-Math.abs(investTransfer)), 'data'],
     ['内部转账', signedMoney(otherTransfer), 'data'],
-    ['待确认流水', String(month.pending_count || 0), num(month.pending_count || 0) ? 'pending' : 'data'],
+    ['待确认流水', String(period.pending_count || 0), num(period.pending_count || 0) ? 'pending' : 'data'],
   ];
   el.innerHTML = rows.map(([label, value, tone]) => `
     <div class="cashflowBridgeItem ${tone}">
@@ -1137,12 +1178,13 @@ function renderRecentRows() {
 }
 
 function renderAll(data) {
+  renderOverviewPeriodButtons();
   renderLedgerMobileHero(data);
   renderKpis(data);
   renderAccountFlowSummary(currentAccountSummary(data));
-  renderCategoryBars('expenseCategories', data.expense_categories || [], '本月暂无消费流水。');
-  renderCategoryBars('incomeCategories', data.income_categories || [], '本月暂无收入流水。');
-  renderTransferSummary(data.transfer_summary || []);
+  renderCategoryBars('expenseCategories', currentOverviewCategories(data, 'expense'), `${overviewPeriodLabel()}暂无消费流水。`);
+  renderCategoryBars('incomeCategories', currentOverviewCategories(data, 'income'), `${overviewPeriodLabel()}暂无收入流水。`);
+  renderTransferSummary(currentOverviewTransferSummary(data));
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
   renderCashflowBridge(data);
@@ -1154,23 +1196,25 @@ function renderAll(data) {
 
 async function loadWorkbench() {
   clearError();
-  const month = $('monthPicker')?.value || '';
   const params = new URLSearchParams({ baseCurrency: 'CNY', recentDays: '30' });
-  if (month) params.set('month', month);
   const [data, accounts] = await Promise.all([
     jget(`/api/ledger/workbench?${params.toString()}`, { cache: false }),
     jget('/api/accounts/overview').catch(() => ({ summary: {}, accounts: [] })),
   ]);
   state.data = data;
   state.accounts = accounts;
-  if ($('monthPicker') && !$('monthPicker').value) $('monthPicker').value = data.month;
   renderAll(data);
 }
 
 function bindEvents() {
   bindLedgerAnchors();
   $('btnReloadLedger')?.addEventListener('click', loadWorkbench);
-  $('monthPicker')?.addEventListener('change', loadWorkbench);
+  document.querySelectorAll('[data-overview-period]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.overviewPeriod = btn.dataset.overviewPeriod || 'ytd';
+      if (state.data) renderAll(state.data);
+    });
+  });
   $('trendMonthly')?.addEventListener('click', () => {
     state.trendMode = 'monthly';
     $('trendMonthly')?.classList.add('active');

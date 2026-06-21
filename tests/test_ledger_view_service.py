@@ -14,11 +14,40 @@ if str(API_ROOT) not in sys.path:
 import services.ledger_view as ledger_view  # noqa: E402
 from services.ledger_view import (  # noqa: E402
     _account_summary,
+    _month_bounds,
     _recent_start_for_account_window,
     _serialize_row,
     classify_ledger_row,
     summarize_period,
 )
+
+
+def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
+    class FixedDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return cls(2026, 6, 21)
+
+    monkeypatch.setattr(ledger_view, "date", FixedDate)
+
+    start, end = _month_bounds(None, latest_date=date(2026, 5, 31))
+
+    assert start == date(2026, 6, 1)
+    assert end == date(2026, 6, 21)
+
+
+def test_month_bounds_keeps_explicit_historical_month(monkeypatch) -> None:
+    class FixedDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return cls(2026, 6, 21)
+
+    monkeypatch.setattr(ledger_view, "date", FixedDate)
+
+    start, end = _month_bounds("2026-05")
+
+    assert start == date(2026, 5, 1)
+    assert end == date(2026, 5, 31)
 
 
 def test_classify_transfer_before_expense_without_amount_threshold() -> None:

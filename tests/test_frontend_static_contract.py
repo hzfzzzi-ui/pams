@@ -311,8 +311,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "grid-template-columns:minmax(0, 7fr) minmax(280px, 3fr) !important;" in html
     assert ".page-ledger .cashflowBodyGrid > div:first-child { order:2 }" in html
     assert "body.page-ledger.app-shell .ledgerTop > .sectionTitle" in html
-    assert "grid-template-columns:minmax(0, 1fr) !important;" in html
-    assert "body.page-ledger.app-shell .ledgerTop .ledgerToolbar" in html
+    assert "body.page-ledger.app-shell .ledgerTop .ledgerToolbar" not in html
     for href in [
         "#cashflow-workbench",
         "#recent-flow-section",
@@ -368,7 +367,22 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v2" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-overview-period-v2" in html
+    assert 'id="overviewTitle"' in html
+    assert '<h3 id="overviewTitle">总览</h3>' in html
+    assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
+    assert 'data-overview-period="month"' in html
+    assert 'data-overview-period="ytd"' in html
+    assert 'class="accountPeriodButton active" type="button" data-overview-period="ytd"' in html
+    assert 'id="monthPicker"' not in html
+    assert "overviewPeriod: 'ytd'" in js
+    assert "currentOverviewPeriod" in js
+    assert "currentOverviewCategories" in js
+    assert "renderOverviewPeriodButtons" in js
+    assert "expense_categories_ytd" in js
+    assert "income_categories_ytd" in js
+    assert "transfer_summary_month" in js
+    assert "transfer_summary_ytd" in js
     assert 'data-recent-period="month"' in html
     assert 'data-recent-period="ytd"' in html
     assert "recentPeriod: 'ytd'" in js
@@ -717,7 +731,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v2" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-overview-period-v2" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1284,7 +1298,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v2" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-overview-period-v2" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js

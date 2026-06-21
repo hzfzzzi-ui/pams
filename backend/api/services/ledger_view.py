@@ -127,10 +127,15 @@ def _month_bounds(month: str | None, latest_date: date | None = None) -> tuple[d
     if month:
         year, month_no = [int(part) for part in month.split("-", 1)]
     else:
-        anchor = latest_date or date.today()
+        anchor = date.today()
         year, month_no = anchor.year, anchor.month
     end_day = calendar.monthrange(year, month_no)[1]
-    return date(year, month_no, 1), date(year, month_no, end_day)
+    month_start = date(year, month_no, 1)
+    month_end = date(year, month_no, end_day)
+    today = date.today()
+    if year == today.year and month_no == today.month:
+        month_end = min(month_end, today)
+    return month_start, month_end
 
 
 def _recent_start_for_account_window(month_start: date, month_end: date, recent_days: int) -> date:
@@ -769,6 +774,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     investment_rows = _load_investment_account_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
     account_rows = display_rows + investment_rows
     month_rows = [r for r in display_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
+    ytd_rows = [r for r in display_rows if r.get("transaction_date_obj") and ytd_start <= r["transaction_date_obj"] <= month_end]
     month_account_rows = [
         r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end
     ]
@@ -786,6 +792,12 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     recent_rows_month = [_serialize_row(r) for r in month_account_rows]
     recent_rows_ytd = [_serialize_row(r) for r in ytd_account_rows]
     review_rows = [_serialize_row(r) for r in display_rows if r.get("needs_review")][:100]
+    month_transfer_matches = [
+        match for match in transfer_matches if match.get("match_date_obj") and month_start <= match["match_date_obj"] <= month_end
+    ]
+    ytd_transfer_matches = [
+        match for match in transfer_matches if match.get("match_date_obj") and ytd_start <= match["match_date_obj"] <= month_end
+    ]
 
     return {
         "as_of": latest_date.isoformat() if latest_date else None,
@@ -797,6 +809,10 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         },
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
+        "expense_categories_month": _group_amounts(month_rows, "expense"),
+        "income_categories_month": _group_amounts(month_rows, "income"),
+        "expense_categories_ytd": _group_amounts(ytd_rows, "expense"),
+        "income_categories_ytd": _group_amounts(ytd_rows, "income"),
         "account_summary": _account_summary(month_account_rows, configured_accounts),
         "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts),
         "monthly_trend": _trend(display_rows, ytd_start, month_end, "monthly"),
@@ -805,6 +821,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "recent_rows_month": recent_rows_month,
         "recent_rows_ytd": recent_rows_ytd,
         "review_rows": review_rows,
-        "transfer_summary": _transfer_summary(transfer_matches),
+        "transfer_summary": _transfer_summary(ytd_transfer_matches),
+        "transfer_summary_month": _transfer_summary(month_transfer_matches),
+        "transfer_summary_ytd": _transfer_summary(ytd_transfer_matches),
         "classification_rules": CLASSIFICATION_RULES,
     }
