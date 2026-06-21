@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-icbc-6689-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-account-balance-v1';
 import {
   byId as $,
   clearError,
@@ -23,7 +23,6 @@ const state = {
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',
-  accountPeriod: 'ytd',
   expandedAccountGroups: new Set(),
 };
 
@@ -655,6 +654,65 @@ function subAccountDisplayName(accountCode) {
   return ACCOUNT_SUBACCOUNT_LABELS[accountCode] || accountDisplayName(accountCode);
 }
 
+function accountOverviewMap() {
+  return new Map((state.accounts?.accounts || [])
+    .filter((account) => account?.account_code)
+    .map((account) => [account.account_code, account]));
+}
+
+function accountPrimaryBalance(accountCode) {
+  const account = accountOverviewMap().get(accountCode);
+  const balance = account?.primary_balance || null;
+  if (!balance || balance.amount === null || balance.amount === undefined || balance.amount === '') {
+    return null;
+  }
+  return {
+    amount: num(balance.amount),
+    currency: String(balance.currency || account?.base_currency || 'CNY').toUpperCase(),
+    as_of: balance.as_of || null,
+  };
+}
+
+function accountBalanceItems(rows = []) {
+  const totals = new Map();
+  (rows || []).forEach((row) => {
+    const balance = accountPrimaryBalance(row.account_code);
+    if (!balance) return;
+    const current = totals.get(balance.currency) || { currency: balance.currency, amount: 0, as_of: null };
+    current.amount += balance.amount;
+    current.as_of = maxSyncAt(current.as_of, balance.as_of);
+    totals.set(balance.currency, current);
+  });
+  return [...totals.values()]
+    .filter((item) => Math.abs(item.amount) > 0.000001 || item.as_of)
+    .sort((a, b) => {
+      if (a.currency === 'CNY') return -1;
+      if (b.currency === 'CNY') return 1;
+      return a.currency.localeCompare(b.currency);
+    });
+}
+
+function formatBalanceItem(item) {
+  return formatCurrency(item.amount, item.currency, { maximumFractionDigits: 2 });
+}
+
+function accountBalanceSummary(rows = []) {
+  const items = accountBalanceItems(rows);
+  if (!items.length) {
+    return { value: '--', meta: '余额待核准', tone: 'is-missing' };
+  }
+  const shown = items.slice(0, 2).map(formatBalanceItem).join(' / ');
+  const suffix = items.length > 2 ? ` +${items.length - 2}` : '';
+  const latestAsOf = items.reduce((latest, item) => maxSyncAt(latest, item.as_of), null);
+  const currencyText = items.length > 1 ? `${items.length}币种` : items[0].currency;
+  const tone = items.some((item) => item.amount < 0) ? 'down' : '';
+  return {
+    value: `${shown}${suffix}`,
+    meta: latestAsOf ? `余额 ${formatSyncDate(latestAsOf)} · ${currencyText}` : `余额 · ${currencyText}`,
+    tone,
+  };
+}
+
 function normalizeAccountRow(row = {}) {
   const normalized = {
     ...row,
@@ -773,14 +831,18 @@ function accountPendingBadgeHtml(row) {
   return `<span class="accountPendingBadge">${pending} 笔待确认</span>`;
 }
 
-function renderAccountFlowSide(row, childCountText = '') {
+function renderAccountFlowSide(row, childCountText = '', balanceRows = null) {
   const net = num(row.net);
+  const rowsForBalance = Array.isArray(balanceRows) && balanceRows.length ? balanceRows : [row];
+  const balance = accountBalanceSummary(rowsForBalance);
   const pendingText = row.pending_count ? ` · ${row.pending_count} 待确认` : '';
   const countText = childCountText || `${row.row_count || 0} 笔${pendingText}`;
+  const deltaTone = net > 0 ? 'up' : net < 0 ? 'down' : '';
   return `
     <span class="accountFlowSide">
-      <b class="${net >= 0 ? 'up' : 'down'}">${signedMoney(net)}</b>
-      <small>${escapeHtml(countText)}</small>
+      <b class="accountBalanceValue ${balance.tone}">${escapeHtml(balance.value)}</b>
+      <small>${escapeHtml(balance.meta)}</small>
+      <small class="accountFlowDelta ${deltaTone}">年初净流入 ${escapeHtml(signedMoney(net))} · ${escapeHtml(countText)}</small>
     </span>
   `;
 }
@@ -825,15 +887,12 @@ function renderAccountGroup(group) {
       <button type="button" class="accountFlowRow accountGroupRow" data-account-group-toggle="${escapeHtml(group.code)}" aria-expanded="${collapsed ? 'false' : 'true'}">
         <span class="accountFlowMain">
           <strong>${escapeHtml(group.label)}</strong>
-          <small class="accountFlowMetaLine"><span>${escapeHtml(childCountText)}</span>${syncBadgeHtml(summary)}${accountPendingBadgeHtml(summary)}</small>
+          <small class="accountFlowMetaLine"><span>${escapeHtml(childCountText)}</span>${syncBadgeHtml(summary)}${accountPendingBadgeHtml(summary)}<span class="accountGroupToggle">${collapsed ? '展开' : '收起'}</span></small>
           <span class="accountFlowStats">
             ${accountFlowStatsHtml(summary)}
           </span>
         </span>
-        <span class="accountFlowSide">
-          <span class="accountGroupToggle">${collapsed ? '展开' : '收起'}</span>
-          <b class="${num(summary.net) >= 0 ? 'up' : 'down'}">${signedMoney(summary.net)}</b>
-        </span>
+        ${renderAccountFlowSide(summary, childCountText, childRows)}
       </button>
       <div class="accountSubList" ${collapsed ? 'hidden' : ''}>
         ${childRows.map((row) => renderAccountFlowRow(row, {
@@ -870,7 +929,7 @@ function renderRecentAccountScope() {
 function openRecentForAccount(accountCode) {
   state.recentAccountFilter = accountCode || '';
   state.recentFlowFilter = '';
-  state.recentPeriod = state.accountPeriod || 'month';
+  state.recentPeriod = 'ytd';
   renderRecentPeriodButtons();
   document.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
     item.classList.toggle('active', (item.dataset.ledgerFlowFilter || '') === '');
@@ -888,22 +947,15 @@ function renderRecentPeriodButtons() {
   });
 }
 
-function renderAccountPeriodButtons() {
-  document.querySelectorAll('[data-account-period]').forEach((btn) => {
-    btn.classList.toggle('active', (btn.dataset.accountPeriod || 'month') === state.accountPeriod);
-  });
-}
-
 function renderAccountFlowSummary(rows) {
   const el = $('accountFlowRows');
   if (!el) return;
   const hint = $('accountFlowHint');
   if (hint) {
-    const periodLabel = state.accountPeriod === 'ytd' ? '年初至今' : '本月';
-    hint.textContent = `${periodLabel}账户流水统计；投资账户只展示入金镜像，用于和银行卡投资划转平账。`;
+    hint.textContent = '账户余额优先展示；现金流变化统一按年初至今计算。';
   }
   if (!rows?.length) {
-    el.innerHTML = '<div class="ledgerEmpty">本月暂无账户流水</div>';
+    el.innerHTML = '<div class="ledgerEmpty">年初至今暂无账户流水</div>';
     return;
   }
   el.innerHTML = buildAccountFlowGroups(rows).map(renderAccountGroup).join('');
@@ -924,7 +976,7 @@ function renderAccountFlowSummary(rows) {
 }
 
 function currentAccountSummary(data) {
-  return state.accountPeriod === 'ytd' ? data.account_summary_ytd || [] : data.account_summary || [];
+  return data.account_summary_ytd || data.account_summary || [];
 }
 
 function investmentTransferAmount(rows) {
@@ -1289,7 +1341,6 @@ function renderAll(data) {
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
   renderCashflowBridge(data);
-  renderAccountPeriodButtons();
   renderRecentPeriodButtons();
   renderRecentAccountScope();
   renderRecentRows();
@@ -1343,13 +1394,6 @@ function bindEvents() {
       renderRecentPeriodButtons();
       renderRecentAccountScope();
       renderRecentRows();
-    });
-  });
-  document.querySelectorAll('[data-account-period]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.accountPeriod = btn.dataset.accountPeriod || 'month';
-      renderAccountPeriodButtons();
-      if (state.data) renderAccountFlowSummary(currentAccountSummary(state.data));
     });
   });
   $('recentSearch')?.addEventListener('input', renderRecentRows);

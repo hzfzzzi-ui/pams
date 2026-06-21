@@ -112,9 +112,14 @@
     .accountSyncBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(139,148,158,.18); border-radius:999px; background:rgba(139,148,158,.08); color:#a8b3c7; font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
     .accountFlowStats { display:flex; align-items:center; gap:10px; margin-top:8px; color:var(--muted); font-size:11px; font-weight:850; flex-wrap:wrap }
     .accountFlowStats span { white-space:nowrap }
-    .accountFlowSide { display:grid; gap:5px; justify-items:end; min-width:112px; white-space:nowrap }
+    .accountFlowSide { display:grid; gap:5px; justify-items:end; min-width:132px; white-space:nowrap }
     .accountFlowSide b { font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:15px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
     .accountFlowSide small { color:var(--muted); font-size:11px; font-weight:850 }
+    .accountBalanceValue { color:var(--text); font-size:16px !important }
+    .accountBalanceValue.down { color:#ff7b72 }
+    .accountBalanceValue.is-missing { color:var(--muted) }
+    .accountFlowDelta.up { color:#7ee787 }
+    .accountFlowDelta.down { color:#ff7b72 }
     .accountGroupToggle { display:inline-flex; align-items:center; justify-content:center; min-height:24px; padding:0 9px; border:1px solid rgba(88,166,255,.34); border-radius:999px; background:rgba(56,139,253,.08); color:#9ecbff; font-size:11px; font-weight:850 }
     .accountPendingBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(248,81,73,.32); border-radius:999px; background:rgba(248,81,73,.1); color:#ff8b81; font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
     .accountSubList { display:grid; margin:0 0 8px 13px; padding-left:13px; border-left:1px solid rgba(88,166,255,.18) }
@@ -123,7 +128,7 @@
     .accountSubRow .accountFlowMain strong { font-size:14px }
     .accountSubRow .accountFlowMain small { margin-top:4px; font-size:11px }
     .accountSubRow .accountFlowStats { margin-top:6px; gap:8px }
-    .accountSubRow .accountFlowSide { min-width:98px }
+    .accountSubRow .accountFlowSide { min-width:118px }
     .accountFlowRow.is-empty { cursor:default; opacity:.52 }
     .cashflowBridge { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
     .cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
@@ -529,12 +534,8 @@
       <section class="ledgerSection ledgerJumpCard" id="account-cashflow-section">
         <div class="sectionTitle">
           <h3>按账户统计</h3>
-          <div class="accountPeriodToggle" aria-label="账户统计周期">
-            <button class="accountPeriodButton" type="button" data-account-period="month">本月</button>
-            <button class="accountPeriodButton active" type="button" data-account-period="ytd">年初至今</button>
-          </div>
         </div>
-        <div id="accountFlowHint" class="muted" style="margin:-4px 0 8px">按账户查看当前统计周期的收入、消费、转账和待确认流水。</div>
+        <div id="accountFlowHint" class="muted" style="margin:-4px 0 8px">账户余额优先展示；现金流变化统一按年初至今计算。</div>
         <div id="accountFlowRows" class="accountFlowList"></div>
       </section>
     </div>
@@ -574,6 +575,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-icbc-6689-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-balance-v1"></script>
 </body>
 </html>
