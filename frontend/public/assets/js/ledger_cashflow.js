@@ -205,13 +205,7 @@ function accountFlowStatsHtml(row) {
     || num(row.investment_return) > 0
     || num(row.investment_fee) > 0;
   if (isInvestment) {
-    const items = [
-      ['流入', row.investment_inflow || 0],
-      ['流出', row.investment_outflow || 0],
-      ['收益', row.investment_return || 0],
-    ];
-    if (num(row.investment_fee) > 0) items.push(['费用', row.investment_fee || 0]);
-    return items.map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
+    return `<span>${escapeHtml('入金')} ${escapeHtml(money(row.investment_inflow || 0))}</span>`;
   }
   return [
     ['收入', row.income || 0],
@@ -226,7 +220,7 @@ function renderAccountFlowSummary(rows) {
   const hint = $('accountFlowHint');
   if (hint) {
     const periodLabel = state.accountPeriod === 'ytd' ? '年初至今' : '本月';
-    hint.textContent = `${periodLabel}账户流水统计；投资账户单独按流入、流出、收益和费用对账。`;
+    hint.textContent = `${periodLabel}账户流水统计；投资账户只展示入金镜像，用于和银行卡投资划转平账。`;
   }
   if (!rows?.length) {
     el.innerHTML = '<div class="ledgerEmpty">本月暂无账户流水</div>';

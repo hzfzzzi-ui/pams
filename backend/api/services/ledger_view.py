@@ -29,26 +29,6 @@ INVESTMENT_ACCOUNT_CODES = {
     "ibkr",
 }
 
-INVESTMENT_INFLOW_TYPES = {
-    "deposit",
-    "cash_deposit",
-    "transfer_in",
-    "sell",
-    "fund_redemption",
-}
-
-INVESTMENT_OUTFLOW_TYPES = {
-    "withdraw",
-    "withdrawal",
-    "cash_withdrawal",
-    "transfer_out",
-    "buy",
-    "fund_subscription",
-}
-
-INVESTMENT_RETURN_TYPES = {"dividend", "interest", "coupon"}
-INVESTMENT_FEE_TYPES = {"fee", "tax"}
-
 
 TRANSFER_MATCH_TYPES = {
     "account_transfer",
@@ -481,91 +461,59 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
 def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
     cur.execute(
         """
-        WITH trades AS (
+        WITH funding AS (
             SELECT
-                f.trade_id AS id,
-                f.account_code,
-                f.trade_date AS transaction_date,
-                COALESCE(NULLIF(f.currency, ''), %(base)s) AS currency,
-                LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type, 'unknown')) AS direction,
-                f.trade_type,
-                f.side,
-                COALESCE(
-                    f.net_cash_cny,
-                    f.net_cash * COALESCE(f.fx_rate_to_cny, 1),
-                    f.gross_amount * COALESCE(f.fx_rate_to_cny, 1),
-                    0
-                ) AS raw_amount_cny,
-                f.net_cash,
-                f.gross_amount,
-                f.fee_amount,
-                f.tax_amount,
-                f.symbol,
-                f.name,
-                f.source_table,
-                f.source_id
-            FROM pams_investment_trade_fact f
-            WHERE f.trade_date >= %(start)s
-              AND f.trade_date <= %(end)s
-              AND f.account_code = ANY(%(accounts)s)
-              AND COALESCE(f.affects_cash, TRUE) = TRUE
+                cf.cashflow_id AS id,
+                CASE
+                    WHEN cf.counter_account_code = 'direct_investment'
+                     AND cf.account_code = 'ccb_7332'
+                     AND (
+                        COALESCE(cf.summary, '') ILIKE '%%基金%%'
+                        OR COALESCE(cf.description, '') ILIKE '%%基金%%'
+                     )
+                    THEN 'ccb_yhs300_fund'
+                    ELSE cf.counter_account_code
+                END AS investment_account_code,
+                cf.account_code AS funding_account_code,
+                cf.event_date AS transaction_date,
+                COALESCE(NULLIF(cf.currency, ''), %(base)s) AS currency,
+                ABS(COALESCE(cf.amount_cny, cf.amount * COALESCE(cf.fx_rate_to_cny, 1), cf.amount)) AS amount_cny,
+                cf.summary,
+                cf.description,
+                cf.source_table,
+                cf.source_id
+            FROM pams_cashflow_fact cf
+            WHERE cf.event_date >= %(start)s
+              AND cf.event_date <= %(end)s
+              AND cf.cashflow_type = 'investment_funding'
+              AND COALESCE(cf.amount_cny, cf.amount * COALESCE(cf.fx_rate_to_cny, 1), cf.amount) < 0
         )
         SELECT
-            id,
-            account_code,
+            ('investment-inflow-' || id::text) AS id,
+            investment_account_code AS account_code,
             'investment'::text AS account_kind,
             ''::text AS bank,
             transaction_date,
-            CASE
-                WHEN direction = ANY(%(inflow_types)s) THEN ABS(raw_amount_cny)
-                WHEN direction = ANY(%(outflow_types)s) THEN -ABS(raw_amount_cny)
-                WHEN direction = ANY(%(return_types)s) THEN ABS(raw_amount_cny)
-                WHEN direction = ANY(%(fee_types)s) THEN -ABS(COALESCE(NULLIF(raw_amount_cny, 0), fee_amount + tax_amount, 0))
-                ELSE raw_amount_cny
-            END AS amount,
-            CASE
-                WHEN direction = ANY(%(inflow_types)s) THEN ABS(raw_amount_cny)
-                WHEN direction = ANY(%(outflow_types)s) THEN -ABS(raw_amount_cny)
-                WHEN direction = ANY(%(return_types)s) THEN ABS(raw_amount_cny)
-                WHEN direction = ANY(%(fee_types)s) THEN -ABS(COALESCE(NULLIF(raw_amount_cny, 0), fee_amount + tax_amount, 0))
-                ELSE raw_amount_cny
-            END AS amount_cny,
+            amount_cny AS amount,
+            amount_cny,
             currency,
             '投资账户'::text AS category,
-            CASE
-                WHEN direction IN ('deposit', 'cash_deposit', 'transfer_in') THEN '入金'
-                WHEN direction IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN '出金'
-                WHEN direction IN ('buy', 'fund_subscription') THEN '买入/申购'
-                WHEN direction IN ('sell', 'fund_redemption') THEN '卖出/赎回'
-                WHEN direction IN ('dividend', 'interest', 'coupon') THEN '分红/利息'
-                WHEN direction IN ('fee', 'tax') THEN '费用/税费'
-                ELSE '投资现金流'
-            END AS subcategory,
-            COALESCE(NULLIF(name, ''), NULLIF(symbol, ''), trade_type) AS summary,
-            CONCAT_WS(' / ', NULLIF(symbol, ''), NULLIF(name, ''), trade_type) AS description,
-            NULL::text AS counterparty,
-            CASE
-                WHEN direction = ANY(%(return_types)s) THEN 'investment_return_cash'
-                WHEN direction = ANY(%(fee_types)s) THEN 'fee'
-                ELSE 'investment_funding'
-            END AS cashflow_type,
+            '入金'::text AS subcategory,
+            COALESCE(NULLIF(summary, ''), '投资入金') AS summary,
+            CONCAT_WS(' / ', '来自 ' || funding_account_code, NULLIF(description, '')) AS description,
+            funding_account_code AS counterparty,
+            'investment_funding'::text AS cashflow_type,
             TRUE AS is_internal_transfer,
-            NULL::text AS transfer_group_id,
+            ('investment-funding-' || id::text) AS transfer_group_id,
             'auto'::text AS review_status,
             source_table,
             source_id,
-            CASE
-                WHEN direction = ANY(%(return_types)s) THEN 'investment_return'
-                WHEN direction = ANY(%(fee_types)s) THEN 'investment_fee'
-                WHEN direction = ANY(%(inflow_types)s) THEN 'investment_inflow'
-                WHEN direction = ANY(%(outflow_types)s) THEN 'investment_outflow'
-                ELSE 'investment_transfer'
-            END AS flow_type,
+            'investment_inflow'::text AS flow_type,
             FALSE AS needs_review,
             FALSE AS is_operating
-        FROM trades
-        WHERE ABS(raw_amount_cny) > 0.0001
-          AND direction <> 'fx_conversion'
+        FROM funding
+        WHERE investment_account_code = ANY(%(accounts)s)
+          AND amount_cny > 0.0001
         ORDER BY transaction_date DESC, id DESC
         """,
         {
@@ -573,10 +521,6 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
             "end": end,
             "base": base_currency,
             "accounts": sorted(INVESTMENT_ACCOUNT_CODES),
-            "inflow_types": sorted(INVESTMENT_INFLOW_TYPES),
-            "outflow_types": sorted(INVESTMENT_OUTFLOW_TYPES),
-            "return_types": sorted(INVESTMENT_RETURN_TYPES),
-            "fee_types": sorted(INVESTMENT_FEE_TYPES),
         },
     )
     rows = []
