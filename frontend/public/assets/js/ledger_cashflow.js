@@ -95,6 +95,11 @@ const ACCOUNT_SUBACCOUNT_LABELS = {
   hpf: '公积金',
 };
 
+const TRANSFER_ENDPOINT_LABELS = {
+  ccb_7332: '建行7332账户',
+  hpf: '公积金账户',
+};
+
 const ACCOUNT_KIND_OVERRIDES = {
   ccb_yhs300_fund: 'investment',
   tencent_licaitong: 'investment',
@@ -281,7 +286,7 @@ function isInvestmentWithdrawalRow(row) {
 function routeEndpointLabel(value, maxLength = 14) {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const label = accountFriendlyName(raw) || transferEndpointName(raw);
+  const label = transferEndpointName(raw) || accountFriendlyName(raw);
   if (!label || label === '-') return '';
   return compactText(label, maxLength);
 }
@@ -448,6 +453,7 @@ function inferInvestmentAccountCode(row) {
 function transferEndpointName(value) {
   const raw = String(value || '').trim();
   if (!raw) return '-';
+  if (TRANSFER_ENDPOINT_LABELS[raw]) return TRANSFER_ENDPOINT_LABELS[raw];
   return accountFriendlyName(raw) || raw;
 }
 
@@ -469,6 +475,7 @@ function transferRoute(row) {
   if (transferGroupId.startsWith('payment_proxy:')) return null;
   const amount = num(row.amount_cny ?? row.amount);
   const account = row.account_code || '';
+  const counterAccount = row.counter_account_code || '';
   const counterparty = row.counterparty || '';
 
   if (cashflowType === 'investment_funding' || flowType === 'investment_inflow') {
@@ -488,10 +495,11 @@ function transferRoute(row) {
     return { label: '投资出金', from: investmentAccount || counterparty, to: account };
   }
 
-  if (flowType === 'transfer' && counterparty) {
+  if (flowType === 'transfer' && (counterAccount || counterparty)) {
+    const transferPeer = counterAccount || counterparty;
     return amount < 0
-      ? { label: '内部转账', from: account, to: counterparty }
-      : { label: '内部转账', from: counterparty, to: account };
+      ? { label: '内部转账', from: account, to: transferPeer }
+      : { label: '内部转账', from: transferPeer, to: account };
   }
 
   return null;

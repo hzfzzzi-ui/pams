@@ -390,7 +390,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-edit-delegate-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -428,6 +428,11 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "转出账户" in js
     assert "转入账户" in js
     assert "投资入金" in js
+    assert "TRANSFER_ENDPOINT_LABELS" in js
+    assert "ccb_7332: '建行7332账户'" in js
+    assert "hpf: '公积金账户'" in js
+    assert "const label = transferEndpointName(raw) || accountFriendlyName(raw);" in js
+    assert "const transferPeer = counterAccount || counterparty" in js
     assert "payment_proxy:" in js
     assert "function isAccountValidationRow(row)" in js
     assert "function rowTagLabel(row)" in js
@@ -796,7 +801,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-edit-delegate-v1" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1363,7 +1368,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-investment-route-v3" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
