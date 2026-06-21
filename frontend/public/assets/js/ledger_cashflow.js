@@ -23,6 +23,7 @@ const state = {
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',
+  recentSearch: '',
   recentAmountSort: '',
   expandedAccountGroups: new Set(),
 };
@@ -364,6 +365,48 @@ function sortRecentRows(rows) {
     const amountDelta = recentAmountValue(a) - recentAmountValue(b);
     if (amountDelta !== 0) return amountDelta * direction;
     return String(b.transaction_date || '').localeCompare(String(a.transaction_date || ''));
+  });
+}
+
+function renderRecentSearchButton() {
+  const btn = $('recentSearchToggle');
+  if (!btn) return;
+  const hasSearch = Boolean(state.recentSearch);
+  btn.classList.toggle('active', hasSearch);
+  btn.setAttribute('aria-pressed', String(hasSearch));
+  btn.title = hasSearch ? `搜索：${state.recentSearch}` : '搜索流水';
+}
+
+function recentSearchSheetHtml() {
+  return `
+    <form class="ledgerSearchSheet" data-recent-search-form>
+      <input class="formInput" type="search" data-recent-search-input placeholder="搜索摘要 / 商户 / 粗分类" value="${escapeHtml(state.recentSearch)}" />
+      <div class="ledgerSearchSheetActions">
+        <button type="button" class="ledgerActionBtn ghost" data-recent-search-clear>清除</button>
+        <button type="submit" class="ledgerActionBtn confirm">搜索</button>
+      </div>
+    </form>
+  `;
+}
+
+function openRecentSearchSheet() {
+  openBottomSheet('搜索流水', recentSearchSheetHtml());
+  const sheet = document.querySelector('#appBottomSheet');
+  const form = sheet?.querySelector('[data-recent-search-form]');
+  const input = sheet?.querySelector('[data-recent-search-input]');
+  input?.focus();
+  form?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    state.recentSearch = String(input?.value || '').trim();
+    renderRecentSearchButton();
+    renderRecentRows();
+    closeBottomSheet();
+  });
+  sheet?.querySelector('[data-recent-search-clear]')?.addEventListener('click', () => {
+    state.recentSearch = '';
+    renderRecentSearchButton();
+    renderRecentRows();
+    closeBottomSheet();
   });
 }
 
@@ -1504,7 +1547,7 @@ function renderRows(id, rows, limit = 80) {
 
 function filteredRecentRows() {
   const flow = state.recentFlowFilter || '';
-  const search = ($('recentSearch')?.value || '').trim().toLowerCase();
+  const search = String(state.recentSearch || '').trim().toLowerCase();
   const rows = state.recentPeriod === 'ytd'
     ? (state.data?.recent_rows_ytd || state.data?.recent_rows || [])
     : (state.data?.recent_rows_month || state.data?.recent_rows || []);
@@ -1538,6 +1581,7 @@ function renderAll(data) {
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
   renderCashflowBridge(data);
+  renderRecentSearchButton();
   renderRecentPeriodButtons();
   renderRecentSortButtons();
   renderRecentAccountScope();
@@ -1601,34 +1645,11 @@ function bindEvents() {
       renderRecentRows();
     });
   });
-  const recentSearchBar = $('recentSearchBar');
   const recentSearchToggle = $('recentSearchToggle');
-  const recentSearchInput = $('recentSearch');
-  const syncRecentSearchToggle = () => {
-    const hasText = Boolean(recentSearchInput?.value?.trim());
-    const isOpen = recentSearchBar ? !recentSearchBar.hidden : false;
-    recentSearchToggle?.classList.toggle('active', isOpen || hasText);
-    recentSearchToggle?.setAttribute('aria-expanded', String(isOpen));
-  };
-  const setRecentSearchOpen = (open) => {
-    if (!recentSearchBar) return;
-    recentSearchBar.hidden = !open;
-    syncRecentSearchToggle();
-    if (open) recentSearchInput?.focus();
-  };
   recentSearchToggle?.addEventListener('click', () => {
-    setRecentSearchOpen(recentSearchBar?.hidden ?? true);
+    openRecentSearchSheet();
   });
-  $('recentSearchClear')?.addEventListener('click', () => {
-    if (recentSearchInput) recentSearchInput.value = '';
-    renderRecentRows();
-    setRecentSearchOpen(false);
-  });
-  recentSearchInput?.addEventListener('input', () => {
-    renderRecentRows();
-    syncRecentSearchToggle();
-  });
-  syncRecentSearchToggle();
+  renderRecentSearchButton();
 }
 
 function setLedgerPanel(panel = 'overview') {
