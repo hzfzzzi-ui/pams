@@ -37,6 +37,7 @@ class FlexParseResult:
     source_account_ids: list[str]
     trades: list[dict[str, Any]] = field(default_factory=list)
     history_rows: list[dict[str, Any]] = field(default_factory=list)
+    cash_movements: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _local_name(tag: str) -> str:
@@ -323,6 +324,39 @@ def _cash_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> dict
     }
 
 
+def _cash_movement_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> dict[str, Any] | None:
+    attrs = {str(k): str(v).strip() for k, v in elem.attrib.items()}
+    currency = (_attr(attrs, "currency", "reportCurrency", default="") or "").upper()
+    if not re.fullmatch(r"[A-Z]{3}", currency or ""):
+        return None
+
+    deposits = _num_from(attrs, ["deposits"], None)
+    withdrawals = _num_from(attrs, ["withdrawals"], None)
+    if deposits is None and withdrawals is None:
+        deposit_withdrawals = _num_from(attrs, ["depositWithdrawals"], 0.0) or 0.0
+        deposits = deposit_withdrawals if deposit_withdrawals > 0 else 0.0
+        withdrawals = abs(deposit_withdrawals) if deposit_withdrawals < 0 else 0.0
+    deposits = deposits or 0.0
+    withdrawals = withdrawals or 0.0
+    if abs(deposits) < 1e-8 and abs(withdrawals) < 1e-8:
+        return None
+
+    movement_type = "deposit" if deposits > 0 else "withdrawal"
+    amount = deposits if deposits > 0 else -abs(withdrawals)
+    movement_date = _parse_ib_date(_attr(attrs, "toDate", "reportDate", "date")) or fallback_as_of
+    source_account_id = _attr(attrs, "accountId", "acctId", default=None)
+    return {
+        "account_code": account_code,
+        "source_account_id": source_account_id,
+        "movement_date": movement_date,
+        "currency": currency,
+        "movement_type": movement_type,
+        "amount": amount,
+        "source_key": f"{source_account_id or account_code}:{movement_date.isoformat()}:{currency}:{movement_type}:{amount}",
+        "raw": attrs,
+    }
+
+
 def _trade_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> dict[str, Any] | None:
     attrs = {str(k): str(v).strip() for k, v in elem.attrib.items()}
     symbol = (_attr(attrs, "symbol", "underlyingSymbol", "securityID", "conid", default="") or "").upper()
@@ -383,6 +417,7 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
     source_accounts: set[str] = set()
     history_rows: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
+    cash_movements: list[dict[str, Any]] = []
 
     statements = [elem for elem in root.iter() if _local_name(elem.tag).lower() == "flexstatement"]
     if not statements:
@@ -415,6 +450,11 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
                     history_rows.append(row)
                     if row.get("source_account_id"):
                         source_accounts.add(str(row["source_account_id"]))
+                movement = _cash_movement_row(elem, account_code, fallback_as_of)
+                if movement:
+                    cash_movements.append(movement)
+                    if movement.get("source_account_id"):
+                        source_accounts.add(str(movement["source_account_id"]))
             elif local == "trade":
                 trade = _trade_row(elem, account_code, fallback_as_of)
                 if trade:
@@ -437,6 +477,7 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
         source_account_ids=sorted(source_accounts),
         trades=trades,
         history_rows=history_rows,
+        cash_movements=cash_movements,
     )
 
 
@@ -803,6 +844,142 @@ def _write_position_history(conn, rows: list[dict[str, Any]], *, account_code: s
     return len(rows)
 
 
+def _confirm_investment_funding_cashflows(
+    conn,
+    cash_movements: list[dict[str, Any]],
+    *,
+    account_code: str,
+    date_window_days: int = 7,
+    amount_tolerance: float = 0.01,
+) -> list[dict[str, Any]]:
+    """Mark bank-side in-transit transfers as investment funding after broker confirmation."""
+    confirmed: list[dict[str, Any]] = []
+    deposit_movements = [
+        movement
+        for movement in cash_movements
+        if movement.get("movement_type") == "deposit" and float(movement.get("amount") or 0) > 0
+    ]
+    if not deposit_movements:
+        return confirmed
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        for movement in deposit_movements:
+            confirmation = Json(
+                {
+                    "source": SYNC_SOURCE,
+                    "account_code": account_code,
+                    "movement_date": movement.get("movement_date").isoformat()
+                    if hasattr(movement.get("movement_date"), "isoformat")
+                    else movement.get("movement_date"),
+                    "currency": movement.get("currency"),
+                    "amount": movement.get("amount"),
+                    "source_key": movement.get("source_key"),
+                    "raw": movement.get("raw") or {},
+                }
+            )
+            cur.execute(
+                """
+                WITH candidate AS (
+                    SELECT
+                        cashflow_id,
+                        source_id,
+                        transfer_group_id AS old_transfer_group_id
+                    FROM pams_cashflow_fact
+                    WHERE counter_account_code = %(account_code)s
+                      AND account_code <> %(account_code)s
+                      AND cashflow_type = 'internal_transfer'
+                      AND amount < 0
+                      AND currency = %(currency)s
+                      AND ABS(ABS(amount) - %(amount)s) <= %(amount_tolerance)s
+                      AND event_date BETWEEN %(movement_date)s::date - (%(date_window_days)s || ' days')::interval
+                                         AND %(movement_date)s::date
+                      AND COALESCE(transfer_group_id, '') LIKE 'account_transfer:%%'
+                    ORDER BY event_date DESC, cashflow_id DESC
+                    LIMIT 1
+                ),
+                updated AS (
+                    UPDATE pams_cashflow_fact cf
+                    SET cashflow_type = 'investment_funding',
+                        category = '内部划转',
+                        subcategory = '投资入金',
+                        affects_spending = FALSE,
+                        affects_nav = FALSE,
+                        affects_investment_capital = TRUE,
+                        is_internal_transfer = FALSE,
+                        transfer_group_id = regexp_replace(
+                            COALESCE(cf.transfer_group_id, ''),
+                            '^account_transfer:',
+                            'investment_funding:'
+                        ),
+                        raw_json = jsonb_set(
+                            COALESCE(cf.raw_json, '{}'::jsonb),
+                            '{ibkr_flex_confirmation}',
+                            %(confirmation)s::jsonb,
+                            TRUE
+                        ),
+                        classification_source = 'ibkr_flex_confirmation',
+                        confidence = 0.9900,
+                        review_status = 'confirmed',
+                        updated_at = NOW()
+                    FROM candidate c
+                    WHERE cf.cashflow_id = c.cashflow_id
+                    RETURNING
+                        cf.cashflow_id,
+                        cf.source_id,
+                        cf.event_date,
+                        cf.amount,
+                        cf.amount_cny,
+                        cf.currency,
+                        cf.transfer_group_id,
+                        c.old_transfer_group_id
+                )
+                SELECT * FROM updated
+                """,
+                {
+                    "account_code": account_code,
+                    "currency": movement.get("currency"),
+                    "amount": movement.get("amount"),
+                    "movement_date": movement.get("movement_date"),
+                    "date_window_days": date_window_days,
+                    "amount_tolerance": amount_tolerance,
+                    "confirmation": confirmation,
+                },
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
+            item = dict(row)
+            cur.execute(
+                """
+                UPDATE pams_bank_transfer_matches
+                SET match_type = 'investment_funding',
+                    status = 'confirmed',
+                    match_key = %(match_key)s,
+                    confidence = GREATEST(COALESCE(confidence, 0), 0.9900),
+                    note = CONCAT_WS(
+                        '; ',
+                        NULLIF(note, ''),
+                        'IBKR Flex deposit confirmed on ' || %(movement_date)s::text
+                    ),
+                    updated_at = NOW()
+                WHERE match_key = %(old_match_key)s
+                """,
+                {
+                    "match_key": item.get("transfer_group_id"),
+                    "old_match_key": item.get("old_transfer_group_id"),
+                    "movement_date": movement.get("movement_date"),
+                },
+            )
+            item["movement"] = {
+                "movement_date": movement.get("movement_date"),
+                "currency": movement.get("currency"),
+                "amount": movement.get("amount"),
+                "source_key": movement.get("source_key"),
+            }
+            confirmed.append(item)
+    return confirmed
+
+
 def record_sync_run(
     conn,
     *,
@@ -816,6 +993,7 @@ def record_sync_run(
     history_row_count: int = 0,
     raw_file: str | None = None,
     message: str | None = None,
+    confirmed_funding_count: int = 0,
     error: str | None = None,
 ) -> dict[str, Any]:
     """Persist one sync run status row and return it."""
@@ -825,6 +1003,7 @@ def record_sync_run(
         "row_count": row_count,
         "trade_count": trade_count,
         "history_row_count": history_row_count,
+        "confirmed_funding_count": confirmed_funding_count,
         "raw_file": raw_file,
         "message": message,
     }
@@ -920,6 +1099,7 @@ def _sync_row_to_status(row: dict[str, Any]) -> dict[str, Any]:
         "row_count": row.get("rows_upserted") or summary.get("row_count") or 0,
         "trade_count": summary.get("trade_count") or 0,
         "history_row_count": summary.get("history_row_count") or 0,
+        "confirmed_funding_count": summary.get("confirmed_funding_count") or 0,
         "raw_file": summary.get("raw_file"),
         "message": summary.get("message"),
         "error": row.get("error_text"),
@@ -964,6 +1144,11 @@ def sync_ibkr_flex_to_db(
         row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date)
         history_row_count = _write_position_history(conn, parsed.history_rows, account_code=account_code)
         trade_count = _write_trades(conn, parsed.trades, account_code=account_code)
+        confirmed_fundings = _confirm_investment_funding_cashflows(
+            conn,
+            parsed.cash_movements,
+            account_code=account_code,
+        )
         record = record_sync_run(
             conn,
             status="success",
@@ -977,8 +1162,10 @@ def sync_ibkr_flex_to_db(
             message=(
                 f"reference={reference['reference_code']}; "
                 f"accounts={','.join(parsed.source_account_ids)}; "
-                f"trades={trade_count}; history_rows={history_row_count}"
+                f"trades={trade_count}; history_rows={history_row_count}; "
+                f"confirmed_fundings={len(confirmed_fundings)}"
             ),
+            confirmed_funding_count=len(confirmed_fundings),
         )
         return {
             "success": True,
@@ -988,6 +1175,22 @@ def sync_ibkr_flex_to_db(
             "row_count": row_count,
             "trade_count": trade_count,
             "history_row_count": history_row_count,
+            "confirmed_funding_count": len(confirmed_fundings),
+            "confirmed_fundings": [
+                {
+                    **item,
+                    "event_date": item.get("event_date").isoformat()
+                    if hasattr(item.get("event_date"), "isoformat")
+                    else item.get("event_date"),
+                    "movement": {
+                        **(item.get("movement") or {}),
+                        "movement_date": (item.get("movement") or {}).get("movement_date").isoformat()
+                        if hasattr((item.get("movement") or {}).get("movement_date"), "isoformat")
+                        else (item.get("movement") or {}).get("movement_date"),
+                    },
+                }
+                for item in confirmed_fundings
+            ],
             "raw_file": str(raw_path),
             "reference_code": reference["reference_code"],
             "sync_run": record,
