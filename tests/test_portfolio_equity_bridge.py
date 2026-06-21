@@ -11,6 +11,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.portfolio_equity_bridge import (  # noqa: E402
+    _cashflow_breakdown_from_rows,
     _funding_closure_checks,
     build_bridge_reconciliation_from_inputs,
 )
@@ -52,6 +53,35 @@ def test_equity_bridge_reconciles_only_when_residual_is_small() -> None:
 
     assert bridge["unexplained_residual_cny"] == Decimal("0")
     assert bridge["is_reconciled"] is True
+
+
+def test_cashflow_breakdown_excludes_linked_investment_cash_realization() -> None:
+    breakdown = _cashflow_breakdown_from_rows(
+        [
+            {
+                "cashflow_type": "operating_income",
+                "category": "收入",
+                "subcategory": "年终奖",
+                "count": 1,
+                "amount_cny": Decimal("37120"),
+                "is_linked_investment_return": True,
+            },
+            {
+                "cashflow_type": "operating_income",
+                "category": "收入",
+                "subcategory": "年终奖",
+                "count": 1,
+                "amount_cny": Decimal("10000"),
+                "is_linked_investment_return": False,
+            },
+        ]
+    )
+
+    assert breakdown["external_net_cny"] == Decimal("10000")
+    assert breakdown["buckets"]["investment_realized_cash"]["amount_cny"] == Decimal("37120")
+    assert breakdown["buckets"]["investment_realized_cash"]["excluded_from_external_cashflow"] is True
+    linked_detail = next(item for item in breakdown["details"] if item["bucket"] == "investment_realized_cash")
+    assert linked_detail["excluded_from_external_cashflow"] is True
 
 
 def test_tonghuashun_personal_capital_checks_cashflow_source_side() -> None:

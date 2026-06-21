@@ -114,38 +114,30 @@ def build_bridge_reconciliation_from_inputs(
     }
 
 
-def _cashflow_breakdown(cur, *, start_date: Date, end_date: Date) -> dict[str, Any]:
-    cur.execute(
-        """
-        SELECT cashflow_type,
-               COALESCE(category, '') AS category,
-               COALESCE(subcategory, '') AS subcategory,
-               COUNT(*) AS count,
-               COALESCE(SUM(amount_cny), 0) AS amount_cny
-        FROM pams_cashflow_fact
-        WHERE event_date >= %s
-          AND event_date <= %s
-          AND affects_nav IS TRUE
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
-        GROUP BY cashflow_type, COALESCE(category, ''), COALESCE(subcategory, '')
-        ORDER BY cashflow_type, category, subcategory
-        """,
-        (start_date, end_date),
-    )
+def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     buckets = {
         "main_income": {"label": "工资/奖金/小额收入", "amount_cny": Decimal("0"), "count": 0},
         "other_income": {"label": "其他收入", "amount_cny": Decimal("0"), "count": 0},
         "expense": {"label": "消费支出", "amount_cny": Decimal("0"), "count": 0},
         "fees_tax_cash_income": {"label": "费用/税费/现金收益", "amount_cny": Decimal("0"), "count": 0},
         "other_affects_nav": {"label": "其他影响NAV现金流", "amount_cny": Decimal("0"), "count": 0},
+        "investment_realized_cash": {
+            "label": "已由投资收益解释的现金实现",
+            "amount_cny": Decimal("0"),
+            "count": 0,
+            "excluded_from_external_cashflow": True,
+        },
     }
     details: list[dict[str, Any]] = []
-    for row in cur.fetchall():
+    for row in rows:
         amount = _dec(row.get("amount_cny"))
         count = int(row.get("count") or 0)
         cashflow_type = str(row.get("cashflow_type") or "")
         subcategory = str(row.get("subcategory") or "")
-        if cashflow_type == "operating_income" and subcategory in MAIN_INCOME_SUBCATEGORIES:
+        is_linked_investment_return = bool(row.get("is_linked_investment_return"))
+        if is_linked_investment_return:
+            key = "investment_realized_cash"
+        elif cashflow_type == "operating_income" and subcategory in MAIN_INCOME_SUBCATEGORIES:
             key = "main_income"
         elif cashflow_type == "operating_income":
             key = "other_income"
@@ -165,15 +157,57 @@ def _cashflow_breakdown(cur, *, start_date: Date, end_date: Date) -> dict[str, A
                 "subcategory": subcategory,
                 "count": count,
                 "amount_cny": amount,
+                "excluded_from_external_cashflow": is_linked_investment_return,
             }
         )
 
-    external_net = sum((_dec(item["amount_cny"]) for item in buckets.values()), Decimal("0"))
+    external_net = sum(
+        (
+            _dec(item["amount_cny"])
+            for item in buckets.values()
+            if not item.get("excluded_from_external_cashflow")
+        ),
+        Decimal("0"),
+    )
     return {
         "external_net_cny": external_net,
         "buckets": buckets,
         "details": details,
     }
+
+
+def _cashflow_breakdown(cur, *, start_date: Date, end_date: Date) -> dict[str, Any]:
+    cur.execute(
+        """
+        WITH linked_investment_return_cashflows AS (
+            SELECT DISTINCT cashflow_id
+            FROM pams_investment_trade_fact
+            WHERE cashflow_id IS NOT NULL
+              AND trade_type IN ('dividend', 'interest', 'coupon')
+              AND COALESCE(LOWER(review_status), 'auto') NOT IN ('ignored', 'cancelled', 'canceled', 'void')
+        )
+        SELECT cf.cashflow_type,
+               COALESCE(cf.category, '') AS category,
+               COALESCE(cf.subcategory, '') AS subcategory,
+               (linked.cashflow_id IS NOT NULL) AS is_linked_investment_return,
+               COUNT(*) AS count,
+               COALESCE(SUM(cf.amount_cny), 0) AS amount_cny
+        FROM pams_cashflow_fact cf
+        LEFT JOIN linked_investment_return_cashflows linked
+               ON linked.cashflow_id = cf.cashflow_id
+        WHERE cf.event_date >= %s
+          AND cf.event_date <= %s
+          AND cf.affects_nav IS TRUE
+          AND COALESCE(LOWER(cf.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+        GROUP BY cf.cashflow_type,
+                 COALESCE(cf.category, ''),
+                 COALESCE(cf.subcategory, ''),
+                 (linked.cashflow_id IS NOT NULL)
+        ORDER BY cf.cashflow_type, category, subcategory
+        """,
+        (start_date, end_date),
+    )
+    return _cashflow_breakdown_from_rows(list(cur.fetchall()))
 
 
 def _trade_cash_amount_sql() -> str:
