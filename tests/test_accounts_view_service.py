@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -10,7 +12,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.accounts_view import build_account_detail_payload, build_accounts_payload  # noqa: E402
-from endpoints.accounts import _reconcile_status  # noqa: E402
+from endpoints.accounts import _primary_platform_balance, _reconcile_status  # noqa: E402
 
 
 class FakeCursor:
@@ -147,3 +149,49 @@ def test_bank_statement_account_can_use_manual_balance_as_reviewable_fallback():
     )
 
     assert status == "ready_for_review"
+
+
+def test_primary_platform_balance_converts_net_multi_currency_platform_snapshot():
+    rows = [
+        {"currency": "USD", "market_value": "52609.1600", "as_of": date(2026, 6, 21)},
+        {"currency": "USD", "market_value": "-20101.1604", "as_of": date(2026, 6, 21)},
+        {"currency": "HKD", "market_value": "28720.0000", "as_of": date(2026, 6, 21)},
+        {"currency": "HKD", "market_value": "-14795.5133", "as_of": date(2026, 6, 21)},
+        {"currency": "KRW", "market_value": "21240000.0000", "as_of": date(2026, 6, 21)},
+        {"currency": "KRW", "market_value": "-16512617.2200", "as_of": date(2026, 6, 21)},
+        {"currency": "MXN", "market_value": "108999.9998", "as_of": date(2026, 6, 21)},
+        {"currency": "SEK", "market_value": "-4.0000", "as_of": date(2026, 6, 21)},
+    ]
+    fx = {
+        "USD": {
+            "HKD": Decimal("0.127588"),
+            "KRW": Decimal("0.000653"),
+            "MXN": Decimal("0.057694"),
+        }
+    }
+
+    balance = _primary_platform_balance(rows, "USD", fx)
+
+    expected = (
+        Decimal("32507.9996")
+        + Decimal("13924.4867") * Decimal("0.127588")
+        + Decimal("4727382.7800") * Decimal("0.000653")
+        + Decimal("108999.9998") * Decimal("0.057694")
+    )
+    assert balance is not None
+    assert balance["currency"] == "USD"
+    assert balance["as_of"] == date(2026, 6, 21)
+    assert Decimal(str(balance["amount"])).quantize(Decimal("0.01")) == expected.quantize(Decimal("0.01"))
+
+
+def test_primary_platform_balance_falls_back_to_base_when_material_fx_is_missing():
+    rows = [
+        {"currency": "USD", "market_value": "100", "as_of": date(2026, 6, 21)},
+        {"currency": "SEK", "market_value": "1000", "as_of": date(2026, 6, 21)},
+    ]
+
+    balance = _primary_platform_balance(rows, "USD", {"USD": {}})
+
+    assert balance is not None
+    assert balance["amount"] == Decimal("100")
+    assert balance["currency"] == "USD"

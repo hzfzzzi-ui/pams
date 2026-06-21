@@ -520,7 +520,7 @@ def refresh_fx_rates():
     from datetime import date as d_date
 
     today = d_date.today()
-    currencies = ['CNY', 'USD', 'MXN', 'HKD', 'KRW']
+    currencies = ['CNY', 'USD', 'MXN', 'HKD', 'KRW', 'SEK']
     all_rates = {}
 
     # 分别从公开API获取每个币种为基准的汇率
