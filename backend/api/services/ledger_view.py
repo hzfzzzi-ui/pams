@@ -501,6 +501,7 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
         SELECT
             cf.cashflow_id AS id,
             cf.account_code,
+            cf.counter_account_code,
             NULL::text AS account_kind,
             COALESCE(NULLIF(cf.source_channel, ''), NULLIF(cf.source_table, ''), '') AS bank,
             cf.event_date AS transaction_date,
@@ -516,6 +517,7 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
             cf.is_internal_transfer,
             cf.transfer_group_id,
             cf.review_status,
+            cf.classification_source,
             cf.source_table,
             cf.source_id,
             COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
@@ -674,6 +676,7 @@ def _serialize_row(row: Mapping[str, Any]) -> dict[str, Any]:
     keys = [
         "id",
         "account_code",
+        "counter_account_code",
         "account_kind",
         "bank",
         "transaction_date",
@@ -691,6 +694,8 @@ def _serialize_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "cashflow_type",
         "is_internal_transfer",
         "transfer_group_id",
+        "review_status",
+        "classification_source",
     ]
     out = {key: row.get(key) for key in keys}
     if isinstance(out.get("transaction_date"), (date, datetime)):

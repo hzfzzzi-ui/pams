@@ -26,6 +26,8 @@ const state = {
   expandedAccountGroups: new Set(),
 };
 
+const ledgerEditBoundButtons = new WeakSet();
+
 const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
   recent: '#recent-flow-section',
@@ -109,6 +111,24 @@ const ACCOUNT_NUMERIC_FIELDS = [
   'activity',
 ];
 
+const LEDGER_EDIT_TYPES = [
+  ['operating_expense', '消费'],
+  ['operating_income', '收入'],
+  ['investment_funding', '投资入金'],
+  ['investment_withdrawal', '投资出金'],
+  ['internal_transfer', '内部转账'],
+  ['debt_repayment', '信用卡还款'],
+];
+
+const LEDGER_EDIT_DEFAULTS = {
+  operating_expense: { category: '其他消费', subcategory: '手动确认' },
+  operating_income: { category: '收入', subcategory: '手动确认' },
+  investment_funding: { category: '内部划转', subcategory: '投资入金' },
+  investment_withdrawal: { category: '内部划转', subcategory: '投资出金' },
+  internal_transfer: { category: '内部划转', subcategory: '内部转账' },
+  debt_repayment: { category: '内部划转', subcategory: '信用卡还款' },
+};
+
 function flowLabel(flowType) {
   const labels = {
     income: '收入',
@@ -172,6 +192,23 @@ function rowCategoryText(row) {
 
 function cashflowTypeText(row) {
   return String(row.cashflow_type || '').toLowerCase();
+}
+
+function isEditableLedgerRow(row) {
+  return /^\d+$/.test(String(row?.id || ''));
+}
+
+function ledgerEditType(row) {
+  const cashflowType = cashflowTypeText(row);
+  if (LEDGER_EDIT_DEFAULTS[cashflowType]) return cashflowType;
+  if (row?.flow_type === 'income') return 'operating_income';
+  if (row?.flow_type === 'expense') return 'operating_expense';
+  if (row?.flow_type === 'transfer') return 'internal_transfer';
+  return 'operating_expense';
+}
+
+function ledgerEditTypeLabel(cashflowType) {
+  return LEDGER_EDIT_TYPES.find(([value]) => value === cashflowType)?.[1] || cashflowType || '未分类';
 }
 
 function isAccountValidationRow(row) {
@@ -259,6 +296,7 @@ function rowSearchText(row) {
     row.summary,
     row.description,
     row.counterparty,
+    row.counter_account_code,
     row.category,
     row.subcategory,
     row.coarse_category,
@@ -354,10 +392,18 @@ function transferRouteHtml(row) {
 
 function rowDetailHtml(row) {
   const originalAmount = originalCurrencyText(row);
+  const editButton = isEditableLedgerRow(row)
+    ? `
+      <div class="ledgerDetailActions rowDetailFull">
+        <button type="button" class="ledgerActionBtn confirm" data-ledger-edit="${escapeHtml(String(row.id || ''))}">修改分类</button>
+      </div>
+    `
+    : '';
   return `
     <div class="rowDetailGrid">
       ${transferRouteHtml(row)}
       <div><strong>账户</strong><span>${escapeHtml(accountLabel(row.account_code) || row.account_code || '-')}</span></div>
+      <div><strong>对方账户</strong><span>${escapeHtml(row.counter_account_code || '不适用')}</span></div>
       <div><strong>对方</strong><span>${escapeHtml(row.counterparty || '不适用')}</span></div>
       <div><strong>原始类型</strong><span>${escapeHtml(row.flow_type || '-')}</span></div>
       ${originalAmount ? `<div><strong>原币金额</strong><span>${escapeHtml(originalAmount)}</span></div>` : ''}
@@ -365,26 +411,33 @@ function rowDetailHtml(row) {
       <div><strong>摘要</strong><span>${escapeHtml(row.summary || '-')}</span></div>
       <div><strong>说明</strong><span>${escapeHtml(row.description || '不适用')}</span></div>
       <div><strong>状态</strong><span>${row.needs_review ? '待确认' : '已归类'}</span></div>
+      ${editButton}
     </div>
   `;
 }
 
-function reviewConfirmSheetHtml(row) {
+function ledgerEditSheetHtml(row) {
   const amount = num(row.amount_cny ?? row.amount);
   const account = accountLabel(row.account_code) || row.account_code || '-';
+  const cashflowType = ledgerEditType(row);
+  const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
+  const rawCategory = String(row.category || '').trim();
+  const rawSubcategory = String(row.subcategory || '').trim();
+  const category = rawCategory && rawCategory !== '未分类' ? rawCategory : (defaultEdit.category || '');
+  const subcategory = rawSubcategory || defaultEdit.subcategory || '';
   return `
-    <div class="ledgerConfirmSheet">
-      <div class="ledgerConfirmLead">确认前先核对这笔待确认支出的摘要、账户和对方信息。确认后会从待确认流水中移除。</div>
+    <form class="ledgerConfirmSheet ledgerEditSheet" data-ledger-edit-form="${escapeHtml(String(row.id || ''))}">
+      <div class="ledgerConfirmLead">修改会直接写入底层现金流事实表，并刷新收支、账户和待确认统计。</div>
       <div class="ledgerConfirmTitle">${escapeHtml(rowTitle(row))}</div>
-      <div class="ledgerConfirmAmount down">${signedMoney(amount)}</div>
+      <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${signedMoney(amount)}</div>
       <div class="ledgerConfirmMeta">
         <div>
           <span>日期 / 账户</span>
           <strong>${escapeHtml(row.transaction_date || '--')} / ${escapeHtml(account)}</strong>
         </div>
         <div>
-          <span>待确认类型</span>
-          <strong>${escapeHtml(row.coarse_category || '待确认支出')}</strong>
+          <span>当前口径</span>
+          <strong>${escapeHtml(ledgerEditTypeLabel(cashflowType))} / ${escapeHtml(row.coarse_category || '-')}</strong>
         </div>
         <div>
           <span>对方</span>
@@ -395,11 +448,37 @@ function reviewConfirmSheetHtml(row) {
           <strong>${escapeHtml(row.description || row.summary || '无')}</strong>
         </div>
       </div>
+      <div class="ledgerEditGrid">
+        <label>
+          <span>流水口径</span>
+          <select class="formInput" data-edit-field="cashflow_type">
+            ${LEDGER_EDIT_TYPES.map(([value, label]) => `
+              <option value="${escapeHtml(value)}" ${value === cashflowType ? 'selected' : ''}>${escapeHtml(label)}</option>
+            `).join('')}
+          </select>
+        </label>
+        <label>
+          <span>粗分类</span>
+          <input class="formInput" data-edit-field="category" value="${escapeHtml(category)}" />
+        </label>
+        <label>
+          <span>细分类</span>
+          <input class="formInput" data-edit-field="subcategory" value="${escapeHtml(subcategory)}" />
+        </label>
+        <label>
+          <span>对方账户标识</span>
+          <input class="formInput" data-edit-field="counter_account_code" value="${escapeHtml(row.counter_account_code || '')}" placeholder="内部转账 / 入金可填" />
+        </label>
+        <label class="ledgerEditFull">
+          <span>对方 / 商户</span>
+          <input class="formInput" data-edit-field="counterparty" value="${escapeHtml(row.counterparty || '')}" />
+        </label>
+      </div>
       <div class="ledgerConfirmActions">
         <button type="button" class="ledgerActionBtn ghost" data-sheet-close>取消</button>
-        <button type="button" class="ledgerActionBtn confirm" data-sheet-confirm="${escapeHtml(String(row.id || ''))}">确认这笔消费</button>
+        <button type="submit" class="ledgerActionBtn confirm">保存修改</button>
       </div>
-    </div>
+    </form>
   `;
 }
 
@@ -908,8 +987,28 @@ function renderTrendChart(data) {
   });
 }
 
-function bindReviewConfirmButton(rowId) {
-  const confirmBtn = document.querySelector('#appBottomSheet [data-sheet-confirm]');
+function findLedgerRowById(rowId) {
+  const idText = String(rowId || '');
+  const groups = [
+    state.data?.review_rows || [],
+    state.data?.recent_rows_ytd || [],
+    state.data?.recent_rows_month || [],
+    state.data?.recent_rows || [],
+  ];
+  return groups.flat().find((row) => String(row.id || '') === idText) || null;
+}
+
+function applyLedgerEditDefaults(form) {
+  const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
+  const defaults = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
+  const category = form.querySelector('[data-edit-field="category"]');
+  const subcategory = form.querySelector('[data-edit-field="subcategory"]');
+  if (category) category.value = defaults.category || category.value || '';
+  if (subcategory) subcategory.value = defaults.subcategory || subcategory.value || '';
+}
+
+function bindLedgerEditSheet(row) {
+  const sheet = document.querySelector('#appBottomSheet');
   const closeBtn = document.querySelector('#appBottomSheet [data-sheet-close]');
   if (closeBtn) {
     closeBtn.addEventListener('click', (event) => {
@@ -917,23 +1016,54 @@ function bindReviewConfirmButton(rowId) {
       closeBottomSheet();
     }, { once: true });
   }
-  if (!confirmBtn) return;
-  confirmBtn.addEventListener('click', async () => {
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = '确认中...';
+  const form = sheet?.querySelector('[data-ledger-edit-form]');
+  if (!form) return;
+  form.querySelector('[data-edit-field="cashflow_type"]')?.addEventListener('change', () => applyLedgerEditDefaults(form));
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = '保存中...';
+    }
+    const fieldValue = (name) => form.querySelector(`[data-edit-field="${name}"]`)?.value?.trim() || '';
     try {
-      await jpost(`/api/ledger/review/${rowId}/confirm`, {
-        confirmed_category: '其他消费',
-        confirmed_subcategory: '手动确认',
+      await jpost(`/api/ledger/rows/${encodeURIComponent(row.id)}/update`, {
+        cashflow_type: fieldValue('cashflow_type'),
+        category: fieldValue('category'),
+        subcategory: fieldValue('subcategory'),
+        counter_account_code: fieldValue('counter_account_code'),
+        counterparty: fieldValue('counterparty'),
       });
       closeBottomSheet();
       await loadWorkbench();
     } catch (err) {
       showError(err);
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = '确认这笔消费';
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '保存修改';
+      }
     }
   }, { once: true });
+}
+
+function openLedgerEdit(row) {
+  if (!row || !isEditableLedgerRow(row)) return;
+  openBottomSheet('修改流水', ledgerEditSheetHtml(row));
+  bindLedgerEditSheet(row);
+}
+
+function bindLedgerEditButtons(root = document) {
+  root.querySelectorAll('[data-ledger-edit]').forEach((btn) => {
+    if (ledgerEditBoundButtons.has(btn)) return;
+    ledgerEditBoundButtons.add(btn);
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = findLedgerRowById(btn.dataset.ledgerEdit);
+      openLedgerEdit(row);
+    });
+  });
 }
 
 function renderRows(id, rows, limit = 80) {
@@ -954,14 +1084,6 @@ function renderRows(id, rows, limit = 80) {
     const meta = rowMetaText(row);
     const dateText = rowDateText(row);
     const originalAmount = originalCurrencyText(row);
-    const isReviewRow = id === 'reviewRows' && row.needs_review;
-    const actionButtons = isReviewRow
-      ? `
-          <div class="ledgerRowActions">
-            <button class="ledgerActionBtn confirm" type="button" data-ledger-confirm="${escapeHtml(String(row.id || ''))}">确认</button>
-          </div>
-        `
-      : '';
     return `
       <div class="ledgerListRow" role="button" tabindex="0" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
         <span class="ledgerListMain">
@@ -976,7 +1098,6 @@ function renderRows(id, rows, limit = 80) {
             <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(rowTagLabel(row))}</span>
             ${row.needs_review ? '<span class="ledgerReviewHint">待确认支出</span>' : ''}
           </small>
-          ${actionButtons}
         </span>
       </div>
       <div id="${escapeHtml(detailId)}" class="ledgerInlineDetail" hidden>
@@ -992,10 +1113,12 @@ function renderRows(id, rows, limit = 80) {
       if (window.matchMedia('(max-width: 760px)').matches) {
         const title = rowEl.querySelector('.ledgerListMain strong')?.innerText || '流水详情';
         openBottomSheet(title, detail.innerHTML);
+        bindLedgerEditButtons(document.querySelector('#appBottomSheet') || document);
         return;
       }
       detail.hidden = !detail.hidden;
       rowEl.classList.toggle('open', !detail.hidden);
+      if (!detail.hidden) bindLedgerEditButtons(detail);
     };
     rowEl.addEventListener('click', openDetail);
     rowEl.addEventListener('keydown', (event) => {
@@ -1006,18 +1129,7 @@ function renderRows(id, rows, limit = 80) {
     });
   });
 
-  el.querySelectorAll('[data-ledger-confirm]').forEach((btn) => {
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const rowId = Number(btn.dataset.ledgerConfirm || 0);
-      if (!rowId) return;
-      const row = displayRows.find((item) => Number(item.id || 0) === rowId);
-      if (!row) return;
-      openBottomSheet('确认消费', reviewConfirmSheetHtml(row));
-      bindReviewConfirmButton(rowId);
-    });
-  });
+  bindLedgerEditButtons(el);
 }
 
 function filteredRecentRows() {

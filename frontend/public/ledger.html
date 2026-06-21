@@ -231,6 +231,35 @@
       min-height:38px;
       border-radius:999px;
     }
+    .ledgerDetailActions {
+      display:flex !important;
+      justify-content:flex-end;
+      padding-top:8px;
+      border-top:1px solid rgba(255,255,255,.08);
+    }
+    .ledgerDetailActions .ledgerActionBtn { min-inline-size:120px }
+    .ledgerEditGrid {
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    .ledgerEditGrid label {
+      display:grid;
+      gap:6px;
+      min-width:0;
+    }
+    .ledgerEditGrid label > span {
+      color:var(--muted);
+      font-size:11px;
+      font-weight:850;
+    }
+    .ledgerEditGrid .formInput {
+      width:100%;
+      min-height:38px;
+      border-radius:10px;
+      font-weight:800;
+    }
+    .ledgerEditFull { grid-column:1 / -1 }
     @media (max-width: 880px) {
       .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
       .cashflowBodyGrid { grid-template-columns:1fr }
@@ -383,7 +412,10 @@
       .ledgerRowActions { display:grid; grid-template-columns:1fr; width:100% }
       .ledgerActionBtn { width:100% }
       .ledgerConfirmMeta,
-      .ledgerConfirmActions { grid-template-columns:1fr }
+      .ledgerConfirmActions,
+      .ledgerEditGrid { grid-template-columns:1fr }
+      .ledgerDetailActions { justify-content:stretch }
+      .ledgerDetailActions .ledgerActionBtn { width:100% }
       .transferRoute { grid-template-columns:1fr; gap:7px }
       .transferRouteArrow { min-height:18px; transform:rotate(90deg) }
     }
@@ -552,6 +584,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-row-title-v8"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-edit-v3"></script>
 </body>
 </html>
