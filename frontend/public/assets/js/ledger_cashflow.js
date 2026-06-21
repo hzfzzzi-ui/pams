@@ -146,8 +146,18 @@ function stripLongDetail(value) {
     .trim();
 }
 
+function accountFriendlyName(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const apiLabel = accountLabel(raw);
+  if (apiLabel && apiLabel !== raw) return apiLabel;
+  if (ACCOUNT_SUBACCOUNT_LABELS[raw]) return ACCOUNT_SUBACCOUNT_LABELS[raw];
+  const displayName = accountDisplayName(raw);
+  return displayName && displayName !== raw ? displayName : raw;
+}
+
 function accountShortLabel(value) {
-  return compactText(accountLabel(value) || accountDisplayName(value) || value || '', 16);
+  return compactText(accountFriendlyName(value), 16);
 }
 
 function counterpartyShortLabel(row) {
@@ -160,19 +170,51 @@ function rowCategoryText(row) {
   return String(row.coarse_category || row.subcategory || row.category || '').trim();
 }
 
+function cashflowTypeText(row) {
+  return String(row.cashflow_type || '').toLowerCase();
+}
+
 function isAccountValidationRow(row) {
   const text = [row.summary, row.description, row.counterparty].filter(Boolean).join(' ').toLowerCase();
   const amount = Math.abs(num(row.amount_cny ?? row.amount));
   return amount <= 1 && (text.includes('validacion') || text.includes('validación') || text.includes('validation') || text.includes('账户验证'));
 }
 
+function isInvestmentFundingRow(row) {
+  return cashflowTypeText(row) === 'investment_funding' || String(row.flow_type || '').toLowerCase() === 'investment_inflow';
+}
+
+function isInvestmentWithdrawalRow(row) {
+  return cashflowTypeText(row) === 'investment_withdrawal' || String(row.flow_type || '').toLowerCase() === 'investment_outflow';
+}
+
+function routeEndpointLabel(value, maxLength = 14) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const label = accountFriendlyName(raw) || transferEndpointName(raw);
+  if (!label || label === '-') return '';
+  return compactText(label, maxLength);
+}
+
+function rowTagLabel(row) {
+  if (isInvestmentFundingRow(row)) return '投资入金';
+  if (isInvestmentWithdrawalRow(row)) return '投资出金';
+  return flowLabel(row.flow_type);
+}
+
 function rowTitle(row) {
   const route = transferRoute(row);
-  if (route?.label === '投资入金') return `${transferEndpointName(route.to)} 入金`;
-  if (route?.label === '投资出金') return `${transferEndpointName(route.from)} 出金`;
+  if (route?.label === '投资入金') {
+    const target = routeEndpointLabel(route.to, 10);
+    return target ? `${target} 入金` : '投资入金';
+  }
+  if (route?.label === '投资出金') {
+    const source = routeEndpointLabel(route.from, 10);
+    return source ? `${source} 出金` : '投资出金';
+  }
   if (route?.label === '内部转账') return '内部转账';
 
-  const cashflowType = String(row.cashflow_type || '').toLowerCase();
+  const cashflowType = cashflowTypeText(row);
   if (cashflowType === 'investment_funding') return '投资入金';
   if (cashflowType === 'investment_withdrawal') return '投资出金';
 
@@ -190,6 +232,14 @@ function rowTitle(row) {
 }
 
 function rowMetaText(row) {
+  const route = transferRoute(row);
+  if (route) {
+    const from = routeEndpointLabel(route.from, 11);
+    const to = routeEndpointLabel(route.to, 11);
+    const path = from && to ? `${from} → ${to}` : (from || to || rowCategoryText(row) || route.label);
+    return [row.transaction_date || '', path].filter(Boolean).join(' / ');
+  }
+
   const parts = [
     row.transaction_date || '',
     accountShortLabel(row.account_code),
@@ -221,6 +271,12 @@ function originalCurrencyText(row) {
 }
 
 function inferInvestmentAccountCode(row) {
+  const transferGroupId = String(row.transfer_group_id || '').toLowerCase();
+  if (transferGroupId.includes('to_ibkr')) return 'ibkr';
+  if (transferGroupId.includes('to_tonghuashun')) return 'tonghuashun';
+  if (transferGroupId.includes('to_tencent_licaitong')) return 'tencent_licaitong';
+  if (transferGroupId.includes('direct_investment') || transferGroupId.includes('yhs300')) return 'ccb_yhs300_fund';
+
   const text = [row.account_code, row.counterparty, row.summary, row.description, row.category, row.subcategory]
     .filter(Boolean)
     .join(' ')
@@ -228,14 +284,14 @@ function inferInvestmentAccountCode(row) {
   if (text.includes('interactive brokers') || text.includes('ibkr')) return 'ibkr';
   if (text.includes('同花顺') || text.includes('tonghuashun')) return 'tonghuashun';
   if (text.includes('理财通') || text.includes('licaitong')) return 'tencent_licaitong';
-  if (text.includes('建行理财')) return 'ccb_yhs300_fund';
+  if (text.includes('建行理财') || text.includes('易沪深300') || text.includes('110020')) return 'ccb_yhs300_fund';
   return '';
 }
 
 function transferEndpointName(value) {
   const raw = String(value || '').trim();
   if (!raw) return '-';
-  return accountDisplayName(raw) || accountLabel(raw) || raw;
+  return accountFriendlyName(raw) || raw;
 }
 
 function transferRoute(row) {
@@ -910,7 +966,7 @@ function renderRows(id, rows, limit = 80) {
           <b class="${amountClass}">${signedMoney(amount)}</b>
           ${originalAmount ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
           <small class="ledgerListMeta">
-            <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(flowLabel(row.flow_type))}</span>
+            <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(rowTagLabel(row))}</span>
             ${row.needs_review ? '<span class="ledgerReviewHint">待确认支出</span>' : ''}
           </small>
           ${actionButtons}
