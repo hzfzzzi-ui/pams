@@ -140,6 +140,13 @@
     .ledgerListSide b { font-size:15px; font-weight:850; font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-variant-numeric:tabular-nums; letter-spacing:0 }
     .ledgerListSide small { color:var(--muted); font-size:12px; font-weight:800 }
     .ledgerOriginalAmount { color:#8b949e !important; font-size:11px !important; font-weight:850 !important; font-variant-numeric:tabular-nums }
+    .transferRoute { display:grid !important; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr); gap:8px; align-items:stretch; padding:0 0 12px; border-bottom:1px solid rgba(139,148,158,.16) }
+    .transferRouteHeader { grid-column:1 / -1; color:#79c0ff; font-size:11px; line-height:1; font-weight:850 }
+    .transferRouteNode { min-width:0; padding:9px 10px; border:1px solid rgba(139,148,158,.18); border-radius:8px; background:rgba(139,148,158,.07) }
+    .transferRouteNode.is-target { border-color:rgba(88,166,255,.38); background:rgba(56,139,253,.12) }
+    .transferRouteNode em { display:block; margin-bottom:5px; color:var(--muted); font-size:11px; line-height:1; font-style:normal; font-weight:850 }
+    .transferRouteNode strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:850 }
+    .transferRouteArrow { display:grid; place-items:center; color:#79c0ff; font-size:18px; line-height:1; font-weight:850 }
     .ledgerListMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap }
     .ledgerReviewHint { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.2px }
     .ledgerRowActions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap }
@@ -372,6 +379,8 @@
       .ledgerActionBtn { width:100% }
       .ledgerConfirmMeta,
       .ledgerConfirmActions { grid-template-columns:1fr }
+      .transferRoute { grid-template-columns:1fr; gap:7px }
+      .transferRouteArrow { min-height:18px; transform:rotate(90deg) }
     }
     @media (max-width: 520px) {
       .ledgerKpiGrid { grid-template-columns:1fr }
@@ -538,6 +547,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v6"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v7"></script>
 </body>
 </html>

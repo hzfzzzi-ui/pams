@@ -142,10 +142,80 @@ function originalCurrencyText(row) {
   return formatCurrency(row.amount, currency, { signed: true });
 }
 
+function inferInvestmentAccountCode(row) {
+  const text = [row.account_code, row.counterparty, row.summary, row.description, row.category, row.subcategory]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (text.includes('interactive brokers') || text.includes('ibkr')) return 'ibkr';
+  if (text.includes('同花顺') || text.includes('tonghuashun')) return 'tonghuashun';
+  if (text.includes('理财通') || text.includes('licaitong')) return 'tencent_licaitong';
+  if (text.includes('建行理财')) return 'ccb_yhs300_fund';
+  return '';
+}
+
+function transferEndpointName(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '-';
+  return accountDisplayName(raw) || accountLabel(raw) || raw;
+}
+
+function transferRoute(row) {
+  const flowType = String(row.flow_type || '').toLowerCase();
+  const cashflowType = String(row.cashflow_type || '').toLowerCase();
+  const amount = num(row.amount_cny ?? row.amount);
+  const account = row.account_code || '';
+  const counterparty = row.counterparty || '';
+
+  if (cashflowType === 'investment_funding' || flowType === 'investment_inflow') {
+    const investmentAccount = inferInvestmentAccountCode(row) || (flowType === 'investment_inflow' ? account : '');
+    if (flowType === 'investment_inflow' || row.account_kind === 'investment' || amount >= 0) {
+      return { label: '投资入金', from: counterparty, to: investmentAccount || account };
+    }
+    return { label: '投资入金', from: account, to: investmentAccount || counterparty };
+  }
+
+  if (cashflowType === 'investment_withdrawal' || flowType === 'investment_outflow') {
+    const investmentAccount = inferInvestmentAccountCode(row) || (flowType === 'investment_outflow' ? account : '');
+    if (flowType === 'investment_outflow' || row.account_kind === 'investment' || amount < 0) {
+      return { label: '投资出金', from: investmentAccount || account, to: counterparty };
+    }
+    return { label: '投资出金', from: counterparty || investmentAccount, to: account };
+  }
+
+  if (flowType === 'transfer' && counterparty) {
+    return amount < 0
+      ? { label: '内部转账', from: account, to: counterparty }
+      : { label: '内部转账', from: counterparty, to: account };
+  }
+
+  return null;
+}
+
+function transferRouteHtml(row) {
+  const route = transferRoute(row);
+  if (!route) return '';
+  return `
+    <div class="transferRoute rowDetailFull">
+      <div class="transferRouteHeader">${escapeHtml(route.label)}</div>
+      <div class="transferRouteNode">
+        <em>转出账户</em>
+        <strong>${escapeHtml(transferEndpointName(route.from))}</strong>
+      </div>
+      <div class="transferRouteArrow" aria-hidden="true">→</div>
+      <div class="transferRouteNode is-target">
+        <em>转入账户</em>
+        <strong>${escapeHtml(transferEndpointName(route.to))}</strong>
+      </div>
+    </div>
+  `;
+}
+
 function rowDetailHtml(row) {
   const originalAmount = originalCurrencyText(row);
   return `
     <div class="rowDetailGrid">
+      ${transferRouteHtml(row)}
       <div><strong>账户</strong><span>${escapeHtml(accountLabel(row.account_code) || row.account_code || '-')}</span></div>
       <div><strong>对方</strong><span>${escapeHtml(row.counterparty || '不适用')}</span></div>
       <div><strong>原始类型</strong><span>${escapeHtml(row.flow_type || '-')}</span></div>
