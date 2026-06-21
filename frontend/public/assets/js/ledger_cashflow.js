@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-account-balance-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-account-balance-v3';
 import {
   byId as $,
   clearError,
@@ -791,7 +791,7 @@ function buildAccountFlowGroups(rows) {
 function accountFlowStatsEntries(row) {
   const normalized = normalizeAccountRow(row);
   if (normalized.account_kind === 'investment') {
-    return [['入金', normalized.investment_inflow]];
+    return Math.abs(normalized.investment_inflow) > 0.000001 ? [['入金', normalized.investment_inflow]] : [];
   }
   const entries = [
     ['收入', normalized.income],
@@ -801,10 +801,7 @@ function accountFlowStatsEntries(row) {
   if (normalized.account_kind === 'group' && Math.abs(normalized.investment_inflow) > 0.000001) {
     entries.push(['入金', normalized.investment_inflow]);
   }
-  if (normalized.account_kind === 'group') {
-    return entries.filter(([, value]) => Math.abs(num(value)) > 0.000001);
-  }
-  return entries;
+  return entries.filter(([, value]) => Math.abs(num(value)) > 0.000001);
 }
 
 function accountFlowStatsHtml(row) {
@@ -831,18 +828,34 @@ function accountPendingBadgeHtml(row) {
   return `<span class="accountPendingBadge">${pending} 笔待确认</span>`;
 }
 
-function renderAccountFlowSide(row, childCountText = '', balanceRows = null) {
-  const net = num(row.net);
+function accountFlowCountText(row, childCountText = '') {
+  if (childCountText) return childCountText;
+  const pendingText = row.pending_count ? ` · ${row.pending_count} 待确认` : '';
+  return `${row.row_count || 0} 笔${pendingText}`;
+}
+
+function renderAccountFlowSide(row, balanceRows = null) {
   const rowsForBalance = Array.isArray(balanceRows) && balanceRows.length ? balanceRows : [row];
   const balance = accountBalanceSummary(rowsForBalance);
-  const pendingText = row.pending_count ? ` · ${row.pending_count} 待确认` : '';
-  const countText = childCountText || `${row.row_count || 0} 笔${pendingText}`;
-  const deltaTone = net > 0 ? 'up' : net < 0 ? 'down' : '';
   return `
     <span class="accountFlowSide">
       <b class="accountBalanceValue ${balance.tone}">${escapeHtml(balance.value)}</b>
       <small>${escapeHtml(balance.meta)}</small>
-      <small class="accountFlowDelta ${deltaTone}">年初净流入 ${escapeHtml(signedMoney(net))} · ${escapeHtml(countText)}</small>
+    </span>
+  `;
+}
+
+function renderAccountFlowFooter(row, childCountText = '', { showStats = true } = {}) {
+  const net = num(row.net);
+  const deltaTone = net > 0 ? 'up' : net < 0 ? 'down' : '';
+  const stats = showStats ? accountFlowStatsHtml(row) : '';
+  return `
+    <span class="accountFlowFooter ${stats ? '' : 'is-compact'}">
+      ${stats ? `<span class="accountFlowStats">${stats}</span>` : ''}
+      <span class="accountFlowFooterMeta">
+        <span class="accountFlowNetBadge ${deltaTone}">年初净流入 ${escapeHtml(signedMoney(net))}</span>
+        <span>${escapeHtml(accountFlowCountText(row, childCountText))}</span>
+      </span>
     </span>
   `;
 }
@@ -854,14 +867,14 @@ function renderAccountFlowRow(row, { label, detail, classes = '', filterable = t
   const filterAttr = tagName === 'button' ? ` data-account-flow-filter="${escapeHtml(row.account_code || '')}"` : '';
   return `
     <${tagName}${typeAttr} class="accountFlowRow ${classes}${active ? '' : ' is-empty'}"${filterAttr}>
-      <span class="accountFlowMain">
-        <strong>${escapeHtml(label || accountDisplayName(row.account_code))}</strong>
-        <small class="accountFlowMetaLine"><span>${escapeHtml(detail || row.account_code || '')}</span>${syncBadgeHtml(row)}${accountPendingBadgeHtml(row)}</small>
-        <span class="accountFlowStats">
-          ${accountFlowStatsHtml(row)}
+      <span class="accountFlowHeader">
+        <span class="accountFlowMain">
+          <strong>${escapeHtml(label || accountDisplayName(row.account_code))}</strong>
+          <small class="accountFlowMetaLine"><span>${escapeHtml(detail || row.account_code || '')}</span>${syncBadgeHtml(row)}${accountPendingBadgeHtml(row)}</small>
         </span>
+        ${renderAccountFlowSide(row)}
       </span>
-      ${renderAccountFlowSide(row)}
+      ${renderAccountFlowFooter(row)}
     </${tagName}>
   `;
 }
@@ -881,18 +894,18 @@ function renderAccountGroup(group) {
 
   const collapsed = shouldShowChildren && !state.expandedAccountGroups.has(group.code);
   const activeChildren = childRows.filter(hasAccountActivity).length;
-  const childCountText = `${activeChildren}/${childRows.length} 子账户 · ${summary.row_count || 0} 笔${summary.pending_count ? ` · ${summary.pending_count} 待确认` : ''}`;
+  const childCountText = `${activeChildren}/${childRows.length} 子 · ${summary.row_count || 0} 笔${summary.pending_count ? ` · ${summary.pending_count} 待确认` : ''}`;
   return `
     <div class="accountGroupBlock" data-account-group="${escapeHtml(group.code)}">
       <button type="button" class="accountFlowRow accountGroupRow" data-account-group-toggle="${escapeHtml(group.code)}" aria-expanded="${collapsed ? 'false' : 'true'}">
-        <span class="accountFlowMain">
-          <strong>${escapeHtml(group.label)}</strong>
-          <small class="accountFlowMetaLine"><span>${escapeHtml(childCountText)}</span>${syncBadgeHtml(summary)}${accountPendingBadgeHtml(summary)}<span class="accountGroupToggle">${collapsed ? '展开' : '收起'}</span></small>
-          <span class="accountFlowStats">
-            ${accountFlowStatsHtml(summary)}
+        <span class="accountFlowHeader">
+          <span class="accountFlowMain">
+            <strong>${escapeHtml(group.label)}</strong>
+            <small class="accountFlowMetaLine">${syncBadgeHtml(summary)}${accountPendingBadgeHtml(summary)}<span class="accountGroupToggle">${collapsed ? '展开' : '收起'}</span></small>
           </span>
+          ${renderAccountFlowSide(summary, childRows)}
         </span>
-        ${renderAccountFlowSide(summary, childCountText, childRows)}
+        ${renderAccountFlowFooter(summary, childCountText, { showStats: false })}
       </button>
       <div class="accountSubList" ${collapsed ? 'hidden' : ''}>
         ${childRows.map((row) => renderAccountFlowRow(row, {
