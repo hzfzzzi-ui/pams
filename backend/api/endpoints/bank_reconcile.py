@@ -130,14 +130,15 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
             payload["is_asset"],
         ),
     )
-    cur.execute(
-        """
-        INSERT INTO pams_asset_categories (major_category, minor_category)
-        VALUES (%s, %s)
-        ON CONFLICT (major_category, minor_category) DO NOTHING
-        """,
-        (payload["major_category"], payload["minor_category"]),
-    )
+    if _table_exists(cur, "pams_asset_categories"):
+        cur.execute(
+            """
+            INSERT INTO pams_asset_categories (major_category, minor_category)
+            VALUES (%s, %s)
+            ON CONFLICT (major_category, minor_category) DO NOTHING
+            """,
+            (payload["major_category"], payload["minor_category"]),
+        )
     cur.execute(
         """
         INSERT INTO pams_holdings_snapshot (
@@ -782,7 +783,7 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
             matched_source_ids.add(row["id"])
             matches.append(
                 _make_match(
-                    match_type="investment_funding",
+                    match_type="account_transfer",
                     relation_code=str(relation.get("code") or f"{from_account}_to_{to_account}"),
                     from_account_code=str(from_account),
                     to_account_code=str(to_account),
@@ -791,7 +792,7 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
                     target_row=None,
                     date_delta_days=0,
                     confidence=Decimal("0.85"),
-                    note="银行账单中的单边投资账户转账，当前未找到投资平台侧成对现金流水",
+                    note="银行账单中的单边投资账户转账，投资平台侧到账记录缺失，暂按在途资金处理",
                 )
             )
 

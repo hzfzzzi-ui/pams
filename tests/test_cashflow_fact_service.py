@@ -93,6 +93,37 @@ def test_investment_funding_is_not_operating_expense() -> None:
     assert fact["counter_account_code"] == "broker"
 
 
+def test_source_only_investment_transfer_is_pending_internal_flow() -> None:
+    fact = build_cashflow_fact(
+        _statement_row(
+            id=20,
+            source_uid="santander-ibkr-pending",
+            account_code="santander",
+            amount=Decimal("-29000"),
+            currency="MXN",
+            amount_cny=Decimal("-14500"),
+            summary="TRANSFERENCIA A INTERACTIVE BROKERS LLC",
+            description="TRANSFERENCIA A INTERACTIVE BROKERS LLC",
+        ),
+        {
+            "id": 20,
+            "match_key": "pending-ibkr",
+            "match_type": "account_transfer",
+            "from_account_code": "santander",
+            "to_account_code": "ibkr",
+            "source_row_id": 20,
+            "target_row_id": None,
+            "confidence": Decimal("0.85"),
+        },
+    )
+
+    assert fact["cashflow_type"] == "internal_transfer"
+    assert fact["affects_spending"] is False
+    assert fact["affects_investment_capital"] is False
+    assert fact["is_internal_transfer"] is True
+    assert fact["counter_account_code"] == "ibkr"
+
+
 def test_payment_proxy_target_side_is_operating_expense() -> None:
     fact = build_cashflow_fact(
         _statement_row(

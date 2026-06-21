@@ -151,7 +151,7 @@ def test_guangfa_usd_card_payment_matches_bank_by_original_cny_amount():
     assert matches[0]["amount"] == Decimal("1478.01")
 
 
-def test_santander_ibkr_source_only_investment_funding():
+def test_santander_ibkr_source_only_is_pending_account_transfer():
     row = _row(
         1,
         "santander",
@@ -179,6 +179,7 @@ def test_santander_ibkr_source_only_investment_funding():
     )
 
     assert len(matches) == 1
+    assert matches[0]["match_type"] == "account_transfer"
     assert matches[0]["relation_code"] == "santander_to_ibkr"
     assert matches[0]["from_account_code"] == "santander"
     assert matches[0]["to_account_code"] == "ibkr"
@@ -186,7 +187,7 @@ def test_santander_ibkr_source_only_investment_funding():
     assert matches[0]["amount"] == Decimal("90000")
 
 
-def test_ccb_to_tonghuashun_source_only_investment_funding():
+def test_ccb_to_tonghuashun_source_only_is_pending_account_transfer():
     row = _row(
         1,
         "ccb_7332",
@@ -212,6 +213,7 @@ def test_ccb_to_tonghuashun_source_only_investment_funding():
     )
 
     assert len(matches) == 1
+    assert matches[0]["match_type"] == "account_transfer"
     assert matches[0]["relation_code"] == "ccb_to_tonghuashun"
     assert matches[0]["from_account_code"] == "ccb_7332"
     assert matches[0]["to_account_code"] == "tonghuashun"
