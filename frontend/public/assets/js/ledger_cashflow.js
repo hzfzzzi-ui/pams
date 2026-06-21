@@ -202,6 +202,14 @@ function rowTagLabel(row) {
   return flowLabel(row.flow_type);
 }
 
+function rowAmountClass(row, amount) {
+  const flowType = String(row.flow_type || '').toLowerCase();
+  if (isInvestmentFundingRow(row) || isInvestmentWithdrawalRow(row) || flowType === 'transfer' || flowType === 'investment_transfer') {
+    return 'transfer';
+  }
+  return amount >= 0 ? 'up' : 'down';
+}
+
 function rowTitle(row) {
   const route = transferRoute(row);
   if (route?.label === '投资入金') {
@@ -236,17 +244,14 @@ function rowMetaText(row) {
   if (route) {
     const from = routeEndpointLabel(route.from, 11);
     const to = routeEndpointLabel(route.to, 11);
-    const path = from && to ? `${from} → ${to}` : (from || to || rowCategoryText(row) || route.label);
-    return [row.transaction_date || '', path].filter(Boolean).join(' / ');
+    return from && to ? `${from} → ${to}` : (from || to || rowCategoryText(row) || route.label);
   }
 
-  const parts = [
-    row.transaction_date || '',
-    accountShortLabel(row.account_code),
-    compactText(rowCategoryText(row) || flowLabel(row.flow_type), 14),
-    counterpartyShortLabel(row),
-  ].filter(Boolean);
-  return parts.join(' / ');
+  return accountShortLabel(row.account_code);
+}
+
+function rowDateText(row) {
+  return row.transaction_date || '';
 }
 
 function rowSearchText(row) {
@@ -944,9 +949,10 @@ function renderRows(id, rows, limit = 80) {
     const rawId = row.id || row.transaction_id || `${row.transaction_date || 'row'}-${index}`;
     const detailId = `${id}-detail-${String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const amount = num(row.amount_cny ?? row.amount);
-    const amountClass = amount >= 0 ? 'up' : 'down';
+    const amountClass = rowAmountClass(row, amount);
     const title = rowTitle(row);
     const meta = rowMetaText(row);
+    const dateText = rowDateText(row);
     const originalAmount = originalCurrencyText(row);
     const isReviewRow = id === 'reviewRows' && row.needs_review;
     const actionButtons = isReviewRow
@@ -960,7 +966,8 @@ function renderRows(id, rows, limit = 80) {
       <div class="ledgerListRow" role="button" tabindex="0" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
         <span class="ledgerListMain">
           <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
-          <small title="${escapeHtml(rowSearchText(row))}">${escapeHtml(meta)}</small>
+          <small class="ledgerListAccount" title="${escapeHtml(rowSearchText(row))}">${escapeHtml(meta)}</small>
+          <small class="ledgerListDate">${escapeHtml(dateText)}</small>
         </span>
         <span class="ledgerListSide">
           <b class="${amountClass}">${signedMoney(amount)}</b>
