@@ -21,8 +21,8 @@ const state = {
   activePanel: 'overview',
   recentFlowFilter: '',
   recentAccountFilter: '',
-  recentPeriod: 'month',
-  accountPeriod: 'month',
+  recentPeriod: 'ytd',
+  accountPeriod: 'ytd',
   expandedAccountGroups: new Set(),
 };
 
@@ -477,6 +477,12 @@ function renderRecentPeriodButtons() {
   });
 }
 
+function renderAccountPeriodButtons() {
+  document.querySelectorAll('[data-account-period]').forEach((btn) => {
+    btn.classList.toggle('active', (btn.dataset.accountPeriod || 'month') === state.accountPeriod);
+  });
+}
+
 function renderAccountFlowSummary(rows) {
   const el = $('accountFlowRows');
   if (!el) return;
@@ -838,6 +844,7 @@ function renderAll(data) {
   renderTrendChart(data);
   renderCashflowBridge(data);
   renderReviewEntry(data);
+  renderAccountPeriodButtons();
   renderRecentPeriodButtons();
   renderRecentAccountScope();
   renderRows('reviewRows', data.review_rows || [], 60);
@@ -895,9 +902,7 @@ function bindEvents() {
   document.querySelectorAll('[data-account-period]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.accountPeriod = btn.dataset.accountPeriod || 'month';
-      document.querySelectorAll('[data-account-period]').forEach((item) => {
-        item.classList.toggle('active', item === btn);
-      });
+      renderAccountPeriodButtons();
       if (state.data) renderAccountFlowSummary(currentAccountSummary(state.data));
     });
   });
