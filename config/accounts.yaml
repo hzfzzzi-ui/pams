@@ -307,9 +307,9 @@ accounts:
     manual_balance:
       amount: 396031.36
       currency: CNY
-      as_of: 2026-06-19
-      source: user_confirmed_tonghuashun_total_assets_20260619
-      note: 用户确认同花顺当前可用现金 8,471.36；按 2026-06-19 当前持仓总市值 387,560.00 推得账户总资产 396,031.36。个人口径按 0.625 乘数计算，账户绩效应以净清算价值而不是仅持仓市值计算。
+      as_of: 2026-06-21
+      source: user_confirmed_tonghuashun_total_assets_20260621
+      note: 用户 2026-06-21 同花顺截图确认总资产 396,031.36、总市值 387,560.00，推得现金 8,471.36。个人口径按 0.625 乘数计算，账户绩效应以净清算价值而不是仅持仓市值计算。
 
   tencent_licaitong:
     display_name: 腾讯理财通

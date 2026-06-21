@@ -61,24 +61,12 @@ def build_holdings_summary_payload(
 
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, latest_position AS (
-            SELECT
-                hs.account_code,
-                COALESCE(NULLIF(hs.symbol, ''), hs.name) AS position_key,
-                MAX(hs.as_of) AS as_of
-            FROM pams_holdings_snapshot hs
-            JOIN complete_account_snapshot cas
-              ON cas.account_code = hs.account_code
-             AND cas.as_of = hs.as_of
-            WHERE hs.as_of <= %s
-            GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
-        ), h AS (
+        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, h AS (
             SELECT hs.*
             FROM pams_holdings_snapshot hs
-            JOIN latest_position lp
-              ON lp.account_code = hs.account_code
-             AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
-             AND lp.as_of = hs.as_of
+            JOIN latest_account la
+              ON la.account_code = hs.account_code
+             AND la.account_as_of = hs.as_of
         ), fx AS (
             SELECT DISTINCT ON (quote_currency) quote_currency, rate
             FROM pams_fx_rates_daily
@@ -96,7 +84,7 @@ def build_holdings_summary_payload(
         GROUP BY major_category
         ORDER BY total_value_base DESC
         """,
-        (view_as_of, view_as_of, base_currency, *owner_ratio_params, *owner_ratio_params, *owner_ratio_params),
+        (view_as_of, base_currency, *owner_ratio_params, *owner_ratio_params, *owner_ratio_params),
     )
     by_category = cur.fetchall()
 
@@ -134,24 +122,12 @@ def build_holdings_by_account_payload(
 
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, latest_position AS (
-            SELECT
-                hs.account_code,
-                COALESCE(NULLIF(hs.symbol, ''), hs.name) AS position_key,
-                MAX(hs.as_of) AS as_of
-            FROM pams_holdings_snapshot hs
-            JOIN complete_account_snapshot cas
-              ON cas.account_code = hs.account_code
-             AND cas.as_of = hs.as_of
-            WHERE hs.as_of <= %s
-            GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
-        ), h AS (
+        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, h AS (
             SELECT hs.*
             FROM pams_holdings_snapshot hs
-            JOIN latest_position lp
-              ON lp.account_code = hs.account_code
-             AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
-             AND lp.as_of = hs.as_of
+            JOIN latest_account la
+              ON la.account_code = hs.account_code
+             AND la.account_as_of = hs.as_of
         ), fx AS (
             SELECT DISTINCT ON (quote_currency) quote_currency, rate
             FROM pams_fx_rates_daily
@@ -170,7 +146,7 @@ def build_holdings_by_account_payload(
         GROUP BY h.account_code, a.display_name, a.base_currency
         ORDER BY total_value_base DESC
         """,
-        (view_as_of, view_as_of, base_currency, *owner_ratio_params),
+        (view_as_of, base_currency, *owner_ratio_params),
     )
     rows = cur.fetchall()
 
