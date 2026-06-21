@@ -192,6 +192,7 @@ def test_build_nav_weekly_payload_preserves_legacy_shape_and_row_fields():
             [],
             {"bank_rows_exists": True, "cashflow_fact_exists": True},
             [],
+            [],
             {"fact_exists": False, "px_exists": False},
             {"tv_exists": False, "px_exists": False},
             {"exists": False},
@@ -231,6 +232,7 @@ def test_build_nav_weekly_payload_accepts_current_terminal_date():
             [],
             {"bank_rows_exists": True, "cashflow_fact_exists": True},
             [],
+            [],
             {"fact_exists": False, "px_exists": False},
             {"tv_exists": False, "px_exists": False},
             {"exists": False},
@@ -268,6 +270,7 @@ def test_build_nav_weekly_payload_can_sample_daily_dates():
         [
             [],
             {"bank_rows_exists": True, "cashflow_fact_exists": True},
+            [],
             [],
             {"fact_exists": False, "px_exists": False},
             {"tv_exists": False, "px_exists": False},
@@ -308,6 +311,7 @@ def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state
         [
             [],
             {"bank_rows_exists": True, "cashflow_fact_exists": True},
+            [],
             [],
             {"fact_exists": False, "px_exists": False},
             {"tv_exists": False, "px_exists": False},
@@ -438,6 +442,55 @@ def test_statement_rows_by_account_includes_prior_statement_balance() -> None:
     assert params == (["ccb"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
     assert rows["ccb"][0]["transaction_date"] == date(2025, 12, 31)
     assert rows["ccb"][0]["statement_balance"] == "104031.82"
+
+
+def test_statement_rows_by_account_merges_cashflow_for_legacy_uncovered_accounts() -> None:
+    cur = FakeCursor(
+        [
+            {"bank_rows_exists": True, "cashflow_fact_exists": True},
+            [
+                {
+                    "id": 1,
+                    "account_code": "santander",
+                    "transaction_date": date(2026, 1, 8),
+                    "amount": Decimal("40000"),
+                    "currency": "MXN",
+                    "category": "internal_transfer",
+                    "subcategory": None,
+                    "summary": "transfer",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": "40000",
+                }
+            ],
+            [
+                {
+                    "id": 10,
+                    "account_code": "ccb_7332",
+                    "transaction_date": date(2025, 12, 31),
+                    "amount": Decimal("-35"),
+                    "currency": "CNY",
+                    "category": "daily",
+                    "subcategory": None,
+                    "summary": "消费",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": "104031.82",
+                }
+            ],
+        ]
+    )
+
+    rows = _statement_rows_by_account(
+        cur,
+        ["santander", "ccb_7332"],
+        date(2026, 1, 1),
+        date(2026, 1, 31),
+    )
+
+    assert rows["santander"][0]["statement_balance"] == "40000"
+    assert rows["ccb_7332"][0]["statement_balance"] == "104031.82"
+    assert cur.executed[2][1] == (["ccb_7332"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
 
 
 def test_statement_rows_by_account_tolerates_missing_legacy_and_fact_tables() -> None:

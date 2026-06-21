@@ -283,6 +283,7 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
         """
     )
     exists = cur.fetchone() or {}
+    rows_by_account: dict[str, list[dict[str, Any]]] = {}
     if exists.get("bank_rows_exists"):
         cur.execute(
             """
@@ -300,7 +301,18 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
             """,
             (account_codes, start_date, start_date, terminal_date),
         )
-    elif exists.get("cashflow_fact_exists"):
+        for row in cur.fetchall():
+            item = dict(row)
+            rows_by_account.setdefault(str(item["account_code"]), []).append(item)
+
+    cashflow_account_codes = account_codes
+    if exists.get("bank_rows_exists"):
+        # The legacy statement table may only cover part of the account universe.
+        # Fill uncovered accounts from the canonical fact table without duplicating
+        # accounts that already have legacy statement rows.
+        cashflow_account_codes = [code for code in account_codes if not rows_by_account.get(str(code))]
+
+    if exists.get("cashflow_fact_exists") and cashflow_account_codes:
         cur.execute(
             """
             SELECT cashflow_id AS id,
@@ -335,14 +347,14 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
               AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
             ORDER BY account_code, event_date, cashflow_id
             """,
-            (account_codes, start_date, start_date, terminal_date),
+            (cashflow_account_codes, start_date, start_date, terminal_date),
         )
-    else:
+        for row in cur.fetchall():
+            item = dict(row)
+            rows_by_account.setdefault(str(item["account_code"]), []).append(item)
+
+    if not exists.get("bank_rows_exists") and not exists.get("cashflow_fact_exists"):
         return {}
-    rows_by_account: dict[str, list[dict[str, Any]]] = {}
-    for row in cur.fetchall():
-        item = dict(row)
-        rows_by_account.setdefault(str(item["account_code"]), []).append(item)
     return rows_by_account
 
 
