@@ -647,3 +647,35 @@ def test_duplicate_symbol_positions_match_by_position_value_not_aggregated_symbo
     assert payload["total_pnl_cny"] == pytest.approx(40.0)
     assert row["market_value_cny"] == pytest.approx(400.0)
     assert row["pnl_cny"] == pytest.approx(40.0)
+
+
+def test_duplicate_symbol_positions_preserve_source_accounts() -> None:
+    payload = build_return_attribution_from_positions(
+        [
+            {
+                "account_code": "tencent_licaitong",
+                "asset_name": "红利基金",
+                "symbol": "016440",
+                "asset_type": "fund",
+                "currency": "CNY",
+                "market_value_cny": 14480.46,
+                "holding_pnl_cny": -519.54,
+            },
+            {
+                "account_code": "ccb_yhs300_fund",
+                "asset_name": "红利基金",
+                "symbol": "016440",
+                "asset_type": "fund",
+                "currency": "CNY",
+                "market_value_cny": 4970.27,
+                "holding_pnl_cny": -29.73,
+            },
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+    )
+
+    row = _row(payload["dimensions"]["holding"], "红利基金")
+    accounts = {detail["account"] for detail in row["source_details"]}
+    assert accounts == {"tencent_licaitong", "ccb_yhs300_fund"}
+    assert row["market_value_cny"] == pytest.approx(19450.73)
+    assert row["pnl_cny"] == pytest.approx(-549.27)

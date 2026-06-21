@@ -264,22 +264,64 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
         (end_date,),
     )
     ths_trade = cur.fetchone() or {}
+    cur.execute(
+        """
+        SELECT COUNT(*) AS count,
+               COALESCE(SUM(ABS(amount_cny)), 0) AS amount_cny,
+               MIN(event_date) AS first_date,
+               MAX(event_date) AS last_date
+        FROM pams_cashflow_fact
+        WHERE event_date <= %s
+          AND account_code = 'ccb_7332'
+          AND counter_account_code = 'tonghuashun'
+          AND amount_cny < 0
+          AND cashflow_type IN ('investment_funding', 'internal_transfer')
+          AND (
+              counterparty ILIKE '%%沈钰棋%%'
+              OR summary ILIKE '%%沈钰棋%%'
+              OR description ILIKE '%%沈钰棋%%'
+          )
+          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+        """,
+        (end_date,),
+    )
+    ths_cashflow = cur.fetchone() or {}
     ths_cfg = (account_cfg.get("accounts") or {}).get("tonghuashun") or {}
     expected_personal = _dec(ths_cfg.get("personal_capital"))
     owner_ratio = _owner_ratio(account_cfg, "tonghuashun")
     actual_deposit_gross = _dec(ths_trade.get("amount_cny"))
     actual_deposit_personal = actual_deposit_gross * owner_ratio
+    source_personal = _dec(ths_cashflow.get("amount_cny"))
     ths_gap = actual_deposit_personal - expected_personal if expected_personal else Decimal("0")
+    ths_source_gap = source_personal - expected_personal if expected_personal else Decimal("0")
+    ths_status = (
+        "ok"
+        if (
+            not expected_personal
+            or (
+                abs(ths_gap) < Decimal("100")
+                and abs(ths_source_gap) < Decimal("100")
+            )
+        )
+        else "mismatch"
+    )
     issues.append(
         {
             "code": "tonghuashun_personal_capital",
             "label": "同花顺个人本金口径",
-            "status": "ok" if (not expected_personal or abs(ths_gap) < Decimal("100")) else "mismatch",
+            "status": ths_status,
             "investment_trade_deposit_gross_cny": actual_deposit_gross,
             "investment_trade_deposit_personal_cny": actual_deposit_personal,
+            "cashflow_source_personal_cny": source_personal,
             "expected_personal_capital_cny": expected_personal,
             "gap_cny": ths_gap,
+            "source_gap_cny": ths_source_gap,
             "trade_count": int(ths_trade.get("count") or 0),
+            "source_cashflow_count": int(ths_cashflow.get("count") or 0),
+            "source_cashflow_period": {
+                "first": ths_cashflow.get("first_date"),
+                "last": ths_cashflow.get("last_date"),
+            },
             "owner_ratio": str(owner_ratio),
             "note": "账户总资金与个人权益比例必须分开；收益口径应使用个人权益侧。",
         }

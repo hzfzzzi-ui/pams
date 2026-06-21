@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -9,7 +10,22 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services.portfolio_equity_bridge import build_bridge_reconciliation_from_inputs  # noqa: E402
+from services.portfolio_equity_bridge import (  # noqa: E402
+    _funding_closure_checks,
+    build_bridge_reconciliation_from_inputs,
+)
+
+
+class _FakeCursor:
+    def __init__(self, rows: list[dict]):
+        self.rows = list(rows)
+        self.executed: list[tuple[str, tuple]] = []
+
+    def execute(self, query: str, params: tuple) -> None:
+        self.executed.append((query, params))
+
+    def fetchone(self) -> dict:
+        return self.rows.pop(0)
 
 
 def test_equity_bridge_keeps_unexplained_residual_visible() -> None:
@@ -36,3 +52,31 @@ def test_equity_bridge_reconciles_only_when_residual_is_small() -> None:
 
     assert bridge["unexplained_residual_cny"] == Decimal("0")
     assert bridge["is_reconciled"] is True
+
+
+def test_tonghuashun_personal_capital_checks_cashflow_source_side() -> None:
+    cur = _FakeCursor(
+        [
+            {"count": 1, "amount_cny": Decimal("100"), "first_date": date(2026, 1, 1), "last_date": date(2026, 1, 1)},
+            {"count": 1, "amount_cny": Decimal("100"), "first_date": date(2026, 1, 1), "last_date": date(2026, 1, 1)},
+            {"count": 5, "amount_cny": Decimal("400000")},
+            {"count": 6, "amount_cny": Decimal("250000"), "first_date": date(2025, 12, 15), "last_date": date(2026, 5, 20)},
+        ]
+    )
+
+    checks = _funding_closure_checks(
+        cur,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 6, 21),
+        account_cfg={
+            "defaults": {"owner_ratio": 1},
+            "accounts": {"tonghuashun": {"owner_ratio": "0.625", "personal_capital": "250000"}},
+        },
+    )
+
+    ths = next(item for item in checks if item["code"] == "tonghuashun_personal_capital")
+    assert ths["status"] == "ok"
+    assert ths["investment_trade_deposit_gross_cny"] == Decimal("400000")
+    assert ths["investment_trade_deposit_personal_cny"] == Decimal("250000.000")
+    assert ths["cashflow_source_personal_cny"] == Decimal("250000")
+    assert ths["source_cashflow_count"] == 6

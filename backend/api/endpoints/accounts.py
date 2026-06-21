@@ -343,7 +343,45 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
         """
     )
     by_account: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in cur.fetchall():
+    rows = list(cur.fetchall())
+    cur.execute(
+        """
+        WITH fact_balance AS (
+            SELECT DISTINCT ON (f.account_code)
+                   f.account_code AS profile_code,
+                   'pams_cashflow_fact'::text AS bank,
+                   f.account_code,
+                   CASE
+                       WHEN COALESCE(a.account_type, '') = 'liability' OR a.is_asset IS FALSE THEN 'credit_card'
+                       ELSE COALESCE(a.account_type, '')
+                   END AS account_kind,
+                   NULL::numeric AS statement_balance,
+                   f.event_date AS statement_end,
+                   1::bigint AS row_count,
+                   f.updated_at AS imported_at,
+                   f.event_date AS latest_balance_date,
+                   NULLIF(COALESCE(
+                       f.raw_json #>> '{statement_row,balance}',
+                       f.raw_json #>> '{statement_row,raw_json,balance}',
+                       f.raw_json #>> '{balance}'
+                   ), '')::numeric AS latest_balance
+            FROM pams_cashflow_fact f
+            LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+            WHERE NULLIF(COALESCE(
+                      f.raw_json #>> '{statement_row,balance}',
+                      f.raw_json #>> '{statement_row,raw_json,balance}',
+                      f.raw_json #>> '{balance}'
+                  ), '') IS NOT NULL
+              AND COALESCE(LOWER(f.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'duplicate')
+            ORDER BY f.account_code, f.event_date DESC, f.cashflow_id DESC
+        )
+        SELECT *
+        FROM fact_balance
+        ORDER BY account_code
+        """
+    )
+    rows.extend(cur.fetchall())
+    for row in rows:
         item = dict(row)
         raw_balance = item.get("latest_balance")
         if raw_balance is None:
@@ -352,6 +390,8 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
         item["balance"] = _net_statement_balance(raw_balance, item.get("account_kind"))
         item["balance_as_of"] = as_of
         by_account[str(item["account_code"])].append(item)
+    for items in by_account.values():
+        items.sort(key=lambda item: (str(item.get("balance_as_of") or ""), str(item.get("imported_at") or "")))
     return by_account
 
 

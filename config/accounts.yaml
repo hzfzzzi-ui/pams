@@ -238,8 +238,8 @@ accounts:
     manual_balance:
       amount: 50000.00
       currency: CNY
-      as_of: 2026-05-31
-      source: user_confirmed
+      as_of: 2024-12-31
+      source: user_confirmed_existing_2024_receivable
       note: 他人外借 50,000 元，待归还；作为建行名下应收款子账户核准。
   gf_7443:
     display_name: 广发7443人民币信用卡

@@ -261,6 +261,8 @@ def _statement_balances(cur) -> dict[str, dict[str, Any]]:
         and _table_exists(cur, "pams_bank_statement_rows")
     ):
         return {}
+
+    balances: dict[str, dict[str, Any]] = {}
     cur.execute(
         """
         WITH latest_import AS (
@@ -286,8 +288,49 @@ def _statement_balances(cur) -> dict[str, dict[str, Any]]:
         ORDER BY i.account_code, i.profile_code
         """
     )
-    balances: dict[str, dict[str, Any]] = {}
-    for row in cur.fetchall():
+    rows = cur.fetchall()
+
+    if _table_exists(cur, "pams_cashflow_fact"):
+        cur.execute(
+            """
+            WITH fact_balance AS (
+                SELECT DISTINCT ON (f.account_code)
+                       f.account_code,
+                       CASE
+                           WHEN COALESCE(a.account_type, '') = 'liability' OR a.is_asset IS FALSE THEN 'credit_card'
+                           ELSE COALESCE(a.account_type, '')
+                       END AS account_kind,
+                       f.event_date AS latest_balance_date,
+                       NULLIF(COALESCE(
+                           f.raw_json #>> '{statement_row,balance}',
+                           f.raw_json #>> '{statement_row,raw_json,balance}',
+                           f.raw_json #>> '{balance}'
+                       ), '')::numeric AS latest_balance
+                FROM pams_cashflow_fact f
+                LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+                WHERE NULLIF(COALESCE(
+                          f.raw_json #>> '{statement_row,balance}',
+                          f.raw_json #>> '{statement_row,raw_json,balance}',
+                          f.raw_json #>> '{balance}'
+                      ), '') IS NOT NULL
+                  AND COALESCE(LOWER(f.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'duplicate')
+                ORDER BY f.account_code, f.event_date DESC, f.cashflow_id DESC
+            )
+            SELECT account_code AS profile_code,
+                   account_code,
+                   account_kind,
+                   NULL::numeric AS statement_balance,
+                   latest_balance_date AS statement_end,
+                   NULL::timestamp AS imported_at,
+                   latest_balance_date,
+                   latest_balance
+            FROM fact_balance
+            ORDER BY account_code
+            """
+        )
+        rows = [*rows, *cur.fetchall()]
+
+    for row in rows:
         amount = _net_statement_balance(
             row.get("latest_balance") if row.get("latest_balance") is not None else row.get("statement_balance"),
             row.get("account_kind"),

@@ -1880,7 +1880,9 @@ def build_exposure_analysis_payload(
             if lookthrough_parent_unit.get("holding_asset_class"):
                 item["asset_type"] = lookthrough_parent_unit.get("holding_asset_class")
                 item["asset_class"] = lookthrough_parent_unit.get("holding_asset_class")
-            if lookthrough_parent_unit.get("account") and not item.get("account"):
+            if lookthrough_parent_unit.get("account") and not (
+                item.get("account") or item.get("account_code") or item.get("account_name")
+            ):
                 item["account"] = lookthrough_parent_unit.get("account")
         direct_unit = None
         for key in _identity_keys(symbol, name):
@@ -1891,7 +1893,9 @@ def build_exposure_analysis_payload(
             if direct_unit.get("holding_asset_class"):
                 item["asset_type"] = direct_unit.get("holding_asset_class")
                 item["asset_class"] = direct_unit.get("holding_asset_class")
-            if direct_unit.get("account") and not item.get("account"):
+            if direct_unit.get("account") and not (
+                item.get("account") or item.get("account_code") or item.get("account_name")
+            ):
                 item["account"] = direct_unit.get("account")
             if direct_unit.get("sw_l1"):
                 item["sw_l1"] = direct_unit.get("sw_l1")
