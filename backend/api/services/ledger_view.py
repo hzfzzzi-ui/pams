@@ -689,6 +689,10 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
             END AS cashflow_type,
             TRUE AS is_internal_transfer,
             ('investment-trade-' || id::text) AS transfer_group_id,
+            CASE
+                WHEN source_table = 'pams_cashflow_fact' THEN source_id
+                ELSE NULL
+            END AS linked_cashflow_id,
             'auto'::text AS review_status,
             source_table,
             source_id,
@@ -752,7 +756,10 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
              AND sr.source_id = cf.source_id
             WHERE cf.event_date >= %(start)s
               AND cf.event_date <= %(end)s
-              AND cf.cashflow_type = 'investment_funding'
+              AND (
+                cf.cashflow_type = 'investment_funding'
+                OR cf.transfer_group_id LIKE 'investment_funding:%%'
+              )
               AND COALESCE(cf.amount_cny, cf.amount * COALESCE(cf.fx_rate_to_cny, 1), cf.amount) < 0
         )
         SELECT
@@ -772,6 +779,7 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
             'investment_funding'::text AS cashflow_type,
             TRUE AS is_internal_transfer,
             ('investment-funding-' || id::text) AS transfer_group_id,
+            id::text AS linked_cashflow_id,
             'auto'::text AS review_status,
             source_table,
             source_id,
@@ -800,7 +808,17 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
         rows.append(row)
     trade_rows = _load_investment_trade_account_rows(cur, start=start, end=end, base_currency=base_currency)
     trade_keys = {_investment_row_dedupe_key(row) for row in trade_rows}
-    cash_rows = [row for row in rows if _investment_row_dedupe_key(row) not in trade_keys]
+    trade_cashflow_ids = {
+        str(row.get("linked_cashflow_id"))
+        for row in trade_rows
+        if row.get("linked_cashflow_id") not in (None, "")
+    }
+    cash_rows = [
+        row
+        for row in rows
+        if _investment_row_dedupe_key(row) not in trade_keys
+        and str(row.get("linked_cashflow_id") or "") not in trade_cashflow_ids
+    ]
     return sorted(
         trade_rows + cash_rows,
         key=lambda item: (item.get("transaction_date_obj") or date.min, str(item.get("id") or "")),

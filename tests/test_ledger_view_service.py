@@ -336,6 +336,10 @@ def test_investment_account_rows_keep_original_currency_amount_for_display() -> 
     assert "ABS(cf.amount) AS amount" in source
     assert "pams_investment_trade_fact" in trade_source
     assert "'investment_outflow'" in trade_source
+    assert "cf.transfer_group_id LIKE 'investment_funding:%%'" in source
+    assert "account_transfer:%%" not in source
+    assert "linked_cashflow_id" in source
+    assert "trade_cashflow_ids" in source
     assert "amount_cny AS amount" not in source
     assert "amount_cny AS amount" not in trade_source
 
