@@ -277,7 +277,7 @@
         border-radius: 0 !important;
       }
       .ledgerKpiGrid { grid-template-columns:1fr 1fr }
-      .ledgerToolbar { justify-content:flex-start }
+      body.page-ledger.app-shell .ledgerToolbar { justify-content:flex-start }
       .ledgerFilterGrid { grid-template-columns:1fr }
       .page-ledger .pageHeader { display:none; }
       .ledgerAnchorNav {
@@ -305,7 +305,7 @@
         padding-left: 12px;
         padding-right: 12px;
       }
-      .ledgerTop {
+      body.page-ledger.app-shell .ledgerTop {
         margin-top:0;
         padding:0;
         border:0;
@@ -313,26 +313,28 @@
         background:transparent;
         box-shadow:none;
       }
-      .ledgerTop > .sectionTitle {
-        display:grid;
-        grid-template-columns:1fr;
+      body.page-ledger.app-shell .ledgerTop > .sectionTitle {
+        display:grid !important;
+        grid-template-columns:minmax(0, 1fr) !important;
         align-items:start;
         gap:8px;
         margin-bottom:6px;
       }
-      .ledgerTop > .sectionTitle h3 {
+      body.page-ledger.app-shell .ledgerTop > .sectionTitle h3 {
         margin:0;
+        min-width:0;
         white-space:nowrap;
         line-height:1.08;
       }
-      .ledgerTop .ledgerToolbar {
-        display:grid;
-        grid-template-columns:minmax(0, 1fr) auto;
+      body.page-ledger.app-shell .ledgerTop .ledgerToolbar {
+        display:grid !important;
+        grid-template-columns:minmax(0, 1fr) auto !important;
         width:100%;
         gap:8px;
+        justify-content:stretch;
       }
-      .ledgerTop .ledgerToolbar .formInput,
-      .ledgerTop .ledgerToolbar .btn {
+      body.page-ledger.app-shell .ledgerTop .ledgerToolbar .formInput,
+      body.page-ledger.app-shell .ledgerTop .ledgerToolbar .btn {
         width:100% !important;
         min-height:38px;
       }
@@ -573,6 +575,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v2"></script>
 </body>
 </html>
