@@ -20,7 +20,7 @@ router = APIRouter()
 class LedgerReviewConfirm(BaseModel):
     """Manual confirmation payload for one pending cash ledger row."""
 
-    confirmed_category: str = "其他消费"
+    confirmed_category: str = "其他支出"
     confirmed_subcategory: str = "手动确认"
 
 
@@ -44,8 +44,8 @@ LEDGER_MANUAL_CASHFLOW_TYPES = {
 }
 
 LEDGER_MANUAL_DEFAULTS = {
-    "operating_income": ("收入", "手动确认"),
-    "operating_expense": ("其他消费", "手动确认"),
+    "operating_income": ("其他收入", "手动确认"),
+    "operating_expense": ("其他支出", "手动确认"),
     "investment_funding": ("内部划转", "投资入金"),
     "investment_withdrawal": ("内部划转", "投资出金"),
     "internal_transfer": ("内部划转", "内部转账"),

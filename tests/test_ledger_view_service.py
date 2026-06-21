@@ -78,7 +78,7 @@ def test_classify_expense_uses_coarse_merchant_category() -> None:
     result = classify_ledger_row(row)
 
     assert result["flow_type"] == "expense"
-    assert result["coarse_category"] == "交通"
+    assert result["coarse_category"] == "交通出行"
     assert result["needs_review"] is False
 
 
@@ -141,9 +141,74 @@ def test_benefit_asset_positive_row_counts_as_income() -> None:
     result = classify_ledger_row(row, transfer_row_ids=set())
 
     assert result["flow_type"] == "income"
-    assert result["coarse_category"] == "公积金汇缴"
+    assert result["coarse_category"] == "福利保障"
     assert result["needs_review"] is False
     assert result["is_operating"] is True
+
+
+def test_income_categories_are_normalized_to_app_buckets() -> None:
+    salary = classify_ledger_row(
+        {
+            "amount_cny": 26800,
+            "cashflow_type": "operating_income",
+            "category": "收入",
+            "subcategory": "工资",
+            "summary": "HUAWEI TECHNOLOGIES DE MEXICO SA DE CV",
+        }
+    )
+    refund = classify_ledger_row(
+        {
+            "amount_cny": 1359,
+            "cashflow_type": "operating_income",
+            "category": "消费退款",
+            "subcategory": "购物退款",
+            "summary": "淘宝平台-退款",
+        }
+    )
+    transfer_income = classify_ledger_row(
+        {
+            "amount_cny": 5000,
+            "cashflow_type": "operating_income",
+            "category": "往来款",
+            "subcategory": "借款归还",
+            "summary": "微信转账",
+        }
+    )
+
+    assert salary["coarse_category"] == "工资薪酬"
+    assert refund["coarse_category"] == "退款返现"
+    assert transfer_income["coarse_category"] == "借还款/往来"
+
+
+def test_expense_categories_are_normalized_to_app_buckets() -> None:
+    rent = classify_ledger_row(
+        {
+            "amount_cny": -25000,
+            "cashflow_type": "operating_expense",
+            "category": "房租",
+            "summary": "TRANSFERENCIA A RENTA",
+        }
+    )
+    phone = classify_ledger_row(
+        {
+            "amount_cny": -100,
+            "cashflow_type": "operating_expense",
+            "category": "日常消费",
+            "description": "手机充值-中国电信 100元手机话费",
+        }
+    )
+    people = classify_ledger_row(
+        {
+            "amount_cny": -1000,
+            "cashflow_type": "operating_expense",
+            "category": "未分类",
+            "description": "TRANSFERENCIA A ZHANG G",
+        }
+    )
+
+    assert rent["coarse_category"] == "居住"
+    assert phone["coarse_category"] == "通讯网络"
+    assert people["coarse_category"] == "人情往来"
 
 
 def test_classify_unmatched_unclear_expense_needs_review() -> None:

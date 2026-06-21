@@ -54,22 +54,31 @@ TRANSFER_KEYWORDS = (
 )
 
 EXPENSE_KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("餐饮", ("餐饮", "吃饭", "饭", "咖啡", "外卖", "美团", "饿了么", "restaurant", "rest ", "uber eats", "pickup coffee", "oxxo")),
-    ("交通", ("交通", "打车", "滴滴", "uber ride", "taxi", "地铁", "公交", "铁路", "机票", "航旅")),
-    ("居住通信", ("房租", "租金", "物业", "水电", "宽带", "网络", "通信", "移动", "联通", "电信", "mobile reload")),
-    ("工具订阅", ("工具软件", "订阅", "软件", "openai", "chatgpt", "claude", "cursor", "icloud", "apple.com/bill")),
-    ("购物消费", ("购物", "淘宝", "天猫", "京东", "拼多多", "抖音", "商户消费", "pos", "消费")),
-    ("医疗健康", ("医院", "药", "医保", "医疗", "诊所")),
-    ("人情往来", ("红包", "转账", "群收款")),
+    ("餐饮", ("餐饮", "吃饭", "饭", "咖啡", "外卖", "美团", "饿了么", "restaurant", "rest ", "uber eats", "pickup coffee", "oxxo", "满客")),
+    ("交通出行", ("交通", "打车", "滴滴", "uber ride", "taxi", "地铁", "公交", "铁路", "机票", "航旅", "trip", "suica")),
+    ("居住", ("房租", "租金", "物业", "水费", "电费", "燃气", "renta")),
+    ("通讯网络", ("宽带", "网络", "通信", "通讯", "移动", "联通", "电信", "话费", "手机充值", "mobile reload", "izzi")),
+    ("工具订阅", ("工具软件", "订阅", "软件", "openai", "chatgpt", "claude", "cursor", "icloud", "apple.com/bill", "midjourney")),
+    ("娱乐休闲", ("爱奇艺", "腾讯视频", "netflix", "spotify", "电影", "游戏", "演出", "票务", "ktv")),
+    ("医疗健康", ("医院", "药", "医保", "医疗", "诊所", "体检")),
+    ("学习成长", ("课程", "教育", "培训", "图书", "书店", "kindle", "得到")),
+    ("人情往来", ("红包", "群收款", "扫二维码付款", "二维码收款", "微信转账", "转账备注", "transferencia a ", "transf int")),
+    ("购物", ("购物", "淘宝", "天猫", "京东", "拼多多", "抖音", "商户消费", "pos", "消费", "zara", "sears", "abercrombie", "miniso", "super")),
 )
 
 EXPENSE_CATEGORY_MAP = {
     "餐饮": "餐饮",
-    "交通": "交通",
-    "居住": "居住通信",
+    "交通": "交通出行",
+    "居住": "居住",
+    "房租": "居住",
+    "通讯": "通讯网络",
+    "话费": "通讯网络",
     "工具软件": "工具订阅",
-    "日常消费": "购物消费",
+    "日常消费": "购物",
     "医疗": "医疗健康",
+    "交际": "人情往来",
+    "往来款": "借还款/往来",
+    "其他": "其他支出",
 }
 
 CLASSIFICATION_RULES = [
@@ -163,6 +172,41 @@ def _expense_keyword_category(text: str) -> str | None:
         if _contains_any(text, keywords):
             return label
     return None
+
+
+def _expense_display_category(category: str, subcategory: str, text: str) -> tuple[str, bool]:
+    keyword_label = _expense_keyword_category(text)
+    if keyword_label:
+        return keyword_label, False
+    if category == "居住" and subcategory == "网络通讯":
+        return "通讯网络", False
+    if category in EXPENSE_CATEGORY_MAP:
+        return EXPENSE_CATEGORY_MAP[category], False
+    if category in {"未分类", ""}:
+        return "待确认支出", True
+    return "其他支出", False
+
+
+def _income_display_category(category: str, subcategory: str, text: str) -> str:
+    if "退款" in text or "退货" in text or category == "消费退款":
+        return "退款返现"
+    if subcategory == "ESOP分红":
+        return "投资收益"
+    if "年终" in text or subcategory == "年终奖":
+        return "奖金"
+    if "工资" in text or "薪金" in text or "huawei technologies" in text or subcategory == "工资":
+        return "工资薪酬"
+    if "差旅" in text or "报销" in text or "补助" in text or subcategory == "差旅报销补助":
+        return "报销补贴"
+    if "公积金" in text or "医保" in text or category == "福利资产":
+        return "福利保障"
+    if "利息" in text or subcategory == "利息":
+        return "利息收入"
+    if "借款归还" in text or category == "往来款":
+        return "借还款/往来"
+    if "红包" in text or "微信转账" in text or "转账红包" in text or category == "交际":
+        return "人情往来收入"
+    return "其他收入"
 
 
 def _payment_proxy_role(row: Mapping[str, Any]) -> str | None:
@@ -274,7 +318,7 @@ def classify_ledger_row(
     if category == "福利资产":
         return {
             "flow_type": "income" if amount >= 0 else "expense",
-            "coarse_category": subcategory or "福利资产入账",
+            "coarse_category": _income_display_category(category, subcategory, text) if amount >= 0 else "医疗健康",
             "needs_review": False,
             "is_operating": True,
         }
@@ -288,47 +332,19 @@ def classify_ledger_row(
         }
 
     if amount >= 0:
-        if "退款" in text or category == "消费退款":
-            label = "退款"
-        elif subcategory == "ESOP分红":
-            label = "ESOP分红"
-        elif subcategory == "年终奖" or "年终" in text:
-            label = "年终奖"
-        elif "差旅" in text or "报销" in text or subcategory == "差旅报销补助":
-            label = "差旅报销补助"
-        elif "工资" in text or subcategory == "工资":
-            label = "工资"
-        elif "利息" in text or subcategory == "利息":
-            label = "利息"
-        elif "借款归还" in text:
-            label = "借款归还"
-        elif "红包" in text:
-            label = "零散收入/红包"
-        elif category == "收入" and subcategory:
-            label = subcategory
-        else:
-            label = "零散收入"
         return {
             "flow_type": "income",
-            "coarse_category": label,
+            "coarse_category": _income_display_category(category, subcategory, text),
             "needs_review": False,
             "is_operating": True,
         }
 
-    keyword_label = _expense_keyword_category(text)
-    if keyword_label:
-        label = keyword_label
-    elif category in EXPENSE_CATEGORY_MAP:
-        label = EXPENSE_CATEGORY_MAP[category]
-    elif category in {"未分类", ""}:
-        label = "待确认支出"
-    else:
-        label = category or "其他消费"
+    label, needs_review = _expense_display_category(category, subcategory, text)
 
     return {
         "flow_type": "expense",
         "coarse_category": label,
-        "needs_review": label == "待确认支出",
+        "needs_review": needs_review,
         "is_operating": True,
     }
 

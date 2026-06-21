@@ -22,7 +22,8 @@ def test_ledger_manual_update_type_defaults_are_explicit() -> None:
         "debt_repayment",
     }
 
-    assert ledger._manual_category("operating_expense", "", "") == ("其他消费", "手动确认")
+    assert ledger._manual_category("operating_income", "", "") == ("其他收入", "手动确认")
+    assert ledger._manual_category("operating_expense", "", "") == ("其他支出", "手动确认")
     assert ledger._manual_category("investment_funding", None, None) == ("内部划转", "投资入金")
     assert ledger._manual_category("debt_repayment", "内部划转", "") == ("内部划转", "信用卡还款")
 

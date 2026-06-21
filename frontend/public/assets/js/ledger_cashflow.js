@@ -122,8 +122,8 @@ const LEDGER_EDIT_TYPES = [
 ];
 
 const LEDGER_EDIT_DEFAULTS = {
-  operating_expense: { category: '其他消费', subcategory: '手动确认' },
-  operating_income: { category: '收入', subcategory: '手动确认' },
+  operating_expense: { category: '其他支出', subcategory: '手动确认' },
+  operating_income: { category: '其他收入', subcategory: '手动确认' },
   investment_funding: { category: '内部划转', subcategory: '投资入金' },
   investment_withdrawal: { category: '内部划转', subcategory: '投资出金' },
   internal_transfer: { category: '内部划转', subcategory: '内部转账' },
