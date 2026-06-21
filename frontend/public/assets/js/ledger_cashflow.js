@@ -130,6 +130,40 @@ const LEDGER_EDIT_DEFAULTS = {
   debt_repayment: { category: '内部划转', subcategory: '信用卡还款' },
 };
 
+const LEDGER_EDIT_CATEGORY_OPTIONS = {
+  operating_expense: ['餐饮', '交通出行', '居住', '通讯网络', '工具订阅', '购物', '医疗健康', '娱乐休闲', '学习成长', '人情往来', '借还款/往来', '其他支出', '待确认支出'],
+  operating_income: ['工资薪酬', '奖金', '报销补贴', '福利保障', '退款返现', '人情往来收入', '借还款/往来', '利息收入', '其他收入'],
+  investment_funding: ['内部划转'],
+  investment_withdrawal: ['内部划转'],
+  internal_transfer: ['内部划转'],
+  debt_repayment: ['内部划转'],
+};
+
+const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {
+  餐饮: ['餐饮', '工作餐', '咖啡饮品', '外卖', '聚餐', '手动确认'],
+  交通出行: ['打车', '公共交通', '停车', '机票火车', '手动确认'],
+  居住: ['房租', '物业水电', '网络通讯', '家居维修', '手动确认'],
+  通讯网络: ['手机话费', '宽带网络', '流量套餐', '手动确认'],
+  工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认'],
+  购物: ['日常购物', '服饰美妆', '数码配件', '超市便利', '手动确认'],
+  医疗健康: ['医保缴费', '医院诊疗', '药品保健', '体检', '手动确认'],
+  娱乐休闲: ['影音会员', '游戏娱乐', '演出票务', '运动休闲', '手动确认'],
+  学习成长: ['课程培训', '图书资料', '考试认证', '手动确认'],
+  人情往来: ['红包转账', '礼金', '代付代收', '手动确认'],
+  '借还款/往来': ['借款', '还款', '往来款', '手动确认'],
+  其他支出: ['其他支出', '手动确认'],
+  待确认支出: ['手动确认'],
+  工资薪酬: ['工资', '薪金', '手动确认'],
+  奖金: ['年终奖', '绩效奖金', '手动确认'],
+  报销补贴: ['差旅报销补助', '费用报销', '补贴', '手动确认'],
+  福利保障: ['公积金', '医保', '社保', '手动确认'],
+  退款返现: ['消费退款', '返现', '退货退款', '手动确认'],
+  人情往来收入: ['红包收入', '转账收入', '礼金收入', '手动确认'],
+  利息收入: ['利息', '现金收益', '手动确认'],
+  其他收入: ['其他收入', '手动确认'],
+  内部划转: ['投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认'],
+};
+
 function flowLabel(flowType) {
   const labels = {
     income: '收入',
@@ -425,6 +459,31 @@ function rowDetailHtml(row) {
   `;
 }
 
+function uniqueOptionValues(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function optionHtml(options, selectedValue) {
+  const selectedText = String(selectedValue || '').trim();
+  return options.map((value) => `
+    <option value="${escapeHtml(value)}" ${value === selectedText ? 'selected' : ''}>${escapeHtml(value)}</option>
+  `).join('');
+}
+
+function ledgerCategoryOptions(cashflowType, currentValue = '') {
+  return uniqueOptionValues([
+    ...(LEDGER_EDIT_CATEGORY_OPTIONS[cashflowType] || []),
+    currentValue,
+  ]);
+}
+
+function ledgerSubcategoryOptions(category, currentValue = '') {
+  return uniqueOptionValues([
+    ...(LEDGER_EDIT_SUBCATEGORY_OPTIONS[category] || ['手动确认']),
+    currentValue,
+  ]);
+}
+
 function ledgerEditSheetHtml(row) {
   const amount = num(row.amount_cny ?? row.amount);
   const account = accountLabel(row.account_code) || row.account_code || '-';
@@ -468,11 +527,15 @@ function ledgerEditSheetHtml(row) {
         </label>
         <label>
           <span>粗分类</span>
-          <input class="formInput" data-edit-field="category" value="${escapeHtml(category)}" />
+          <select class="formInput" data-edit-field="category">
+            ${optionHtml(ledgerCategoryOptions(cashflowType, category), category)}
+          </select>
         </label>
         <label>
           <span>细分类</span>
-          <input class="formInput" data-edit-field="subcategory" value="${escapeHtml(subcategory)}" />
+          <select class="formInput" data-edit-field="subcategory">
+            ${optionHtml(ledgerSubcategoryOptions(category, subcategory), subcategory)}
+          </select>
         </label>
         <label>
           <span>对方账户标识</span>
@@ -1028,13 +1091,35 @@ function findLedgerRowById(rowId) {
   return groups.flat().find((row) => String(row.id || '') === idText) || null;
 }
 
+function updateLedgerCategoryOptions(form, preferredValue) {
+  const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
+  const category = form.querySelector('[data-edit-field="category"]');
+  if (!category) return '';
+  const currentValue = String((preferredValue ?? category.value) || '').trim();
+  const options = ledgerCategoryOptions(cashflowType, currentValue);
+  category.innerHTML = optionHtml(options, currentValue);
+  category.value = options.includes(currentValue) ? currentValue : (options[0] || '');
+  return category.value;
+}
+
+function updateLedgerSubcategoryOptions(form, preferredValue) {
+  const categoryValue = form.querySelector('[data-edit-field="category"]')?.value || '';
+  const subcategory = form.querySelector('[data-edit-field="subcategory"]');
+  if (!subcategory) return '';
+  const options = ledgerSubcategoryOptions(categoryValue, preferredValue ?? subcategory.value);
+  const nextValue = preferredValue === null
+    ? (options[0] || '')
+    : String((preferredValue ?? subcategory.value) || '').trim();
+  subcategory.innerHTML = optionHtml(options, nextValue);
+  subcategory.value = options.includes(nextValue) ? nextValue : (options[0] || '');
+  return subcategory.value;
+}
+
 function applyLedgerEditDefaults(form) {
   const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
   const defaults = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
-  const category = form.querySelector('[data-edit-field="category"]');
-  const subcategory = form.querySelector('[data-edit-field="subcategory"]');
-  if (category) category.value = defaults.category || category.value || '';
-  if (subcategory) subcategory.value = defaults.subcategory || subcategory.value || '';
+  updateLedgerCategoryOptions(form, defaults.category || undefined);
+  updateLedgerSubcategoryOptions(form, defaults.subcategory || undefined);
 }
 
 function bindLedgerEditSheet(row) {
@@ -1049,6 +1134,7 @@ function bindLedgerEditSheet(row) {
   const form = sheet?.querySelector('[data-ledger-edit-form]');
   if (!form) return;
   form.querySelector('[data-edit-field="cashflow_type"]')?.addEventListener('change', () => applyLedgerEditDefaults(form));
+  form.querySelector('[data-edit-field="category"]')?.addEventListener('change', () => updateLedgerSubcategoryOptions(form, null));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const submitBtn = form.querySelector('button[type="submit"]');
