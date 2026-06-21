@@ -62,6 +62,8 @@
     .ruleItem:last-child { border-bottom:none }
     .ruleName { font-weight:800; margin-bottom:4px }
     .ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
+    .compactSectionTools { margin-top:-4px }
+    .compactSectionTools .ledgerFilterGrid { grid-template-columns:minmax(0, 1fr); width:100% }
     .ledgerAnchorNav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
     .ledgerAnchorNav a { position:relative; display:flex; align-items:center; justify-content:center; min-height:30px; padding:0 4px; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:13px; font-weight:850; text-decoration:none; white-space:nowrap }
     .ledgerAnchorNav a::after { content:""; position:absolute; left:50%; right:50%; bottom:-10px; height:2px; background:var(--info); transition:left .16s ease, right .16s ease }
@@ -511,6 +513,12 @@
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section">
         <div class="sectionTitle">
           <h3>现金流水</h3>
+          <div class="accountPeriodToggle" aria-label="流水统计周期">
+            <button class="accountPeriodButton active" type="button" data-recent-period="month">本月</button>
+            <button class="accountPeriodButton" type="button" data-recent-period="ytd">年初至今</button>
+          </div>
+        </div>
+        <div class="sectionTitle compactSectionTools">
           <div class="ledgerFilterGrid">
             <input id="recentSearch" class="formInput" type="search" placeholder="搜索摘要 / 商户 / 粗分类" />
           </div>
@@ -529,6 +537,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v4"></script>
 </body>
 </html>

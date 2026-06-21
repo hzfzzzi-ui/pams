@@ -20,6 +20,7 @@ const state = {
   activePanel: 'overview',
   recentFlowFilter: '',
   recentAccountFilter: '',
+  recentPeriod: 'month',
   accountPeriod: 'month',
   expandedAccountGroups: new Set(),
 };
@@ -433,8 +434,9 @@ function renderRecentAccountScope() {
     return;
   }
   el.hidden = false;
+  const periodLabel = state.recentPeriod === 'ytd' ? '年初至今' : '本月';
   el.innerHTML = `
-    <span>账户筛选 <strong>${escapeHtml(accountDisplayName(state.recentAccountFilter))}</strong></span>
+    <span>账户筛选 <strong>${escapeHtml(accountDisplayName(state.recentAccountFilter))}</strong><small> · ${escapeHtml(periodLabel)}</small></span>
     <button type="button" data-clear-account-filter>清除</button>
   `;
   el.querySelector('[data-clear-account-filter]')?.addEventListener('click', () => {
@@ -447,6 +449,8 @@ function renderRecentAccountScope() {
 function openRecentForAccount(accountCode) {
   state.recentAccountFilter = accountCode || '';
   state.recentFlowFilter = '';
+  state.recentPeriod = state.accountPeriod || 'month';
+  renderRecentPeriodButtons();
   document.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
     item.classList.toggle('active', (item.dataset.ledgerFlowFilter || '') === '');
   });
@@ -455,6 +459,12 @@ function openRecentForAccount(accountCode) {
   history.replaceState(null, '', `${window.location.pathname}${window.location.search}${LEDGER_PANEL_HASH.recent}`);
   setLedgerPanel('recent');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderRecentPeriodButtons() {
+  document.querySelectorAll('[data-recent-period]').forEach((btn) => {
+    btn.classList.toggle('active', (btn.dataset.recentPeriod || 'month') === state.recentPeriod);
+  });
 }
 
 function renderAccountFlowSummary(rows) {
@@ -784,7 +794,10 @@ function renderRows(id, rows, limit = 80) {
 function filteredRecentRows() {
   const flow = state.recentFlowFilter || '';
   const search = ($('recentSearch')?.value || '').trim().toLowerCase();
-  return (state.data?.recent_rows || []).filter((row) => {
+  const rows = state.recentPeriod === 'ytd'
+    ? (state.data?.recent_rows_ytd || state.data?.recent_rows || [])
+    : (state.data?.recent_rows_month || state.data?.recent_rows || []);
+  return rows.filter((row) => {
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
     if (flow === 'review' && !row.needs_review) return false;
     if (flow === 'investment_transfer' && !isInvestmentTransferRow(row)) return false;
@@ -795,6 +808,11 @@ function filteredRecentRows() {
     }
     return true;
   });
+}
+
+function renderRecentRows() {
+  const rows = filteredRecentRows();
+  renderRows('recentRows', rows, rows.length);
 }
 
 function renderAll(data) {
@@ -808,9 +826,10 @@ function renderAll(data) {
   renderTrendChart(data);
   renderCashflowBridge(data);
   renderReviewEntry(data);
+  renderRecentPeriodButtons();
   renderRecentAccountScope();
   renderRows('reviewRows', data.review_rows || [], 60);
-  renderRows('recentRows', filteredRecentRows(), 120);
+  renderRecentRows();
 }
 
 async function loadWorkbench() {
@@ -819,7 +838,7 @@ async function loadWorkbench() {
   const params = new URLSearchParams({ baseCurrency: 'CNY', recentDays: '30' });
   if (month) params.set('month', month);
   const [data, accounts] = await Promise.all([
-    jget(`/api/ledger/workbench?${params.toString()}`),
+    jget(`/api/ledger/workbench?${params.toString()}`, { cache: false }),
     jget('/api/accounts/overview').catch(() => ({ summary: {}, accounts: [] })),
   ]);
   state.data = data;
@@ -850,7 +869,15 @@ function bindEvents() {
       document.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
         item.classList.toggle('active', item === btn);
       });
-      renderRows('recentRows', filteredRecentRows(), 120);
+      renderRecentRows();
+    });
+  });
+  document.querySelectorAll('[data-recent-period]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.recentPeriod = btn.dataset.recentPeriod || 'month';
+      renderRecentPeriodButtons();
+      renderRecentAccountScope();
+      renderRecentRows();
     });
   });
   document.querySelectorAll('[data-account-period]').forEach((btn) => {
@@ -862,7 +889,7 @@ function bindEvents() {
       if (state.data) renderAccountFlowSummary(currentAccountSummary(state.data));
     });
   });
-  $('recentSearch')?.addEventListener('input', () => renderRows('recentRows', filteredRecentRows(), 120));
+  $('recentSearch')?.addEventListener('input', renderRecentRows);
 }
 
 function setLedgerPanel(panel = 'overview') {

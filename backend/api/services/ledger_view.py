@@ -702,6 +702,11 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     month_account_rows = [
         r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end
     ]
+    ytd_account_rows = [
+        row
+        for row in account_rows
+        if row.get("transaction_date_obj") and ytd_start <= row["transaction_date_obj"] <= month_end
+    ]
     configured_accounts = _load_configured_account_codes()
     recent_start = _recent_start_for_account_window(month_start, month_end, recent_days)
     recent_rows = [
@@ -709,6 +714,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         for r in account_rows
         if r.get("transaction_date_obj") and recent_start <= r["transaction_date_obj"] <= month_end
     ][:300]
+    recent_rows_month = [_serialize_row(r) for r in month_account_rows]
+    recent_rows_ytd = [_serialize_row(r) for r in ytd_account_rows]
     review_rows = [_serialize_row(r) for r in enriched_rows if r.get("needs_review")][:100]
 
     return {
@@ -722,17 +729,12 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
         "account_summary": _account_summary(month_account_rows, configured_accounts),
-        "account_summary_ytd": _account_summary(
-            [
-                row
-                for row in account_rows
-                if row.get("transaction_date_obj") and ytd_start <= row["transaction_date_obj"] <= month_end
-            ],
-            configured_accounts,
-        ),
+        "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts),
         "monthly_trend": _trend(enriched_rows, ytd_start, month_end, "monthly"),
         "weekly_trend": _trend(enriched_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,
+        "recent_rows_month": recent_rows_month,
+        "recent_rows_ytd": recent_rows_ytd,
         "review_rows": review_rows,
         "transfer_summary": _transfer_summary(transfer_matches),
         "classification_rules": CLASSIFICATION_RULES,
