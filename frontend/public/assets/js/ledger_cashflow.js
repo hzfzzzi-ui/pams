@@ -1196,11 +1196,9 @@ function renderCashflowBridge(data) {
   const period = currentOverviewPeriod(data);
   const investTransferNet = overviewInvestmentTransferNet(data, period);
   const otherTransfer = overviewOtherTransfer(data, period);
-  const disposableNet = overviewDisposableNet(period);
   const cashNet = overviewCashNet(data, period);
   const fundingItems = [
-    ['可支配结余', signedMoney(disposableNet), disposableNet >= 0 ? 'good' : 'bad'],
-    ['投资转账', signedMoney(investTransferNet), investTransferNet >= 0 ? 'good' : 'data'],
+    ['投资转账', signedMoney(investTransferNet), investTransferNet >= 0 ? 'good' : 'bad'],
     ['内部转账', signedMoney(otherTransfer), 'data'],
     ['现金净变化', signedMoney(cashNet), cashNet >= 0 ? 'good' : 'bad'],
   ];
@@ -1208,14 +1206,14 @@ function renderCashflowBridge(data) {
     <div class="cashflowBridgeLine">
       <div class="cashflowBridgeHead">
         <span>资金调拨</span>
-        <strong>不计入生活消费判断</strong>
+        <strong>投资入金和内部划转不计入消费</strong>
       </div>
-      <div class="cashflowBridgeChips">
+      <div class="cashflowTransferGrid">
         ${fundingItems.map(([label, value, tone]) => `
-          <span class="cashflowBridgeChip ${tone}">
-            <em>${escapeHtml(label)}</em>
-            <b>${escapeHtml(value)}</b>
-          </span>
+          <div class="cashflowTransferStat ${tone}">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </div>
         `).join('')}
       </div>
     </div>
