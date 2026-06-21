@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260620-data-state-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-icbc-6689-v1';
 import {
   byId as $,
   clearError,
@@ -45,6 +45,7 @@ const LEDGER_HASH_PANEL = {
 
 const ACCOUNT_GROUPS = [
   { code: 'ccb', label: '建设银行', children: ['ccb_7332', 'ccb_credit_0453', 'ccb_yhs300_fund'] },
+  { code: 'icbc_6689', label: '工商银行', children: ['icbc_6689_cny', 'icbc_6689_usd'], forceChildren: true },
   { code: 'wechat_root', label: '微信', children: ['wechat', 'wechat_lqt', 'tencent_licaitong'] },
   { code: 'guangfa_root', label: '广发银行', children: ['gf_7443', 'gf_9711'] },
   { code: 'santander_root', label: 'Santander', children: ['santander'], forceChildren: true },
@@ -74,6 +75,8 @@ const ACCOUNT_SUBACCOUNT_LABELS = {
   wechat: '零钱',
   wechat_lqt: '零钱通',
   tencent_licaitong: '腾讯理财通',
+  icbc_6689_cny: '6689 人民币',
+  icbc_6689_usd: '6689 美元',
   gf_7443: '7443 信用卡',
   gf_9711: '9711 信用卡',
   santander: '储蓄卡',

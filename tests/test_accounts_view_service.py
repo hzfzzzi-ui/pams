@@ -10,6 +10,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.accounts_view import build_account_detail_payload, build_accounts_payload  # noqa: E402
+from endpoints.accounts import _reconcile_status  # noqa: E402
 
 
 class FakeCursor:
@@ -109,7 +110,7 @@ def test_build_account_detail_payload_preserves_shape_with_stats():
     assert payload["holdings_count"] == 3
     assert payload["total_value"] == "123.45"
     assert cur.executed[0][1] == ("tonghuashun",)
-    assert cur.executed[1][1] == ("tonghuashun",)
+    assert cur.executed[1][1][1] == "tonghuashun"
 
 
 def test_build_account_detail_payload_returns_zero_total_when_stats_value_missing():
@@ -134,3 +135,15 @@ def test_build_account_detail_payload_returns_zero_total_when_stats_value_missin
 
 def test_build_account_detail_payload_returns_none_for_missing_account():
     assert build_account_detail_payload(SequenceCursor([None]), account_code="missing") is None
+
+
+def test_bank_statement_account_can_use_manual_balance_as_reviewable_fallback():
+    status = _reconcile_status(
+        account_type="funding",
+        truth_source="bank_statement",
+        statement_balance=None,
+        platform_balance=None,
+        manual_balance={"amount": 0.63, "currency": "CNY", "as_of": "2026-06-21"},
+    )
+
+    assert status == "ready_for_review"

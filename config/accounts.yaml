@@ -88,6 +88,12 @@ accounts:
     truth_source: bank_statement
     reconcile_method: balance
     role: 人民币现金账户
+    manual_balance:
+      amount: 0.63
+      currency: CNY
+      as_of: 2026-06-21
+      source: user_screenshot_icbc_6689
+      note: 2026-06-21 工商银行 App 截图确认，6689 储蓄卡人民币活期余额 0.63。
 
   icbc_6689_usd:
     display_name: 工行6689海外储蓄卡
@@ -98,6 +104,12 @@ accounts:
     truth_source: bank_statement
     reconcile_method: balance
     role: 美元现金账户
+    manual_balance:
+      amount: 555.38
+      currency: USD
+      as_of: 2026-06-21
+      source: user_screenshot_icbc_6689
+      note: 2026-06-21 工商银行 App 截图确认，6689 储蓄卡美元现汇余额 555.38。
 
   wechat:
     display_name: 微信

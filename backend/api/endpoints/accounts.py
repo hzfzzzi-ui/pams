@@ -483,7 +483,7 @@ def _reconcile_status(
     if account_type == "bridge":
         return "in_transit" if manual_balance else "missing_data"
     if truth_source in {"bank_statement", "official_statement"}:
-        return "ready_for_review" if statement_balance else "missing_statement"
+        return "ready_for_review" if statement_balance or manual_balance else "missing_statement"
     if truth_source in {"platform_snapshot", "ibkr_flex"}:
         return "ready_for_review" if platform_balance else "missing_platform"
     if truth_source == "manual":
