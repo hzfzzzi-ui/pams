@@ -243,6 +243,27 @@ def test_summarize_period_uses_one_way_transfer_matches() -> None:
     assert summary["internal_transfer"] == 1000.0
 
 
+def test_summarize_period_separates_disposable_and_cash_net() -> None:
+    rows = [
+        {"transaction_date_obj": date(2026, 5, 1), "amount_cny": 2000.0, "flow_type": "income", "needs_review": False},
+        {"transaction_date_obj": date(2026, 5, 2), "amount_cny": -300.0, "flow_type": "expense", "needs_review": False},
+    ]
+    transfers = [
+        {"match_date_obj": date(2026, 5, 3), "amount_cny": 1000.0, "match_type": "investment_funding"},
+        {"match_date_obj": date(2026, 5, 4), "amount_cny": 200.0, "match_type": "account_transfer"},
+    ]
+
+    summary = summarize_period(rows, transfers, date(2026, 5, 1), date(2026, 5, 31))
+
+    assert summary["net"] == 1700.0
+    assert summary["disposable_net"] == 1700.0
+    assert summary["investment_transfer"] == 1000.0
+    assert summary["investment_transfer_net"] == -1000.0
+    assert summary["other_transfer"] == 200.0
+    assert summary["internal_transfer"] == 1200.0
+    assert summary["cash_net"] == 700.0
+
+
 def test_serialize_row_preserves_transfer_fields_for_frontend_filter() -> None:
     row = {
         "id": 21,

@@ -573,6 +573,32 @@ function currentOverviewTransferSummary(data) {
   return data.transfer_summary_ytd || data.transfer_summary || [];
 }
 
+function overviewDisposableNet(period) {
+  return num(period.disposable_net ?? period.net ?? 0);
+}
+
+function overviewInvestmentTransfer(data, period = currentOverviewPeriod(data)) {
+  return num(period.investment_transfer ?? investmentTransferAmount(currentOverviewTransferSummary(data)));
+}
+
+function overviewInvestmentTransferNet(data, period = currentOverviewPeriod(data)) {
+  if (period.investment_transfer_net !== undefined && period.investment_transfer_net !== null) {
+    return num(period.investment_transfer_net);
+  }
+  return -Math.abs(overviewInvestmentTransfer(data, period));
+}
+
+function overviewOtherTransfer(data, period = currentOverviewPeriod(data)) {
+  if (period.other_transfer !== undefined && period.other_transfer !== null) return num(period.other_transfer);
+  const totalTransfer = num(period.internal_transfer || 0);
+  return Math.max(totalTransfer - overviewInvestmentTransfer(data, period), 0);
+}
+
+function overviewCashNet(data, period = currentOverviewPeriod(data)) {
+  if (period.cash_net !== undefined && period.cash_net !== null) return num(period.cash_net);
+  return overviewDisposableNet(period) + overviewInvestmentTransferNet(data, period);
+}
+
 function currentOverviewCategories(data, flowType) {
   const period = overviewPeriodKey();
   const keys = {
@@ -598,19 +624,19 @@ function renderOverviewPeriodButtons() {
 
 function renderKpis(data) {
   const period = currentOverviewPeriod(data);
-  const investmentTransfer = investmentTransferAmount(currentOverviewTransferSummary(data));
-  const totalTransfer = num(period.internal_transfer || 0);
-  const internalTransfer = Math.max(totalTransfer - investmentTransfer, 0);
+  const investmentTransfer = overviewInvestmentTransfer(data, period);
+  const internalTransfer = overviewOtherTransfer(data, period);
+  const disposableNet = overviewDisposableNet(period);
   setText('kpiMonthIncome', money(period.income || 0));
   setText('kpiMonthExpense', money(period.expense || 0));
-  setText('kpiDisposableNet', signedMoney(period.net || 0));
+  setText('kpiDisposableNet', signedMoney(disposableNet));
   setText('kpiInvestmentTransfer', money(investmentTransfer || 0));
   setText('kpiTransfer', money(internalTransfer || 0));
   setText('kpiPending', String(period.pending_count || 0));
   const netEl = $('kpiDisposableNet');
   if (netEl) {
-    netEl.classList.toggle('up', num(period.net) >= 0);
-    netEl.classList.toggle('down', num(period.net) < 0);
+    netEl.classList.toggle('up', disposableNet >= 0);
+    netEl.classList.toggle('down', disposableNet < 0);
   }
   const pendingEl = $('kpiPending');
   if (pendingEl) pendingEl.classList.toggle('down', num(period.pending_count) > 0);
@@ -620,14 +646,12 @@ function renderLedgerMobileHero(data) {
   const el = $('ledgerMobileHero');
   if (!el) return;
   const period = currentOverviewPeriod(data);
-  const investmentTransfer = investmentTransferAmount(currentOverviewTransferSummary(data));
-  const totalTransfer = num(period.internal_transfer || 0);
-  const internalTransfer = Math.max(totalTransfer - investmentTransfer, 0);
-  const net = num(period.net || 0);
+  const internalTransfer = overviewOtherTransfer(data, period);
+  const cashNet = overviewCashNet(data, period);
   const pending = num(period.pending_count || 0);
   el.innerHTML = `
-    <div class="ledgerMobileLabel">${overviewPeriodLabel()}净流入</div>
-    <div class="ledgerMobileValue ${net >= 0 ? 'up' : 'down'}">${signedMoney(net)}</div>
+    <div class="ledgerMobileLabel">${overviewPeriodLabel()}现金净变化</div>
+    <div class="ledgerMobileValue ${cashNet >= 0 ? 'up' : 'down'}">${signedMoney(cashNet)}</div>
     <div class="ledgerMobileStats">
       <div class="ledgerMobileStat">
         <span>待确认</span>
@@ -1171,14 +1195,14 @@ function renderCashflowBridge(data) {
   const el = $('cashflowBridge');
   if (!el) return;
   const period = currentOverviewPeriod(data);
-  const totalTransfer = num(period.internal_transfer || 0);
-  const investTransfer = investmentTransferAmount(currentOverviewTransferSummary(data));
-  const otherTransfer = Math.max(totalTransfer - investTransfer, 0);
+  const investTransferNet = overviewInvestmentTransferNet(data, period);
+  const otherTransfer = overviewOtherTransfer(data, period);
+  const disposableNet = overviewDisposableNet(period);
   const rows = [
     ['收入', money(period.income || 0), 'good'],
     ['消费', signedMoney(-Math.abs(num(period.expense || 0))), 'bad'],
-    ['可支配净流入', signedMoney(period.net || 0), num(period.net || 0) >= 0 ? 'good' : 'bad'],
-    ['投资转账', signedMoney(-Math.abs(investTransfer)), 'data'],
+    ['可支配净流入', signedMoney(disposableNet), disposableNet >= 0 ? 'good' : 'bad'],
+    ['投资转账', signedMoney(investTransferNet), investTransferNet >= 0 ? 'good' : 'data'],
     ['内部转账', signedMoney(otherTransfer), 'data'],
     ['待确认流水', String(period.pending_count || 0), num(period.pending_count || 0) ? 'pending' : 'data'],
   ];

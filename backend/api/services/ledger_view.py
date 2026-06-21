@@ -349,6 +349,15 @@ def classify_ledger_row(
     }
 
 
+def _investment_transfer_sign(match: Mapping[str, Any]) -> int:
+    match_type = str(match.get("match_type") or "").lower()
+    if match_type == "investment_funding":
+        return -1
+    if match_type == "investment_withdrawal":
+        return 1
+    return 0
+
+
 def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]], start: date, end: date) -> dict[str, Any]:
     """Summarize operating cashflow and one-way internal fund movement for a period."""
 
@@ -357,10 +366,20 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     income = sum(r["amount_cny"] for r in period_rows if r["flow_type"] == "income" and r["amount_cny"] > 0)
     expense = sum(abs(r["amount_cny"]) for r in period_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0)
     transfer = sum(abs(t["amount_cny"]) for t in period_transfers)
+    investment_transfer = sum(abs(t["amount_cny"]) for t in period_transfers if _investment_transfer_sign(t))
+    investment_transfer_net = sum(abs(t["amount_cny"]) * _investment_transfer_sign(t) for t in period_transfers)
+    disposable_net = income - expense
+    cash_net = disposable_net + investment_transfer_net
+    other_transfer = max(transfer - investment_transfer, 0.0)
     return {
         "income": round(income, 2),
         "expense": round(expense, 2),
-        "net": round(income - expense, 2),
+        "net": round(disposable_net, 2),
+        "disposable_net": round(disposable_net, 2),
+        "cash_net": round(cash_net, 2),
+        "investment_transfer": round(investment_transfer, 2),
+        "investment_transfer_net": round(investment_transfer_net, 2),
+        "other_transfer": round(other_transfer, 2),
         "internal_transfer": round(transfer, 2),
         "pending_count": sum(1 for r in period_rows if r.get("needs_review")),
         "row_count": len(period_rows),
