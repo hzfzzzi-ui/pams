@@ -21,7 +21,7 @@ const state = {
   recentFlowFilter: '',
   recentAccountFilter: '',
   accountPeriod: 'month',
-  collapsedAccountGroups: new Set(),
+  expandedAccountGroups: new Set(),
 };
 
 const LEDGER_PANEL_HASH = {
@@ -377,7 +377,7 @@ function renderAccountGroup(group) {
     });
   }
 
-  const collapsed = state.collapsedAccountGroups.has(group.code);
+  const collapsed = shouldShowChildren && !state.expandedAccountGroups.has(group.code);
   const activeChildren = childRows.filter(hasAccountActivity).length;
   const childCountText = `${activeChildren}/${childRows.length} 子账户 · ${summary.row_count || 0} 笔${summary.pending_count ? ` · ${summary.pending_count} 待确认` : ''}`;
   return `
@@ -458,10 +458,10 @@ function renderAccountFlowSummary(rows) {
   el.querySelectorAll('[data-account-group-toggle]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const groupCode = btn.dataset.accountGroupToggle || '';
-      if (state.collapsedAccountGroups.has(groupCode)) {
-        state.collapsedAccountGroups.delete(groupCode);
+      if (state.expandedAccountGroups.has(groupCode)) {
+        state.expandedAccountGroups.delete(groupCode);
       } else {
-        state.collapsedAccountGroups.add(groupCode);
+        state.expandedAccountGroups.add(groupCode);
       }
       renderAccountFlowSummary(rows);
     });
