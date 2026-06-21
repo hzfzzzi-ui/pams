@@ -43,6 +43,10 @@ function flowLabel(flowType) {
     expense: '消费',
     transfer: '资金流转',
     investment_return: '投资收益',
+    investment_inflow: '投资流入',
+    investment_outflow: '投资流出',
+    investment_fee: '投资费用',
+    investment_transfer: '投资划转',
   };
   return labels[flowType] || flowType || '未知';
 }
@@ -51,6 +55,7 @@ function flowClass(flowType) {
   if (flowType === 'income') return 'income';
   if (flowType === 'expense') return 'expense';
   if (flowType === 'transfer') return 'transfer';
+  if (String(flowType || '').startsWith('investment_')) return 'transfer';
   return 'other';
 }
 
@@ -193,13 +198,35 @@ function openRecentForAccount(accountCode) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function accountFlowStatsHtml(row) {
+  const isInvestment = row.account_kind === 'investment'
+    || num(row.investment_inflow) > 0
+    || num(row.investment_outflow) > 0
+    || num(row.investment_return) > 0
+    || num(row.investment_fee) > 0;
+  if (isInvestment) {
+    const items = [
+      ['流入', row.investment_inflow || 0],
+      ['流出', row.investment_outflow || 0],
+      ['收益', row.investment_return || 0],
+    ];
+    if (num(row.investment_fee) > 0) items.push(['费用', row.investment_fee || 0]);
+    return items.map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
+  }
+  return [
+    ['收入', row.income || 0],
+    ['消费', row.expense || 0],
+    ['转账', row.transfer || 0],
+  ].map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
+}
+
 function renderAccountFlowSummary(rows) {
   const el = $('accountFlowRows');
   if (!el) return;
   const hint = $('accountFlowHint');
   if (hint) {
     const periodLabel = state.accountPeriod === 'ytd' ? '年初至今' : '本月';
-    hint.textContent = `${periodLabel}账户流水统计；点击账户可进入流水明细核对。`;
+    hint.textContent = `${periodLabel}账户流水统计；投资账户单独按流入、流出、收益和费用对账。`;
   }
   if (!rows?.length) {
     el.innerHTML = '<div class="ledgerEmpty">本月暂无账户流水</div>';
@@ -213,9 +240,7 @@ function renderAccountFlowSummary(rows) {
           <strong>${escapeHtml(accountDisplayName(row.account_code))}</strong>
           <small>${escapeHtml(row.account_code || '')}</small>
           <span class="accountFlowStats">
-            <span>收入 ${escapeHtml(money(row.income || 0))}</span>
-            <span>消费 ${escapeHtml(money(row.expense || 0))}</span>
-            <span>转账 ${escapeHtml(money(row.transfer || 0))}</span>
+            ${accountFlowStatsHtml(row)}
           </span>
         </span>
         <span class="accountFlowSide">
@@ -242,7 +267,10 @@ function investmentTransferAmount(rows) {
 
 function isInvestmentTransferRow(row) {
   const cashflowType = String(row.cashflow_type || '').toLowerCase();
-  return cashflowType === 'investment_funding' || cashflowType === 'investment_withdrawal';
+  const flowType = String(row.flow_type || '').toLowerCase();
+  return cashflowType === 'investment_funding'
+    || cashflowType === 'investment_withdrawal'
+    || flowType.startsWith('investment_');
 }
 
 function isInternalTransferRow(row) {

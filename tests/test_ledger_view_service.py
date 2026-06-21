@@ -141,3 +141,38 @@ def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:
     result = _account_summary(rows, {"ccb_7332"})
 
     assert [row["account_code"] for row in result] == ["ccb_7332"]
+
+
+def test_account_summary_separates_investment_account_cashflows() -> None:
+    rows = [
+        {"account_code": "ibkr", "account_kind": "investment", "flow_type": "investment_inflow", "amount_cny": 1000, "needs_review": False},
+        {"account_code": "ibkr", "account_kind": "investment", "flow_type": "investment_outflow", "amount_cny": -300, "needs_review": False},
+        {"account_code": "ibkr", "account_kind": "investment", "flow_type": "investment_return", "amount_cny": 20, "needs_review": False},
+        {"account_code": "ibkr", "account_kind": "investment", "flow_type": "investment_fee", "amount_cny": -5, "needs_review": False},
+    ]
+
+    result = _account_summary(rows, {"ibkr"})
+
+    assert result[0]["account_kind"] == "investment"
+    assert result[0]["income"] == 0
+    assert result[0]["expense"] == 0
+    assert result[0]["investment_inflow"] == 1000
+    assert result[0]["investment_outflow"] == 300
+    assert result[0]["investment_return"] == 20
+    assert result[0]["investment_fee"] == 5
+    assert result[0]["net"] == 715
+
+
+def test_summarize_period_ignores_investment_account_cashflows() -> None:
+    rows = [
+        {"transaction_date_obj": date(2026, 5, 1), "amount_cny": 2000, "flow_type": "income", "needs_review": False},
+        {"transaction_date_obj": date(2026, 5, 2), "amount_cny": -500, "flow_type": "expense", "needs_review": False},
+        {"transaction_date_obj": date(2026, 5, 3), "amount_cny": -10000, "flow_type": "investment_outflow", "needs_review": False},
+        {"transaction_date_obj": date(2026, 5, 4), "amount_cny": 3000, "flow_type": "investment_inflow", "needs_review": False},
+    ]
+
+    summary = summarize_period(rows, [], date(2026, 5, 1), date(2026, 5, 31))
+
+    assert summary["income"] == 2000
+    assert summary["expense"] == 500
+    assert summary["net"] == 1500

@@ -22,6 +22,33 @@ import yaml
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
 LOCAL_ACCOUNTS_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "accounts.yaml"
 
+INVESTMENT_ACCOUNT_CODES = {
+    "tencent_licaitong",
+    "ccb_yhs300_fund",
+    "tonghuashun",
+    "ibkr",
+}
+
+INVESTMENT_INFLOW_TYPES = {
+    "deposit",
+    "cash_deposit",
+    "transfer_in",
+    "sell",
+    "fund_redemption",
+}
+
+INVESTMENT_OUTFLOW_TYPES = {
+    "withdraw",
+    "withdrawal",
+    "cash_withdrawal",
+    "transfer_out",
+    "buy",
+    "fund_subscription",
+}
+
+INVESTMENT_RETURN_TYPES = {"dividend", "interest", "coupon"}
+INVESTMENT_FEE_TYPES = {"fee", "tax"}
+
 
 TRANSFER_MATCH_TYPES = {
     "account_transfer",
@@ -321,14 +348,21 @@ def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] |
             account_code,
             {
                 "account_code": account_code,
+                "account_kind": row.get("account_kind") or "cash",
                 "income": 0.0,
                 "expense": 0.0,
                 "transfer": 0.0,
+                "investment_inflow": 0.0,
+                "investment_outflow": 0.0,
+                "investment_return": 0.0,
+                "investment_fee": 0.0,
                 "net": 0.0,
                 "row_count": 0,
                 "pending_count": 0,
             },
         )
+        if row.get("account_kind") == "investment":
+            item["account_kind"] = "investment"
         amount = _to_float(row.get("amount_cny"))
         flow_type = row.get("flow_type")
         item["row_count"] += 1
@@ -341,19 +375,41 @@ def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] |
             item["expense"] += abs(amount)
         elif flow_type == "transfer":
             item["transfer"] += abs(amount)
+        elif flow_type == "investment_inflow" and amount > 0:
+            item["investment_inflow"] += amount
+        elif flow_type == "investment_outflow" and amount < 0:
+            item["investment_outflow"] += abs(amount)
+        elif flow_type == "investment_return":
+            item["investment_return"] += abs(amount)
+        elif flow_type == "investment_fee":
+            item["investment_fee"] += abs(amount)
 
     result = []
     for item in grouped.values():
+        activity = (
+            item["income"]
+            + item["expense"]
+            + item["transfer"]
+            + item["investment_inflow"]
+            + item["investment_outflow"]
+            + item["investment_return"]
+            + item["investment_fee"]
+        )
         result.append(
             {
                 "account_code": item["account_code"],
+                "account_kind": item["account_kind"],
                 "income": round(item["income"], 2),
                 "expense": round(item["expense"], 2),
                 "transfer": round(item["transfer"], 2),
+                "investment_inflow": round(item["investment_inflow"], 2),
+                "investment_outflow": round(item["investment_outflow"], 2),
+                "investment_return": round(item["investment_return"], 2),
+                "investment_fee": round(item["investment_fee"], 2),
                 "net": round(item["net"], 2),
                 "row_count": item["row_count"],
                 "pending_count": item["pending_count"],
-                "activity": round(item["income"] + item["expense"] + item["transfer"], 2),
+                "activity": round(activity, 2),
             }
         )
     return sorted(result, key=lambda item: item["activity"], reverse=True)
@@ -420,6 +476,117 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
         {"start": start, "end": end, "base": base_currency},
     )
     return [dict(row) for row in cur.fetchall()]
+
+
+def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+    cur.execute(
+        """
+        WITH trades AS (
+            SELECT
+                f.trade_id AS id,
+                f.account_code,
+                f.trade_date AS transaction_date,
+                COALESCE(NULLIF(f.currency, ''), %(base)s) AS currency,
+                LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type, 'unknown')) AS direction,
+                f.trade_type,
+                f.side,
+                COALESCE(
+                    f.net_cash_cny,
+                    f.net_cash * COALESCE(f.fx_rate_to_cny, 1),
+                    f.gross_amount * COALESCE(f.fx_rate_to_cny, 1),
+                    0
+                ) AS raw_amount_cny,
+                f.net_cash,
+                f.gross_amount,
+                f.fee_amount,
+                f.tax_amount,
+                f.symbol,
+                f.name,
+                f.source_table,
+                f.source_id
+            FROM pams_investment_trade_fact f
+            WHERE f.trade_date >= %(start)s
+              AND f.trade_date <= %(end)s
+              AND f.account_code = ANY(%(accounts)s)
+              AND COALESCE(f.affects_cash, TRUE) = TRUE
+        )
+        SELECT
+            id,
+            account_code,
+            'investment'::text AS account_kind,
+            ''::text AS bank,
+            transaction_date,
+            CASE
+                WHEN direction = ANY(%(inflow_types)s) THEN ABS(raw_amount_cny)
+                WHEN direction = ANY(%(outflow_types)s) THEN -ABS(raw_amount_cny)
+                WHEN direction = ANY(%(return_types)s) THEN ABS(raw_amount_cny)
+                WHEN direction = ANY(%(fee_types)s) THEN -ABS(COALESCE(NULLIF(raw_amount_cny, 0), fee_amount + tax_amount, 0))
+                ELSE raw_amount_cny
+            END AS amount,
+            CASE
+                WHEN direction = ANY(%(inflow_types)s) THEN ABS(raw_amount_cny)
+                WHEN direction = ANY(%(outflow_types)s) THEN -ABS(raw_amount_cny)
+                WHEN direction = ANY(%(return_types)s) THEN ABS(raw_amount_cny)
+                WHEN direction = ANY(%(fee_types)s) THEN -ABS(COALESCE(NULLIF(raw_amount_cny, 0), fee_amount + tax_amount, 0))
+                ELSE raw_amount_cny
+            END AS amount_cny,
+            currency,
+            '投资账户'::text AS category,
+            CASE
+                WHEN direction IN ('deposit', 'cash_deposit', 'transfer_in') THEN '入金'
+                WHEN direction IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN '出金'
+                WHEN direction IN ('buy', 'fund_subscription') THEN '买入/申购'
+                WHEN direction IN ('sell', 'fund_redemption') THEN '卖出/赎回'
+                WHEN direction IN ('dividend', 'interest', 'coupon') THEN '分红/利息'
+                WHEN direction IN ('fee', 'tax') THEN '费用/税费'
+                ELSE '投资现金流'
+            END AS subcategory,
+            COALESCE(NULLIF(name, ''), NULLIF(symbol, ''), trade_type) AS summary,
+            CONCAT_WS(' / ', NULLIF(symbol, ''), NULLIF(name, ''), trade_type) AS description,
+            NULL::text AS counterparty,
+            CASE
+                WHEN direction = ANY(%(return_types)s) THEN 'investment_return_cash'
+                WHEN direction = ANY(%(fee_types)s) THEN 'fee'
+                ELSE 'investment_funding'
+            END AS cashflow_type,
+            TRUE AS is_internal_transfer,
+            NULL::text AS transfer_group_id,
+            'auto'::text AS review_status,
+            source_table,
+            source_id,
+            CASE
+                WHEN direction = ANY(%(return_types)s) THEN 'investment_return'
+                WHEN direction = ANY(%(fee_types)s) THEN 'investment_fee'
+                WHEN direction = ANY(%(inflow_types)s) THEN 'investment_inflow'
+                WHEN direction = ANY(%(outflow_types)s) THEN 'investment_outflow'
+                ELSE 'investment_transfer'
+            END AS flow_type,
+            FALSE AS needs_review,
+            FALSE AS is_operating
+        FROM trades
+        WHERE ABS(raw_amount_cny) > 0.0001
+          AND direction <> 'fx_conversion'
+        ORDER BY transaction_date DESC, id DESC
+        """,
+        {
+            "start": start,
+            "end": end,
+            "base": base_currency,
+            "accounts": sorted(INVESTMENT_ACCOUNT_CODES),
+            "inflow_types": sorted(INVESTMENT_INFLOW_TYPES),
+            "outflow_types": sorted(INVESTMENT_OUTFLOW_TYPES),
+            "return_types": sorted(INVESTMENT_RETURN_TYPES),
+            "fee_types": sorted(INVESTMENT_FEE_TYPES),
+        },
+    )
+    rows = []
+    for raw in cur.fetchall():
+        row = dict(raw)
+        row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
+        row["amount_cny"] = _to_float(row.get("amount_cny"))
+        row["coarse_category"] = row.get("subcategory") or "投资现金流"
+        rows.append(row)
+    return rows
 
 
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
@@ -558,12 +725,17 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         match["match_date_obj"] = _as_date(match.get("match_date"))
         match["amount_cny"] = _to_float(match.get("amount_cny"))
 
+    investment_rows = _load_investment_account_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    account_rows = enriched_rows + investment_rows
     month_rows = [r for r in enriched_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
+    month_account_rows = [
+        r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end
+    ]
     configured_accounts = _load_configured_account_codes()
     recent_start = month_end - timedelta(days=max(recent_days, 1) - 1)
     recent_rows = [
         _serialize_row(r)
-        for r in enriched_rows
+        for r in account_rows
         if r.get("transaction_date_obj") and recent_start <= r["transaction_date_obj"] <= month_end
     ][:300]
     review_rows = [_serialize_row(r) for r in enriched_rows if r.get("needs_review")][:100]
@@ -578,11 +750,11 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         },
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
-        "account_summary": _account_summary(month_rows, configured_accounts),
+        "account_summary": _account_summary(month_account_rows, configured_accounts),
         "account_summary_ytd": _account_summary(
             [
                 row
-                for row in enriched_rows
+                for row in account_rows
                 if row.get("transaction_date_obj") and ytd_start <= row["transaction_date_obj"] <= month_end
             ],
             configured_accounts,
