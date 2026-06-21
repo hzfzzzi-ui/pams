@@ -1194,19 +1194,20 @@ function renderCashflowBridge(data) {
   const el = $('cashflowBridge');
   if (!el) return;
   const period = currentOverviewPeriod(data);
-  const investTransferNet = overviewInvestmentTransferNet(data, period);
+  const investmentMovement = overviewInvestmentTransfer(data, period);
   const otherTransfer = overviewOtherTransfer(data, period);
+  const internalMovement = num(period.internal_transfer ?? (investmentMovement + otherTransfer));
   const cashNet = overviewCashNet(data, period);
   const fundingItems = [
-    ['投资转账', signedMoney(investTransferNet), investTransferNet >= 0 ? 'good' : 'bad'],
-    ['内部转账', signedMoney(otherTransfer), 'data'],
+    ['内部资金流动', money(internalMovement), 'data'],
+    ['投资账户流动', money(investmentMovement), 'data'],
     ['现金净变化', signedMoney(cashNet), cashNet >= 0 ? 'good' : 'bad'],
   ];
   el.innerHTML = `
     <div class="cashflowBridgeLine">
       <div class="cashflowBridgeHead">
         <span>资金调拨</span>
-        <strong>投资入金和内部划转不计入消费</strong>
+        <strong>NAV 内部迁移，不计入消费</strong>
       </div>
       <div class="cashflowTransferGrid">
         ${fundingItems.map(([label, value, tone]) => `
