@@ -4,6 +4,7 @@ import {
   byId as $,
   clearError,
   escapeHtml,
+  formatCurrency,
   formatMoneyAxis as axisMoney,
   formatMoneyFixed2 as money,
   formatPercent,
@@ -134,12 +135,21 @@ function rowTitle(row) {
   return [row.summary, row.description, row.counterparty].filter(Boolean).join(' / ') || '未命名流水';
 }
 
+function originalCurrencyText(row) {
+  const currency = String(row.currency || '').trim().toUpperCase();
+  if (!currency || currency === 'CNY') return '';
+  if (row.amount === null || row.amount === undefined || row.amount === '') return '';
+  return formatCurrency(row.amount, currency, { signed: true });
+}
+
 function rowDetailHtml(row) {
+  const originalAmount = originalCurrencyText(row);
   return `
     <div class="rowDetailGrid">
       <div><strong>账户</strong><span>${escapeHtml(accountLabel(row.account_code) || row.account_code || '-')}</span></div>
       <div><strong>对方</strong><span>${escapeHtml(row.counterparty || '不适用')}</span></div>
       <div><strong>原始类型</strong><span>${escapeHtml(row.flow_type || '-')}</span></div>
+      ${originalAmount ? `<div><strong>原币金额</strong><span>${escapeHtml(originalAmount)}</span></div>` : ''}
       <div><strong>粗分类</strong><span>${escapeHtml(row.coarse_category || '-')}</span></div>
       <div><strong>摘要</strong><span>${escapeHtml(row.summary || '-')}</span></div>
       <div><strong>说明</strong><span>${escapeHtml(row.description || '不适用')}</span></div>
@@ -727,6 +737,7 @@ function renderRows(id, rows, limit = 80) {
     const account = accountLabel(row.account_code) || row.account_code || '';
     const category = row.coarse_category || flowLabel(row.flow_type);
     const counterparty = row.counterparty ? ` / ${row.counterparty}` : '';
+    const originalAmount = originalCurrencyText(row);
     const isReviewRow = id === 'reviewRows' && row.needs_review;
     const actionButtons = isReviewRow
       ? `
@@ -743,6 +754,7 @@ function renderRows(id, rows, limit = 80) {
         </span>
         <span class="ledgerListSide">
           <b class="${amountClass}">${signedMoney(amount)}</b>
+          ${originalAmount ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
           <small class="ledgerListMeta">
             <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(flowLabel(row.flow_type))}</span>
             ${row.needs_review ? '<span class="ledgerReviewHint">待确认支出</span>' : ''}

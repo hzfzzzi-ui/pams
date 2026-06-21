@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import inspect
 from datetime import date, datetime
 from pathlib import Path
 
@@ -10,6 +11,7 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+import services.ledger_view as ledger_view  # noqa: E402
 from services.ledger_view import (  # noqa: E402
     _account_summary,
     _recent_start_for_account_window,
@@ -167,6 +169,13 @@ def test_recent_start_includes_full_account_month_for_long_month() -> None:
 
 def test_recent_start_preserves_trailing_window_when_it_starts_earlier() -> None:
     assert _recent_start_for_account_window(date(2026, 2, 1), date(2026, 2, 28), 30) == date(2026, 1, 30)
+
+
+def test_investment_account_rows_keep_original_currency_amount_for_display() -> None:
+    source = inspect.getsource(ledger_view._load_investment_account_rows)
+
+    assert "ABS(cf.amount) AS amount" in source
+    assert "amount_cny AS amount" not in source
 
 
 def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:
