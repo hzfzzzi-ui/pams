@@ -21,6 +21,7 @@ const state = {
   recentFlowFilter: '',
   recentAccountFilter: '',
   accountPeriod: 'month',
+  collapsedAccountGroups: new Set(),
 };
 
 const LEDGER_PANEL_HASH = {
@@ -36,6 +37,75 @@ const LEDGER_HASH_PANEL = {
   '#accountIssueStrip': 'account',
   '#transfers': 'recent',
 };
+
+const ACCOUNT_GROUPS = [
+  { code: 'ccb', label: '建设银行', children: ['ccb_7332', 'ccb_credit_0453', 'ccb_yhs300_fund'] },
+  { code: 'wechat_root', label: '微信', children: ['wechat', 'wechat_lqt', 'tencent_licaitong'] },
+  { code: 'guangfa_root', label: '广发银行', children: ['gf_7443', 'gf_9711'] },
+  { code: 'santander_root', label: 'Santander', children: ['santander'], forceChildren: true },
+  { code: 'alipay_root', label: '支付宝', children: ['alipay'], standalone: true },
+  { code: 'ibkr_root', label: 'IBKR', children: ['ibkr'], standalone: true },
+  { code: 'tonghuashun_root', label: '同花顺', children: ['tonghuashun'], standalone: true },
+  {
+    code: 'benefits_root',
+    label: '五险一金',
+    children: [
+      'pension_insurance',
+      'medical_insurance',
+      'unemployment_insurance',
+      'work_injury_insurance',
+      'maternity_insurance',
+      'hpf',
+    ],
+  },
+];
+
+const ACCOUNT_GROUP_CHILD_CODES = new Set(ACCOUNT_GROUPS.flatMap((group) => group.children));
+
+const ACCOUNT_SUBACCOUNT_LABELS = {
+  ccb_7332: '储蓄卡',
+  ccb_credit_0453: '信用卡',
+  ccb_yhs300_fund: '建行理财',
+  wechat: '零钱',
+  wechat_lqt: '零钱通',
+  tencent_licaitong: '腾讯理财通',
+  gf_7443: '7443 信用卡',
+  gf_9711: '9711 信用卡',
+  santander: '储蓄卡',
+  pension_insurance: '养老保险',
+  medical_insurance: '医疗保险',
+  unemployment_insurance: '失业保险',
+  work_injury_insurance: '工伤保险',
+  maternity_insurance: '生育保险',
+  hpf: '公积金',
+};
+
+const ACCOUNT_KIND_OVERRIDES = {
+  ccb_yhs300_fund: 'investment',
+  tencent_licaitong: 'investment',
+  ibkr: 'investment',
+  tonghuashun: 'investment',
+  pension_insurance: 'benefit',
+  medical_insurance: 'benefit',
+  unemployment_insurance: 'benefit',
+  work_injury_insurance: 'benefit',
+  maternity_insurance: 'benefit',
+  hpf: 'benefit',
+};
+
+const ACCOUNT_NUMERIC_FIELDS = [
+  'income',
+  'expense',
+  'transfer',
+  'investment_inflow',
+  'investment_outflow',
+  'investment_return',
+  'investment_fee',
+  'net',
+  'row_count',
+  'pending_count',
+  'activity',
+];
 
 function flowLabel(flowType) {
   const labels = {
@@ -165,6 +235,177 @@ function accountDisplayName(accountCode) {
   return account?.display_name || account?.subaccount_label || accountLabel(accountCode) || accountCode || '未命名账户';
 }
 
+function subAccountDisplayName(accountCode) {
+  return ACCOUNT_SUBACCOUNT_LABELS[accountCode] || accountDisplayName(accountCode);
+}
+
+function normalizeAccountRow(row = {}) {
+  const normalized = {
+    ...row,
+    account_code: row.account_code || '',
+    account_kind: row.account_kind || ACCOUNT_KIND_OVERRIDES[row.account_code] || 'cash',
+  };
+  ACCOUNT_NUMERIC_FIELDS.forEach((field) => {
+    normalized[field] = num(row[field] || 0);
+  });
+  return normalized;
+}
+
+function emptyAccountRow(accountCode) {
+  return normalizeAccountRow({
+    account_code: accountCode,
+    account_kind: ACCOUNT_KIND_OVERRIDES[accountCode] || 'cash',
+  });
+}
+
+function mergeAccountRows(rows, accountCode, accountKind = 'group') {
+  const merged = normalizeAccountRow({
+    account_code: accountCode,
+    account_kind: accountKind,
+  });
+  rows.forEach((row) => {
+    const normalized = normalizeAccountRow(row);
+    ACCOUNT_NUMERIC_FIELDS.forEach((field) => {
+      merged[field] += normalized[field];
+    });
+  });
+  return merged;
+}
+
+function hasAccountActivity(row) {
+  return num(row.row_count) > 0
+    || num(row.pending_count) > 0
+    || ACCOUNT_NUMERIC_FIELDS.some((field) => field !== 'activity' && Math.abs(num(row[field])) > 0.000001);
+}
+
+function buildAccountFlowGroups(rows) {
+  const rowByAccount = new Map((rows || []).map((row) => [row.account_code, normalizeAccountRow(row)]));
+  const groups = ACCOUNT_GROUPS.map((group) => {
+    const children = group.children.map((accountCode) => rowByAccount.get(accountCode) || emptyAccountRow(accountCode));
+    const activeChildren = children.filter(hasAccountActivity);
+    const summary = mergeAccountRows(children, group.code, 'group');
+    return {
+      ...group,
+      children,
+      summary,
+      visible: activeChildren.length > 0 || group.forceChildren || group.code === 'benefits_root',
+    };
+  }).filter((group) => group.visible);
+
+  const leftoverRows = (rows || [])
+    .filter((row) => row.account_code && !ACCOUNT_GROUP_CHILD_CODES.has(row.account_code))
+    .map((row) => ({
+      code: `${row.account_code}_root`,
+      label: accountDisplayName(row.account_code),
+      children: [normalizeAccountRow(row)],
+      summary: normalizeAccountRow(row),
+      standalone: true,
+      visible: true,
+    }));
+
+  return [...groups, ...leftoverRows];
+}
+
+function accountFlowStatsEntries(row) {
+  const normalized = normalizeAccountRow(row);
+  if (normalized.account_kind === 'investment') {
+    return [['入金', normalized.investment_inflow]];
+  }
+  const entries = [
+    ['收入', normalized.income],
+    ['消费', normalized.expense],
+    ['转账', normalized.transfer],
+  ];
+  if (normalized.account_kind === 'group' && Math.abs(normalized.investment_inflow) > 0.000001) {
+    entries.push(['入金', normalized.investment_inflow]);
+  }
+  if (normalized.account_kind === 'group') {
+    return entries.filter(([, value]) => Math.abs(num(value)) > 0.000001);
+  }
+  return entries;
+}
+
+function accountFlowStatsHtml(row) {
+  const entries = accountFlowStatsEntries(row);
+  if (!entries.length) {
+    return '<span>暂无流水</span>';
+  }
+  return entries.map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
+}
+
+function renderAccountFlowSide(row, childCountText = '') {
+  const net = num(row.net);
+  const pendingText = row.pending_count ? ` · ${row.pending_count} 待确认` : '';
+  const countText = childCountText || `${row.row_count || 0} 笔${pendingText}`;
+  return `
+    <span class="accountFlowSide">
+      <b class="${net >= 0 ? 'up' : 'down'}">${signedMoney(net)}</b>
+      <small>${escapeHtml(countText)}</small>
+    </span>
+  `;
+}
+
+function renderAccountFlowRow(row, { label, detail, classes = '', filterable = true } = {}) {
+  const active = hasAccountActivity(row);
+  const tagName = filterable && active ? 'button' : 'div';
+  const typeAttr = tagName === 'button' ? ' type="button"' : '';
+  const filterAttr = tagName === 'button' ? ` data-account-flow-filter="${escapeHtml(row.account_code || '')}"` : '';
+  return `
+    <${tagName}${typeAttr} class="accountFlowRow ${classes}${active ? '' : ' is-empty'}"${filterAttr}>
+      <span class="accountFlowMain">
+        <strong>${escapeHtml(label || accountDisplayName(row.account_code))}</strong>
+        <small>${escapeHtml(detail || row.account_code || '')}</small>
+        <span class="accountFlowStats">
+          ${accountFlowStatsHtml(row)}
+        </span>
+      </span>
+      ${renderAccountFlowSide(row)}
+    </${tagName}>
+  `;
+}
+
+function renderAccountGroup(group) {
+  const summary = group.summary;
+  const childRows = group.children || [];
+  const shouldShowChildren = group.forceChildren || childRows.length > 1;
+  if (group.standalone && !shouldShowChildren) {
+    const row = childRows[0] || summary;
+    return renderAccountFlowRow(row, {
+      label: group.label,
+      detail: row.account_code,
+      classes: 'accountStandaloneRow',
+    });
+  }
+
+  const collapsed = state.collapsedAccountGroups.has(group.code);
+  const activeChildren = childRows.filter(hasAccountActivity).length;
+  const childCountText = `${activeChildren}/${childRows.length} 子账户 · ${summary.row_count || 0} 笔${summary.pending_count ? ` · ${summary.pending_count} 待确认` : ''}`;
+  return `
+    <div class="accountGroupBlock" data-account-group="${escapeHtml(group.code)}">
+      <button type="button" class="accountFlowRow accountGroupRow" data-account-group-toggle="${escapeHtml(group.code)}" aria-expanded="${collapsed ? 'false' : 'true'}">
+        <span class="accountFlowMain">
+          <strong>${escapeHtml(group.label)}</strong>
+          <small>${escapeHtml(childCountText)}</small>
+          <span class="accountFlowStats">
+            ${accountFlowStatsHtml(summary)}
+          </span>
+        </span>
+        <span class="accountFlowSide">
+          <span class="accountGroupToggle">${collapsed ? '展开' : '收起'}</span>
+          <b class="${num(summary.net) >= 0 ? 'up' : 'down'}">${signedMoney(summary.net)}</b>
+        </span>
+      </button>
+      <div class="accountSubList" ${collapsed ? 'hidden' : ''}>
+        ${childRows.map((row) => renderAccountFlowRow(row, {
+          label: subAccountDisplayName(row.account_code),
+          detail: row.account_code,
+          classes: 'accountSubRow',
+        })).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderRecentAccountScope() {
   const el = $('recentAccountScope');
   if (!el) return;
@@ -198,22 +439,6 @@ function openRecentForAccount(accountCode) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function accountFlowStatsHtml(row) {
-  const isInvestment = row.account_kind === 'investment'
-    || num(row.investment_inflow) > 0
-    || num(row.investment_outflow) > 0
-    || num(row.investment_return) > 0
-    || num(row.investment_fee) > 0;
-  if (isInvestment) {
-    return `<span>${escapeHtml('入金')} ${escapeHtml(money(row.investment_inflow || 0))}</span>`;
-  }
-  return [
-    ['收入', row.income || 0],
-    ['消费', row.expense || 0],
-    ['转账', row.transfer || 0],
-  ].map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
-}
-
 function renderAccountFlowSummary(rows) {
   const el = $('accountFlowRows');
   if (!el) return;
@@ -226,26 +451,20 @@ function renderAccountFlowSummary(rows) {
     el.innerHTML = '<div class="ledgerEmpty">本月暂无账户流水</div>';
     return;
   }
-  el.innerHTML = rows.map((row) => {
-    const net = num(row.net);
-    return `
-      <button type="button" class="accountFlowRow" data-account-flow-filter="${escapeHtml(row.account_code || '')}">
-        <span class="accountFlowMain">
-          <strong>${escapeHtml(accountDisplayName(row.account_code))}</strong>
-          <small>${escapeHtml(row.account_code || '')}</small>
-          <span class="accountFlowStats">
-            ${accountFlowStatsHtml(row)}
-          </span>
-        </span>
-        <span class="accountFlowSide">
-          <b class="${net >= 0 ? 'up' : 'down'}">${signedMoney(net)}</b>
-          <small>${row.row_count || 0} 笔${row.pending_count ? ` · ${row.pending_count} 待确认` : ''}</small>
-        </span>
-      </button>
-    `;
-  }).join('');
+  el.innerHTML = buildAccountFlowGroups(rows).map(renderAccountGroup).join('');
   el.querySelectorAll('[data-account-flow-filter]').forEach((btn) => {
     btn.addEventListener('click', () => openRecentForAccount(btn.dataset.accountFlowFilter || ''));
+  });
+  el.querySelectorAll('[data-account-group-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const groupCode = btn.dataset.accountGroupToggle || '';
+      if (state.collapsedAccountGroups.has(groupCode)) {
+        state.collapsedAccountGroups.delete(groupCode);
+      } else {
+        state.collapsedAccountGroups.add(groupCode);
+      }
+      renderAccountFlowSummary(rows);
+    });
   });
 }
 
