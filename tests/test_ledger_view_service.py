@@ -96,6 +96,27 @@ def test_payment_proxy_source_side_is_dedup_transfer_row() -> None:
     assert result["needs_review"] is False
 
 
+def test_benefit_asset_positive_row_counts_as_income() -> None:
+    row = {
+        "id": 877,
+        "amount_cny": 3655,
+        "category": "福利资产",
+        "subcategory": "公积金汇缴",
+        "summary": "汇缴",
+        "description": "深圳住房公积金汇缴",
+        "counterparty": "深圳市住房公积金管理中心",
+        "cashflow_type": "operating_income",
+        "is_internal_transfer": False,
+    }
+
+    result = classify_ledger_row(row, transfer_row_ids=set())
+
+    assert result["flow_type"] == "income"
+    assert result["coarse_category"] == "公积金汇缴"
+    assert result["needs_review"] is False
+    assert result["is_operating"] is True
+
+
 def test_classify_unmatched_unclear_expense_needs_review() -> None:
     row = {
         "id": 12,

@@ -268,10 +268,10 @@ def classify_ledger_row(
 
     if category == "福利资产":
         return {
-            "flow_type": "transfer",
+            "flow_type": "income" if amount >= 0 else "expense",
             "coarse_category": subcategory or "福利资产入账",
             "needs_review": False,
-            "is_operating": False,
+            "is_operating": True,
         }
 
     if category == "投资收益" and subcategory != "ESOP分红":
