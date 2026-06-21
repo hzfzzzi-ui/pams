@@ -626,6 +626,18 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
          AND sr.source_id = cf.source_id
         WHERE cf.event_date >= %(start)s
           AND cf.event_date <= %(end)s
+          AND NOT (
+            cf.source_table = 'pams_transactions'
+            AND EXISTS (
+              SELECT 1
+              FROM pams_cashflow_fact bank_cf
+              WHERE bank_cf.source_table = 'pams_bank_statement_rows'
+                AND bank_cf.event_date = cf.event_date
+                AND bank_cf.account_code = cf.account_code
+                AND COALESCE(NULLIF(bank_cf.currency, ''), %(base)s) = COALESCE(NULLIF(cf.currency, ''), %(base)s)
+                AND ABS(bank_cf.amount - cf.amount) < 0.01
+            )
+          )
         ORDER BY cf.event_date DESC, cf.cashflow_id DESC
         """,
         {"start": start, "end": end, "base": base_currency},
