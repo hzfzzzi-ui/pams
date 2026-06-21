@@ -70,10 +70,19 @@
     .categoryBarName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:850 }
     .categoryTrack { height:3px; margin-top:7px; border-radius:999px; background:rgba(139,148,158,.14); overflow:hidden }
     .categoryFill { height:100%; border-radius:999px; background:linear-gradient(90deg, rgba(88,166,255,.78), rgba(63,185,80,.62)) }
+    .categoryBarList.expense .categoryFill { background:linear-gradient(90deg, rgba(248,81,73,.78), rgba(210,153,34,.62)) }
     .categoryBarCount { margin-top:5px; color:var(--muted); font-size:11px; line-height:1; font-weight:800 }
     .categoryBarMeta { display:grid; gap:4px; justify-items:end; min-width:92px; white-space:nowrap }
     .categoryBarMeta b { color:var(--text); font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:14px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
     .categoryBarMeta span { color:var(--muted); font-size:11px; line-height:1; font-weight:850; font-variant-numeric:tabular-nums }
+    .categoryInsightPanel { display:grid; gap:12px; min-width:0 }
+    .categoryModeSwitch { display:flex; gap:6px; justify-content:flex-end; margin-bottom:0 }
+    .categoryModeSwitch .tab-btn { min-height:28px; padding:0 11px }
+    .categoryInsightGrid { display:grid; grid-template-columns:128px minmax(0,1fr); gap:12px; align-items:center; min-width:0 }
+    .categoryPieWrap { position:relative; width:128px; height:128px; min-width:128px }
+    .categoryPieWrap canvas { width:128px !important; height:128px !important }
+    .categoryPieFallback { position:absolute; inset:0; border:1px solid rgba(139,148,158,.16); border-radius:999px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04), 0 10px 26px rgba(0,0,0,.22) }
+    .categoryPieEmpty { position:absolute; inset:0; display:grid; place-items:center; padding:12px; border:1px solid rgba(139,148,158,.14); border-radius:999px; color:var(--muted); font-size:11px; line-height:1.35; font-weight:800; text-align:center }
     .ruleItem { padding:var(--sp-2) 0; border-bottom:1px solid var(--line) }
     .ruleItem:last-child { border-bottom:none }
     .ruleName { font-weight:800; margin-bottom:4px }
@@ -452,6 +461,16 @@
         min-height:260px !important;
         padding:0 8px 0 10px;
       }
+      .categoryInsightGrid {
+        grid-template-columns:104px minmax(0,1fr);
+        gap:10px;
+      }
+      .categoryPieWrap,
+      .categoryPieWrap canvas {
+        width:104px !important;
+        height:104px !important;
+        min-width:104px;
+      }
       .ledgerListRow { min-height:82px; padding:12px 0; grid-template-columns:minmax(0,1fr) 118px; align-items:stretch }
       .ledgerListMain strong { font-size:15px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
       .ledgerListMain small { white-space:nowrap; display:block }
@@ -566,20 +585,25 @@
           </div>
           <div>
             <div class="cashflowSidePanel">
-              <div>
-                <div class="sectionTitle"><h3>消费排行</h3></div>
-                <div id="expenseCategories"></div>
+              <div class="categoryInsightPanel">
+                <div class="sectionTitle">
+                  <h3 id="categoryInsightTitle">收入排行</h3>
+                  <div class="tab-buttons categoryModeSwitch" aria-label="分类视图">
+                    <button class="tab-btn active" type="button" data-overview-flow="income">收入</button>
+                    <button class="tab-btn" type="button" data-overview-flow="expense">消费</button>
+                  </div>
+                </div>
+                <div class="categoryInsightGrid">
+                  <div class="categoryPieWrap">
+                    <canvas id="overviewCategoryPieChart"></canvas>
+                    <div id="overviewCategoryPieEmpty" class="categoryPieEmpty" hidden></div>
+                  </div>
+                  <div id="overviewCategoryRank"></div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </section>
-    </div>
-
-    <div class="ledgerPanelGroup" data-ledger-panel="income" hidden>
-      <section class="ledgerSection ledgerJumpCard" id="income-section">
-        <div class="sectionTitle"><h3>本月收入来源</h3></div>
-        <div id="incomeCategories"></div>
       </section>
     </div>
 
@@ -638,6 +662,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260622-category-pie-v2"></script>
 </body>
 </html>

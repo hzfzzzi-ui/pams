@@ -20,6 +20,7 @@ const state = {
   trendMode: 'monthly',
   activePanel: 'overview',
   overviewPeriod: 'ytd',
+  overviewFlow: 'income',
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',
@@ -29,6 +30,11 @@ const state = {
 };
 
 const ledgerEditBoundButtons = new WeakSet();
+
+const CATEGORY_PIE_COLORS = {
+  income: ['#3fb950', '#58a6ff', '#d29922', '#a371f7', '#2ea043', '#79c0ff', '#8b949e'],
+  expense: ['#f85149', '#d29922', '#ff7b72', '#a371f7', '#f0883e', '#db6d28', '#8b949e'],
+};
 
 const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
@@ -705,9 +711,23 @@ function currentOverviewCategories(data, flowType) {
   return (key && data[key]) || data[fallbackKey] || [];
 }
 
+function overviewFlowKey() {
+  return state.overviewFlow === 'expense' ? 'expense' : 'income';
+}
+
+function overviewFlowLabel(flowType = overviewFlowKey()) {
+  return flowType === 'expense' ? '消费' : '收入';
+}
+
 function renderOverviewPeriodButtons() {
   document.querySelectorAll('[data-overview-period]').forEach((btn) => {
     btn.classList.toggle('active', (btn.dataset.overviewPeriod || 'ytd') === overviewPeriodKey());
+  });
+}
+
+function renderOverviewFlowButtons() {
+  document.querySelectorAll('[data-overview-flow]').forEach((btn) => {
+    btn.classList.toggle('active', (btn.dataset.overviewFlow || 'income') === overviewFlowKey());
   });
 }
 
@@ -1282,7 +1302,7 @@ function isInternalTransferRow(row) {
   return row.flow_type === 'transfer' && !isInvestmentTransferRow(row);
 }
 
-function renderCategoryBars(id, rows, emptyText) {
+function renderCategoryBars(id, rows, emptyText, flowType = 'income') {
   const el = $(id);
   if (!el) return;
   if (!rows?.length) {
@@ -1290,7 +1310,7 @@ function renderCategoryBars(id, rows, emptyText) {
     return;
   }
   el.innerHTML = `
-    <div class="categoryBarList">
+    <div class="categoryBarList ${flowType === 'expense' ? 'expense' : 'income'}">
       ${rows.map((row, index) => `
         <div class="categoryBarRow">
           <div class="categoryBarRank">${index + 1}</div>
@@ -1307,6 +1327,120 @@ function renderCategoryBars(id, rows, emptyText) {
       `).join('')}
     </div>
   `;
+}
+
+function overviewPieRows(rows) {
+  const validRows = (rows || []).filter((row) => num(row.amount) > 0);
+  const visible = validRows.slice(0, 6);
+  const restAmount = validRows.slice(6).reduce((sum, row) => sum + num(row.amount), 0);
+  const restCount = validRows.slice(6).reduce((sum, row) => sum + num(row.count), 0);
+  if (restAmount > 0) {
+    visible.push({
+      category: '其他',
+      amount: restAmount,
+      count: restCount,
+      share: restAmount / validRows.reduce((sum, row) => sum + num(row.amount), 0),
+    });
+  }
+  return visible;
+}
+
+function renderOverviewCategoryPieFallback(canvas, chartRows, flowType) {
+  const wrap = canvas?.parentElement;
+  if (!wrap) return;
+
+  wrap.querySelector('.categoryPieFallback')?.remove();
+  const total = chartRows.reduce((sum, row) => sum + num(row.amount), 0);
+  if (!total) return;
+
+  const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
+  let cursor = 0;
+  const slices = chartRows.map((row, index) => {
+    const start = cursor;
+    cursor += (num(row.amount) / total) * 100;
+    return `${colors[index % colors.length]} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+  }).join(', ');
+
+  const fallback = document.createElement('div');
+  fallback.className = 'categoryPieFallback';
+  fallback.style.background = `conic-gradient(${slices})`;
+  fallback.setAttribute(
+    'aria-label',
+    chartRows.map((row) => `${row.category} ${formatPercent(num(row.amount) / total, 1)}`).join('，'),
+  );
+  wrap.insertBefore(fallback, canvas);
+  canvas.hidden = true;
+}
+
+function renderOverviewCategoryPie(rows, flowType) {
+  const canvas = $('overviewCategoryPieChart');
+  const empty = $('overviewCategoryPieEmpty');
+  if (window.__overviewCategoryPieChart) {
+    window.__overviewCategoryPieChart.destroy();
+    window.__overviewCategoryPieChart = null;
+  }
+  canvas?.parentElement?.querySelector('.categoryPieFallback')?.remove();
+  if (!canvas) return;
+
+  const chartRows = overviewPieRows(rows);
+  const hasRows = chartRows.length > 0;
+  canvas.hidden = !hasRows;
+  if (empty) {
+    empty.hidden = hasRows;
+    empty.textContent = hasRows ? '' : `暂无${overviewFlowLabel(flowType)}分类`;
+  }
+  if (!hasRows) return;
+  if (!window.Chart) {
+    renderOverviewCategoryPieFallback(canvas, chartRows, flowType);
+    return;
+  }
+  canvas.hidden = false;
+
+  const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
+  window.__overviewCategoryPieChart = new Chart(canvas, {
+    type: 'pie',
+    data: {
+      labels: chartRows.map((row) => row.category),
+      datasets: [{
+        data: chartRows.map((row) => num(row.amount)),
+        backgroundColor: chartRows.map((_, index) => colors[index % colors.length]),
+        borderColor: 'rgba(5,7,10,.92)',
+        borderWidth: 2,
+        hoverOffset: 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctxItem) => {
+              const value = num(ctxItem.parsed);
+              const total = chartRows.reduce((sum, row) => sum + num(row.amount), 0);
+              const share = total ? value / total : 0;
+              return `${ctxItem.label}: ${money(value)} / ${formatPercent(share, 1)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderOverviewCategoryInsight(data) {
+  const flowType = overviewFlowKey();
+  const rows = currentOverviewCategories(data, flowType);
+  setText('categoryInsightTitle', `${overviewFlowLabel(flowType)}排行`);
+  renderOverviewFlowButtons();
+  renderCategoryBars(
+    'overviewCategoryRank',
+    rows,
+    `${overviewPeriodLabel()}暂无${overviewFlowLabel(flowType)}流水。`,
+    flowType,
+  );
+  renderOverviewCategoryPie(rows, flowType);
 }
 
 function renderCashflowBridge(data) {
@@ -1629,8 +1763,7 @@ function renderAll(data) {
   renderLedgerMobileHero(data);
   renderKpis(data);
   renderAccountFlowSummary(currentAccountSummary(data));
-  renderCategoryBars('expenseCategories', currentOverviewCategories(data, 'expense'), `${overviewPeriodLabel()}暂无消费流水。`);
-  renderCategoryBars('incomeCategories', currentOverviewCategories(data, 'income'), `${overviewPeriodLabel()}暂无收入流水。`);
+  renderOverviewCategoryInsight(data);
   renderTransferSummary(currentOverviewTransferSummary(data));
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
@@ -1661,6 +1794,12 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       state.overviewPeriod = btn.dataset.overviewPeriod || 'ytd';
       if (state.data) renderAll(state.data);
+    });
+  });
+  document.querySelectorAll('[data-overview-flow]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.overviewFlow = btn.dataset.overviewFlow || 'income';
+      if (state.data) renderOverviewCategoryInsight(state.data);
     });
   });
   $('trendMonthly')?.addEventListener('click', () => {

@@ -342,7 +342,15 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'id="reviewRows" class="ledgerList"' not in html
     assert 'id="recentRows" class="ledgerList"' in html
     assert 'id="recentFlowFilter"' not in html
-    assert "消费排行" in html
+    assert 'id="categoryInsightTitle"' in html
+    assert 'id="overviewCategoryPieChart"' in html
+    assert 'id="overviewCategoryRank"' in html
+    assert 'data-overview-flow="income"' in html
+    assert 'data-overview-flow="expense"' in html
+    assert "categoryInsightGrid" in html
+    assert "categoryPieWrap" in html
+    assert "categoryPieFallback" in html
+    assert "消费排行" not in html
     assert "消费 Top 5" not in html
     assert "reviewEntryHeader" not in html
     assert "reviewEntryStatus" not in html
@@ -390,7 +398,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2" in html
+    assert "assets/js/ledger_cashflow.js?v=20260622-category-pie-v2" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -410,9 +418,19 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'class="accountPeriodButton active" type="button" data-overview-period="ytd"' in html
     assert 'id="monthPicker"' not in html
     assert "overviewPeriod: 'ytd'" in js
+    assert "overviewFlow: 'income'" in js
     assert "currentOverviewPeriod" in js
     assert "currentOverviewCategories" in js
     assert "renderOverviewPeriodButtons" in js
+    assert "renderOverviewFlowButtons" in js
+    assert "renderOverviewCategoryInsight" in js
+    assert "renderOverviewCategoryPie" in js
+    assert "renderOverviewCategoryPieFallback" in js
+    assert "overviewPieRows" in js
+    assert "CATEGORY_PIE_COLORS" in js
+    assert "data-overview-flow" in js
+    assert "overviewCategoryPieChart" in js
+    assert "overviewCategoryRank" in js
     assert "expense_categories_ytd" in js
     assert "income_categories_ytd" in js
     assert "transfer_summary_month" in js
@@ -801,7 +819,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260622-category-pie-v2" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1368,7 +1386,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-transfer-peer-v2" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260622-category-pie-v2" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
