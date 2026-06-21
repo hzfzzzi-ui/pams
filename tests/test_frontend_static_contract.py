@@ -367,7 +367,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-fx-transfer-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-transfer-refund-v1" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -416,7 +416,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'data-edit-field="subcategory"' in js
     assert "function updateLedgerSubcategoryOptions(form, preferredValue)" in js
     assert "工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认']" in js
-    assert "内部划转: ['换汇转账', '投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认']" in js
+    assert "内部划转: ['换汇转账', '转账退回', '投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认']" in js
     assert "ledgerInlineEditBtn" in html
     assert "ledgerInlineEditBtn" in js
     assert "${transferRouteHtml(row)}\n      ${editButton}" in js
@@ -743,7 +743,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-fx-transfer-v1" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-transfer-refund-v1" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1310,7 +1310,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-fx-transfer-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-transfer-refund-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
