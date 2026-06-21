@@ -10,7 +10,13 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services.ledger_view import _account_summary, _serialize_row, classify_ledger_row, summarize_period  # noqa: E402
+from services.ledger_view import (  # noqa: E402
+    _account_summary,
+    _recent_start_for_account_window,
+    _serialize_row,
+    classify_ledger_row,
+    summarize_period,
+)
 
 
 def test_classify_transfer_before_expense_without_amount_threshold() -> None:
@@ -153,6 +159,14 @@ def test_account_summary_reports_latest_sync_at() -> None:
     result = _account_summary(rows)
 
     assert result[0]["latest_sync_at"] == "2026-06-02T08:30:00"
+
+
+def test_recent_start_includes_full_account_month_for_long_month() -> None:
+    assert _recent_start_for_account_window(date(2026, 5, 1), date(2026, 5, 31), 30) == date(2026, 5, 1)
+
+
+def test_recent_start_preserves_trailing_window_when_it_starts_earlier() -> None:
+    assert _recent_start_for_account_window(date(2026, 2, 1), date(2026, 2, 28), 30) == date(2026, 1, 30)
 
 
 def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:

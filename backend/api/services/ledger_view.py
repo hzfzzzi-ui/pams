@@ -131,6 +131,11 @@ def _month_bounds(month: str | None, latest_date: date | None = None) -> tuple[d
     return date(year, month_no, 1), date(year, month_no, end_day)
 
 
+def _recent_start_for_account_window(month_start: date, month_end: date, recent_days: int) -> date:
+    trailing_start = month_end - timedelta(days=max(recent_days, 1) - 1)
+    return min(month_start, trailing_start)
+
+
 def _row_text(row: Mapping[str, Any]) -> str:
     parts = [
         row.get("category"),
@@ -698,7 +703,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end
     ]
     configured_accounts = _load_configured_account_codes()
-    recent_start = month_end - timedelta(days=max(recent_days, 1) - 1)
+    recent_start = _recent_start_for_account_window(month_start, month_end, recent_days)
     recent_rows = [
         _serialize_row(r)
         for r in account_rows
