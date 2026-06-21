@@ -558,6 +558,8 @@ def _status_label(status: str) -> str:
 def _pick_primary_balance(
     *,
     truth_source: str,
+    account_type: str = "",
+    reconcile_method: str = "",
     statement_balance: dict[str, Any] | None,
     platform_balance: dict[str, Any] | None,
     manual_balance: dict[str, Any] | None,
@@ -566,6 +568,18 @@ def _pick_primary_balance(
         statement_as_of = str(statement_balance.get("as_of") or "")
         manual_as_of = str(manual_balance.get("as_of") or "")
         return statement_balance if statement_as_of >= manual_as_of else manual_balance
+    platform_is_primary = (
+        truth_source in {"platform_snapshot", "ibkr_flex"}
+        or account_type in {"brokerage", "fund_platform", "cash_management"}
+        or reconcile_method == "position_nav"
+    )
+    if platform_is_primary and platform_balance:
+        if not manual_balance:
+            return platform_balance
+        platform_as_of = str(platform_balance.get("as_of") or "")
+        manual_as_of = str(manual_balance.get("as_of") or "")
+        if not manual_as_of or platform_as_of >= manual_as_of:
+            return platform_balance
     if manual_balance:
         return manual_balance
     if truth_source in {"bank_statement", "official_statement"} and statement_balance:
@@ -625,6 +639,8 @@ def _build_accounts_overview(
         manual_balance = _apply_owner_ratio_to_money(manual_balance, owner_ratio)
         primary_balance = _pick_primary_balance(
             truth_source=truth_source,
+            account_type=account_type,
+            reconcile_method=str(cfg.get("reconcile_method") or "balance"),
             statement_balance=statement_balance,
             platform_balance=platform_balance,
             manual_balance=manual_balance,

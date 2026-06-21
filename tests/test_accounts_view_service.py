@@ -12,7 +12,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.accounts_view import build_account_detail_payload, build_accounts_payload  # noqa: E402
-from endpoints.accounts import _primary_platform_balance, _reconcile_status  # noqa: E402
+from endpoints.accounts import _pick_primary_balance, _primary_platform_balance, _reconcile_status  # noqa: E402
 
 
 class FakeCursor:
@@ -195,3 +195,17 @@ def test_primary_platform_balance_falls_back_to_base_when_material_fx_is_missing
     assert balance is not None
     assert balance["amount"] == Decimal("100")
     assert balance["currency"] == "USD"
+
+
+def test_pick_primary_balance_prefers_latest_platform_snapshot_for_position_nav_account():
+    balance = _pick_primary_balance(
+        truth_source="manual",
+        account_type="fund_platform",
+        reconcile_method="position_nav",
+        statement_balance=None,
+        platform_balance={"amount": Decimal("27942.27"), "currency": "CNY", "as_of": date(2026, 6, 21)},
+        manual_balance={"amount": Decimal("22488.13"), "currency": "CNY", "as_of": "2026-06-02"},
+    )
+
+    assert balance is not None
+    assert balance["amount"] == Decimal("27942.27")
