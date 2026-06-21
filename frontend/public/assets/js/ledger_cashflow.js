@@ -32,7 +32,6 @@ const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
   recent: '#recent-flow-section',
   account: '#account-cashflow-section',
-  review: '#review-section',
 };
 
 const LEDGER_HASH_PANEL = {
@@ -40,6 +39,7 @@ const LEDGER_HASH_PANEL = {
   '#income-section': 'recent',
   '#accountIssueStrip': 'account',
   '#transfers': 'recent',
+  '#review-section': 'account',
 };
 
 const ACCOUNT_GROUPS = [
@@ -652,6 +652,12 @@ function syncBadgeHtml(row) {
   return `<span class="accountSyncBadge">同步 ${escapeHtml(formatSyncDate(row.latest_sync_at))}</span>`;
 }
 
+function accountPendingBadgeHtml(row) {
+  const pending = Number(row?.pending_count || 0);
+  if (!pending) return '';
+  return `<span class="accountPendingBadge">${pending} 笔待确认</span>`;
+}
+
 function renderAccountFlowSide(row, childCountText = '') {
   const net = num(row.net);
   const pendingText = row.pending_count ? ` · ${row.pending_count} 待确认` : '';
@@ -673,7 +679,7 @@ function renderAccountFlowRow(row, { label, detail, classes = '', filterable = t
     <${tagName}${typeAttr} class="accountFlowRow ${classes}${active ? '' : ' is-empty'}"${filterAttr}>
       <span class="accountFlowMain">
         <strong>${escapeHtml(label || accountDisplayName(row.account_code))}</strong>
-        <small class="accountFlowMetaLine"><span>${escapeHtml(detail || row.account_code || '')}</span>${syncBadgeHtml(row)}</small>
+        <small class="accountFlowMetaLine"><span>${escapeHtml(detail || row.account_code || '')}</span>${syncBadgeHtml(row)}${accountPendingBadgeHtml(row)}</small>
         <span class="accountFlowStats">
           ${accountFlowStatsHtml(row)}
         </span>
@@ -704,7 +710,7 @@ function renderAccountGroup(group) {
       <button type="button" class="accountFlowRow accountGroupRow" data-account-group-toggle="${escapeHtml(group.code)}" aria-expanded="${collapsed ? 'false' : 'true'}">
         <span class="accountFlowMain">
           <strong>${escapeHtml(group.label)}</strong>
-          <small class="accountFlowMetaLine"><span>${escapeHtml(childCountText)}</span>${syncBadgeHtml(summary)}</small>
+          <small class="accountFlowMetaLine"><span>${escapeHtml(childCountText)}</span>${syncBadgeHtml(summary)}${accountPendingBadgeHtml(summary)}</small>
           <span class="accountFlowStats">
             ${accountFlowStatsHtml(summary)}
           </span>
@@ -872,32 +878,6 @@ function renderCashflowBridge(data) {
       <div class="cashflowBridgeValue mono">${escapeHtml(value)}</div>
     </div>
   `).join('');
-}
-
-function renderReviewEntry(data) {
-  const el = $('reviewEntry');
-  if (!el) return;
-  const month = data.periods?.month || {};
-  const pending = Number(month.pending_count || 0);
-  const rows = (data.review_rows || []).slice(0, 3);
-  el.innerHTML = `
-    <div class="reviewEntryHeader">
-      <a class="reviewEntryTitle" href="#review-section">待确认流水</a>
-      <span class="reviewEntryStatus ${pending ? 'warn' : 'ok'}">${pending ? `${pending} 笔待处理` : '已清空'}</span>
-    </div>
-    ${rows.length ? `<div class="reviewEntryList">${rows.map((row) => `
-      <a class="reviewEntryRow" href="#review-section">
-        <span class="reviewEntryMain">
-          <strong>${escapeHtml(row.coarse_category || '待确认支出')}</strong>
-          <small>${escapeHtml(row.transaction_date || '')}</small>
-        </span>
-        <span class="reviewEntrySide">
-          <b class="down">${signedMoney(row.amount_cny || row.amount || 0)}</b>
-          <small>去确认</small>
-        </span>
-      </a>
-    `).join('')}</div>` : ''}
-  `;
 }
 
 function renderTransferSummary(rows) {
@@ -1069,7 +1049,6 @@ function bindLedgerEditButtons(root = document) {
 function renderRows(id, rows, limit = 80) {
   const el = $(id);
   if (!el) return;
-  el.classList.toggle('reviewList', id === 'reviewRows');
   if (!rows?.length) {
     el.innerHTML = '<div class="ledgerEmpty">暂无流水</div>';
     return;
@@ -1166,11 +1145,9 @@ function renderAll(data) {
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
   renderCashflowBridge(data);
-  renderReviewEntry(data);
   renderAccountPeriodButtons();
   renderRecentPeriodButtons();
   renderRecentAccountScope();
-  renderRows('reviewRows', data.review_rows || [], 60);
   renderRecentRows();
 }
 

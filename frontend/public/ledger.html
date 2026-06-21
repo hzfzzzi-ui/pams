@@ -100,6 +100,7 @@
     .accountFlowSide b { font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:15px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
     .accountFlowSide small { color:var(--muted); font-size:11px; font-weight:850 }
     .accountGroupToggle { display:inline-flex; align-items:center; justify-content:center; min-height:24px; padding:0 9px; border:1px solid rgba(88,166,255,.34); border-radius:999px; background:rgba(56,139,253,.08); color:#9ecbff; font-size:11px; font-weight:850 }
+    .accountPendingBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(248,81,73,.32); border-radius:999px; background:rgba(248,81,73,.1); color:#ff8b81; font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
     .accountSubList { display:grid; margin:0 0 8px 13px; padding-left:13px; border-left:1px solid rgba(88,166,255,.18) }
     .accountSubList[hidden] { display:none !important }
     .accountSubRow { min-height:58px; padding:10px 0; border-bottom:1px solid rgba(139,148,158,.12) }
@@ -120,17 +121,6 @@
     .cashflowBridgeOp { display:none }
     .ledgerJumpCard { scroll-margin-top:16px }
     .ledgerList { display:grid; border-top:1px solid var(--line) }
-    .ledgerList.reviewList { border-top:1px solid var(--line); gap:0 }
-    .ledgerList.reviewList .ledgerListRow {
-      min-height:78px;
-      padding:14px 0;
-      border:0;
-      border-bottom:1px solid var(--line);
-      border-radius:0;
-      background:transparent;
-      box-shadow:none;
-    }
-    .ledgerList.reviewList .ledgerListRow:hover { border-color:var(--line); background:transparent }
     .ledgerListRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
     .ledgerListRow:active { transform:scale(.995) }
     .ledgerListMain { min-width:0; display:flex; flex-direction:column; align-self:stretch }
@@ -156,21 +146,6 @@
     .ledgerInlineDetail { padding:0 0 12px; border-bottom:1px solid var(--line) }
     .ledgerEmpty { padding:14px 0; color:var(--muted); font-size:13px; font-weight:800 }
     .cashflowSidePanel { display:grid; gap:10px; margin-top:0 }
-    .reviewEntry { margin-top:10px; padding:0; border:0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:transparent; border-radius:0 }
-    .reviewEntryHeader { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:46px; padding:8px 0 }
-    .reviewEntryTitle { color:var(--text); font-size:15px; line-height:1.25; font-weight:850; text-decoration:none }
-    .reviewEntryStatus { display:inline-flex; align-items:center; min-height:24px; padding:0 9px; border:1px solid rgba(139,148,158,.2); border-radius:999px; background:rgba(139,148,158,.08); color:var(--muted); font-size:11px; font-weight:850; white-space:nowrap }
-    .reviewEntryStatus.warn { border-color:rgba(248,81,73,.34); background:rgba(248,81,73,.1); color:#ff8b81 }
-    .reviewEntryStatus.ok { border-color:rgba(63,185,80,.28); background:rgba(63,185,80,.08); color:#7ee787 }
-    .reviewEntryList { display:grid; border-top:1px solid var(--line) }
-    .reviewEntryRow { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; min-height:56px; padding:9px 0; border-bottom:1px solid var(--line); color:var(--text); text-decoration:none }
-    .reviewEntryRow:last-child { border-bottom:none }
-    .reviewEntryMain { min-width:0 }
-    .reviewEntryMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.3; font-weight:850 }
-    .reviewEntryMain small { display:block; margin-top:4px; color:var(--muted); font-size:11px; line-height:1; font-weight:800 }
-    .reviewEntrySide { display:grid; gap:4px; justify-items:end; min-width:96px; white-space:nowrap }
-    .reviewEntrySide b { font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:14px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
-    .reviewEntrySide small { color:var(--muted); font-size:11px; line-height:1; font-weight:850 }
     .ledgerRules { margin-top:10px; border:0; border-top:1px solid var(--line); border-radius:0; padding:10px 0 0; background:transparent; }
     .ledgerRules summary { cursor:pointer; color:var(--text); font-weight:850; }
     .ledgerMobileHero { display:none; }
@@ -395,7 +370,6 @@
       .page-ledger .ledgerKpiGrid { display:none; }
       .page-ledger .cashflowBodyGrid { margin-top:8px; }
       .ledgerListRow { min-height:82px; padding:12px 0; grid-template-columns:minmax(0,1fr) 118px; align-items:stretch }
-      .ledgerList.reviewList .ledgerListRow { padding:13px 0; min-height:76px }
       .ledgerListMain strong { font-size:15px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
       .ledgerListMain small { white-space:nowrap; display:block }
       .ledgerListAccount { white-space:normal !important; display:-webkit-box !important; -webkit-line-clamp:1; -webkit-box-orient:vertical }
@@ -451,7 +425,6 @@
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
       <a href="#account-cashflow-section" data-ledger-tab="account">账户</a>
-      <a href="#review-section" data-ledger-tab="review">待确认</a>
     </nav>
 
     <div class="ledgerPanelGroup" data-ledger-panel="overview">
@@ -493,8 +466,6 @@
         </div>
 
         <div id="cashflowBridge" class="cashflowBridge"></div>
-        <div id="reviewEntry" class="reviewEntry reviewEntryWide"></div>
-
         <div class="cashflowBodyGrid">
           <div>
             <div class="sectionTitle" style="margin-top:var(--sp-3)">
@@ -546,16 +517,6 @@
       </section>
     </div>
 
-    <div class="ledgerPanelGroup" data-ledger-panel="review" hidden>
-      <section class="ledgerSection ledgerJumpCard" id="review-section">
-        <div class="sectionTitle">
-          <h3>待确认流水</h3>
-          <div class="muted">需要后续补规则或人工确认的行</div>
-        </div>
-        <div id="reviewRows" class="ledgerList"></div>
-      </section>
-    </div>
-
     <div class="ledgerPanelGroup" data-ledger-panel="recent" hidden>
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section">
         <div class="sectionTitle">
@@ -584,6 +545,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-edit-v3"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-pending-v1"></script>
 </body>
 </html>
