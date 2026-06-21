@@ -183,6 +183,71 @@ def test_payment_proxy_source_side_is_only_for_deduplication() -> None:
     assert fact["counter_account_code"] == "wechat_balance"
 
 
+def test_personal_bridge_transfer_requires_transfer_match() -> None:
+    zhao = build_cashflow_fact(
+        _statement_row(
+            id=30,
+            source_uid="santander-zhao-guanyu",
+            account_code="santander",
+            amount=Decimal("-40000"),
+            currency="MXN",
+            amount_cny=Decimal("-16064"),
+            summary="TRANSFERENCIA A ZHAO GUANYU",
+            description="TRANSFERENCIA A ZHAO GUANYU",
+            counterparty="TRANSFERENCIA A ZHAO GUANYU",
+        )
+    )
+    huang = build_cashflow_fact(
+        _statement_row(
+            id=31,
+            source_uid="ccb-huang-xingyu",
+            amount=Decimal("-15547.79"),
+            amount_cny=Decimal("-15547.79"),
+            summary="跨行转出",
+            description="跨行转出 跨行转出 6214857602508493/黄星宇",
+            counterparty="6214857602508493/黄星宇",
+        )
+    )
+
+    assert zhao["cashflow_type"] == "operating_expense"
+    assert huang["cashflow_type"] == "operating_expense"
+    assert zhao["affects_spending"] is True
+    assert huang["affects_spending"] is True
+
+
+def test_confirmed_peer_fx_transfer_is_not_spending() -> None:
+    fact = build_cashflow_fact(
+        _statement_row(
+            id=30,
+            source_uid="santander-zhao-guanyu",
+            account_code="santander",
+            amount=Decimal("-40000"),
+            currency="MXN",
+            amount_cny=Decimal("-16064"),
+            summary="TRANSFERENCIA A ZHAO GUANYU",
+            description="TRANSFERENCIA A ZHAO GUANYU",
+            counterparty="TRANSFERENCIA A ZHAO GUANYU",
+        ),
+        {
+            "id": 30,
+            "match_key": "peer-fx-zhao-samuel",
+            "match_type": "account_transfer",
+            "relation_code": "peer_fx_transfer",
+            "from_account_code": "santander",
+            "to_account_code": "alipay",
+            "source_row_id": 30,
+            "target_row_id": 31,
+            "confidence": Decimal("0.95"),
+        },
+    )
+
+    assert fact["cashflow_type"] == "internal_transfer"
+    assert fact["affects_spending"] is False
+    assert fact["affects_nav"] is False
+    assert fact["is_internal_transfer"] is True
+    assert fact["counter_account_code"] == "alipay"
+
+
 def test_cashflow_source_hash_uses_source_uid_before_row_id() -> None:
     first = build_cashflow_fact(_statement_row(id=3, source_uid="stable-import-row"))
     replay = build_cashflow_fact(_statement_row(id=300, source_uid="stable-import-row"))
