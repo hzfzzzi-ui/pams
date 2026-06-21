@@ -331,9 +331,13 @@ def test_recent_start_preserves_trailing_window_when_it_starts_earlier() -> None
 
 def test_investment_account_rows_keep_original_currency_amount_for_display() -> None:
     source = inspect.getsource(ledger_view._load_investment_account_rows)
+    trade_source = inspect.getsource(ledger_view._load_investment_trade_account_rows)
 
     assert "ABS(cf.amount) AS amount" in source
+    assert "pams_investment_trade_fact" in trade_source
+    assert "'investment_outflow'" in trade_source
     assert "amount_cny AS amount" not in source
+    assert "amount_cny AS amount" not in trade_source
 
 
 def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:

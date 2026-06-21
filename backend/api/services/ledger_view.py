@@ -516,6 +516,14 @@ def _load_latest_statement_date(cur) -> date | None:
     return _as_date(row.get("latest_date") if row else None)
 
 
+def _table_exists(cur, table_name: str) -> bool:
+    cur.execute("SELECT to_regclass(%s) IS NOT NULL AS exists", (f"public.{table_name}",))
+    row = cur.fetchone()
+    if isinstance(row, Mapping):
+        return bool(row.get("exists"))
+    return bool(row and row[0])
+
+
 def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
     cur.execute(
         """
@@ -553,6 +561,112 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
         {"start": start, "end": end, "base": base_currency},
     )
     return [dict(row) for row in cur.fetchall()]
+
+
+def _investment_row_dedupe_key(row: Mapping[str, Any]) -> tuple[str, str, date | None, float]:
+    return (
+        str(row.get("account_code") or ""),
+        str(row.get("flow_type") or ""),
+        _as_date(row.get("transaction_date_obj") or row.get("transaction_date")),
+        round(abs(_to_float(row.get("amount_cny"))), 2),
+    )
+
+
+def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+    if not _table_exists(cur, "pams_investment_trade_fact"):
+        return []
+    cur.execute(
+        """
+        WITH cash_events AS (
+            SELECT
+                f.trade_id AS id,
+                f.account_code,
+                f.trade_date AS transaction_date,
+                LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type)) AS side_norm,
+                COALESCE(NULLIF(f.currency, ''), %(base)s) AS currency,
+                ABS(COALESCE(f.gross_amount, f.net_cash, f.net_cash_cny, 0)) AS native_amount,
+                ABS(COALESCE(
+                    f.gross_amount * COALESCE(f.fx_rate_to_cny, 1),
+                    f.net_cash_cny,
+                    f.net_cash * COALESCE(f.fx_rate_to_cny, 1),
+                    f.gross_amount,
+                    0
+                )) AS amount_cny,
+                COALESCE(NULLIF(f.name, ''), NULLIF(f.symbol, ''), '投资现金') AS name,
+                COALESCE(NULLIF(f.broker, ''), NULLIF(f.source_table, ''), 'investment') AS source_label,
+                f.source_table,
+                f.source_id,
+                f.created_at
+            FROM pams_investment_trade_fact f
+            WHERE f.trade_date >= %(start)s
+              AND f.trade_date <= %(end)s
+              AND f.account_code = ANY(%(accounts)s)
+              AND LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type)) IN (
+                  'deposit', 'cash_deposit', 'transfer_in',
+                  'withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out'
+              )
+        )
+        SELECT
+            ('investment-trade-' || id::text) AS id,
+            account_code,
+            'investment'::text AS account_kind,
+            source_label AS bank,
+            transaction_date,
+            CASE
+                WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN -native_amount
+                ELSE native_amount
+            END AS amount,
+            CASE
+                WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN -amount_cny
+                ELSE amount_cny
+            END AS amount_cny,
+            currency,
+            '投资账户'::text AS category,
+            CASE
+                WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN '出金'
+                ELSE '入金'
+            END AS subcategory,
+            CASE
+                WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN '投资出金'
+                ELSE '投资入金'
+            END AS summary,
+            CONCAT_WS(' / ', source_label, name) AS description,
+            source_label AS counterparty,
+            CASE
+                WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN 'investment_withdrawal'
+                ELSE 'investment_funding'
+            END AS cashflow_type,
+            TRUE AS is_internal_transfer,
+            ('investment-trade-' || id::text) AS transfer_group_id,
+            'auto'::text AS review_status,
+            source_table,
+            source_id,
+            created_at AS imported_at,
+            CASE
+                WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN 'investment_outflow'
+                ELSE 'investment_inflow'
+            END AS flow_type,
+            FALSE AS needs_review,
+            FALSE AS is_operating
+        FROM cash_events
+        WHERE amount_cny > 0.0001
+        ORDER BY transaction_date DESC, id DESC
+        """,
+        {
+            "start": start,
+            "end": end,
+            "base": base_currency,
+            "accounts": sorted(INVESTMENT_ACCOUNT_CODES),
+        },
+    )
+    rows = []
+    for raw in cur.fetchall():
+        row = dict(raw)
+        row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
+        row["amount_cny"] = _to_float(row.get("amount_cny"))
+        row["coarse_category"] = row.get("subcategory") or "投资现金流"
+        rows.append(row)
+    return rows
 
 
 def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
@@ -633,7 +747,14 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
         row["amount_cny"] = _to_float(row.get("amount_cny"))
         row["coarse_category"] = row.get("subcategory") or "投资现金流"
         rows.append(row)
-    return rows
+    trade_rows = _load_investment_trade_account_rows(cur, start=start, end=end, base_currency=base_currency)
+    trade_keys = {_investment_row_dedupe_key(row) for row in trade_rows}
+    cash_rows = [row for row in rows if _investment_row_dedupe_key(row) not in trade_keys]
+    return sorted(
+        trade_rows + cash_rows,
+        key=lambda item: (item.get("transaction_date_obj") or date.min, str(item.get("id") or "")),
+        reverse=True,
+    )
 
 
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:

@@ -119,6 +119,18 @@
     .accountFlowNetBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:#a8b3c7; white-space:nowrap }
     .accountFlowNetBadge.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
     .accountFlowNetBadge.down { border-color:rgba(248,81,73,.28); background:rgba(248,81,73,.08); color:#ff8b81 }
+    .accountInvestmentFooter { align-items:flex-start }
+    .accountInvestmentStats { display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0 }
+    .accountInvestmentChip { display:inline-flex; align-items:center; gap:5px; min-height:22px; padding:0 8px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:var(--muted); font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
+    .accountInvestmentChip strong { color:var(--text); font-weight:850; font-variant-numeric:tabular-nums }
+    .accountInvestmentChip.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
+    .accountInvestmentChip.down,
+    .accountInvestmentChip.risk { border-color:rgba(248,81,73,.30); background:rgba(248,81,73,.08); color:#ff8b81 }
+    .accountInvestmentChip.data { border-color:rgba(88,166,255,.24); background:rgba(56,139,253,.08); color:#9ecbff }
+    .accountInvestmentChip.up strong { color:#7ee787 }
+    .accountInvestmentChip.down strong,
+    .accountInvestmentChip.risk strong { color:#ff8b81 }
+    .accountInvestmentChip.data strong { color:#d7eaff }
     .accountFlowSide { display:grid; gap:4px; justify-items:end; min-width:124px; white-space:nowrap; text-align:right }
     .accountFlowSide b { font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:15px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
     .accountFlowSide small { color:var(--muted); font-size:11px; font-weight:850 }
@@ -419,6 +431,8 @@
       .accountFlowHeader { gap:10px }
       .accountFlowMain strong { font-size:15px }
       .accountFlowStats { gap:8px }
+      .accountInvestmentStats { gap:5px }
+      .accountInvestmentChip { max-width:100%; overflow:hidden; text-overflow:ellipsis }
       .accountFlowSide { min-width:112px }
       .accountFlowFooter { align-items:flex-start }
       .categoryBarRow { min-height:58px; grid-template-columns:26px minmax(0,1fr) auto; padding:9px 0 }
@@ -582,6 +596,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-balance-v3"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-investment-account-v1b"></script>
 </body>
 </html>

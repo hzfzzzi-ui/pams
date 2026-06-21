@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-account-balance-v3';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-investment-account-v1b';
 import {
   byId as $,
   clearError,
@@ -660,8 +660,12 @@ function accountOverviewMap() {
     .map((account) => [account.account_code, account]));
 }
 
+function accountOverview(accountCode) {
+  return accountOverviewMap().get(accountCode) || null;
+}
+
 function accountPrimaryBalance(accountCode) {
-  const account = accountOverviewMap().get(accountCode);
+  const account = accountOverview(accountCode);
   const balance = account?.primary_balance || null;
   if (!balance || balance.amount === null || balance.amount === undefined || balance.amount === '') {
     return null;
@@ -671,6 +675,10 @@ function accountPrimaryBalance(accountCode) {
     currency: String(balance.currency || account?.base_currency || 'CNY').toUpperCase(),
     as_of: balance.as_of || null,
   };
+}
+
+function hasAccountBalance(accountCode) {
+  return Boolean(accountPrimaryBalance(accountCode));
 }
 
 function accountBalanceItems(rows = []) {
@@ -698,8 +706,11 @@ function formatBalanceItem(item) {
 
 function accountBalanceSummary(rows = []) {
   const items = accountBalanceItems(rows);
+  const balanceLabel = rows.length && rows.every((row) => normalizeAccountRow(row).account_kind === 'investment')
+    ? '净值'
+    : '余额';
   if (!items.length) {
-    return { value: '--', meta: '余额待核准', tone: 'is-missing' };
+    return { value: '--', meta: `${balanceLabel}待核准`, tone: 'is-missing' };
   }
   const shown = items.slice(0, 2).map(formatBalanceItem).join(' / ');
   const suffix = items.length > 2 ? ` +${items.length - 2}` : '';
@@ -708,9 +719,90 @@ function accountBalanceSummary(rows = []) {
   const tone = items.some((item) => item.amount < 0) ? 'down' : '';
   return {
     value: `${shown}${suffix}`,
-    meta: latestAsOf ? `余额 ${formatSyncDate(latestAsOf)} · ${currencyText}` : `余额 · ${currencyText}`,
+    meta: latestAsOf ? `${balanceLabel} ${formatSyncDate(latestAsOf)} · ${currencyText}` : `${balanceLabel} · ${currencyText}`,
     tone,
   };
+}
+
+function accountPlatformBalances(accountCode) {
+  const account = accountOverview(accountCode);
+  return Array.isArray(account?.platform_balances) ? account.platform_balances : [];
+}
+
+function platformBalanceAmount(item) {
+  return num(item?.market_value ?? item?.amount ?? item?.value ?? 0);
+}
+
+function addCurrencyAmount(map, currency, amount) {
+  const key = String(currency || 'CNY').toUpperCase();
+  const current = map.get(key) || { currency: key, amount: 0 };
+  current.amount += amount;
+  map.set(key, current);
+}
+
+function sortedCurrencyItems(map) {
+  return [...map.values()]
+    .filter((item) => Math.abs(item.amount) > 0.000001)
+    .sort((a, b) => {
+      if (a.currency === 'CNY') return -1;
+      if (b.currency === 'CNY') return 1;
+      return Math.abs(b.amount) - Math.abs(a.amount);
+    });
+}
+
+function formatCurrencyItems(items, { absolute = false, signed = false } = {}) {
+  if (!items.length) return '';
+  const shown = items.slice(0, 2).map((item) => formatCurrency(
+    absolute ? Math.abs(item.amount) : item.amount,
+    item.currency,
+    { maximumFractionDigits: 2, signed },
+  )).join(' / ');
+  return items.length > 2 ? `${shown} +${items.length - 2}` : shown;
+}
+
+function accountInvestmentBalanceEntries(accountCode) {
+  const assets = new Map();
+  const liabilities = new Map();
+  const holdingPnl = new Map();
+  accountPlatformBalances(accountCode).forEach((item) => {
+    const currency = item.currency || 'CNY';
+    const amount = platformBalanceAmount(item);
+    const liability = String(item.asset_liability || '').includes('负债') || amount < 0;
+    if (liability) {
+      addCurrencyAmount(liabilities, currency, amount);
+    } else {
+      addCurrencyAmount(assets, currency, amount);
+    }
+    addCurrencyAmount(holdingPnl, currency, num(item.holding_pnl || 0));
+  });
+
+  const entries = [];
+  const assetItems = sortedCurrencyItems(assets);
+  const liabilityItems = sortedCurrencyItems(liabilities);
+  const pnlItems = sortedCurrencyItems(holdingPnl);
+  if (assetItems.length) {
+    entries.push({ label: '总资产', value: formatCurrencyItems(assetItems), tone: 'data' });
+  }
+  if (liabilityItems.length) {
+    entries.push({ label: '融资负债', value: formatCurrencyItems(liabilityItems, { absolute: true }), tone: 'risk' });
+  }
+  if (pnlItems.length) {
+    const pnlTotal = pnlItems.reduce((sum, item) => sum + item.amount, 0);
+    entries.push({ label: '持仓盈亏', value: formatCurrencyItems(pnlItems, { signed: true }), tone: pnlTotal >= 0 ? 'up' : 'down' });
+  }
+  return entries;
+}
+
+function investmentAccountStatsEntries(row) {
+  const normalized = normalizeAccountRow(row);
+  const netFunding = normalized.investment_inflow - normalized.investment_outflow;
+  const entries = [];
+  if (Math.abs(netFunding) > 0.000001) entries.push({ label: '净入金', value: signedMoney(netFunding), tone: netFunding >= 0 ? 'up' : 'down' });
+  if (Math.abs(normalized.investment_inflow) > 0.000001) entries.push({ label: '入金', value: money(normalized.investment_inflow), tone: 'data' });
+  if (Math.abs(normalized.investment_outflow) > 0.000001) entries.push({ label: '出金', value: money(normalized.investment_outflow), tone: 'data' });
+  if (Math.abs(normalized.investment_return) > 0.000001) entries.push({ label: '现金收益', value: money(normalized.investment_return), tone: 'up' });
+  if (Math.abs(normalized.investment_fee) > 0.000001) entries.push({ label: '费用', value: money(normalized.investment_fee), tone: 'down' });
+  return entries;
 }
 
 function normalizeAccountRow(row = {}) {
@@ -757,6 +849,7 @@ function mergeAccountRows(rows, accountCode, accountKind = 'group') {
 function hasAccountActivity(row) {
   return num(row.row_count) > 0
     || num(row.pending_count) > 0
+    || hasAccountBalance(row.account_code)
     || ACCOUNT_NUMERIC_FIELDS.some((field) => field !== 'activity' && Math.abs(num(row[field])) > 0.000001);
 }
 
@@ -791,7 +884,7 @@ function buildAccountFlowGroups(rows) {
 function accountFlowStatsEntries(row) {
   const normalized = normalizeAccountRow(row);
   if (normalized.account_kind === 'investment') {
-    return Math.abs(normalized.investment_inflow) > 0.000001 ? [['入金', normalized.investment_inflow]] : [];
+    return investmentAccountStatsEntries(row).map((entry) => [entry.label, entry.value]);
   }
   const entries = [
     ['收入', normalized.income],
@@ -809,7 +902,10 @@ function accountFlowStatsHtml(row) {
   if (!entries.length) {
     return '<span>暂无流水</span>';
   }
-  return entries.map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
+  return entries.map(([label, value]) => {
+    const formatted = typeof value === 'string' ? value : money(value);
+    return `<span>${escapeHtml(label)} ${escapeHtml(formatted)}</span>`;
+  }).join('');
 }
 
 function formatSyncDate(value) {
@@ -860,21 +956,54 @@ function renderAccountFlowFooter(row, childCountText = '', { showStats = true } 
   `;
 }
 
+function investmentAccountChipHtml(entry) {
+  return `
+    <span class="accountInvestmentChip ${entry.tone || ''}">
+      <span>${escapeHtml(entry.label)}</span>
+      <strong>${escapeHtml(entry.value)}</strong>
+    </span>
+  `;
+}
+
+function renderInvestmentAccountFooter(row, childCountText = '') {
+  const normalized = normalizeAccountRow(row);
+  const flowEntries = investmentAccountStatsEntries(normalized);
+  const balanceEntries = accountInvestmentBalanceEntries(normalized.account_code);
+  const entries = [...flowEntries, ...balanceEntries];
+  const content = entries.length
+    ? entries.map(investmentAccountChipHtml).join('')
+    : '<span class="accountInvestmentChip"><span>资金流</span><strong>暂无入金记录</strong></span>';
+  return `
+    <span class="accountFlowFooter accountInvestmentFooter">
+      <span class="accountInvestmentStats">${content}</span>
+      <span class="accountFlowFooterMeta">
+        <span>${escapeHtml(accountFlowCountText(normalized, childCountText))}</span>
+      </span>
+    </span>
+  `;
+}
+
 function renderAccountFlowRow(row, { label, detail, classes = '', filterable = true } = {}) {
+  const normalized = normalizeAccountRow(row);
   const active = hasAccountActivity(row);
   const tagName = filterable && active ? 'button' : 'div';
   const typeAttr = tagName === 'button' ? ' type="button"' : '';
-  const filterAttr = tagName === 'button' ? ` data-account-flow-filter="${escapeHtml(row.account_code || '')}"` : '';
+  const filterAttr = tagName === 'button' ? ` data-account-flow-filter="${escapeHtml(normalized.account_code || '')}"` : '';
+  const rowClasses = [
+    classes,
+    normalized.account_kind === 'investment' ? 'accountInvestmentRow' : '',
+    active ? '' : 'is-empty',
+  ].filter(Boolean).join(' ');
   return `
-    <${tagName}${typeAttr} class="accountFlowRow ${classes}${active ? '' : ' is-empty'}"${filterAttr}>
+    <${tagName}${typeAttr} class="accountFlowRow ${rowClasses}"${filterAttr}>
       <span class="accountFlowHeader">
         <span class="accountFlowMain">
-          <strong>${escapeHtml(label || accountDisplayName(row.account_code))}</strong>
-          <small class="accountFlowMetaLine"><span>${escapeHtml(detail || row.account_code || '')}</span>${syncBadgeHtml(row)}${accountPendingBadgeHtml(row)}</small>
+          <strong>${escapeHtml(label || accountDisplayName(normalized.account_code))}</strong>
+          <small class="accountFlowMetaLine"><span>${escapeHtml(detail || normalized.account_code || '')}</span>${syncBadgeHtml(normalized)}${accountPendingBadgeHtml(normalized)}</small>
         </span>
-        ${renderAccountFlowSide(row)}
+        ${renderAccountFlowSide(normalized)}
       </span>
-      ${renderAccountFlowFooter(row)}
+      ${normalized.account_kind === 'investment' ? renderInvestmentAccountFooter(normalized) : renderAccountFlowFooter(normalized)}
     </${tagName}>
   `;
 }
