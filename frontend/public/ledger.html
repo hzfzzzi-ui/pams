@@ -147,7 +147,22 @@
     .accountSubRow .accountFlowStats { gap:8px }
     .accountSubRow .accountFlowSide { min-width:118px }
     .accountFlowRow.is-empty { cursor:default; opacity:.52 }
-    .cashflowBridge { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
+    .cashflowBridge { display:block; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
+    .cashflowBridgeLine { display:grid; gap:8px; padding:10px 12px; border:1px solid rgba(88,166,255,.16); border-radius:8px; background:rgba(13,17,23,.44) }
+    .cashflowBridgeHead { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0 }
+    .cashflowBridgeHead span { color:#9ecbff; font-size:12px; font-weight:850 }
+    .cashflowBridgeHead strong { color:var(--muted); font-size:11px; font-weight:800; white-space:nowrap }
+    .cashflowBridgeChips { display:flex; gap:7px; overflow:auto hidden; scrollbar-width:none }
+    .cashflowBridgeChips::-webkit-scrollbar { display:none }
+    .cashflowBridgeChip { flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; min-height:24px; padding:0 8px; border:1px solid rgba(139,148,158,.18); border-radius:999px; background:rgba(139,148,158,.07); color:var(--muted); font-size:11px; font-weight:850; white-space:nowrap }
+    .cashflowBridgeChip em { font-style:normal; color:var(--muted) }
+    .cashflowBridgeChip b { color:var(--text); font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-variant-numeric:tabular-nums; letter-spacing:0 }
+    .cashflowBridgeChip.good { border-color:rgba(63,185,80,.24); background:rgba(63,185,80,.08) }
+    .cashflowBridgeChip.good b { color:#7ee787 }
+    .cashflowBridgeChip.bad { border-color:rgba(248,81,73,.28); background:rgba(248,81,73,.08) }
+    .cashflowBridgeChip.bad b { color:#ff8b81 }
+    .cashflowBridgeChip.data { border-color:rgba(88,166,255,.24); background:rgba(56,139,253,.08) }
+    .cashflowBridgeChip.data b { color:#d7eaff }
     .cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
     .cashflowBridgeItem:first-child { border-left:0; padding-left:0 }
     .cashflowBridgeItem.good,
@@ -406,6 +421,9 @@
         font-variant-numeric:tabular-nums;
         letter-spacing:0;
       }
+      .cashflowBridgeLine { padding:9px 10px; border-radius:7px }
+      .cashflowBridgeHead { align-items:flex-start; flex-direction:column; gap:3px }
+      .cashflowBridgeHead strong { white-space:normal }
       .page-ledger .ledgerKpiGrid { display:none; }
       .page-ledger .cashflowBodyGrid {
         display:grid !important;
@@ -596,6 +614,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-cash-net-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-focus-v1"></script>
 </body>
 </html>

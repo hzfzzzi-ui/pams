@@ -646,24 +646,23 @@ function renderLedgerMobileHero(data) {
   const el = $('ledgerMobileHero');
   if (!el) return;
   const period = currentOverviewPeriod(data);
-  const internalTransfer = overviewOtherTransfer(data, period);
-  const cashNet = overviewCashNet(data, period);
+  const disposableNet = overviewDisposableNet(period);
   const pending = num(period.pending_count || 0);
   el.innerHTML = `
-    <div class="ledgerMobileLabel">${overviewPeriodLabel()}现金净变化</div>
-    <div class="ledgerMobileValue ${cashNet >= 0 ? 'up' : 'down'}">${signedMoney(cashNet)}</div>
+    <div class="ledgerMobileLabel">${overviewPeriodLabel()}可支配结余</div>
+    <div class="ledgerMobileValue ${disposableNet >= 0 ? 'up' : 'down'}">${signedMoney(disposableNet)}</div>
     <div class="ledgerMobileStats">
-      <div class="ledgerMobileStat">
-        <span>待确认</span>
-        <strong class="${pending ? 'down' : ''}">${pending}</strong>
-      </div>
       <div class="ledgerMobileStat">
         <span>收入</span>
         <strong>${money(period.income || 0)}</strong>
       </div>
       <div class="ledgerMobileStat">
-        <span>转账</span>
-        <strong>${money(internalTransfer || 0)}</strong>
+        <span>消费</span>
+        <strong class="down">${signedMoney(-Math.abs(num(period.expense || 0)))}</strong>
+      </div>
+      <div class="ledgerMobileStat">
+        <span>待确认</span>
+        <strong class="${pending ? 'down' : ''}">${pending}</strong>
       </div>
     </div>
   `;
@@ -1198,20 +1197,29 @@ function renderCashflowBridge(data) {
   const investTransferNet = overviewInvestmentTransferNet(data, period);
   const otherTransfer = overviewOtherTransfer(data, period);
   const disposableNet = overviewDisposableNet(period);
-  const rows = [
-    ['收入', money(period.income || 0), 'good'],
-    ['消费', signedMoney(-Math.abs(num(period.expense || 0))), 'bad'],
-    ['可支配净流入', signedMoney(disposableNet), disposableNet >= 0 ? 'good' : 'bad'],
+  const cashNet = overviewCashNet(data, period);
+  const fundingItems = [
+    ['可支配结余', signedMoney(disposableNet), disposableNet >= 0 ? 'good' : 'bad'],
     ['投资转账', signedMoney(investTransferNet), investTransferNet >= 0 ? 'good' : 'data'],
     ['内部转账', signedMoney(otherTransfer), 'data'],
-    ['待确认流水', String(period.pending_count || 0), num(period.pending_count || 0) ? 'pending' : 'data'],
+    ['现金净变化', signedMoney(cashNet), cashNet >= 0 ? 'good' : 'bad'],
   ];
-  el.innerHTML = rows.map(([label, value, tone]) => `
-    <div class="cashflowBridgeItem ${tone}">
-      <div class="cashflowBridgeLabel">${escapeHtml(label)}</div>
-      <div class="cashflowBridgeValue mono">${escapeHtml(value)}</div>
+  el.innerHTML = `
+    <div class="cashflowBridgeLine">
+      <div class="cashflowBridgeHead">
+        <span>资金调拨</span>
+        <strong>不计入生活消费判断</strong>
+      </div>
+      <div class="cashflowBridgeChips">
+        ${fundingItems.map(([label, value, tone]) => `
+          <span class="cashflowBridgeChip ${tone}">
+            <em>${escapeHtml(label)}</em>
+            <b>${escapeHtml(value)}</b>
+          </span>
+        `).join('')}
+      </div>
     </div>
-  `).join('');
+  `;
 }
 
 function renderTransferSummary(rows) {
