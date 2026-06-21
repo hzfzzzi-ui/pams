@@ -53,6 +53,49 @@ def test_classify_expense_uses_coarse_merchant_category() -> None:
     assert result["needs_review"] is False
 
 
+def test_payment_proxy_target_side_counts_as_expense_not_transfer() -> None:
+    row = {
+        "id": 866,
+        "source_id": "486",
+        "amount_cny": -441,
+        "category": "支付通道",
+        "subcategory": "银行卡扣款映射",
+        "summary": "群收款",
+        "description": "🥇yi 建设银行储蓄卡(7332) 支付成功",
+        "counterparty": "🥇yi",
+        "cashflow_type": "internal_transfer",
+        "is_internal_transfer": True,
+        "transfer_group_id": "payment_proxy:ccb_wechat_payment_proxy:1132:486:441.00",
+    }
+
+    result = classify_ledger_row(row, transfer_row_ids={486}, payment_proxy_source_row_ids={1132})
+
+    assert result["flow_type"] == "expense"
+    assert result["coarse_category"] == "人情往来"
+    assert result["needs_review"] is False
+
+
+def test_payment_proxy_source_side_is_dedup_transfer_row() -> None:
+    row = {
+        "id": 870,
+        "source_id": "1132",
+        "amount_cny": -441,
+        "category": "未分类",
+        "summary": "充值",
+        "description": "充值 财付通-微信支付-群收款",
+        "counterparty": "Z******0010/*收款",
+        "cashflow_type": "internal_transfer",
+        "is_internal_transfer": True,
+        "transfer_group_id": "payment_proxy:ccb_wechat_payment_proxy:1132:486:441.00",
+    }
+
+    result = classify_ledger_row(row, transfer_row_ids=set(), payment_proxy_source_row_ids={1132})
+
+    assert result["flow_type"] == "payment_proxy_dedup"
+    assert result["coarse_category"] == "支付通道去重"
+    assert result["needs_review"] is False
+
+
 def test_classify_unmatched_unclear_expense_needs_review() -> None:
     row = {
         "id": 12,

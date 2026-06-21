@@ -38,6 +38,8 @@ TRANSFER_MATCH_TYPES = {
     "internal_transfer",
 }
 
+INVESTMENT_TRANSFER_COUNTERPARTIES = {"direct_investment"}
+
 TRANSFER_KEYWORDS = (
     "信用卡还款",
     "理财通",
@@ -73,7 +75,7 @@ EXPENSE_CATEGORY_MAP = {
 CLASSIFICATION_RULES = [
     {
         "name": "资金流转优先",
-        "description": "已匹配的账户划转、信用卡还款、支付通道映射、投资入金不进入收入或消费统计。",
+        "description": "只有白名单账户之间的划转、信用卡还款和投资入金不进入消费；支付通道的资金侧用于去重，商户侧仍按消费统计。",
     },
     {
         "name": "投资收益剥离",
@@ -158,8 +160,47 @@ def _expense_keyword_category(text: str) -> str | None:
     return None
 
 
-def _is_transfer_like(row: Mapping[str, Any], transfer_row_ids: set[int]) -> bool:
+def _payment_proxy_role(row: Mapping[str, Any]) -> str | None:
+    transfer_group_id = str(row.get("transfer_group_id") or "")
+    if not transfer_group_id.startswith("payment_proxy:"):
+        return None
+    parts = transfer_group_id.split(":")
+    if len(parts) < 5:
+        return None
+    source_id = str(row.get("source_id") or row.get("id") or "")
+    if source_id == parts[2]:
+        return "source"
+    if source_id == parts[3]:
+        return "target"
+    return None
+
+
+def _is_configured_transfer_match(match: Mapping[str, Any], configured_accounts: set[str]) -> bool:
+    match_type = str(match.get("match_type") or "").lower()
+    from_account = str(match.get("from_account_code") or "")
+    to_account = str(match.get("to_account_code") or "")
+    if match_type == "payment_proxy":
+        return False
+    if match_type == "investment_funding":
+        return (
+            from_account in configured_accounts
+            and (to_account in configured_accounts or to_account in INVESTMENT_TRANSFER_COUNTERPARTIES)
+        ) or (
+            to_account in configured_accounts
+            and (from_account in configured_accounts or from_account in INVESTMENT_TRANSFER_COUNTERPARTIES)
+        )
+    return bool(from_account and to_account and from_account in configured_accounts and to_account in configured_accounts)
+
+
+def _is_transfer_like(row: Mapping[str, Any], transfer_row_ids: set[int], payment_proxy_source_row_ids: set[int] | None = None) -> bool:
+    payment_proxy_source_row_ids = payment_proxy_source_row_ids or set()
     row_id = row.get("id")
+    source_row_id = int(row.get("source_id")) if str(row.get("source_id") or "").isdigit() else None
+    payment_proxy_role = _payment_proxy_role(row)
+    if payment_proxy_role == "target":
+        return False
+    if payment_proxy_role == "source" or (isinstance(source_row_id, int) and source_row_id in payment_proxy_source_row_ids):
+        return True
     category = str(row.get("category") or "")
     subcategory = str(row.get("subcategory") or "")
     cashflow_type = str(row.get("cashflow_type") or "")
@@ -183,7 +224,11 @@ def _is_transfer_like(row: Mapping[str, Any], transfer_row_ids: set[int]) -> boo
     return _contains_any(text, TRANSFER_KEYWORDS)
 
 
-def classify_ledger_row(row: Mapping[str, Any], transfer_row_ids: set[int] | None = None) -> dict[str, Any]:
+def classify_ledger_row(
+    row: Mapping[str, Any],
+    transfer_row_ids: set[int] | None = None,
+    payment_proxy_source_row_ids: set[int] | None = None,
+) -> dict[str, Any]:
     """Classify one imported statement row for the cashflow workbench.
 
     The classifier intentionally avoids amount thresholds. It first removes
@@ -198,7 +243,14 @@ def classify_ledger_row(row: Mapping[str, Any], transfer_row_ids: set[int] | Non
     cashflow_type = str(row.get("cashflow_type") or "")
     text = _row_text(row)
 
-    if _is_transfer_like(row, transfer_row_ids):
+    if _is_transfer_like(row, transfer_row_ids, payment_proxy_source_row_ids):
+        if _payment_proxy_role(row) == "source":
+            return {
+                "flow_type": "payment_proxy_dedup",
+                "coarse_category": "支付通道去重",
+                "needs_review": False,
+                "is_operating": False,
+            }
         return {
             "flow_type": "transfer",
             "coarse_category": "资金流转",
@@ -676,8 +728,19 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     latest_date = _load_latest_statement_date(cur)
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
+    configured_accounts = _load_configured_account_codes()
     cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
-    transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    payment_proxy_source_row_ids = {
+        row_id
+        for match in all_transfer_matches
+        if str(match.get("match_type") or "").lower() == "payment_proxy"
+        for row_id in (match.get("source_row_id"),)
+        if isinstance(row_id, int)
+    }
+    transfer_matches = [
+        match for match in all_transfer_matches if _is_configured_transfer_match(match, configured_accounts)
+    ]
     transfer_row_ids = {
         row_id
         for match in transfer_matches
@@ -690,16 +753,17 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         row = dict(raw)
         row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
         row["amount_cny"] = _to_float(row.get("amount_cny"))
-        row.update(classify_ledger_row(row, transfer_row_ids))
+        row.update(classify_ledger_row(row, transfer_row_ids, payment_proxy_source_row_ids))
         enriched_rows.append(row)
+    display_rows = [row for row in enriched_rows if row.get("flow_type") != "payment_proxy_dedup"]
 
     for match in transfer_matches:
         match["match_date_obj"] = _as_date(match.get("match_date"))
         match["amount_cny"] = _to_float(match.get("amount_cny"))
 
     investment_rows = _load_investment_account_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
-    account_rows = enriched_rows + investment_rows
-    month_rows = [r for r in enriched_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
+    account_rows = display_rows + investment_rows
+    month_rows = [r for r in display_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
     month_account_rows = [
         r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end
     ]
@@ -708,7 +772,6 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         for row in account_rows
         if row.get("transaction_date_obj") and ytd_start <= row["transaction_date_obj"] <= month_end
     ]
-    configured_accounts = _load_configured_account_codes()
     recent_start = _recent_start_for_account_window(month_start, month_end, recent_days)
     recent_rows = [
         _serialize_row(r)
@@ -717,22 +780,22 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     ][:300]
     recent_rows_month = [_serialize_row(r) for r in month_account_rows]
     recent_rows_ytd = [_serialize_row(r) for r in ytd_account_rows]
-    review_rows = [_serialize_row(r) for r in enriched_rows if r.get("needs_review")][:100]
+    review_rows = [_serialize_row(r) for r in display_rows if r.get("needs_review")][:100]
 
     return {
         "as_of": latest_date.isoformat() if latest_date else None,
         "month": month_start.strftime("%Y-%m"),
         "base_currency": base_currency,
         "periods": {
-            "month": summarize_period(enriched_rows, transfer_matches, month_start, month_end),
-            "ytd": summarize_period(enriched_rows, transfer_matches, ytd_start, month_end),
+            "month": summarize_period(display_rows, transfer_matches, month_start, month_end),
+            "ytd": summarize_period(display_rows, transfer_matches, ytd_start, month_end),
         },
         "expense_categories": _group_amounts(month_rows, "expense"),
         "income_categories": _group_amounts(month_rows, "income"),
         "account_summary": _account_summary(month_account_rows, configured_accounts),
         "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts),
-        "monthly_trend": _trend(enriched_rows, ytd_start, month_end, "monthly"),
-        "weekly_trend": _trend(enriched_rows, ytd_start, month_end, "weekly"),
+        "monthly_trend": _trend(display_rows, ytd_start, month_end, "monthly"),
+        "weekly_trend": _trend(display_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,
         "recent_rows_month": recent_rows_month,
         "recent_rows_ytd": recent_rows_ytd,

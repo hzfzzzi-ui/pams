@@ -93,6 +93,65 @@ def test_investment_funding_is_not_operating_expense() -> None:
     assert fact["counter_account_code"] == "broker"
 
 
+def test_payment_proxy_target_side_is_operating_expense() -> None:
+    fact = build_cashflow_fact(
+        _statement_row(
+            id=486,
+            source_uid="wechat-payment-row",
+            account_code="wechat",
+            amount=Decimal("-441"),
+            amount_cny=Decimal("-441"),
+            summary="群收款",
+            description="🥇yi 建设银行储蓄卡(7332) 支付成功",
+            counterparty="🥇yi",
+        ),
+        {
+            "id": 12,
+            "match_key": "payment-proxy-1",
+            "match_type": "payment_proxy",
+            "from_account_code": "ccb_7332",
+            "to_account_code": "wechat_balance",
+            "source_row_id": 1132,
+            "target_row_id": 486,
+            "confidence": Decimal("0.96"),
+        },
+    )
+
+    assert fact["cashflow_type"] == "operating_expense"
+    assert fact["affects_spending"] is True
+    assert fact["is_internal_transfer"] is False
+    assert fact["counter_account_code"] is None
+
+
+def test_payment_proxy_source_side_is_only_for_deduplication() -> None:
+    fact = build_cashflow_fact(
+        _statement_row(
+            id=1132,
+            source_uid="ccb-payment-funding-row",
+            account_code="ccb_7332",
+            amount=Decimal("-441"),
+            amount_cny=Decimal("-441"),
+            summary="充值",
+            description="充值 财付通-微信支付-群收款",
+        ),
+        {
+            "id": 12,
+            "match_key": "payment-proxy-1",
+            "match_type": "payment_proxy",
+            "from_account_code": "ccb_7332",
+            "to_account_code": "wechat_balance",
+            "source_row_id": 1132,
+            "target_row_id": 486,
+            "confidence": Decimal("0.96"),
+        },
+    )
+
+    assert fact["cashflow_type"] == "internal_transfer"
+    assert fact["affects_spending"] is False
+    assert fact["is_internal_transfer"] is True
+    assert fact["counter_account_code"] == "wechat_balance"
+
+
 def test_cashflow_source_hash_uses_source_uid_before_row_id() -> None:
     first = build_cashflow_fact(_statement_row(id=3, source_uid="stable-import-row"))
     replay = build_cashflow_fact(_statement_row(id=300, source_uid="stable-import-row"))

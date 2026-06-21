@@ -163,6 +163,8 @@ function transferEndpointName(value) {
 function transferRoute(row) {
   const flowType = String(row.flow_type || '').toLowerCase();
   const cashflowType = String(row.cashflow_type || '').toLowerCase();
+  const transferGroupId = String(row.transfer_group_id || '').toLowerCase();
+  if (transferGroupId.startsWith('payment_proxy:')) return null;
   const amount = num(row.amount_cny ?? row.amount);
   const account = row.account_code || '';
   const counterparty = row.counterparty || '';

@@ -357,7 +357,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert 'href="#review-section"' in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v7" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v8" in html
     assert 'data-recent-period="month"' in html
     assert 'data-recent-period="ytd"' in html
     assert "recentPeriod: 'ytd'" in js
@@ -371,6 +371,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "转出账户" in js
     assert "转入账户" in js
     assert "投资入金" in js
+    assert "payment_proxy:" in js
     assert ".transferRoute" in html
     assert "ledgerOriginalAmount" in html
     assert "jget(`/api/ledger/workbench?${params.toString()}`, { cache: false })" in js
@@ -683,7 +684,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v7" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v8" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1250,7 +1251,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v7" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v8" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
