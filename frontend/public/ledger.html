@@ -92,6 +92,17 @@
     .ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
     .ledgerFlowChip { min-height:32px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:var(--muted); font-size:12px; font-weight:850; cursor:pointer; }
     .ledgerFlowChip.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text); }
+    .ledgerSectionToolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; margin-left:auto }
+    .ledgerIconButton { width:34px; height:34px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:#a8b3c7; cursor:pointer }
+    .ledgerIconButton:hover,
+    .ledgerIconButton:focus,
+    .ledgerIconButton.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text) }
+    .ledgerIconButton svg { width:16px; height:16px; stroke:currentColor; stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round }
+    .recentSearchBar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin:0 0 10px }
+    .recentSearchBar[hidden] { display:none !important }
+    .recentSearchClear { min-height:34px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:#79c0ff; font-size:12px; font-weight:850; cursor:pointer }
+    .recentSortChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px }
+    .recentSortChip { border-color:rgba(139,148,158,.18); background:rgba(139,148,158,.06) }
     .recentAccountScope { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:850 }
     .recentAccountScope strong { color:var(--text); font-weight:850 }
     .recentAccountScope button { border:0; background:transparent; color:#79c0ff; font-size:12px; font-weight:850; cursor:pointer }
@@ -346,6 +357,10 @@
       .ledgerFlowChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none; }
       .ledgerFlowChips::-webkit-scrollbar { display:none; }
       .ledgerFlowChip { flex:0 0 auto; border-radius:999px !important; }
+      .ledgerSectionToolbar { gap:6px; min-width:0 }
+      .recentSearchBar { grid-template-columns:minmax(0,1fr) auto }
+      .recentSortChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none }
+      .recentSortChips::-webkit-scrollbar { display:none }
       .accountPeriodToggle { justify-content:flex-start }
       .page-ledger .ledgerPanelGroup {
         padding-left: 12px;
@@ -589,15 +604,22 @@
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section">
         <div class="sectionTitle">
           <h3>现金流水</h3>
-          <div class="accountPeriodToggle" aria-label="流水统计周期">
-            <button class="accountPeriodButton" type="button" data-recent-period="month">本月</button>
-            <button class="accountPeriodButton active" type="button" data-recent-period="ytd">年初至今</button>
+          <div class="ledgerSectionToolbar">
+            <div class="accountPeriodToggle" aria-label="流水统计周期">
+              <button class="accountPeriodButton" type="button" data-recent-period="month">本月</button>
+              <button class="accountPeriodButton active" type="button" data-recent-period="ytd">年初至今</button>
+            </div>
+            <button id="recentSearchToggle" class="ledgerIconButton" type="button" aria-label="搜索流水" aria-expanded="false" aria-controls="recentSearchBar">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m16.5 16.5 4 4"></path>
+              </svg>
+            </button>
           </div>
         </div>
-        <div class="sectionTitle compactSectionTools">
-          <div class="ledgerFilterGrid">
-            <input id="recentSearch" class="formInput" type="search" placeholder="搜索摘要 / 商户 / 粗分类" />
-          </div>
+        <div id="recentSearchBar" class="recentSearchBar" hidden>
+          <input id="recentSearch" class="formInput" type="search" placeholder="搜索摘要 / 商户 / 粗分类" />
+          <button id="recentSearchClear" class="recentSearchClear" type="button">清除</button>
         </div>
         <div id="recentAccountScope" class="recentAccountScope" hidden></div>
         <div id="recentFlowChips" class="ledgerFlowChips" aria-label="流水类型筛选">
@@ -608,11 +630,16 @@
           <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="internal_transfer">内部转账</button>
           <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="review">待确认</button>
         </div>
+        <div id="recentSortChips" class="recentSortChips" aria-label="流水金额排序">
+          <button class="ledgerFlowChip recentSortChip active" type="button" data-recent-sort="">默认排序</button>
+          <button class="ledgerFlowChip recentSortChip" type="button" data-recent-sort="amount_desc">金额从大到小</button>
+          <button class="ledgerFlowChip recentSortChip" type="button" data-recent-sort="amount_asc">金额从小到大</button>
+        </div>
         <div id="recentRows" class="ledgerList"></div>
       </section>
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-internal-flow-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-recent-search-sort-v1"></script>
 </body>
 </html>

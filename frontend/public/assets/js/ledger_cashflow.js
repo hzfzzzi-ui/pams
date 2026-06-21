@@ -23,6 +23,7 @@ const state = {
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',
+  recentAmountSort: '',
   expandedAccountGroups: new Set(),
 };
 
@@ -349,6 +350,21 @@ function rowSearchText(row) {
     accountLabel(row.account_code),
     row.account_code,
   ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function recentAmountValue(row) {
+  return Math.abs(num(row?.amount_cny ?? row?.amount));
+}
+
+function sortRecentRows(rows) {
+  const mode = state.recentAmountSort || '';
+  if (!mode) return rows;
+  const direction = mode === 'amount_asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const amountDelta = recentAmountValue(a) - recentAmountValue(b);
+    if (amountDelta !== 0) return amountDelta * direction;
+    return String(b.transaction_date || '').localeCompare(String(a.transaction_date || ''));
+  });
 }
 
 function originalCurrencyText(row) {
@@ -1113,6 +1129,12 @@ function renderRecentPeriodButtons() {
   });
 }
 
+function renderRecentSortButtons() {
+  document.querySelectorAll('[data-recent-sort]').forEach((btn) => {
+    btn.classList.toggle('active', (btn.dataset.recentSort || '') === state.recentAmountSort);
+  });
+}
+
 function renderAccountFlowSummary(rows) {
   const el = $('accountFlowRows');
   if (!el) return;
@@ -1486,7 +1508,7 @@ function filteredRecentRows() {
   const rows = state.recentPeriod === 'ytd'
     ? (state.data?.recent_rows_ytd || state.data?.recent_rows || [])
     : (state.data?.recent_rows_month || state.data?.recent_rows || []);
-  return rows.filter((row) => {
+  const filtered = rows.filter((row) => {
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
     if (flow === 'review' && !row.needs_review) return false;
     if (flow === 'investment_transfer' && !isInvestmentTransferRow(row)) return false;
@@ -1497,6 +1519,7 @@ function filteredRecentRows() {
     }
     return true;
   });
+  return sortRecentRows(filtered);
 }
 
 function renderRecentRows() {
@@ -1516,6 +1539,7 @@ function renderAll(data) {
   renderTrendChart(data);
   renderCashflowBridge(data);
   renderRecentPeriodButtons();
+  renderRecentSortButtons();
   renderRecentAccountScope();
   renderRecentRows();
 }
@@ -1562,6 +1586,13 @@ function bindEvents() {
       renderRecentRows();
     });
   });
+  document.querySelectorAll('[data-recent-sort]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.recentAmountSort = btn.dataset.recentSort || '';
+      renderRecentSortButtons();
+      renderRecentRows();
+    });
+  });
   document.querySelectorAll('[data-recent-period]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.recentPeriod = btn.dataset.recentPeriod || 'month';
@@ -1570,7 +1601,34 @@ function bindEvents() {
       renderRecentRows();
     });
   });
-  $('recentSearch')?.addEventListener('input', renderRecentRows);
+  const recentSearchBar = $('recentSearchBar');
+  const recentSearchToggle = $('recentSearchToggle');
+  const recentSearchInput = $('recentSearch');
+  const syncRecentSearchToggle = () => {
+    const hasText = Boolean(recentSearchInput?.value?.trim());
+    const isOpen = recentSearchBar ? !recentSearchBar.hidden : false;
+    recentSearchToggle?.classList.toggle('active', isOpen || hasText);
+    recentSearchToggle?.setAttribute('aria-expanded', String(isOpen));
+  };
+  const setRecentSearchOpen = (open) => {
+    if (!recentSearchBar) return;
+    recentSearchBar.hidden = !open;
+    syncRecentSearchToggle();
+    if (open) recentSearchInput?.focus();
+  };
+  recentSearchToggle?.addEventListener('click', () => {
+    setRecentSearchOpen(recentSearchBar?.hidden ?? true);
+  });
+  $('recentSearchClear')?.addEventListener('click', () => {
+    if (recentSearchInput) recentSearchInput.value = '';
+    renderRecentRows();
+    setRecentSearchOpen(false);
+  });
+  recentSearchInput?.addEventListener('input', () => {
+    renderRecentRows();
+    syncRecentSearchToggle();
+  });
+  syncRecentSearchToggle();
 }
 
 function setLedgerPanel(panel = 'overview') {
