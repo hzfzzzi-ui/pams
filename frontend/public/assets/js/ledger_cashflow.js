@@ -949,9 +949,10 @@ function renderTrendChart(data) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { left: 8, right: 18, top: 2, bottom: 4 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#8b949e' } },
+        legend: { labels: { color: '#8b949e', boxWidth: 28, boxHeight: 10, padding: 12 } },
         tooltip: {
           callbacks: {
             label: (ctxItem) => `${ctxItem.dataset.label}: ${money(ctxItem.parsed.y)}`,

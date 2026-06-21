@@ -44,8 +44,24 @@
     .ledgerKpi { padding:0; min-height:auto; border:0; border-radius:0; background:transparent }
     .ledgerKpi .label { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:0 }
     .ledgerKpi .value { margin-top:4px; font-size:20px; line-height:1.15; font-weight:760; font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-variant-numeric:tabular-nums; letter-spacing:0 }
-    .cashflowBodyGrid { display:grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr); gap:18px; margin-top:14px; align-items:start }
-    .cashflowBodyGrid .chartWrap { height:300px !important }
+    .page-ledger .cashflowBodyGrid {
+      display:grid !important;
+      grid-template-columns:minmax(0, 7fr) minmax(280px, 3fr) !important;
+      gap:18px !important;
+      width:100%;
+      min-width:0;
+      margin-top:14px;
+      align-items:start;
+    }
+    .page-ledger .cashflowBodyGrid > div { min-width:0 }
+    .page-ledger .cashflowBodyGrid .chartWrap {
+      width:100%;
+      min-width:0;
+      height:300px !important;
+      min-height:260px !important;
+      overflow:visible;
+      padding:0 6px 0 8px;
+    }
     .categoryBarList { display:grid; border-top:1px solid var(--line) }
     .categoryBarRow { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:62px; padding:10px 0; border-bottom:1px solid var(--line) }
     .categoryBarRow:last-child { border-bottom:none }
@@ -64,7 +80,7 @@
     .ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
     .compactSectionTools { margin-top:-4px }
     .compactSectionTools .ledgerFilterGrid { grid-template-columns:minmax(0, 1fr); width:100% }
-    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
+    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
     .ledgerAnchorNav a { position:relative; display:flex; align-items:center; justify-content:center; min-height:30px; padding:0 4px; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:13px; font-weight:850; text-decoration:none; white-space:nowrap }
     .ledgerAnchorNav a::after { content:""; position:absolute; left:50%; right:50%; bottom:-10px; height:2px; background:var(--info); transition:left .16s ease, right .16s ease }
     .ledgerAnchorNav a.is-active,
@@ -237,9 +253,9 @@
     .ledgerEditFull { grid-column:1 / -1 }
     @media (max-width: 880px) {
       .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
-      .cashflowBodyGrid { grid-template-columns:1fr }
+      .page-ledger .cashflowBodyGrid { grid-template-columns:1fr !important }
       .cashflowBridge { grid-template-columns:repeat(2,minmax(0,1fr)) }
-      .ledgerAnchorNav { grid-template-columns:repeat(4,minmax(0,1fr)) }
+      .ledgerAnchorNav { grid-template-columns:repeat(3,minmax(0,1fr)) }
     }
     @media (max-width: 760px) {
       .page-ledger .wrap {
@@ -269,7 +285,7 @@
         top:0;
         z-index:20;
         display:grid;
-        grid-template-columns:repeat(4, minmax(0, 1fr));
+        grid-template-columns:repeat(3, minmax(0, 1fr));
         gap:0;
         padding:8px 12px 10px;
         margin:0 0 8px;
@@ -368,7 +384,19 @@
         letter-spacing:0;
       }
       .page-ledger .ledgerKpiGrid { display:none; }
-      .page-ledger .cashflowBodyGrid { margin-top:8px; }
+      .page-ledger .cashflowBodyGrid {
+        display:grid !important;
+        grid-template-columns:1fr !important;
+        gap:18px !important;
+        margin-top:8px;
+      }
+      .page-ledger .cashflowBodyGrid > div:first-child { order:2 }
+      .page-ledger .cashflowBodyGrid > div:nth-child(2) { order:1 }
+      .page-ledger .cashflowBodyGrid .chartWrap {
+        height:280px !important;
+        min-height:260px !important;
+        padding:0 8px 0 10px;
+      }
       .ledgerListRow { min-height:82px; padding:12px 0; grid-template-columns:minmax(0,1fr) 118px; align-items:stretch }
       .ledgerListMain strong { font-size:15px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
       .ledgerListMain small { white-space:nowrap; display:block }
@@ -409,7 +437,7 @@
     <div class="pageHeader">
       <div>
         <h1>流水</h1>
-        <div class="pageSubtitle">现金流、待确认流水与内部转账。</div>
+        <div class="pageSubtitle">现金流、账户流水与内部转账。</div>
         <details class="compactDetails">
           <summary>口径说明</summary>
           <div class="pageSubtitle">按月查看消费结构、收入来源和资金流转。投资买卖明细已移到投资页，避免把现金消费和投资交易混在一起。</div>
@@ -545,6 +573,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-pending-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v1"></script>
 </body>
 </html>

@@ -240,7 +240,7 @@ function setupAppPreload(activePath, path) {
       ['assets/js/holdings.js?v=20260620-data-state-v1', 'script'],
       ['assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1', 'script'],
       ['assets/js/lookthrough.js?v=20260620-data-state-v1', 'script'],
-      ['assets/js/ledger_cashflow.js?v=20260621-ledger-account-pending-v1', 'script'],
+      ['assets/js/ledger_cashflow.js?v=20260621-ledger-overview-layout-v1', 'script'],
       ['assets/js/transactions.js?v=20260620-data-state-v1', 'script'],
       ['assets/js/portfolio_risk.js?v=20260620-data-state-v1', 'script'],
       ['assets/js/portfolio_config.js?v=20260620-data-state-v1', 'script'],
