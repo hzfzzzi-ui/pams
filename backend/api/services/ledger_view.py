@@ -113,6 +113,14 @@ def _as_date(value: Any) -> date | None:
     return None
 
 
+def _serialize_date(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return str(value)
+
+
 def _month_bounds(month: str | None, latest_date: date | None = None) -> tuple[date, date]:
     if month:
         year, month_no = [int(part) for part in month.split("-", 1)]
@@ -339,10 +347,14 @@ def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] |
                 "net": 0.0,
                 "row_count": 0,
                 "pending_count": 0,
+                "latest_sync_at": None,
             },
         )
         if row.get("account_kind") == "investment":
             item["account_kind"] = "investment"
+        sync_at = row.get("latest_sync_at") or row.get("imported_at") or row.get("updated_at") or row.get("created_at")
+        if sync_at and (item["latest_sync_at"] is None or str(sync_at) > str(item["latest_sync_at"])):
+            item["latest_sync_at"] = sync_at
         amount = _to_float(row.get("amount_cny"))
         flow_type = row.get("flow_type")
         item["row_count"] += 1
@@ -390,6 +402,7 @@ def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] |
                 "row_count": item["row_count"],
                 "pending_count": item["pending_count"],
                 "activity": round(activity, 2),
+                "latest_sync_at": _serialize_date(item["latest_sync_at"]),
             }
         )
     return sorted(result, key=lambda item: item["activity"], reverse=True)
@@ -447,8 +460,12 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
             cf.transfer_group_id,
             cf.review_status,
             cf.source_table,
-            cf.source_id
+            cf.source_id,
+            COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
         FROM pams_cashflow_fact cf
+        LEFT JOIN pams_source_row sr
+          ON sr.source_table = cf.source_table
+         AND sr.source_id = cf.source_id
         WHERE cf.event_date >= %(start)s
           AND cf.event_date <= %(end)s
         ORDER BY cf.event_date DESC, cf.cashflow_id DESC
@@ -481,8 +498,12 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
                 cf.summary,
                 cf.description,
                 cf.source_table,
-                cf.source_id
+                cf.source_id,
+                COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
             FROM pams_cashflow_fact cf
+            LEFT JOIN pams_source_row sr
+              ON sr.source_table = cf.source_table
+             AND sr.source_id = cf.source_id
             WHERE cf.event_date >= %(start)s
               AND cf.event_date <= %(end)s
               AND cf.cashflow_type = 'investment_funding'
@@ -508,6 +529,7 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
             'auto'::text AS review_status,
             source_table,
             source_id,
+            imported_at,
             'investment_inflow'::text AS flow_type,
             FALSE AS needs_review,
             FALSE AS is_operating

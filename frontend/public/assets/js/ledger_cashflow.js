@@ -244,11 +244,18 @@ function normalizeAccountRow(row = {}) {
     ...row,
     account_code: row.account_code || '',
     account_kind: row.account_kind || ACCOUNT_KIND_OVERRIDES[row.account_code] || 'cash',
+    latest_sync_at: row.latest_sync_at || row.imported_at || null,
   };
   ACCOUNT_NUMERIC_FIELDS.forEach((field) => {
     normalized[field] = num(row[field] || 0);
   });
   return normalized;
+}
+
+function maxSyncAt(current, candidate) {
+  if (!candidate) return current || null;
+  if (!current) return candidate;
+  return String(candidate) > String(current) ? candidate : current;
 }
 
 function emptyAccountRow(accountCode) {
@@ -268,6 +275,7 @@ function mergeAccountRows(rows, accountCode, accountKind = 'group') {
     ACCOUNT_NUMERIC_FIELDS.forEach((field) => {
       merged[field] += normalized[field];
     });
+    merged.latest_sync_at = maxSyncAt(merged.latest_sync_at, normalized.latest_sync_at);
   });
   return merged;
 }
@@ -333,6 +341,16 @@ function accountFlowStatsHtml(row) {
   return entries.map(([label, value]) => `<span>${escapeHtml(label)} ${escapeHtml(money(value))}</span>`).join('');
 }
 
+function formatSyncDate(value) {
+  if (!value) return '--';
+  const raw = String(value);
+  return raw.length >= 10 ? raw.slice(5, 10) : raw;
+}
+
+function syncBadgeHtml(row) {
+  return `<span class="accountSyncBadge">同步 ${escapeHtml(formatSyncDate(row.latest_sync_at))}</span>`;
+}
+
 function renderAccountFlowSide(row, childCountText = '') {
   const net = num(row.net);
   const pendingText = row.pending_count ? ` · ${row.pending_count} 待确认` : '';
@@ -354,7 +372,7 @@ function renderAccountFlowRow(row, { label, detail, classes = '', filterable = t
     <${tagName}${typeAttr} class="accountFlowRow ${classes}${active ? '' : ' is-empty'}"${filterAttr}>
       <span class="accountFlowMain">
         <strong>${escapeHtml(label || accountDisplayName(row.account_code))}</strong>
-        <small>${escapeHtml(detail || row.account_code || '')}</small>
+        <small class="accountFlowMetaLine"><span>${escapeHtml(detail || row.account_code || '')}</span>${syncBadgeHtml(row)}</small>
         <span class="accountFlowStats">
           ${accountFlowStatsHtml(row)}
         </span>
@@ -385,7 +403,7 @@ function renderAccountGroup(group) {
       <button type="button" class="accountFlowRow accountGroupRow" data-account-group-toggle="${escapeHtml(group.code)}" aria-expanded="${collapsed ? 'false' : 'true'}">
         <span class="accountFlowMain">
           <strong>${escapeHtml(group.label)}</strong>
-          <small>${escapeHtml(childCountText)}</small>
+          <small class="accountFlowMetaLine"><span>${escapeHtml(childCountText)}</span>${syncBadgeHtml(summary)}</small>
           <span class="accountFlowStats">
             ${accountFlowStatsHtml(summary)}
           </span>

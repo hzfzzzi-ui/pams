@@ -90,6 +90,8 @@
     .accountFlowMain { min-width:0 }
     .accountFlowMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:16px; line-height:1.28; font-weight:850 }
     .accountFlowMain small { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1; font-weight:800 }
+    .accountFlowMetaLine { display:flex !important; align-items:center; gap:7px; min-width:0; flex-wrap:wrap }
+    .accountSyncBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(139,148,158,.18); border-radius:999px; background:rgba(139,148,158,.08); color:#a8b3c7; font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
     .accountFlowStats { display:flex; align-items:center; gap:10px; margin-top:8px; color:var(--muted); font-size:11px; font-weight:850; flex-wrap:wrap }
     .accountFlowStats span { white-space:nowrap }
     .accountFlowSide { display:grid; gap:5px; justify-items:end; min-width:112px; white-space:nowrap }
@@ -527,6 +529,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-hierarchy-v2"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v1"></script>
 </body>
 </html>

@@ -357,11 +357,14 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert 'href="#review-section"' in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-hierarchy-v2" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v1" in html
     assert "ACCOUNT_GROUPS" in js
     assert "buildAccountFlowGroups" in js
     assert "accountGroupRow" in html
     assert "accountSubRow" in html
+    assert "accountSyncBadge" in html
+    assert "syncBadgeHtml" in js
+    assert "latest_sync_at" in js
     assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
 
 
@@ -664,7 +667,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-hierarchy-v2" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v1" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1231,7 +1234,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-hierarchy-v2" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-ledger-account-sync-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js

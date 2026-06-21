@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -130,6 +130,29 @@ def test_account_summary_reports_raw_row_activity() -> None:
     assert result[0]["row_count"] == 2
     assert result[0]["transfer"] == 1300
     assert result[0]["net"] == -700
+
+
+def test_account_summary_reports_latest_sync_at() -> None:
+    rows = [
+        {
+            "account_code": "ccb_7332",
+            "flow_type": "transfer",
+            "amount_cny": -1000,
+            "needs_review": False,
+            "imported_at": datetime(2026, 5, 31, 4, 42, 24),
+        },
+        {
+            "account_code": "ccb_7332",
+            "flow_type": "transfer",
+            "amount_cny": 300,
+            "needs_review": False,
+            "imported_at": datetime(2026, 6, 2, 8, 30, 0),
+        },
+    ]
+
+    result = _account_summary(rows)
+
+    assert result[0]["latest_sync_at"] == "2026-06-02T08:30:00"
 
 
 def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:
