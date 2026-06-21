@@ -411,6 +411,7 @@ function rowDetailHtml(row) {
   return `
     <div class="rowDetailGrid">
       ${transferRouteHtml(row)}
+      ${editButton}
       <div><strong>账户</strong><span>${escapeHtml(accountLabel(row.account_code) || row.account_code || '-')}</span></div>
       <div><strong>对方账户</strong><span>${escapeHtml(row.counter_account_code || '不适用')}</span></div>
       <div><strong>对方</strong><span>${escapeHtml(row.counterparty || '不适用')}</span></div>
@@ -420,7 +421,6 @@ function rowDetailHtml(row) {
       <div><strong>摘要</strong><span>${escapeHtml(row.summary || '-')}</span></div>
       <div><strong>说明</strong><span>${escapeHtml(row.description || '不适用')}</span></div>
       <div><strong>状态</strong><span>${row.needs_review ? '待确认' : '已归类'}</span></div>
-      ${editButton}
     </div>
   `;
 }
