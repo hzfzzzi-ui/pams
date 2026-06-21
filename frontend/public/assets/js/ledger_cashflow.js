@@ -212,6 +212,14 @@ function ledgerEditTypeLabel(cashflowType) {
   return LEDGER_EDIT_TYPES.find(([value]) => value === cashflowType)?.[1] || cashflowType || '未分类';
 }
 
+function ledgerEditActionLabel(row) {
+  return row?.needs_review ? '确认/修改' : '修改分类';
+}
+
+function ledgerEditSubmitLabel(row) {
+  return row?.needs_review ? '保存并确认' : '保存修改';
+}
+
 function isAccountValidationRow(row) {
   const text = [row.summary, row.description, row.counterparty].filter(Boolean).join(' ').toLowerCase();
   const amount = Math.abs(num(row.amount_cny ?? row.amount));
@@ -396,7 +404,7 @@ function rowDetailHtml(row) {
   const editButton = isEditableLedgerRow(row)
     ? `
       <div class="ledgerDetailActions rowDetailFull">
-        <button type="button" class="ledgerActionBtn confirm" data-ledger-edit="${escapeHtml(String(row.id || ''))}">修改分类</button>
+        <button type="button" class="ledgerActionBtn confirm" data-ledger-edit="${escapeHtml(String(row.id || ''))}">${escapeHtml(ledgerEditActionLabel(row))}</button>
       </div>
     `
     : '';
@@ -428,7 +436,7 @@ function ledgerEditSheetHtml(row) {
   const subcategory = rawSubcategory || defaultEdit.subcategory || '';
   return `
     <form class="ledgerConfirmSheet ledgerEditSheet" data-ledger-edit-form="${escapeHtml(String(row.id || ''))}">
-      <div class="ledgerConfirmLead">修改会直接写入底层现金流事实表，并刷新收支、账户和待确认统计。</div>
+      <div class="ledgerConfirmLead">${row.needs_review ? '选择正确口径后保存，这条流水会从待确认中移除。' : '修改会写入底层现金流事实表，并刷新收支和账户统计。'}</div>
       <div class="ledgerConfirmTitle">${escapeHtml(rowTitle(row))}</div>
       <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${signedMoney(amount)}</div>
       <div class="ledgerConfirmMeta">
@@ -477,7 +485,7 @@ function ledgerEditSheetHtml(row) {
       </div>
       <div class="ledgerConfirmActions">
         <button type="button" class="ledgerActionBtn ghost" data-sheet-close>取消</button>
-        <button type="submit" class="ledgerActionBtn confirm">保存修改</button>
+        <button type="submit" class="ledgerActionBtn confirm">${escapeHtml(ledgerEditSubmitLabel(row))}</button>
       </div>
     </form>
   `;
@@ -1063,7 +1071,7 @@ function bindLedgerEditSheet(row) {
       showError(err);
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = '保存修改';
+        submitBtn.textContent = ledgerEditSubmitLabel(row);
       }
     }
   }, { once: true });
@@ -1071,7 +1079,7 @@ function bindLedgerEditSheet(row) {
 
 function openLedgerEdit(row) {
   if (!row || !isEditableLedgerRow(row)) return;
-  openBottomSheet('修改流水', ledgerEditSheetHtml(row));
+  openBottomSheet(row.needs_review ? '确认流水' : '修改流水', ledgerEditSheetHtml(row));
   bindLedgerEditSheet(row);
 }
 
@@ -1105,6 +1113,9 @@ function renderRows(id, rows, limit = 80) {
     const meta = rowMetaText(row);
     const dateText = rowDateText(row);
     const originalAmount = originalCurrencyText(row);
+    const reviewAction = row.needs_review && isEditableLedgerRow(row)
+      ? `<button type="button" class="ledgerInlineEditBtn" data-ledger-edit="${escapeHtml(String(row.id || ''))}">${escapeHtml(ledgerEditActionLabel(row))}</button>`
+      : '';
     return `
       <div class="ledgerListRow" role="button" tabindex="0" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
         <span class="ledgerListMain">
@@ -1119,6 +1130,7 @@ function renderRows(id, rows, limit = 80) {
             <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(rowTagLabel(row))}</span>
             ${row.needs_review ? '<span class="ledgerReviewHint">待确认支出</span>' : ''}
           </small>
+          ${reviewAction}
         </span>
       </div>
       <div id="${escapeHtml(detailId)}" class="ledgerInlineDetail" hidden>

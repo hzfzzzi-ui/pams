@@ -158,6 +158,18 @@
     .transferRouteArrow { display:grid; place-items:center; color:#79c0ff; font-size:18px; line-height:1; font-weight:850 }
     .ledgerListMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap }
     .ledgerReviewHint { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.2px }
+    .ledgerInlineEditBtn {
+      min-height:28px;
+      padding:0 12px;
+      border:1px solid rgba(88,166,255,.42);
+      border-radius:999px;
+      background:rgba(56,139,253,.14);
+      color:#a5d6ff;
+      font-size:12px;
+      font-weight:850;
+      line-height:1;
+      cursor:pointer;
+    }
     .ledgerRowActions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap }
     .ledgerInlineDetail { padding:0 0 12px; border-bottom:1px solid var(--line) }
     .ledgerEmpty { padding:14px 0; color:var(--muted); font-size:13px; font-weight:800 }
@@ -562,6 +574,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-overview-period-v2"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-review-confirm-v1"></script>
 </body>
 </html>
