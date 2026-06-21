@@ -642,6 +642,30 @@ def _investment_row_dedupe_key(row: Mapping[str, Any]) -> tuple[str, str, date |
     )
 
 
+def _merge_investment_account_rows(
+    cash_rows: list[dict[str, Any]],
+    trade_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prefer bank cashflow funding rows over broker/importer cash events."""
+    cash_keys = {_investment_row_dedupe_key(row) for row in cash_rows}
+    cashflow_ids = {
+        str(row.get("linked_cashflow_id"))
+        for row in cash_rows
+        if row.get("linked_cashflow_id") not in (None, "")
+    }
+    filtered_trade_rows = [
+        row
+        for row in trade_rows
+        if _investment_row_dedupe_key(row) not in cash_keys
+        and str(row.get("linked_cashflow_id") or "") not in cashflow_ids
+    ]
+    return sorted(
+        cash_rows + filtered_trade_rows,
+        key=lambda item: (item.get("transaction_date_obj") or date.min, str(item.get("id") or "")),
+        reverse=True,
+    )
+
+
 def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
     if not _table_exists(cur, "pams_investment_trade_fact"):
         return []
@@ -826,23 +850,7 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
         row["coarse_category"] = row.get("subcategory") or "投资现金流"
         rows.append(row)
     trade_rows = _load_investment_trade_account_rows(cur, start=start, end=end, base_currency=base_currency)
-    trade_keys = {_investment_row_dedupe_key(row) for row in trade_rows}
-    trade_cashflow_ids = {
-        str(row.get("linked_cashflow_id"))
-        for row in trade_rows
-        if row.get("linked_cashflow_id") not in (None, "")
-    }
-    cash_rows = [
-        row
-        for row in rows
-        if _investment_row_dedupe_key(row) not in trade_keys
-        and str(row.get("linked_cashflow_id") or "") not in trade_cashflow_ids
-    ]
-    return sorted(
-        trade_rows + cash_rows,
-        key=lambda item: (item.get("transaction_date_obj") or date.min, str(item.get("id") or "")),
-        reverse=True,
-    )
+    return _merge_investment_account_rows(rows, trade_rows)
 
 
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:

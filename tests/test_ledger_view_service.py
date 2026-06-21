@@ -14,6 +14,7 @@ if str(API_ROOT) not in sys.path:
 import services.ledger_view as ledger_view  # noqa: E402
 from services.ledger_view import (  # noqa: E402
     _account_summary,
+    _merge_investment_account_rows,
     _month_bounds,
     _recent_start_for_account_window,
     _serialize_row,
@@ -360,9 +361,44 @@ def test_investment_account_rows_keep_original_currency_amount_for_display() -> 
     assert "cf.transfer_group_id LIKE 'investment_funding:%%'" in source
     assert "account_transfer:%%" not in source
     assert "linked_cashflow_id" in source
-    assert "trade_cashflow_ids" in source
+    assert "_merge_investment_account_rows(rows, trade_rows)" in source
     assert "amount_cny AS amount" not in source
     assert "amount_cny AS amount" not in trade_source
+
+
+def test_investment_account_rows_prefer_bank_cashflow_over_importer_cash_event() -> None:
+    cash_row = {
+        "id": "investment-inflow-855",
+        "account_code": "tonghuashun",
+        "flow_type": "investment_inflow",
+        "transaction_date_obj": date(2026, 5, 20),
+        "amount_cny": 50000,
+        "counterparty": "ccb_7332",
+        "linked_cashflow_id": "855",
+    }
+    trade_row = {
+        "id": "investment-trade-259",
+        "account_code": "tonghuashun",
+        "flow_type": "investment_inflow",
+        "transaction_date_obj": date(2026, 5, 20),
+        "amount_cny": 50000,
+        "counterparty": "tradingview",
+        "linked_cashflow_id": None,
+    }
+    unmatched_trade_row = {
+        "id": "investment-trade-98",
+        "account_code": "tonghuashun",
+        "flow_type": "investment_inflow",
+        "transaction_date_obj": date(2026, 1, 29),
+        "amount_cny": 100000,
+        "counterparty": "tradingview",
+        "linked_cashflow_id": None,
+    }
+
+    result = _merge_investment_account_rows([cash_row], [trade_row, unmatched_trade_row])
+
+    assert [row["id"] for row in result] == ["investment-inflow-855", "investment-trade-98"]
+    assert result[0]["counterparty"] == "ccb_7332"
 
 
 def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:

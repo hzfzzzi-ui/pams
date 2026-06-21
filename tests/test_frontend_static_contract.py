@@ -377,12 +377,20 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "openRecentSortSheet" in js
     assert "RECENT_SORT_OPTIONS" in js
     assert "data-recent-sort-option" in js
+    assert "156010860" in js
+    assert "from: investmentAccount || counterparty" in js
+    assert "isImporterCounterparty" in js
+    assert "investmentFundingSourceAccount" in js
+    assert "raw === 'tradingview'" in js
+    assert "return 'ccb_7332'" in js
+    infer_account_fn = js[js.index("function inferInvestmentAccountCode") : js.index("function transferEndpointName")]
+    assert infer_account_fn.index("156010860") < infer_account_fn.index("direct_investment")
     assert "isInvestmentTransferRow" in js
     assert "isInternalTransferRow" in js
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20260621-recent-filter-menu-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20260621-investment-route-v3" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -788,7 +796,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260621-recent-filter-menu-v1" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20260621-investment-route-v3" in ledger_html
     assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
@@ -1355,7 +1363,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260621-recent-filter-menu-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260621-investment-route-v3" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js

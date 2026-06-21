@@ -425,15 +425,19 @@ function originalCurrencyText(row) {
 
 function inferInvestmentAccountCode(row) {
   const transferGroupId = String(row.transfer_group_id || '').toLowerCase();
+  const cashflowType = cashflowTypeText(row);
+  const text = [row.account_code, row.counterparty, row.summary, row.description, row.category, row.subcategory]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (text.includes('156010860') || (cashflowType === 'investment_withdrawal' && text.includes('赎回账户'))) return 'tencent_licaitong';
+
   if (transferGroupId.includes('to_ibkr')) return 'ibkr';
   if (transferGroupId.includes('to_tonghuashun')) return 'tonghuashun';
   if (transferGroupId.includes('to_tencent_licaitong')) return 'tencent_licaitong';
   if (transferGroupId.includes('direct_investment') || transferGroupId.includes('yhs300')) return 'ccb_yhs300_fund';
 
-  const text = [row.account_code, row.counterparty, row.summary, row.description, row.category, row.subcategory]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
   if (text.includes('interactive brokers') || text.includes('ibkr')) return 'ibkr';
   if (text.includes('同花顺') || text.includes('tonghuashun')) return 'tonghuashun';
   if (text.includes('理财通') || text.includes('licaitong')) return 'tencent_licaitong';
@@ -447,6 +451,17 @@ function transferEndpointName(value) {
   return accountFriendlyName(raw) || raw;
 }
 
+function isImporterCounterparty(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'tradingview' || raw === 'pams_tradingview_transactions';
+}
+
+function investmentFundingSourceAccount(row, counterparty) {
+  if (!isImporterCounterparty(counterparty)) return counterparty;
+  if (String(row.account_code || '').toLowerCase() === 'tonghuashun') return 'ccb_7332';
+  return '';
+}
+
 function transferRoute(row) {
   const flowType = String(row.flow_type || '').toLowerCase();
   const cashflowType = String(row.cashflow_type || '').toLowerCase();
@@ -458,8 +473,9 @@ function transferRoute(row) {
 
   if (cashflowType === 'investment_funding' || flowType === 'investment_inflow') {
     const investmentAccount = inferInvestmentAccountCode(row) || (flowType === 'investment_inflow' ? account : '');
+    const fundingSource = investmentFundingSourceAccount(row, counterparty);
     if (flowType === 'investment_inflow' || row.account_kind === 'investment' || amount >= 0) {
-      return { label: '投资入金', from: counterparty, to: investmentAccount || account };
+      return { label: '投资入金', from: fundingSource || counterparty, to: investmentAccount || account };
     }
     return { label: '投资入金', from: account, to: investmentAccount || counterparty };
   }
@@ -469,7 +485,7 @@ function transferRoute(row) {
     if (flowType === 'investment_outflow' || row.account_kind === 'investment' || amount < 0) {
       return { label: '投资出金', from: investmentAccount || account, to: counterparty };
     }
-    return { label: '投资出金', from: counterparty || investmentAccount, to: account };
+    return { label: '投资出金', from: investmentAccount || counterparty, to: account };
   }
 
   if (flowType === 'transfer' && counterparty) {
