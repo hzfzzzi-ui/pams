@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-investment-account-v1b';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-investment-account-v2';
 import {
   byId as $,
   clearError,
@@ -796,8 +796,9 @@ function accountInvestmentBalanceEntries(accountCode) {
 function investmentAccountStatsEntries(row) {
   const normalized = normalizeAccountRow(row);
   const netFunding = normalized.investment_inflow - normalized.investment_outflow;
+  const fundingLabel = normalized.funding_scope === 'personal_capital' ? '个人入金' : '净入金';
   const entries = [];
-  if (Math.abs(netFunding) > 0.000001) entries.push({ label: '净入金', value: signedMoney(netFunding), tone: netFunding >= 0 ? 'up' : 'down' });
+  if (Math.abs(netFunding) > 0.000001) entries.push({ label: fundingLabel, value: signedMoney(netFunding), tone: netFunding >= 0 ? 'up' : 'down' });
   if (Math.abs(normalized.investment_inflow) > 0.000001) entries.push({ label: '入金', value: money(normalized.investment_inflow), tone: 'data' });
   if (Math.abs(normalized.investment_outflow) > 0.000001) entries.push({ label: '出金', value: money(normalized.investment_outflow), tone: 'data' });
   if (Math.abs(normalized.investment_return) > 0.000001) entries.push({ label: '现金收益', value: money(normalized.investment_return), tone: 'up' });

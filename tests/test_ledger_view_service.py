@@ -368,6 +368,38 @@ def test_account_summary_separates_investment_account_inflows() -> None:
     assert result[0]["net"] == 1000
 
 
+def test_account_summary_uses_personal_capital_for_co_owned_investment_account() -> None:
+    rows = [
+        {
+            "account_code": "tonghuashun",
+            "account_kind": "investment",
+            "flow_type": "investment_inflow",
+            "amount_cny": 300000,
+            "needs_review": False,
+        },
+    ]
+    account_config = {
+        "defaults": {"owner_ratio": 1},
+        "accounts": {
+            "tonghuashun": {
+                "owner_ratio": 0.625,
+                "capital_base": 400000,
+                "personal_capital": 250000,
+            }
+        },
+    }
+
+    result = _account_summary(rows, {"tonghuashun"}, account_config)
+
+    assert result[0]["investment_inflow"] == 250000
+    assert result[0]["net"] == 250000
+    assert result[0]["owner_ratio"] == 0.625
+    assert result[0]["capital_base"] == 400000
+    assert result[0]["personal_capital"] == 250000
+    assert result[0]["funding_scope"] == "personal_capital"
+    assert result[0]["row_count"] == 1
+
+
 def test_summarize_period_ignores_investment_account_cashflows() -> None:
     rows = [
         {"transaction_date_obj": date(2026, 5, 1), "amount_cny": 2000, "flow_type": "income", "needs_review": False},

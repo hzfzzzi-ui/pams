@@ -115,13 +115,13 @@
     .accountFlowFooter.is-compact { justify-content:flex-end }
     .accountFlowStats { display:flex; align-items:center; gap:8px; margin-top:0; color:var(--muted); font-size:11px; font-weight:850; flex-wrap:wrap; min-width:0 }
     .accountFlowStats span { white-space:nowrap }
-    .accountFlowFooterMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap; color:var(--muted); font-size:11px; font-weight:850; text-align:right }
+    .accountFlowFooterMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex:0 0 auto; min-width:max-content; color:var(--muted); font-size:11px; font-weight:850; text-align:right; white-space:nowrap }
     .accountFlowNetBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:#a8b3c7; white-space:nowrap }
     .accountFlowNetBadge.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
     .accountFlowNetBadge.down { border-color:rgba(248,81,73,.28); background:rgba(248,81,73,.08); color:#ff8b81 }
-    .accountInvestmentFooter { align-items:flex-start }
-    .accountInvestmentStats { display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0 }
-    .accountInvestmentChip { display:inline-flex; align-items:center; gap:5px; min-height:22px; padding:0 8px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:var(--muted); font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
+    .accountInvestmentFooter { align-items:center }
+    .accountInvestmentStats { display:flex; align-items:center; gap:5px; flex:1 1 auto; flex-wrap:wrap; min-width:0 }
+    .accountInvestmentChip { display:inline-flex; align-items:center; gap:4px; min-height:22px; padding:0 7px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:var(--muted); font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
     .accountInvestmentChip strong { color:var(--text); font-weight:850; font-variant-numeric:tabular-nums }
     .accountInvestmentChip.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
     .accountInvestmentChip.down,
@@ -596,6 +596,6 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-investment-account-v1b"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260621-ledger-investment-account-v2"></script>
 </body>
 </html>

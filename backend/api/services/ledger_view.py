@@ -393,18 +393,60 @@ def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str,
     return sorted(result, key=lambda item: item["amount"], reverse=True)
 
 
-def _load_configured_account_codes() -> set[str]:
+def _load_accounts_config() -> dict[str, Any]:
     path = ACCOUNTS_CONFIG_PATH if ACCOUNTS_CONFIG_PATH.exists() else LOCAL_ACCOUNTS_CONFIG_PATH
     try:
         with path.open("r", encoding="utf-8") as fh:
-            cfg = yaml.safe_load(fh) or {}
+            return yaml.safe_load(fh) or {}
     except Exception:
-        return set()
+        return {}
+
+
+def _load_configured_account_codes(account_config: Mapping[str, Any] | None = None) -> set[str]:
+    cfg = dict(account_config or _load_accounts_config())
     accounts = cfg.get("accounts") or {}
     return {str(code) for code in accounts.keys() if code}
 
 
-def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] | None = None) -> list[dict[str, Any]]:
+def _account_capital_config(account_config: Mapping[str, Any] | None, account_code: str) -> dict[str, Any]:
+    accounts = (account_config or {}).get("accounts") or {}
+    cfg = accounts.get(account_code) or {}
+    defaults = (account_config or {}).get("defaults") or {}
+    owner_ratio = _to_float(cfg.get("owner_ratio", defaults.get("owner_ratio", 1)))
+    personal_capital = cfg.get("personal_capital")
+    capital_base = cfg.get("capital_base")
+    return {
+        "owner_ratio": owner_ratio or 1.0,
+        "personal_capital": _to_float(personal_capital) if personal_capital not in (None, "") else None,
+        "capital_base": _to_float(capital_base) if capital_base not in (None, "") else None,
+    }
+
+
+def _apply_personal_capital_override(item: dict[str, Any], account_config: Mapping[str, Any] | None) -> None:
+    capital = _account_capital_config(account_config, str(item.get("account_code") or ""))
+    item["owner_ratio"] = capital["owner_ratio"]
+    item["personal_capital"] = capital["personal_capital"]
+    item["capital_base"] = capital["capital_base"]
+    if item.get("account_kind") != "investment" or capital["personal_capital"] is None:
+        return
+
+    # Co-owned investment accounts such as Tonghuashun publish gross platform
+    # cash events. The account page must show the user's capital share instead.
+    item["investment_inflow"] = capital["personal_capital"]
+    item["net"] = (
+        item["investment_inflow"]
+        - item["investment_outflow"]
+        + item["investment_return"]
+        - item["investment_fee"]
+    )
+    item["funding_scope"] = "personal_capital"
+
+
+def _account_summary(
+    rows: list[dict[str, Any]],
+    configured_accounts: set[str] | None = None,
+    account_config: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         account_code = str(row.get("account_code") or "unknown")
@@ -456,6 +498,7 @@ def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] |
 
     result = []
     for item in grouped.values():
+        _apply_personal_capital_override(item, account_config)
         activity = (
             item["income"]
             + item["expense"]
@@ -481,6 +524,14 @@ def _account_summary(rows: list[dict[str, Any]], configured_accounts: set[str] |
                 "pending_count": item["pending_count"],
                 "activity": round(activity, 2),
                 "latest_sync_at": _serialize_date(item["latest_sync_at"]),
+                "owner_ratio": item.get("owner_ratio"),
+                "personal_capital": (
+                    round(item["personal_capital"], 2) if item.get("personal_capital") is not None else None
+                ),
+                "capital_base": (
+                    round(item["capital_base"], 2) if item.get("capital_base") is not None else None
+                ),
+                "funding_scope": item.get("funding_scope"),
             }
         )
     return sorted(result, key=lambda item: item["activity"], reverse=True)
@@ -875,7 +926,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     latest_date = _load_latest_statement_date(cur)
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
-    configured_accounts = _load_configured_account_codes()
+    account_config = _load_accounts_config()
+    configured_accounts = _load_configured_account_codes(account_config)
     cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
     payment_proxy_source_row_ids = {
@@ -951,7 +1003,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "expense_categories_ytd": _group_amounts(ytd_rows, "expense"),
         "income_categories_ytd": _group_amounts(ytd_rows, "income"),
         "account_summary": _account_summary(month_account_rows, configured_accounts),
-        "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts),
+        "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts, account_config),
         "monthly_trend": _trend(display_rows, ytd_start, month_end, "monthly"),
         "weekly_trend": _trend(display_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,
