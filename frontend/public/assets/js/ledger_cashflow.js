@@ -131,8 +131,86 @@ function flowClass(flowType) {
   return 'other';
 }
 
+function compactText(value, maxLength = 24) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, Math.max(1, maxLength - 1))}…` : text;
+}
+
+function stripLongDetail(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text
+    .split(/[；;]/)[0]
+    .split(/\s\/\s/)[0]
+    .trim();
+}
+
+function accountShortLabel(value) {
+  return compactText(accountLabel(value) || accountDisplayName(value) || value || '', 16);
+}
+
+function counterpartyShortLabel(row) {
+  const raw = String(row.counterparty || '').trim();
+  if (!raw) return '';
+  return compactText(accountDisplayName(raw) || accountLabel(raw) || raw, 18);
+}
+
+function rowCategoryText(row) {
+  return String(row.coarse_category || row.subcategory || row.category || '').trim();
+}
+
+function isAccountValidationRow(row) {
+  const text = [row.summary, row.description, row.counterparty].filter(Boolean).join(' ').toLowerCase();
+  const amount = Math.abs(num(row.amount_cny ?? row.amount));
+  return amount <= 1 && (text.includes('validacion') || text.includes('validación') || text.includes('validation') || text.includes('账户验证'));
+}
+
 function rowTitle(row) {
-  return [row.summary, row.description, row.counterparty].filter(Boolean).join(' / ') || '未命名流水';
+  const route = transferRoute(row);
+  if (route?.label === '投资入金') return `${transferEndpointName(route.to)} 入金`;
+  if (route?.label === '投资出金') return `${transferEndpointName(route.from)} 出金`;
+  if (route?.label === '内部转账') return '内部转账';
+
+  const cashflowType = String(row.cashflow_type || '').toLowerCase();
+  if (cashflowType === 'investment_funding') return '投资入金';
+  if (cashflowType === 'investment_withdrawal') return '投资出金';
+
+  if (isAccountValidationRow(row)) return '账户验证';
+
+  const category = rowCategoryText(row);
+  if (String(row.flow_type || '') === 'income') {
+    if (category.includes('工资')) return '工资入账';
+    if (category.includes('公积金')) return '公积金汇缴';
+  }
+
+  const summary = stripLongDetail(row.summary);
+  const fallback = category || row.counterparty || flowLabel(row.flow_type);
+  return compactText(summary || fallback || '未命名流水', 24);
+}
+
+function rowMetaText(row) {
+  const parts = [
+    row.transaction_date || '',
+    accountShortLabel(row.account_code),
+    compactText(rowCategoryText(row) || flowLabel(row.flow_type), 14),
+    counterpartyShortLabel(row),
+  ].filter(Boolean);
+  return parts.join(' / ');
+}
+
+function rowSearchText(row) {
+  return [
+    row.summary,
+    row.description,
+    row.counterparty,
+    row.category,
+    row.subcategory,
+    row.coarse_category,
+    flowLabel(row.flow_type),
+    accountLabel(row.account_code),
+    row.account_code,
+  ].filter(Boolean).join(' ').toLowerCase();
 }
 
 function originalCurrencyText(row) {
@@ -812,9 +890,7 @@ function renderRows(id, rows, limit = 80) {
     const amount = num(row.amount_cny ?? row.amount);
     const amountClass = amount >= 0 ? 'up' : 'down';
     const title = rowTitle(row);
-    const account = accountLabel(row.account_code) || row.account_code || '';
-    const category = row.coarse_category || flowLabel(row.flow_type);
-    const counterparty = row.counterparty ? ` / ${row.counterparty}` : '';
+    const meta = rowMetaText(row);
     const originalAmount = originalCurrencyText(row);
     const isReviewRow = id === 'reviewRows' && row.needs_review;
     const actionButtons = isReviewRow
@@ -828,7 +904,7 @@ function renderRows(id, rows, limit = 80) {
       <div class="ledgerListRow" role="button" tabindex="0" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
         <span class="ledgerListMain">
           <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
-          <small>${escapeHtml(row.transaction_date || '')} / ${escapeHtml(account)} / ${escapeHtml(category)}${escapeHtml(counterparty)}</small>
+          <small title="${escapeHtml(rowSearchText(row))}">${escapeHtml(meta)}</small>
         </span>
         <span class="ledgerListSide">
           <b class="${amountClass}">${signedMoney(amount)}</b>
@@ -893,7 +969,7 @@ function filteredRecentRows() {
     if (flow === 'investment_transfer' && !isInvestmentTransferRow(row)) return false;
     if (flow === 'internal_transfer' && !isInternalTransferRow(row)) return false;
     if (flow && !['review', 'investment_transfer', 'internal_transfer'].includes(flow) && row.flow_type !== flow) return false;
-    if (search && !rowTitle(row).toLowerCase().includes(search) && !String(row.coarse_category || '').toLowerCase().includes(search)) {
+    if (search && !rowSearchText(row).includes(search)) {
       return false;
     }
     return true;
