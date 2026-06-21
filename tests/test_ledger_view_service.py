@@ -175,10 +175,22 @@ def test_income_categories_are_normalized_to_app_buckets() -> None:
             "summary": "微信转账",
         }
     )
+    year_end_bonus = classify_ledger_row(
+        {
+            "amount_cny": 37120,
+            "cashflow_type": "operating_income",
+            "category": "奖金",
+            "subcategory": "年终奖",
+            "summary": "普通汇兑",
+            "description": "普通汇兑 分红（完税） 4000020319200082565/华为投资控股 有限公司工会委员会",
+        }
+    )
 
     assert salary["coarse_category"] == "工资薪酬"
     assert refund["coarse_category"] == "退款返现"
     assert transfer_income["coarse_category"] == "借还款/往来"
+    assert year_end_bonus["flow_type"] == "income"
+    assert year_end_bonus["coarse_category"] == "奖金"
 
 
 def test_expense_categories_are_normalized_to_app_buckets() -> None:

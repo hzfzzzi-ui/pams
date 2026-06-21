@@ -1510,15 +1510,15 @@ function openLedgerEdit(row) {
 }
 
 function bindLedgerEditButtons(root = document) {
-  root.querySelectorAll('[data-ledger-edit]').forEach((btn) => {
-    if (ledgerEditBoundButtons.has(btn)) return;
-    ledgerEditBoundButtons.add(btn);
-    btn.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const row = findLedgerRowById(btn.dataset.ledgerEdit);
-      openLedgerEdit(row);
-    });
+  if (!root || ledgerEditBoundButtons.has(root)) return;
+  ledgerEditBoundButtons.add(root);
+  root.addEventListener('click', (event) => {
+    const btn = event.target?.closest?.('[data-ledger-edit]');
+    if (!btn || !root.contains(btn)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const row = findLedgerRowById(btn.dataset.ledgerEdit);
+    openLedgerEdit(row);
   });
 }
 
