@@ -43,12 +43,15 @@ account_roots:
   huawei:
     display_name: 华为
     sort_order: 90
+  benefits:
+    display_name: 五险一金
+    sort_order: 100
   hpf:
     display_name: 深圳公积金
-    sort_order: 100
+    sort_order: 101
   medical_insurance:
     display_name: 深圳医保
-    sort_order: 110
+    sort_order: 102
   guangfa_credit:
     display_name: 广发银行
     sort_order: 120
@@ -333,17 +336,80 @@ accounts:
   hpf:
     display_name: 深圳公积金
     account_type: benefit
+    parent_account_code: benefits
     institution: 深圳住房公积金管理中心
     base_currency: CNY
     truth_source: official_statement
     reconcile_method: balance
     role: 住房公积金账户
 
+  pension_insurance:
+    display_name: 深圳养老保险
+    account_type: benefit
+    parent_account_code: benefits
+    institution: 深圳社保
+    base_currency: CNY
+    truth_source: official_statement
+    reconcile_method: balance
+    role: 养老保险个人账户
+
   medical_insurance:
     display_name: 深圳医保
     account_type: benefit
+    parent_account_code: benefits
     institution: 深圳医保
     base_currency: CNY
     truth_source: official_statement
     reconcile_method: balance
     role: 医保个人账户
+
+  unemployment_insurance:
+    display_name: 深圳失业保险
+    account_type: benefit
+    parent_account_code: benefits
+    institution: 深圳社保
+    base_currency: CNY
+    truth_source: manual
+    reconcile_method: balance
+    include_in_nav: false
+    role: 失业保险保障账户
+    manual_balance:
+      amount: 0
+      currency: CNY
+      as_of: 2026-06-22
+      source: non_cash_benefit_coverage
+      note: 失业保险为保障缴费，不形成可支配个人资产，账户余额按 0 展示。
+
+  work_injury_insurance:
+    display_name: 深圳工伤保险
+    account_type: benefit
+    parent_account_code: benefits
+    institution: 深圳社保
+    base_currency: CNY
+    truth_source: manual
+    reconcile_method: balance
+    include_in_nav: false
+    role: 工伤保险保障账户
+    manual_balance:
+      amount: 0
+      currency: CNY
+      as_of: 2026-06-22
+      source: non_cash_benefit_coverage
+      note: 工伤保险为单位保障缴费，不形成可支配个人资产，账户余额按 0 展示。
+
+  maternity_insurance:
+    display_name: 深圳生育保险
+    account_type: benefit
+    parent_account_code: benefits
+    institution: 深圳医保
+    base_currency: CNY
+    truth_source: manual
+    reconcile_method: balance
+    include_in_nav: false
+    role: 生育保险保障账户
+    manual_balance:
+      amount: 0
+      currency: CNY
+      as_of: 2026-06-22
+      source: non_cash_benefit_coverage
+      note: 生育保险为保障缴费，不形成可支配个人资产，账户余额按 0 展示。
