@@ -700,20 +700,40 @@ def build_holdings_by_category_payload(
                 LIMIT 1
             ) prev_overseas_px ON TRUE
             LEFT JOIN LATERAL (
+                SELECT
+                    CASE
+                        WHEN h.major_category = '美股'
+                         AND h.current_price IS NOT NULL
+                         AND curr_overseas_px.close IS NOT NULL
+                         AND h.current_price IS DISTINCT FROM curr_overseas_px.close
+                        THEN curr_overseas_px.close
+                        ELSE COALESCE(
+                            prev_px.close,
+                            prev_overseas_px.close,
+                            prev_ibkr_snap.current_price,
+                            prev_snap.current_price
+                        )
+                    END AS previous_price,
+                    CASE
+                        WHEN h.major_category = '美股'
+                         AND h.current_price IS NOT NULL
+                         AND curr_overseas_px.close IS NOT NULL
+                         AND h.current_price IS DISTINCT FROM curr_overseas_px.close
+                        THEN curr_overseas_px.trade_date
+                        ELSE COALESCE(
+                            prev_overseas_px.trade_date,
+                            prev_ibkr_snap.as_of,
+                            prev_snap.as_of
+                        )
+                    END AS previous_as_of
+            ) prev_basis ON TRUE
+            LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily prev_fx
                 WHERE prev_fx.base_currency = 'CNY'
                   AND prev_fx.quote_currency = h.currency
-                  AND COALESCE(
-                      prev_overseas_px.trade_date,
-                      prev_ibkr_snap.as_of,
-                      prev_snap.as_of
-                  ) IS NOT NULL
-                  AND prev_fx.as_of <= COALESCE(
-                      prev_overseas_px.trade_date,
-                      prev_ibkr_snap.as_of,
-                      prev_snap.as_of
-                  )
+                  AND prev_basis.previous_as_of IS NOT NULL
+                  AND prev_fx.as_of <= prev_basis.previous_as_of
                 ORDER BY prev_fx.as_of DESC
                 LIMIT 1
             ) prev_overseas_fx ON TRUE
@@ -725,12 +745,7 @@ def build_holdings_by_category_payload(
                         THEN h.current_price
                         ELSE h.current_price
                     END AS current_price,
-                    COALESCE(
-                        prev_px.close,
-                        prev_overseas_px.close,
-                        prev_ibkr_snap.current_price,
-                        prev_snap.current_price
-                    ) AS previous_price,
+                    prev_basis.previous_price AS previous_price,
                     CASE
                         WHEN h.major_category = '美股'
                          AND h.quantity IS NOT NULL
@@ -1357,20 +1372,40 @@ def build_holdings_latest_payload(
             LIMIT 1
         ) prev_overseas_px ON TRUE
         LEFT JOIN LATERAL (
+            SELECT
+                CASE
+                    WHEN h.major_category = '美股'
+                     AND h.current_price IS NOT NULL
+                     AND curr_overseas_px.close IS NOT NULL
+                     AND h.current_price IS DISTINCT FROM curr_overseas_px.close
+                    THEN curr_overseas_px.close
+                    ELSE COALESCE(
+                        prev_px.close,
+                        prev_overseas_px.close,
+                        prev_ibkr_snap.current_price,
+                        prev_snap.current_price
+                    )
+                END AS previous_price,
+                CASE
+                    WHEN h.major_category = '美股'
+                     AND h.current_price IS NOT NULL
+                     AND curr_overseas_px.close IS NOT NULL
+                     AND h.current_price IS DISTINCT FROM curr_overseas_px.close
+                    THEN curr_overseas_px.trade_date
+                    ELSE COALESCE(
+                        prev_overseas_px.trade_date,
+                        prev_ibkr_snap.as_of,
+                        prev_snap.as_of
+                    )
+                END AS previous_as_of
+        ) prev_basis ON TRUE
+        LEFT JOIN LATERAL (
             SELECT rate
             FROM pams_fx_rates_daily prev_fx
             WHERE prev_fx.base_currency = 'CNY'
               AND prev_fx.quote_currency = h.currency
-              AND COALESCE(
-                  prev_overseas_px.trade_date,
-                  prev_ibkr_snap.as_of,
-                  prev_snap.as_of
-              ) IS NOT NULL
-              AND prev_fx.as_of <= COALESCE(
-                  prev_overseas_px.trade_date,
-                  prev_ibkr_snap.as_of,
-                  prev_snap.as_of
-              )
+              AND prev_basis.previous_as_of IS NOT NULL
+              AND prev_fx.as_of <= prev_basis.previous_as_of
             ORDER BY prev_fx.as_of DESC
             LIMIT 1
         ) prev_overseas_fx ON TRUE
@@ -1382,12 +1417,7 @@ def build_holdings_latest_payload(
                     THEN h.current_price
                     ELSE h.current_price
                 END AS current_price,
-                COALESCE(
-                    prev_px.close,
-                    prev_overseas_px.close,
-                    prev_ibkr_snap.current_price,
-                    prev_snap.current_price
-                ) AS previous_price,
+                prev_basis.previous_price AS previous_price,
                 CASE
                     WHEN h.major_category = '美股'
                      AND h.quantity IS NOT NULL

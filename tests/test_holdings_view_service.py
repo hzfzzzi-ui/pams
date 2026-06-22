@@ -132,6 +132,60 @@ def test_build_holdings_latest_payload_preserves_legacy_shape_and_owner_ratio():
     assert Decimal(row["market_value_gross_cny"]) == Decimal("1000.00")
 
 
+def test_build_holdings_latest_payload_uses_latest_close_for_estimate_baseline():
+    cur = FakeCursor(
+        [
+            {"as_of": date(2026, 6, 22)},
+            [
+                {
+                    "account": "ibkr",
+                    "type": "美股",
+                    "symbol": "MU",
+                    "name": "MICRON TECHNOLOGY INC",
+                    "currency": "USD",
+                    "market_value": Decimal("11701.60"),
+                    "market_value_native": Decimal("11701.60"),
+                    "market_value_cny": Decimal("79600.88"),
+                    "cost": Decimal("9499.50"),
+                    "cost_cny": Decimal("64596.60"),
+                    "holding_pnl": Decimal("2202.10"),
+                    "holding_pnl_native": Decimal("2202.10"),
+                    "holding_pnl_cny": Decimal("14974.28"),
+                    "daily_pnl": Decimal("361.70"),
+                    "daily_pnl_cny": Decimal("2459.56"),
+                    "major_category": "美股",
+                    "minor_category": "美股个股",
+                    "as_of": date(2026, 6, 22),
+                    "snapshot_as_of": date(2026, 6, 22),
+                    "quantity": Decimal("10"),
+                    "buy_price": Decimal("949.95"),
+                    "current_price": Decimal("1170.16"),
+                    "previous_price": Decimal("1133.99"),
+                }
+            ],
+            [],
+            {"exists": False},
+            [],
+            {"exists": False},
+        ]
+    )
+
+    build_holdings_latest_payload(
+        cur,
+        limit=500,
+        include_closed=False,
+        view_as_of=date(2026, 6, 22),
+        excluded_accounts=set(),
+        owner_ratios={},
+        default_owner_ratio=Decimal("1"),
+    )
+
+    query = cur.executed[1][0]
+    assert "h.current_price IS DISTINCT FROM curr_overseas_px.close" in query
+    assert "THEN curr_overseas_px.close" in query
+    assert "prev_basis.previous_price AS previous_price" in query
+
+
 def test_build_holdings_latest_payload_includes_closed_rows_when_requested():
     cur = FakeCursor(
         [
@@ -534,8 +588,9 @@ def test_build_holdings_by_category_payload_skips_duplicate_ibkr_previous_snapsh
     assert "ph.current_price IS DISTINCT FROM h.current_price" in query
     assert "prev_overseas_px.close" in query
     assert "THEN h.current_price" in query
-    assert "THEN curr_overseas_px.close" not in query
-    assert "THEN curr_overseas_px.trade_date" not in query
+    assert "h.current_price IS DISTINCT FROM curr_overseas_px.close" in query
+    assert "THEN curr_overseas_px.close" in query
+    assert "THEN curr_overseas_px.trade_date" in query
     assert "THEN h.current_price * h.quantity" in query
     assert "o.trade_date <= h.as_of" in query
     assert "o.trade_date < curr_overseas_px.trade_date" in query

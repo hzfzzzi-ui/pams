@@ -956,9 +956,9 @@ def test_ibkr_today_window_uses_snapshot_price_against_latest_confirmed_close():
     query = cur.executed[0][0]
     assert payload is not None
     assert "h.current_price AS current_price" in query
-    assert "COALESCE(prev_overseas_px.close, prev_snap.current_price)" in query
-    assert "THEN curr_overseas_px.close" not in query
-    assert "THEN curr_overseas_px.trade_date" not in query
+    assert "h.current_price IS DISTINCT FROM curr_overseas_px.close" in query
+    assert "THEN curr_overseas_px.close" in query
+    assert "THEN curr_overseas_px.trade_date" in query
 
 
 def test_ibkr_today_window_clears_after_daily_pnl_rollover_when_data_is_stale():
