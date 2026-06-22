@@ -11426,8 +11426,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-investments .mobileHoldingMetrics {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 8px !important;
+    grid-template-columns: minmax(0, .92fr) minmax(0, .92fr) minmax(88px, 1.16fr) !important;
+    gap: 6px !important;
   }
 
   .page-investments .mobileHoldingMetric {
@@ -12390,8 +12390,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-investments .mobileHoldingMetrics {
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 8px !important;
+    grid-template-columns: minmax(0, .92fr) minmax(0, .92fr) minmax(88px, 1.16fr) !important;
+    gap: 6px !important;
   }
 
   .page-investments .mobileHoldingMetric {
