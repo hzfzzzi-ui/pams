@@ -478,6 +478,19 @@ def _ibkr_holdings_today_window_payload(
             LIMIT 1
         ) prev_overseas_px ON TRUE
         LEFT JOIN LATERAL (
+            SELECT hs.current_price
+            FROM pams_holdings_snapshot hs
+            WHERE hs.account_code = h.account_code
+              AND hs.as_of < h.as_of
+              AND hs.current_price IS NOT NULL
+              AND (
+                  (COALESCE(h.symbol, '') <> '' AND hs.symbol = h.symbol)
+                  OR (COALESCE(h.symbol, '') = '' AND hs.name = h.name)
+              )
+            ORDER BY hs.as_of DESC
+            LIMIT 1
+        ) prev_snap ON TRUE
+        LEFT JOIN LATERAL (
             SELECT
                 CASE
                     WHEN h.current_price IS NOT NULL
@@ -504,19 +517,6 @@ def _ibkr_holdings_today_window_payload(
             ORDER BY prev_fx.as_of DESC
             LIMIT 1
         ) prev_overseas_fx ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT hs.current_price
-            FROM pams_holdings_snapshot hs
-            WHERE hs.account_code = h.account_code
-              AND hs.as_of < h.as_of
-              AND hs.current_price IS NOT NULL
-              AND (
-                  (COALESCE(h.symbol, '') <> '' AND hs.symbol = h.symbol)
-                  OR (COALESCE(h.symbol, '') = '' AND hs.name = h.name)
-              )
-            ORDER BY hs.as_of DESC
-            LIMIT 1
-        ) prev_snap ON TRUE
         LEFT JOIN LATERAL (
             SELECT
                 h.current_price AS current_price,

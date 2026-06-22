@@ -325,6 +325,49 @@ def test_return_reconciliation_sets_canonical_total_without_visible_unit(monkeyp
     assert payload["quality"]["return_reconciliation"]["sections"][0]["pnl_delta_cny"] == pytest.approx(10.0)
 
 
+def test_section_target_payloads_rolls_back_failed_section_savepoint(monkeypatch) -> None:
+    class FakeCursor:
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        def execute(self, sql, params=None):
+            self.executed.append(str(sql))
+
+    def fake_section_payload(cur, *, section, **kwargs):
+        if section == "broken":
+            raise RuntimeError("section failed")
+        return {
+            "rows": [{"market_value": 120.0}],
+            "summary": {"total_return": 12.0},
+            "today_window": {"total_return": 3.0},
+        }
+
+    monkeypatch.setattr(return_attribution, "SECTION_ACCOUNT_MAP", {"broken": [], "ok": []})
+    monkeypatch.setattr(return_attribution, "_load_reported_returns_config", lambda: {})
+    monkeypatch.setattr(return_attribution, "_overview_payload_from_account_balances", lambda cur, cfg, base: {})
+    monkeypatch.setattr(return_attribution, "_owner_ratios", lambda cfg: ({}, 1))
+    monkeypatch.setattr(return_attribution, "_excluded_accounts", lambda cfg: [])
+    monkeypatch.setattr(return_attribution, "_owner_ratio_case_sql", lambda cfg: (lambda alias: ("1", [])))
+    monkeypatch.setattr(return_attribution, "_account_owner_ratio_lookup", lambda cfg: (lambda account: 1))
+    monkeypatch.setattr(return_attribution, "build_section_return_series_payload", fake_section_payload)
+
+    cur = FakeCursor()
+    targets, warnings = return_attribution._section_target_payloads(
+        cur,
+        account_cfg={"accounts": {}},
+        base_currency="CNY",
+        view_as_of="2026-06-22",
+    )
+
+    assert targets["ok"]["pnl_cny"] == pytest.approx(12.0)
+    assert warnings == ["broken: section failed"]
+    assert "SAVEPOINT return_attr_section_broken" in cur.executed
+    assert "ROLLBACK TO SAVEPOINT return_attr_section_broken" in cur.executed
+    assert "RELEASE SAVEPOINT return_attr_section_broken" in cur.executed
+    assert "SAVEPOINT return_attr_section_ok" in cur.executed
+    assert cur.executed[-1] == "RELEASE SAVEPOINT return_attr_section_ok"
+
+
 def test_return_attribution_uses_exposure_dimensions_without_cash_in_industry() -> None:
     payload = build_return_attribution_from_positions(
         [

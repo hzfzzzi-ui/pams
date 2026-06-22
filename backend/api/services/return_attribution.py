@@ -451,6 +451,8 @@ def _section_target_payloads(
     targets: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
     for section in SECTION_ACCOUNT_MAP:
+        savepoint = f"return_attr_section_{section}"
+        cur.execute(f"SAVEPOINT {savepoint}")
         try:
             payload = build_section_return_series_payload(
                 cur,
@@ -485,8 +487,11 @@ def _section_target_payloads(
                     source="holdings.by_category.a_fund",
                 )
         except Exception as exc:  # pragma: no cover - defensive live-data guard
+            cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
             warnings.append(f"{section}: {exc}")
             continue
+        cur.execute(f"RELEASE SAVEPOINT {savepoint}")
         rows = payload.get("rows") or []
         latest = rows[-1] if rows else {}
         today = payload.get("today_window") or {}
