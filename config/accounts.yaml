@@ -67,11 +67,11 @@ accounts:
     reconcile_method: balance
     role: 国内储蓄卡
     manual_balance:
-      amount: 84756.92
+      amount: 64996.08
       currency: CNY
-      as_of: 2026-06-01
-      source: user_confirmed_fund_subscription_closed
-      note: 2026-06-01 用户确认无其他现金/转账变动；按 2026-05-25 账单余额 90,756.92 扣除当日基金申购支出 6,000.00 后临时估算。2026-06-02 用户确认 016440 5,000.00 和 110020 1,000.00 均已转入正式基金持仓；后续导入 2026-06-01 或更新银行账单后，以银行账单余额自动覆盖。
+      as_of: 2026-06-21
+      source: ccb_debit_7332_statement_20260622
+      note: 2026-06-22 导入建行 7332 官方 XLS 明细，覆盖 2026-01-04 至 2026-06-21；期末账单余额 64,996.08。
 
   santander:
     display_name: Santander4209海外储蓄卡
