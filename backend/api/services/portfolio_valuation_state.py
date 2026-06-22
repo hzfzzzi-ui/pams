@@ -287,6 +287,60 @@ def _annualized_return_rate(rate: Decimal, start_date: str, end_date: str) -> De
     return Decimal(str((float(Decimal("1") + rate) ** (365 / days)) - 1))
 
 
+def _row_return_rate(row: dict[str, Any]) -> Decimal:
+    for key in ("return_rate", "display_return_rate", "time_weighted_return_rate", "capital_return_rate"):
+        if row.get(key) not in (None, ""):
+            return _dec(row.get(key))
+    cost = _dec(row.get("cost"))
+    if cost > Decimal("0.0001") and row.get("total_pnl") not in (None, ""):
+        return _dec(row.get("total_pnl")) / cost
+    return Decimal("0")
+
+
+def _recalibrate_return_curve_to_terminal_rate(rows: list[dict[str, Any]], terminal_rate: Decimal) -> list[dict[str, Any]]:
+    """Keep a section curve continuous while aligning its latest return rate.
+
+    Historical section snapshots can be anchored to stale platform totals. When
+    the current holdings table becomes the terminal truth, only changing the
+    last row creates a visual step. Re-scaling the cumulative rate path preserves
+    the existing curve shape and makes every displayed rate field use one basis.
+    """
+    if not rows:
+        return rows
+    old_rates = [_row_return_rate(row) for row in rows]
+    old_terminal = old_rates[-1]
+    if abs(old_terminal) > Decimal("0.000000000001"):
+        factor = terminal_rate / old_terminal
+        new_rates = [rate * factor for rate in old_rates]
+    else:
+        denominator = Decimal(max(len(rows) - 1, 1))
+        new_rates = [terminal_rate * Decimal(index) / denominator for index, _ in enumerate(rows)]
+
+    out: list[dict[str, Any]] = []
+    previous_rate: Decimal | None = None
+    for index, row in enumerate(rows):
+        next_row = dict(row)
+        rate = terminal_rate if index == len(rows) - 1 else new_rates[index]
+        next_row["return_rate"] = rate
+        next_row["display_return_rate"] = rate
+        if previous_rate is None:
+            next_row["daily_return_rate"] = rate
+        else:
+            denominator = Decimal("1") + previous_rate
+            next_row["daily_return_rate"] = (
+                ((Decimal("1") + rate) / denominator) - Decimal("1")
+                if abs(denominator) > Decimal("0.000000000001")
+                else rate - previous_rate
+            )
+        if next_row.get("cost") not in (None, ""):
+            cost = _dec(next_row.get("cost"))
+            if cost > Decimal("0.0001"):
+                next_row["total_pnl"] = rate * cost
+        out.append(next_row)
+        previous_rate = rate
+    return out
+
+
 def apply_holdings_category_pnl_to_section_return_series_payload(
     payload: dict[str, Any],
     holdings_payload: dict[str, Any] | None,
@@ -341,12 +395,15 @@ def apply_holdings_category_pnl_to_section_return_series_payload(
     start_date = str((payload.get("start") or (rows[0].get("date") if rows else "")) or "")[:10]
     annualized = _annualized_return_rate(return_rate, start_date, latest_date)
 
+    rows = _recalibrate_return_curve_to_terminal_rate(rows, return_rate)
+    latest = rows[-1]
     latest["market_value"] = total_value
     latest["total_pnl"] = total_pnl
     latest["position_pnl"] = current_float_pnl
     latest["realized_income"] = realized_pnl
     latest["cost"] = total_cost
     latest["return_rate"] = return_rate
+    latest["display_return_rate"] = return_rate
     latest["daily_return_amount"] = daily_pnl
     latest["return_pnl_source"] = source
     rows[-1] = latest

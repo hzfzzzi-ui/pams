@@ -319,13 +319,18 @@ def test_apply_holdings_category_pnl_to_section_return_series_payload_uses_categ
 
     out = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings_payload, source="test")
 
+    first = out["rows"][0]
     latest = out["rows"][-1]
+    assert Decimal(first["return_rate"]).quantize(Decimal("0.000001")) == Decimal("0.083333")
+    assert Decimal(first["display_return_rate"]).quantize(Decimal("0.000001")) == Decimal("0.083333")
     assert latest["market_value"] == "120"
     assert latest["total_pnl"] == "25"
     assert latest["position_pnl"] == "20"
     assert latest["realized_income"] == "5"
     assert latest["cost"] == "150"
     assert latest["return_rate"] == "0.1666666666666666666666666667"
+    assert latest["display_return_rate"] == "0.1666666666666666666666666667"
+    assert Decimal(latest["daily_return_rate"]).quantize(Decimal("0.000001")) == Decimal("0.076923")
     assert latest["daily_return_amount"] == "2"
     assert out["summary"]["total_return"] == "25"
     assert out["summary"]["total_return_rate"] == "0.1666666666666666666666666667"
