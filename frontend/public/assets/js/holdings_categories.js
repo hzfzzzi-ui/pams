@@ -1811,6 +1811,29 @@ function renderNavGrowthDriver(item, maxAbsAmount) {
   `;
 }
 
+function withNavGrowthShare(item, denominator) {
+  const amount = safeNum(item?.amount_cny);
+  const base = safeNum(denominator);
+  return {
+    ...item,
+    share_of_delta: Math.abs(base) > 0.005 ? amount / base : 0,
+  };
+}
+
+function renderNavGrowthSubsection(title, items) {
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) return '';
+  const maxAbsAmount = Math.max(...rows.map(item => Math.abs(safeNum(item.amount_cny))), 1);
+  return `
+    <div class="navGrowthSubsection">
+      <div class="navGrowthSubsectionTitle">${esc(title)}</div>
+      <div class="navGrowthDrivers navGrowthDrivers-compact">
+        ${rows.map(item => renderNavGrowthDriver(item, maxAbsAmount)).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderNavGrowthExplanationPanel(bridgePayload) {
   const el = document.getElementById('navGrowthExplanationPanel');
   if (!el) return;
@@ -1821,13 +1844,15 @@ function renderNavGrowthExplanationPanel(bridgePayload) {
     el.innerHTML = '<div class="muted">暂无NAV增值解释</div>';
     return;
   }
-  const investmentBreakdown = Array.isArray(explanation.investment_breakdown) ? explanation.investment_breakdown : [];
+  const delta = safeNum(summary.nav_delta_cny);
+  const investmentBreakdown = (Array.isArray(explanation.investment_breakdown) ? explanation.investment_breakdown : [])
+    .map(item => withNavGrowthShare(item, delta));
   const cashflowItems = (Array.isArray(explanation.cashflow_items) ? explanation.cashflow_items : [])
     .filter(item => !item.excluded_from_external_cashflow)
     .sort((a, b) => Math.abs(safeNum(b.amount_cny)) - Math.abs(safeNum(a.amount_cny)))
-    .slice(0, 3);
+    .slice(0, 3)
+    .map(item => withNavGrowthShare(item, delta));
   const maxAbsAmount = Math.max(...drivers.map(item => Math.abs(safeNum(item.amount_cny))), 1);
-  const delta = safeNum(summary.nav_delta_cny);
   const reconciled = explanation.is_reconciled !== false && Math.abs(safeNum(summary.unexplained_residual_cny)) < 100;
   el.innerHTML = `
     <div class="returnInsightHead navGrowthHead">
@@ -1845,26 +1870,8 @@ function renderNavGrowthExplanationPanel(bridgePayload) {
     <div class="navGrowthDrivers">
       ${drivers.map(item => renderNavGrowthDriver(item, maxAbsAmount)).join('')}
     </div>
-    ${investmentBreakdown.length ? `
-      <div class="navGrowthBreakdown">
-        <span>投资解释</span>
-        ${investmentBreakdown.map(item => `
-          <b class="navGrowthChip navGrowthChip-${navGrowthToneClass(item)}">
-            ${esc(item.label)} ${fmtSignedCny(item.amount_cny)}
-          </b>
-        `).join('')}
-      </div>
-    ` : ''}
-    ${cashflowItems.length ? `
-      <div class="navGrowthCashflow">
-        <span>现金流主项</span>
-        ${cashflowItems.map(item => `
-          <b class="navGrowthChip navGrowthChip-${navGrowthToneClass(item)}">
-            ${esc(item.label)} ${fmtSignedCny(item.amount_cny)}
-          </b>
-        `).join('')}
-      </div>
-    ` : ''}
+    ${renderNavGrowthSubsection('投资解释', investmentBreakdown)}
+    ${renderNavGrowthSubsection('现金流主项', cashflowItems)}
   `;
 }
 

@@ -625,6 +625,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" in holdings_js
     assert "function renderNavGrowthExplanationPanel(bridgePayload)" in holdings_js
     assert "growth_explanation" in holdings_js
+    assert "function renderNavGrowthSubsection(title, items)" in holdings_js
+    assert "navGrowthDrivers-compact" in holdings_js
     assert "function normalizeInvestmentNavRows(rows)" in holdings_js
     assert "row.netWorth ?? row.net_worth ?? row.market_value" in holdings_js
     assert "updateInvestmentNavChart(state);" in holdings_js
@@ -702,7 +704,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260622-fund-pnl-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260622-nav-growth-explain-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260622-nav-growth-explain-v2" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
