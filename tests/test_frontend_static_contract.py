@@ -609,8 +609,13 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     first_main_load = main_js.split("await Promise.all([", 1)[1].split("]);", 1)[0]
     assert "runWhenInvestmentAnalysisVisible" in holdings_js
     assert "loadAllCategoryReturnCharts" in holdings_js
-    assert "const aStockDailyPnl = Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
-    assert "dailyPnl: Number.isFinite(Number(aStockAccountSummary.dailyPnl))" in holdings_js
+    assert "const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
+    assert "const aStockAccountDailyPnlEffective = Boolean(" in holdings_js
+    assert "aStockAccountSummary.dailyPnlEffective !== false" in holdings_js
+    assert "aStockAccountSummary.dailyPnl != null" in holdings_js
+    assert "dailyPnl: aStockAccountDailyPnlEffective" in holdings_js
+    assert "priceDailyPnl: aStockAccountDailyPnlEffective ? aStockAccountSummary.dailyPnl : aStockRowsSummary.dailyPnl" in holdings_js
+    assert "fxDailyPnl: aStockAccountDailyPnlEffective ? 0 : aStockRowsSummary.fxDailyPnl" in holdings_js
     assert "const dailyPnlEffective = perf.daily_pnl_effective !== false" in holdings_js
     assert "dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))" in holdings_js
     assert 'id="investmentNavChart"' in html
@@ -704,7 +709,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260622-fund-pnl-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260622-nav-growth-explain-v2" in html
+    assert "assets/js/holdings_categories.js?v=20260622-astock-daily-summary-v1" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html

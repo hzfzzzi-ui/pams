@@ -506,7 +506,7 @@ function makeMobileHeroProfiles({
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
-  const aStockDailyPnl = Number.isFinite(Number(aStockSummary.dailyPnl))
+  const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))
     ? safeNum(aStockSummary.dailyPnl)
     : safeNum(aStockRowsSummary.dailyPnl);
   const ibkrHasFreshAccount = Boolean(
@@ -3182,18 +3182,25 @@ async function main(){
     const aStockRowsSummary = renderSection(aStockEquityRows, renderRowStock, 'rowsAStockEquity', 'countAStockEquity', 'totalValueAStockEquity', 'totalPnlAStockEquity', 'dailyPnlAStockEquity', 'countKpiAStockEquity', 'holdingPnlAStockEquity', fxRates);
     const aStockHoldingRateSummary = summarizeRows((aStockEquity.rows || []).filter((row) => !row.is_closed));
     const aStockAccountSummary = renderAStockOwnerPerformance(aStockPerf);
+    const aStockAccountDailyPnlEffective = Boolean(
+      aStockAccountSummary &&
+      aStockAccountSummary.dailyPnlEffective !== false &&
+      aStockAccountSummary.dailyPnl != null &&
+      Number.isFinite(Number(aStockAccountSummary.dailyPnl))
+    );
     const aStockSummary = aStockAccountSummary
       ? {
         ...aStockRowsSummary,
         ...aStockAccountSummary,
-        dailyPnl: Number.isFinite(Number(aStockAccountSummary.dailyPnl))
+        dailyPnl: aStockAccountDailyPnlEffective
           ? aStockAccountSummary.dailyPnl
           : aStockRowsSummary.dailyPnl,
-        priceDailyPnl: aStockRowsSummary.priceDailyPnl,
-        fxDailyPnl: aStockRowsSummary.fxDailyPnl,
-        dailyTotalPnl: Number.isFinite(Number(aStockAccountSummary.dailyPnl))
+        priceDailyPnl: aStockAccountDailyPnlEffective ? aStockAccountSummary.dailyPnl : aStockRowsSummary.dailyPnl,
+        fxDailyPnl: aStockAccountDailyPnlEffective ? 0 : aStockRowsSummary.fxDailyPnl,
+        dailyTotalPnl: aStockAccountDailyPnlEffective
           ? aStockAccountSummary.dailyPnl
           : aStockRowsSummary.dailyTotalPnl,
+        dailyPnlEffective: aStockAccountDailyPnlEffective,
         holdingReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
         displayReturnRate: Number.isFinite(Number(aStockAccountSummary.accountReturnRate))
           ? safeNum(aStockAccountSummary.accountReturnRate)
