@@ -139,8 +139,8 @@
         <div class="returnChartPanel">
           <div class="returnChartHeader">
             <div class="returnChartTitleBlock">
-              <h3>组合收益率 <span class="miniBadge pending">近似TWR</span></h3>
-              <div class="returnChartHint">区间内收益率走势，剔除投入资金扰动</div>
+              <h3>组合收益率 <span class="miniBadge pending">总盈亏率</span></h3>
+              <div class="returnChartHint">区间内收益率走势，按总盈亏 / 投入成本计算</div>
             </div>
             <div id="investmentReturnWindowToggle" class="returnWindowSegment" aria-label="收益率曲线时间范围切换"></div>
           </div>
@@ -241,7 +241,7 @@
       <h2>一、A股个股持仓</h2>
 
       <div style="margin-bottom:20px">
-        <h3>收益率曲线（剔除投入资金）</h3>
+        <h3>收益率曲线（总盈亏率）</h3>
         <canvas id="chartAStockEquity" style="max-height:250px"></canvas>
       </div>
 
@@ -304,7 +304,7 @@
       <h2>二、基金持仓</h2>
 
       <div style="margin-bottom:20px">
-        <h3>收益率曲线（剔除投入资金）</h3>
+        <h3>收益率曲线（总盈亏率）</h3>
         <canvas id="chartAFund" style="max-height:250px"></canvas>
       </div>
 
@@ -368,7 +368,7 @@
       <h2>三、美股持仓</h2>
 
       <div style="margin-bottom:20px">
-        <h3>收益率曲线（剔除投入资金）</h3>
+        <h3>收益率曲线（总盈亏率）</h3>
         <canvas id="chartUSStock" style="max-height:250px"></canvas>
       </div>
 
@@ -431,7 +431,7 @@
       <h2>四、贵金属持仓</h2>
 
       <div style="margin-bottom:20px">
-        <h3>收益率曲线（剔除投入资金）</h3>
+        <h3>收益率曲线（总盈亏率）</h3>
         <canvas id="chartPreciousMetal" style="max-height:250px"></canvas>
       </div>
 
@@ -690,7 +690,7 @@
   </div>
 
   <script type="module" src="assets/js/holdings.js?v=20260620-data-state-v1"></script>
-  <script type="module" src="assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1"></script>
+  <script type="module" src="assets/js/holdings_categories.js?v=20260622-return-basis-v1"></script>
   <script type="module" src="assets/js/lookthrough.js?v=20260620-data-state-v1"></script>
   <script type="module" src="assets/js/transactions.js?v=20260620-data-state-v1"></script>
   <script type="module" src="assets/js/portfolio_risk.js?v=20260620-data-state-v1"></script>

@@ -84,6 +84,7 @@ from services.portfolio_state import (
     load_investment_positions as _load_investment_positions,
 )
 from services.portfolio_valuation_state import (
+    apply_summary_pnl_to_return_series_payload as _apply_summary_pnl_to_return_series_payload,
     apply_published_valuation_state_to_return_series_payload as _apply_published_valuation_state_to_return_series_payload,
     is_published_valuation_fresh_for_date as _is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state as _latest_published_portfolio_valuation_state,
@@ -590,39 +591,43 @@ def _get_base_currency(cur) -> str:
         return 'CNY'
 
 
+def _build_summary2_latest_payload_for_request(cur) -> dict[str, Any]:
+    base_currency = _get_base_currency(cur)
+    holdings_payload = _build_holdings_latest_payload(
+        cur,
+        limit=5000,
+        include_closed=False,
+        view_as_of=_holdings_market_view_as_of(cur),
+        excluded_accounts=_excluded_holding_accounts(),
+        owner_ratios=_account_owner_ratios(),
+        default_owner_ratio=_default_owner_ratio(),
+        daily_pnl_start_as_of=_daily_pnl_view_as_of(),
+    )
+    account_balances = _load_account_balances(
+        cur,
+        base_currency,
+        _load_portfolio_accounts_config(),
+    )
+    summary_payload = _build_summary2_from_holdings_latest_payload(
+        holdings_payload,
+        base_currency=base_currency,
+        account_balances=account_balances,
+    )
+    attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
+    summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
+    valuation_state = _latest_published_portfolio_valuation_state(
+        cur,
+        base_currency=base_currency,
+    )
+    return _apply_published_valuation_state_to_summary(summary_payload, valuation_state)
+
+
 @app.get("/summary2/latest")
 def summary2_latest():
     """总览页汇总（前端兼容）- 使用major_category替代asset_class_map"""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            base_currency = _get_base_currency(cur)
-            holdings_payload = _build_holdings_latest_payload(
-                cur,
-                limit=5000,
-                include_closed=False,
-                view_as_of=_holdings_market_view_as_of(cur),
-                excluded_accounts=_excluded_holding_accounts(),
-                owner_ratios=_account_owner_ratios(),
-                default_owner_ratio=_default_owner_ratio(),
-                daily_pnl_start_as_of=_daily_pnl_view_as_of(),
-            )
-            account_balances = _load_account_balances(
-                cur,
-                base_currency,
-                _load_portfolio_accounts_config(),
-            )
-            summary_payload = _build_summary2_from_holdings_latest_payload(
-                holdings_payload,
-                base_currency=base_currency,
-                account_balances=account_balances,
-            )
-            attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
-            summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
-            valuation_state = _latest_published_portfolio_valuation_state(
-                cur,
-                base_currency=base_currency,
-            )
-            return json(_apply_published_valuation_state_to_summary(summary_payload, valuation_state))
+            return json(_build_summary2_latest_payload_for_request(cur))
 
 @app.get("/holdings/latest")
 def holdings_latest_compat(
@@ -963,12 +968,14 @@ def investment_return_series(
                     cur,
                     base_currency=baseCurrency,
                 )
-                return json(
+                payload_with_valuation = (
                     _apply_published_valuation_state_to_return_series_payload(
                         snapshot_payload,
                         valuation_state,
                     )
                 )
+                summary_payload = _build_summary2_latest_payload_for_request(cur)
+                return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
             payload = _build_investment_return_series_payload(
                 cur,
                 start_date=start_date,
@@ -987,12 +994,14 @@ def investment_return_series(
                 cur,
                 base_currency=baseCurrency,
             )
-            return json(
+            payload_with_valuation = (
                 _apply_published_valuation_state_to_return_series_payload(
                     payload,
                     valuation_state,
                 )
             )
+            summary_payload = _build_summary2_latest_payload_for_request(cur)
+            return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
 
 
 @app.post("/investment/return-series/snapshot")

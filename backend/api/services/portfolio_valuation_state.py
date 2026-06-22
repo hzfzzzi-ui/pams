@@ -211,6 +211,70 @@ def apply_published_valuation_state_to_return_series_payload(
     return _norm(out)
 
 
+def apply_summary_pnl_to_return_series_payload(
+    payload: dict[str, Any],
+    summary_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Overlay the terminal return row with summary2's cumulative PnL basis.
+
+    The investment return chart and the holdings page should speak the same
+    accounting language at the current endpoint: total PnL is the user-facing
+    cumulative holdings PnL from summary2, current_float_pnl is open-position
+    floating PnL, and closed_realized_pnl is the closed/realized remainder.
+    """
+    if not summary_payload:
+        return payload
+    totals = dict(summary_payload.get("totals") or {})
+    summary_total_pnl = totals.get("holding_pnl")
+    if summary_total_pnl in (None, ""):
+        return payload
+
+    rows = [dict(row) for row in (payload.get("rows") or [])]
+    if not rows:
+        return payload
+
+    latest = rows[-1]
+    summary_date = str(summary_payload.get("as_of") or "")[:10]
+    latest_date = str(latest.get("date") or latest.get("asOfDate") or "")[:10]
+    meta = {
+        "source": "summary2.latest",
+        "as_of": summary_date,
+        "overlay_applied": False,
+    }
+    if summary_date and latest_date and summary_date != latest_date:
+        out = dict(payload)
+        out["return_pnl_state"] = {**meta, "overlay_reason": "date_mismatch"}
+        return _norm(out)
+
+    total_pnl = _dec(summary_total_pnl)
+    current_float_pnl = _dec(totals.get("current_float_pnl"))
+    closed_realized_pnl = _dec(totals.get("closed_realized_pnl"))
+    market_value = totals.get("market_value")
+    cost = _dec(latest.get("cost"))
+
+    latest["total_pnl"] = total_pnl
+    latest["position_pnl"] = current_float_pnl
+    latest["realized_income"] = closed_realized_pnl
+    if market_value not in (None, ""):
+        latest["market_value"] = _dec(market_value)
+        latest["net_liquidation_value"] = _dec(market_value)
+    if cost > Decimal("0.0001"):
+        latest["return_rate"] = total_pnl / cost
+    latest["return_pnl_source"] = "summary2.latest"
+    rows[-1] = latest
+
+    out = dict(payload)
+    out["rows"] = rows
+    out["return_pnl_state"] = {
+        **meta,
+        "overlay_applied": True,
+        "total_pnl": total_pnl,
+        "current_float_pnl": current_float_pnl,
+        "closed_realized_pnl": closed_realized_pnl,
+    }
+    return _norm(out)
+
+
 def build_portfolio_valuation_state_from_parts(
     *,
     account_balances: list[dict[str, Any]],

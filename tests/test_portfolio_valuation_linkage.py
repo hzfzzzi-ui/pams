@@ -15,6 +15,7 @@ if str(API_ROOT) not in sys.path:
 
 from services.portfolio_summary import apply_published_valuation_state_to_summary  # noqa: E402
 from services.portfolio_valuation_state import (  # noqa: E402
+    apply_summary_pnl_to_return_series_payload,
     apply_published_valuation_state_to_return_series_payload,
 )
 from services.risk_state import _positions_reconciled_to_published_nav  # noqa: E402
@@ -213,3 +214,74 @@ def test_apply_published_valuation_state_to_return_series_payload_skips_date_mis
     assert out["rows"][1].get("net_liquidation_value") is None
     assert out["valuation_state"]["overlay_applied"] is False
     assert out["valuation_state"]["overlay_reason"] == "date_mismatch"
+
+
+def test_apply_summary_pnl_to_return_series_payload_uses_summary2_terminal_pnl():
+    payload = {
+        "method": "holding_return_snapshot",
+        "rows": [
+            {
+                "date": "2026-06-20",
+                "market_value": "1000",
+                "cost": "900",
+                "position_pnl": "80",
+                "realized_income": "5",
+                "total_pnl": "85",
+                "return_rate": "0.094444444444444444",
+            },
+            {
+                "date": "2026-06-21",
+                "market_value": "1100",
+                "cost": "1000",
+                "position_pnl": "90",
+                "realized_income": "5",
+                "total_pnl": "95",
+                "return_rate": "0.095",
+            },
+        ],
+    }
+
+    out = apply_summary_pnl_to_return_series_payload(
+        payload,
+        {
+            "as_of": "2026-06-21",
+            "totals": {
+                "market_value": "1200",
+                "holding_pnl": "123.45",
+                "current_float_pnl": "100.00",
+                "closed_realized_pnl": "23.45",
+            },
+        },
+    )
+
+    assert out["rows"][0]["total_pnl"] == "85"
+    assert out["rows"][1]["market_value"] == "1200"
+    assert out["rows"][1]["net_liquidation_value"] == "1200"
+    assert out["rows"][1]["total_pnl"] == "123.45"
+    assert out["rows"][1]["position_pnl"] == "100.00"
+    assert out["rows"][1]["realized_income"] == "23.45"
+    assert out["rows"][1]["return_rate"] == "0.12345"
+    assert out["rows"][1]["return_pnl_source"] == "summary2.latest"
+    assert out["return_pnl_state"]["overlay_applied"] is True
+
+
+def test_apply_summary_pnl_to_return_series_payload_skips_date_mismatch():
+    payload = {
+        "method": "holding_return_snapshot",
+        "rows": [
+            {"date": "2026-06-20", "market_value": "1000", "total_pnl": "85"},
+            {"date": "2026-06-21", "market_value": "1100", "total_pnl": "95"},
+        ],
+    }
+
+    out = apply_summary_pnl_to_return_series_payload(
+        payload,
+        {
+            "as_of": "2026-06-22",
+            "totals": {"holding_pnl": "123.45"},
+        },
+    )
+
+    assert out["rows"][1]["total_pnl"] == "95"
+    assert out["return_pnl_state"]["overlay_applied"] is False
+    assert out["return_pnl_state"]["overlay_reason"] == "date_mismatch"

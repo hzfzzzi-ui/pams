@@ -95,9 +95,9 @@ const CATEGORY_SECTION_IDS = [
 
 const RETURN_METHODS = [
   {
-    key: 'twr',
-    label: 'TWR',
-    text: '剔除资金流。',
+    key: 'total-return',
+    label: '总盈亏率',
+    text: '总盈亏 / 投入成本。',
   },
   {
     key: 'cash-flow',
@@ -182,7 +182,7 @@ function InvestmentSummaryHeader(summary) {
   return `
     ${metricCard('市值', formatCompactCurrency(summary.marketValue), '含持仓与现金/活期', 'info')}
     ${metricCard('累计收益', formatCompactCurrency(summary.totalPnl, 'CNY', { signed: true }), '综合口径', summary.totalPnl >= 0 ? 'good' : 'bad')}
-    ${metricCard('TWR', formatPercentRate(summary.twr), '时间加权', summary.twr >= 0 ? 'good' : 'bad')}
+    ${metricCard('收益率', formatPercentRate(summary.twr), '总盈亏 / 成本', summary.twr >= 0 ? 'good' : 'bad')}
     ${metricCard('今日', formatCompactCurrency(summary.dailyPnl, 'CNY', { signed: true }), '日度变动', summary.dailyPnl >= 0 ? 'good' : 'bad')}
   `;
 }
@@ -208,7 +208,7 @@ function InvestmentSummaryHeaderCompact(summary) {
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? Number(summary.currentFloatPnl) : null;
   return `
     ${metricCard('投资组合价值', formatCompactCurrency(summary.marketValue), '含持仓与现金/活期', 'info')}
-    ${metricCard('收益率', hasReturnRate ? formatPercentRate(returnRate) : '待核准', '时间加权收益率', toneFromNumber(returnRate))}
+    ${metricCard('收益率', hasReturnRate ? formatPercentRate(returnRate) : '待核准', '总盈亏 / 成本', toneFromNumber(returnRate))}
     ${metricCard('今日收益', dailyPnl == null ? '待核准' : formatCompactCurrency(dailyPnl, 'CNY', { signed: true }), '今日投资收益变化', toneFromNumber(dailyPnl), DailyReturnBreakdown(summary.dailyBreakdown))}
     ${metricCard('总收益', formatCompactCurrency(summary.totalPnl, 'CNY', { signed: true }), '累计投资收益', summary.totalPnl >= 0 ? 'good' : 'bad')}
     ${metricCard('当前浮盈', currentFloatPnl == null ? '待核准' : formatCompactCurrency(currentFloatPnl, 'CNY', { signed: true }), '仍持仓标的浮动盈亏', toneFromNumber(currentFloatPnl))}
@@ -1449,7 +1449,7 @@ function filterReturnWindowRows(rows, windowKey) {
 }
 
 function returnRateForChart(row) {
-  return safeNum(row?.display_return_rate ?? row?.time_weighted_return_rate ?? row?.return_rate);
+  return safeNum(row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate);
 }
 
 function rebaseReturnRate(rate, baseRate) {

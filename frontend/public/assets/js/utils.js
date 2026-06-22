@@ -159,8 +159,8 @@ export function createReturnRateChart(canvasId, apiPath, color, label, interval 
       const flows = rows.map(d => safeNum(d.net_flow));
       let fallbackBase = 0;
       const returns = rows.map(d => {
-        if (d.display_return_rate !== undefined || d.capital_return_rate !== undefined || d.time_weighted_return_rate !== undefined || d.return_rate !== undefined) {
-          return safeNum(d.display_return_rate ?? d.capital_return_rate ?? d.time_weighted_return_rate ?? d.return_rate) * 100;
+        if (d.return_rate !== undefined || d.display_return_rate !== undefined || d.capital_return_rate !== undefined || d.time_weighted_return_rate !== undefined) {
+          return safeNum(d.return_rate ?? d.display_return_rate ?? d.capital_return_rate ?? d.time_weighted_return_rate) * 100;
         }
         const value = safeNum(d.value);
         if (!fallbackBase && Math.abs(value) > 0.0001) fallbackBase = value;
