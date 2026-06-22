@@ -899,6 +899,13 @@ def nav_weekly(
                     account_cfg,
                     account_balances=account_balances,
                 )
+                current_as_of_dates = [
+                    str(item.get("as_of") or "")[:10]
+                    for item in [*account_balances, *investment_positions]
+                    if item.get("as_of")
+                ]
+                if current_as_of_dates:
+                    terminal_date = Date.fromisoformat(max(current_as_of_dates))
                 terminal_nav_bucket = _current_nav_bucket_from_parts(
                     account_balances=account_balances,
                     investment_positions=investment_positions,
