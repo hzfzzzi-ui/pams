@@ -47,6 +47,8 @@ router = APIRouter()
 _YFINANCE_CLOSE_CACHE: Dict[str, List[Tuple[date, float]]] = {}
 _US_ESTIMATE_QUOTE_CACHE: Dict[str, dict[str, Any]] = {}
 _IBKR_CONID_CACHE: Dict[str, str] = {}
+_IBKR_TWS_CONNECTION: Any | None = None
+_IBKR_TWS_CONNECTION_KEY: tuple[str, int, int] | None = None
 
 _A_STOCK_MAJOR_CATEGORY = "A\u80a1"
 _A_STOCK_MINOR_CATEGORY = "A\u80a1"
@@ -1233,8 +1235,13 @@ def _ibkr_tws_enabled() -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
+def _ibkr_tws_persistent_enabled() -> bool:
+    raw = os.environ.get("PAMS_IBKR_TWS_PERSISTENT", "true")
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
 def _ibkr_tws_ports() -> list[int]:
-    raw = os.environ.get("PAMS_IBKR_TWS_PORTS") or os.environ.get("IBKR_TWS_PORTS") or "4001,4002,7497,7496"
+    raw = os.environ.get("PAMS_IBKR_TWS_PORTS") or os.environ.get("IBKR_TWS_PORTS") or "4000,4001,4002,7497,7496"
     ports: list[int] = []
     for token in re.split(r"[,;\s]+", raw):
         if not token:
@@ -1245,7 +1252,7 @@ def _ibkr_tws_ports() -> list[int]:
             continue
         if port > 0 and port not in ports:
             ports.append(port)
-    return ports or [4001, 4002, 7497, 7496]
+    return ports or [4000, 4001, 4002, 7497, 7496]
 
 
 def _ibkr_tws_float_env(name: str, default: float, *, min_value: float, max_value: float) -> float:
@@ -1268,6 +1275,63 @@ def _ensure_ibkr_tws_event_loop() -> None:
         asyncio.get_running_loop()
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
+
+
+def _ibkr_tws_is_connected(ib: Any) -> bool:
+    try:
+        checker = getattr(ib, "isConnected", None)
+        if callable(checker):
+            return bool(checker())
+        return bool(getattr(ib, "is_connected", False))
+    except Exception:
+        return False
+
+
+def _disconnect_ibkr_tws(ib: Any) -> None:
+    try:
+        ib.disconnect()
+    except Exception:
+        pass
+
+
+def _get_ibkr_tws_connection(
+    ib_factory,
+    *,
+    host: str,
+    ports: list[int],
+    client_id: int,
+    timeout: float,
+):
+    global _IBKR_TWS_CONNECTION, _IBKR_TWS_CONNECTION_KEY
+
+    if _ibkr_tws_persistent_enabled() and _IBKR_TWS_CONNECTION is not None:
+        key = _IBKR_TWS_CONNECTION_KEY
+        if key and key[0] == host and key[2] == client_id and key[1] in ports:
+            if _ibkr_tws_is_connected(_IBKR_TWS_CONNECTION):
+                return _IBKR_TWS_CONNECTION, key[1], True
+        _disconnect_ibkr_tws(_IBKR_TWS_CONNECTION)
+        _IBKR_TWS_CONNECTION = None
+        _IBKR_TWS_CONNECTION_KEY = None
+
+    ib = ib_factory()
+    connected_port: int | None = None
+    for port in ports:
+        try:
+            ib.connect(host, port, clientId=client_id, timeout=timeout, readonly=True)
+            connected_port = port
+            break
+        except Exception as exc:
+            logger.info("IBKR TWS connect skipped on %s:%s: %s", host, port, exc)
+    if connected_port is None:
+        _disconnect_ibkr_tws(ib)
+        return None, None, False
+
+    if _ibkr_tws_persistent_enabled():
+        _IBKR_TWS_CONNECTION = ib
+        _IBKR_TWS_CONNECTION_KEY = (host, connected_port, client_id)
+        return ib, connected_port, True
+
+    return ib, connected_port, False
 
 
 def _ibkr_tws_primary_exchange(symbol: str, qualified_contract: Any | None = None) -> str:
@@ -1364,15 +1428,13 @@ def _fetch_ibkr_tws_estimate_prices(symbols: List[str]) -> Dict[str, float]:
     snapshot_wait = _ibkr_tws_float_env("PAMS_IBKR_TWS_SNAPSHOT_WAIT_SECONDS", 1.5, min_value=0.2, max_value=10.0)
     market_data_type = int(os.environ.get("PAMS_IBKR_TWS_MARKET_DATA_TYPE", "1") or "1")
 
-    ib = IB()
-    connected_port: int | None = None
-    for port in _ibkr_tws_ports():
-        try:
-            ib.connect(host, port, clientId=_ibkr_tws_client_id(), timeout=timeout, readonly=True)
-            connected_port = port
-            break
-        except Exception as exc:
-            logger.info("IBKR TWS connect skipped on %s:%s: %s", host, port, exc)
+    ib, connected_port, persistent_connection = _get_ibkr_tws_connection(
+        IB,
+        host=host,
+        ports=_ibkr_tws_ports(),
+        client_id=_ibkr_tws_client_id(),
+        timeout=timeout,
+    )
     if connected_port is None:
         return {}
 
@@ -1447,10 +1509,8 @@ def _fetch_ibkr_tws_estimate_prices(symbols: List[str]) -> Dict[str, float]:
                 ib.cancelMktData(contract)
             except Exception:
                 pass
-        try:
-            ib.disconnect()
-        except Exception:
-            pass
+        if not persistent_connection:
+            _disconnect_ibkr_tws(ib)
     return prices
 
 

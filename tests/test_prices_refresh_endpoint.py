@@ -528,6 +528,60 @@ def test_ibkr_estimate_filter_rejects_yahoo_fallback_for_ibkr_holdings():
     ]
 
 
+def test_ibkr_tws_ports_default_includes_gateway_local_port(monkeypatch):
+    monkeypatch.delenv("PAMS_IBKR_TWS_PORTS", raising=False)
+    monkeypatch.delenv("IBKR_TWS_PORTS", raising=False)
+
+    assert prices._ibkr_tws_ports() == [4000, 4001, 4002, 7497, 7496]
+
+
+def test_ibkr_tws_connection_reuses_persistent_socket(monkeypatch):
+    created = []
+
+    class FakeIB:
+        def __init__(self):
+            self.connected = False
+            self.connect_calls = []
+            created.append(self)
+
+        def connect(self, host, port, clientId, timeout, readonly):
+            self.connected = True
+            self.connect_calls.append((host, port, clientId, timeout, readonly))
+
+        def isConnected(self):
+            return self.connected
+
+        def disconnect(self):
+            self.connected = False
+
+    monkeypatch.setenv("PAMS_IBKR_TWS_PERSISTENT", "true")
+    monkeypatch.setattr(prices, "_IBKR_TWS_CONNECTION", None)
+    monkeypatch.setattr(prices, "_IBKR_TWS_CONNECTION_KEY", None)
+
+    first, first_port, first_persistent = prices._get_ibkr_tws_connection(
+        FakeIB,
+        host="127.0.0.1",
+        ports=[4000, 7497],
+        client_id=62017,
+        timeout=2.0,
+    )
+    second, second_port, second_persistent = prices._get_ibkr_tws_connection(
+        FakeIB,
+        host="127.0.0.1",
+        ports=[4000, 7497],
+        client_id=62017,
+        timeout=2.0,
+    )
+
+    assert first is second
+    assert first_port == 4000
+    assert second_port == 4000
+    assert first_persistent is True
+    assert second_persistent is True
+    assert len(created) == 1
+    assert created[0].connect_calls == [("127.0.0.1", 4000, 62017, 2.0, True)]
+
+
 def test_ibkr_tws_estimate_prices_request_overnight_contract(monkeypatch):
     requested_contracts = []
     cancelled_contracts = []
