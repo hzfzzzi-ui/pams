@@ -528,7 +528,14 @@ function makeMobileHeroProfiles({
   const ibkrTotalPnl = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalPnl))
     ? safeNum(ibkrSummary.totalPnl)
     : safeNum(usProfileCategory.totalPnl);
-  const ibkrTotalRate = safeNum(usProfileCategory.holdingReturnRate ?? usProfileCategory.totalReturnRate);
+  const ibkrTotalRate = safeNum(
+    usProfileCategory.accountReturnRate ??
+    usProfileCategory.displayReturnRate ??
+    usProfileCategory.totalReturnRate
+  );
+  const ibkrGrossHoldingRate = Number.isFinite(Number(usProfileCategory.grossHoldingReturnRate))
+    ? safeNum(usProfileCategory.grossHoldingReturnRate)
+    : safeNum(usProfileCategory.holdingReturnRate);
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
@@ -600,6 +607,7 @@ function makeMobileHeroProfiles({
       miniMetrics: [
         { label: '总市值', value: formatOptionalMoney(ibkrMarket) },
         { label: '可用现金', value: ibkrCash < 0 ? formatOptionalMoney(ibkrCash, 'CNY', { signed: true }) : formatOptionalMoney(ibkrCash), tone: ibkrCash < 0 ? 'down' : '' },
+        { label: '价格收益率', value: signedPctText(ibkrGrossHoldingRate), tone: ibkrGrossHoldingRate < 0 ? 'down' : 'up' },
         { label: '仓位占比', value: `${Math.max(0, pctFromAmount(ibkrMarket, ibkrNlv) * 100).toFixed(1)}%` },
       ],
     },
@@ -1181,7 +1189,7 @@ function renderIbkrPerformance(perf, positionAsOf = null) {
   setKpiLabel('totalValueUSStock', '账户净值');
   setKpiLabel('totalPnlUSStock', '账户收益');
   setKpiLabel('countKpiUSStock', '杠杆比例');
-  setKpiLabel('holdingPnlUSStock', '持仓收益率');
+  setKpiLabel('holdingPnlUSStock', '账户资金收益率');
 
   const totalPnl = safeNum(perf.total_pnl_base);
   const totalPnlEl = document.getElementById('totalPnlUSStock');
@@ -1190,6 +1198,11 @@ function renderIbkrPerformance(perf, positionAsOf = null) {
   totalPnlEl.textContent = fmtSignedUsd(totalPnl);
   totalPnlEl.style.color = totalPnl >= 0 ? 'var(--good)' : 'var(--bad)';
   document.getElementById('countKpiUSStock').textContent = fmtPctValue(perf.leverage_ratio);
+  const rateEl = document.getElementById('holdingPnlUSStock');
+  if (rateEl) {
+    rateEl.textContent = fmtSignedPctFromRate(perf.return_ratio);
+    rateEl.style.color = safeNum(perf.return_ratio) >= 0 ? 'var(--good)' : 'var(--bad)';
+  }
 
   return summary;
 }
@@ -1388,9 +1401,9 @@ function writeSectionFinancials(summary, totalValueId, totalPnlId, dailyPnlId, h
   dailyElem.style.color = dailyPnl >= 0 ? 'var(--good)' : 'var(--bad)';
 
   if (holdingPnlId) {
-    setKpiLabel(holdingPnlId, '持仓收益率');
+    setKpiLabel(holdingPnlId, summary.returnRateLabel || '持仓收益率');
     const hpElem = document.getElementById(holdingPnlId);
-    const explicitRate = Number(summary.holdingReturnRate ?? summary.totalReturnRate);
+    const explicitRate = Number(summary.displayReturnRate ?? summary.holdingReturnRate ?? summary.totalReturnRate);
     const sectionCost = safeNum(summary.activeTotalCost) > 0 ? safeNum(summary.activeTotalCost) : totalCost;
     const sectionPnl = summary.activeHoldingPnl != null ? safeNum(summary.activeHoldingPnl) : totalPnl;
     const sectionPct = Number.isFinite(explicitRate)
@@ -2487,6 +2500,9 @@ function categoryMetric(label, base, sectionPayload) {
     ? safeNum(base.totalReturnRate)
     : null;
   const holdingReturnRate = holdingReturnRateFromSummary(base);
+  const displayReturnRate = Number.isFinite(Number(base.displayReturnRate))
+    ? safeNum(base.displayReturnRate)
+    : holdingReturnRate;
   // IBKR return-series reconstructs long-term return from trades and position
   // history. Around same-day sells it can move cash between position/cash
   // buckets, so US "today" must stay on the holdings/account daily PnL basis.
@@ -2504,9 +2520,13 @@ function categoryMetric(label, base, sectionPayload) {
     fxDailyPnl,
     dailyTotalPnl: dailyPnl,
     totalCost,
-    totalReturnRate: Number.isFinite(Number(holdingReturnRate))
-      ? holdingReturnRate
+    totalReturnRate: Number.isFinite(Number(displayReturnRate))
+      ? displayReturnRate
       : (explicitTotalReturnRate ?? (totalCost > 0 ? totalPnl / totalCost : 0)),
+    holdingReturnRate,
+    displayReturnRate,
+    accountReturnRate: Number.isFinite(Number(base.accountReturnRate)) ? safeNum(base.accountReturnRate) : null,
+    grossHoldingReturnRate: Number.isFinite(Number(base.grossHoldingReturnRate)) ? safeNum(base.grossHoldingReturnRate) : holdingReturnRate,
     annualizedReturnRate: override ? override.annualizedReturnRate : null,
   };
 }
@@ -3169,14 +3189,22 @@ async function main(){
       ? safeNum(ibkrSummary?.totalCost)
       : safeNum(usSummary.totalCost);
     const ibkrDerivedTotalPnl = ibkrNetDeposit > 0 ? ibkrAccountValue - ibkrNetDeposit : safeNum(ibkrSummary?.totalPnl);
+    const usGrossHoldingReturnRate = holdingReturnRateFromSummary(usSummary);
+    const ibkrAccountReturnRate = ibkrNetDeposit > 0
+      ? ibkrDerivedTotalPnl / ibkrNetDeposit
+      : (Number.isFinite(Number(ibkrSummary?.totalReturnRate)) ? safeNum(ibkrSummary.totalReturnRate) : usGrossHoldingReturnRate);
     const usCategorySummary = (ibkrSummary || ibkrUsesNetLiquidation)
       ? {
         ...usSummary,
         totalValue: ibkrUsesNetLiquidation ? ibkrAccountValue : usSummary.totalValue,
         totalCost: ibkrUsesNetLiquidation ? (ibkrNetDeposit || usSummary.totalCost) : usSummary.totalCost,
         totalPnl: ibkrUsesNetLiquidation ? ibkrDerivedTotalPnl : usSummary.totalPnl,
-        totalReturnRate: holdingReturnRateFromSummary(usSummary),
-        holdingReturnRate: holdingReturnRateFromSummary(usSummary),
+        totalReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
+        holdingReturnRate: usGrossHoldingReturnRate,
+        displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
+        accountReturnRate: ibkrAccountReturnRate,
+        grossHoldingReturnRate: usGrossHoldingReturnRate,
+        returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率',
         activeHoldingPnl: usSummary.activeHoldingPnl,
         activeTotalCost: usSummary.activeTotalCost,
         positionValue: ibkrPositionValue,
@@ -3195,7 +3223,7 @@ async function main(){
         dailyTotalPnl: usSummary.dailyTotalPnl,
       }
       : usSummary;
-    if (ibkrUsesNetLiquidation && !useIbkrAccountTotals) {
+    if (ibkrUsesNetLiquidation) {
       setKpiLabel('totalValueUSStock', '账户净值');
       setKpiLabel('totalValueUSStock', '净清算价值');
       writeSectionFinancials(

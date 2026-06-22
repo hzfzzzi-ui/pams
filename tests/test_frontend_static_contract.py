@@ -698,7 +698,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradeNotes" not in html + tx_js
 
     assert "assets/js/holdings.js?v=20260622-fund-pnl-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260622-holding-rate-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260622-ibkr-net-rate-v1" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
@@ -764,6 +764,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "subtractMoneyCents" in holding_rows_js
     assert "returnRateFromCapitalBase" in holdings_js
     assert "holdingReturnRateFromSummary" in holdings_js
+    assert "displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate" in holdings_js
+    assert "returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率'" in holdings_js
+    assert "const ibkrAccountReturnRate = ibkrNetDeposit > 0" in holdings_js
+    assert "const ibkrGrossHoldingRate" in holdings_js
+    assert "summary.returnRateLabel || '持仓收益率'" in holdings_js
     assert "activeHoldingPnl" in holdings_js
     assert "activeTotalCost" in holdings_js
     assert "fundActiveSummary" not in holdings_js
