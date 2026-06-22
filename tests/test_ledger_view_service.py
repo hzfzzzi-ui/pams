@@ -147,6 +147,27 @@ def test_benefit_asset_positive_row_counts_as_income() -> None:
     assert result["is_operating"] is True
 
 
+def test_benefit_asset_income_overrides_transfer_match() -> None:
+    row = {
+        "id": 1088,
+        "amount_cny": 470,
+        "category": "福利资产",
+        "subcategory": "医保缴费",
+        "summary": "医保个人账户入账",
+        "description": "按缴存基数23500推算：个人医保进入账户470.00",
+        "counterparty": "华为技术有限公司",
+        "cashflow_type": "operating_income",
+        "is_internal_transfer": False,
+    }
+
+    result = classify_ledger_row(row, transfer_row_ids={1088})
+
+    assert result["flow_type"] == "income"
+    assert result["coarse_category"] == "福利保障"
+    assert result["needs_review"] is False
+    assert result["is_operating"] is True
+
+
 def test_income_categories_are_normalized_to_app_buckets() -> None:
     salary = classify_ledger_row(
         {

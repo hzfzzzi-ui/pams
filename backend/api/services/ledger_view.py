@@ -292,6 +292,14 @@ def classify_ledger_row(
     cashflow_type = str(row.get("cashflow_type") or "")
     text = _row_text(row)
 
+    if category == "福利资产" and amount >= 0:
+        return {
+            "flow_type": "income",
+            "coarse_category": _income_display_category(category, subcategory, text),
+            "needs_review": False,
+            "is_operating": True,
+        }
+
     if _is_transfer_like(row, transfer_row_ids, payment_proxy_source_row_ids):
         if _payment_proxy_role(row) == "source":
             return {
