@@ -494,6 +494,40 @@ def test_us_stock_estimate_prices_uses_tws_when_client_portal_unavailable(monkey
     assert prices._US_ESTIMATE_QUOTE_CACHE["NVDA"]["source"] == "yahoo_estimate"
 
 
+def test_ibkr_estimate_filter_rejects_yahoo_fallback_for_ibkr_holdings():
+    prices._US_ESTIMATE_QUOTE_CACHE.clear()
+    prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
+        "source": "yahoo_estimate",
+        "provider": "yahoo_finance",
+        "confidence": "medium",
+    }
+    prices._US_ESTIMATE_QUOTE_CACHE["NVDA"] = {
+        "source": "ibkr_tws_estimate",
+        "provider": "ibkr_tws",
+        "confidence": "high",
+    }
+
+    filtered, skipped = prices._filter_us_estimate_prices_for_holdings(
+        [
+            {"symbol": "MU", "name": "Micron", "account_code": "ibkr"},
+            {"symbol": "NVDA", "name": "NVIDIA", "account_code": "ibkr"},
+            {"symbol": "AAPL", "name": "Apple", "account_code": "manual_us"},
+        ],
+        {"MU": 1151.95, "NVDA": 210.33, "AAPL": 200.0},
+    )
+
+    assert filtered == {"NVDA": 210.33, "AAPL": 200.0}
+    assert skipped == [
+        {
+            "symbol": "MU",
+            "name": "Micron",
+            "account_code": "ibkr",
+            "source": "yahoo_estimate",
+            "reason": "ibkr_estimate_requires_ibkr_quote",
+        }
+    ]
+
+
 def test_ibkr_tws_estimate_prices_request_overnight_contract(monkeypatch):
     requested_contracts = []
     cancelled_contracts = []
