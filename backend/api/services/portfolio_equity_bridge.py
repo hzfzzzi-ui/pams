@@ -150,6 +150,123 @@ def period_investment_effect_from_inputs(
     return ending_nav_cny - beginning_nav_cny - external_cashflow_cny
 
 
+def _amount_tone(amount: Decimal, *, residual: bool = False) -> str:
+    if abs(amount) < Decimal("0.01"):
+        return "neutral"
+    if residual:
+        return "warning" if abs(amount) >= Decimal("100") else "ok"
+    return "positive" if amount > 0 else "negative"
+
+
+def _share_of_delta(amount: Decimal, nav_delta: Decimal) -> Decimal:
+    if abs(nav_delta) < Decimal("0.01"):
+        return Decimal("0")
+    return amount / nav_delta
+
+
+def build_nav_growth_explanation_from_inputs(
+    *,
+    beginning_nav_cny: Decimal,
+    ending_nav_cny: Decimal,
+    cashflows: dict[str, Any],
+    period_investment_effect_cny: Decimal,
+    attribution_pnl_cny: Decimal,
+    bridge: dict[str, Any],
+) -> dict[str, Any]:
+    """Build UI-ready NAV growth explanation without changing bridge math."""
+    nav_delta = ending_nav_cny - beginning_nav_cny
+    external_cashflow = _dec(cashflows.get("external_net_cny"))
+    residual = _dec(bridge.get("unexplained_residual_cny"))
+    attribution_gap = period_investment_effect_cny - attribution_pnl_cny
+
+    drivers = [
+        {
+            "key": "external_cashflow",
+            "label": "外部现金流",
+            "amount_cny": external_cashflow,
+            "share_of_delta": _share_of_delta(external_cashflow, nav_delta),
+            "tone": _amount_tone(external_cashflow),
+            "formula": "工资/奖金/小额收入 - 消费支出 - 费用税费 + 其他现金流",
+        },
+        {
+            "key": "period_investment_effect",
+            "label": "投资/估值影响",
+            "amount_cny": period_investment_effect_cny,
+            "share_of_delta": _share_of_delta(period_investment_effect_cny, nav_delta),
+            "tone": _amount_tone(period_investment_effect_cny),
+            "formula": "期末NAV - 期初NAV - 外部现金流",
+        },
+        {
+            "key": "unexplained_residual",
+            "label": "总账残差",
+            "amount_cny": residual,
+            "share_of_delta": _share_of_delta(residual, nav_delta),
+            "tone": _amount_tone(residual, residual=True),
+            "formula": "NAV增值 - 外部现金流 - 投资/估值影响",
+        },
+    ]
+
+    investment_breakdown = [
+        {
+            "key": "attributed_investment_pnl",
+            "label": "已归因标的盈亏",
+            "amount_cny": attribution_pnl_cny,
+            "tone": _amount_tone(attribution_pnl_cny),
+            "formula": "投资页收益归因的当前统一口径",
+        },
+        {
+            "key": "investment_attribution_gap",
+            "label": "待解释估值/账户差额",
+            "amount_cny": attribution_gap,
+            "tone": "warning" if abs(attribution_gap) >= Decimal("100") else "neutral",
+            "formula": "投资/估值影响 - 已归因标的盈亏",
+        },
+    ]
+
+    bucket_labels = {
+        "main_income": "工资/奖金/小额收入",
+        "other_income": "其他收入",
+        "expense": "消费支出",
+        "fees_tax_cash_income": "费用税费/现金收益",
+        "other_affects_nav": "其他NAV现金流",
+        "investment_realized_cash": "投资现金实现",
+    }
+    cashflow_items = []
+    for key, item in (cashflows.get("buckets") or {}).items():
+        amount = _dec(item.get("amount_cny"))
+        if abs(amount) < Decimal("0.01") and int(item.get("count") or 0) == 0:
+            continue
+        cashflow_items.append(
+            {
+                "key": key,
+                "label": bucket_labels.get(key, str(item.get("label") or key)),
+                "amount_cny": amount,
+                "count": int(item.get("count") or 0),
+                "excluded_from_external_cashflow": bool(item.get("excluded_from_external_cashflow")),
+                "tone": _amount_tone(amount),
+            }
+        )
+
+    return {
+        "title": "年初至今NAV增值解释",
+        "summary": {
+            "beginning_nav_cny": beginning_nav_cny,
+            "ending_nav_cny": ending_nav_cny,
+            "nav_delta_cny": nav_delta,
+            "nav_delta_rate": nav_delta / beginning_nav_cny if abs(beginning_nav_cny) >= Decimal("0.01") else Decimal("0"),
+            "external_cashflow_cny": external_cashflow,
+            "period_investment_effect_cny": period_investment_effect_cny,
+            "attributed_investment_pnl_cny": attribution_pnl_cny,
+            "investment_attribution_gap_cny": attribution_gap,
+            "unexplained_residual_cny": residual,
+        },
+        "drivers": drivers,
+        "investment_breakdown": investment_breakdown,
+        "cashflow_items": cashflow_items,
+        "is_reconciled": bool(bridge.get("is_reconciled")),
+    }
+
+
 def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     buckets = {
         "main_income": {"label": "工资/奖金/小额收入", "amount_cny": Decimal("0"), "count": 0},
@@ -501,6 +618,14 @@ def build_equity_bridge_payload(
                 account_cfg=account_cfg,
             )
 
+    growth_explanation = build_nav_growth_explanation_from_inputs(
+        beginning_nav_cny=beginning_nav,
+        ending_nav_cny=ending_nav,
+        cashflows=cashflows,
+        period_investment_effect_cny=period_investment_effect,
+        attribution_pnl_cny=attribution_pnl,
+        bridge=bridge,
+    )
     payload = {
         "start": start_date,
         "end": terminal_date,
@@ -531,5 +656,6 @@ def build_equity_bridge_payload(
             "investment_attribution_gap_cny": period_investment_effect - attribution_pnl,
             "blocking_checks": [item for item in checks if item.get("status") != "ok"],
         },
+        "growth_explanation": growth_explanation,
     }
     return _norm(payload)

@@ -16,6 +16,7 @@ from services.portfolio_equity_bridge import (  # noqa: E402
     _cashflow_breakdown_from_rows,
     _funding_closure_checks,
     build_bridge_reconciliation_from_inputs,
+    build_nav_growth_explanation_from_inputs,
     period_investment_effect_from_inputs,
 )
 
@@ -78,6 +79,45 @@ def test_period_investment_effect_is_nav_delta_after_external_cashflow() -> None
     )
 
     assert effect == Decimal("132792.44")
+
+
+def test_nav_growth_explanation_keeps_additive_drivers_separate_from_attribution_gap() -> None:
+    bridge = build_bridge_reconciliation_from_inputs(
+        beginning_nav_cny=Decimal("768674.39"),
+        ending_nav_cny=Decimal("1212212.58"),
+        external_cashflow_cny=Decimal("310745.75"),
+        investment_pnl_cny=Decimal("132792.44"),
+    )
+    explanation = build_nav_growth_explanation_from_inputs(
+        beginning_nav_cny=Decimal("768674.39"),
+        ending_nav_cny=Decimal("1212212.58"),
+        cashflows={
+            "external_net_cny": Decimal("310745.75"),
+            "buckets": {
+                "main_income": {"amount_cny": Decimal("560390.48"), "count": 11},
+                "expense": {"amount_cny": Decimal("-374588.19"), "count": 120},
+                "investment_realized_cash": {
+                    "amount_cny": Decimal("37120"),
+                    "count": 1,
+                    "excluded_from_external_cashflow": True,
+                },
+            },
+        },
+        period_investment_effect_cny=Decimal("132792.44"),
+        attribution_pnl_cny=Decimal("106611.22"),
+        bridge=bridge,
+    )
+
+    assert explanation["summary"]["nav_delta_cny"] == Decimal("443538.19")
+    assert explanation["drivers"][0]["key"] == "external_cashflow"
+    assert explanation["drivers"][0]["amount_cny"] == Decimal("310745.75")
+    assert explanation["drivers"][1]["key"] == "period_investment_effect"
+    assert explanation["drivers"][1]["amount_cny"] == Decimal("132792.44")
+    assert explanation["drivers"][2]["key"] == "unexplained_residual"
+    assert explanation["drivers"][2]["amount_cny"] == Decimal("0.00")
+    assert explanation["investment_breakdown"][0]["amount_cny"] == Decimal("106611.22")
+    assert explanation["investment_breakdown"][1]["amount_cny"] == Decimal("26181.22")
+    assert any(item["key"] == "investment_realized_cash" and item["excluded_from_external_cashflow"] for item in explanation["cashflow_items"])
 
 
 def test_cashflow_breakdown_excludes_linked_investment_cash_realization() -> None:

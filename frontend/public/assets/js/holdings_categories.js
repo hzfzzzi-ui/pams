@@ -914,9 +914,10 @@ async function renderInvestmentReturnChart() {
     { key: 'us_stock', label: '美股', color: '#58a6ff', url: '/investment/section-return-series?section=us_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
     { key: 'precious_metal', label: '贵金属', color: '#a371f7', url: '/investment/section-return-series?section=precious_metal&start=2026-01-01&interval=daily&baseCurrency=CNY' },
   ];
-  const [resp, navResp, ...sectionResponses] = await Promise.all([
+  const [resp, navResp, navGrowthResp, ...sectionResponses] = await Promise.all([
     jget('/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY').catch(() => ({ rows: [] })),
     jget('/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily').catch(() => ({ rows: [] })),
+    jget('/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY').catch(() => null),
     ...sectionSpecs.map(spec => jget(spec.url).catch(() => ({ rows: [] }))),
   ]);
   const rows = resp.rows || [];
@@ -937,6 +938,7 @@ async function renderInvestmentReturnChart() {
     pnlMap: new Map(),
     valueMap: new Map(),
     navChart: null,
+    navGrowthBridge: navGrowthResp,
   };
   const initialWindowData = buildInvestmentReturnWindowData(
     chartState.rows,
@@ -1000,6 +1002,7 @@ async function renderInvestmentReturnChart() {
     chartState.navChart = renderInvestmentNavChart(chartState.navRows, chartState.activeWindow, chartState.isMobile);
     renderInvestmentReturnToggle(window.__investmentReturnChart, sectionSpecs, chartState);
     renderInvestmentReturnWindowToggle(window.__investmentReturnChart, chartState);
+    renderNavGrowthExplanationPanel(chartState.navGrowthBridge);
     renderReturnContributionPanel(chartState.topContribution);
     document.body.dataset.investmentReturnChartLoaded = 'fallback';
     return rows.length
@@ -1113,6 +1116,7 @@ async function renderInvestmentReturnChart() {
   chartState.navChart = renderInvestmentNavChart(chartState.navRows, chartState.activeWindow, chartState.isMobile);
   renderInvestmentReturnToggle(window.__investmentReturnChart, sectionSpecs, chartState);
   renderInvestmentReturnWindowToggle(window.__investmentReturnChart, chartState);
+  renderNavGrowthExplanationPanel(chartState.navGrowthBridge);
   renderReturnContributionPanel(chartState.topContribution);
   document.body.dataset.investmentReturnChartLoaded = 'chart';
   return rows.length
@@ -1776,6 +1780,92 @@ function navAxisLabel(value) {
   const n = safeNum(value);
   if (Math.abs(n) >= 10000) return `${(n / 10000).toFixed(Math.abs(n) >= 1000000 ? 0 : 1)}万`;
   return formatNumber(n, { maximumFractionDigits: 0 });
+}
+
+function navGrowthToneClass(item) {
+  const tone = String(item?.tone || '').toLowerCase();
+  if (tone === 'positive' || tone === 'ok') return 'good';
+  if (tone === 'negative') return 'bad';
+  if (tone === 'warning' || tone === 'warn') return 'warn';
+  return 'neutral';
+}
+
+function renderNavGrowthDriver(item, maxAbsAmount) {
+  const amount = safeNum(item?.amount_cny);
+  const width = Math.max(3, Math.min(100, Math.abs(amount) / Math.max(maxAbsAmount, 1) * 100));
+  const toneClass = navGrowthToneClass(item);
+  return `
+    <div class="navGrowthDriver navGrowthDriver-${toneClass}">
+      <div class="navGrowthDriverTop">
+        <span>${esc(item?.label || item?.key || '来源')}</span>
+        <strong>${fmtSignedCny(amount)}</strong>
+      </div>
+      <div class="navGrowthDriverBar" aria-hidden="true">
+        <i style="width:${width.toFixed(2)}%"></i>
+      </div>
+      <div class="navGrowthDriverMeta">
+        <span>${esc(item?.formula || '')}</span>
+        <em>${formatPercentRate(item?.share_of_delta)}</em>
+      </div>
+    </div>
+  `;
+}
+
+function renderNavGrowthExplanationPanel(bridgePayload) {
+  const el = document.getElementById('navGrowthExplanationPanel');
+  if (!el) return;
+  const explanation = bridgePayload?.growth_explanation || null;
+  const summary = explanation?.summary || {};
+  const drivers = Array.isArray(explanation?.drivers) ? explanation.drivers : [];
+  if (!explanation || !drivers.length) {
+    el.innerHTML = '<div class="muted">暂无NAV增值解释</div>';
+    return;
+  }
+  const investmentBreakdown = Array.isArray(explanation.investment_breakdown) ? explanation.investment_breakdown : [];
+  const cashflowItems = (Array.isArray(explanation.cashflow_items) ? explanation.cashflow_items : [])
+    .filter(item => !item.excluded_from_external_cashflow)
+    .sort((a, b) => Math.abs(safeNum(b.amount_cny)) - Math.abs(safeNum(a.amount_cny)))
+    .slice(0, 3);
+  const maxAbsAmount = Math.max(...drivers.map(item => Math.abs(safeNum(item.amount_cny))), 1);
+  const delta = safeNum(summary.nav_delta_cny);
+  const reconciled = explanation.is_reconciled !== false && Math.abs(safeNum(summary.unexplained_residual_cny)) < 100;
+  el.innerHTML = `
+    <div class="returnInsightHead navGrowthHead">
+      <div>
+        <h3>${esc(explanation.title || '年初至今NAV增值解释')}</h3>
+        <span>${esc(bridgePayload?.start || '')} 至 ${esc(bridgePayload?.end || '')} · ${reconciled ? '总账闭合' : '仍有残差'}</span>
+      </div>
+      <strong class="${delta >= 0 ? 'good' : 'bad'}">${fmtSignedCny(delta)}</strong>
+    </div>
+    <div class="navGrowthStatGrid">
+      <span><em>期初NAV</em><strong>${fmtCny(summary.beginning_nav_cny)}</strong></span>
+      <span><em>期末NAV</em><strong>${fmtCny(summary.ending_nav_cny)}</strong></span>
+      <span><em>增值率</em><strong class="${safeNum(summary.nav_delta_rate) >= 0 ? 'good' : 'bad'}">${formatPercentRate(summary.nav_delta_rate)}</strong></span>
+    </div>
+    <div class="navGrowthDrivers">
+      ${drivers.map(item => renderNavGrowthDriver(item, maxAbsAmount)).join('')}
+    </div>
+    ${investmentBreakdown.length ? `
+      <div class="navGrowthBreakdown">
+        <span>投资解释</span>
+        ${investmentBreakdown.map(item => `
+          <b class="navGrowthChip navGrowthChip-${navGrowthToneClass(item)}">
+            ${esc(item.label)} ${fmtSignedCny(item.amount_cny)}
+          </b>
+        `).join('')}
+      </div>
+    ` : ''}
+    ${cashflowItems.length ? `
+      <div class="navGrowthCashflow">
+        <span>现金流主项</span>
+        ${cashflowItems.map(item => `
+          <b class="navGrowthChip navGrowthChip-${navGrowthToneClass(item)}">
+            ${esc(item.label)} ${fmtSignedCny(item.amount_cny)}
+          </b>
+        `).join('')}
+      </div>
+    ` : ''}
+  `;
 }
 
 function renderInvestmentNavSummary(data, windowKey) {
