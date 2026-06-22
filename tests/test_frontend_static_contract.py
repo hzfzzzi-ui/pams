@@ -105,6 +105,10 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     assert "'risk.html': 'investments.html'" in ui_js
     assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html'])" in ui_js
     assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
+    assert "const stateRole = tone === 'error' ? 'alert' : 'status'" in ui_js
+    assert "const liveMode = tone === 'error' ? 'assertive' : 'polite'" in ui_js
+    assert 'role="${stateRole}" aria-live="${liveMode}"' in ui_js
+    assert "empty: '暂无'" in ui_js
 
     for page in [
         "accounts.html",
@@ -398,7 +402,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20260622-account-invest-compact-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -708,14 +712,14 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260622-fund-return-status-v1" in html
+    assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
-    assert "assets/js/holdings_categories.js?v=20260622-astock-daily-summary-v1" in html
-    assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
-    assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
     assert "style.css?v=20260620-mobile-density-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -847,8 +851,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260622-account-invest-compact-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ledger_html
+    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1304,7 +1308,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260620-data-state-v1" in html
+    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in html
 
 
@@ -1351,12 +1355,12 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260620-data-state-v1" in html
-    assert "assets/js/bank_reconcile.js?v=20260620-data-state-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20260620-data-state-v1" in data_sources_html
-    assert "assets/js/research.js?v=20260620-data-state-v1" in research_html
-    assert "./sync_center.js?v=20260620-data-state-v1" in data_sources_js
-    assert "./ui.js?v=20260620-data-state-v1" in sync_center_js
+    assert "assets/js/more.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20260622-data-state-a11y-v1" in data_sources_html
+    assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
+    assert "./sync_center.js?v=20260622-data-state-a11y-v1" in data_sources_js
+    assert "./ui.js?v=20260622-data-state-a11y-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
     assert "function dataStateHtml" in ui_js
     assert "function renderDataState" in ui_js
@@ -1414,17 +1418,17 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260622-category-pie-v2" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
-    assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/more.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/more.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 

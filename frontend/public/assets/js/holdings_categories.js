@@ -1,5 +1,5 @@
 ﻿import { jget, fmt2, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20260620-data-state-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20260622-fund-pnl-v1';
 import { accountCashBreakdown } from './account_cash.js?v=20260606-cash-active-v1';
 

@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260621-ledger-investment-account-v2';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
 import {
   byId as $,
   clearError,

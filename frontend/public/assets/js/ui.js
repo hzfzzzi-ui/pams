@@ -81,7 +81,7 @@ export function dataStateHtml(options = {}) {
     error: '失败',
     loading: '加载中',
     stale: '待更新',
-    empty: '空',
+    empty: '暂无',
   }[tone] || '状态';
   const badgeTone = {
     error: 'warn',
@@ -89,12 +89,14 @@ export function dataStateHtml(options = {}) {
     stale: 'warn',
     empty: 'data',
   }[tone] || 'data';
+  const stateRole = tone === 'error' ? 'alert' : 'status';
+  const liveMode = tone === 'error' ? 'assertive' : 'polite';
   const compact = options.compact ? ' compact' : '';
   const action = options.actionHref && options.actionLabel
     ? `<a class="miniBadge data dataStateAction" href="${escapeHtml(options.actionHref)}">${escapeHtml(options.actionLabel)}</a>`
     : '';
   return `
-    <div class="emptyState dataState dataState-${escapeHtml(tone)}${compact}">
+    <div class="emptyState dataState dataState-${escapeHtml(tone)}${compact}" role="${stateRole}" aria-live="${liveMode}">
       <div class="dataStateTop">
         <strong class="dataStateTitle">${escapeHtml(title)}</strong>
         <span class="miniBadge ${escapeHtml(badgeTone)}">${escapeHtml(badge)}</span>
@@ -235,16 +237,16 @@ function setupAppPreload(activePath, path) {
       ['assets/css/style.css?v=20260620-mobile-density-v1', 'style'],
       ['assets/css/design-system.css?v=20260620-visual-cohesion-v1', 'style'],
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
-      ['assets/js/ui.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/ui.js?v=20260622-data-state-a11y-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20260620-data-state-v1', 'script'],
-      ['assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1', 'script'],
-      ['assets/js/lookthrough.js?v=20260620-data-state-v1', 'script'],
-      ['assets/js/ledger_cashflow.js?v=20260622-category-pie-v2', 'script'],
-      ['assets/js/transactions.js?v=20260620-data-state-v1', 'script'],
-      ['assets/js/portfolio_risk.js?v=20260620-data-state-v1', 'script'],
-      ['assets/js/portfolio_config.js?v=20260620-data-state-v1', 'script'],
-      ['assets/js/more.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/holdings.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/holdings_categories.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/lookthrough.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/transactions.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/more.js?v=20260622-data-state-a11y-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));
   }, 250);
 

@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { dataStateHtml } from './ui.js?v=20260620-data-state-v1';
+import { dataStateHtml } from './ui.js?v=20260622-data-state-a11y-v1';
 
 let currentCategories = [];
 let expandedRiskCategoryId = null;

@@ -31,8 +31,9 @@ def build_latest_fx_rates_payload(cur, *, base_currency: str) -> dict[str, Any]:
     if not rows:
         return {"as_of": None, "rates": []}
 
+    latest_as_of = max(row["as_of"] for row in rows)
     return {
-        "as_of": rows[0]["as_of"].isoformat(),
+        "as_of": latest_as_of.isoformat(),
         "base_currency": base_currency,
         "rates": [{key: _norm(value) for key, value in dict(row).items()} for row in rows],
     }
