@@ -892,6 +892,16 @@ function formatCurrencyItems(items, { absolute = false, signed = false } = {}) {
   return items.length > 2 ? `${shown} +${items.length - 2}` : shown;
 }
 
+function formatCurrencyItemsCompact(items, { absolute = false, signed = false } = {}) {
+  if (!items.length) return '';
+  if (items.length > 1) return `${items.length} 币种`;
+  return formatCurrency(
+    absolute ? Math.abs(items[0].amount) : items[0].amount,
+    items[0].currency,
+    { maximumFractionDigits: 2, signed },
+  );
+}
+
 function accountInvestmentBalanceEntries(accountCode) {
   const assets = new Map();
   const liabilities = new Map();
@@ -912,15 +922,12 @@ function accountInvestmentBalanceEntries(accountCode) {
   const assetItems = sortedCurrencyItems(assets);
   const liabilityItems = sortedCurrencyItems(liabilities);
   const pnlItems = sortedCurrencyItems(holdingPnl);
-  if (assetItems.length) {
-    entries.push({ label: '总资产', value: formatCurrencyItems(assetItems), tone: 'data' });
-  }
   if (liabilityItems.length) {
-    entries.push({ label: '融资负债', value: formatCurrencyItems(liabilityItems, { absolute: true }), tone: 'risk' });
+    entries.push({ label: '融资负债', value: formatCurrencyItemsCompact(liabilityItems, { absolute: true }), tone: 'risk' });
   }
   if (pnlItems.length) {
     const pnlTotal = pnlItems.reduce((sum, item) => sum + item.amount, 0);
-    entries.push({ label: '持仓盈亏', value: formatCurrencyItems(pnlItems, { signed: true }), tone: pnlTotal >= 0 ? 'up' : 'down' });
+    entries.push({ label: '持仓盈亏', value: formatCurrencyItemsCompact(pnlItems, { signed: true }), tone: pnlTotal >= 0 ? 'up' : 'down' });
   }
   return entries;
 }
@@ -929,10 +936,11 @@ function investmentAccountStatsEntries(row) {
   const normalized = normalizeAccountRow(row);
   const netFunding = normalized.investment_inflow - normalized.investment_outflow;
   const fundingLabel = normalized.funding_scope === 'personal_capital' ? '个人入金' : '净入金';
+  const hasOutflow = Math.abs(normalized.investment_outflow) > 0.000001;
   const entries = [];
   if (Math.abs(netFunding) > 0.000001) entries.push({ label: fundingLabel, value: signedMoney(netFunding), tone: netFunding >= 0 ? 'up' : 'down' });
-  if (Math.abs(normalized.investment_inflow) > 0.000001) entries.push({ label: '入金', value: money(normalized.investment_inflow), tone: 'data' });
-  if (Math.abs(normalized.investment_outflow) > 0.000001) entries.push({ label: '出金', value: money(normalized.investment_outflow), tone: 'data' });
+  if (hasOutflow && Math.abs(normalized.investment_inflow) > 0.000001) entries.push({ label: '入金', value: money(normalized.investment_inflow), tone: 'data' });
+  if (hasOutflow) entries.push({ label: '出金', value: money(normalized.investment_outflow), tone: 'data' });
   if (Math.abs(normalized.investment_return) > 0.000001) entries.push({ label: '现金收益', value: money(normalized.investment_return), tone: 'up' });
   if (Math.abs(normalized.investment_fee) > 0.000001) entries.push({ label: '费用', value: money(normalized.investment_fee), tone: 'down' });
   return entries;
