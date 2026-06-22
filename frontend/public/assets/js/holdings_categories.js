@@ -574,7 +574,7 @@ function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: safeNum(aStockSummary.totalPnl),
       totalRate: safeNum(
-        aStockSummary.accountReturnRate ??
+        aStockSummary.holdingReturnRate ??
         aStockSummary.displayReturnRate ??
         categoryByLabel(categories, 'A股个股').totalReturnRate
       ),
@@ -1219,22 +1219,19 @@ function renderAStockOwnerPerformance(perf) {
   if (!perf || perf.status !== 'ok') return null;
 
   setKpiLabel('totalValueAStockEquity', '个人净值');
-  setKpiLabel('totalPnlAStockEquity', '账户收益');
+  setKpiLabel('totalPnlAStockEquity', '总盈亏');
   setKpiLabel('countKpiAStockEquity', '持股比例');
   setKpiLabel('holdingPnlAStockEquity', '持仓收益率');
 
-  const totalPnl = safeNum(perf.total_pnl_cny);
+  const accountTotalPnl = safeNum(perf.total_pnl_cny);
   const dailyPnlEffective = perf.daily_pnl_effective !== false;
   const dailyPnl = dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))
     ? safeNum(perf.daily_pnl_cny)
     : null;
 
-  const totalPnlEl = document.getElementById('totalPnlAStockEquity');
   const dailyPnlEl = document.getElementById('dailyPnlAStockEquity');
 
   document.getElementById('totalValueAStockEquity').textContent = fmtCny(perf.net_liquidation_cny);
-  totalPnlEl.textContent = fmtSignedCny(totalPnl);
-  totalPnlEl.style.color = totalPnl >= 0 ? 'var(--good)' : 'var(--bad)';
   if (dailyPnlEl && dailyPnl !== null) {
     dailyPnlEl.textContent = fmtSignedCny(dailyPnl);
     dailyPnlEl.style.color = dailyPnl >= 0 ? 'var(--good)' : 'var(--bad)';
@@ -1243,7 +1240,7 @@ function renderAStockOwnerPerformance(perf) {
 
   return {
     totalValue: safeNum(perf.net_liquidation_cny),
-    totalPnl,
+    accountTotalPnl,
     dailyPnl,
     dailyPnlEffective,
     accountReturnRate: safeNum(perf.return_ratio),
@@ -3202,10 +3199,8 @@ async function main(){
           : aStockRowsSummary.dailyTotalPnl,
         dailyPnlEffective: aStockAccountDailyPnlEffective,
         holdingReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
-        displayReturnRate: Number.isFinite(Number(aStockAccountSummary.accountReturnRate))
-          ? safeNum(aStockAccountSummary.accountReturnRate)
-          : holdingReturnRateFromSummary(aStockHoldingRateSummary),
-        returnRateLabel: '账户收益率',
+        displayReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
+        returnRateLabel: '持仓收益率',
         activeHoldingPnl: aStockHoldingRateSummary.activeHoldingPnl,
         activeTotalCost: aStockHoldingRateSummary.activeTotalCost,
         positionValue: aStockRowsSummary.totalValue,

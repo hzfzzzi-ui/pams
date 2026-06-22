@@ -720,7 +720,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
-    assert "assets/js/holdings_categories.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260622-astock-pnl-basis-v1" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
@@ -790,8 +790,10 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率'" in holdings_js
     assert "const ibkrAccountReturnRate = ibkrNetDeposit > 0" in holdings_js
     assert "const ibkrGrossHoldingRate" in holdings_js
-    assert "aStockSummary.accountReturnRate ??" in holdings_js
-    assert "returnRateLabel: '账户收益率'" in holdings_js
+    assert "accountTotalPnl" in holdings_js
+    assert "totalPnl: safeNum(aStockSummary.totalPnl)" in holdings_js
+    assert "aStockSummary.holdingReturnRate ??" in holdings_js
+    assert "returnRateLabel: '持仓收益率'" in holdings_js
     assert "summary.returnRateLabel || '持仓收益率'" in holdings_js
     assert "activeHoldingPnl" in holdings_js
     assert "activeTotalCost" in holdings_js
@@ -1427,7 +1429,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260622-astock-pnl-basis-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js
