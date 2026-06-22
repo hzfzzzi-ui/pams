@@ -11,9 +11,12 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.portfolio_equity_bridge import (  # noqa: E402
+    _bridge_cashflow_excluded_accounts,
+    _cashflow_breakdown,
     _cashflow_breakdown_from_rows,
     _funding_closure_checks,
     build_bridge_reconciliation_from_inputs,
+    period_investment_effect_from_inputs,
 )
 
 
@@ -27,6 +30,18 @@ class _FakeCursor:
 
     def fetchone(self) -> dict:
         return self.rows.pop(0)
+
+
+class _FakeRowsCursor:
+    def __init__(self, rows: list[dict]):
+        self.rows = list(rows)
+        self.executed: list[tuple[str, tuple]] = []
+
+    def execute(self, query: str, params: tuple) -> None:
+        self.executed.append((query, params))
+
+    def fetchall(self) -> list[dict]:
+        return self.rows
 
 
 def test_equity_bridge_keeps_unexplained_residual_visible() -> None:
@@ -53,6 +68,16 @@ def test_equity_bridge_reconciles_only_when_residual_is_small() -> None:
 
     assert bridge["unexplained_residual_cny"] == Decimal("0")
     assert bridge["is_reconciled"] is True
+
+
+def test_period_investment_effect_is_nav_delta_after_external_cashflow() -> None:
+    effect = period_investment_effect_from_inputs(
+        beginning_nav_cny=Decimal("768674.39"),
+        ending_nav_cny=Decimal("1212212.58"),
+        external_cashflow_cny=Decimal("310745.75"),
+    )
+
+    assert effect == Decimal("132792.44")
 
 
 def test_cashflow_breakdown_excludes_linked_investment_cash_realization() -> None:
@@ -82,6 +107,32 @@ def test_cashflow_breakdown_excludes_linked_investment_cash_realization() -> Non
     assert breakdown["buckets"]["investment_realized_cash"]["excluded_from_external_cashflow"] is True
     linked_detail = next(item for item in breakdown["details"] if item["bucket"] == "investment_realized_cash")
     assert linked_detail["excluded_from_external_cashflow"] is True
+
+
+def test_cashflow_breakdown_filters_excluded_nav_accounts() -> None:
+    cur = _FakeRowsCursor([])
+
+    _cashflow_breakdown(
+        cur,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 6, 22),
+        excluded_accounts={"ccb_cny", "legacy"},
+    )
+
+    sql, params = cur.executed[0]
+    assert "cf.account_code = ANY" in sql
+    assert params == (date(2026, 1, 1), date(2026, 6, 22), ["ccb_cny", "legacy"])
+
+
+def test_bridge_cashflow_excluded_accounts_keep_parent_payment_ledgers() -> None:
+    excluded = _bridge_cashflow_excluded_accounts(
+        {
+            "excluded_accounts": ["ccb_cny", "wechat", "gongjijin", "huawei"],
+            "defaults": {},
+        }
+    )
+
+    assert excluded == {"ccb_cny"}
 
 
 def test_tonghuashun_personal_capital_checks_cashflow_source_side() -> None:

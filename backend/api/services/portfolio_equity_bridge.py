@@ -13,13 +13,28 @@ from typing import Any, Callable
 
 import psycopg2.extras
 
-from services.portfolio_state import _load_accounts_config, _owner_ratio, get_conn
+from services.portfolio_state import _excluded_accounts, _load_accounts_config, _owner_ratio, get_conn
 from services.portfolio_valuation_state import _build_current_state
 from services.return_attribution import build_return_attribution_payload
-from services.valuation_nav import build_nav_weekly_payload
+from services.valuation_nav import build_nav_weekly_payload, current_nav_account_values_from_parts
 
 
 MONEY_QUANT = Decimal("0.01")
+
+# ``excluded_accounts`` in accounts.yaml is used by holdings/NAV snapshots and
+# includes parent ledgers such as ``wechat``.  Cashflow facts can still use
+# those parent ledgers for real period movements, so the bridge only filters
+# confirmed legacy aliases that would otherwise double count old statement
+# imports.
+BRIDGE_CASHFLOW_LEGACY_EXCLUDED_ACCOUNTS = {
+    "binance",
+    "ccb_cny",
+    "cgb_cny",
+    "guangfa",
+    "jianhang",
+    "jiekuan",
+    "loan",
+}
 
 MAIN_INCOME_SUBCATEGORIES = {
     "工资",
@@ -87,6 +102,11 @@ def _account_owner_ratio_lookup(account_cfg: dict[str, Any]) -> Callable[[str], 
     return lookup
 
 
+def _bridge_cashflow_excluded_accounts(account_cfg: dict[str, Any]) -> set[str]:
+    configured = _excluded_accounts(account_cfg)
+    return configured.intersection(BRIDGE_CASHFLOW_LEGACY_EXCLUDED_ACCOUNTS)
+
+
 def build_bridge_reconciliation_from_inputs(
     *,
     beginning_nav_cny: Decimal,
@@ -112,6 +132,22 @@ def build_bridge_reconciliation_from_inputs(
         "unexplained_residual_cny": unexplained_residual,
         "is_reconciled": abs(unexplained_residual) < Decimal("100"),
     }
+
+
+def period_investment_effect_from_inputs(
+    *,
+    beginning_nav_cny: Decimal,
+    ending_nav_cny: Decimal,
+    external_cashflow_cny: Decimal,
+) -> Decimal:
+    """Return the period valuation effect required by the NAV bridge.
+
+    Current holding PnL is a cumulative cost-basis metric.  A NAV bridge needs
+    period contribution since the selected start date, so this value is kept
+    separate and compared with return attribution instead of mixing period and
+    cumulative metrics in one residual.
+    """
+    return ending_nav_cny - beginning_nav_cny - external_cashflow_cny
 
 
 def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -176,7 +212,14 @@ def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _cashflow_breakdown(cur, *, start_date: Date, end_date: Date) -> dict[str, Any]:
+def _cashflow_breakdown(
+    cur,
+    *,
+    start_date: Date,
+    end_date: Date,
+    excluded_accounts: set[str] | None = None,
+) -> dict[str, Any]:
+    excluded = sorted(str(item) for item in (excluded_accounts or set()) if item)
     cur.execute(
         """
         WITH linked_investment_return_cashflows AS (
@@ -197,6 +240,7 @@ def _cashflow_breakdown(cur, *, start_date: Date, end_date: Date) -> dict[str, A
                ON linked.cashflow_id = cf.cashflow_id
         WHERE cf.event_date >= %s
           AND cf.event_date <= %s
+          AND NOT (cf.account_code = ANY(%s::text[]))
           AND cf.affects_nav IS TRUE
           AND COALESCE(LOWER(cf.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
         GROUP BY cf.cashflow_type,
@@ -205,7 +249,7 @@ def _cashflow_breakdown(cur, *, start_date: Date, end_date: Date) -> dict[str, A
                  (linked.cashflow_id IS NOT NULL)
         ORDER BY cf.cashflow_type, category, subcategory
         """,
-        (start_date, end_date),
+        (start_date, end_date, excluded),
     )
     return _cashflow_breakdown_from_rows(list(cur.fetchall()))
 
@@ -391,9 +435,28 @@ def build_equity_bridge_payload(
                 cycle="equity_bridge",
                 status="draft",
             )
+            raw_json = valuation_state.get("raw_json") or {}
+            terminal_account_values = raw_json.get("account_values_cny") or {}
             terminal_date, terminal_nav_bucket, ending_nav = _terminal_nav_payload(valuation_state)
             if start_date > terminal_date:
                 start_date = terminal_date
+            if not terminal_account_values:
+                account_cfg_for_values = _load_accounts_config()
+                # Defensive fallback for old valuation states built before
+                # account_values_cny existed in raw_json.
+                from services.portfolio_state import load_account_balances, load_investment_positions
+
+                account_balances = load_account_balances(cur, base, account_cfg_for_values)
+                investment_positions = load_investment_positions(
+                    cur,
+                    base,
+                    account_cfg_for_values,
+                    account_balances=account_balances,
+                )
+                terminal_account_values = current_nav_account_values_from_parts(
+                    account_balances=account_balances,
+                    investment_positions=investment_positions,
+                )
             nav_payload = build_nav_weekly_payload(
                 cur,
                 start_date=start_date,
@@ -403,22 +466,33 @@ def build_equity_bridge_payload(
                 account_owner_ratio=_account_owner_ratio_lookup(account_cfg),
                 terminal_date=terminal_date,
                 terminal_nav_bucket=terminal_nav_bucket,
+                terminal_account_values_cny=terminal_account_values,
                 interval="daily",
             )
             rows = nav_payload.get("rows") or []
             beginning_nav = _dec(rows[0].get("netWorth")) if rows else Decimal("0")
             ending_nav = _dec(rows[-1].get("netWorth")) if rows else ending_nav
-            cashflows = _cashflow_breakdown(cur, start_date=start_date, end_date=terminal_date)
+            cashflows = _cashflow_breakdown(
+                cur,
+                start_date=start_date,
+                end_date=terminal_date,
+                excluded_accounts=_bridge_cashflow_excluded_accounts(account_cfg),
+            )
             attribution = build_return_attribution_payload(cur, base_currency=base)
-            investment_pnl = _dec(
+            attribution_pnl = _dec(
                 attribution.get("canonical_total_pnl_cny")
                 or attribution.get("total_pnl_cny")
+            )
+            period_investment_effect = period_investment_effect_from_inputs(
+                beginning_nav_cny=beginning_nav,
+                ending_nav_cny=ending_nav,
+                external_cashflow_cny=_dec(cashflows["external_net_cny"]),
             )
             bridge = build_bridge_reconciliation_from_inputs(
                 beginning_nav_cny=beginning_nav,
                 ending_nav_cny=ending_nav,
                 external_cashflow_cny=_dec(cashflows["external_net_cny"]),
-                investment_pnl_cny=investment_pnl,
+                investment_pnl_cny=period_investment_effect,
             )
             checks = _funding_closure_checks(
                 cur,
@@ -433,7 +507,7 @@ def build_equity_bridge_payload(
         "base_currency": base,
         "formula": (
             "ending_nav = beginning_nav + external_cashflow "
-            "+ canonical_investment_pnl + non_investment_adjustments + unexplained_residual"
+            "+ period_investment_effect + non_investment_adjustments + unexplained_residual"
         ),
         "beginning_nav_cny": beginning_nav,
         "ending_nav_cny": ending_nav,
@@ -442,16 +516,19 @@ def build_equity_bridge_payload(
         "reconciliation": bridge,
         "cashflows": cashflows,
         "investment": {
-            "canonical_total_pnl_cny": investment_pnl,
+            "period_investment_effect_cny": period_investment_effect,
+            "canonical_total_pnl_cny": attribution_pnl,
             "raw_total_pnl_cny": _dec(attribution.get("total_pnl_cny")),
+            "attribution_gap_cny": period_investment_effect - attribution_pnl,
             "portfolio_nav_cny": _dec(attribution.get("portfolio_nav_cny")),
             "as_of": attribution.get("as_of"),
-            "source": "analysis/return-attribution.canonical_total_pnl_cny",
+            "source": "nav_bridge.period_effect_vs_analysis.return-attribution",
         },
         "data_checks": checks,
         "quality": {
             "status": "ok" if bridge["is_reconciled"] else "unreconciled",
             "unexplained_residual_cny": bridge["unexplained_residual_cny"],
+            "investment_attribution_gap_cny": period_investment_effect - attribution_pnl,
             "blocking_checks": [item for item in checks if item.get("status") != "ok"],
         },
     }

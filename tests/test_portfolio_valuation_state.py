@@ -11,6 +11,7 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+import services.portfolio_valuation_state as pvs  # noqa: E402
 from services.portfolio_valuation_state import (  # noqa: E402
     build_portfolio_valuation_state_from_parts,
     latest_published_portfolio_valuation_state,
@@ -31,6 +32,26 @@ class FakeCursor:
 
     def fetchall(self):
         return self.results.pop(0)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class FakeConn:
+    def __init__(self, cur):
+        self.cur = cur
+
+    def cursor(self, *args, **kwargs):
+        return self.cur
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_build_portfolio_valuation_state_from_parts_uses_net_liquidation_formula():
@@ -75,6 +96,7 @@ def test_build_portfolio_valuation_state_from_parts_uses_net_liquidation_formula
     assert state["cash_cny"] == Decimal("80")
     assert state["total_pnl_cny"] == Decimal("20")
     assert state["raw_json"]["formula"] == "net_liquidation_value = assets_cny - liabilities_cny"
+    assert state["raw_json"]["account_values_cny"] == {"ibkr": Decimal("180"), "cash": Decimal("80")}
     assert state["source_hash"]
 
 
@@ -141,3 +163,77 @@ def test_portfolio_valuation_state_schema_is_idempotent_and_indexed():
     assert "CREATE TABLE IF NOT EXISTS public.pams_portfolio_valuation_state" in schema
     assert "PRIMARY KEY (valuation_date, cycle, base_currency)" in schema
     assert "idx_pams_portfolio_valuation_state_latest" in schema
+
+
+def test_build_portfolio_valuation_state_payload_ignores_stale_published_row(monkeypatch):
+    current_state = {
+        "valuation_date": "2026-06-21",
+        "cycle": "manual_publish",
+        "base_currency": "CNY",
+        "status": "draft",
+        "data_completeness": "complete",
+        "net_liquidation_value": Decimal("120"),
+        "assets_cny": Decimal("140"),
+        "liabilities_cny": Decimal("20"),
+        "cash_cny": Decimal("10"),
+        "source_hash": "current-hash",
+        "raw_json": {},
+    }
+    stale_published = {
+        "valuation_date": date(2026, 6, 18),
+        "cycle": "manual_publish",
+        "base_currency": "CNY",
+        "status": "published",
+        "data_completeness": "complete",
+        "net_liquidation_value": Decimal("100"),
+        "assets_cny": Decimal("110"),
+        "liabilities_cny": Decimal("10"),
+        "cash_cny": Decimal("8"),
+        "source_hash": "old-hash",
+        "published_at": None,
+    }
+
+    monkeypatch.setattr(pvs, "_table_exists", lambda cur, table: True)
+    monkeypatch.setattr(pvs, "_build_current_state", lambda cur, **kwargs: current_state)
+    monkeypatch.setattr(pvs, "latest_published_portfolio_valuation_state", lambda cur, **kwargs: stale_published)
+
+    payload = pvs.build_portfolio_valuation_state_payload(conn_factory=lambda: FakeConn(FakeCursor([])))
+
+    assert payload["source"] == "computed_current"
+    assert payload["net_liquidation_value"] == "120"
+    assert payload["published_state"]["net_liquidation_value"] == "100"
+    assert payload["published_state"]["overlay_applied"] is False
+    assert payload["published_state"]["overlay_reason"] == "stale_or_changed_valuation_state"
+
+
+def test_build_portfolio_valuation_state_payload_keeps_matching_published_row(monkeypatch):
+    current_state = {
+        "valuation_date": "2026-06-21",
+        "cycle": "manual_publish",
+        "base_currency": "CNY",
+        "status": "draft",
+        "data_completeness": "complete",
+        "net_liquidation_value": Decimal("120"),
+        "assets_cny": Decimal("140"),
+        "liabilities_cny": Decimal("20"),
+        "cash_cny": Decimal("10"),
+        "source_hash": "same-hash",
+        "raw_json": {},
+    }
+    published = {
+        **current_state,
+        "valuation_date": date(2026, 6, 21),
+        "status": "published",
+        "source_hash": "same-hash",
+        "published_at": None,
+    }
+
+    monkeypatch.setattr(pvs, "_table_exists", lambda cur, table: True)
+    monkeypatch.setattr(pvs, "_build_current_state", lambda cur, **kwargs: current_state)
+    monkeypatch.setattr(pvs, "latest_published_portfolio_valuation_state", lambda cur, **kwargs: published)
+
+    payload = pvs.build_portfolio_valuation_state_payload(conn_factory=lambda: FakeConn(FakeCursor([])))
+
+    assert payload["source"] == "published"
+    assert payload["net_liquidation_value"] == "120"
+    assert "published_state" not in payload

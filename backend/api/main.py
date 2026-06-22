@@ -104,6 +104,7 @@ from services.valuation_nav import (
     build_nav_series_payload as _build_nav_series_payload,
     build_nav_weekly_payload as _build_nav_weekly_payload,
     build_weekly_nav_rows as _build_weekly_nav_rows,
+    current_nav_account_values_from_parts as _current_nav_account_values_from_parts,
     current_nav_bucket_from_parts as _current_nav_bucket_from_parts,
     format_weekly_nav_payload as _format_weekly_nav_payload,
     fx_rate_at as _fx_rate_at,
@@ -886,6 +887,7 @@ def nav_weekly(
                 else current_view_as_of
             )
             terminal_nav_bucket = None
+            terminal_account_values = None
             if published_state_fresh and published_state:
                 terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
             elif latest:
@@ -901,6 +903,10 @@ def nav_weekly(
                     account_balances=account_balances,
                     investment_positions=investment_positions,
                 )
+                terminal_account_values = _current_nav_account_values_from_parts(
+                    account_balances=account_balances,
+                    investment_positions=investment_positions,
+                )
             return json(
                 _build_nav_weekly_payload(
                     cur,
@@ -911,6 +917,7 @@ def nav_weekly(
                     account_owner_ratio=_account_owner_ratio,
                     terminal_date=terminal_date,
                     terminal_nav_bucket=terminal_nav_bucket,
+                    terminal_account_values_cny=terminal_account_values,
                     interval=interval,
                 )
             )

@@ -18,6 +18,7 @@ from services.valuation_nav import (  # noqa: E402
     build_nav_drawdown_payload,
     build_nav_series_payload,
     build_nav_weekly_payload,
+    current_nav_account_values_from_parts,
     current_nav_bucket_from_parts,
 )
 
@@ -344,6 +345,42 @@ def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state
     assert payload["rows"][-1]["netWorth"] == "210"
 
 
+def test_build_nav_weekly_payload_uses_account_value_anchor_before_overview_balance():
+    cur = FakeCursor(
+        [
+            [],
+            {"fact_exists": True, "px_exists": True},
+            [
+                {"date": date(2026, 6, 10), "gross_value_cny": Decimal("100")},
+                {"date": date(2026, 6, 17), "gross_value_cny": Decimal("110")},
+            ],
+            {"exists": False},
+        ]
+    )
+
+    payload = build_nav_weekly_payload(
+        cur,
+        start_date=date(2026, 6, 10),
+        base_currency="CNY",
+        overview_payload={
+            "accounts": [
+                {
+                    "account_code": "tonghuashun",
+                    "account_type": "brokerage",
+                    "include_in_nav": True,
+                    "primary_balance": {"amount": "120", "currency": "CNY"},
+                }
+            ]
+        },
+        owner_ratio_case_sql=_owner_ratio_case_sql,
+        account_owner_ratio=_account_owner_ratio,
+        terminal_date=date(2026, 6, 17),
+        terminal_account_values_cny={"tonghuashun": Decimal("130")},
+    )
+
+    assert Decimal(payload["rows"][-1]["netWorth"]) == Decimal("130")
+
+
 def test_current_nav_bucket_from_parts_uses_positions_and_unrepresented_accounts():
     bucket = current_nav_bucket_from_parts(
         investment_positions=[
@@ -360,6 +397,29 @@ def test_current_nav_bucket_from_parts_uses_positions_and_unrepresented_accounts
     )
 
     assert bucket == {"assets": Decimal("626"), "liabilities": Decimal("120"), "net_worth": Decimal("506")}
+
+
+def test_current_nav_account_values_from_parts_groups_positions_and_unrepresented_accounts():
+    values = current_nav_account_values_from_parts(
+        investment_positions=[
+            {"account_code": "ibkr", "market_value_cny": Decimal("300")},
+            {"account_code": "ibkr", "market_value_cny": Decimal("-120")},
+            {"account_code": "tonghuashun", "market_value_cny": Decimal("240")},
+            {"account_code": "tonghuashun", "market_value_cny": Decimal("6")},
+        ],
+        account_balances=[
+            {"account_code": "ibkr", "amount_cny": Decimal("180"), "include_in_nav": True},
+            {"account_code": "tonghuashun", "amount_cny": Decimal("246"), "include_in_nav": True},
+            {"account_code": "ccb", "amount_cny": Decimal("80"), "include_in_nav": True},
+            {"account_code": "ignored", "amount_cny": Decimal("99"), "include_in_nav": False},
+        ],
+    )
+
+    assert values == {
+        "ibkr": Decimal("180"),
+        "tonghuashun": Decimal("246"),
+        "ccb": Decimal("80"),
+    }
 
 
 def test_statement_rows_by_account_falls_back_to_cashflow_fact() -> None:
@@ -438,7 +498,7 @@ def test_statement_rows_by_account_includes_prior_statement_balance() -> None:
     )
 
     sql, params = cur.executed[1]
-    assert "event_date <= %s" in sql
+    assert "event_date < %s" in sql
     assert params == (["ccb"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
     assert rows["ccb"][0]["transaction_date"] == date(2025, 12, 31)
     assert rows["ccb"][0]["statement_balance"] == "104031.82"
@@ -490,7 +550,70 @@ def test_statement_rows_by_account_merges_cashflow_for_legacy_uncovered_accounts
 
     assert rows["santander"][0]["statement_balance"] == "40000"
     assert rows["ccb_7332"][0]["statement_balance"] == "104031.82"
-    assert cur.executed[2][1] == (["ccb_7332"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
+    assert cur.executed[2][1] == (["santander", "ccb_7332"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
+
+
+def test_statement_rows_by_account_merges_cashflow_for_partially_staged_account() -> None:
+    cur = FakeCursor(
+        [
+            {"bank_rows_exists": True, "cashflow_fact_exists": True},
+            [
+                {
+                    "id": 1148,
+                    "source_uid": "future-bank-row",
+                    "account_code": "ccb_credit_0453",
+                    "transaction_date": date(2026, 5, 22),
+                    "amount": Decimal("-40.53"),
+                    "currency": "CNY",
+                    "category": "餐饮",
+                    "subcategory": "日常餐饮",
+                    "summary": "信用卡消费",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": "40.53",
+                }
+            ],
+            [
+                {
+                    "id": 51,
+                    "source_uid": "old-fact-row",
+                    "account_code": "ccb_credit_0453",
+                    "transaction_date": date(2026, 1, 1),
+                    "amount": Decimal("-80.12"),
+                    "currency": "CNY",
+                    "category": "交通出行",
+                    "subcategory": "打车",
+                    "summary": "信用卡交易",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": None,
+                },
+                {
+                    "id": 999,
+                    "source_uid": "future-bank-row",
+                    "account_code": "ccb_credit_0453",
+                    "transaction_date": date(2026, 5, 22),
+                    "amount": Decimal("-40.53"),
+                    "currency": "CNY",
+                    "category": "餐饮",
+                    "subcategory": "日常餐饮",
+                    "summary": "重复 fact",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": None,
+                },
+            ],
+        ]
+    )
+
+    rows = _statement_rows_by_account(
+        cur,
+        ["ccb_credit_0453"],
+        date(2026, 1, 1),
+        date(2026, 6, 21),
+    )
+
+    assert [row["source_uid"] for row in rows["ccb_credit_0453"]] == ["future-bank-row", "old-fact-row"]
 
 
 def test_statement_rows_by_account_tolerates_missing_legacy_and_fact_tables() -> None:
@@ -551,6 +674,51 @@ def test_bank_backcast_prefers_statement_running_balance_for_opening_nav() -> No
     assert values[date(2026, 6, 16)]["net_worth"] == Decimal("84756.92")
 
 
+def test_bank_backcast_treats_liability_statement_balance_as_negative_nav() -> None:
+    rows = {
+        "ccb_credit_0453": [
+            {
+                "id": 1,
+                "account_code": "ccb_credit_0453",
+                "transaction_date": date(2026, 1, 4),
+                "amount": Decimal("-100"),
+                "currency": "CNY",
+                "statement_balance": "1000",
+            },
+            {
+                "id": 2,
+                "account_code": "ccb_credit_0453",
+                "transaction_date": date(2026, 1, 5),
+                "amount": Decimal("-100"),
+                "currency": "CNY",
+                "statement_balance": "1100",
+            },
+        ]
+    }
+
+    values = _bank_backcast_series(
+        accounts=[
+            {
+                "account_code": "ccb_credit_0453",
+                "account_type": "liability",
+                "include_in_nav": True,
+                "base_currency": "CNY",
+                "primary_balance": {"amount": "-1100", "currency": "CNY", "as_of": "2026-01-05"},
+            }
+        ],
+        rows_by_account=rows,
+        dates=[date(2026, 1, 1), date(2026, 1, 4), date(2026, 1, 5)],
+        terminal_date=date(2026, 1, 5),
+        fx_timelines={"CNY": [(date(2026, 1, 1), Decimal("1"))]},
+        base_currency="CNY",
+    )
+
+    assert values[date(2026, 1, 1)]["net_worth"] == Decimal("-900")
+    assert values[date(2026, 1, 4)]["net_worth"] == Decimal("-1000")
+    assert values[date(2026, 1, 5)]["liabilities"] == Decimal("1100")
+    assert values[date(2026, 1, 5)]["net_worth"] == Decimal("-1100")
+
+
 def test_bank_backcast_uses_non_nav_rows_for_account_balance_changes() -> None:
     rows = {
         "icbc": [
@@ -583,6 +751,83 @@ def test_bank_backcast_uses_non_nav_rows_for_account_balance_changes() -> None:
 
     assert values[date(2026, 1, 1)]["net_worth"] == Decimal("1000.63")
     assert values[date(2026, 1, 6)]["net_worth"] == Decimal("0.63")
+
+
+def test_bank_backcast_reconstructs_zero_anchor_account_from_cashflow_rows() -> None:
+    rows = {
+        "alipay": [
+            {
+                "id": 1,
+                "account_code": "alipay",
+                "transaction_date": date(2026, 1, 18),
+                "amount": Decimal("-19"),
+                "currency": "CNY",
+                "statement_balance": None,
+            },
+            {
+                "id": 2,
+                "account_code": "alipay",
+                "transaction_date": date(2026, 2, 1),
+                "amount": Decimal("-81"),
+                "currency": "CNY",
+                "statement_balance": None,
+            },
+        ]
+    }
+
+    values = _bank_backcast_series(
+        accounts=[
+            {
+                "account_code": "alipay",
+                "account_type": "funding",
+                "include_in_nav": True,
+                "base_currency": "CNY",
+            }
+        ],
+        rows_by_account=rows,
+        dates=[date(2026, 1, 1), date(2026, 1, 31), date(2026, 2, 28)],
+        terminal_date=date(2026, 2, 28),
+        fx_timelines={"CNY": [(date(2026, 1, 1), Decimal("1"))]},
+        base_currency="CNY",
+    )
+
+    assert values[date(2026, 1, 1)]["net_worth"] == Decimal("100")
+    assert values[date(2026, 1, 31)]["net_worth"] == Decimal("81")
+    assert values[date(2026, 2, 28)]["net_worth"] == Decimal("0")
+
+
+def test_bank_backcast_does_not_infer_unanchored_liability_without_statement_balance() -> None:
+    rows = {
+        "gf_9711": [
+            {
+                "id": 1,
+                "account_code": "gf_9711",
+                "transaction_date": date(2026, 1, 3),
+                "amount": Decimal("-100"),
+                "currency": "USD",
+                "statement_balance": None,
+            }
+        ]
+    }
+
+    values = _bank_backcast_series(
+        accounts=[
+            {
+                "account_code": "gf_9711",
+                "account_type": "liability",
+                "include_in_nav": True,
+                "base_currency": "USD",
+            }
+        ],
+        rows_by_account=rows,
+        dates=[date(2026, 1, 1), date(2026, 1, 31)],
+        terminal_date=date(2026, 1, 31),
+        fx_timelines={"CNY": [(date(2026, 1, 1), Decimal("1"))], "USD": [(date(2026, 1, 1), Decimal("7"))]},
+        base_currency="CNY",
+    )
+
+    assert values[date(2026, 1, 1)]["net_worth"] == Decimal("0")
+    assert values[date(2026, 1, 31)]["net_worth"] == Decimal("0")
 
 
 def test_build_nav_weekly_payload_clamps_start_after_anchor():

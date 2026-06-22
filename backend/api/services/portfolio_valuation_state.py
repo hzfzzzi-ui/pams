@@ -27,6 +27,7 @@ from services.portfolio_state import (
     load_investment_positions,
 )
 from services.valuation_nav import current_nav_bucket_from_parts
+from services.valuation_nav import current_nav_account_values_from_parts
 
 
 STATE_TABLE = "pams_portfolio_valuation_state"
@@ -235,6 +236,10 @@ def build_portfolio_valuation_state_from_parts(
         account_balances=account_balances,
         investment_positions=investment_positions,
     )
+    account_values_cny = current_nav_account_values_from_parts(
+        account_balances=account_balances,
+        investment_positions=investment_positions,
+    )
 
     gross_exposure = Decimal("0")
     investment_value = Decimal("0")
@@ -291,6 +296,7 @@ def build_portfolio_valuation_state_from_parts(
             "liabilities": nav_bucket["liabilities"],
             "net_worth": nav_bucket["net_worth"],
         },
+        "account_values_cny": account_values_cny,
     }
     state = {
         "valuation_date": valuation_date,
@@ -441,7 +447,7 @@ def build_portfolio_valuation_state_payload(
     refresh: bool = False,
     conn_factory: Callable[[], Any] = get_conn,
 ) -> dict[str, Any]:
-    """Return the latest published valuation state, or a computed draft fallback."""
+    """Return the latest fresh published valuation state, or a computed read-only fallback."""
     base = str(base_currency or "CNY").upper()
     with conn_factory() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -450,11 +456,33 @@ def build_portfolio_valuation_state_payload(
                 row = publish_current_portfolio_valuation_state(cur, base_currency=base, cycle=cycle)
                 return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
 
+            state = _build_current_state(cur, base_currency=base, cycle=cycle, status="draft")
             row = latest_published_portfolio_valuation_state(cur, base_currency=base)
             if row:
-                return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
+                state_date = _date_key(state.get("valuation_date"))
+                published_date = published_valuation_date_key(row)
+                published_hash = row.get("source_hash")
+                current_hash = state.get("source_hash")
+                if (
+                    published_date
+                    and state_date
+                    and published_date >= state_date
+                    and published_hash == current_hash
+                ):
+                    return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
+                stale_meta = published_valuation_stale_meta(
+                    row,
+                    target_as_of=state.get("valuation_date"),
+                    reason="stale_or_changed_valuation_state",
+                )
+                return {
+                    "table_ready": table_ready,
+                    "source": "computed_current",
+                    "published_state": stale_meta,
+                    **_norm(state),
+                    "as_of": state["valuation_date"],
+                }
 
-            state = _build_current_state(cur, base_currency=base, cycle=cycle, status="draft")
             return {"table_ready": table_ready, "source": "computed_unpublished", **_norm(state), "as_of": state["valuation_date"]}
 
 
