@@ -578,7 +578,7 @@ def _pick_primary_balance(
             return platform_balance
         platform_as_of = str(platform_balance.get("as_of") or "")
         manual_as_of = str(manual_balance.get("as_of") or "")
-        if not manual_as_of or platform_as_of >= manual_as_of:
+        if not manual_as_of or platform_as_of > manual_as_of:
             return platform_balance
     if manual_balance:
         return manual_balance

@@ -391,16 +391,32 @@ def _apply_reported_account_performance(payload: dict[str, Any], account_code: s
         return payload
 
     out = dict(payload)
-    out["economic_total_pnl_cny"] = out.get("total_pnl_cny")
+    owner_ratio = _account_owner_ratio(account_code)
+    cash_balance_gross: Decimal | None = None
+    if cfg.get("cash_balance_gross") not in (None, ""):
+        cash_balance_gross = Decimal(str(cfg["cash_balance_gross"]))
+        position_gross = Decimal(str(out.get("position_market_value_gross_cny") or "0"))
+        expected_net_gross = position_gross + cash_balance_gross
+        current_net_gross = Decimal(str(out.get("net_liquidation_gross_cny") or "0"))
+        if expected_net_gross and abs(current_net_gross - expected_net_gross) > Decimal("0.005"):
+            out["net_liquidation_gross_cny"] = str(expected_net_gross)
+            out["net_liquidation_cny"] = str(expected_net_gross * owner_ratio)
+            out["cash_or_uninvested_cny"] = str(cash_balance_gross * owner_ratio)
+            out["net_liquidation_source"] = "reported_platform"
+    initial_personal = Decimal(str(out.get("initial_capital_cny") or "0"))
+    net_personal = Decimal(str(out.get("net_liquidation_cny") or "0"))
+    economic_total = net_personal - initial_personal if initial_personal else Decimal(str(out.get("total_pnl_cny") or "0"))
+    out["economic_total_pnl_cny"] = str(economic_total)
     out["total_pnl_cny"] = str(reported_total)
     holding_pnl = Decimal(str(out.get("holding_pnl_cny") or "0"))
     out["realized_pnl_cny"] = str(reported_total - holding_pnl)
+    out["return_ratio"] = str(reported_total / initial_personal) if initial_personal > 0 else out.get("return_ratio")
     out["return_basis"] = "reported_platform"
     out["reported_performance"] = {
         "as_of": str(cfg.get("as_of") or ""),
         "basis": cfg.get("basis"),
         "note": cfg.get("note"),
-        "cash_balance_gross": str(cfg.get("cash_balance_gross")) if cfg.get("cash_balance_gross") not in (None, "") else None,
+        "cash_balance_gross": str(cash_balance_gross) if cash_balance_gross is not None else None,
         "total_return_gross": str(cfg.get("total_return_gross")) if cfg.get("total_return_gross") not in (None, "") else None,
     }
     return out

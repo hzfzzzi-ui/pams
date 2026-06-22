@@ -209,3 +209,17 @@ def test_pick_primary_balance_prefers_latest_platform_snapshot_for_position_nav_
 
     assert balance is not None
     assert balance["amount"] == Decimal("27942.27")
+
+
+def test_pick_primary_balance_prefers_same_day_manual_total_assets_for_position_nav_account():
+    balance = _pick_primary_balance(
+        truth_source="platform_snapshot",
+        account_type="brokerage",
+        reconcile_method="position_nav",
+        statement_balance=None,
+        platform_balance={"amount": Decimal("242225.00"), "currency": "CNY", "as_of": "2026-06-21"},
+        manual_balance={"amount": Decimal("247519.60"), "currency": "CNY", "as_of": "2026-06-21"},
+    )
+
+    assert balance is not None
+    assert balance["amount"] == Decimal("247519.60")

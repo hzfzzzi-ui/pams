@@ -193,6 +193,50 @@ def test_build_account_performance_payload_uses_account_net_liquidation_when_ava
     assert payload["total_pnl_cny"] == "-9037.775"
 
 
+def test_reported_account_performance_overlay_adds_cash_and_updates_return_ratio(monkeypatch: pytest.MonkeyPatch):
+    import main as api_main
+
+    monkeypatch.setattr(
+        api_main,
+        "_reported_returns_cfg",
+        lambda: {
+            "account_performance": {
+                "tonghuashun": {
+                    "use_reported_anchor": True,
+                    "as_of": "2026-06-19",
+                    "total_return_gross": "-3143.33",
+                    "cash_balance_gross": "8471.36",
+                    "basis": "user confirmed",
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(api_main, "_account_owner_ratio", lambda account_code: Decimal("0.625"))
+
+    payload = {
+        "account_code": "tonghuashun",
+        "initial_capital_cny": "250000.000",
+        "net_liquidation_gross_cny": "387560.0000",
+        "net_liquidation_cny": "242225.0000000",
+        "net_liquidation_source": "current_snapshot",
+        "position_market_value_gross_cny": "387560.0000",
+        "position_market_value_cny": "242225.0000000",
+        "cash_or_uninvested_cny": "0",
+        "holding_pnl_cny": "-2362.6830625",
+        "total_pnl_cny": "-7775.0000000",
+        "return_ratio": "-0.0311",
+    }
+
+    out = api_main._apply_reported_account_performance(payload, "tonghuashun")
+
+    assert Decimal(out["net_liquidation_gross_cny"]) == Decimal("396031.3600")
+    assert Decimal(out["net_liquidation_cny"]) == Decimal("247519.600000")
+    assert Decimal(out["cash_or_uninvested_cny"]) == Decimal("5294.60000")
+    assert Decimal(out["economic_total_pnl_cny"]) == Decimal("-2480.400000")
+    assert out["total_pnl_cny"] == "-1964.58125"
+    assert Decimal(out["return_ratio"]).quantize(Decimal("0.000001")) == Decimal("-0.007858")
+
+
 def test_holdings_category_today_window_uses_holdings_daily_total(monkeypatch: pytest.MonkeyPatch):
     cur = FakeCursor(
         [
