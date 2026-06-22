@@ -11,6 +11,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.portfolio_equity_bridge import (  # noqa: E402
+    _attribution_pnl_basis,
     _bridge_cashflow_excluded_accounts,
     _cashflow_breakdown,
     _cashflow_breakdown_from_rows,
@@ -105,6 +106,8 @@ def test_nav_growth_explanation_keeps_additive_drivers_separate_from_attribution
         },
         period_investment_effect_cny=Decimal("132792.44"),
         attribution_pnl_cny=Decimal("106611.22"),
+        attribution_current_float_pnl_cny=Decimal("100000.00"),
+        attribution_closed_realized_pnl_cny=Decimal("6611.22"),
         bridge=bridge,
     )
 
@@ -115,9 +118,36 @@ def test_nav_growth_explanation_keeps_additive_drivers_separate_from_attribution
     assert explanation["drivers"][1]["amount_cny"] == Decimal("132792.44")
     assert explanation["drivers"][2]["key"] == "unexplained_residual"
     assert explanation["drivers"][2]["amount_cny"] == Decimal("0.00")
-    assert explanation["investment_breakdown"][0]["amount_cny"] == Decimal("106611.22")
-    assert explanation["investment_breakdown"][1]["amount_cny"] == Decimal("26181.22")
+    assert [item["key"] for item in explanation["investment_breakdown"]] == [
+        "period_investment_effect",
+        "attributed_investment_pnl",
+        "closed_realized_pnl",
+        "float_period_gap",
+    ]
+    assert explanation["investment_breakdown"][0]["amount_cny"] == Decimal("132792.44")
+    assert explanation["investment_breakdown"][1]["amount_cny"] == Decimal("106611.22")
+    assert explanation["investment_breakdown"][2]["amount_cny"] == Decimal("6611.22")
+    assert explanation["investment_breakdown"][3]["amount_cny"] == Decimal("-32792.44")
+    assert explanation["summary"]["cumulative_period_gap_cny"] == Decimal("-26181.22")
     assert any(item["key"] == "investment_realized_cash" and item["excluded_from_external_cashflow"] for item in explanation["cashflow_items"])
+
+
+def test_attribution_pnl_basis_splits_open_and_closed_rows() -> None:
+    current_float, closed = _attribution_pnl_basis(
+        {
+            "dimensions": {
+                "holding": [
+                    {"market_value_cny": Decimal("100"), "pnl_cny": Decimal("12")},
+                    {"market_value_cny": Decimal("0"), "pnl_cny": Decimal("3")},
+                    {"market_value_cny": Decimal("-0.00001"), "pnl_cny": Decimal("2")},
+                ]
+            }
+        },
+        Decimal("15"),
+    )
+
+    assert current_float == Decimal("12")
+    assert closed == Decimal("3")
 
 
 def test_cashflow_breakdown_excludes_linked_investment_cash_realization() -> None:
