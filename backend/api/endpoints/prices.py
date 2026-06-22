@@ -33,6 +33,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from services.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
+from services.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
 from services.price_history import (
     build_price_series_payload,
     ensure_price_history,
@@ -93,6 +94,18 @@ def _today_cst():
     return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
 
+def _price_refresh_as_of(category: str, price_basis: str = "close") -> date:
+    """Return the snapshot date for a price refresh.
+
+    Overseas daily PnL rolls at 07:00 Beijing time because US market refreshes
+    happen after local midnight. Writing US estimates/closes to the calendar
+    date before that cutoff makes the holdings page compare the wrong bucket.
+    """
+    if category == _OVERSEAS_MAJOR_CATEGORY:
+        return _daily_pnl_window_date()
+    return _today_cst()
+
+
 def _latest_investment_snapshot_as_of():
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -130,35 +143,70 @@ def _get_holdings_with_symbol(
             if exclude_minor_categories:
                 select_params.extend(exclude_minor_categories)
             if _use_latest_account_snapshot_bucket(category, exclude_minor_categories):
-                cur.execute(f"""
-                    WITH latest_bucket AS (
+                if category == _OVERSEAS_MAJOR_CATEGORY:
+                    bucket_expr = _overseas_market_bucket_case()
+                    h_bucket_expr = _overseas_market_bucket_case("h")
+                    cur.execute(f"""
+                        WITH latest_bucket AS (
+                            SELECT
+                                account_code,
+                                asset_liability,
+                                major_category,
+                                minor_category,
+                                {bucket_expr} AS market_bucket,
+                                MAX(as_of) AS as_of
+                            FROM pams_holdings_snapshot
+                            WHERE major_category = %s
+                              {excluded_sql}
+                            GROUP BY account_code, asset_liability, major_category, minor_category, {bucket_expr}
+                        )
                         SELECT
-                            account_code,
-                            asset_liability,
-                            major_category,
-                            minor_category,
-                            MAX(as_of) AS as_of
-                        FROM pams_holdings_snapshot
-                        WHERE major_category = %s
-                          {excluded_sql}
-                        GROUP BY account_code, asset_liability, major_category, minor_category
-                    )
-                    SELECT
-                        h.id, h.asset_id, h.symbol, h.name, h.asset_liability, h.currency, h.account_code,
-                        h.major_category, h.minor_category, h.market_value, h.cost, h.as_of,
-                        h.quantity, h.buy_price, h.current_price
-                    FROM pams_holdings_snapshot h
-                    JOIN latest_bucket lb
-                      ON lb.account_code = h.account_code
-                     AND lb.asset_liability = h.asset_liability
-                     AND lb.major_category = h.major_category
-                     AND lb.minor_category = h.minor_category
-                     AND lb.as_of = h.as_of
-                    WHERE h.major_category = %s
-                      AND h.symbol IS NOT NULL AND h.symbol != ''
-                      AND h.quantity IS NOT NULL AND h.quantity > 0
-                      {excluded_sql_h}
-                """, [*cte_params, *select_params])
+                            h.id, h.asset_id, h.symbol, h.name, h.asset_liability, h.currency, h.account_code,
+                            h.major_category, h.minor_category, h.market_value, h.cost, h.as_of,
+                            h.quantity, h.buy_price, h.current_price
+                        FROM pams_holdings_snapshot h
+                        JOIN latest_bucket lb
+                          ON lb.account_code = h.account_code
+                         AND lb.asset_liability = h.asset_liability
+                         AND lb.major_category = h.major_category
+                         AND lb.minor_category = h.minor_category
+                         AND lb.market_bucket = {h_bucket_expr}
+                         AND lb.as_of = h.as_of
+                        WHERE h.major_category = %s
+                          AND h.symbol IS NOT NULL AND h.symbol != ''
+                          AND h.quantity IS NOT NULL AND h.quantity > 0
+                          {excluded_sql_h}
+                    """, [*cte_params, *select_params])
+                else:
+                    cur.execute(f"""
+                        WITH latest_bucket AS (
+                            SELECT
+                                account_code,
+                                asset_liability,
+                                major_category,
+                                minor_category,
+                                MAX(as_of) AS as_of
+                            FROM pams_holdings_snapshot
+                            WHERE major_category = %s
+                              {excluded_sql}
+                            GROUP BY account_code, asset_liability, major_category, minor_category
+                        )
+                        SELECT
+                            h.id, h.asset_id, h.symbol, h.name, h.asset_liability, h.currency, h.account_code,
+                            h.major_category, h.minor_category, h.market_value, h.cost, h.as_of,
+                            h.quantity, h.buy_price, h.current_price
+                        FROM pams_holdings_snapshot h
+                        JOIN latest_bucket lb
+                          ON lb.account_code = h.account_code
+                         AND lb.asset_liability = h.asset_liability
+                         AND lb.major_category = h.major_category
+                         AND lb.minor_category = h.minor_category
+                         AND lb.as_of = h.as_of
+                        WHERE h.major_category = %s
+                          AND h.symbol IS NOT NULL AND h.symbol != ''
+                          AND h.quantity IS NOT NULL AND h.quantity > 0
+                          {excluded_sql_h}
+                    """, [*cte_params, *select_params])
             else:
                 cur.execute(f"""
                     WITH latest_position AS (
@@ -213,6 +261,21 @@ def _overseas_market_bucket(row: dict) -> str:
     if currency == "USD":
         return "us"
     return "other"
+
+
+def _overseas_market_bucket_case(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    symbol = f"UPPER(COALESCE({prefix}symbol, ''))"
+    currency = f"UPPER(COALESCE({prefix}currency, ''))"
+    return f"""
+        CASE
+            WHEN {currency} = 'KRW' OR {symbol} LIKE '%%.KS' OR {symbol} LIKE '%%.KQ' THEN 'kr'
+            WHEN {currency} = 'HKD' OR {symbol} LIKE '%%.HK'
+              OR ({symbol} ~ '^[0-9]{{1,5}}$') THEN 'hk'
+            WHEN {currency} = 'USD' THEN 'us'
+            ELSE 'other'
+        END
+    """
 
 
 def _normalize_overseas_market_filter(market: Optional[str]) -> Tuple[str, ...]:
@@ -755,6 +818,17 @@ def _filter_us_estimate_prices_for_holdings(
         if not _is_ibkr_account(row.get("account_code")):
             continue
         if _is_ibkr_estimate_source(symbol):
+            corrected = _correct_ibkr_estimate_scale(
+                symbol=symbol,
+                price=filtered[price_key],
+                reference_price=row.get("current_price"),
+            )
+            if corrected is not None and corrected != filtered[price_key]:
+                filtered[price_key] = corrected
+                if symbol in filtered:
+                    filtered[symbol] = corrected
+                if symbol.upper() in filtered:
+                    filtered[symbol.upper()] = corrected
             continue
         meta = _US_ESTIMATE_QUOTE_CACHE.get(symbol.upper()) or {}
         filtered.pop(price_key, None)
@@ -770,6 +844,49 @@ def _filter_us_estimate_prices_for_holdings(
             }
         )
     return filtered, skipped
+
+
+def _correct_ibkr_estimate_scale(
+    *,
+    symbol: str,
+    price: Any,
+    reference_price: Any,
+) -> float | None:
+    """Correct obvious IBKR fixed-point quote scale drift.
+
+    If a quote arrives one or two decimal places away from the latest holding
+    price, use the holding price as a sanity anchor and only correct when a
+    decimal shift brings the quote back into a plausible range.
+    """
+    try:
+        value = float(price)
+        reference = float(reference_price)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0 or reference <= 0:
+        return None
+
+    def plausible(candidate: float) -> bool:
+        ratio = candidate / reference
+        return 0.35 <= ratio <= 2.75
+
+    if plausible(value):
+        return value
+
+    candidates = [value / 10, value / 100, value * 10, value * 100]
+    for candidate in candidates:
+        if candidate > 0 and plausible(candidate):
+            fixed = round(candidate, 4)
+            meta = _US_ESTIMATE_QUOTE_CACHE.setdefault(str(symbol or "").strip().upper(), {})
+            meta["price"] = fixed
+            meta["scale_correction"] = {
+                "original_price": value,
+                "corrected_price": fixed,
+                "reference_price": reference,
+                "method": "latest_holding_price_sanity",
+            }
+            return fixed
+    return value
 
 
 def _latest_stored_yfinance_prices(
@@ -1989,7 +2106,7 @@ def _refresh_category(
             "errors": [],
         }
 
-    target_as_of = _today_cst()
+    target_as_of = _price_refresh_as_of(category, price_basis)
     if category == _A_STOCK_MAJOR_CATEGORY and _A_STOCK_FUND_MINOR_CATEGORY in set(exclude_minor_categories):
         holdings = _apply_same_day_a_stock_trades(holdings, target_as_of)
     same_day_trade_adjusted = sum(1 for h in holdings if h.get("same_day_trade_adjusted"))

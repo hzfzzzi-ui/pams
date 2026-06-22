@@ -534,6 +534,71 @@ def test_ibkr_estimate_filter_rejects_yahoo_fallback_for_ibkr_holdings():
     ]
 
 
+def test_ibkr_estimate_filter_keeps_plausible_project_price_scale():
+    prices._US_ESTIMATE_QUOTE_CACHE.clear()
+    prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
+        "source": "ibkr_tws_estimate",
+        "provider": "ibkr_tws",
+        "confidence": "high",
+    }
+
+    filtered, skipped = prices._filter_us_estimate_prices_for_holdings(
+        [
+            {
+                "symbol": "MU",
+                "name": "Micron",
+                "account_code": "ibkr",
+                "current_price": Decimal("1133.99"),
+            }
+        ],
+        {"MU": 1170.16},
+    )
+
+    assert skipped == []
+    assert filtered == {"MU": 1170.16}
+    assert "scale_correction" not in prices._US_ESTIMATE_QUOTE_CACHE["MU"]
+
+
+def test_overseas_price_refresh_uses_daily_pnl_window_date(monkeypatch):
+    monkeypatch.setattr(prices, "_daily_pnl_window_date", lambda: date(2026, 6, 22))
+    monkeypatch.setattr(prices, "_today_cst", lambda: date(2026, 6, 23))
+
+    assert prices._price_refresh_as_of("美股", "estimate") == date(2026, 6, 22)
+    assert prices._price_refresh_as_of("A股", "close") == date(2026, 6, 23)
+
+
+def test_overseas_refresh_query_groups_latest_snapshot_by_market_bucket(monkeypatch):
+    executed: list[str] = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            executed.append(query)
+
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self, cursor_factory=None):
+            return FakeCursor()
+
+    monkeypatch.setattr(prices, "_get_conn", lambda: FakeConn())
+
+    assert prices._get_holdings_with_symbol("美股", market_buckets=("us",)) == []
+    assert "market_bucket" in executed[0]
+
+
 def test_ibkr_tws_ports_default_includes_gateway_local_port(monkeypatch):
     monkeypatch.delenv("PAMS_IBKR_TWS_PORTS", raising=False)
     monkeypatch.delenv("IBKR_TWS_PORTS", raising=False)
