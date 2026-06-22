@@ -708,7 +708,10 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260622-fund-pnl-v1" in html
+    assert "assets/js/holdings.js?v=20260622-fund-return-status-v1" in html
+    assert "holdingDailyStatusBadge" in holding_rows_js
+    assert "今日收益已确认" in holding_rows_js
+    assert "预估收益" in holding_rows_js
     assert "assets/js/holdings_categories.js?v=20260622-astock-daily-summary-v1" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html

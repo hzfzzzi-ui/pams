@@ -14,6 +14,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from endpoints import prices  # noqa: E402
+from services.fund_nav_estimates import should_copy_confirmed_nav_to_current_snapshot  # noqa: E402
 
 
 class DummyConn:
@@ -26,6 +27,11 @@ class DummyConn:
 
 def _payload(response):
     return json.loads(response.body.decode("utf-8"))
+
+
+def test_stale_confirmed_nav_is_not_copied_to_current_snapshot() -> None:
+    assert should_copy_confirmed_nav_to_current_snapshot(date(2026, 6, 22), date(2026, 6, 22))
+    assert not should_copy_confirmed_nav_to_current_snapshot(date(2026, 6, 18), date(2026, 6, 22))
 
 
 def test_a_stock_same_day_rollforward_applies_buy_once():

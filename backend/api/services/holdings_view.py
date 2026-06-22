@@ -50,6 +50,48 @@ account_snapshot_stats AS (
 )
 """
 
+FUND_NAV_STATUS_COLUMNS = """
+                   fund_nav_status.daily_pnl_status,
+                   fund_nav_status.daily_pnl_status_label,
+                   fund_nav_status.fund_nav_confirmed_date,
+                   fund_nav_status.fund_nav_confirmed_unit_nav,
+                   fund_nav_status.fund_nav_estimate_time,
+                   fund_nav_status.fund_nav_estimated_unit_nav,
+                   fund_nav_status.fund_nav_raw_status
+"""
+
+FUND_NAV_STATUS_JOIN = """
+            LEFT JOIN LATERAL (
+                SELECT
+                    CASE
+                        WHEN e.estimated_unit_nav IS NOT NULL THEN 'estimated'
+                        WHEN e.confirmed_unit_nav IS NOT NULL THEN 'confirmed'
+                        ELSE NULL
+                    END AS daily_pnl_status,
+                    CASE
+                        WHEN e.estimated_unit_nav IS NOT NULL THEN '预估收益'
+                        WHEN e.confirmed_unit_nav IS NOT NULL THEN '今日收益已确认'
+                        ELSE NULL
+                    END AS daily_pnl_status_label,
+                    e.confirmed_nav_date AS fund_nav_confirmed_date,
+                    e.confirmed_unit_nav AS fund_nav_confirmed_unit_nav,
+                    e.estimate_time AS fund_nav_estimate_time,
+                    e.estimated_unit_nav AS fund_nav_estimated_unit_nav,
+                    e.status AS fund_nav_raw_status
+                FROM pams_fund_nav_estimates e
+                WHERE h.major_category = 'A股'
+                  AND h.minor_category LIKE '%%基金%%'
+                  AND e.as_of = h.as_of
+                  AND e.account_code = h.account_code
+                  AND (
+                      e.symbol = LPAD(COALESCE(NULLIF(h.symbol, ''), e.symbol), 6, '0')
+                      OR e.name = h.name
+                  )
+                ORDER BY e.updated_at DESC
+                LIMIT 1
+            ) fund_nav_status ON TRUE
+"""
+
 
 def latest_complete_snapshot_date(cur, *, view_as_of: Any, categories: list[str] | None = None) -> Any | None:
     """Return the latest date that is not dominated by partial account snapshots."""
@@ -490,9 +532,11 @@ def build_holdings_by_category_payload(
                         AND prev_snap.current_price IS NOT NULL
                        THEN h.current_price - prev_snap.current_price
                        ELSE NULL
-                   END AS price_change_amount
+                   END AS price_change_amount,
+                   {FUND_NAV_STATUS_COLUMNS}
             FROM h
             LEFT JOIN fx ON fx.quote_currency = h.currency
+            {FUND_NAV_STATUS_JOIN}
             LEFT JOIN LATERAL (
                 SELECT hs.current_price, hs.as_of
                 FROM pams_holdings_snapshot hs
@@ -625,9 +669,11 @@ def build_holdings_by_category_payload(
                         AND eff.previous_price IS NOT NULL
                        THEN eff.current_price - eff.previous_price
                        ELSE NULL
-                   END AS price_change_amount
+                   END AS price_change_amount,
+                   {FUND_NAV_STATUS_COLUMNS}
             FROM h
             LEFT JOIN fx ON fx.quote_currency = h.currency
+            {FUND_NAV_STATUS_JOIN}
             LEFT JOIN LATERAL (
                 SELECT hs.current_price, hs.as_of
                 FROM pams_holdings_snapshot hs
@@ -1297,9 +1343,11 @@ def build_holdings_latest_payload(
                  AND eff.previous_price IS NOT NULL
                 THEN eff.current_price - eff.previous_price
                 ELSE NULL
-            END AS price_change_amount
+            END AS price_change_amount,
+            {FUND_NAV_STATUS_COLUMNS}
         FROM h
         LEFT JOIN fx ON fx.quote_currency = h.currency
+        {FUND_NAV_STATUS_JOIN}
         LEFT JOIN LATERAL (
             SELECT hs.current_price, hs.as_of
             FROM pams_holdings_snapshot hs

@@ -184,6 +184,10 @@ def test_build_holdings_latest_payload_uses_latest_close_for_estimate_baseline()
     assert "h.current_price IS DISTINCT FROM curr_overseas_px.close" in query
     assert "THEN curr_overseas_px.close" in query
     assert "prev_basis.previous_price AS previous_price" in query
+    assert "pams_fund_nav_estimates" in query
+    assert "LIKE '%%" in query
+    assert "daily_pnl_status" in query
+    assert "fund_nav_estimated_unit_nav" in query
 
 
 def test_build_holdings_latest_payload_includes_closed_rows_when_requested():
