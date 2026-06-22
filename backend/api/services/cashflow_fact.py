@@ -293,6 +293,12 @@ def fetch_cashflow_source_rows(cur, *, limit: int | None = None, base_currency: 
                 WHERE f.source_table = %(source_table)s
                   AND f.source_id = r.id::text
             )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM pams_cashflow_fact f
+                WHERE f.source_table = %(source_table)s
+                  AND f.source_uid = r.source_uid
+            )
             ORDER BY r.transaction_date, r.id
             {limit_sql}
         )

@@ -11,7 +11,7 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services.cashflow_fact import build_cashflow_fact, insert_cashflow_facts  # noqa: E402
+from services.cashflow_fact import build_cashflow_fact, fetch_cashflow_source_rows, insert_cashflow_facts  # noqa: E402
 
 
 class FakeInsertCursor:
@@ -31,6 +31,18 @@ class FakeInsertCursor:
         self.source_hashes.add(source_hash)
         self.source_keys.add(source_key)
         self.rowcount = 1
+
+
+class FakeFetchCursor:
+    def __init__(self) -> None:
+        self.last_sql = ""
+        self.fetchall_rows: list[dict] = []
+
+    def execute(self, sql: str, params=None) -> None:
+        self.last_sql = sql
+
+    def fetchall(self):
+        return self.fetchall_rows
 
 
 def _statement_row(**overrides):
@@ -72,6 +84,13 @@ def test_credit_card_repayment_is_not_spending() -> None:
     assert fact["affects_spending"] is False
     assert fact["affects_nav"] is False
     assert fact["counter_account_code"] == "credit_card"
+
+
+def test_cashflow_source_rows_skip_reimported_source_uid() -> None:
+    cur = FakeFetchCursor()
+
+    assert fetch_cashflow_source_rows(cur) == []
+    assert "f.source_uid = r.source_uid" in cur.last_sql
 
 
 def test_investment_funding_is_not_operating_expense() -> None:
