@@ -528,9 +528,7 @@ function makeMobileHeroProfiles({
   const ibkrTotalPnl = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalPnl))
     ? safeNum(ibkrSummary.totalPnl)
     : safeNum(usProfileCategory.totalPnl);
-  const ibkrTotalRate = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalReturnRate))
-    ? safeNum(ibkrSummary.totalReturnRate)
-    : safeNum(usProfileCategory.totalReturnRate);
+  const ibkrTotalRate = safeNum(usProfileCategory.holdingReturnRate ?? usProfileCategory.totalReturnRate);
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
@@ -568,7 +566,7 @@ function makeMobileHeroProfiles({
       dailyRate: pctFromAmount(aStockDailyPnl, Math.max(aStockMarket - aStockDailyPnl, 1)),
       totalLabel: '总盈亏',
       totalPnl: safeNum(aStockSummary.totalPnl),
-      totalRate: safeNum(aStockSummary.totalReturnRate || categoryByLabel(categories, 'A股个股').totalReturnRate),
+      totalRate: safeNum(aStockSummary.holdingReturnRate ?? categoryByLabel(categories, 'A股个股').holdingReturnRate),
       share: aStockValue / portfolioValue,
       miniMetrics: [
         { label: '总市值', value: formatOptionalMoney(aStockMarket) },
@@ -585,7 +583,7 @@ function makeMobileHeroProfiles({
       dailyPnl: categoryByLabel(categories, '基金').dailyPnl,
       totalLabel: '总盈亏',
       totalPnl: safeNum(fundSummary.totalPnl),
-      totalRate: safeNum(fundSummary.totalReturnRate || categoryByLabel(categories, '基金').totalReturnRate),
+      totalRate: safeNum(fundSummary.holdingReturnRate ?? categoryByLabel(categories, '基金').holdingReturnRate),
       share: fundNlv / portfolioValue,
     },
     '美股/海外': {
@@ -614,7 +612,7 @@ function makeMobileHeroProfiles({
       dailyPnl: categoryByLabel(categories, '贵金属').dailyPnl,
       totalLabel: '总盈亏',
       totalPnl: safeNum(preciousSummary.totalPnl),
-      totalRate: safeNum(preciousSummary.totalReturnRate || categoryByLabel(categories, '贵金属').totalReturnRate),
+      totalRate: safeNum(preciousSummary.holdingReturnRate ?? categoryByLabel(categories, '贵金属').holdingReturnRate),
       share: safeNum(preciousSummary.totalValue) / portfolioValue,
     },
     '内部股份/分红': {
@@ -624,10 +622,10 @@ function makeMobileHeroProfiles({
       value: safeNum(esopSummary.totalValue),
       dailyLabel: '当年盈亏',
       dailyPnl: safeNum(esopSummary.totalPnl),
-      dailyRate: safeNum(esopSummary.totalReturnRate || categoryByLabel(categories, '内部股份/分红').totalReturnRate),
+      dailyRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
       totalLabel: '总盈亏',
       totalPnl: safeNum(esopSummary.totalPnl),
-      totalRate: safeNum(esopSummary.totalReturnRate || categoryByLabel(categories, '内部股份/分红').totalReturnRate),
+      totalRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
       share: safeNum(esopSummary.totalValue) / portfolioValue,
     },
     '现金/活期': {
@@ -1183,18 +1181,15 @@ function renderIbkrPerformance(perf, positionAsOf = null) {
   setKpiLabel('totalValueUSStock', '账户净值');
   setKpiLabel('totalPnlUSStock', '账户收益');
   setKpiLabel('countKpiUSStock', '杠杆比例');
-  setKpiLabel('holdingPnlUSStock', '收益率');
+  setKpiLabel('holdingPnlUSStock', '持仓收益率');
 
   const totalPnl = safeNum(perf.total_pnl_base);
   const totalPnlEl = document.getElementById('totalPnlUSStock');
-  const returnEl = document.getElementById('holdingPnlUSStock');
 
   document.getElementById('totalValueUSStock').textContent = fmtUsd(perf.net_liquidation_base);
   totalPnlEl.textContent = fmtSignedUsd(totalPnl);
   totalPnlEl.style.color = totalPnl >= 0 ? 'var(--good)' : 'var(--bad)';
   document.getElementById('countKpiUSStock').textContent = fmtPctValue(perf.leverage_ratio);
-  returnEl.textContent = (safeNum(perf.return_ratio) >= 0 ? '+' : '') + fmtPctValue(perf.return_ratio);
-  returnEl.style.color = safeNum(perf.return_ratio) >= 0 ? 'var(--good)' : 'var(--bad)';
 
   return summary;
 }
@@ -1205,10 +1200,9 @@ function renderAStockOwnerPerformance(perf) {
   setKpiLabel('totalValueAStockEquity', '个人净值');
   setKpiLabel('totalPnlAStockEquity', '账户收益');
   setKpiLabel('countKpiAStockEquity', '持股比例');
-  setKpiLabel('holdingPnlAStockEquity', '收益率');
+  setKpiLabel('holdingPnlAStockEquity', '持仓收益率');
 
   const totalPnl = safeNum(perf.total_pnl_cny);
-  const returnRatio = safeNum(perf.return_ratio);
   const dailyPnlEffective = perf.daily_pnl_effective !== false;
   const dailyPnl = dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))
     ? safeNum(perf.daily_pnl_cny)
@@ -1216,7 +1210,6 @@ function renderAStockOwnerPerformance(perf) {
 
   const totalPnlEl = document.getElementById('totalPnlAStockEquity');
   const dailyPnlEl = document.getElementById('dailyPnlAStockEquity');
-  const returnEl = document.getElementById('holdingPnlAStockEquity');
 
   document.getElementById('totalValueAStockEquity').textContent = fmtCny(perf.net_liquidation_cny);
   totalPnlEl.textContent = fmtSignedCny(totalPnl);
@@ -1226,15 +1219,13 @@ function renderAStockOwnerPerformance(perf) {
     dailyPnlEl.style.color = dailyPnl >= 0 ? 'var(--good)' : 'var(--bad)';
   }
   document.getElementById('countKpiAStockEquity').textContent = fmtPctValue(perf.owner_ratio);
-  returnEl.textContent = (returnRatio >= 0 ? '+' : '') + fmtPctValue(returnRatio);
-  returnEl.style.color = returnRatio >= 0 ? 'var(--good)' : 'var(--bad)';
 
   return {
     totalValue: safeNum(perf.net_liquidation_cny),
     totalPnl,
     dailyPnl,
     dailyPnlEffective,
-    totalReturnRate: returnRatio,
+    accountReturnRate: safeNum(perf.return_ratio),
   };
 }
 
@@ -1291,6 +1282,8 @@ function renderSection(rows, renderRowFn, tbodyId, countId, totalValueId, totalP
   let fxDailyPnl = 0;
   let dailyTotalPnl = 0;
   let totalCost = 0;
+  let activeHoldingPnl = 0;
+  let activeTotalCost = 0;
 
   for(const r of rows){
     const tr=document.createElement('tr');
@@ -1307,7 +1300,12 @@ function renderSection(rows, renderRowFn, tbodyId, countId, totalValueId, totalP
     dailyPnl += rowDailyPnl;
     fxDailyPnl += rowFxDailyPnl;
     dailyTotalPnl += rowDailyTotalPnl;
-    totalCost += safeNum(cnyValue(r, 'cost'));
+    const rowCost = safeNum(cnyValue(r, 'cost'));
+    totalCost += rowCost;
+    if (!r.is_closed) {
+      activeHoldingPnl += safeNum(cnyValue(r, 'holding_pnl'));
+      activeTotalCost += rowCost;
+    }
   }
 
   document.getElementById(countId).textContent = rows.length;
@@ -1324,14 +1322,24 @@ function renderSection(rows, renderRowFn, tbodyId, countId, totalValueId, totalP
   setKpiFxNote(dailyPnlId, fxDailyPnl);
 
   if (holdingPnlId) {
+    setKpiLabel(holdingPnlId, '持仓收益率');
     const hpElem = document.getElementById(holdingPnlId);
-    const sectionCost = totalCost > 0 ? totalCost : totalValue - totalPnl;
-    const sectionPct = sectionCost > 0 ? (totalPnl / sectionCost * 100) : 0;
+    const sectionPct = activeTotalCost > 0 ? (activeHoldingPnl / activeTotalCost * 100) : 0;
     hpElem.textContent = (sectionPct >= 0 ? '+' : '') + sectionPct.toFixed(2) + '%';
     hpElem.style.color = sectionPct >= 0 ? 'var(--good)' : 'var(--bad)';
   }
 
-  return { totalValue, totalPnl, dailyPnl, fxDailyPnl, dailyTotalPnl, totalCost };
+  return {
+    totalValue,
+    totalPnl,
+    dailyPnl,
+    fxDailyPnl,
+    dailyTotalPnl,
+    totalCost,
+    activeHoldingPnl,
+    activeTotalCost,
+    holdingReturnRate: activeTotalCost > 0 ? activeHoldingPnl / activeTotalCost : 0,
+  };
 }
 
 function summarizeRows(rows) {
@@ -1340,14 +1348,31 @@ function summarizeRows(rows) {
   let dailyPnl = 0;
   let fxDailyPnl = 0;
   let totalCost = 0;
+  let activeHoldingPnl = 0;
+  let activeTotalCost = 0;
   for (const r of rows) {
     totalValue += safeNum(cnyValue(r, 'market_value'));
     totalPnl += safeNum(cnyValue(r, 'holding_pnl'));
     dailyPnl += safeNum(cnyValue(r, 'daily_pnl'));
     fxDailyPnl += safeNum(cnyValue(r, 'daily_fx_pnl'));
-    totalCost += safeNum(cnyValue(r, 'cost'));
+    const rowCost = safeNum(cnyValue(r, 'cost'));
+    totalCost += rowCost;
+    if (!r.is_closed) {
+      activeHoldingPnl += safeNum(cnyValue(r, 'holding_pnl'));
+      activeTotalCost += rowCost;
+    }
   }
-  return { totalValue, totalPnl, dailyPnl, fxDailyPnl, dailyTotalPnl: dailyPnl + fxDailyPnl, totalCost };
+  return {
+    totalValue,
+    totalPnl,
+    dailyPnl,
+    fxDailyPnl,
+    dailyTotalPnl: dailyPnl + fxDailyPnl,
+    totalCost,
+    activeHoldingPnl,
+    activeTotalCost,
+    holdingReturnRate: activeTotalCost > 0 ? activeHoldingPnl / activeTotalCost : 0,
+  };
 }
 
 function writeSectionFinancials(summary, totalValueId, totalPnlId, dailyPnlId, holdingPnlId) {
@@ -1363,12 +1388,14 @@ function writeSectionFinancials(summary, totalValueId, totalPnlId, dailyPnlId, h
   dailyElem.style.color = dailyPnl >= 0 ? 'var(--good)' : 'var(--bad)';
 
   if (holdingPnlId) {
+    setKpiLabel(holdingPnlId, '持仓收益率');
     const hpElem = document.getElementById(holdingPnlId);
-    const explicitRate = Number(summary.totalReturnRate);
-    const sectionCost = totalCost > 0 ? totalCost : totalValue - totalPnl;
+    const explicitRate = Number(summary.holdingReturnRate ?? summary.totalReturnRate);
+    const sectionCost = safeNum(summary.activeTotalCost) > 0 ? safeNum(summary.activeTotalCost) : totalCost;
+    const sectionPnl = summary.activeHoldingPnl != null ? safeNum(summary.activeHoldingPnl) : totalPnl;
     const sectionPct = Number.isFinite(explicitRate)
       ? explicitRate * 100
-      : (sectionCost > 0 ? (totalPnl / sectionCost * 100) : 0);
+      : (sectionCost > 0 ? (sectionPnl / sectionCost * 100) : 0);
     hpElem.textContent = (sectionPct >= 0 ? '+' : '') + sectionPct.toFixed(2) + '%';
     hpElem.style.color = sectionPct >= 0 ? 'var(--good)' : 'var(--bad)';
   }
@@ -1380,6 +1407,13 @@ function returnRateFromCapitalBase(summary, capitalBaseSummary = summary) {
   const impliedCapital = safeNum(capitalBaseSummary?.totalValue) - safeNum(capitalBaseSummary?.totalPnl);
   const denominator = capitalCost > 0 ? capitalCost : Math.max(impliedCapital, 0);
   return denominator > 0 ? totalPnl / denominator : 0;
+}
+
+function holdingReturnRateFromSummary(summary) {
+  if (Number.isFinite(Number(summary?.holdingReturnRate))) return safeNum(summary.holdingReturnRate);
+  const activeCost = safeNum(summary?.activeTotalCost);
+  if (activeCost > 0) return safeNum(summary?.activeHoldingPnl) / activeCost;
+  return returnRateFromCapitalBase(summary);
 }
 
 const RETURN_WINDOW_STORAGE_KEY = 'pams.investmentReturn.window';
@@ -2315,7 +2349,7 @@ function applySectionReturnMetrics(resp, ids, options = {}) {
 
   setKpiLabel(ids.totalPnlId, '总收益');
   setKpiLabel(ids.dailyPnlId, '今日收益');
-  setKpiLabel(ids.returnId, '总收益率');
+  setKpiLabel(ids.returnId, '持仓收益率');
 
   const totalEl = document.getElementById(ids.totalPnlId);
   const todayEl = document.getElementById(ids.dailyPnlId);
@@ -2359,7 +2393,7 @@ function applyStaticReturnMetrics(summary, ids, options = {}) {
 
   setKpiLabel(ids.totalPnlId, '总收益');
   setKpiLabel(ids.dailyPnlId, '今日收益');
-  setKpiLabel(ids.returnId, '总收益率');
+  setKpiLabel(ids.returnId, '持仓收益率');
 
   const totalEl = document.getElementById(ids.totalPnlId);
   const todayEl = document.getElementById(ids.dailyPnlId);
@@ -2452,6 +2486,7 @@ function categoryMetric(label, base, sectionPayload) {
   const explicitTotalReturnRate = Number.isFinite(Number(base.totalReturnRate))
     ? safeNum(base.totalReturnRate)
     : null;
+  const holdingReturnRate = holdingReturnRateFromSummary(base);
   // IBKR return-series reconstructs long-term return from trades and position
   // history. Around same-day sells it can move cash between position/cash
   // buckets, so US "today" must stay on the holdings/account daily PnL basis.
@@ -2469,7 +2504,9 @@ function categoryMetric(label, base, sectionPayload) {
     fxDailyPnl,
     dailyTotalPnl: dailyPnl,
     totalCost,
-    totalReturnRate: override ? override.totalReturnRate : (explicitTotalReturnRate ?? (totalCost > 0 ? totalPnl / totalCost : 0)),
+    totalReturnRate: Number.isFinite(Number(holdingReturnRate))
+      ? holdingReturnRate
+      : (explicitTotalReturnRate ?? (totalCost > 0 ? totalPnl / totalCost : 0)),
     annualizedReturnRate: override ? override.annualizedReturnRate : null,
   };
 }
@@ -3018,11 +3055,11 @@ async function main(){
       return Math.abs(safeNum(cnyValue(row, 'daily_pnl'))) > 0.005;
     });
     const fundRows = withReportedPnlRows(aFund.rows || [], fundReport);
-    const fundActiveRows = fundRows.filter((row) => !row.is_closed);
     const fundSummaryRows = withReportedPnlRows(aFundAll.rows || aFund.rows || [], fundReport);
     const esopRows = withEsopDisplayRows(esop.rows || []);
 
     const aStockRowsSummary = renderSection(aStockEquityRows, renderRowStock, 'rowsAStockEquity', 'countAStockEquity', 'totalValueAStockEquity', 'totalPnlAStockEquity', 'dailyPnlAStockEquity', 'countKpiAStockEquity', 'holdingPnlAStockEquity', fxRates);
+    const aStockHoldingRateSummary = summarizeRows((aStockEquity.rows || []).filter((row) => !row.is_closed));
     const aStockAccountSummary = renderAStockOwnerPerformance(aStockPerf);
     const aStockSummary = aStockAccountSummary
       ? {
@@ -3036,23 +3073,59 @@ async function main(){
         dailyTotalPnl: Number.isFinite(Number(aStockAccountSummary.dailyPnl))
           ? aStockAccountSummary.dailyPnl
           : aStockRowsSummary.dailyTotalPnl,
+        holdingReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
+        activeHoldingPnl: aStockHoldingRateSummary.activeHoldingPnl,
+        activeTotalCost: aStockHoldingRateSummary.activeTotalCost,
         positionValue: aStockRowsSummary.totalValue,
         cashValue: Math.max(safeNum(aStockAccountSummary.totalValue) - safeNum(aStockRowsSummary.totalValue), 0),
       }
-      : aStockRowsSummary;
+      : {
+        ...aStockRowsSummary,
+        holdingReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
+        activeHoldingPnl: aStockHoldingRateSummary.activeHoldingPnl,
+        activeTotalCost: aStockHoldingRateSummary.activeTotalCost,
+      };
     const fundDisplaySummary = renderSection(fundRows, renderRowStock, 'rowsAFund', 'countAFund', 'totalValueAFund', 'totalPnlAFund', 'dailyPnlAFund', 'countKpiAFund', 'holdingPnlAFund', fxRates);
-    const fundActiveSummary = summarizeRows(fundActiveRows);
     const fundSummaryBase = applyReportedReturnTotal(summarizeRows(fundSummaryRows), fundSummaryRows, fundReport);
     const fundSummary = {
       ...fundSummaryBase,
-      totalReturnRate: returnRateFromCapitalBase(fundSummaryBase, fundActiveSummary),
+      holdingReturnRate: holdingReturnRateFromSummary(fundDisplaySummary),
+      totalReturnRate: holdingReturnRateFromSummary(fundDisplaySummary),
+      activeHoldingPnl: fundDisplaySummary.activeHoldingPnl,
+      activeTotalCost: fundDisplaySummary.activeTotalCost,
     };
     setKpiLabel('totalPnlAFund', '投资收益');
     writeSectionFinancials({ ...fundSummary, totalValue: fundDisplaySummary.totalValue }, 'totalValueAFund', 'totalPnlAFund', 'dailyPnlAFund', 'holdingPnlAFund');
-    const usSummary = renderSection(usStock.rows || [], renderRowStock, 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock', 'holdingPnlUSStock', fxRates);
+    const usRows = usStock.rows || [];
+    const usDisplaySummary = renderSection(usRows, renderRowStock, 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock', 'holdingPnlUSStock', fxRates);
+    const usHoldingRateSummary = summarizeRows(usRows.filter((row) => !row.is_closed));
+    const usSummary = {
+      ...usDisplaySummary,
+      holdingReturnRate: holdingReturnRateFromSummary(usHoldingRateSummary),
+      totalReturnRate: holdingReturnRateFromSummary(usHoldingRateSummary),
+      activeHoldingPnl: usHoldingRateSummary.activeHoldingPnl,
+      activeTotalCost: usHoldingRateSummary.activeTotalCost,
+    };
     const ibkrSummary = renderIbkrPerformance(ibkrPerf, usStock.as_of);
-    const preciousSummary = renderSection(preciousMetal.rows || [], renderRowFundLike, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates);
-    const esopSummary = renderSection(esopRows, renderRowFundLike, 'rowsESOP', 'countESOP', 'totalValueESOP', 'totalPnlESOP', 'dailyPnlESOP', 'countKpiESOP', 'holdingPnlESOP', fxRates);
+    const preciousRows = preciousMetal.rows || [];
+    const preciousDisplaySummary = renderSection(preciousRows, renderRowFundLike, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates);
+    const preciousHoldingRateSummary = summarizeRows(preciousRows.filter((row) => !row.is_closed));
+    const preciousSummary = {
+      ...preciousDisplaySummary,
+      holdingReturnRate: holdingReturnRateFromSummary(preciousHoldingRateSummary),
+      totalReturnRate: holdingReturnRateFromSummary(preciousHoldingRateSummary),
+      activeHoldingPnl: preciousHoldingRateSummary.activeHoldingPnl,
+      activeTotalCost: preciousHoldingRateSummary.activeTotalCost,
+    };
+    const esopDisplaySummary = renderSection(esopRows, renderRowFundLike, 'rowsESOP', 'countESOP', 'totalValueESOP', 'totalPnlESOP', 'dailyPnlESOP', 'countKpiESOP', 'holdingPnlESOP', fxRates);
+    const esopHoldingRateSummary = summarizeRows(esopRows.filter((row) => !row.is_closed));
+    const esopSummary = {
+      ...esopDisplaySummary,
+      holdingReturnRate: holdingReturnRateFromSummary(esopHoldingRateSummary),
+      totalReturnRate: holdingReturnRateFromSummary(esopHoldingRateSummary),
+      activeHoldingPnl: esopHoldingRateSummary.activeHoldingPnl,
+      activeTotalCost: esopHoldingRateSummary.activeTotalCost,
+    };
     renderReturnNotes(fundReport, 'returnNotesAFund');
     renderReturnNotes(preciousReport, 'returnNotesPreciousMetal');
     applySectionReturnMetrics(aStockReturn, { totalPnlId: 'totalPnlAStockEquity', dailyPnlId: 'dailyPnlAStockEquity', returnId: 'holdingPnlAStockEquity' });
@@ -3102,7 +3175,10 @@ async function main(){
         totalValue: ibkrUsesNetLiquidation ? ibkrAccountValue : usSummary.totalValue,
         totalCost: ibkrUsesNetLiquidation ? (ibkrNetDeposit || usSummary.totalCost) : usSummary.totalCost,
         totalPnl: ibkrUsesNetLiquidation ? ibkrDerivedTotalPnl : usSummary.totalPnl,
-        totalReturnRate: ibkrUsesNetLiquidation && ibkrNetDeposit > 0 ? ibkrDerivedTotalPnl / ibkrNetDeposit : usSummary.totalReturnRate,
+        totalReturnRate: holdingReturnRateFromSummary(usSummary),
+        holdingReturnRate: holdingReturnRateFromSummary(usSummary),
+        activeHoldingPnl: usSummary.activeHoldingPnl,
+        activeTotalCost: usSummary.activeTotalCost,
         positionValue: ibkrPositionValue,
         cashValue: ibkrCashValue,
         accountAsOf: ibkrHoldingsNet?.asOf || ibkrSummary?.asOf,
