@@ -84,6 +84,7 @@ from services.portfolio_state import (
     load_investment_positions as _load_investment_positions,
 )
 from services.portfolio_valuation_state import (
+    apply_holdings_category_pnl_to_section_return_series_payload as _apply_holdings_category_pnl_to_section_return_series_payload,
     apply_summary_pnl_to_return_series_payload as _apply_summary_pnl_to_return_series_payload,
     apply_published_valuation_state_to_return_series_payload as _apply_published_valuation_state_to_return_series_payload,
     is_published_valuation_fresh_for_date as _is_published_valuation_fresh_for_date,
@@ -410,6 +411,40 @@ def _apply_reported_account_performance(payload: dict[str, Any], account_code: s
 
 
 
+
+
+SECTION_RETURN_HOLDINGS_OVERLAY = {
+    "a_fund": ("\u0041\u80a1", "\u0041\u80a1\u57fa\u91d1"),
+}
+
+
+def _apply_section_holdings_pnl_overlay(
+    cur,
+    *,
+    section: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    spec = SECTION_RETURN_HOLDINGS_OVERLAY.get(section)
+    if not spec:
+        return payload
+    category, minor_category = spec
+    holdings_payload = _build_holdings_by_category_payload(
+        cur,
+        category=category,
+        limit=5000,
+        minor_category=minor_category,
+        include_closed=True,
+        view_as_of=_holdings_market_view_as_of(cur),
+        excluded_accounts=_excluded_holding_accounts(),
+        owner_ratios=_account_owner_ratios(),
+        default_owner_ratio=_default_owner_ratio(),
+        daily_pnl_start_as_of=_daily_pnl_view_as_of(),
+    )
+    return _apply_holdings_category_pnl_to_section_return_series_payload(
+        payload,
+        holdings_payload,
+        source=f"holdings.by_category.{section}",
+    )
 
 
 def _owner_ratio_case_sql(alias: str = "h") -> tuple[str, list[Any]]:
@@ -791,7 +826,7 @@ def investment_section_return_series(
                 require_data_completeness=True,
             )
             if snapshot_payload is not None:
-                return json(snapshot_payload)
+                return json(_apply_section_holdings_pnl_overlay(cur, section=section, payload=snapshot_payload))
             payload = _build_section_return_series_payload(
                 cur,
                 section=section,
@@ -806,6 +841,7 @@ def investment_section_return_series(
                 excluded_holding_accounts=_excluded_holding_accounts(),
                 today_label_date=_investment_today_label_date(),
             )
+            payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
             return json(payload)
 
 
@@ -840,6 +876,7 @@ def refresh_investment_section_return_series_snapshot(
                 excluded_holding_accounts=_excluded_holding_accounts(),
                 today_label_date=_investment_today_label_date(),
             )
+            payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
             written = _upsert_investment_return_series_snapshot(
                 cur,
                 payload=payload,

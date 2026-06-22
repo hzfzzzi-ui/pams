@@ -275,6 +275,104 @@ def apply_summary_pnl_to_return_series_payload(
     return _norm(out)
 
 
+def _annualized_return_rate(rate: Decimal, start_date: str, end_date: str) -> Decimal:
+    try:
+        start = Date.fromisoformat(start_date[:10])
+        end = Date.fromisoformat(end_date[:10])
+    except (TypeError, ValueError):
+        return Decimal("0")
+    days = max((end - start).days, 1)
+    if rate <= Decimal("-1"):
+        return Decimal("0")
+    return Decimal(str((float(Decimal("1") + rate) ** (365 / days)) - 1))
+
+
+def apply_holdings_category_pnl_to_section_return_series_payload(
+    payload: dict[str, Any],
+    holdings_payload: dict[str, Any] | None,
+    *,
+    source: str = "holdings.by_category",
+) -> dict[str, Any]:
+    """Overlay a section return payload with current category holdings PnL.
+
+    Section return charts can be sourced from historical snapshots or platform
+    reported anchors. At the terminal point, the user-facing section total must
+    still reconcile to the holdings table: open-position float PnL plus closed
+    realized PnL, divided by the same rows' cost basis.
+    """
+    if not holdings_payload:
+        return payload
+    holding_rows = [dict(row) for row in (holdings_payload.get("rows") or [])]
+    rows = [dict(row) for row in (payload.get("rows") or [])]
+    if not holding_rows or not rows:
+        return payload
+
+    latest = rows[-1]
+    holdings_date = str(holdings_payload.get("as_of") or "")[:10]
+    latest_date = str(latest.get("date") or latest.get("asOfDate") or "")[:10]
+    meta = {
+        "source": source,
+        "as_of": holdings_date,
+        "overlay_applied": False,
+    }
+    if holdings_date and latest_date and holdings_date != latest_date:
+        out = dict(payload)
+        out["section_pnl_state"] = {**meta, "overlay_reason": "date_mismatch"}
+        return _norm(out)
+
+    total_value = Decimal("0")
+    total_cost = Decimal("0")
+    total_pnl = Decimal("0")
+    current_float_pnl = Decimal("0")
+    daily_pnl = Decimal("0")
+    for holding in holding_rows:
+        market_value = _dec(holding.get("market_value_cny", holding.get("market_value")))
+        cost = _dec(holding.get("cost_cny", holding.get("cost")))
+        pnl = _dec(holding.get("holding_pnl_cny", holding.get("holding_pnl")))
+        total_value += market_value
+        total_cost += cost
+        total_pnl += pnl
+        if not holding.get("is_closed"):
+            current_float_pnl += market_value - cost
+        daily_pnl += _dec(holding.get("daily_total_pnl_cny", holding.get("daily_pnl_cny", holding.get("daily_pnl"))))
+
+    realized_pnl = total_pnl - current_float_pnl
+    return_rate = total_pnl / total_cost if total_cost > Decimal("0.0001") else Decimal("0")
+    start_date = str((payload.get("start") or (rows[0].get("date") if rows else "")) or "")[:10]
+    annualized = _annualized_return_rate(return_rate, start_date, latest_date)
+
+    latest["market_value"] = total_value
+    latest["total_pnl"] = total_pnl
+    latest["position_pnl"] = current_float_pnl
+    latest["realized_income"] = realized_pnl
+    latest["cost"] = total_cost
+    latest["return_rate"] = return_rate
+    latest["daily_return_amount"] = daily_pnl
+    latest["return_pnl_source"] = source
+    rows[-1] = latest
+
+    summary = dict(payload.get("summary") or {})
+    summary["total_return"] = total_pnl
+    summary["total_return_rate"] = return_rate
+    summary["annualized_return_rate"] = annualized
+
+    out = dict(payload)
+    out["summary"] = summary
+    out["rows"] = rows
+    out["section_pnl_state"] = {
+        **meta,
+        "overlay_applied": True,
+        "total_value": total_value,
+        "total_cost": total_cost,
+        "total_pnl": total_pnl,
+        "current_float_pnl": current_float_pnl,
+        "closed_realized_pnl": realized_pnl,
+        "return_rate": return_rate,
+        "row_count": len(holding_rows),
+    }
+    return _norm(out)
+
+
 def build_portfolio_valuation_state_from_parts(
     *,
     account_balances: list[dict[str, Any]],

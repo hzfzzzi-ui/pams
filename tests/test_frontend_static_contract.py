@@ -697,8 +697,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260620-data-state-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260622-return-basis-v1" in html
+    assert "assets/js/holdings.js?v=20260622-fund-pnl-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260622-fund-pnl-v1" in html
     assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
     assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html

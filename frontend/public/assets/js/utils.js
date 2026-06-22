@@ -80,7 +80,8 @@ export function readOptionalNumber(idOrElement) {
 export function pnlPct(r){
   const mv = safeNum(r.market_value_cny ?? r.market_value);
   const pnl = safeNum(r.holding_pnl_cny ?? r.holding_pnl);
-  const cost = mv - pnl;
+  const explicitCost = safeNum(r.cost_cny ?? r.cost);
+  const cost = explicitCost > 0 ? explicitCost : mv - pnl;
   return cost > 0 ? (pnl / cost * 100) : 0;
 }
 

@@ -15,6 +15,7 @@ if str(API_ROOT) not in sys.path:
 
 from services.portfolio_summary import apply_published_valuation_state_to_summary  # noqa: E402
 from services.portfolio_valuation_state import (  # noqa: E402
+    apply_holdings_category_pnl_to_section_return_series_payload,
     apply_summary_pnl_to_return_series_payload,
     apply_published_valuation_state_to_return_series_payload,
 )
@@ -285,3 +286,59 @@ def test_apply_summary_pnl_to_return_series_payload_skips_date_mismatch():
     assert out["rows"][1]["total_pnl"] == "95"
     assert out["return_pnl_state"]["overlay_applied"] is False
     assert out["return_pnl_state"]["overlay_reason"] == "date_mismatch"
+
+
+def test_apply_holdings_category_pnl_to_section_return_series_payload_uses_category_rows():
+    payload = {
+        "start": "2026-01-01",
+        "summary": {"total_return": "10", "total_return_rate": "0.1", "annualized_return_rate": "0.2"},
+        "rows": [
+            {"date": "2026-06-20", "market_value": "90", "display_return_rate": "0.1"},
+            {"date": "2026-06-21", "market_value": "100", "display_return_rate": "0.2"},
+        ],
+    }
+    holdings_payload = {
+        "as_of": "2026-06-21",
+        "rows": [
+            {
+                "market_value_cny": "120",
+                "cost_cny": "100",
+                "holding_pnl_cny": "20",
+                "daily_total_pnl_cny": "2",
+                "is_closed": False,
+            },
+            {
+                "market_value_cny": "0",
+                "cost_cny": "50",
+                "holding_pnl_cny": "5",
+                "daily_total_pnl_cny": "0",
+                "is_closed": True,
+            },
+        ],
+    }
+
+    out = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings_payload, source="test")
+
+    latest = out["rows"][-1]
+    assert latest["market_value"] == "120"
+    assert latest["total_pnl"] == "25"
+    assert latest["position_pnl"] == "20"
+    assert latest["realized_income"] == "5"
+    assert latest["cost"] == "150"
+    assert latest["return_rate"] == "0.1666666666666666666666666667"
+    assert latest["daily_return_amount"] == "2"
+    assert out["summary"]["total_return"] == "25"
+    assert out["summary"]["total_return_rate"] == "0.1666666666666666666666666667"
+    assert out["section_pnl_state"]["overlay_applied"] is True
+    assert out["section_pnl_state"]["row_count"] == 2
+
+
+def test_apply_holdings_category_pnl_to_section_return_series_payload_skips_date_mismatch():
+    payload = {"rows": [{"date": "2026-06-21", "market_value": "100", "total_pnl": "10"}]}
+    holdings_payload = {"as_of": "2026-06-22", "rows": [{"holding_pnl_cny": "25", "cost_cny": "100"}]}
+
+    out = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings_payload)
+
+    assert out["rows"][-1]["total_pnl"] == "10"
+    assert out["section_pnl_state"]["overlay_applied"] is False
+    assert out["section_pnl_state"]["overlay_reason"] == "date_mismatch"

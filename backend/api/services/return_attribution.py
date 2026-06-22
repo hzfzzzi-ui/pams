@@ -39,6 +39,7 @@ from services.lookthrough_state import (
     derive_lookthrough_payload,
     load_lookthrough_config,
 )
+from services.portfolio_valuation_state import apply_holdings_category_pnl_to_section_return_series_payload
 from services.portfolio_state import (
     _asset_type,
     _excluded_accounts,
@@ -445,6 +446,8 @@ def _section_target_payloads(
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     reported_returns_cfg = _load_reported_returns_config()
     overview_payload = _overview_payload_from_account_balances(cur, account_cfg, base_currency)
+    owner_ratios, default_owner_ratio = _owner_ratios(account_cfg)
+    excluded_accounts = _excluded_accounts(account_cfg)
     targets: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
     for section in SECTION_ACCOUNT_MAP:
@@ -460,9 +463,27 @@ def _section_target_payloads(
                 overview_payload=overview_payload,
                 owner_ratio_case_sql=_owner_ratio_case_sql(account_cfg),
                 account_owner_ratio=_account_owner_ratio_lookup(account_cfg),
-                excluded_holding_accounts=_excluded_accounts(account_cfg),
+                excluded_holding_accounts=excluded_accounts,
                 today_label_date=view_as_of,
             )
+            if section == "a_fund":
+                holdings_payload = build_holdings_by_category_payload(
+                    cur,
+                    category="\u0041\u80a1",
+                    limit=5000,
+                    minor_category="\u0041\u80a1\u57fa\u91d1",
+                    include_closed=True,
+                    view_as_of=view_as_of,
+                    excluded_accounts=excluded_accounts,
+                    owner_ratios=owner_ratios,
+                    default_owner_ratio=default_owner_ratio,
+                    daily_pnl_start_as_of=daily_pnl_window_date(),
+                )
+                payload = apply_holdings_category_pnl_to_section_return_series_payload(
+                    payload,
+                    holdings_payload,
+                    source="holdings.by_category.a_fund",
+                )
         except Exception as exc:  # pragma: no cover - defensive live-data guard
             warnings.append(f"{section}: {exc}")
             continue
