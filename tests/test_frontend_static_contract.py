@@ -533,7 +533,6 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
     for element_id in [
         "investmentSummaryHeader",
-        "navGrowthExplanationPanel",
         "profitContributionPanel",
         "returnMethodBar",
         "investmentReturnWindowToggle",
@@ -562,6 +561,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "portfolioRiskCategories",
     ]:
         assert f'id="{element_id}"' in html
+    assert 'id="navGrowthExplanationPanel"' not in html
     assert "portfolioRiskInputs" not in html
     assert '<details id="category-detail-shell" class="investmentDetailFold" hidden>' in html
     assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">' not in html
@@ -635,11 +635,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in holdings_js
     assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in holdings_js
     assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in holdings_js
-    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" in holdings_js
-    assert "function renderNavGrowthExplanationPanel(bridgePayload)" in holdings_js
-    assert "growth_explanation" in holdings_js
-    assert "function renderNavGrowthSubsection(title, items)" in holdings_js
-    assert "navGrowthDrivers-compact" in holdings_js
+    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" not in holdings_js
+    assert "function renderNavGrowthExplanationPanel(bridgePayload)" not in holdings_js
     assert "function normalizeInvestmentNavRows(rows)" in holdings_js
     assert "row.netWorth ?? row.net_worth ?? row.market_value" in holdings_js
     assert "updateInvestmentNavChart(state);" in holdings_js
@@ -720,7 +717,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
-    assert "assets/js/holdings_categories.js?v=20260622-astock-pnl-basis-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260623-nav-growth-more-v1" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
@@ -1320,6 +1317,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
     html = _read_public("more.html")
+    more_js = _read_public("assets/js/more.js")
+    nav_growth_js = _read_public("assets/js/nav_growth_explanation.js")
     accounts_html = _read_public("accounts.html")
     data_sources_html = _read_public("data_sources.html")
     research_html = _read_public("research.html")
@@ -1345,6 +1344,13 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "moreHeroDate" not in html
     assert "moreDataState" not in html
     assert "moreToolState" not in html
+    assert 'id="moreNavGrowthDetails"' in html
+    assert 'id="moreNavGrowthExplanationPanel"' in html
+    assert "NAV增值解释" in html
+    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" in more_js
+    assert "renderNavGrowthExplanationPanel(payload, panel)" in more_js
+    assert "growth_explanation" in nav_growth_js
+    assert "navGrowthDrivers-compact" in nav_growth_js
 
     for href in [
         "data_sources.html#dataQuality",
@@ -1361,7 +1367,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/more.js?v=20260623-nav-growth-more-v1" in html
     assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
     assert "assets/js/data_sources.js?v=20260622-data-state-a11y-v1" in data_sources_html
     assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
@@ -1429,12 +1435,12 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260622-astock-pnl-basis-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260623-nav-growth-more-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/more.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/more.js?v=20260623-nav-growth-more-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
