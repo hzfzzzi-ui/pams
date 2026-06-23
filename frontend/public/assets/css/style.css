@@ -13200,7 +13200,9 @@ body.page-more details.card > :not(summary) {
 }
 
 .navGrowthExplanationPanel {
+  min-width: 0;
   margin-top: 12px;
+  overflow: hidden;
 }
 
 .navGrowthHead {
@@ -13259,13 +13261,18 @@ body.page-more details.card > :not(summary) {
 .navGrowthDrivers {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .navGrowthDriver {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   padding: 9px 10px;
   border: 1px solid rgba(255,255,255,.07);
   border-radius: 13px;
   background: rgba(255,255,255,.022);
+  overflow: hidden;
 }
 
 .navGrowthDriverTop,
@@ -13278,17 +13285,25 @@ body.page-more details.card > :not(summary) {
 
 .navGrowthDriverTop span {
   min-width: 0;
+  overflow: hidden;
   color: var(--text);
   font-size: 12px;
   font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .navGrowthDriverTop strong {
   flex: 0 0 auto;
+  max-width: 46%;
+  overflow: hidden;
   color: var(--text);
   font-family: var(--mono);
   font-size: 13px;
   font-weight: 950;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .navGrowthDriverMeta {
@@ -13312,6 +13327,7 @@ body.page-more details.card > :not(summary) {
 }
 
 .navGrowthDriverBar {
+  max-width: 100%;
   height: 5px;
   margin-top: 7px;
   border-radius: 999px;
