@@ -174,6 +174,7 @@ def build_nav_growth_explanation_from_inputs(
     bridge: dict[str, Any],
     attribution_current_float_pnl_cny: Decimal | None = None,
     attribution_closed_realized_pnl_cny: Decimal | None = None,
+    attribution_reconciliation_pnl_cny: Decimal | None = None,
 ) -> dict[str, Any]:
     """Build UI-ready NAV growth explanation without changing bridge math."""
     nav_delta = ending_nav_cny - beginning_nav_cny
@@ -190,8 +191,11 @@ def build_nav_growth_explanation_from_inputs(
         if attribution_closed_realized_pnl_cny is not None
         else attribution_pnl_cny - current_float_pnl
     )
+    account_reconciliation_pnl = _dec(attribution_reconciliation_pnl_cny)
+    actual_closed_realized_pnl = closed_realized_pnl - account_reconciliation_pnl
+    current_float_with_reconciliation = current_float_pnl + account_reconciliation_pnl
     cumulative_period_gap = attribution_pnl_cny - period_investment_effect_cny
-    float_period_gap = current_float_pnl - period_investment_effect_cny
+    float_period_gap = current_float_with_reconciliation - period_investment_effect_cny
 
     drivers = [
         {
@@ -255,18 +259,30 @@ def build_nav_growth_explanation_from_inputs(
         {
             "key": "closed_realized_pnl",
             "label": "其中：已实现/清仓盈亏",
-            "amount_cny": closed_realized_pnl,
-            "tone": _amount_tone(closed_realized_pnl),
-            "formula": "持仓累计总盈亏中已实现和清仓部分；会留在现金/账户净值里，不等同于期末浮盈",
+            "amount_cny": actual_closed_realized_pnl,
+            "tone": _amount_tone(actual_closed_realized_pnl),
+            "formula": "持仓累计总盈亏中已实现和清仓部分；已剔除账户口径校准，不等同于期末浮盈",
         },
+    ]
+    if abs(account_reconciliation_pnl) >= Decimal("0.01"):
+        investment_breakdown.append(
+            {
+                "key": "account_reconciliation_pnl",
+                "label": "其中：账户口径校准",
+                "amount_cny": account_reconciliation_pnl,
+                "tone": _amount_tone(account_reconciliation_pnl),
+                "formula": "账户级目标口径与持仓明细合计的校准差；用于对齐账户净值，不属于清仓盈亏",
+            }
+        )
+    investment_breakdown.append(
         {
             "key": "float_period_gap",
             "label": "其中：期末浮盈与期间口径差",
             "amount_cny": float_period_gap,
             "tone": "warning" if abs(float_period_gap) >= Decimal("100") else "neutral",
-            "formula": "当前浮盈 - NAV期间投资增值；主要来自期初已持仓浮盈/浮亏、账户级校准和估值口径",
-        },
-    ]
+            "formula": "当前浮盈 + 账户口径校准 - NAV期间投资增值；剩余主要来自期初已持仓浮盈/浮亏、舍入和估值时点",
+        }
+    )
 
     bucket_labels = {
         "main_income": "工资/奖金/小额收入",
@@ -305,7 +321,9 @@ def build_nav_growth_explanation_from_inputs(
             "investment_attribution_gap_cny": attribution_gap,
             "cumulative_period_gap_cny": cumulative_period_gap,
             "current_float_pnl_cny": current_float_pnl,
-            "closed_realized_pnl_cny": closed_realized_pnl,
+            "closed_realized_pnl_cny": actual_closed_realized_pnl,
+            "account_reconciliation_pnl_cny": account_reconciliation_pnl,
+            "current_float_with_reconciliation_cny": current_float_with_reconciliation,
             "float_period_gap_cny": float_period_gap,
             "unexplained_residual_cny": residual,
         },
@@ -387,6 +405,15 @@ def _attribution_pnl_basis(attribution: dict[str, Any], total_pnl: Decimal) -> t
             continue
         current_float_pnl += _dec(row.get("pnl_cny") or row.get("total_pnl_cny") or row.get("value_cny"))
     return current_float_pnl, total_pnl - current_float_pnl
+
+
+def _attribution_reconciliation_pnl(attribution: dict[str, Any]) -> Decimal:
+    """Return account-level PnL calibration that is not a closed trade."""
+    reconciliation = ((attribution or {}).get("quality") or {}).get("return_reconciliation") or {}
+    total = Decimal("0")
+    for section in reconciliation.get("sections") or []:
+        total += _dec(section.get("pnl_delta_cny"))
+    return total
 
 
 def _cashflow_breakdown(
@@ -664,6 +691,9 @@ def build_equity_bridge_payload(
                 attribution,
                 attribution_pnl,
             )
+            attribution_reconciliation_pnl = _attribution_reconciliation_pnl(attribution)
+            attribution_effect_float_pnl = attribution_current_float_pnl + attribution_reconciliation_pnl
+            attribution_actual_closed_pnl = attribution_closed_realized_pnl - attribution_reconciliation_pnl
             period_investment_effect = period_investment_effect_from_inputs(
                 beginning_nav_cny=beginning_nav,
                 ending_nav_cny=ending_nav,
@@ -690,6 +720,7 @@ def build_equity_bridge_payload(
         attribution_pnl_cny=attribution_pnl,
         attribution_current_float_pnl_cny=attribution_current_float_pnl,
         attribution_closed_realized_pnl_cny=attribution_closed_realized_pnl,
+        attribution_reconciliation_pnl_cny=attribution_reconciliation_pnl,
         bridge=bridge,
     )
     payload = {
@@ -711,9 +742,11 @@ def build_equity_bridge_payload(
             "canonical_total_pnl_cny": attribution_pnl,
             "raw_total_pnl_cny": _dec(attribution.get("total_pnl_cny")),
             "current_float_pnl_cny": attribution_current_float_pnl,
-            "closed_realized_pnl_cny": attribution_closed_realized_pnl,
+            "account_reconciliation_pnl_cny": attribution_reconciliation_pnl,
+            "current_float_with_reconciliation_cny": attribution_effect_float_pnl,
+            "closed_realized_pnl_cny": attribution_actual_closed_pnl,
             "cumulative_period_gap_cny": attribution_pnl - period_investment_effect,
-            "float_period_gap_cny": attribution_current_float_pnl - period_investment_effect,
+            "float_period_gap_cny": attribution_effect_float_pnl - period_investment_effect,
             "attribution_gap_cny": period_investment_effect - attribution_pnl,
             "portfolio_nav_cny": _dec(attribution.get("portfolio_nav_cny")),
             "as_of": attribution.get("as_of"),

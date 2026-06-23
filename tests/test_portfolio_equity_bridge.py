@@ -132,6 +132,33 @@ def test_nav_growth_explanation_keeps_additive_drivers_separate_from_attribution
     assert any(item["key"] == "investment_realized_cash" and item["excluded_from_external_cashflow"] for item in explanation["cashflow_items"])
 
 
+def test_nav_growth_explanation_splits_account_reconciliation_from_closed_pnl() -> None:
+    bridge = build_bridge_reconciliation_from_inputs(
+        beginning_nav_cny=Decimal("1000"),
+        ending_nav_cny=Decimal("1300"),
+        external_cashflow_cny=Decimal("100"),
+        investment_pnl_cny=Decimal("200"),
+    )
+    explanation = build_nav_growth_explanation_from_inputs(
+        beginning_nav_cny=Decimal("1000"),
+        ending_nav_cny=Decimal("1300"),
+        cashflows={"external_net_cny": Decimal("100"), "buckets": {}},
+        period_investment_effect_cny=Decimal("200"),
+        attribution_pnl_cny=Decimal("230"),
+        attribution_current_float_pnl_cny=Decimal("190"),
+        attribution_closed_realized_pnl_cny=Decimal("40"),
+        attribution_reconciliation_pnl_cny=Decimal("9.50"),
+        bridge=bridge,
+    )
+
+    breakdown = {item["key"]: item for item in explanation["investment_breakdown"]}
+    assert breakdown["closed_realized_pnl"]["amount_cny"] == Decimal("30.50")
+    assert breakdown["account_reconciliation_pnl"]["amount_cny"] == Decimal("9.50")
+    assert breakdown["float_period_gap"]["amount_cny"] == Decimal("-0.50")
+    assert explanation["summary"]["closed_realized_pnl_cny"] == Decimal("30.50")
+    assert explanation["summary"]["account_reconciliation_pnl_cny"] == Decimal("9.50")
+
+
 def test_attribution_pnl_basis_splits_open_and_closed_rows() -> None:
     current_float, closed = _attribution_pnl_basis(
         {
