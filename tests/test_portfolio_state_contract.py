@@ -246,6 +246,7 @@ def test_load_investment_positions_adds_synthetic_broker_cash_from_net_liquidati
                     "as_of": date(2026, 6, 4),
                 }
             ],
+            [],
         ]
     )
     account_cfg = {
@@ -295,6 +296,7 @@ def test_load_investment_positions_adds_synthetic_broker_cash_from_account_balan
                     "as_of": date(2026, 6, 17),
                 }
             ],
+            [],
         ]
     )
     account_cfg = {
@@ -348,6 +350,7 @@ def test_load_investment_positions_skips_stale_synthetic_broker_cash():
                     "as_of": date(2026, 6, 16),
                 }
             ],
+            [],
         ]
     )
     account_cfg = {
@@ -368,4 +371,78 @@ def test_load_investment_positions_skips_stale_synthetic_broker_cash():
 
     rows = load_investment_positions(cur, "CNY", account_cfg)
 
+    assert all(row["source_type"] != "synthetic_broker_cash" for row in rows)
+
+
+def test_load_investment_positions_carries_forward_missing_broker_cash_rows():
+    cur = FakeCursor(
+        [
+            {"table_name": "pams_holdings_snapshot"},
+            {"table_name": "pams_fx_rates_daily"},
+            [
+                {"quote_currency": "USD", "rate": Decimal("7")},
+            ],
+            [
+                {
+                    "account_code": "ibkr",
+                    "asset_liability": "资产",
+                    "major_category": "美股/海外",
+                    "minor_category": "美股个股",
+                    "symbol": "MU",
+                    "name": "Micron Technology",
+                    "currency": "USD",
+                    "market_value": Decimal("1000"),
+                    "cost": Decimal("800"),
+                    "holding_pnl": Decimal("200"),
+                    "quantity": Decimal("10"),
+                    "as_of": date(2026, 6, 24),
+                }
+            ],
+            [
+                {
+                    "id": 1,
+                    "account_code": "ibkr",
+                    "asset_liability": "负债",
+                    "major_category": "借款",
+                    "minor_category": "融资负债",
+                    "symbol": "CASH_USD",
+                    "name": "Cash USD",
+                    "currency": "USD",
+                    "market_value": Decimal("-200"),
+                    "cost": Decimal("-200"),
+                    "holding_pnl": Decimal("0"),
+                    "quantity": Decimal("-200"),
+                    "as_of": date(2026, 6, 23),
+                }
+            ],
+        ]
+    )
+    account_cfg = {
+        "accounts": {
+            "ibkr": {
+                "display_name": "IBKR",
+                "account_type": "brokerage",
+                "base_currency": "USD",
+            }
+        }
+    }
+
+    rows = load_investment_positions(
+        cur,
+        "CNY",
+        account_cfg,
+        account_balances=[
+            {
+                "account_code": "ibkr",
+                "amount_cny": Decimal("7000"),
+                "currency": "CNY",
+                "as_of": date(2026, 6, 24),
+                "include_in_nav": True,
+            }
+        ],
+    )
+
+    cash = next(row for row in rows if row["symbol"] == "CASH_USD")
+    assert cash["source_type"] == "holdings_snapshot_cash_carry_forward"
+    assert cash["market_value_cny"] == Decimal("-1400")
     assert all(row["source_type"] != "synthetic_broker_cash" for row in rows)

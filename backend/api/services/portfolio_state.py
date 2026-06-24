@@ -549,6 +549,108 @@ def _asset_type(row: dict[str, Any]) -> str:
     return "manual_asset"
 
 
+BROKERAGE_SNAPSHOT_CASH_TYPES = {"brokerage", "fund_platform"}
+CASH_CARRY_FORWARD_LOOKBACK_DAYS = 14
+
+
+def _is_cash_like_holding(row: dict[str, Any]) -> bool:
+    symbol = str(row.get("symbol") or "").upper()
+    name = str(row.get("name") or "")
+    asset_liability = str(row.get("asset_liability") or "")
+    major = str(row.get("major_category") or "")
+    minor = str(row.get("minor_category") or "")
+    return (
+        symbol.startswith("CASH_")
+        or name.startswith("Cash ")
+        or asset_liability == "负债"
+        or "现金" in major
+        or "现金" in minor
+        or "借款" in major
+        or "借款" in minor
+    )
+
+
+def _cash_like_carry_forward_rows(
+    cur,
+    *,
+    account_cfg: dict[str, Any],
+    selected_rows: list[dict[str, Any]],
+    excluded_accounts: set[str],
+) -> list[dict[str, Any]]:
+    """Carry forward broker cash/liability rows when a partial market refresh omits them."""
+    accounts = account_cfg.get("accounts") or {}
+    account_as_of: dict[str, Any] = {}
+    account_has_rows: set[str] = set()
+    account_has_cash_like: set[str] = set()
+
+    for row in selected_rows:
+        account_code = str(row.get("account_code") or "")
+        if not account_code:
+            continue
+        account_has_rows.add(account_code)
+        row_as_of = row.get("as_of")
+        current_as_of = account_as_of.get(account_code)
+        if row_as_of and (not current_as_of or str(row_as_of) > str(current_as_of)):
+            account_as_of[account_code] = row_as_of
+        if _is_cash_like_holding(row):
+            account_has_cash_like.add(account_code)
+
+    targets: list[tuple[str, Any]] = []
+    for account_code in sorted(account_has_rows - account_has_cash_like):
+        if account_code in excluded_accounts or not _is_investment_account(account_cfg, account_code):
+            continue
+        cfg = accounts.get(account_code) or {}
+        account_type = str(cfg.get("account_type") or "").lower()
+        if account_type not in BROKERAGE_SNAPSHOT_CASH_TYPES:
+            continue
+        selected_as_of = account_as_of.get(account_code) or _view_as_of()
+        targets.append((account_code, selected_as_of))
+
+    if not targets:
+        return []
+
+    values_sql = ", ".join(["(%s::text, %s::date)"] * len(targets))
+    params: list[Any] = []
+    for account_code, selected_as_of in targets:
+        params.extend([account_code, selected_as_of])
+
+    cur.execute(
+        f"""
+        WITH targets(account_code, selected_as_of) AS (
+            VALUES {values_sql}
+        )
+        SELECT DISTINCT ON (
+               h.account_code,
+               COALESCE(NULLIF(h.symbol, ''), h.name),
+               h.currency,
+               h.asset_liability
+        )
+               h.*
+        FROM pams_holdings_snapshot h
+        JOIN targets t ON t.account_code = h.account_code
+        WHERE h.as_of < t.selected_as_of
+          AND h.as_of >= t.selected_as_of - INTERVAL '{CASH_CARRY_FORWARD_LOOKBACK_DAYS} days'
+          AND (
+              UPPER(COALESCE(h.symbol, '')) LIKE 'CASH\\_%%' ESCAPE '\\'
+              OR h.name LIKE 'Cash %%'
+          )
+        ORDER BY h.account_code,
+                 COALESCE(NULLIF(h.symbol, ''), h.name),
+                 h.currency,
+                 h.asset_liability,
+                 h.as_of DESC,
+                 h.id DESC
+        """,
+        params,
+    )
+    carried: list[dict[str, Any]] = []
+    for row in cur.fetchall():
+        item = dict(row)
+        item["__cash_carry_forward"] = True
+        carried.append(item)
+    return carried
+
+
 def load_investment_positions(
     cur,
     base_currency: str,
@@ -571,11 +673,21 @@ def load_investment_positions(
         """,
         (_view_as_of(), sorted(excluded)),
     )
+    snapshot_rows = [dict(row) for row in cur.fetchall()]
+    carried_cash_rows = _cash_like_carry_forward_rows(
+        cur,
+        account_cfg=account_cfg,
+        selected_rows=snapshot_rows,
+        excluded_accounts=excluded,
+    )
+    cash_carry_forward_accounts = {
+        str(row.get("account_code") or "") for row in carried_cash_rows if row.get("account_code")
+    }
+    snapshot_rows.extend(carried_cash_rows)
     rows: list[dict[str, Any]] = []
     account_position_value_cny: dict[str, Decimal] = {}
     account_position_as_of: dict[str, Any] = {}
-    for row in cur.fetchall():
-        item = dict(row)
+    for item in snapshot_rows:
         account_code = str(item.get("account_code") or "")
         if not _is_investment_account(account_cfg, account_code):
             continue
@@ -600,7 +712,9 @@ def load_investment_positions(
                 "cost_cny": cost * rate,
                 "holding_pnl_cny": pnl * rate,
                 "as_of": item.get("as_of"),
-                "source_type": "holdings_snapshot",
+                "source_type": "holdings_snapshot_cash_carry_forward"
+                if item.get("__cash_carry_forward")
+                else "holdings_snapshot",
             }
         )
         account_position_value_cny[account_code] = (
@@ -618,6 +732,7 @@ def load_investment_positions(
             account_position_value_cny=account_position_value_cny,
             account_position_as_of=account_position_as_of,
             account_balances=account_balances,
+            skip_accounts=cash_carry_forward_accounts,
         )
     )
     return rows
@@ -631,6 +746,7 @@ def _synthetic_broker_cash_positions(
     account_position_value_cny: dict[str, Decimal],
     account_position_as_of: dict[str, Any] | None = None,
     account_balances: list[dict[str, Any]] | None = None,
+    skip_accounts: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Represent account-level broker cash when snapshots only list securities.
 
@@ -647,7 +763,10 @@ def _synthetic_broker_cash_positions(
         if row.get("include_in_nav", True) and row.get("amount_cny") not in (None, "")
     }
     out: list[dict[str, Any]] = []
+    skip_accounts = skip_accounts or set()
     for account_code, cfg in accounts.items():
+        if account_code in skip_accounts:
+            continue
         if not _is_investment_account(account_cfg, account_code):
             continue
         account_type = str(cfg.get("account_type") or "").lower()
