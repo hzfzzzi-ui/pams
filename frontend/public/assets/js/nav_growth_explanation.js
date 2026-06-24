@@ -84,12 +84,25 @@ export function renderNavGrowthExplanationPanel(bridgePayload, target = 'navGrow
     .slice(0, 3)
     .map(item => withNavGrowthShare(item, delta));
   const maxAbsAmount = Math.max(...drivers.map(item => Math.abs(safeNum(item.amount_cny))), 1);
-  const reconciled = explanation.is_reconciled !== false && Math.abs(safeNum(summary.unexplained_residual_cny)) < 100;
+  const quality = bridgePayload?.quality || {};
+  const blockingChecks = Array.isArray(quality.blocking_checks) ? quality.blocking_checks : [];
+  const advisoryChecks = Array.isArray(quality.advisory_checks) ? quality.advisory_checks : [];
+  const navReconciled = quality.nav_reconciled !== false
+    && explanation.is_reconciled !== false
+    && Math.abs(safeNum(summary.unexplained_residual_cny)) < 100;
+  const attributionExplained = quality.investment_attribution_explained !== false;
+  const statusText = navReconciled
+    ? (attributionExplained ? '总账闭合' : '总账闭合 · 归因口径差')
+    : '仍有残差';
+  const qualityNotes = [...blockingChecks, ...advisoryChecks].slice(0, 2);
+  const qualityHtml = qualityNotes.length
+    ? `<div class="muted navGrowthQualityNote">${qualityNotes.map(item => esc(item.note || item.label || item.code || '')).filter(Boolean).join(' / ')}</div>`
+    : '';
   el.innerHTML = `
     <div class="returnInsightHead navGrowthHead">
       <div>
         <h3>${esc(explanation.title || '年初至今NAV增值解释')}</h3>
-        <span>${esc(bridgePayload?.start || '')} 至 ${esc(bridgePayload?.end || '')} · ${reconciled ? '总账闭合' : '仍有残差'}</span>
+        <span>${esc(bridgePayload?.start || '')} 至 ${esc(bridgePayload?.end || '')} · ${esc(statusText)}</span>
       </div>
       <strong class="${delta >= 0 ? 'good' : 'bad'}">${fmtSignedCny(delta)}</strong>
     </div>
@@ -98,6 +111,7 @@ export function renderNavGrowthExplanationPanel(bridgePayload, target = 'navGrow
       <span><em>期末NAV</em><strong>${fmtCny(summary.ending_nav_cny)}</strong></span>
       <span><em>增值率</em><strong class="${safeNum(summary.nav_delta_rate) >= 0 ? 'good' : 'bad'}">${formatPercentRate(summary.nav_delta_rate)}</strong></span>
     </div>
+    ${qualityHtml}
     <div class="navGrowthDrivers">
       ${drivers.map(item => renderNavGrowthDriver(item, maxAbsAmount)).join('')}
     </div>

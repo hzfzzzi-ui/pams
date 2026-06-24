@@ -248,24 +248,39 @@ def _bridge_quality(
     residual = _dec(bridge.get("unexplained_residual_cny"))
     blocking_checks = [item for item in checks if item.get("status") != "ok"]
     investment_gap_issue = abs(investment_attribution_gap_cny) >= tolerance_cny
+    advisory_checks: list[dict[str, Any]] = []
     if investment_gap_issue:
-        blocking_checks.append(
+        advisory_checks.append(
             {
-                "code": "investment_attribution_gap",
-                "label": "Investment attribution gap",
-                "status": "mismatch",
+                "code": "cumulative_vs_period_attribution_gap",
+                "label": "Cumulative PnL vs period NAV effect",
+                "status": "warning",
                 "gap_cny": investment_attribution_gap_cny,
-                "note": "NAV period investment effect is not fully explained by return attribution.",
+                "basis": "period_nav_effect_vs_cumulative_holding_pnl",
+                "note": (
+                    "NAV is reconciled on a period roll-forward basis; current return attribution "
+                    "is cumulative holding/closed PnL and can include opening embedded PnL, "
+                    "cash/FX/financing effects, and valuation timing differences."
+                ),
             }
         )
     residual_issue = abs(residual) >= tolerance_cny
-    status = "ok" if not residual_issue and not blocking_checks else "unreconciled"
+    nav_reconciled = not residual_issue and not blocking_checks
+    if not nav_reconciled:
+        status = "unreconciled"
+    elif advisory_checks:
+        status = "warning"
+    else:
+        status = "ok"
     return {
         "status": status,
+        "nav_reconciled": nav_reconciled,
         "unexplained_residual_cny": residual,
         "investment_attribution_gap_cny": investment_attribution_gap_cny,
         "investment_attribution_explained": not investment_gap_issue,
         "blocking_checks": blocking_checks,
+        "advisory_checks": advisory_checks,
+        "attribution_comparison_basis": "period_nav_effect_vs_cumulative_holding_pnl",
     }
 
 
@@ -854,6 +869,13 @@ def build_equity_bridge_payload(
         "investment": {
             "period_investment_effect_cny": period_investment_effect,
             "canonical_total_pnl_cny": attribution_pnl,
+            "period_attribution_available": False,
+            "comparison_basis": "period_nav_effect_vs_cumulative_holding_pnl",
+            "comparison_note": (
+                "period_investment_effect_cny is the NAV roll-forward effect since start_date; "
+                "canonical_total_pnl_cny is cumulative holding/closed PnL and is shown as a "
+                "diagnostic comparison until periodized instrument attribution is available."
+            ),
             "raw_total_pnl_cny": _dec(attribution.get("total_pnl_cny")),
             "current_float_pnl_cny": attribution_current_float_pnl,
             "account_reconciliation_pnl_cny": attribution_reconciliation_pnl,

@@ -44,6 +44,42 @@
 2. 补齐或显式排除 `alipay`、`gf_7443`、`gf_9711` 账户余额，降低数据质量 warning。
 3. 补齐连续估值序列，让 NAV 曲线不再依赖单日估值状态。
 
+### 追加轮次：NAV 质量状态分层
+
+#### 发现的问题
+
+- NAV bridge 的总账 roll-forward 已经闭合：期初 NAV + 外部现金流 + 期间投资/估值影响 = 期末 NAV，运行态 `unexplained_residual_cny = 0.00`。
+- 原先 `quality.status = unreconciled` 的主因不是总账不平，而是把 `period_investment_effect_cny = 14,484.20` 与 `canonical_total_pnl_cny = 77,850.93` 直接比较。
+- 这两个数不是同一层口径：前者是年初至今 NAV 期间贡献，后者是当前持仓/清仓累计成本口径盈亏，可能包含期初已持仓浮盈、现金/汇率/融资影响和估值时点差。
+
+#### 已修复问题
+
+- `_bridge_quality` 拆分为 blocking 与 advisory：真实 NAV 残差或入金闭环失败仍进入 `blocking_checks`，累计持仓盈亏与期间 NAV 贡献的口径差进入 `advisory_checks`。
+- equity bridge API 新增 `quality.nav_reconciled`、`quality.advisory_checks`、`quality.attribution_comparison_basis`、`investment.period_attribution_available`、`investment.comparison_basis` 和 `investment.comparison_note`。
+- 更多页的 NAV 增值解释读取 `bridgePayload.quality`，总账闭合但归因未期间化时显示“总账闭合 · 归因口径差”，并展示 advisory 原因。
+
+#### 运行态结论
+
+- 当前 API 返回：`quality.status = warning`，`nav_reconciled = true`，`blocking_checks = []`。
+- 保留显式提醒：`advisory_checks[0].gap_cny = -63,366.72`，说明当前收益归因仍是累计口径，不等同于年初至今 NAV 期间贡献。
+- 资产数据没有被修改；本轮只调整后端质量状态语义和前端解释状态。
+
+#### 验证记录
+
+- `python -m pytest tests/test_portfolio_equity_bridge.py tests/test_return_attribution.py tests/test_portfolio_state_contract.py tests/test_valuation_nav_service.py -q`
+- `python -m pytest tests/test_frontend_static_contract.py -q`
+- `node --check frontend\public\assets\js\nav_growth_explanation.js`
+- `node --check frontend\public\assets\js\more.js`
+- `python -m compileall -q backend\api\services`
+- `docker compose up -d --build pams-api pams-web`
+- 运行态 smoke：`/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY` 返回 `quality.status = warning`、`nav_reconciled = true`、`blocking_checks = []`。
+
+#### 下一轮建议
+
+1. 实现真正的期间化标的归因：按账户计算 `ending_account_nav - beginning_account_nav - net_funding`，并单列证券持仓、现金/汇率、融资成本和估值校准。
+2. IBKR 优先拆分现金/融资/FX 对 NAV 的影响，避免用证券毛盈亏解释净清算价值。
+3. 继续补齐 `alipay`、`gf_7443`、`gf_9711` 账户余额或显式排除规则，降低 PortfolioState 数据质量 warning。
+
 ## 2026-06-23
 
 ### 本轮目标

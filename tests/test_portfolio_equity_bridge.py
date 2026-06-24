@@ -74,16 +74,32 @@ def test_equity_bridge_reconciles_only_when_residual_is_small() -> None:
     assert bridge["is_reconciled"] is True
 
 
-def test_bridge_quality_requires_investment_attribution_to_explain_nav_effect() -> None:
+def test_bridge_quality_keeps_cumulative_period_gap_as_advisory() -> None:
     quality = _bridge_quality(
         bridge={"unexplained_residual_cny": Decimal("0")},
         investment_attribution_gap_cny=Decimal("1000"),
         checks=[],
     )
 
-    assert quality["status"] == "unreconciled"
+    assert quality["status"] == "warning"
+    assert quality["nav_reconciled"] is True
     assert quality["investment_attribution_explained"] is False
-    assert quality["blocking_checks"][0]["code"] == "investment_attribution_gap"
+    assert quality["blocking_checks"] == []
+    assert quality["advisory_checks"][0]["code"] == "cumulative_vs_period_attribution_gap"
+    assert quality["advisory_checks"][0]["basis"] == "period_nav_effect_vs_cumulative_holding_pnl"
+
+
+def test_bridge_quality_still_blocks_on_nav_residual_or_funding_checks() -> None:
+    quality = _bridge_quality(
+        bridge={"unexplained_residual_cny": Decimal("250")},
+        investment_attribution_gap_cny=Decimal("0"),
+        checks=[{"code": "ibkr_funding_closure", "status": "mismatch"}],
+    )
+
+    assert quality["status"] == "unreconciled"
+    assert quality["nav_reconciled"] is False
+    assert quality["investment_attribution_explained"] is True
+    assert quality["blocking_checks"][0]["code"] == "ibkr_funding_closure"
 
 
 def test_period_investment_effect_is_nav_delta_after_external_cashflow() -> None:

@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20260623-nav-growth-more-v1';
+import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20260624-nav-quality-v1';
 import { setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
 import { setText } from './utils.js?v=20260607-shared-format-v1';
 

@@ -1351,6 +1351,9 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "renderNavGrowthExplanationPanel(payload, panel)" in more_js
     assert "growth_explanation" in nav_growth_js
     assert "navGrowthDrivers-compact" in nav_growth_js
+    assert "bridgePayload?.quality" in nav_growth_js
+    assert "advisory_checks" in nav_growth_js
+    assert "总账闭合 · 归因口径差" in nav_growth_js
 
     for href in [
         "data_sources.html#dataQuality",
@@ -1367,7 +1370,8 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260623-nav-growth-more-v1" in html
+    assert "assets/js/more.js?v=20260624-nav-quality-v1" in html
+    assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
     assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
     assert "assets/js/data_sources.js?v=20260622-data-state-a11y-v1" in data_sources_html
     assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
