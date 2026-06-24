@@ -51,8 +51,8 @@ account_snapshot_stats AS (
 """
 
 FUND_NAV_STATUS_COLUMNS = """
-                   fund_nav_status.daily_pnl_status,
-                   fund_nav_status.daily_pnl_status_label,
+                   COALESCE(fund_nav_status.daily_pnl_status, market_daily_status.daily_pnl_status) AS daily_pnl_status,
+                   COALESCE(fund_nav_status.daily_pnl_status_label, market_daily_status.daily_pnl_status_label) AS daily_pnl_status_label,
                    fund_nav_status.fund_nav_confirmed_date,
                    fund_nav_status.fund_nav_confirmed_unit_nav,
                    fund_nav_status.fund_nav_estimate_time,
@@ -90,6 +90,39 @@ FUND_NAV_STATUS_JOIN = """
                 ORDER BY e.updated_at DESC
                 LIMIT 1
             ) fund_nav_status ON TRUE
+"""
+
+MARKET_DAILY_STATUS_JOIN = """
+            LEFT JOIN LATERAL (
+                SELECT
+                    CASE
+                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate', 'external_estimate')
+                          OR md.market IN ('US_OVERNIGHT', 'US_EXTENDED', 'YAHOO_EXTENDED')
+                        THEN 'estimated'
+                        ELSE NULL
+                    END AS daily_pnl_status,
+                    CASE
+                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate', 'external_estimate')
+                          OR md.market IN ('US_OVERNIGHT', 'US_EXTENDED', 'YAHOO_EXTENDED')
+                        THEN '预估收益'
+                        ELSE NULL
+                    END AS daily_pnl_status_label
+                FROM pams_asset_market_daily md
+                WHERE h.major_category = '美股'
+                  AND md.as_of = h.as_of
+                  AND (
+                      (COALESCE(NULLIF(h.symbol, ''), '') <> '' AND UPPER(md.symbol) = UPPER(h.symbol))
+                      OR (COALESCE(NULLIF(h.asset_id, ''), '') <> '' AND md.asset_id = h.asset_id)
+                  )
+                ORDER BY
+                    CASE
+                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate') THEN 0
+                        WHEN md.source = 'external_estimate' THEN 1
+                        ELSE 2
+                    END,
+                    md.updated_at DESC
+                LIMIT 1
+            ) market_daily_status ON TRUE
 """
 
 
@@ -537,6 +570,7 @@ def build_holdings_by_category_payload(
             FROM h
             LEFT JOIN fx ON fx.quote_currency = h.currency
             {FUND_NAV_STATUS_JOIN}
+            {MARKET_DAILY_STATUS_JOIN}
             LEFT JOIN LATERAL (
                 SELECT hs.current_price, hs.as_of
                 FROM pams_holdings_snapshot hs
@@ -674,6 +708,7 @@ def build_holdings_by_category_payload(
             FROM h
             LEFT JOIN fx ON fx.quote_currency = h.currency
             {FUND_NAV_STATUS_JOIN}
+            {MARKET_DAILY_STATUS_JOIN}
             LEFT JOIN LATERAL (
                 SELECT hs.current_price, hs.as_of
                 FROM pams_holdings_snapshot hs
@@ -1348,6 +1383,7 @@ def build_holdings_latest_payload(
         FROM h
         LEFT JOIN fx ON fx.quote_currency = h.currency
         {FUND_NAV_STATUS_JOIN}
+        {MARKET_DAILY_STATUS_JOIN}
         LEFT JOIN LATERAL (
             SELECT hs.current_price, hs.as_of
             FROM pams_holdings_snapshot hs
