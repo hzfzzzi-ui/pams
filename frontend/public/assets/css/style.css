@@ -5249,6 +5249,103 @@ body.trade-review-asset-open {
   margin-top: 0;
   font-size: 11px;
 }
+.tradeReviewPatternReasonFold {
+  display: grid;
+  gap: 6px;
+}
+.tradeReviewPatternReasonFold summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid rgba(148,163,184,.16);
+  border-radius: 9px;
+  background: rgba(15,23,42,.46);
+  padding: 0 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.tradeReviewPatternReasonFold summary::-webkit-details-marker {
+  display: none;
+}
+.tradeReviewPatternReasonFold summary strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 950;
+}
+.tradeReviewPatternReasonFold summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+.tradeReviewPatternReasonFold.compact summary {
+  min-height: 28px;
+  border-color: rgba(96,165,250,.20);
+  background: rgba(37,99,235,.10);
+}
+.tradeReviewHeatTile.is-small .tradeReviewPatternReasonFold.compact {
+  display: none;
+}
+.tradeReviewPatternReasonFold[open] summary {
+  border-color: rgba(96,165,250,.34);
+}
+.tradeReviewPatternReasonList {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tradeReviewPatternReasonTrade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  border: 1px solid rgba(148,163,184,.12);
+  border-radius: 10px;
+  background: rgba(2,6,23,.24);
+  padding: 8px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.tradeReviewPatternReasonTrade.gain {
+  border-color: rgba(35,194,107,.18);
+}
+.tradeReviewPatternReasonTrade.loss {
+  border-color: rgba(255,111,111,.18);
+}
+.tradeReviewPatternReasonTrade strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tradeReviewPatternReasonTrade span,
+.tradeReviewPatternReasonTrade p {
+  display: block;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+.tradeReviewPatternReasonTrade p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.tradeReviewPatternReasonTrade em {
+  color: var(--text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 950;
+  white-space: nowrap;
+}
 .tradeReviewDataGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -855,7 +855,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in investments_html
+    assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1311,7 +1311,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in html
     assert "assets/css/style.css?v=20260623-nav-growth-overflow-v1" in html
 
 
