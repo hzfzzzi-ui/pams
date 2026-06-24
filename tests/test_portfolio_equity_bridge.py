@@ -12,11 +12,13 @@ if str(API_ROOT) not in sys.path:
 
 from services.portfolio_equity_bridge import (  # noqa: E402
     _attribution_pnl_basis,
+    _bridge_quality,
     _bridge_cashflow_excluded_accounts,
     _cashflow_breakdown,
     _cashflow_breakdown_from_rows,
     _funding_closure_checks,
     build_bridge_reconciliation_from_inputs,
+    build_nav_bridge_steps_from_inputs,
     build_nav_growth_explanation_from_inputs,
     period_investment_effect_from_inputs,
 )
@@ -72,6 +74,18 @@ def test_equity_bridge_reconciles_only_when_residual_is_small() -> None:
     assert bridge["is_reconciled"] is True
 
 
+def test_bridge_quality_requires_investment_attribution_to_explain_nav_effect() -> None:
+    quality = _bridge_quality(
+        bridge={"unexplained_residual_cny": Decimal("0")},
+        investment_attribution_gap_cny=Decimal("1000"),
+        checks=[],
+    )
+
+    assert quality["status"] == "unreconciled"
+    assert quality["investment_attribution_explained"] is False
+    assert quality["blocking_checks"][0]["code"] == "investment_attribution_gap"
+
+
 def test_period_investment_effect_is_nav_delta_after_external_cashflow() -> None:
     effect = period_investment_effect_from_inputs(
         beginning_nav_cny=Decimal("768674.39"),
@@ -80,6 +94,26 @@ def test_period_investment_effect_is_nav_delta_after_external_cashflow() -> None
     )
 
     assert effect == Decimal("132792.44")
+
+
+def test_nav_bridge_steps_are_additive_and_balanced() -> None:
+    steps = build_nav_bridge_steps_from_inputs(
+        beginning_nav_cny=Decimal("1000"),
+        external_cashflow_cny=Decimal("200"),
+        period_investment_effect_cny=Decimal("50"),
+        unexplained_residual_cny=Decimal("-10"),
+        ending_nav_cny=Decimal("1240"),
+    )
+
+    assert [step["key"] for step in steps] == [
+        "beginning_nav",
+        "external_cashflow",
+        "period_investment_effect",
+        "unexplained_residual",
+        "ending_nav",
+    ]
+    assert steps[-2]["running_nav_cny"] == Decimal("1240")
+    assert steps[-1]["is_balanced"] is True
 
 
 def test_nav_growth_explanation_keeps_additive_drivers_separate_from_attribution_gap() -> None:

@@ -49,6 +49,7 @@ from services.portfolio_state import (
     load_account_balances,
     load_investment_positions,
 )
+from services.valuation_nav import current_nav_account_values_from_parts
 
 
 AttributionUnit = dict[str, Any]
@@ -1410,9 +1411,11 @@ def build_return_attribution_payload(
     """Build the /api/analysis/return-attribution payload from current holdings."""
     account_cfg = _load_accounts_config()
     account_balances = load_account_balances(cur, base_currency, account_cfg)
-    portfolio_nav_cny = sum(
-        (Decimal(str(row.get("amount_cny") or 0)) for row in account_balances if row.get("include_in_nav")),
-        Decimal("0"),
+    investment_positions = load_investment_positions(
+        cur,
+        base_currency,
+        account_cfg,
+        account_balances=account_balances,
     )
     view_as_of = _latest_snapshot_date(cur)
     owner_ratios, default_owner_ratio = _owner_ratios(account_cfg)
@@ -1437,6 +1440,13 @@ def build_return_attribution_payload(
         if _is_return_attribution_row(position)
     ]
     positions = _merge_daily_positions(positions, daily_positions)
+    portfolio_nav_cny = sum(
+        current_nav_account_values_from_parts(
+            account_balances=account_balances,
+            investment_positions=investment_positions,
+        ).values(),
+        Decimal("0"),
+    )
     industry_l1_by_symbol = _load_sw_l1_lookup(cur)
     return build_return_attribution_from_positions(
         positions,

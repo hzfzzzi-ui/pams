@@ -164,6 +164,111 @@ def _share_of_delta(amount: Decimal, nav_delta: Decimal) -> Decimal:
     return amount / nav_delta
 
 
+def build_nav_bridge_steps_from_inputs(
+    *,
+    beginning_nav_cny: Decimal,
+    external_cashflow_cny: Decimal,
+    period_investment_effect_cny: Decimal,
+    unexplained_residual_cny: Decimal,
+    ending_nav_cny: Decimal,
+) -> list[dict[str, Any]]:
+    """Build additive NAV bridge steps that can be checked without UI math."""
+    running = beginning_nav_cny
+    steps = [
+        {
+            "key": "beginning_nav",
+            "label": "Beginning NAV",
+            "amount_cny": beginning_nav_cny,
+            "running_nav_cny": running,
+            "formula": "period opening net asset value",
+        },
+    ]
+    for key, label, amount, formula in [
+        (
+            "external_cashflow",
+            "External cashflow",
+            external_cashflow_cny,
+            "income - expenses; internal transfers are excluded",
+        ),
+        (
+            "period_investment_effect",
+            "Investment and valuation effect",
+            period_investment_effect_cny,
+            "ending NAV - beginning NAV - external cashflow",
+        ),
+        (
+            "unexplained_residual",
+            "Residual",
+            unexplained_residual_cny,
+            "remaining account or valuation calibration gap",
+        ),
+    ]:
+        running += amount
+        steps.append(
+            {
+                "key": key,
+                "label": label,
+                "amount_cny": amount,
+                "running_nav_cny": running,
+                "formula": formula,
+            }
+        )
+    steps.append(
+        {
+            "key": "ending_nav",
+            "label": "Ending NAV",
+            "amount_cny": ending_nav_cny,
+            "running_nav_cny": running,
+            "formula": "beginning NAV + external cashflow + investment effect + residual",
+            "is_balanced": abs(running - ending_nav_cny) < Decimal("0.01"),
+        }
+    )
+    return steps
+
+
+def _terminal_account_items(terminal_account_values: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [
+        {
+            "account_code": str(account_code),
+            "amount_cny": _dec(amount),
+        }
+        for account_code, amount in (terminal_account_values or {}).items()
+    ]
+    rows.sort(key=lambda item: abs(item["amount_cny"]), reverse=True)
+    return rows
+
+
+def _bridge_quality(
+    *,
+    bridge: dict[str, Any],
+    investment_attribution_gap_cny: Decimal,
+    checks: list[dict[str, Any]],
+    tolerance_cny: Decimal = Decimal("100"),
+) -> dict[str, Any]:
+    residual = _dec(bridge.get("unexplained_residual_cny"))
+    blocking_checks = [item for item in checks if item.get("status") != "ok"]
+    investment_gap_issue = abs(investment_attribution_gap_cny) >= tolerance_cny
+    if investment_gap_issue:
+        blocking_checks.append(
+            {
+                "code": "investment_attribution_gap",
+                "label": "Investment attribution gap",
+                "status": "mismatch",
+                "gap_cny": investment_attribution_gap_cny,
+                "note": "NAV period investment effect is not fully explained by return attribution.",
+            }
+        )
+    residual_issue = abs(residual) >= tolerance_cny
+    status = "ok" if not residual_issue and not blocking_checks else "unreconciled"
+    return {
+        "status": status,
+        "unexplained_residual_cny": residual,
+        "investment_attribution_gap_cny": investment_attribution_gap_cny,
+        "investment_attribution_explained": not investment_gap_issue,
+        "blocking_checks": blocking_checks,
+    }
+
+
 def build_nav_growth_explanation_from_inputs(
     *,
     beginning_nav_cny: Decimal,
@@ -723,6 +828,7 @@ def build_equity_bridge_payload(
         attribution_reconciliation_pnl_cny=attribution_reconciliation_pnl,
         bridge=bridge,
     )
+    investment_attribution_gap = period_investment_effect - attribution_pnl
     payload = {
         "start": start_date,
         "end": terminal_date,
@@ -736,6 +842,14 @@ def build_equity_bridge_payload(
         "valuation_state_source": "computed_current",
         "nav_series_method": nav_payload.get("method"),
         "reconciliation": bridge,
+        "reconciliation_steps": build_nav_bridge_steps_from_inputs(
+            beginning_nav_cny=beginning_nav,
+            external_cashflow_cny=_dec(cashflows["external_net_cny"]),
+            period_investment_effect_cny=period_investment_effect,
+            unexplained_residual_cny=_dec(bridge["unexplained_residual_cny"]),
+            ending_nav_cny=ending_nav,
+        ),
+        "terminal_account_values": _terminal_account_items(terminal_account_values),
         "cashflows": cashflows,
         "investment": {
             "period_investment_effect_cny": period_investment_effect,
@@ -754,10 +868,11 @@ def build_equity_bridge_payload(
         },
         "data_checks": checks,
         "quality": {
-            "status": "ok" if bridge["is_reconciled"] else "unreconciled",
-            "unexplained_residual_cny": bridge["unexplained_residual_cny"],
-            "investment_attribution_gap_cny": period_investment_effect - attribution_pnl,
-            "blocking_checks": [item for item in checks if item.get("status") != "ok"],
+            **_bridge_quality(
+                bridge=bridge,
+                investment_attribution_gap_cny=investment_attribution_gap,
+                checks=checks,
+            )
         },
         "growth_explanation": growth_explanation,
     }

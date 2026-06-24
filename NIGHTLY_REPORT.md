@@ -1,5 +1,49 @@
 # PAMS Autonomous Improvement Report
 
+## 2026-06-24
+
+### 本轮目标
+
+- 先保存当前资产与收益数据底稿，再做小范围后端口径修正。
+- 修正 PortfolioState、NAV bridge、收益归因之间的净值口径漂移。
+- 每完成一项改动后自检，禁止用前端临时计算掩盖后端数据问题。
+
+### 已保存底稿
+
+- 开工底稿：`.codex-artifacts/audits/baseline-20260624-163222`
+- 改后快照：`.codex-artifacts/audits/after-20260624-165136`
+
+### 已修复问题
+
+- `PortfolioState` 的投资交易组件改为读取 `pams_investment_trade_fact`，不再依赖旧的空表口径；当前运行态读取到 331 笔投资交易。
+- `PortfolioState` 的估值序列改为读取 `pams_portfolio_valuation_state`，并保留投资市值、总盈亏、收益率等统一字段。
+- 数据质量接口新增结构化检查：组件覆盖、账户余额缺失、持仓日期缺失、估值序列滞后、外币汇率缺失。
+- NAV bridge 新增可审计的逐步桥接：期初 NAV + 外部现金流 + 投资/估值影响 + 残差 = 期末 NAV。
+- 收益归因的 `portfolio_nav_cny` 改为使用统一 NAV 账户估值口径，避免 IBKR 等杠杆账户用总资产或账户余额重复统计。
+- NAV bridge 不再只看总残差为 0 就显示可信；若投资增值与收益归因仍有差额，会标记 `unreconciled`。
+
+### 当前审计结论
+
+- 运行态 `portfolio/state` 组件行数：账户余额 24、当前持仓 31、投资交易 331、现金流水 359、转账匹配 10、汇率 6、估值序列 1。
+- 运行态 NAV bridge：期初 NAV 798,725.37，期末 NAV 1,123,955.32。
+- 收益归因 `portfolio_nav_cny` 已对齐 NAV bridge 期末 NAV：1,123,955.32。
+- 数据质量状态为 `warning`：缺少 `alipay`、`gf_7443`、`gf_9711` 账户余额；估值序列日期仍滞后于当前持仓日期。
+- NAV bridge 状态仍为 `unreconciled`：投资增值与收益归因存在 63,366.72 元解释缺口。该缺口现在会被显式暴露，不再被隐藏为可信。
+
+### 验证记录
+
+- `python -m compileall -q backend\api\services`
+- `python -m pytest tests/test_portfolio_state_contract.py tests/test_portfolio_valuation_state.py tests/test_valuation_nav_service.py tests/test_portfolio_equity_bridge.py tests/test_return_attribution.py tests/test_cashflow_fact_service.py tests/test_investment_trade_fact_service.py -q`
+- 结果：98 passed。
+- `docker compose up -d --build pams-api`
+- 运行态 smoke：`/health` 返回 ok，`/api/portfolio/state`、`/api/portfolio/data-quality`、`/api/portfolio/equity-bridge`、`/api/analysis/return-attribution` 均可返回。
+
+### 下一轮建议
+
+1. 继续追 NAV 投资归因缺口 63,366.72 元，优先检查已清仓/已实现盈亏、历史估值快照和期初持仓回溯。
+2. 补齐或显式排除 `alipay`、`gf_7443`、`gf_9711` 账户余额，降低数据质量 warning。
+3. 补齐连续估值序列，让 NAV 曲线不再依赖单日估值状态。
+
 ## 2026-06-23
 
 ### 本轮目标

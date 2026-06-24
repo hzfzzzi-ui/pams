@@ -156,8 +156,16 @@ def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(
         return_attribution,
         "load_account_balances",
         lambda cur, base_currency, account_cfg: [
-            {"amount_cny": 120.0, "include_in_nav": True},
-            {"amount_cny": 999.0, "include_in_nav": False},
+            {"account_code": "cash_account", "amount_cny": 20.0, "include_in_nav": True},
+            {"account_code": "tonghuashun", "amount_cny": 999.0, "include_in_nav": True},
+            {"account_code": "ignored", "amount_cny": 999.0, "include_in_nav": False},
+        ],
+    )
+    monkeypatch.setattr(
+        return_attribution,
+        "load_investment_positions",
+        lambda cur, base_currency, account_cfg, account_balances=None: [
+            {"account_code": "tonghuashun", "market_value_cny": 100.0}
         ],
     )
     monkeypatch.setattr(return_attribution, "derive_lookthrough_payload", fake_derive_lookthrough)

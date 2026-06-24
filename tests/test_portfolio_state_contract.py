@@ -21,7 +21,9 @@ from services.portfolio_state import (  # noqa: E402
     build_data_quality_payload_from_parts,
     build_portfolio_state_from_parts,
     load_account_balances,
+    load_investment_transactions,
     load_investment_positions,
+    load_valuation_series,
 )
 
 
@@ -146,6 +148,45 @@ def test_portfolio_state_data_quality_reports_coverage_freshness_and_missing_ite
     assert "cash_transactions" in quality["missing"]["components_without_rows"]
 
 
+def test_portfolio_state_data_quality_flags_stale_valuation_and_missing_fx():
+    state = build_portfolio_state_from_parts(
+        as_of=date(2026, 6, 24),
+        base_currency="CNY",
+        account_balances=[
+            {
+                "account_code": "ibkr",
+                "amount_cny": Decimal("700"),
+                "currency": "USD",
+                "as_of": date(2026, 6, 24),
+                "review_status": "reviewed",
+            }
+        ],
+        investment_positions=[
+            {
+                "account_code": "ibkr",
+                "asset_id": "GOOG",
+                "currency": "USD",
+                "market_value_cny": Decimal("700"),
+                "as_of": date(2026, 6, 24),
+            }
+        ],
+        valuation_series=[
+            {
+                "date": date(2026, 6, 18),
+                "net_worth_cny": Decimal("1000"),
+            }
+        ],
+        fx_rates=[],
+    )
+
+    checks = {check["id"]: check for check in state["data_quality"]["checks"]}
+
+    assert checks["valuation_series_freshness"]["status"] == "attention"
+    assert checks["fx_rate_coverage"]["severity"] == "error"
+    assert checks["fx_rate_coverage"]["details"]["missing_currencies"] == ["USD"]
+    assert state["data_quality"]["summary"]["status"] == "error"
+
+
 def test_data_quality_payload_is_lightweight_and_contract_stable():
     payload = build_data_quality_payload_from_parts(
         as_of=date(2026, 5, 31),
@@ -167,6 +208,76 @@ def test_data_quality_payload_is_lightweight_and_contract_stable():
     assert set(DATA_QUALITY_FIELDS).issubset(payload["data_quality"])
     assert "account_balances" not in payload
     assert payload["data_quality"]["coverage"]["account_balances"] == {"rows": 1, "has_data": True}
+
+
+def test_load_investment_transactions_reads_trade_fact_table_first():
+    cur = FakeCursor(
+        [
+            {"table_name": "pams_investment_trade_fact"},
+            {"table_name": "pams_fx_rates_daily"},
+            [{"quote_currency": "USD", "rate": Decimal("7.2")}],
+            [
+                {
+                    "account_code": "ibkr",
+                    "trade_date": date(2026, 6, 24),
+                    "symbol": "GOOG",
+                    "name": "ALPHABET INC",
+                    "side": "buy",
+                    "quantity": Decimal("1"),
+                    "price": Decimal("100"),
+                    "gross_amount": Decimal("100"),
+                    "fees": Decimal("1.5"),
+                    "currency": "USD",
+                    "source": "ibkr_flex",
+                    "source_key": "ibkr-1",
+                    "trade_type": "trade",
+                    "net_cash": Decimal("-101.5"),
+                    "net_cash_cny": Decimal("-730.8"),
+                    "realized_pnl_cny": Decimal("0"),
+                }
+            ],
+        ]
+    )
+
+    rows = load_investment_transactions(cur, base_currency="CNY")
+
+    assert rows[0]["symbol"] == "GOOG"
+    assert rows[0]["fees"] == Decimal("1.5")
+    assert rows[0]["gross_amount_cny"] == Decimal("720.0")
+    assert "pams_investment_trade_fact" in cur.executed[-1][0]
+
+
+def test_load_valuation_series_reads_portfolio_valuation_state():
+    cur = FakeCursor(
+        [
+            {"table_name": "pams_portfolio_valuation_state"},
+            [
+                {
+                    "valuation_date": date(2026, 6, 24),
+                    "assets_cny": Decimal("1200"),
+                    "liabilities_cny": Decimal("200"),
+                    "net_liquidation_value": Decimal("1000"),
+                    "investment_value_cny": Decimal("800"),
+                    "total_pnl_cny": Decimal("100"),
+                }
+            ],
+        ]
+    )
+
+    rows = load_valuation_series(cur, base_currency="CNY")
+
+    assert rows == [
+        {
+            "date": date(2026, 6, 24),
+            "assets_cny": Decimal("1200"),
+            "liabilities_cny": Decimal("200"),
+            "net_worth_cny": Decimal("1000"),
+            "investment_value_cny": Decimal("800"),
+            "investment_cost_cny": Decimal("700"),
+            "investment_pnl_cny": Decimal("100"),
+            "investment_return_rate": Decimal("0.1428571428571428571428571429"),
+        }
+    ]
 
 
 class FakeCursor:

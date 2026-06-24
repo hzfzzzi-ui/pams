@@ -823,6 +823,41 @@ def _synthetic_broker_cash_positions(
 
 def load_investment_transactions(cur, base_currency: str, limit: int = 5000) -> list[dict[str, Any]]:
     """Load normalized investment transactions used by return and cost calculations."""
+    if _table_exists(cur, "pams_investment_trade_fact"):
+        fx_rates = _latest_fx_rates(cur, base_currency)
+        cur.execute(
+            """
+            SELECT account_code,
+                   trade_date,
+                   symbol,
+                   name,
+                   COALESCE(side, trade_type) AS side,
+                   quantity,
+                   price,
+                   gross_amount,
+                   (COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0)) AS fees,
+                   currency,
+                   COALESCE(source_table, 'pams_investment_trade_fact') AS source,
+                   COALESCE(source_key, trade_id::text) AS source_key,
+                   trade_type,
+                   net_cash,
+                   net_cash_cny,
+                   realized_pnl_cny
+            FROM pams_investment_trade_fact
+            WHERE COALESCE(review_status, '') <> 'deleted'
+            ORDER BY trade_date DESC, trade_time DESC NULLS LAST, trade_id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            currency = str(item.get("currency") or base_currency).upper()
+            item["gross_amount_cny"] = _dec(item.get("gross_amount")) * _fx_rate(fx_rates, currency, base_currency)
+            rows.append(item)
+        return rows
+
     if not _table_exists(cur, "pams_investment_transactions"):
         return []
     fx_rates = _latest_fx_rates(cur, base_currency)
@@ -899,8 +934,61 @@ def load_fx_rates(cur, base_currency: str) -> list[dict[str, Any]]:
     return rows
 
 
-def load_valuation_series(cur, limit: int = 370) -> list[dict[str, Any]]:
+def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> list[dict[str, Any]]:
     """Load available valuation rows and project them to the valuation series contract."""
+    if _table_exists(cur, "pams_portfolio_valuation_state"):
+        cur.execute(
+            """
+            WITH ranked AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY valuation_date
+                           ORDER BY
+                               CASE WHEN status = 'published' THEN 0 ELSE 1 END,
+                               published_at DESC NULLS LAST,
+                               updated_at DESC NULLS LAST
+                       ) AS rn
+                FROM pams_portfolio_valuation_state
+                WHERE base_currency = %s
+            )
+            SELECT valuation_date,
+                   assets_cny,
+                   liabilities_cny,
+                   net_liquidation_value,
+                   investment_value_cny,
+                   total_pnl_cny
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY valuation_date DESC
+            LIMIT %s
+            """,
+            (base_currency, limit),
+        )
+        raw_rows = list(reversed([dict(r) for r in cur.fetchall()]))
+        rows: list[dict[str, Any]] = []
+        for raw in raw_rows:
+            investment_value = raw.get("investment_value_cny")
+            investment_pnl = raw.get("total_pnl_cny")
+            investment_cost = None
+            return_rate = None
+            if investment_value is not None and investment_pnl is not None:
+                investment_cost = _dec(investment_value) - _dec(investment_pnl)
+                if abs(investment_cost) >= Decimal("0.01"):
+                    return_rate = _dec(investment_pnl) / investment_cost
+            rows.append(
+                {
+                    "date": raw.get("valuation_date"),
+                    "assets_cny": raw.get("assets_cny"),
+                    "liabilities_cny": raw.get("liabilities_cny"),
+                    "net_worth_cny": raw.get("net_liquidation_value"),
+                    "investment_value_cny": investment_value,
+                    "investment_cost_cny": investment_cost,
+                    "investment_pnl_cny": investment_pnl,
+                    "investment_return_rate": return_rate,
+                }
+            )
+        return rows
+
     if not _table_exists(cur, "pams_nav_daily"):
         return []
     cur.execute(
@@ -982,6 +1070,120 @@ def _freshness(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _quality_check(
+    check_id: str,
+    *,
+    status: str,
+    severity: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "status": status,
+        "severity": severity,
+        "message": message,
+        "details": details or {},
+    }
+
+
+def _quality_summary(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    error_count = sum(1 for check in checks if check.get("severity") == "error" and check.get("status") != "ok")
+    warning_count = sum(1 for check in checks if check.get("severity") == "warning" and check.get("status") != "ok")
+    if error_count:
+        status = "error"
+    elif warning_count:
+        status = "warning"
+    else:
+        status = "ok"
+    return {
+        "status": status,
+        "check_count": len(checks),
+        "error_count": error_count,
+        "warning_count": warning_count,
+    }
+
+
+def _quality_checks(
+    *,
+    coverage: dict[str, dict[str, Any]],
+    freshness: dict[str, dict[str, Any]],
+    missing_accounts: list[str],
+    positions_missing_as_of: list[str],
+    account_balances: list[dict[str, Any]],
+    investment_positions: list[dict[str, Any]],
+    fx_rates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    missing_components = [name for name, item in coverage.items() if not item.get("has_data")]
+    checks.append(
+        _quality_check(
+            "component_coverage",
+            status="attention" if missing_components else "ok",
+            severity="warning",
+            message="PortfolioState components should have rows before pages rely on them.",
+            details={"missing_components": missing_components},
+        )
+    )
+
+    checks.append(
+        _quality_check(
+            "account_balance_coverage",
+            status="attention" if missing_accounts else "ok",
+            severity="warning",
+            message="Accounts marked missing_data need statement or manual balance confirmation.",
+            details={"missing_accounts": missing_accounts},
+        )
+    )
+
+    checks.append(
+        _quality_check(
+            "position_freshness",
+            status="attention" if positions_missing_as_of else "ok",
+            severity="warning",
+            message="Investment positions should carry an as_of date.",
+            details={"positions_missing_as_of": positions_missing_as_of[:20]},
+        )
+    )
+
+    position_latest = (freshness.get("investment_positions") or {}).get("latest_as_of")
+    valuation_latest = (freshness.get("valuation_series") or {}).get("latest_as_of")
+    valuation_stale = bool(position_latest and valuation_latest and valuation_latest < position_latest)
+    checks.append(
+        _quality_check(
+            "valuation_series_freshness",
+            status="attention" if valuation_stale else "ok",
+            severity="warning",
+            message="Valuation series should not lag current investment positions.",
+            details={
+                "investment_positions_latest_as_of": position_latest,
+                "valuation_series_latest_as_of": valuation_latest,
+            },
+        )
+    )
+
+    base_currency = "CNY"
+    required_currencies = {
+        str(row.get("currency") or row.get("base_currency") or base_currency).upper()
+        for row in [*account_balances, *investment_positions]
+        if row.get("currency") or row.get("base_currency")
+    }
+    quoted_currencies = {str(row.get("quote_currency") or "").upper() for row in fx_rates}
+    missing_fx = sorted(c for c in required_currencies if c and c != base_currency and c not in quoted_currencies)
+    checks.append(
+        _quality_check(
+            "fx_rate_coverage",
+            status="attention" if missing_fx else "ok",
+            severity="error",
+            message="All non-CNY balances and positions need a current FX rate.",
+            details={"missing_currencies": missing_fx},
+        )
+    )
+
+    return checks
+
+
 def build_data_quality(
     *,
     account_balances: list[dict[str, Any]],
@@ -1012,20 +1214,33 @@ def build_data_quality(
         for row in investment_positions
         if not row.get("as_of")
     ]
+    coverage = {
+        name: {
+            "rows": len(rows),
+            "has_data": bool(rows),
+        }
+        for name, rows in components.items()
+    }
+    freshness = {name: _freshness(rows) for name, rows in components.items()}
+    checks = _quality_checks(
+        coverage=coverage,
+        freshness=freshness,
+        missing_accounts=missing_accounts,
+        positions_missing_as_of=positions_missing_as_of,
+        account_balances=account_balances,
+        investment_positions=investment_positions,
+        fx_rates=fx_rates,
+    )
     return {
-        "coverage": {
-            name: {
-                "rows": len(rows),
-                "has_data": bool(rows),
-            }
-            for name, rows in components.items()
-        },
-        "freshness": {name: _freshness(rows) for name, rows in components.items()},
+        "coverage": coverage,
+        "freshness": freshness,
         "missing": {
             "account_balances_missing_data": missing_accounts,
             "investment_positions_missing_as_of": positions_missing_as_of,
             "components_without_rows": [name for name, rows in components.items() if not rows],
         },
+        "checks": checks,
+        "summary": _quality_summary(checks),
     }
 
 
@@ -1121,7 +1336,7 @@ def load_portfolio_state_parts(
             cash_transactions = load_cash_transactions(cur)
             transfer_matches = load_transfer_matches(cur)
             fx_rates = load_fx_rates(cur, base)
-            valuation_series = load_valuation_series(cur)
+            valuation_series = load_valuation_series(cur, base_currency=base)
 
     as_of_values = []
     for row in account_balances:
