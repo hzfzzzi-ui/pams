@@ -360,27 +360,47 @@ def ensure_fund_nav_estimate_table(cur) -> None:
 
 
 def load_latest_active_fund_holdings(cur) -> list[dict[str, Any]]:
-    """Load active A-share fund holdings from each account's latest snapshot date."""
+    """Load each active A-share fund from its own latest snapshot date."""
     cur.execute(
         """
-        WITH latest_account AS (
-            SELECT account_code, MAX(as_of) AS as_of
+        WITH latest_fund_snapshot AS (
+            SELECT MAX(as_of) AS as_of
             FROM pams_holdings_snapshot
             WHERE major_category = 'A股'
               AND minor_category = 'A股基金'
               AND asset_liability = '资产'
-            GROUP BY account_code
+        ), ranked_holdings AS (
+            SELECT
+                h.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY h.account_code, h.symbol, h.name
+                    ORDER BY h.as_of DESC, h.id DESC
+                ) AS rn
+            FROM pams_holdings_snapshot h
+            CROSS JOIN latest_fund_snapshot latest
+            WHERE major_category = 'A股'
+              AND minor_category = 'A股基金'
+              AND asset_liability = '资产'
+              AND latest.as_of IS NOT NULL
+              AND h.as_of >= latest.as_of - INTERVAL '14 days'
         )
         SELECT h.id, h.account_code, h.symbol, h.name, h.asset_liability, h.currency,
                h.major_category, h.minor_category, h.market_value, h.cost, h.as_of,
-               h.quantity, h.buy_price, h.current_price
-        FROM pams_holdings_snapshot h
-        JOIN latest_account la
-          ON la.account_code = h.account_code
-         AND la.as_of = h.as_of
-        WHERE h.major_category = 'A股'
-          AND h.minor_category = 'A股基金'
-          AND h.asset_liability = '资产'
+               h.quantity, h.buy_price, h.current_price,
+               COALESCE(h.asset_id, matched_asset.asset_id) AS asset_id
+        FROM ranked_holdings h
+        LEFT JOIN LATERAL (
+            SELECT am.asset_id
+            FROM pams_asset_master am
+            WHERE am.status = 'active'
+              AND am.primary_symbol = LPAD(h.symbol, 6, '0')
+              AND am.asset_type IN ('ETF / 基金', 'fund_cn', 'fund', '基金')
+            ORDER BY
+                CASE WHEN am.asset_type = 'ETF / 基金' THEN 0 ELSE 1 END,
+                am.updated_at DESC
+            LIMIT 1
+        ) matched_asset ON TRUE
+        WHERE h.rn = 1
           AND COALESCE(h.market_value, 0) >= 0
           AND h.symbol IS NOT NULL
           AND h.symbol <> ''
@@ -520,11 +540,11 @@ def insert_or_update_generated_snapshot(
             INSERT INTO pams_holdings_snapshot (
                 symbol, name, asset_liability, currency, account_code,
                 major_category, minor_category, market_value, cost, as_of,
-                quantity, buy_price, current_price
+                quantity, buy_price, current_price, asset_id
             ) VALUES (
                 %(symbol)s, %(name)s, '资产', 'CNY', %(account_code)s,
                 'A股', 'A股基金', %(market_value)s, %(cost)s, %(as_of)s,
-                %(quantity)s, %(buy_price)s, %(current_price)s
+                %(quantity)s, %(buy_price)s, %(current_price)s, %(asset_id)s
             )
             ON CONFLICT (account_code, name, as_of) DO UPDATE SET
                 symbol = EXCLUDED.symbol,
@@ -533,6 +553,7 @@ def insert_or_update_generated_snapshot(
                 quantity = EXCLUDED.quantity,
                 buy_price = EXCLUDED.buy_price,
                 current_price = EXCLUDED.current_price,
+                asset_id = COALESCE(EXCLUDED.asset_id, pams_holdings_snapshot.asset_id),
                 updated_at = now()
             """,
             {
@@ -545,6 +566,7 @@ def insert_or_update_generated_snapshot(
                 "quantity": units,
                 "buy_price": buy_price,
                 "current_price": unit_nav,
+                "asset_id": holding.get("asset_id"),
             },
         )
         return True
@@ -554,11 +576,11 @@ def insert_or_update_generated_snapshot(
         INSERT INTO pams_holdings_snapshot (
             symbol, name, asset_liability, currency, account_code,
             major_category, minor_category, market_value, cost, as_of,
-            quantity, buy_price, current_price
+            quantity, buy_price, current_price, asset_id
         ) VALUES (
             %(symbol)s, %(name)s, '资产', 'CNY', %(account_code)s,
             'A股', 'A股基金', %(market_value)s, %(cost)s, %(as_of)s,
-            %(quantity)s, %(buy_price)s, %(current_price)s
+            %(quantity)s, %(buy_price)s, %(current_price)s, %(asset_id)s
         )
         ON CONFLICT (account_code, name, as_of) DO NOTHING
         """,
@@ -572,6 +594,7 @@ def insert_or_update_generated_snapshot(
             "quantity": units,
             "buy_price": buy_price,
             "current_price": unit_nav,
+            "asset_id": holding.get("asset_id"),
         },
     )
     return cur.rowcount > 0

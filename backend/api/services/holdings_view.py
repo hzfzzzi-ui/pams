@@ -380,6 +380,7 @@ def build_api_holdings_latest_payload(
         f"""
         SELECT
             id, symbol, name, asset_liability, currency, account_code,
+            asset_id,
             major_category, minor_category, market_value, cost, holding_pnl,
             as_of, created_at, updated_at
         FROM pams_holdings_snapshot
@@ -1213,7 +1214,7 @@ def build_holdings_latest_payload(
         SELECT
             h.account_code AS account,
             h.minor_category AS type,
-            h.symbol, h.name, h.asset_liability, h.currency,
+            h.symbol, h.name, h.asset_id, h.asset_liability, h.currency,
             eff.market_value AS market_value,
             eff.market_value AS market_value_native,
             eff.market_value * COALESCE(fx.rate, 1) AS market_value_cny,
