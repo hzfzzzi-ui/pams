@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 import requests
+from services.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 
 
 MONEY = Decimal("0.01")
@@ -520,6 +521,25 @@ def upsert_asset_market_daily_nav(
             "confidence": "high" if source == "tushare_fund_nav" else "medium",
             "raw_json": psycopg2.extras.Json(raw),
         },
+    )
+    upsert_quote_snapshot(
+        cur,
+        quote_snapshot_from_market_daily(
+            {
+                "as_of": as_of,
+                "asset_id": holding.get("asset_id"),
+                "symbol": symbol,
+                "name": holding["name"],
+                "market": "\u57fa\u91d1",
+                "currency": "CNY",
+                "provider": source.split("_")[0] if source else "fund",
+                "source": source,
+                "source_key": source_key,
+                "unit_nav": unit_nav,
+                "estimated_unit_nav": estimated_unit_nav,
+                "raw_json": raw,
+            }
+        ),
     )
 
 

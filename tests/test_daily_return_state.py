@@ -94,6 +94,26 @@ def test_quote_snapshot_from_market_daily_marks_confirmed_fund_nav() -> None:
     assert quote["price"] == Decimal("1.4889")
 
 
+def test_quote_snapshot_from_market_daily_prefers_estimated_fund_nav() -> None:
+    quote = quote_snapshot_from_market_daily(
+        {
+            "as_of": date(2026, 6, 25),
+            "asset_id": "FUND_001412",
+            "symbol": "001412",
+            "market": "\u57fa\u91d1",
+            "currency": "CNY",
+            "source": "tiantian_fundgz_estimate",
+            "source_key": "001412",
+            "unit_nav": Decimal("1.4889"),
+            "estimated_unit_nav": Decimal("1.5012"),
+        }
+    )
+
+    assert quote["return_status"] == RETURN_STATUS_ESTIMATED
+    assert quote["quote_session"] == "nav"
+    assert quote["price"] == Decimal("1.5012")
+
+
 def test_daily_pnl_row_from_holding_preserves_backend_status_and_values() -> None:
     row = daily_pnl_row_from_holding(
         {
