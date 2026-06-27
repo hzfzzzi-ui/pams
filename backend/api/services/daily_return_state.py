@@ -173,13 +173,6 @@ def asset_key(row: dict[str, Any]) -> str:
 
 def quote_snapshot_from_market_daily(row: dict[str, Any]) -> dict[str, Any]:
     """Build a canonical quote snapshot from pams_asset_market_daily-like rows."""
-    price = (
-        row.get("close_price")
-        if row.get("close_price") not in (None, "")
-        else row.get("unit_nav")
-        if row.get("unit_nav") not in (None, "")
-        else row.get("estimated_unit_nav")
-    )
     source = row.get("source")
     market = row.get("market")
     status = normalize_return_status(
@@ -188,6 +181,16 @@ def quote_snapshot_from_market_daily(row: dict[str, Any]) -> dict[str, Any]:
         market=market,
         quote_session=row.get("quote_session"),
     )
+    if status == RETURN_STATUS_ESTIMATED and row.get("estimated_unit_nav") not in (None, ""):
+        price = row.get("estimated_unit_nav")
+    else:
+        price = (
+            row.get("close_price")
+            if row.get("close_price") not in (None, "")
+            else row.get("unit_nav")
+            if row.get("unit_nav") not in (None, "")
+            else row.get("estimated_unit_nav")
+        )
     payload = {
         "quote_date": row.get("as_of") or row.get("quote_date"),
         "asset_id": row.get("asset_id"),

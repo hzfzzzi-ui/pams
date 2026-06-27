@@ -19,7 +19,8 @@ import json as json_mod
 import urllib.request
 import logging
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -27,6 +28,7 @@ import psycopg2.extras
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from services.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from services.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
 from services.price_history import (
     build_price_series_payload,
@@ -238,6 +240,47 @@ def _upsert_cn_a_closes(rows: List[dict], prices: Dict[str, float], as_of) -> in
             """, payload)
             conn.commit()
             return len(payload)
+
+
+def _upsert_daily_return_quote_snapshots(
+    rows: List[dict[str, Any]],
+    prices: Dict[str, float],
+    as_of,
+    *,
+    source: str,
+    market: str,
+    currency: str = "CNY",
+) -> int:
+    """Mirror refreshed public prices into the canonical daily return state."""
+    if not rows or not prices:
+        return 0
+
+    written = 0
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            for row in rows:
+                symbol = str(row.get("symbol") or "")
+                if symbol not in prices:
+                    continue
+                quote_symbol = _a_stock_quote_symbol(symbol) or symbol
+                quote = quote_snapshot_from_market_daily(
+                    {
+                        "as_of": as_of,
+                        "asset_id": row.get("asset_id"),
+                        "symbol": symbol,
+                        "name": row.get("name"),
+                        "market": market,
+                        "currency": row.get("currency") or currency,
+                        "provider": source.split("_")[0] if source else "market",
+                        "source": source,
+                        "source_key": f"{source}:{quote_symbol}:{as_of.isoformat()}",
+                        "close_price": Decimal(str(prices[symbol])),
+                    }
+                )
+                upsert_quote_snapshot(cur, quote)
+                written += 1
+            conn.commit()
+    return written
 
 
 def _upsert_yfinance_closes(rows: List[dict]) -> int:
@@ -674,8 +717,16 @@ def _refresh_category(
         updates.append((new_price, new_mv, h["id"]))
 
     updated = _upsert_price_snapshots(holdings, prices, target_as_of)
+    daily_quote_rows = 0
     if category == "A股":
         close_rows = _upsert_cn_a_closes(holdings, prices, target_as_of)
+        daily_quote_rows = _upsert_daily_return_quote_snapshots(
+            holdings,
+            prices,
+            target_as_of,
+            source="tencent_a_stock_close",
+            market="CN_A",
+        )
 
     return {
         "category": category,
@@ -684,6 +735,7 @@ def _refresh_category(
         "found": len(holdings),
         "updated": updated,
         "close_rows": close_rows,
+        "daily_quote_rows": daily_quote_rows,
         "errors": errors,
     }
 
