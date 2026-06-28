@@ -288,6 +288,22 @@ def test_mobile_holdings_primary_amount_uses_cost_basis() -> None:
     assert "formatCompactCurrency(value)" not in mobile_renderer
 
 
+def test_a_stock_account_total_pnl_drives_profile_summary() -> None:
+    """A-share account cards should display account-level total PnL, not row-only holding PnL."""
+
+    js = _read_public("assets/js/holdings_categories.js")
+    summary_block = js.split("const aStockSummary = aStockAccountSummary", 1)[1].split(
+        "const fundDisplaySummary",
+        1,
+    )[0]
+    profile_block = js.split("'A股个股': {", 1)[1].split("miniMetrics:", 1)[0]
+
+    assert "totalPnl: aStockAccountSummary.accountTotalPnl" in summary_block
+    assert "totalReturnRate: aStockAccountSummary.accountReturnRate" in summary_block
+    assert "displayReturnRate: aStockAccountSummary.accountReturnRate" in summary_block
+    assert profile_block.index("aStockSummary.accountReturnRate") < profile_block.index("aStockSummary.holdingReturnRate")
+
+
 def test_legacy_frontend_entrypoints_stay_removed() -> None:
     legacy_pages = [
         "bank_reconcile.html",
@@ -735,7 +751,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
-    assert "assets/js/holdings_categories.js?v=20260623-nav-growth-more-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v1" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
@@ -1457,7 +1473,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260623-nav-growth-more-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v1" in ui_js
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js

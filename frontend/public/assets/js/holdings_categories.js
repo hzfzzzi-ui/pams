@@ -574,8 +574,9 @@ function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: safeNum(aStockSummary.totalPnl),
       totalRate: safeNum(
-        aStockSummary.holdingReturnRate ??
+        aStockSummary.accountReturnRate ??
         aStockSummary.displayReturnRate ??
+        aStockSummary.holdingReturnRate ??
         categoryByLabel(categories, 'A股个股').totalReturnRate
       ),
       share: aStockValue / portfolioValue,
@@ -3101,8 +3102,10 @@ async function main(){
           ? aStockAccountSummary.dailyPnl
           : aStockRowsSummary.dailyTotalPnl,
         dailyPnlEffective: aStockAccountDailyPnlEffective,
+        totalPnl: aStockAccountSummary.accountTotalPnl,
+        totalReturnRate: aStockAccountSummary.accountReturnRate,
         holdingReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
-        displayReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
+        displayReturnRate: aStockAccountSummary.accountReturnRate,
         returnRateLabel: '持仓收益率',
         activeHoldingPnl: aStockHoldingRateSummary.activeHoldingPnl,
         activeTotalCost: aStockHoldingRateSummary.activeTotalCost,

@@ -1,5 +1,26 @@
 # PAMS Autonomous Improvement Report
 
+## 2026-06-28 追加：A股账户总盈亏绑定修复
+
+### 本轮目标
+
+- 修复持仓页 A 股账户顶部“总盈亏”显示退回持仓口径的问题。
+- 保持后端 API、数据库、事实表和持仓行展示不变，只修正前端汇总字段绑定。
+
+### 已修复问题
+
+- `holdings_categories.js` 中 A 股账户汇总现在显式将 `accountTotalPnl` 映射为通用 `totalPnl`，避免顶部卡片继续使用持仓行汇总盈亏。
+- A 股账户收益率优先使用 `accountReturnRate`，持仓收益率仅保留为行项目和持仓口径展示。
+- 同步提升 `holdings_categories.js` 静态资源版本号，避免浏览器继续加载旧缓存。
+- 新增前端静态契约测试，锁定 A 股账户卡必须使用账户级总盈亏。
+
+### 验证记录
+
+- `node --check frontend\public\assets\js\holdings_categories.js`
+- `python -m pytest tests/test_frontend_static_contract.py -q`
+- `docker compose --env-file C:\Users\hzfzzzi\openclaw\pams\.env up -d --build pams-web`
+- HTTP smoke：`/investments.html` 已引用 `holdings_categories.js?v=20260628-account-total-pnl-v1`，线上脚本包含账户级总盈亏映射。
+
 ## 2026-06-28
 
 ### 本轮目标
