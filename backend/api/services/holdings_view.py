@@ -11,6 +11,14 @@ from decimal import Decimal
 from collections.abc import Mapping
 from typing import Any
 
+from services.daily_return_state import (
+    RETURN_STATUS_CONFIRMED,
+    RETURN_STATUS_ESTIMATED,
+    RETURN_STATUS_MIXED,
+    RETURN_STATUS_PENDING,
+    normalize_return_status,
+    return_status_label,
+)
 from services.holdings_positions import (
     _apply_owner_ratio,
     _closed_position_rows,
@@ -88,6 +96,11 @@ def _trade_fact_rows_available(cur) -> bool:
         return False
     cur.execute("SELECT EXISTS (SELECT 1 FROM pams_investment_trade_fact) AS has_rows")
     return _bool_field(cur.fetchone(), "has_rows")
+
+
+def _table_exists(cur, table_name: str) -> bool:
+    cur.execute("SELECT to_regclass(%s) IS NOT NULL AS exists", (f"public.{table_name}",))
+    return _bool_field(cur.fetchone(), "exists")
 
 
 def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -230,6 +243,165 @@ def _date_key(value: Any) -> str:
     if value in (None, ""):
         return ""
     return str(value)[:10]
+
+
+def _return_status_short_label(status: Any) -> str:
+    normalized = normalize_return_status(status)
+    if normalized == RETURN_STATUS_CONFIRMED:
+        return "已确认"
+    if normalized == RETURN_STATUS_ESTIMATED:
+        return "预估"
+    if normalized == RETURN_STATUS_MIXED:
+        return "部分预估"
+    return "未刷新"
+
+
+def _holding_return_status_keys(row: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for field in ("asset_id", "symbol", "name"):
+        value = str(row.get(field) or "").strip()
+        if value and value not in keys:
+            keys.append(value)
+    return keys
+
+
+def _latest_return_status_map(cur, rows: list[dict[str, Any]], view_as_of: Any) -> dict[str, dict[str, Any]]:
+    keys = sorted({key for row in rows for key in _holding_return_status_keys(row)})
+    if not keys:
+        return {}
+
+    status_by_key: dict[str, dict[str, Any]] = {}
+    view_key = _date_key(view_as_of)
+
+    if _table_exists(cur, "pams_market_quote_snapshot"):
+        cur.execute(
+            """
+            WITH latest AS (
+                SELECT
+                    COALESCE(NULLIF(asset_id, ''), NULLIF(symbol, ''), name) AS asset_key,
+                    asset_id, symbol, name,
+                    quote_date, return_status, source, provider, quote_session, market,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(NULLIF(asset_id, ''), NULLIF(symbol, ''), name)
+                        ORDER BY quote_date DESC, updated_at DESC, quote_id DESC
+                    ) AS rn
+                FROM pams_market_quote_snapshot
+                WHERE quote_date <= %s
+                  AND (
+                      asset_id = ANY(%s::text[])
+                      OR symbol = ANY(%s::text[])
+                      OR name = ANY(%s::text[])
+                  )
+            )
+            SELECT *
+            FROM latest
+            WHERE rn = 1
+            """,
+            (view_as_of, keys, keys, keys),
+        )
+        for raw in cur.fetchall():
+            row = dict(raw)
+            status = normalize_return_status(
+                row.get("return_status"),
+                source=row.get("source") or row.get("provider"),
+                market=row.get("market"),
+                quote_session=row.get("quote_session"),
+            )
+            status_info = {
+                "status": status,
+                "label": return_status_label(status),
+                "short_label": _return_status_short_label(status),
+                "as_of": row.get("quote_date"),
+                "source": row.get("source") or row.get("provider"),
+            }
+            for field in ("asset_key", "asset_id", "symbol", "name"):
+                asset_key = str(row.get(field) or "").strip()
+                if asset_key:
+                    status_by_key[asset_key] = status_info
+
+    missing_keys = [key for key in keys if key not in status_by_key]
+    if missing_keys and _table_exists(cur, "pams_asset_market_daily"):
+        cur.execute(
+            """
+            WITH latest AS (
+                SELECT
+                    COALESCE(NULLIF(asset_id, ''), NULLIF(symbol, ''), name) AS asset_key,
+                    asset_id, symbol, name,
+                    as_of AS quote_date, source, market,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(NULLIF(asset_id, ''), NULLIF(symbol, ''), name)
+                        ORDER BY as_of DESC, updated_at DESC
+                    ) AS rn
+                FROM pams_asset_market_daily
+                WHERE as_of <= %s
+                  AND (
+                      asset_id = ANY(%s::text[])
+                      OR symbol = ANY(%s::text[])
+                      OR name = ANY(%s::text[])
+                  )
+            )
+            SELECT *
+            FROM latest
+            WHERE rn = 1
+            """,
+            (view_as_of, missing_keys, missing_keys, missing_keys),
+        )
+        for raw in cur.fetchall():
+            row = dict(raw)
+            status = normalize_return_status(
+                source=row.get("source"),
+                market=row.get("market"),
+            )
+            status_info = {
+                "status": status,
+                "label": return_status_label(status),
+                "short_label": _return_status_short_label(status),
+                "as_of": row.get("quote_date"),
+                "source": row.get("source"),
+            }
+            for field in ("asset_key", "asset_id", "symbol", "name"):
+                asset_key = str(row.get(field) or "").strip()
+                if asset_key:
+                    status_by_key[asset_key] = status_info
+
+    # Rows beyond the requested date should never be shown as refreshed.
+    if view_key:
+        status_by_key = {
+            key: value
+            for key, value in status_by_key.items()
+            if not value.get("as_of") or _date_key(value.get("as_of")) <= view_key
+        }
+    return status_by_key
+
+
+def _apply_daily_return_status(cur, rows: list[dict[str, Any]], view_as_of: Any) -> list[dict[str, Any]]:
+    status_by_key = _latest_return_status_map(cur, rows, view_as_of)
+    for row in rows:
+        if row.get("daily_pnl_stale"):
+            status_info = {
+                "status": RETURN_STATUS_PENDING,
+                "label": return_status_label(RETURN_STATUS_PENDING),
+                "short_label": _return_status_short_label(RETURN_STATUS_PENDING),
+                "as_of": row.get("daily_pnl_as_of") or row.get("as_of") or row.get("snapshot_as_of"),
+                "source": None,
+            }
+        else:
+            status_info = next(
+                (status_by_key[key] for key in _holding_return_status_keys(row) if key in status_by_key),
+                {
+                    "status": RETURN_STATUS_PENDING,
+                    "label": return_status_label(RETURN_STATUS_PENDING),
+                    "short_label": _return_status_short_label(RETURN_STATUS_PENDING),
+                    "as_of": row.get("as_of") or row.get("snapshot_as_of"),
+                    "source": None,
+                },
+            )
+        row["daily_return_status"] = status_info["status"]
+        row["daily_return_status_label"] = status_info["label"]
+        row["daily_return_status_short_label"] = status_info["short_label"]
+        row["daily_return_status_as_of"] = status_info.get("as_of")
+        row["daily_return_status_source"] = status_info.get("source")
+    return rows
 
 
 def _drop_superseded_account_snapshot_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -389,7 +561,7 @@ def build_api_holdings_latest_payload(
         """,
         [*params, as_of, limit],
     )
-    rows = cur.fetchall()
+    rows = _apply_daily_return_status(cur, [dict(row) for row in cur.fetchall()], as_of)
 
     return {
         "as_of": as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of),
@@ -796,6 +968,7 @@ def build_holdings_by_category_payload(
         )
 
     rows = _suppress_stale_daily_pnl(rows, view_as_of, daily_pnl_start_as_of)
+    rows = _apply_daily_return_status(cur, rows, view_as_of)
     snapshot_dates = [row["as_of"] for row in rows if row.get("as_of") is not None]
     return {
         "as_of": view_as_of.isoformat() if hasattr(view_as_of, "isoformat") else str(view_as_of),
@@ -1437,6 +1610,7 @@ def build_holdings_latest_payload(
             )
 
     rows = _suppress_stale_daily_pnl(rows, view_as_of, daily_pnl_start_as_of)
+    rows = _apply_daily_return_status(cur, rows, view_as_of)
     snapshot_dates = [r["as_of"] for r in rows if r.get("as_of") is not None]
     return {
         "as_of": view_as_of.isoformat() if hasattr(view_as_of, "isoformat") else str(view_as_of),

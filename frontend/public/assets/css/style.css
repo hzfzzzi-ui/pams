@@ -6590,6 +6590,7 @@ details[open].compactDetails > summary {
 .miniBadge.pending { color: #d2a8ff; border-color: rgba(163,113,247,.38) }
 .miniBadge.ok { color: #7ee787; border-color: rgba(63,185,80,.35) }
 .miniBadge.data { color: #79c0ff; border-color: rgba(88,166,255,.35) }
+.page-investments .returnStatusBadge { margin-left: 6px; vertical-align: middle; }
 
 /* ---- Unified compact dashboard primitives ---- */
 .metricStrip {

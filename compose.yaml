@@ -120,7 +120,8 @@ services:
   # Minimal API to read holdings snapshots from Postgres
   pams-api:
     build:
-      context: ./backend/api
+      context: .
+      dockerfile: backend/api/Dockerfile
     container_name: pams-api
     restart: unless-stopped
     depends_on:

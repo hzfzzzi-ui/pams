@@ -12,7 +12,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-import pdfplumber
 import pandas as pd
 
 
@@ -58,6 +57,14 @@ class ParsedStatement:
     statement_end: date | None
     statement_balance: Decimal | None
     rows: list[dict[str, Any]]
+
+
+def _pdfplumber_module():
+    try:
+        import pdfplumber  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError("PDF statement parsing requires the optional dependency pdfplumber.") from exc
+    return pdfplumber
 
 
 def _to_decimal(value: Any) -> Decimal | None:
@@ -372,7 +379,7 @@ def parse_ccb_debit_pdf(path: Path, profile: dict[str, Any], since: date | None 
     statement_start: date | None = None
     statement_end: date | None = None
 
-    with pdfplumber.open(path) as pdf:
+    with _pdfplumber_module().open(path) as pdf:
         first_text = pdf.pages[0].extract_text() or ""
         acc_match = re.search(r"卡号/账号[:：]\s*(\d+)", first_text)
         if acc_match:
@@ -457,7 +464,7 @@ def parse_ccb_credit_pdf(path: Path, profile: dict[str, Any], since: date | None
     statement_end: date | None = None
     statement_balance: Decimal | None = None
 
-    with pdfplumber.open(path) as pdf:
+    with _pdfplumber_module().open(path) as pdf:
         first_text = pdf.pages[0].extract_text() or ""
         date_match = re.search(r"本期账单日\(Current Statement Date\)\s*(\d{8})", first_text)
         if date_match:
@@ -678,7 +685,7 @@ def parse_guangfa_credit_pdf(path: Path, profile: dict[str, Any], since: date | 
     statement_balance: Decimal | None = None
     current_tail: str | None = None
 
-    with pdfplumber.open(path) as pdf:
+    with _pdfplumber_module().open(path) as pdf:
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
         cycle_match = re.search(
             r"账单周期\s+(\d{4}/\d{2}/\d{2})\s*-\s*(\d{4}/\d{2}/\d{2})",
@@ -1047,7 +1054,7 @@ def parse_icbc_debit_pdf(path: Path, profile: dict[str, Any], since: date | None
     statement_end: date | None = None
     password = str(profile.get("pdf_password") or "")
 
-    with pdfplumber.open(path, password=password) as pdf:
+    with _pdfplumber_module().open(path, password=password) as pdf:
         first_text = pdf.pages[0].extract_text() or ""
         card_match = re.search(r"卡号\s*(\d+)", first_text)
         if card_match:

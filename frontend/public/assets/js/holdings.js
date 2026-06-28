@@ -62,6 +62,15 @@ function formatNativeDaily(value, currency) {
   return `${sign}${formatNumber(abs, digits)} ${ccy}`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function dailyFxText(row) {
   const fx = safeNum(cnyValue(row, 'daily_fx_pnl'));
   if (Math.abs(fx) <= 0.005) return '';
@@ -91,6 +100,16 @@ function dataBadge(row) {
   if (category === '贵金属' || String(row.minor_category || '').includes('基金')) return '<span class="miniBadge warn">需核准</span>';
   if (!row.current_price && !row.buy_price && !row.quantity) return '<span class="miniBadge pending">净值型</span>';
   return '<span class="muted">—</span>';
+}
+
+function returnStatusBadge(row, compact = false) {
+  const status = String(row?.daily_return_status || '').trim().toLowerCase();
+  if (!status || status === 'pending') return '';
+  const tone = status === 'confirmed' ? 'ok' : status === 'estimated' ? 'data' : 'warn';
+  const text = compact
+    ? (row.daily_return_status_short_label || row.daily_return_status_label || status)
+    : (row.daily_return_status_label || row.daily_return_status_short_label || status);
+  return `<span class="miniBadge returnStatusBadge ${tone}">${escapeHtml(text)}</span>`;
 }
 
 function showClosedPositions() {
@@ -248,7 +267,7 @@ function renderRows(rows, options = {}){
     tr.title = '点击查看完整字段';
     tr.innerHTML = `
       <td class="nowrap">${r.symbol||'—'}</td>
-      <td class="name" title="${String(r.name || '').replace(/"/g, '&quot;')}">${r.name||''}${closedBadge(r)}</td>
+      <td class="name" title="${escapeHtml(r.name || '')}">${escapeHtml(r.name || '')}${closedBadge(r)}${returnStatusBadge(r, true)}</td>
       <td>${groupLabel}</td>
       <td>${accountLabel(r.account || r.account_code || '')}</td>
       <td class="mono num">${formatCompactCurrency(value)}</td>
@@ -277,6 +296,7 @@ function renderRows(rows, options = {}){
           <div><strong>已实现</strong><span class="mono ${signedMoneyClass(realizedPnl(r))}">${formatSignedCurrency(realizedPnl(r))}</span></div>
           <div><strong>累计盈亏</strong><span class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</span></div>
           <div><strong>今日盈亏</strong><span class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</span></div>
+          <div><strong>收益状态</strong><span>${returnStatusBadge(r) || '<span class="muted">—</span>'}</span></div>
           <div><strong>份数</strong><span class="mono">${holdingQuantityText(r)}</span></div>
           <div><strong>剩余成本均价</strong><span class="mono">${holdingAveragePriceText(r)}</span></div>
           <div><strong>摊薄成本</strong><span class="mono">${dilutedAveragePriceText(r)}</span></div>
@@ -532,10 +552,10 @@ function renderMobileHoldingRows(rows, options = {}) {
       : holdingPriceText(r);
     const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
     return `
-      <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${String(r.name || name).replace(/"/g, '&quot;')}">
+      <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${escapeHtml(r.name || name)}">
         <span class="mobileHoldingMain">
           <span class="mobileHoldingText">
-            <strong>${name}${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
+            <strong>${escapeHtml(name)}${r.is_closed ? '<em>已平仓</em>' : ''}${returnStatusBadge(r, true)}</strong>
             <small>${holdingGroupLabel(r)}</small>
           </span>
           <span class="mobileHoldingQuote">
@@ -600,6 +620,7 @@ function renderMobileHoldingRows(rows, options = {}) {
           <div><strong>已实现</strong><span class="mono ${signedMoneyClass(realized)}">${formatSignedCurrency(realized)}</span></div>
           <div><strong>累计盈亏</strong><span class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</span></div>
           <div><strong>今日盈亏</strong><span class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</span></div>
+          <div><strong>收益状态</strong><span>${returnStatusBadge(row) || '<span class="muted">—</span>'}</span></div>
           ${hasDailyTotalPnl(row) ? `<div><strong>价格影响</strong><span class="mono ${signedMoneyClass(priceDailyPnl)}">${formatSignedCurrency(priceDailyPnl)}</span></div>` : ''}
           ${detailNativeDaily ? `<div><strong>本币今日</strong><span class="mono">${detailNativeDaily}</span></div>` : ''}
           ${detailFxDaily ? `<div><strong>汇率影响</strong><span class="mono ${signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}">${detailFxDaily.replace(/^汇率\s*/, '')}</span></div>` : ''}
