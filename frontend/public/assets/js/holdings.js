@@ -179,6 +179,10 @@ function currentFloatPnl(row) {
   return safeNum(cnyValue(row, 'market_value')) - safeNum(cnyValue(row, 'cost'));
 }
 
+function holdingCostValue(row) {
+  return safeNum(cnyValue(row, 'cost'));
+}
+
 function realizedPnl(row) {
   if (Number.isFinite(Number(row.realized_trade_pnl_cny))) return safeNum(row.realized_trade_pnl_cny);
   return cumulativePnl(row) - currentFloatPnl(row);
@@ -545,6 +549,7 @@ function renderMobileHoldingRows(rows, options = {}) {
   }
   el.innerHTML = displayRows.map((r, index) => {
     const value = safeNum(cnyValue(r, 'market_value'));
+    const costValue = holdingCostValue(r);
     const floatPnl = currentFloatPnl(r);
     const totalPnl = cumulativePnl(r);
     const dailyPnl = displayDailyPnl(r);
@@ -575,8 +580,8 @@ function renderMobileHoldingRows(rows, options = {}) {
         </span>
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
-            <em>持有金额</em>
-            <strong class="mono">${formatCompactCurrency(value)}</strong>
+            <em>持仓成本</em>
+            <strong class="mono">${formatCompactCurrency(costValue)}</strong>
           </span>
           <span class="mobileHoldingMetric">
             <em>累计盈亏</em>

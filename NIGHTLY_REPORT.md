@@ -1,5 +1,31 @@
 # PAMS Autonomous Improvement Report
 
+## 2026-06-28
+
+### 本轮目标
+
+- 修复持仓页移动端条目“持有金额”误显示为市值的问题。
+- 保持总资产、市值、权重和收益口径不变，只调整单个展示字段。
+
+### 已修复问题
+
+- 移动端持仓条目的主金额由 `market_value` 改为 `cost`，文案同步为“持仓成本”。
+- 详情页仍保留“市值”和“剩余成本”，用于区分市场估值与成本口径。
+- 新增前端静态契约测试，防止该字段再次绑定回市值。
+
+### 验证记录
+
+- `node --check frontend\public\assets\js\holdings.js`
+- `python -m pytest tests/test_frontend_static_contract.py -q`
+- `git diff --check -- frontend/public/assets/js/holdings.js frontend/public/investments.html tests/test_frontend_static_contract.py`
+- `docker compose --env-file C:\Users\hzfzzzi\openclaw\pams\.env up -d --build pams-web`
+- 运行态 HTTP 校验：`/investments.html` 已引用 `holdings.js?v=20260628-holding-cost-display-v1`，新版 JS 包含“持仓成本”展示。
+
+### 风险项
+
+- 本轮没有修改后端资产事实表，也没有改变总资产、收益率、权重和 NAV 口径。
+- in-app browser 可视化刷新检查超时，已用 HTTP 静态资源校验替代；若右侧仍显示旧文案，需要浏览器强刷。
+
 ## 2026-06-24
 
 ### 本轮目标

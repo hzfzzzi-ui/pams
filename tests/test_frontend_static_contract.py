@@ -270,6 +270,24 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     assert "body.app-shell .nav a[data-mobile-nav=\"primary\"]" in legacy_css
 
 
+def test_mobile_holdings_primary_amount_uses_cost_basis() -> None:
+    """Mobile holding rows should show position cost, not market value."""
+
+    js = _read_public("assets/js/holdings.js")
+    mobile_renderer = js.split("function renderMobileHoldingRows", 1)[1].split(
+        "el.querySelectorAll('[data-mobile-holding-index]')",
+        1,
+    )[0]
+
+    assert "function holdingCostValue(row)" in js
+    assert "return safeNum(cnyValue(row, 'cost'))" in js
+    assert "const costValue = holdingCostValue(r)" in mobile_renderer
+    assert "<em>持仓成本</em>" in mobile_renderer
+    assert "formatCompactCurrency(costValue)" in mobile_renderer
+    assert "<em>持有金额</em>" not in mobile_renderer
+    assert "formatCompactCurrency(value)" not in mobile_renderer
+
+
 def test_legacy_frontend_entrypoints_stay_removed() -> None:
     legacy_pages = [
         "bank_reconcile.html",
@@ -713,7 +731,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/holdings.js?v=20260628-holding-cost-display-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
