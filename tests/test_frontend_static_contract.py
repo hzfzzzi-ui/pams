@@ -304,6 +304,28 @@ def test_a_stock_account_total_pnl_drives_profile_summary() -> None:
     assert profile_block.index("aStockSummary.accountReturnRate") < profile_block.index("aStockSummary.holdingReturnRate")
 
 
+def test_ibkr_incomplete_account_performance_does_not_drive_total_pnl() -> None:
+    """IBKR account performance without total PnL/deposit should not infer a large account loss."""
+
+    js = _read_public("assets/js/holdings_categories.js")
+    renderer_block = js.split("function renderIbkrPerformance", 1)[1].split(
+        "function renderAStockOwnerPerformance",
+        1,
+    )[0]
+    ibkr_block = js.split("const ibkrFlexCoversPositionDate", 1)[1].split(
+        "if (ibkrUsesNetLiquidation)",
+        1,
+    )[0]
+
+    assert "const accountNetDeposit = perf.net_deposit_cny == null" in renderer_block
+    assert "const accountTotalPnl = perf.total_pnl_cny == null" in renderer_block
+    assert "totalCost: accountNetDeposit" in renderer_block
+    assert "totalPnl: accountTotalPnl" in renderer_block
+    assert "ibkrHasAccountTotalPnl = ibkrSummary?.totalPnl != null" in ibkr_block
+    assert "(ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit)" in ibkr_block
+    assert " : safeNum(usSummary.totalPnl)" in ibkr_block
+
+
 def test_legacy_frontend_entrypoints_stay_removed() -> None:
     legacy_pages = [
         "bank_reconcile.html",
@@ -694,7 +716,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "ibkrSummary?.flexCoversPositionDate ||" in holdings_js
     assert "ibkrSummary?.holdingsNetCoversPositionDate ||" in holdings_js
     assert "{ ...usCategorySummary, dailyPnl: usCategorySummary.dailyTotalPnl }" in holdings_js
-    assert "const useIbkrAccountTotals = Boolean(ibkrSummary && ibkrFlexCoversPositionDate)" in holdings_js
+    assert "const ibkrHasAccountTotalPnl = ibkrSummary?.totalPnl != null" in holdings_js
+    assert "const ibkrHasAccountNetDeposit = ibkrSummary?.totalCost != null" in holdings_js
+    assert "(ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit)" in holdings_js
     assert "totalValue: ibkrUsesNetLiquidation ? ibkrAccountValue : usSummary.totalValue" in holdings_js
     assert "positionValue: ibkrPositionValue" in holdings_js
     assert "dailyPnl: usSummary.dailyPnl" in holdings_js
@@ -751,7 +775,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
-    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
@@ -819,7 +843,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingReturnRateFromSummary" in holdings_js
     assert "displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate" in holdings_js
     assert "returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率'" in holdings_js
-    assert "const ibkrAccountReturnRate = ibkrNetDeposit > 0" in holdings_js
+    assert "const ibkrAccountReturnRate = useIbkrAccountTotals && ibkrNetDeposit > 0" in holdings_js
     assert "const ibkrGrossHoldingRate" in holdings_js
     assert "accountTotalPnl" in holdings_js
     assert "totalPnl: safeNum(aStockSummary.totalPnl)" in holdings_js
@@ -1473,7 +1497,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2" in ui_js
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js

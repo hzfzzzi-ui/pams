@@ -13,13 +13,14 @@
 - A 股账户收益率优先使用 `accountReturnRate`，持仓收益率仅保留为行项目和持仓口径展示。
 - 同步提升 `holdings_categories.js` 静态资源版本号，避免浏览器继续加载旧缓存。
 - 新增前端静态契约测试，锁定 A 股账户卡必须使用账户级总盈亏。
+- 追加修复 IBKR 半字段账户 performance：当接口没有 `total_pnl_cny` 或 `net_deposit_cny` 时，不再用账户净值反推总盈亏，避免把融资现金负债推成组合大额亏损。
 
 ### 验证记录
 
 - `node --check frontend\public\assets\js\holdings_categories.js`
 - `python -m pytest tests/test_frontend_static_contract.py -q`
 - `docker compose --env-file C:\Users\hzfzzzi\openclaw\pams\.env up -d --build pams-web`
-- HTTP smoke：`/investments.html` 已引用 `holdings_categories.js?v=20260628-account-total-pnl-v1`，线上脚本包含账户级总盈亏映射。
+- HTTP smoke：`/investments.html` 已引用 `holdings_categories.js?v=20260628-account-total-pnl-v2`，线上脚本包含账户级总盈亏映射和 IBKR 半字段保护。
 
 ## 2026-06-28
 
