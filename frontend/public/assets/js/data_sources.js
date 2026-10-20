@@ -20,7 +20,7 @@ function statusTag(text, ok) {
   return `<span class="tag ${ok ? 'data' : 'warn'}">${esc(text)}</span>`;
 }
 
-function renderQuality(portfolio) {
+export function renderQuality(portfolio) {
   const el = document.getElementById('dataQuality');
   if (!el) return;
   const quality = portfolio?.data_quality;
@@ -31,8 +31,6 @@ function renderQuality(portfolio) {
       detail: '等待 /api/portfolio/data-quality 返回覆盖率、缺口和行动提示。',
       compact: true,
     });
-    return;
-    el.innerHTML = '<div class="muted">暂无统一数据质量信息</div>';
     return;
   }
   const labels = {
@@ -56,12 +54,30 @@ function renderQuality(portfolio) {
   const coverage = quality.coverage || {};
   const freshness = quality.freshness || {};
   const missing = quality.missing || {};
+  const checkComponents = {
+    account_balance_coverage: 'account_balances',
+    position_freshness: 'investment_positions',
+    valuation_series_freshness: 'valuation_series',
+    fx_rate_coverage: 'fx_rates',
+  };
+  const checkLabels = {
+    component_coverage: '存在缺失的数据集',
+    account_balance_coverage: '部分账户缺少余额确认',
+    position_freshness: '部分持仓缺少日期',
+    valuation_series_freshness: '估值曲线早于当前持仓',
+    fx_rate_coverage: '部分币种缺少汇率',
+  };
+  const checks = (quality.checks || []).filter((check) => check.status !== 'ok');
+  const warningKeys = new Set(checks.flatMap((check) => (
+    checkComponents[check.id] ? [checkComponents[check.id]] : check.details?.missing_components || []
+  )));
   const empty = new Set(missing.components_without_rows || []);
   const keys = Array.from(new Set([...Object.keys(labels), ...Object.keys(coverage), ...Object.keys(freshness)]));
   const healthyCount = keys.filter((key) => coverage[key]?.has_data !== false && !empty.has(key)).length;
-  const actionKeys = keys.filter((key) => empty.has(key) || coverage[key]?.has_data === false);
-  const actionHtml = actionKeys.length
-    ? actionKeys.map((key) => {
+  const actionKeys = keys.filter((key) => warningKeys.has(key) || empty.has(key) || coverage[key]?.has_data === false);
+  const checkHtml = checks.map((check) => `<div>${statusTag(check.severity === 'error' ? '异常' : '待核准', false)} ${esc(checkLabels[check.id] || check.message || check.id)}</div>`).join('');
+  const actionHtml = actionKeys.length || checks.length
+    ? checkHtml + actionKeys.map((key) => {
       const action = actionLinks[key] || { label: '检查数据源', href: 'data_sources.html#dataQuality' };
       return `<a class="sourceActionLink" href="${esc(action.href)}">${esc(action.label)}</a>`;
     }).join('')
@@ -69,7 +85,7 @@ function renderQuality(portfolio) {
   el.innerHTML = `
     <div class="sourceQualitySummary">
       <div><span>覆盖范围</span><strong>${fmtCount(healthyCount)} / ${fmtCount(keys.length)}</strong></div>
-      <div><span>行动提示</span><strong>${fmtCount(actionKeys.length)}</strong></div>
+      <div><span>行动提示</span><strong>${fmtCount(checks.length || actionKeys.length)}</strong></div>
     </div>
     <div class="tableWrap">
       <table class="qualityMatrix">
@@ -86,7 +102,7 @@ function renderQuality(portfolio) {
                 <td>${esc(labels[key] || key)}</td>
                 <td class="num mono">${fmtCount(cov.rows)}</td>
                 <td class="mono">${esc(fresh.latest_as_of || '--')}</td>
-                <td>${statusTag(ok ? '正常' : '缺数据', ok)}</td>
+                <td>${statusTag(!ok ? '缺数据' : warningKeys.has(key) ? '待核准' : '正常', ok && !warningKeys.has(key))}</td>
               </tr>
             `;
           }).join('')}

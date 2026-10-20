@@ -34,7 +34,11 @@
 
 ## 部署限制
 
-本机 Docker Desktop 因遗留 `dockerInference` socket 启动失败，自动审批拒绝删除该文件。未重置 Docker，也未删除数据卷。云端 CI 使用临时 PostgreSQL 验证镜像，不接触用户资产库。
+早期 Docker Desktop 因遗留 `dockerInference` socket 启动失败，后由用户重启恢复。2026-10-20 已完成本机部署和只读验收，保留原 `pams_pg_data` 卷、config/data/账单挂载，不曾删除数据卷。云端 CI 使用临时 PostgreSQL，不接触用户资产库。
+
+生产仅执行 `069_daily_return_state.sql` 的三张空状态表建表；未批量执行历史账务 SQL。28 张既有 PAMS 表校验值保持一致。资产表备份在原工作区 recovery 目录，并已完整读取校验；全库及全 public 的两份备份因数据库容器重建而中断，文件名标记 `.incomplete`，不得作为可恢复备份使用。后续部署应用服务使用 `--no-deps`，避免不必要重建数据库及中断备份。
+
+旧发布 NAV 已过期，新版读取当前计算草稿并保留旧发布来源信息，因此前后页面数值变化，不能承诺数值完全一致。此项是过期覆盖逻辑的既有修复生效，不是本轮改写资产数据。运行态补跑已阻断历史回填，检查点跨重启持久化；数据历史缺口尚未核准。完整测试与风险见 `NIGHTLY_REPORT.md`。
 
 部署前先恢复 Docker，从稳定工作区构建。`.env` 通过 `--env-file` 指向原项目；密钥不进入 Git。
 
