@@ -12,6 +12,7 @@ SCHEDULER_PATH = REPO_ROOT / "backend" / "scheduler" / "scheduler.py"
 
 
 def _load_scheduler(monkeypatch):
+    monkeypatch.syspath_prepend(str(SCHEDULER_PATH.parent))
     fake_schedule = types.SimpleNamespace(
         every=lambda *_args, **_kwargs: types.SimpleNamespace(
             day=types.SimpleNamespace(at=lambda _time, _tz=None: types.SimpleNamespace(do=lambda _fn: None)),
@@ -68,10 +69,10 @@ def test_legacy_strategy_scheduler_requires_explicit_enable(monkeypatch) -> None
 def test_post_close_investment_scheduler_job_calls_price_endpoints(monkeypatch) -> None:
     module = _load_scheduler(monkeypatch)
     calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)))
+    monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "stored": 1, "found": 0, "updated": 0, "processed": 0, "rows": []})
     monkeypatch.setattr(module, "_get", lambda endpoint, label: calls.append((endpoint, label)))
-    monkeypatch.setattr(module, "_post_root", lambda endpoint, label: calls.append((endpoint, label)))
-    monkeypatch.setattr(module, "sync_ibkr_flex", lambda: calls.append(("ibkr/flex/sync", "IBKR Flex")))
+    monkeypatch.setattr(module, "_post_root", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "written": 1})
+    monkeypatch.setattr(module, "sync_ibkr_flex", lambda: calls.append(("ibkr/flex/sync", "IBKR Flex")) or {"status": "ok", "statement_as_of": "2099-01-01"})
 
     module.refresh_post_close_investments()
 
@@ -96,10 +97,10 @@ def test_post_close_investment_scheduler_job_calls_price_endpoints(monkeypatch) 
 def test_north_america_post_close_scheduler_job_calls_us_endpoints(monkeypatch) -> None:
     module = _load_scheduler(monkeypatch)
     calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)))
+    monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "stored": 1, "found": 0, "updated": 0, "processed": 0, "rows": []})
     monkeypatch.setattr(module, "_get", lambda endpoint, label: calls.append((endpoint, label)))
-    monkeypatch.setattr(module, "_post_root", lambda endpoint, label: calls.append((endpoint, label)))
-    monkeypatch.setattr(module, "sync_ibkr_flex", lambda: calls.append(("ibkr/flex/sync", "IBKR Flex")))
+    monkeypatch.setattr(module, "_post_root", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "written": 1})
+    monkeypatch.setattr(module, "sync_ibkr_flex", lambda: calls.append(("ibkr/flex/sync", "IBKR Flex")) or {"status": "ok", "statement_as_of": "2099-01-01"})
 
     module.refresh_north_america_post_close_investments()
 

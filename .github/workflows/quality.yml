@@ -37,6 +37,12 @@ jobs:
         run: |
           python -m compileall -q backend/api backend/scheduler src
           for file in frontend/public/assets/js/*.js; do node --check "$file"; done
+      - name: 同步模块静态检查
+        run: |
+          if test -f backend/scheduler/refresh_state.py; then
+            ruff check --select E9,F backend/scheduler/refresh_state.py backend/scheduler/scheduler.py backend/api/services/sync_health.py tests/test_refresh_reliability.py
+            mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/api/services/sync_health.py
+          fi
       - name: 构建API镜像并验证导入
         run: |
           docker build -f backend/api/Dockerfile -t pams-api-ci .
@@ -45,3 +51,7 @@ jobs:
         run: |
           docker build -t pams-web-ci frontend
           docker run --rm --add-host pams-api:127.0.0.1 pams-web-ci nginx -t
+      - name: 构建调度镜像并验证时区
+        run: |
+          docker build -t pams-scheduler-ci backend/scheduler
+          docker run --rm --entrypoint python pams-scheduler-ci -c "import scheduler; scheduler.schedule.every().day.at('16:30', 'America/New_York').do(lambda: None); print('Scheduler timezone smoke OK')"

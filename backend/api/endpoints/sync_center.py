@@ -7,14 +7,16 @@ health without changing portfolio data.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
+from services.sync_health import scheduler_health
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -134,6 +136,17 @@ def _fresh_status(as_of: Any, *, needs_review: bool = False, failed: bool = Fals
         return "review", "需核准"
     if not as_of:
         return "missing", "缺数据"
+    try:
+        observed = date.fromisoformat(str(as_of)[:10])
+        current = _now_local().date()
+        if observed > current:
+            return "review", "日期异常"
+        # Weekends are excluded; exchange-specific holidays remain a review signal.
+        weekdays = sum((current - timedelta(days=i)).weekday() < 5 for i in range(min((current - observed).days, 10)))
+        if weekdays > 3:
+            return "stale", "数据过期"
+    except (TypeError, ValueError):
+        return "review", "日期异常"
     return "ok", "正常"
 
 
@@ -153,6 +166,10 @@ def _row(
     trigger_endpoint: str | None = None,
     trigger_body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if status == "ok" and sync_type == "行情刷新":
+        status, status_label = _fresh_status(latest_date)
+    if status == "stale":
+        status = "review"
     return {
         "id": id,
         "source": source,
@@ -399,10 +416,24 @@ def sync_center() -> dict[str, Any]:
         ),
     ]
 
+    health = scheduler_health(Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/scheduler-state/refresh.json")))
+    rows.append(_row(
+        id="automatic-refresh", source="自动收益刷新", sync_type="同步健康",
+        latest_date=None, latest_time=health.get("latest_time"), rows=len(health["jobs"]),
+        status=health["status"], status_label=health["label"],
+        action="查看阻断步骤及历史缺口", href="data_sources.html#syncMatrix",
+        details="；".join(
+            f"{key}: {job.get('status')}，最近成功 {job.get('last_success_date') or '无'}，"
+            f"历史缺口起点 {job.get('history_gap_since') or '尚未核验'}，"
+            f"问题 {job.get('issues', [])}，"
+            f"检查 {job.get('steps', [])}"
+            for key, job in health["jobs"].items()
+        ) or "尚无持久化自动刷新记录。",
+    ))
     summary = {
         "total": len(rows),
         "ok": sum(1 for row in rows if row["status"] == "ok"),
-        "manual_required": sum(1 for row in rows if row["status"] in {"review", "missing", "error"}),
+        "manual_required": sum(1 for row in rows if row["status"] in {"review", "missing", "error", "stale"}),
         "errors": sum(1 for row in rows if row["status"] == "error"),
         "reviews": sum(1 for row in rows if row["status"] == "review"),
         "last_ibkr_sync": _norm(ibkr_run.get("finished_at")) if ibkr_run else None,
@@ -423,4 +454,5 @@ def sync_center() -> dict[str, Any]:
         "summary": summary,
         "rows": rows,
         "workflows": workflows,
+        "scheduler": health,
     }
