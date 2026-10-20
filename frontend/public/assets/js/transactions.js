@@ -1,5 +1,5 @@
-﻿import { accountLabel, fmt2, jget, jpost } from './api.js?v=20260617-linkage-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260614-trade-mode-attribution-v12';
+import { accountLabel, fmt2, jget, jpost } from './api.js?v=20260619-investment-hardening-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260620-page-boundary-v1';
 import {
   byId as $,
   escapeHtml,
@@ -23,6 +23,7 @@ const state = {
   rows: [],
   summary: {},
   attribution: null,
+  attributionLoadPromise: null,
   campaigns: null,
   showAll: false,
 };
@@ -519,29 +520,32 @@ function TransactionSummaryPanel(summary, rows) {
   ].join(' 至 ');
   const filterActive = hasActiveTradeFilters();
   return `
-    <div class="transactionSummaryGrid">
-      <div class="investmentHeroMetric info">
-        <div class="label">筛选记录</div>
-        <div class="value">${summary?.count ?? 0}</div>
-        <div class="help">${escapeHtml(rangeText)}</div>
+    <div class="transactionOverview">
+      <div class="transactionOverviewHead">
+        <div>
+          <span>筛选记录</span>
+          <strong>${summary?.count ?? 0}</strong>
+          <small>${escapeHtml(rangeText)}</small>
+        </div>
       </div>
-      <div class="investmentHeroMetric">
-        <div class="label">个人买入</div>
-        <div class="value">${formatCurrency(buy)}</div>
-        <div class="help">${ownerAdjusted ? `账户原始 ${formatCurrency(buyRaw)}` : '与账户原始一致'}</div>
-      </div>
-      <div class="investmentHeroMetric">
-        <div class="label">个人卖出</div>
-        <div class="value">${formatCurrency(sell)}</div>
-        <div class="help">${ownerAdjusted ? `账户原始 ${formatCurrency(sellRaw)}` : '与账户原始一致'}</div>
-      </div>
-      <div class="investmentHeroMetric ${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
-        <div class="label">个人税费</div>
-        <div class="value">${feeRate == null ? '无法计算' : formatPercent(feeRate)}</div>
-        <div class="help">${formatCurrency(fees)} · 账户原始 ${formatCurrency(feesRaw)}</div>
+      <div class="transactionOverviewMetrics">
+        <div>
+          <span>个人买入</span>
+          <strong>${formatCurrency(buy)}</strong>
+          <small>${ownerAdjusted ? `账户原始 ${formatCurrency(buyRaw)}` : '与账户原始一致'}</small>
+        </div>
+        <div>
+          <span>个人卖出</span>
+          <strong>${formatCurrency(sell)}</strong>
+          <small>${ownerAdjusted ? `账户原始 ${formatCurrency(sellRaw)}` : '与账户原始一致'}</small>
+        </div>
+        <div class="${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
+          <span>个人税费</span>
+          <strong>${feeRate == null ? '无法计算' : formatPercent(feeRate)}</strong>
+          <small>${formatCurrency(fees)} · 账户原始 ${formatCurrency(feesRaw)}</small>
+        </div>
       </div>
     </div>
-    ${TradeAttributionAnalysisEntry(state.attribution)}
     <div class="recentTradePanel">
       <div class="sectionTitle">
         <h3>交易明细</h3>
@@ -635,23 +639,6 @@ function AttributionBucketList(title, rows, emptyText) {
         `).join('') : `<div class="emptyState">${escapeHtml(emptyText)}</div>`}
       </div>
     </div>
-  `;
-}
-
-function TradeAttributionAnalysisEntry(payload) {
-  const count = payload?.sample_count ?? payload?.total_count ?? null;
-  const queueCount = payload?.workbench?.priority_items?.length ?? null;
-  const coverageText = queueCount != null
-    ? `待复盘 ${escapeHtml(queueCount)} 笔 · 有价样本 ${escapeHtml(count || 0)}`
-    : (count != null ? `已纳入 ${escapeHtml(count)} 笔样本` : '按复盘标注汇总');
-  return `
-    <a class="tradeAttributionEntry" href="#trade-attribution-analysis" aria-label="查看整体交易归因">
-      <div>
-        <span>交易动作归因</span>
-        <strong>${escapeHtml(payload?.workbench?.headline?.title || '去分析页查看')}</strong>
-      </div>
-      <small>${coverageText} · 按正负动作复盘</small>
-    </a>
   `;
 }
 
@@ -879,18 +866,18 @@ function formatCnyEffect(value) {
 
 function formatCnyEffectCompact(value) {
   const numeric = tradeReviewNumber(value, 0);
-  if (!numeric) return '0';
+  if (!numeric) return '¥0';
   const sign = numeric > 0 ? '+' : '-';
   const abs = Math.abs(numeric);
   const compact = (n, digits = 0) => n.toLocaleString('zh-CN', {
     maximumFractionDigits: digits,
     minimumFractionDigits: 0,
   });
-  if (abs >= 100000000) return `${sign}${compact(abs / 100000000, 1)}亿`;
-  if (abs >= 10000) return `${sign}${compact(abs / 10000, abs >= 100000 ? 0 : 1)}万`;
-  if (abs >= 1000) return `${sign}${compact(abs, 0)}`;
-  if (abs >= 100) return `${sign}${compact(abs, 0)}`;
-  return `${sign}${compact(abs, abs >= 10 ? 1 : 2)}`;
+  if (abs >= 100000000) return `${sign}¥${compact(abs / 100000000, 1)}亿`;
+  if (abs >= 10000) return `${sign}¥${compact(abs / 10000, abs >= 100000 ? 1 : 2)}万`;
+  if (abs >= 1000) return `${sign}¥${compact(abs, 0)}`;
+  if (abs >= 100) return `${sign}¥${compact(abs, 0)}`;
+  return `${sign}¥${compact(abs, abs >= 10 ? 1 : 2)}`;
 }
 
 function tradeReviewNumber(value, fallback = 0) {
@@ -935,17 +922,93 @@ function tradeReviewAssetMeta(asset) {
   return symbol || name || '--';
 }
 
+function tradeReviewAssetCleanName(asset) {
+  const name = String(asset?.name || '').trim();
+  const symbol = String(asset?.symbol || '').trim();
+  if (!name) return symbol || '--';
+  if (symbol && name.toUpperCase().startsWith(`${symbol.toUpperCase()} - `)) {
+    return name.slice(symbol.length + 3).trim() || symbol;
+  }
+  return name;
+}
+
+function tradeReviewCompactSymbol(symbol) {
+  const value = String(symbol || '').trim();
+  if (!value) return '';
+  if (value.length <= 10) return value;
+  const parts = value.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return parts.slice(0, 2).join(' ');
+  return value.slice(0, 10);
+}
+
+function tradeReviewAssetShortLabel(asset) {
+  const symbol = String(asset?.symbol || '').trim();
+  const cleanName = tradeReviewAssetCleanName(asset);
+  if (symbol && /^[A-Z0-9._-]+$/i.test(symbol)) return tradeReviewCompactSymbol(symbol);
+  if (cleanName.length <= 6) return cleanName;
+  return String(asset?.key || cleanName).trim() || cleanName;
+}
+
+function tradeReviewAssetTileText(asset, rect) {
+  const area = rect.w * rect.h;
+  const shortSide = Math.min(rect.w, rect.h);
+  const symbol = String(asset?.symbol || '').trim();
+  const name = tradeReviewAssetName(asset);
+  const cleanName = tradeReviewAssetCleanName(asset);
+  const compactSymbol = tradeReviewCompactSymbol(symbol);
+  const symbolIsPrimary = Boolean(symbol && name === symbol && cleanName && cleanName !== symbol);
+  if (area < 120 || shortSide < 6.8) {
+    return {
+      meta: '',
+      name: tradeReviewAssetShortLabel(asset),
+    };
+  }
+  if (area < 420 || shortSide < 12) {
+    if (shortSide < 12) {
+      return {
+        meta: '',
+        name: tradeReviewAssetShortLabel(asset),
+      };
+    }
+    return {
+      meta: symbolIsPrimary ? '' : compactSymbol,
+      name: name.length > 6 ? tradeReviewAssetShortLabel(asset) : name,
+    };
+  }
+  return {
+    meta: symbolIsPrimary ? cleanName : compactSymbol,
+    name,
+  };
+}
+
+function tradeReviewAssetFullLabel(asset) {
+  const symbol = String(asset?.symbol || '').trim();
+  const cleanName = tradeReviewAssetCleanName(asset);
+  if (symbol && cleanName && cleanName !== symbol) return `${symbol} · ${cleanName}`;
+  return cleanName || symbol || '--';
+}
+
 function tradeReviewAssetWeight(asset) {
-  const weight = Math.abs(tradeReviewNumber(asset?.weight_cny, 0));
+  const actual = Math.abs(tradeReviewNumber(asset?.actual_total_pnl_cny, NaN));
   const effect = Math.abs(tradeReviewNumber(asset?.estimated_decision_effect_cny, 0));
+  const weight = Math.abs(tradeReviewNumber(asset?.weight_cny, 0));
   const count = Math.max(0, tradeReviewNumber(asset?.trade_count, 0));
-  return Math.max(weight, effect * 6, count * 1000, 1);
+  if (Number.isFinite(actual) && actual > 0.01) return actual;
+  if (effect > 0.01) return effect;
+  if (weight > 0.01) return weight;
+  return Math.max(count * 120, 1);
+}
+
+function tradeReviewAssetPrimaryPnl(asset) {
+  const actual = tradeReviewNumber(asset?.actual_total_pnl_cny, NaN);
+  if (Number.isFinite(actual)) return actual;
+  return tradeReviewNumber(asset?.estimated_decision_effect_cny, 0);
 }
 
 function tradeReviewAssetTone(asset) {
   const tone = String(asset?.impact_tone || '').toLowerCase();
   if (['gain', 'loss', 'flat'].includes(tone)) return tone;
-  return tradeReviewHeatTone(asset?.estimated_decision_effect_cny);
+  return tradeReviewHeatTone(tradeReviewAssetPrimaryPnl(asset));
 }
 
 function tradeReviewAssetTiles(payload) {
@@ -955,7 +1018,7 @@ function tradeReviewAssetTiles(payload) {
 }
 
 function tradeReviewTreemapWeight(asset) {
-  return Math.max(Math.pow(tradeReviewAssetWeight(asset), 0.72), 1);
+  return Math.max(Math.pow(tradeReviewAssetWeight(asset), 0.9), 1);
 }
 
 function tradeReviewTreemapSplit(items) {
@@ -1025,12 +1088,12 @@ function tradeReviewClamp(value, min, max) {
 function tradeReviewAssetTileStyle(rect) {
   const area = rect.w * rect.h;
   const shortSide = Math.min(rect.w, rect.h);
-  const rawBase = Math.sqrt(area) * 0.62 + shortSide * 0.12;
-  const base = tradeReviewClamp(Math.min(rawBase, rect.w * 0.36 + 2.5, rect.h * 0.55 + 2), 7.2, 17);
-  const meta = tradeReviewClamp(Math.min(base * 0.58, rect.w * 0.24 + 1.5), 6.6, 10);
-  const value = tradeReviewClamp(Math.min(base * 0.84, rect.w * 0.28 + 1.5), 7, 14.5);
-  const pad = tradeReviewClamp(shortSide * 0.38, 2, 10);
-  const lines = rect.h >= 16 && rect.w >= 12 ? 2 : 1;
+  const rawBase = Math.sqrt(area) * 0.72 + shortSide * 0.16;
+  const base = tradeReviewClamp(Math.min(rawBase, rect.w * 0.5 + 2.5, rect.h * 0.58 + 2), 7, 18);
+  const meta = tradeReviewClamp(Math.min(base * 0.56, rect.w * 0.3 + 1.5), 6.2, 10.5);
+  const value = tradeReviewClamp(Math.min(base * 0.9, rect.w * 0.42 + 2), 7, 15.5);
+  const pad = tradeReviewClamp(shortSide * 0.34, 1.5, 9);
+  const lines = rect.h >= 15 && rect.w >= 10 ? 2 : 1;
   return [
     `--asset-x:${rect.x.toFixed(3)}%`,
     `--asset-y:${rect.y.toFixed(3)}%`,
@@ -1075,6 +1138,50 @@ function tradeReviewTradeMoveLabel(trade) {
 
 function tradeReviewTradeReason(trade) {
   return trade?.contribution_reason || trade?.auto_summary || trade?.label || '暂时只有金额贡献，缺少可解释标签。';
+}
+
+function tradeReviewAssetStatusText(asset) {
+  if (asset?.attribution_status === 'partial_with_actual_pnl') return '真实收益已接入';
+  return '仅动作时点';
+}
+
+function tradeReviewAssetBreakdownValue(item) {
+  if (item?.value_cny == null || item?.value_cny === '') return '待接入';
+  return formatCnyEffect(item.value_cny);
+}
+
+function tradeReviewAssetBreakdownTone(item) {
+  if (item?.value_cny == null || item?.value_cny === '') return 'flat';
+  return pctTone(item.value_cny);
+}
+
+function TradeReviewAssetAttributionBridge(asset) {
+  const rows = asset?.attribution_breakdown || [];
+  return `
+    <div class="tradeReviewAttributionBridge">
+      ${rows.map((item) => `
+        <div class="tradeReviewAttributionBridgeItem ${escapeHtml(item.status || '')}">
+          <span>${escapeHtml(item.label || '')}</span>
+          <strong class="${tradeReviewAssetBreakdownTone(item)}">${escapeHtml(tradeReviewAssetBreakdownValue(item))}</strong>
+          <small>${escapeHtml(item.note || '')}</small>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function TradeReviewAssetRuleInsights(asset) {
+  const insights = asset?.rule_insights || [];
+  return `
+    <div class="tradeReviewRuleInsightList">
+      ${insights.length ? insights.map((item) => `
+        <div class="tradeReviewRuleInsight ${workbenchTone(item.level)}">
+          <strong>${escapeHtml(item.title || '--')}</strong>
+          <p>${escapeHtml(item.detail || '')}</p>
+        </div>
+      `).join('') : '<div class="emptyState">暂无规则建议。</div>'}
+    </div>
+  `;
 }
 
 function tradeReviewTradeTags(trade) {
@@ -1160,21 +1267,25 @@ function TradeReviewAssetAttributionDetail(asset, selected) {
   const trades = (asset.trades || []).slice(0, 8);
   const positiveCount = asset.positive_count ?? trades.filter((trade) => tradeReviewTradeTone(trade) === 'gain').length;
   const negativeCount = asset.negative_count ?? trades.filter((trade) => tradeReviewTradeTone(trade) === 'loss').length;
+  const actualPnl = tradeReviewAssetPrimaryPnl(asset);
   return `
     <section class="tradeReviewAssetDetail tradeReviewAssetAttributionDetail" data-asset-heat-detail="${escapeHtml(asset.key)}"${selected ? '' : ' hidden'}>
       <div class="tradeReviewAssetDetailHead">
         <div>
           <span>${escapeHtml(tradeReviewAssetMeta(asset))}</span>
           <strong>${escapeHtml(tradeReviewAssetName(asset))}</strong>
+          <small>${escapeHtml(tradeReviewAssetStatusText(asset))}</small>
         </div>
-        <em class="${pctTone(asset.estimated_decision_effect_cny)}">${escapeHtml(formatCnyEffect(asset.estimated_decision_effect_cny))}</em>
+        <em class="${pctTone(actualPnl)}">${escapeHtml(formatCnyEffect(actualPnl))}</em>
       </div>
       <div class="tradeReviewAssetDetailStats">
         <span>${escapeHtml(asset.trade_count || 0)} 笔</span>
         <span>正 ${escapeHtml(positiveCount)}</span>
         <span>负 ${escapeHtml(negativeCount)}</span>
-        <span>${escapeHtml(formatPctPoint(asset.avg_return_pct, 1))}</span>
+        <span>动作 ${escapeHtml(formatCnyEffect(asset.estimated_decision_effect_cny))}</span>
       </div>
+      ${TradeReviewAssetAttributionBridge(asset)}
+      ${TradeReviewAssetRuleInsights(asset)}
       ${tradeReviewAssetTags(asset) ? `<div class="tradeReviewAssetTagStrip">${tradeReviewAssetTags(asset)}</div>` : ''}
       <div class="tradeReviewAssetTradeList attribution">
         ${trades.length ? trades.map(TradeReviewAssetTradeCard).join('') : '<div class="emptyState">暂无可打开的交易。</div>'}
@@ -1305,8 +1416,8 @@ function TradeReviewAssetHeatmap(payload, workbench) {
     <section class="tradeReviewAssetHeatmapPanel" data-asset-heatmap-panel>
       <div class="tradeReviewAssetHeatmapHead">
         <div>
-          <span>标的热力图</span>
-          <strong>${escapeHtml(assets.length)} 个标的 · ${escapeHtml(payload?.asset_heatmap?.trade_count || payload?.sample_count || 0)} 笔动作</strong>
+          <span>标的归因热力图</span>
+          <strong>${escapeHtml(assets.length)} 个标的 · 真实盈亏优先</strong>
         </div>
         <div class="tradeReviewAssetLegend">
           <span class="loss">负向动作 ${escapeHtml(lossCount)}</span>
@@ -1316,16 +1427,22 @@ function TradeReviewAssetHeatmap(payload, workbench) {
       <div class="tradeReviewAssetHeatmapCanvas" data-asset-heatmap>
         ${layout.map((item) => {
           const { asset, rect } = item;
+          const text = tradeReviewAssetTileText(asset, rect);
+          const primaryPnl = tradeReviewAssetPrimaryPnl(asset);
+          const effectText = formatCnyEffectCompact(primaryPnl);
+          const actionText = formatCnyEffectCompact(asset.estimated_decision_effect_cny);
+          const fullLabel = `${tradeReviewAssetFullLabel(asset)} 真实 ${effectText} / 动作 ${actionText}`;
           return `
             <button type="button"
               class="tradeReviewAssetTile ${tradeReviewAssetTone(asset)} ${tradeReviewAssetTileClass(rect)}"
               style="${tradeReviewAssetTileStyle(rect)}"
               data-asset-heat-select="${escapeHtml(asset.key)}"
+              title="${escapeHtml(fullLabel)}"
               aria-pressed="false">
-              <span>${escapeHtml(tradeReviewAssetMeta(asset))}</span>
-              <strong>${escapeHtml(tradeReviewAssetName(asset))}</strong>
-              <em>${escapeHtml(formatCnyEffectCompact(asset.estimated_decision_effect_cny))}</em>
-              <small>${escapeHtml(asset.trade_count || 0)} 笔 · ${escapeHtml(formatPctPoint(asset.avg_return_pct, 1))}</small>
+              <span>${escapeHtml(text.meta)}</span>
+              <strong>${escapeHtml(text.name)}</strong>
+              <em>${escapeHtml(effectText)}</em>
+              <small>${escapeHtml(asset.trade_count || 0)} 笔 · 动作 ${escapeHtml(actionText)}</small>
             </button>
           `;
         }).join('')}
@@ -1339,12 +1456,12 @@ function TradeReviewAssetHeatmap(payload, workbench) {
       </div>
       <details class="tradeReviewAnalysisFold tradeReviewCompactFold">
         <summary>
-          <strong>动作归因</strong>
-          <span>正向 / 负向动作</span>
+          <strong>高影响动作</strong>
+          <span>逐笔正负贡献证据</span>
         </summary>
         ${TradeReviewDirectionalTradePanel(payload)}
       </details>
-      <p class="tradeReviewAssetHint">真实盈亏看交易页；这里看动作时点。</p>
+      <p class="tradeReviewAssetHint">热力图面积按真实盈亏优先；动作贡献用于解释买卖时点，基准/行业超额后续继续拆分。</p>
     </section>
   `;
 }
@@ -1740,8 +1857,18 @@ function TradeReviewWorkbenchLegacy(payload) {
 function TradeReviewWorkbench(payload) {
   const workbench = payload?.workbench || {};
   return `
-    <div class="tradeReviewWorkbench tradeReviewAssetWorkbench">
-      ${TradeReviewAssetHeatmap(payload, workbench)}
+    <div class="tradeReviewWorkbench tradeReviewAttributionWorkbench">
+      <section class="tradeReviewModeAttribution">
+        <header class="tradeReviewModeAttributionHead">
+          <div>
+            <span>交易归因闭环</span>
+            <strong>先看标的真实盈亏，再解释买卖动作</strong>
+          </div>
+          <small>真实盈亏来自收益归因；动作贡献解释交易时点，未解释差额等待基准归因。</small>
+        </header>
+        ${TradeReviewAssetHeatmap(payload, workbench)}
+        ${TradeReviewDetailPanels(workbench, payload)}
+      </section>
     </div>
   `;
 }
@@ -2650,13 +2777,44 @@ async function loadLedger() {
   fillTradeNameOptions(state.rows);
   renderSummary(state.summary);
   renderTransactionSummary(state.summary, state.rows);
-  loadAttributionSummary().catch(() => {
+}
+
+function requestAttributionSummaryLoad() {
+  if (state.attributionLoadPromise) return state.attributionLoadPromise;
+  state.attributionLoadPromise = loadAttributionSummary().catch(() => {
     renderTradeAttribution({
       sample_count: 0,
       missing_price_count: 0,
       groups: { buy_reason: [], sell_reason: [] },
       data_quality: { note: '自动归因暂时不可用。' },
     });
+  }).finally(() => {
+    state.attributionLoadPromise = null;
+  });
+  return state.attributionLoadPromise;
+}
+
+function shouldLoadVisibleTradeAttribution() {
+  const panel = document.getElementById('trade-attribution-analysis');
+  if (!panel) return false;
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  return hash === 'trade-attribution-analysis' || panel.hidden === false;
+}
+
+function requestVisibleTradeAttributionLoad() {
+  if (shouldLoadVisibleTradeAttribution()) {
+    requestAttributionSummaryLoad();
+  }
+}
+
+function requestInitialVisibleTradeAttributionLoad() {
+  if (state.attribution) return;
+  requestVisibleTradeAttributionLoad();
+}
+
+function scheduleInitialTradeAttributionLoadProbe() {
+  [0, 300, 1200, 3000].forEach((delay) => {
+    window.setTimeout(requestInitialVisibleTradeAttributionLoad, delay);
   });
 }
 
@@ -2782,6 +2940,10 @@ function bindEvents() {
     await loadLedger();
   });
   $('btnCreateTrade').addEventListener('click', createTrade);
+  window.addEventListener('pams:load-trade-attribution', () => {
+    requestAttributionSummaryLoad();
+  });
+  window.addEventListener('hashchange', requestVisibleTradeAttributionLoad);
   document.addEventListener('click', async (event) => {
     const autoTagButton = event.target?.closest?.('[data-auto-tag]');
     if (autoTagButton) {
@@ -2986,9 +3148,11 @@ async function init() {
   setActiveNav();
   bindEvents();
   setDefaultFilters();
+  scheduleInitialTradeAttributionLoadProbe();
   await loadOptions();
   setDefaultFilters();
   await loadLedger();
+  requestInitialVisibleTradeAttributionLoad();
 }
 
 init().catch(showError);

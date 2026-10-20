@@ -371,13 +371,20 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
             account_code,
             symbol,
             trade_date,
-            SUM(COALESCE(realized_pnl, 0)) AS realized_pnl,
-            SUM(COALESCE(realized_pnl_cny, realized_pnl, 0)) AS realized_pnl_cny
+            SUM(CASE WHEN realized_pnl IS NOT NULL THEN COALESCE(realized_pnl, 0) ELSE 0 END) AS realized_pnl,
+            SUM(CASE WHEN realized_pnl IS NOT NULL THEN COALESCE(realized_pnl_cny, realized_pnl, 0) ELSE 0 END) AS realized_pnl_cny,
+            COUNT(*) FILTER (
+                WHERE trade_type IN ('sell', 'fund_redemption')
+                  AND realized_pnl IS NULL
+            ) AS missing_realized_count
         FROM pams_investment_trade_fact
-        WHERE realized_pnl IS NOT NULL
-          AND account_code = ANY(%s::text[])
+        WHERE account_code = ANY(%s::text[])
           AND symbol = ANY(%s::text[])
           AND trade_date <= %s::date
+          AND (
+              realized_pnl IS NOT NULL
+              OR trade_type IN ('sell', 'fund_redemption')
+          )
           AND COALESCE(LOWER(review_status), 'auto') NOT IN ('cancelled', 'canceled', 'void')
         GROUP BY account_code, symbol, trade_date
         """,
@@ -390,13 +397,18 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
         key = (str(item.get("account_code") or ""), str(item.get("symbol") or ""))
         facts_by_key.setdefault(key, []).append(item)
     explicit_realized_keys = set(facts_by_key)
+    missing_realized_keys = {
+        key
+        for key, facts in facts_by_key.items()
+        if any(_dec(fact.get("missing_realized_count")) > 0 for fact in facts)
+    }
 
     inferred_trades_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    missing_realized_keys = {
+    missing_realized_keys.update(
         (account, symbol)
         for account, symbol, _ in keys
         if (account, symbol) not in explicit_realized_keys
-    }
+    )
     if missing_realized_keys:
         cur.execute(
             """
@@ -438,6 +450,12 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
         if not account or not symbol or as_of is None:
             continue
 
+        inferred_trades = inferred_trades_by_key.get((account, symbol))
+        if inferred_trades:
+            state = _replay_weighted_average_trade_pnl(inferred_trades, as_of_key=str(as_of)[:10])
+            if _apply_inferred_realized_trade_pnl(row, state):
+                continue
+
         total_native = Decimal("0")
         total_cny = Decimal("0")
         daily_native = Decimal("0")
@@ -456,10 +474,6 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
                 daily_cny += realized_cny
 
         if total_native == 0 and total_cny == 0:
-            inferred_trades = inferred_trades_by_key.get((account, symbol))
-            if inferred_trades:
-                state = _replay_weighted_average_trade_pnl(inferred_trades, as_of_key=as_of_key)
-                _apply_inferred_realized_trade_pnl(row, state)
             continue
 
         base_holding = _dec(row.get("holding_pnl"))

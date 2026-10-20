@@ -1,4 +1,4 @@
-﻿import { jget } from './api.js?v=20260617-linkage-v1';
+import { jget } from './api.js?v=20260619-investment-hardening-v1';
 import { openBottomSheet } from './ui.js?v=20260614-trade-mode-attribution-v12';
 
 const DIMENSIONS = [
@@ -31,14 +31,11 @@ const UNDERLYING_SORTS = [
 ];
 
 const RETURN_ATTRIBUTION_DIMENSIONS = [
-  ['holding', '持仓'],
+  ['holding', '标的'],
   ['industry', '行业'],
-  ['theme', '主题'],
   ['region', '地区'],
-  ['currency', '币种'],
-  ['underlying', '底层'],
-  ['asset_type', '资产类型'],
-  ['market', '市种'],
+  ['theme', '主题'],
+  ['underlying', '基金底层'],
 ];
 
 const RETURN_ATTRIBUTION_KEYS = new Set(RETURN_ATTRIBUTION_DIMENSIONS.map(([key]) => key));
@@ -78,14 +75,30 @@ const EXPOSURE_COLORS = [
   '#ec4899',
 ];
 
-let activeDimension = localStorage.getItem('pams.lookthrough.dimension') || 'asset_type';
+function safeStorageGet(key) {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+  } catch {
+    // Browser privacy settings should not block rendering.
+  }
+}
+
+let activeDimension = safeStorageGet('pams.lookthrough.dimension') || 'asset_type';
 if (activeDimension === 'underlying_asset') activeDimension = 'underlying_exposure';
 if (!DIMENSION_KEYS.has(activeDimension)) activeDimension = 'asset_type';
 
 let activeThemeFamily = '全部';
 let underlyingSort = 'value';
 let lookthroughData = null;
-let activeReturnAttributionDimension = localStorage.getItem('pams.returnAttribution.dimension') || 'holding';
+let activeReturnAttributionDimension = safeStorageGet('pams.returnAttribution.dimension') || 'holding';
 if (!RETURN_ATTRIBUTION_KEYS.has(activeReturnAttributionDimension)) activeReturnAttributionDimension = 'holding';
 const RETURN_ATTRIBUTION_DEFAULT_LIMIT = 5;
 let returnAttributionShowAll = false;
@@ -99,10 +112,13 @@ function analysisPanelFromHash(hash = window.location.hash) {
   return null;
 }
 
-let activeAnalysisPanel = analysisPanelFromHash() || localStorage.getItem('pams.analysis.panel') || 'return_attribution';
+let activeAnalysisPanel = analysisPanelFromHash() || safeStorageGet('pams.analysis.panel') || 'return_attribution';
 if (!ANALYSIS_PANEL_KEYS.has(activeAnalysisPanel)) activeAnalysisPanel = 'return_attribution';
 let lookthroughLoadPromise = null;
 let returnAttributionLoadPromise = null;
+let returnAttributionHoldingDailySummary = null;
+let returnAttributionHoldingDailyLoadPromise = null;
+let returnAttributionHoldingDailyMap = new Map();
 
 function renderAnalysisPanelSwitch() {
   document.querySelectorAll('[data-analysis-panel-switch]').forEach((button) => {
@@ -128,6 +144,84 @@ function n(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function returnAttributionDailyKey(value) {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ');
+}
+
+function returnAttributionAddDailyKey(map, prefix, value, amount) {
+  const key = returnAttributionDailyKey(value);
+  if (!key) return;
+  const fullKey = `${prefix}:${key}`;
+  map.set(fullKey, n(map.get(fullKey)) + amount);
+}
+
+function returnAttributionNameWithoutSymbol(name, symbol) {
+  const rawName = String(name || '').trim();
+  const rawSymbol = String(symbol || '').trim();
+  if (!rawName || !rawSymbol) return rawName;
+  if (rawName.toUpperCase().startsWith(`${rawSymbol.toUpperCase()} - `)) {
+    return rawName.slice(rawSymbol.length + 3).trim();
+  }
+  return rawName;
+}
+
+function buildReturnAttributionHoldingDailyMap(summary) {
+  const map = new Map();
+  (summary?.children || []).forEach((row) => {
+    const daily = n(row?.daily_pnl);
+    returnAttributionAddDailyKey(map, 'symbol', row?.symbol, daily);
+    returnAttributionAddDailyKey(map, 'name', row?.name, daily);
+    returnAttributionAddDailyKey(map, 'name', returnAttributionNameWithoutSymbol(row?.name, row?.symbol), daily);
+  });
+  return map;
+}
+
+function setReturnAttributionHoldingDailySummary(summary) {
+  returnAttributionHoldingDailySummary = summary || null;
+  returnAttributionHoldingDailyMap = buildReturnAttributionHoldingDailyMap(summary);
+}
+
+function loadReturnAttributionHoldingDailySummary() {
+  if (returnAttributionHoldingDailySummary) {
+    return Promise.resolve(returnAttributionHoldingDailySummary);
+  }
+  if (returnAttributionHoldingDailyLoadPromise) return returnAttributionHoldingDailyLoadPromise;
+  returnAttributionHoldingDailyLoadPromise = jget('/summary2/latest?baseCurrency=CNY', { cache: false })
+    .then((data) => {
+      setReturnAttributionHoldingDailySummary(data);
+      return data;
+    })
+    .catch(() => {
+      setReturnAttributionHoldingDailySummary(null);
+      return null;
+    })
+    .finally(() => {
+      returnAttributionHoldingDailyLoadPromise = null;
+    });
+  return returnAttributionHoldingDailyLoadPromise;
+}
+
+function returnAttributionLookupHoldingDaily(row) {
+  const keys = [
+    ['symbol', row?.symbol],
+    ['symbol', row?.source_symbol],
+    ['name', row?.display_name],
+    ['name', row?.name],
+    ['name', row?.source_asset_name],
+    ['name', returnAttributionNameWithoutSymbol(row?.display_name || row?.name, row?.symbol || row?.source_symbol)],
+  ];
+  for (const [prefix, value] of keys) {
+    const key = returnAttributionDailyKey(value);
+    if (key && returnAttributionHoldingDailyMap.has(`${prefix}:${key}`)) {
+      return n(returnAttributionHoldingDailyMap.get(`${prefix}:${key}`));
+    }
+  }
+  return 0;
+}
+
 function fmtMoney(value) {
   const amount = n(value);
   return `${amount < 0 ? '-' : ''}¥${Math.abs(amount).toLocaleString('zh-CN', {
@@ -146,6 +240,22 @@ function fmtSignedMoney(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function fmtCompactSignedMoney(value) {
+  const amount = n(value);
+  if (!amount) return '¥0';
+  const sign = amount < 0 ? '-' : '+';
+  const abs = Math.abs(amount);
+  const compact = (next, digits = 0) => next.toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+  if (abs >= 100000000) return `${sign}¥${compact(abs / 100000000, 1)}亿`;
+  if (abs >= 10000) return `${sign}¥${compact(abs / 10000, abs >= 100000 ? 1 : 2)}万`;
+  if (abs >= 1000) return `${sign}¥${compact(abs, 0)}`;
+  if (abs >= 100) return `${sign}¥${compact(abs, 0)}`;
+  return `${sign}¥${compact(abs, abs >= 10 ? 1 : 2)}`;
 }
 
 function calibratedReturnAttributionData() {
@@ -699,6 +809,209 @@ function returnAttributionRowsForDimension(dimension) {
   return calibratedReturnAttributionData()?.dimensions?.[dimension] || [];
 }
 
+function returnAttributionHeatmapRows() {
+  return returnAttributionRowsForDimension('holding')
+    .filter(row => row && (Math.abs(n(row.pnl_cny ?? row.total_pnl_cny ?? row.value_cny)) > 0.01 || n(row.market_value_cny) > 0))
+    .slice()
+    .sort((a, b) => Math.abs(n(b.pnl_cny ?? b.total_pnl_cny ?? b.value_cny)) - Math.abs(n(a.pnl_cny ?? a.total_pnl_cny ?? a.value_cny)))
+    .slice(0, 60);
+}
+
+function returnAttributionAssetPnl(row) {
+  return n(row?.pnl_cny ?? row?.total_pnl_cny ?? row?.value_cny);
+}
+
+function returnAttributionAssetWeight(row) {
+  const pnl = Math.abs(returnAttributionAssetPnl(row));
+  if (pnl > 0.01) return pnl;
+  return Math.max(Math.abs(n(row?.market_value_cny)) * 0.015, 1);
+}
+
+function returnAttributionAssetLabel(row) {
+  const symbol = String(row?.symbol || '').trim();
+  const name = String(row?.display_name || row?.name || symbol || '').trim();
+  if (!name) return symbol || '--';
+  if (symbol && name.toUpperCase().startsWith(`${symbol.toUpperCase()} - `)) {
+    return name.slice(symbol.length + 3).trim() || name;
+  }
+  return name;
+}
+
+function returnAttributionAssetMeta(row) {
+  const symbol = String(row?.symbol || '').trim();
+  const name = String(row?.display_name || row?.name || '').trim();
+  if (symbol && name && name !== symbol) return symbol;
+  return symbol || '';
+}
+
+function returnAttributionCompactName(value, maxLength = 8) {
+  const label = String(value || '').trim();
+  if (!label) return '';
+  if (/[\u3400-\u9fff]/.test(label)) {
+    const compacted = label
+      .replace(/ETF联接[ABC]?$/i, '')
+      .replace(/发起式联接[ABC]?$/i, '')
+      .replace(/灵活配置混合[ABC]?$/i, '')
+      .replace(/配置混合[ABC]?$/i, '')
+      .replace(/混合[ABC]?$/i, '')
+      .trim();
+    return (compacted || label).slice(0, maxLength);
+  }
+  const cleaned = label
+    .replace(/\b(INC|CORP|CO|LTD|PLC|CMN|CLASS|TRUST|SERIES)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = (cleaned || label).split(/\s+/).filter(Boolean);
+  return words.slice(0, Math.max(1, Math.min(2, Math.floor(maxLength / 4)))).join(' ') || label.slice(0, maxLength);
+}
+
+function returnAttributionTileText(row, rect) {
+  const area = rect.w * rect.h;
+  const shortSide = Math.min(rect.w, rect.h);
+  const label = returnAttributionAssetLabel(row);
+  if (area < 120 || shortSide < 7) return { meta: '', name: returnAttributionCompactName(label, 5) };
+  if (area < 420 || shortSide < 12) return { meta: '', name: returnAttributionCompactName(label, 7) };
+  if (label.length > 10 && (rect.w < 30 || shortSide < 18)) {
+    return { meta: '', name: returnAttributionCompactName(label, 8) };
+  }
+  const meta = returnAttributionAssetMeta(row);
+  return {
+    meta: meta.length > 14 && rect.w < 34 ? '' : meta,
+    name: label,
+  };
+}
+
+function returnAttributionClamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function returnAttributionTreemapWeight(row) {
+  return Math.max(Math.pow(returnAttributionAssetWeight(row), 0.9), 1);
+}
+
+function returnAttributionTreemapSplit(items) {
+  const total = items.reduce((sum, item) => sum + item.layoutWeight, 0);
+  const target = total / 2;
+  let bestIndex = 1;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  let running = 0;
+  for (let index = 0; index < items.length - 1; index += 1) {
+    running += items[index].layoutWeight;
+    const diff = Math.abs(target - running);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIndex = index + 1;
+    }
+  }
+  return bestIndex;
+}
+
+function returnAttributionTreemapPartition(items, rect) {
+  if (!items.length) return [];
+  if (items.length === 1) return [{ ...items[0], rect }];
+  const total = items.reduce((sum, item) => sum + item.layoutWeight, 0);
+  const splitIndex = returnAttributionTreemapSplit(items);
+  const first = items.slice(0, splitIndex);
+  const second = items.slice(splitIndex);
+  const firstWeight = first.reduce((sum, item) => sum + item.layoutWeight, 0);
+  const ratio = total > 0 ? firstWeight / total : 0.5;
+  if (rect.w >= rect.h) {
+    const firstWidth = rect.w * ratio;
+    return [
+      ...returnAttributionTreemapPartition(first, { x: rect.x, y: rect.y, w: firstWidth, h: rect.h }),
+      ...returnAttributionTreemapPartition(second, { x: rect.x + firstWidth, y: rect.y, w: rect.w - firstWidth, h: rect.h }),
+    ];
+  }
+  const firstHeight = rect.h * ratio;
+  return [
+    ...returnAttributionTreemapPartition(first, { x: rect.x, y: rect.y, w: rect.w, h: firstHeight }),
+    ...returnAttributionTreemapPartition(second, { x: rect.x, y: rect.y + firstHeight, w: rect.w, h: rect.h - firstHeight }),
+  ];
+}
+
+function returnAttributionTreemapLayout(rows) {
+  const items = rows
+    .map((row, index) => ({ row, index, layoutWeight: returnAttributionTreemapWeight(row) }))
+    .sort((a, b) => b.layoutWeight - a.layoutWeight || a.index - b.index);
+  return returnAttributionTreemapPartition(items, { x: 0, y: 0, w: 100, h: 100 });
+}
+
+function returnAttributionTileClass(rect) {
+  const area = rect.w * rect.h;
+  const shortSide = Math.min(rect.w, rect.h);
+  if (area < 42 || shortSide < 3.9) return 'is-micro';
+  if (area < 92 || shortSide < 5.8) return 'is-xs';
+  if (area < 180 || shortSide < 8) return 'is-sm';
+  if (area < 360) return 'is-md';
+  if (area < 820) return 'is-lg';
+  return 'is-xl';
+}
+
+function returnAttributionTileStyle(rect) {
+  const area = rect.w * rect.h;
+  const shortSide = Math.min(rect.w, rect.h);
+  const rawBase = Math.sqrt(area) * 0.72 + shortSide * 0.16;
+  const base = returnAttributionClamp(Math.min(rawBase, rect.w * 0.5 + 2.5, rect.h * 0.58 + 2), 7, 18);
+  const meta = returnAttributionClamp(Math.min(base * 0.56, rect.w * 0.3 + 1.5), 6.2, 10.5);
+  const value = returnAttributionClamp(Math.min(base * 0.9, rect.w * 0.42 + 2), 7, 15.5);
+  const pad = returnAttributionClamp(shortSide * 0.34, 1.5, 9);
+  const lines = rect.h >= 15 && rect.w >= 10 ? 2 : 1;
+  return [
+    `--return-asset-x:${rect.x.toFixed(3)}%`,
+    `--return-asset-y:${rect.y.toFixed(3)}%`,
+    `--return-asset-w:${rect.w.toFixed(3)}%`,
+    `--return-asset-h:${rect.h.toFixed(3)}%`,
+    `--return-asset-name:${base.toFixed(2)}px`,
+    `--return-asset-meta:${meta.toFixed(2)}px`,
+    `--return-asset-value:${value.toFixed(2)}px`,
+    `--return-asset-pad:${pad.toFixed(2)}px`,
+    `--return-asset-lines:${lines}`,
+  ].join(';');
+}
+
+function ReturnAttributionAssetHeatmap(data) {
+  const rows = returnAttributionHeatmapRows();
+  if (!rows.length) return '<div class="lookthroughEmpty">暂无标的盈亏数据</div>';
+  const layout = returnAttributionTreemapLayout(rows);
+  const gainCount = rows.filter(row => returnAttributionAssetPnl(row) > 0.01).length;
+  const lossCount = rows.filter(row => returnAttributionAssetPnl(row) < -0.01).length;
+  return `
+    <div class="returnAssetHeatmapPanel">
+      <div class="returnAssetHeatmapHead">
+        <div>
+          <span>标的盈亏热力图</span>
+          <strong>${esc(rows.length)} 个标的 · 持仓盈亏 ${fmtSignedMoney(data.total_pnl_cny)}</strong>
+        </div>
+        <div class="returnAssetHeatmapLegend">
+          <span class="gain">盈利 ${gainCount}</span>
+          <span class="loss">亏损 ${lossCount}</span>
+        </div>
+      </div>
+      <div class="returnAssetHeatmapCanvas" data-return-asset-heatmap>
+        ${layout.map((item) => {
+          const { row, rect, index } = item;
+          const pnl = returnAttributionAssetPnl(row);
+          const dailyPnl = returnAttributionLookupHoldingDaily(row);
+          const text = returnAttributionTileText(row, rect);
+          const title = `${returnAttributionAssetMeta(row) || row.symbol || ''} ${returnAttributionAssetLabel(row)} ${fmtSignedMoney(pnl)}`.trim();
+          return `
+            <button type="button"
+              class="returnAssetTile ${pnl >= 0 ? 'gain' : 'loss'} ${returnAttributionTileClass(rect)}"
+              style="${returnAttributionTileStyle(rect)}"
+              title="${esc(title)}"
+              data-return-asset-heat-row="${index}">
+              <span>${esc(text.meta)}</span>
+              <strong>${esc(text.name)}</strong>
+              <em>${esc(fmtCompactSignedMoney(pnl))}</em>
+              <small>今日 ${esc(fmtCompactSignedMoney(dailyPnl))}</small>
+            </button>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function returnAttributionIntro() {
   if (activeReturnAttributionDimension === 'theme') {
     return '<div class="lookthroughNarrative"><strong>主题收益归因</strong><span>主题按 theme_score 加权且可重叠，合计不要求等于组合总收益。</span></div>';
@@ -729,21 +1042,18 @@ function renderReturnAttributionSummary() {
     badge.textContent = data.as_of ? `更新 ${data.as_of}${sourceText}` : `已计算${sourceText}`;
     badge.className = 'miniBadge data';
   }
-  const notes = (data.notes || []).slice(0, 2).map(note => `<span>${esc(note)}</span>`).join('');
   el.innerHTML = `
-    <div class="returnAttributionCards">
-      <div><span>持仓盈亏</span><strong class="${n(data.total_pnl_cny) >= 0 ? 'gain' : 'loss'}">${fmtSignedMoney(data.total_pnl_cny)}</strong></div>
-      <div><span>今日盈亏</span><strong class="${n(data.daily_pnl_cny) >= 0 ? 'gain' : 'loss'}">${fmtSignedMoney(data.daily_pnl_cny)}</strong></div>
-      <div><span>价格收益</span><strong>${fmtSignedMoney(data.daily_price_pnl_cny)}</strong></div>
-      <div><span>汇率收益</span><strong>${fmtSignedMoney(data.daily_fx_pnl_cny)}</strong></div>
-    </div>
-    ${notes ? `<div class="returnAttributionNotes">${notes}</div>` : ''}
+    ${ReturnAttributionAssetHeatmap(data)}
   `;
 }
 
 function returnAttributionRowHtml(row, index, maxAbsPnl) {
   const pnl = n(row.pnl_cny ?? row.total_pnl_cny ?? row.value_cny);
-  const daily = n(row.daily_pnl_cny);
+  const daily = activeReturnAttributionDimension === 'holding'
+    ? returnAttributionLookupHoldingDaily(row)
+    : n(row.daily_pnl_cny);
+  const dailyPrice = activeReturnAttributionDimension === 'holding' ? daily : n(row.daily_price_pnl_cny);
+  const dailyFx = activeReturnAttributionDimension === 'holding' ? 0 : n(row.daily_fx_pnl_cny);
   const width = maxAbsPnl > 0 ? Math.max(Math.abs(pnl) / maxAbsPnl * 100, 2) : 0;
   const isClosed = isClosedAttributionRow(row);
   const sourceLine = (row.top_sources || row.source_details || [])
@@ -766,7 +1076,7 @@ function returnAttributionRowHtml(row, index, maxAbsPnl) {
       <div class="returnAttributionPnlBar"><i style="width:${width}%"></i></div>
       <div class="returnAttributionRowMeta">
         <span>${esc(meta)}</span>
-        <em>今日 ${fmtSignedMoney(daily)} · 价格 ${fmtSignedMoney(row.daily_price_pnl_cny)} · 汇率 ${fmtSignedMoney(row.daily_fx_pnl_cny)}</em>
+        <em>今日 ${fmtSignedMoney(daily)} · 价格 ${fmtSignedMoney(dailyPrice)} · 汇率 ${fmtSignedMoney(dailyFx)}</em>
       </div>
     </button>
   `;
@@ -803,14 +1113,18 @@ function renderReturnAttribution() {
   renderReturnAttributionList();
 }
 
-function returnAttributionDetailHtml(row) {
+function returnAttributionDetailHtml(row, options = {}) {
   const details = row.source_details || [];
+  const useHoldingDaily = options.useHoldingDaily === true || activeReturnAttributionDimension === 'holding';
+  const dailyPnl = useHoldingDaily ? returnAttributionLookupHoldingDaily(row) : n(row.daily_pnl_cny);
+  const dailyPricePnl = useHoldingDaily ? dailyPnl : n(row.daily_price_pnl_cny);
+  const dailyFxPnl = useHoldingDaily ? 0 : n(row.daily_fx_pnl_cny);
   return `
     <div class="sheetGrid">
       <div class="sheetMetric"><span>持仓盈亏</span><strong>${fmtSignedMoney(row.pnl_cny ?? row.value_cny)}</strong></div>
-      <div class="sheetMetric"><span>今日盈亏</span><strong>${fmtSignedMoney(row.daily_pnl_cny)}</strong></div>
-      <div class="sheetMetric"><span>价格收益</span><strong>${fmtSignedMoney(row.daily_price_pnl_cny)}</strong></div>
-      <div class="sheetMetric"><span>汇率收益</span><strong>${fmtSignedMoney(row.daily_fx_pnl_cny)}</strong></div>
+      <div class="sheetMetric"><span>今日盈亏</span><strong>${fmtSignedMoney(dailyPnl)}</strong></div>
+      <div class="sheetMetric"><span>价格收益</span><strong>${fmtSignedMoney(dailyPricePnl)}</strong></div>
+      <div class="sheetMetric"><span>汇率收益</span><strong>${fmtSignedMoney(dailyFxPnl)}</strong></div>
       <div class="sheetMetric"><span>敞口金额</span><strong>${fmtMoney(row.market_value_cny)}</strong></div>
       <div class="sheetMetric"><span>敞口占比</span><strong>${fmtPct(row.exposure_weight ?? row.weight)}</strong></div>
     </div>
@@ -826,7 +1140,7 @@ function returnAttributionDetailHtml(row) {
             </div>
             <div>
               <b>${fmtSignedMoney(source.pnl_cny)}</b>
-              <span>今日 ${fmtSignedMoney(source.daily_pnl_cny)}</span>
+              <span>今日 ${fmtSignedMoney(useHoldingDaily ? returnAttributionLookupHoldingDaily(source) : source.daily_pnl_cny)}</span>
             </div>
           </div>
         `).join('') : '<p>暂无来源明细</p>'}
@@ -983,7 +1297,7 @@ function bindEvents() {
     if (panelSwitch) {
       activeAnalysisPanel = panelSwitch.dataset.analysisPanelSwitch || 'return_attribution';
       if (!ANALYSIS_PANEL_KEYS.has(activeAnalysisPanel)) activeAnalysisPanel = 'return_attribution';
-      localStorage.setItem('pams.analysis.panel', activeAnalysisPanel);
+      safeStorageSet('pams.analysis.panel', activeAnalysisPanel);
       renderAnalysisPanelSwitch();
       loadActiveAnalysisPanel();
       return;
@@ -993,7 +1307,7 @@ function bindEvents() {
     if (returnTab) {
       activeReturnAttributionDimension = returnTab.dataset.returnAttrDim;
       returnAttributionShowAll = false;
-      localStorage.setItem('pams.returnAttribution.dimension', activeReturnAttributionDimension);
+      safeStorageSet('pams.returnAttribution.dimension', activeReturnAttributionDimension);
       renderReturnAttribution();
       return;
     }
@@ -1008,7 +1322,7 @@ function bindEvents() {
     const tab = event.target?.closest?.('[data-lookthrough-dim]');
     if (tab) {
       activeDimension = tab.dataset.lookthroughDim;
-      localStorage.setItem('pams.lookthrough.dimension', activeDimension);
+      safeStorageSet('pams.lookthrough.dimension', activeDimension);
       renderLookthrough();
       return;
     }
@@ -1040,6 +1354,13 @@ function bindEvents() {
       if (row) openBottomSheet(`穿透：${displayName(row)}`, rowDetailHtml(row));
     }
 
+    const returnAssetHeatButton = event.target?.closest?.('[data-return-asset-heat-row]');
+    if (returnAssetHeatButton && returnAttributionData) {
+      const index = Number(returnAssetHeatButton.dataset.returnAssetHeatRow);
+      const row = returnAttributionHeatmapRows()[index];
+      if (row) openBottomSheet(`收益归因：${row.display_name || row.name}`, returnAttributionDetailHtml(row, { useHoldingDaily: true }));
+    }
+
     const returnRowButton = event.target?.closest?.('[data-return-attr-row]');
     if (returnRowButton && returnAttributionData) {
       const index = Number(returnRowButton.dataset.returnAttrRow);
@@ -1064,8 +1385,11 @@ async function loadLookthrough() {
       const el = document.getElementById('lookthroughList');
       if (el) el.innerHTML = `<div class="lookthroughEmpty">穿透接口暂不可用：${esc(error?.message || error)}</div>`;
     });
-  const attributionRequest = jget('/api/analysis/return-attribution?baseCurrency=CNY')
-    .then((data) => {
+  const attributionRequest = Promise.all([
+    jget('/api/analysis/return-attribution?baseCurrency=CNY'),
+    loadReturnAttributionHoldingDailySummary(),
+  ])
+    .then(([data]) => {
       returnAttributionData = data;
       renderReturnAttribution();
     })
@@ -1108,11 +1432,20 @@ function loadReturnAttributionData() {
   if (!panel) return Promise.resolve();
   if (returnAttributionData) {
     renderReturnAttribution();
+    if (!returnAttributionHoldingDailySummary) {
+      return loadReturnAttributionHoldingDailySummary().then(() => {
+        renderReturnAttribution();
+        return returnAttributionData;
+      });
+    }
     return Promise.resolve(returnAttributionData);
   }
   if (returnAttributionLoadPromise) return returnAttributionLoadPromise;
-  returnAttributionLoadPromise = jget('/api/analysis/return-attribution?baseCurrency=CNY')
-    .then((data) => {
+  returnAttributionLoadPromise = Promise.all([
+    jget('/api/analysis/return-attribution?baseCurrency=CNY'),
+    loadReturnAttributionHoldingDailySummary(),
+  ])
+    .then(([data]) => {
       returnAttributionData = data;
       renderReturnAttribution();
       return data;
@@ -1133,6 +1466,7 @@ function loadActiveAnalysisPanel() {
     return loadReturnAttributionData().catch(() => {});
   }
   if (activeAnalysisPanel === 'trade_attribution') {
+    window.dispatchEvent(new CustomEvent('pams:load-trade-attribution'));
     return Promise.resolve();
   }
   return loadLookthroughData().catch(() => {});
@@ -1155,7 +1489,7 @@ function scheduleVisibleAnalysisLoad() {
   const hashPanel = analysisPanelFromHash();
   if (hashPanel && hashPanel !== activeAnalysisPanel) {
     activeAnalysisPanel = hashPanel;
-    localStorage.setItem('pams.analysis.panel', activeAnalysisPanel);
+    safeStorageSet('pams.analysis.panel', activeAnalysisPanel);
   }
   renderAnalysisPanelSwitch();
   if (isAnalysisPanelVisible()) loadActiveAnalysisPanel();

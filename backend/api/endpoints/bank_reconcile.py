@@ -22,6 +22,8 @@ router = APIRouter()
 
 CONFIG_PATH = Path(os.environ.get("PAMS_BANK_RECONCILE_CONFIG", "/app/config/bank_reconcile.yaml"))
 LOCAL_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "bank_reconcile.yaml"
+BANK_STATEMENT_ROWS_TABLE = "pams_bank_statement_rows"
+TRANSFER_MATCH_TABLE = "pams_bank_transfer_matches"
 HOST_DOWNLOADS_DIR = Path(os.environ.get("PAMS_HOST_DOWNLOADS_DIR", "/host/Downloads"))
 HOST_ACCOUNT_LEDGER_DIR = Path(os.environ.get("PAMS_ACCOUNT_LEDGER_DIR", "/host/account-ledger"))
 LIABILITY_ACCOUNT_KINDS = {"credit_card"}
@@ -449,6 +451,16 @@ def _summarize(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def ensure_tables(conn) -> None:
     """Bank reconciliation tables are provisioned by database schema migrations."""
     return None
+
+
+def _table_exists(cur, table_name: str) -> bool:
+    cur.execute("SELECT to_regclass(%s) AS table_name", (table_name,))
+    row = cur.fetchone()
+    if not row:
+        return False
+    if isinstance(row, dict):
+        return row.get("table_name") is not None
+    return row[0] is not None
 
 
 def _load_staged_rows(cur) -> list[dict[str, Any]]:
@@ -934,6 +946,8 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
 
 
 def _write_transfer_matches(cur, matches: list[dict[str, Any]]) -> int:
+    if not _table_exists(cur, TRANSFER_MATCH_TABLE):
+        raise HTTPException(status_code=503, detail="bank transfer match table is not initialized")
     cur.execute("DELETE FROM pams_bank_transfer_matches WHERE status = 'auto'")
     inserted = 0
     for match in matches:
@@ -1070,6 +1084,8 @@ def _transfer_match_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def _fetch_transfer_matches(cur, limit: int = 200) -> list[dict[str, Any]]:
+    if not _table_exists(cur, TRANSFER_MATCH_TABLE):
+        return []
     cur.execute(
         """
         SELECT m.id, m.match_key, m.match_type, m.relation_code,
@@ -1097,6 +1113,8 @@ def _fetch_transfer_matches(cur, limit: int = 200) -> list[dict[str, Any]]:
 
 
 def _fetch_transfer_match_summary(cur) -> list[dict[str, Any]]:
+    if not _table_exists(cur, TRANSFER_MATCH_TABLE):
+        return []
     cur.execute(
         """
         SELECT match_type,
@@ -1113,6 +1131,44 @@ def _fetch_transfer_match_summary(cur) -> list[dict[str, Any]]:
 
 def _fetch_unmatched_confirmation_rows(cur, since: date, limit: int = 500) -> list[dict[str, Any]]:
     """Return statement flows that still need user confirmation after auto-matching."""
+    if not _table_exists(cur, BANK_STATEMENT_ROWS_TABLE):
+        return []
+    if not _table_exists(cur, TRANSFER_MATCH_TABLE):
+        cur.execute(
+            """
+            SELECT
+                'unmatched_row' AS issue_type,
+                NULL::TEXT AS match_type,
+                NULL::TEXT AS relation_code,
+                NULL::TEXT AS from_account_code,
+                NULL::TEXT AS to_account_code,
+                NULL::NUMERIC AS confidence,
+                '转账匹配表未初始化，暂按未匹配流水展示' AS issue_note,
+                r.id AS row_id,
+                r.profile_code,
+                r.account_code,
+                r.transaction_date,
+                r.amount,
+                r.currency,
+                r.original_amount,
+                r.original_currency,
+                r.category,
+                r.subcategory,
+                r.summary,
+                r.description,
+                r.counterparty
+            FROM pams_bank_statement_rows r
+            WHERE r.transaction_date >= %s
+              AND (
+                  COALESCE(r.category, '未分类') = '未分类'
+                  OR r.category = %s
+              )
+            ORDER BY r.transaction_date DESC, r.id DESC
+            LIMIT %s
+            """,
+            (since, INTERNAL_TRANSFER_CATEGORY, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
     cur.execute(
         """
         WITH matched_rows AS (
@@ -1322,9 +1378,10 @@ def list_transfer_matches(limit: int = 200):
     with get_conn() as conn:
         ensure_tables(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            table_ready = _table_exists(cur, TRANSFER_MATCH_TABLE)
             matches = _fetch_transfer_matches(cur, limit=limit)
             summary = _fetch_transfer_match_summary(cur)
-    return _norm({"matches": matches, "summary": summary})
+    return _norm({"matches": matches, "summary": summary, "table_ready": table_ready})
 
 
 @router.get("/bank-reconcile/unmatched-rows")

@@ -175,11 +175,11 @@ CREATE TABLE IF NOT EXISTS pams_asset_real_asset_profile (
 );
 """
 
-EQUITY_TYPES = {"A股个股", "港股个股", "美股个股"}
+EQUITY_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股"}
 NON_THEME_TYPES = {"现金", "债券 / 货币基金", "非上市股权", "房地产 / 实物资产", "应收款 / 待到账"}
-VALID_CURRENCIES = {"CNY", "HKD", "USD", "KRW", "MXN"}
-VALID_MARKETS = {"A股", "港股", "美股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"}
-VALID_REGIONS = {"中国大陆", "香港", "美国", "韩国", "全球", "其他"}
+VALID_CURRENCIES = {"CNY", "HKD", "USD", "SEK", "KRW", "MXN"}
+VALID_MARKETS = {"A股", "港股", "美股", "欧股", "韩股", "基金", "现金", "货币基金 / 债券", "黄金 / 商品", "非上市 / 内部", "其他"}
+VALID_REGIONS = {"中国大陆", "香港", "美国", "欧洲", "瑞典", "韩国", "全球", "其他"}
 VALID_THEME_NAMES = {name for name, _family in THEME_DEFINITIONS.values()}
 VALID_AI_SUB_THEME_NAMES = set(AI_SUB_THEME_DEFINITIONS.values())
 REAL_LOOKTHROUGH_TYPES = {"FULL_HOLDINGS", "TOP10", "INDEX_PROXY", "MANUAL"}
@@ -312,6 +312,8 @@ def _exposure_policy(asset_type: str) -> str:
         "A股个股": "listed_equity",
         "港股个股": "listed_equity",
         "美股个股": "listed_equity",
+        "欧股个股": "listed_equity",
+        "韩股个股": "listed_equity",
         "ETF / 基金": "fund_lookthrough",
         "现金": "cash",
         "债券 / 货币基金": "fixed_income",
@@ -396,8 +398,11 @@ def _asset_record_from_raw(raw: dict[str, Any], *, source: str) -> dict[str, Any
     symbol = _text(raw.get("symbol") or raw.get("underlying_symbol") or raw.get("asset_id"))
     asset_type = resolveAssetType(raw)
     market = _text(raw.get("market")) or resolve_market(raw, asset_type)
-    region = _text(raw.get("economic_region") or raw.get("region") or raw.get("underlying_region")) or resolve_region(raw, market)
     currency = _raw_currency(raw)
+    region_raw = _text(raw.get("economic_region") or raw.get("region") or raw.get("underlying_region"))
+    region = resolve_region({**raw, "region": region_raw, "currency": currency}, market)
+    listing_region_raw = _text(raw.get("listing_region") or raw.get("region") or raw.get("underlying_region"))
+    listing_region = resolve_region({**raw, "region": listing_region_raw, "currency": currency}, market) if listing_region_raw else region
     asset_id = asset_id_for(symbol, name, asset_type)
     confidence = _text(raw.get("mapping_confidence") or raw.get("confidence") or "medium").lower()
     if confidence not in {"high", "medium", "low"}:
@@ -413,7 +418,7 @@ def _asset_record_from_raw(raw: dict[str, Any], *, source: str) -> dict[str, Any
         "asset_type": asset_type,
         "asset_subtype": _text(raw.get("asset_subtype")) or _asset_subtype(raw, asset_type),
         "market": market,
-        "listing_region": _text(raw.get("listing_region") or raw.get("region") or raw.get("underlying_region")),
+        "listing_region": listing_region,
         "economic_region": region,
         "currency": currency,
         "valuation_method": _text(raw.get("valuation_method")) or _valuation_method(asset_type),
@@ -509,8 +514,8 @@ def _upsert_asset(cur, raw: dict[str, Any], *, source: str = "system") -> str:
             END,
             currency = CASE
                 WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.currency
-                WHEN EXCLUDED.currency IN ('CNY', 'HKD', 'USD', 'KRW', 'MXN') THEN EXCLUDED.currency
-                WHEN pams_asset_master.currency IN ('CNY', 'HKD', 'USD', 'KRW', 'MXN') THEN pams_asset_master.currency
+                WHEN EXCLUDED.currency IN ('CNY', 'HKD', 'USD', 'SEK', 'KRW', 'MXN') THEN EXCLUDED.currency
+                WHEN pams_asset_master.currency IN ('CNY', 'HKD', 'USD', 'SEK', 'KRW', 'MXN') THEN pams_asset_master.currency
                 ELSE NULLIF(EXCLUDED.currency, '')
             END,
             valuation_method = CASE
@@ -933,8 +938,9 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def load_asset_master_lookup(cur) -> dict[str, Any]:
-    ensure_asset_master_schema(cur)
+def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, Any]:
+    if ensure_schema:
+        ensure_asset_master_schema(cur)
     cur.execute("SELECT * FROM pams_asset_master")
     assets = [{k: _jsonable(v) for k, v in row.items()} for row in cur.fetchall()]
     by_id = {row["asset_id"]: {**row, "aliases": [], "industry": None, "themes": []} for row in assets}

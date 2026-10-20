@@ -57,10 +57,15 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     assert "'more.html': { key: 'more', label: '更多' }" in mobile_tabs
     assert "index.html" not in mobile_tabs
     assert "accounts.html" not in mobile_tabs
+    assert "accounts: 'more.html'" in ui_js
+    assert "'accounts.html': 'more.html'" in ui_js
+    assert "index: 'investments.html'" in ui_js
+    assert "'index.html': 'investments.html'" in ui_js
+    assert "'risk.html': 'investments.html'" in ui_js
+    assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html'])" in ui_js
     assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
 
     for page in [
-        "index.html",
         "accounts.html",
         "investments.html",
         "ledger.html",
@@ -91,7 +96,12 @@ def test_legacy_frontend_entrypoints_stay_removed() -> None:
         assert f"return 302 /{page}" not in dockerfile
 
     assert not (PUBLIC_ROOT / "assets/js/risk.js").exists()
-    assert (PUBLIC_ROOT / "risk.html").exists()
+    assert not (PUBLIC_ROOT / "index.html").exists()
+    assert not (PUBLIC_ROOT / "risk.html").exists()
+    assert not (PUBLIC_ROOT / "assets/js/dashboard.js").exists()
+    assert not (PUBLIC_ROOT / "assets/js/risk_metrics.js").exists()
+    assert "location = /index.html { return 302 /investments.html; }" in dockerfile
+    assert "location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }" in dockerfile
 
     for legacy_alias in ["bank_reconcile", "cashflow", "holdings", "strategy", "transactions", "watchlist"]:
         assert f"{legacy_alias}:" not in ui_js
@@ -209,6 +219,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "function renderInvestmentNavChart(rows, windowKey, isMobile)" in holdings_js
     assert "function createInvestmentReturnCanvasFallback(canvas, data)" in holdings_js
     assert "if (typeof Chart === 'undefined')" in holdings_js
+    assert "function returnEventAdjustedAmount(row, prev)" in holdings_js
+    assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in holdings_js
+    assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in holdings_js
     assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in holdings_js
     assert "function normalizeInvestmentNavRows(rows)" in holdings_js
     assert "row.netWorth ?? row.net_worth ?? row.market_value" in holdings_js
@@ -223,7 +236,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "dailyPnl: null" in holdings_js
     assert "flexCoversPositionDate" in holdings_js
     assert "accountNetLiquidationFromHoldings" in holdings_js
-    assert "jget('/holdings/latest?limit=500').catch(() => null)" in holdings_js
+    assert "jgetFresh('/holdings/latest?limit=500').catch(() => null)" in holdings_js
     assert "accountPrimaryBalanceCny(accountOverview, 'ibkr', fxRates)" in holdings_js
     assert "ibkrOverviewCoversPositionDate" in holdings_js
     assert "safeNum(ibkrOverviewBalance.amountCny) > 0" in holdings_js
@@ -238,6 +251,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "positionValue: ibkrPositionValue" in holdings_js
     assert "dailyPnl: usSummary.dailyPnl" in holdings_js
     assert "ibkrSummary: usCategorySummary" in holdings_js
+    assert "function freshValuationStateForTarget" in holdings_js
+    assert "const summaryFresh = isFreshPayloadAsOf(portfolioSummary, targetAsOf)" in holdings_js
+    assert "portfolioSummaryFreshForAsOf && portfolioSummary?.totals?.daily_pnl" in holdings_js
+    assert "const reportedReturnsFresh = isFreshPayloadAsOf(reportedReturns, asof)" in holdings_js
+    assert "staleReportedReturns" in holdings_js
     assert "valueLabel: '账户净值'" in holdings_js
     assert "btnLoadInvestmentReturnChart" not in holdings_js
     assert "加载收益曲线" not in holdings_js
@@ -281,12 +299,12 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260617-linkage-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260619-valuation-state-v1" in html
-    assert "assets/js/lookthrough.js?v=20260618-nav-field-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in html
-    assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in html
-    assert "style.css?v=20260617-return-window-v1" in html
+    assert "assets/js/holdings.js?v=20260620-page-boundary-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260620-page-boundary-v1" in html
+    assert "assets/js/lookthrough.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in html
+    assert "assets/js/portfolio_config.js?v=20260620-trade-attribution-v2" in html
+    assert "style.css?v=20260620-trade-attribution-v2" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -300,11 +318,22 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "说明" in html
     assert "累计盈亏" in holding_rows_js
     assert "当前浮盈" in holding_rows_js
+    assert "总负债" in holdings_js
+    assert "resolvePortfolioLiabilitiesCny" in holdings_js
+    assert "totalLiabilities" in holdings_js
     assert "摊薄成本" in holding_rows_js
     assert "realizedPnlNote" in holding_rows_js
     assert "holdingAveragePriceText" in holding_rows_js
     assert "dilutedAveragePriceText" in holding_rows_js
     assert "currentFloatPnl" in holding_rows_js
+    assert "mobileHoldingQtyInline" not in holding_rows_js
+    assert "mobileHoldingDailyLine" in holding_rows_js
+    assert "mobileHoldingChangePct" in holding_rows_js
+    assert "mobileHoldingQuoteLine" in holding_rows_js
+    assert "join('<i aria-hidden=\"true\">·</i>')" in holding_rows_js
+    assert "<em>份数</em>" in holding_rows_js
+    assert "<em>${isCash ? '本币' : '现价'}</em>" in holding_rows_js
+    assert "mobileHeroMetaTop" in holdings_js
     assert "returnChartHeader" in html
     assert "returnWindowSegment" in html
     assert "returnSeriesRail" in html
@@ -394,7 +423,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260617-linkage-v1" in investments_html
+    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -437,7 +466,7 @@ def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
         "融资负债",
         "美国权益",
         "中国/港股权益",
-        "韩国/其他权益",
+        "韩国/欧洲/其他权益",
         "其他/待映射权益",
         "美股宽基",
         "美股/海外个股",
@@ -706,7 +735,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "/api/investment-transactions/attribution/summary" in tx_js
     assert "/api/investment-transactions/campaigns" in tx_js
     assert "/api/investment-transactions/${encodeURIComponent(tradeId)}/attribution" in tx_js
-    assert "TradeAttributionAnalysisEntry" in tx_js
+    assert "TradeAttributionAnalysisEntry" not in tx_js
+    assert 'href="#trade-attribution-analysis" aria-label="查看整体交易归因"' not in tx_js
     assert "tradeAttributionPanel" in tx_js
     assert "TradeReviewWorkbench" in tx_js
     assert "priority_items" in tx_js
@@ -728,6 +758,12 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "directional_trades" in tx_js
     assert "positive_action_count" in tx_js
     assert "negative_action_count" in tx_js
+    assert "tradeReviewAssetTileText" in tx_js
+    assert "tradeReviewAssetFullLabel" in tx_js
+    assert "tradeReviewCompactSymbol" in tx_js
+    assert "title=\"${escapeHtml(fullLabel)}\"" in tx_js
+    assert "effect * 6" not in tx_js
+    assert "Math.pow(tradeReviewAssetWeight(asset), 0.9)" in tx_js
     assert "tradeReviewDirectionGrid" in css
     assert "tradeReviewDirectionTrade" in css
     assert 'data-direction-limit="${escapeHtml(limit)}"' in tx_js
@@ -740,6 +776,12 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeReviewDirectionFilterToggle" in css
     assert "tradeReviewDirectionFilters[hidden]" in css
     assert "contribution_reason" in tx_js
+    assert "actual_total_pnl_cny" in tx_js
+    assert "tradeReviewAssetPrimaryPnl" in tx_js
+    assert "TradeReviewAssetAttributionBridge" in tx_js
+    assert "TradeReviewAssetRuleInsights" in tx_js
+    assert "tradeReviewAttributionBridge" in css
+    assert "tradeReviewRuleInsight" in css
     assert "正贡献" in tx_js
     assert "负贡献" in tx_js
     assert "tradeReviewAssetTradeList.attribution" in css
@@ -750,11 +792,14 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeReviewAssetDetail" in css
     assert "--asset-name" in css
     assert "grid-column: span var(--asset-col" not in css
-    assert "标的热力图" in tx_js
-    assert "真实盈亏看交易页；这里看动作时点" in tx_js
+    assert "标的归因热力图" in tx_js
+    assert "交易归因闭环" in tx_js
+    assert "真实盈亏优先" in tx_js
+    assert "热力图面积按真实盈亏优先" in tx_js
+    assert "未解释差额等待基准归因" in tx_js
     assert "交易动作明细" in tx_js
-    assert "动作归因" in tx_js
-    assert "正向 / 负向动作" in tx_js
+    assert "高影响动作" in tx_js
+    assert "逐笔正负贡献证据" in tx_js
     assert ".slice(0, 6)" not in tx_js
     assert "负向动作" in tx_js
     assert "正向动作" in tx_js
@@ -763,6 +808,9 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "TradeReviewPatternPanel" not in asset_heatmap_block
     assert "TradeReviewDataGaps" not in asset_heatmap_block
     assert "<strong>模式</strong>" not in asset_heatmap_block
+    workbench_block = tx_js.split("function TradeReviewWorkbench(payload)", 1)[1].split("function TradeAttributionPanelV2", 1)[0]
+    assert "TradeReviewAssetHeatmap(payload" in workbench_block
+    assert "标的实际盈亏热力图已移到收益归因" not in workbench_block
     assert "tradeReviewHeatTile" in tx_js
     assert "面积≈交易规模" in tx_js
     assert "pattern_universe" in tx_js
@@ -809,22 +857,37 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "个人买入" in tx_js
     assert "账户原始" in tx_js
     assert "个人口径" in tx_js
-    ledger_summary_grid_css = css.split(".page-investments #investment-ledger .transactionSummaryGrid", 1)[1].split("}", 1)[0]
-    assert "display: grid !important" in ledger_summary_grid_css
-    assert "display: none" not in ledger_summary_grid_css
+    assert "transactionOverview" in tx_js
+    transaction_overview_css = css.split(".transactionOverview {", 1)[1].split("}", 1)[0]
+    assert "border-bottom" in transaction_overview_css
+    assert "display: grid" in transaction_overview_css
+    load_ledger_body = tx_js.split("async function loadLedger()", 1)[1].split("function requestAttributionSummaryLoad()", 1)[0]
+    assert "loadAttributionSummary" not in load_ledger_body
+    assert "pams:load-trade-attribution" in tx_js
+    assert "attributionLoadPromise" in tx_js
+    assert "shouldLoadVisibleTradeAttribution" in tx_js
+    assert "requestVisibleTradeAttributionLoad" in tx_js
+    assert "requestInitialVisibleTradeAttributionLoad" in tx_js
+    assert "scheduleInitialTradeAttributionLoadProbe" in tx_js
+    assert "hash === 'trade-attribution-analysis' || panel.hidden === false" in tx_js
+    assert "window.addEventListener('hashchange', requestVisibleTradeAttributionLoad)" in tx_js
+    assert "[0, 300, 1200, 3000]" in tx_js
     assert "TradeAttributionPanel(state.attribution)" not in tx_js
     assert "tradeAutoAttribution" in tx_js
     assert "tradeAttributionGrid" in css
-    assert "tradeAttributionEntry" in css
+    assert "tradeAttributionEntry" not in css
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260617-linkage-v1" in html
+    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in html
+    assert "assets/css/style.css?v=20260620-trade-attribution-v2" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
     html = _read_public("more.html")
     accounts_html = _read_public("accounts.html")
+    data_sources_html = _read_public("data_sources.html")
+    research_html = _read_public("research.html")
 
     assert "appTaskList" not in html
     assert 'id="sync"' not in html
@@ -832,45 +895,54 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert 'id="syncWorkflow"' not in html
     assert 'id="syncCenterRows"' not in html
     assert "data-sync-scope" not in html
+    assert "appPageHero" not in html
+    assert "morePrimarySummary" not in html
+    assert "moreHeroDate" not in html
+    assert "moreDataState" not in html
+    assert "moreToolState" not in html
 
     for href in [
         "data_sources.html#dataQuality",
         "accounts.html#sources",
         "accounts.html#overview",
         "investments.html#asset-master-panel",
-        "risk.html",
+        "investments.html#portfolio-risk-disclosure",
         "research.html",
     ]:
         assert html.count(f'href="{href}"') == 1
     for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", "同步中心", "投资交易记录", "内部转账匹配"]:
         assert removed_text not in html
     assert "investments.html#investment-ledger" not in html
+    assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
+    assert "assets/js/more.js?v=20260620-more-minimal-v1" in html
+    assert "assets/js/bank_reconcile.js?v=20260620-page-boundary-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20260620-page-boundary-v1" in data_sources_html
+    assert "assets/js/research.js?v=20260620-page-boundary-v1" in research_html
 
 
-def test_risk_page_prioritizes_user_configured_metrics() -> None:
-    html = _read_public("risk.html")
-    js = _read_public("assets/js/risk_metrics.js")
+def test_risk_capability_lives_in_investment_subpage() -> None:
+    html = _read_public("investments.html")
+    js = _read_public("assets/js/portfolio_risk.js")
     css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     for element_id in [
-        "riskHeroStatus",
-        "riskMetricGrid",
-        "riskPriorityList",
-        "riskSourceList",
-        "riskMethodNotes",
+        "portfolio-risk-disclosure",
+        "portfolioRiskDashboard",
+        "portfolioRiskCategories",
+        "lookthrough-exposure",
     ]:
         assert f'id="{element_id}"' in html
 
-    assert "/api/risk/summary" in js
-    assert "user_metrics" in js
-    assert "股票 / 权益暴露" not in js
-    assert "riskMetricDeck" in css
-    assert "riskLimitCard" in css
+    assert "/api/portfolio/risk-disclosure?baseCurrency=CNY" in js
+    assert "portfolioRiskInlineItem" in js
+    assert "portfolioRiskChecklistCard" in js
+    assert "portfolioRiskDashboard" in css
+    assert "portfolioRiskCategory" in css
     assert "riskAnchorNav" not in css
-    assert "location = /risk.html { return 404; }" not in dockerfile
+    assert "location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }" in dockerfile
 
 
 def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
@@ -878,9 +950,12 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     ui_js = _read_public("assets/js/ui.js")
     holdings_js = _read_public("assets/js/holdings_categories.js")
     lookthrough_js = _read_public("assets/js/lookthrough.js")
+    css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     assert "API_CACHE_PREFIX" in api_js
+    assert "__page_refresh" in api_js
+    assert "pageRefreshToken" in api_js
     assert "sessionStorage" in api_js
     assert "localStorage" in api_js
     assert "warmApiCache" in api_js
@@ -896,15 +971,15 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260607-shared-format-v1" in ui_js
-    assert "assets/css/style.css?v=20260617-return-window-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260617-linkage-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260618-return-date-v4" in ui_js
-    assert "assets/js/lookthrough.js?v=20260618-nav-field-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260617-linkage-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260617-linkage-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260617-linkage-v1" in ui_js
-    assert "assets/js/more.js?v=20260607-more-ia-v1" in ui_js
-    assert "assets/js/risk_metrics.js?v=20260607-risk-metrics-v1" in ui_js
+    assert "assets/css/style.css?v=20260619-trade-ledger-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260620-page-boundary-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260620-page-boundary-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260620-page-boundary-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20260619-investment-hardening-v1" in ui_js
+    assert "assets/js/more.js?v=20260620-page-boundary-v1" in ui_js
+    assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
     assert "gzip on;" in dockerfile
@@ -916,6 +991,32 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "returnAttributionOverride" not in lookthrough_js
     assert "holdingsKpiSummary" not in lookthrough_js
     assert "盈亏总额以持仓页最终 KPI 为准" not in lookthrough_js
+    assert "/summary2/latest?baseCurrency=CNY" in lookthrough_js
+    assert "ReturnAttributionAssetHeatmap" in lookthrough_js
+    assert "returnAttributionHeatmapRows" in lookthrough_js
+    assert "returnAttributionLookupHoldingDaily" in lookthrough_js
+    assert "['holding', '标的']" in lookthrough_js
+    assert "['industry', '行业']" in lookthrough_js
+    assert "['region', '地区']" in lookthrough_js
+    assert "['theme', '主题']" in lookthrough_js
+    assert "['underlying', '基金底层']" in lookthrough_js
+    return_attribution_dimensions = lookthrough_js.split("const RETURN_ATTRIBUTION_DIMENSIONS = [", 1)[1].split("];", 1)[0]
+    assert "['currency', '币种']" not in return_attribution_dimensions
+    assert "['asset_type', '资产类型']" not in return_attribution_dimensions
+    assert "['market', '市种']" not in return_attribution_dimensions
+    assert "dimensions?.[dimension]" in lookthrough_js
+    assert "data-return-asset-heat-row" in lookthrough_js
+    assert "标的盈亏热力图" in lookthrough_js
+    assert "returnAttributionCompactName(label" in lookthrough_js
+    assert "returnAttributionCompactSymbol" not in lookthrough_js
+    assert "returnAttributionCards" not in lookthrough_js
+    assert "safeStorageGet" in lookthrough_js
+    assert "safeStorageSet" in lookthrough_js
+    assert "localStorage.getItem('pams.lookthrough.dimension')" not in lookthrough_js
+    assert "jget('/summary2/latest?baseCurrency=CNY', { cache: false })" in lookthrough_js
+    assert "pams:load-trade-attribution" in lookthrough_js
+    assert "returnAssetHeatmapCanvas" in css
+    assert "--return-asset-name" in css
 
 
 def test_holding_summary_uses_market_view_date() -> None:
@@ -930,10 +1031,30 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
     api_js = _read_public("assets/js/api.js")
 
     assert "/summary2/latest?baseCurrency=CNY" in holdings_js
-    assert "portfolioSummary?.totals?.daily_pnl" in holdings_js
-    assert "portfolioSummary?.totals?.market_value" in holdings_js
-    assert "portfolioSummary?.totals?.holding_pnl" in holdings_js
+    assert "function canonicalPortfolioDashboardSummary" in holdings_js
+    assert "jgetFresh('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true')" in holdings_js
+    assert "jgetFresh(withClosedParam('/holdings/by-category/美股?limit=500'))" in holdings_js
+    assert "jgetFresh('/summary2/latest?baseCurrency=CNY')" in holdings_js
+    assert "jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY')" in holdings_js
+    assert "totals.daily_pnl" in holdings_js
+    assert "totals.market_value" in holdings_js
+    assert "totals.holding_pnl" in holdings_js
+    assert "totals.current_float_pnl" in holdings_js
+    assert "当前浮盈" in holdings_js
+    assert "总负债" in holdings_js
+    assert "liabilities_cny" in holdings_js
     assert "const authoritativeDailyPnl" in holdings_js
     assert "dashboardSummary.dailyPnl = authoritativeDailyPnl" in holdings_js
     assert 'raw.includes("/api/portfolio/risk-disclosure")' in api_js
     assert "return 120_000" in api_js
+
+
+def test_investment_holding_rows_escape_imported_fields() -> None:
+    holdings_js = _read_public("assets/js/holdings.js")
+
+    assert "function esc(value)" in holdings_js
+    assert "${esc(r.symbol || '—')}" in holdings_js
+    assert "${esc(r.name || '')}${closedBadge(r)}" in holdings_js
+    assert "${esc(holdingGroupLabel(r))}" in holdings_js
+    assert "${esc(row.name || row.symbol || '缺数据')}" in holdings_js
+    assert "${row.name || row.symbol || '缺数据'}" not in holdings_js

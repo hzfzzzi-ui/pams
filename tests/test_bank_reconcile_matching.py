@@ -9,7 +9,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend" / "api"))
 
-from endpoints.bank_reconcile import _build_transfer_matches, _row_transfer_amount  # noqa: E402
+from endpoints.bank_reconcile import (  # noqa: E402
+    _build_transfer_matches,
+    _fetch_transfer_match_summary,
+    _fetch_transfer_matches,
+    _fetch_unmatched_confirmation_rows,
+    _row_transfer_amount,
+    _table_exists,
+)
 
 
 def _row(
@@ -209,6 +216,40 @@ def test_ccb_to_tonghuashun_source_only_investment_funding():
     assert matches[0]["from_account_code"] == "ccb_7332"
     assert matches[0]["to_account_code"] == "tonghuashun"
     assert matches[0]["amount"] == Decimal("50000")
+
+
+class _MissingTransferMatchCursor:
+    def __init__(self, *, statement_rows_exists: bool = True):
+        self.statement_rows_exists = statement_rows_exists
+        self.fetchone_row = None
+        self.fetchall_rows: list[dict] = []
+        self.queries: list[str] = []
+
+    def execute(self, query: str, params=None):
+        self.queries.append(query)
+        if "to_regclass" in query:
+            table_name = params[0]
+            exists = table_name == "pams_bank_statement_rows" and self.statement_rows_exists
+            self.fetchone_row = {"table_name": table_name if exists else None}
+            return
+        if "pams_bank_transfer_matches" in query:
+            raise AssertionError("missing transfer match table should not be queried")
+        self.fetchall_rows = []
+
+    def fetchone(self):
+        return self.fetchone_row
+
+    def fetchall(self):
+        return self.fetchall_rows
+
+
+def test_bank_transfer_match_readers_tolerate_missing_match_table():
+    cur = _MissingTransferMatchCursor()
+
+    assert _table_exists(cur, "pams_bank_transfer_matches") is False
+    assert _fetch_transfer_matches(cur) == []
+    assert _fetch_transfer_match_summary(cur) == []
+    assert _fetch_unmatched_confirmation_rows(cur, date(2026, 1, 1)) == []
 
 
 def test_icbc_to_ccb_account_transfer_matches_by_amount_and_date():

@@ -7,8 +7,19 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services.portfolio_config import build_portfolio_config_payload_from_inputs  # noqa: E402
+from services.portfolio_config import _config_market, build_portfolio_config_payload_from_inputs  # noqa: E402
 from services.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload_from_inputs  # noqa: E402
+
+
+def test_config_market_prefers_korean_region_currency_over_legacy_us_asset_type() -> None:
+    assert _config_market(
+        {
+            "assetType": "美股个股",
+            "symbol": "005930.KS",
+            "region": "韩国",
+            "currency": "KRW",
+        }
+    ) == "韩股"
 
 
 def test_portfolio_config_rules_are_derived_from_risk_and_lookthrough() -> None:
@@ -274,7 +285,7 @@ def test_portfolio_config_rules_are_derived_from_risk_and_lookthrough() -> None:
     assert [child["name"] for child in rules["stock"]["children"]] == [
         "美国权益",
         "中国/港股权益",
-        "韩国/其他权益",
+        "韩国/欧洲/其他权益",
     ]
     assert sum(child["amount_cny"] for child in rules["stock"]["children"]) == rules["stock"]["current_amount_cny"]
     assert rules["stock"]["current_amount_cny"] == 560_000

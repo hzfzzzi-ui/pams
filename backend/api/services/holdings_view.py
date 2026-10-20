@@ -448,6 +448,7 @@ def build_holdings_by_category_payload(
                 ORDER BY quote_currency, as_of DESC
             )
             SELECT account_code AS account, minor_category, symbol, name,
+                   h.asset_id,
                    h.asset_liability,
                    currency,
                    market_value,
@@ -554,6 +555,7 @@ def build_holdings_by_category_payload(
                 ORDER BY quote_currency, as_of DESC
             )
             SELECT account_code AS account, minor_category, symbol, name,
+                   h.asset_id,
                    h.asset_liability,
                    currency,
                    eff.market_value AS market_value,

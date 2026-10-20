@@ -867,6 +867,97 @@ def test_enrich_realized_trade_pnl_normalizes_net_invested_cost_snapshot():
     assert enriched[0]["holding_pnl_cny"] == Decimal("380")
 
 
+def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
+    cur = FakeCursor(
+        [
+            {"exists": True},
+            [
+                {
+                    "account_code": "tonghuashun",
+                    "symbol": "601899",
+                    "trade_date": date(2026, 5, 10),
+                    "realized_pnl": Decimal("80"),
+                    "realized_pnl_cny": Decimal("80"),
+                    "missing_realized_count": Decimal("0"),
+                },
+                {
+                    "account_code": "tonghuashun",
+                    "symbol": "601899",
+                    "trade_date": date(2026, 5, 11),
+                    "realized_pnl": Decimal("0"),
+                    "realized_pnl_cny": Decimal("0"),
+                    "missing_realized_count": Decimal("1"),
+                },
+            ],
+            [
+                {
+                    "trade_id": 1,
+                    "account_code": "tonghuashun",
+                    "symbol": "601899",
+                    "trade_date": date(2026, 5, 1),
+                    "trade_type": "buy",
+                    "side": "buy",
+                    "quantity": Decimal("200"),
+                    "gross_amount": Decimal("2000"),
+                    "fee_amount": Decimal("0"),
+                    "tax_amount": Decimal("0"),
+                    "net_cash": Decimal("-2000"),
+                    "fx_rate_to_cny": Decimal("1"),
+                },
+                {
+                    "trade_id": 2,
+                    "account_code": "tonghuashun",
+                    "symbol": "601899",
+                    "trade_date": date(2026, 5, 10),
+                    "trade_type": "sell",
+                    "side": "sell",
+                    "quantity": Decimal("40"),
+                    "gross_amount": Decimal("480"),
+                    "fee_amount": Decimal("0"),
+                    "tax_amount": Decimal("0"),
+                    "net_cash": Decimal("480"),
+                    "fx_rate_to_cny": Decimal("1"),
+                },
+                {
+                    "trade_id": 3,
+                    "account_code": "tonghuashun",
+                    "symbol": "601899",
+                    "trade_date": date(2026, 5, 11),
+                    "trade_type": "sell",
+                    "side": "sell",
+                    "quantity": Decimal("20"),
+                    "gross_amount": Decimal("260"),
+                    "fee_amount": Decimal("0"),
+                    "tax_amount": Decimal("0"),
+                    "net_cash": Decimal("260"),
+                    "fx_rate_to_cny": Decimal("1"),
+                },
+            ],
+        ]
+    )
+    rows = [
+        _current_holding_row(
+            symbol="601899",
+            name="Zijin",
+            quantity=Decimal("140"),
+            current_price=Decimal("11"),
+            market_value=Decimal("1540"),
+            market_value_cny=Decimal("1540"),
+            cost=Decimal("1400"),
+            cost_cny=Decimal("1400"),
+            holding_pnl=Decimal("140"),
+            holding_pnl_cny=Decimal("140"),
+            as_of=date(2026, 6, 12),
+        )
+    ]
+
+    enriched = _enrich_realized_trade_pnl(cur, rows)
+
+    assert enriched[0]["realized_trade_pnl_source"] == "weighted_average_trade_replay"
+    assert enriched[0]["realized_trade_pnl_cny"] == Decimal("140")
+    assert enriched[0]["holding_pnl_cny"] == Decimal("280")
+
+
 def test_tradingview_closed_position_rows_include_same_day_realized_pnl():
     cur = FakeCursor(
         [

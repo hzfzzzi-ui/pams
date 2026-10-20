@@ -125,6 +125,7 @@ def test_direct_non_standard_assets_have_explicit_market_buckets() -> None:
     )
     by_symbol = _by_symbol(holdings)
 
+    assert by_symbol["005930.KS"]["assetType"] == "韩股个股"
     assert by_symbol["005930.KS"]["market"] == "\u97e9\u80a1"
     assert by_symbol["GOLD"]["market"] == "\u9ec4\u91d1 / \u5546\u54c1"
     assert by_symbol["HUAWEI_ESOP"]["market"] == "\u975e\u4e0a\u5e02 / \u5185\u90e8"
@@ -234,12 +235,83 @@ def test_overseas_region_and_index_proxy_underlying_mapping_contracts() -> None:
 
     assert by_symbol["005930.KS"]["region"] == "韩国"
     assert by_symbol["005930.KS"]["currency"] == "KRW"
+    assert by_symbol["005930.KS"]["assetType"] == "韩股个股"
     assert by_symbol["005930.KS"]["industryBucket"] == "科技TMT"
     assert by_symbol["3690"]["market"] == "港股"
     assert by_symbol["3690"]["region"] == "中国大陆"
     assert by_symbol["3690"]["industryBucket"] == "大消费"
     assert by_symbol["WMT"]["industryBucket"] == "大消费"
     assert "Nasdaq-100 constituent" in by_symbol["WMT"]["indexMembershipTags"]
+
+
+def test_european_sek_holding_maps_to_sweden_region_and_currency() -> None:
+    holdings = normalizeHoldings(
+        [
+            {
+                "asset_name": "SIVE - SIVERS SEMICONDUCTORS AB",
+                "symbol": "SIVE",
+                "asset_type": "stock_eu",
+                "market_value_cny": 100.0,
+                "currency": "SEK",
+                "region": "Sweden",
+                "industry": "Semiconductors",
+            },
+            {
+                "asset_name": "Cash SEK",
+                "symbol": "CASH_SEK",
+                "asset_type": "cash",
+                "market_value_cny": 10.0,
+                "currency": "SEK",
+            },
+        ]
+    )
+    by_symbol = _by_symbol(holdings)
+
+    assert by_symbol["SIVE"]["assetType"] == "欧股个股"
+    assert by_symbol["SIVE"]["market"] == "欧股"
+    assert by_symbol["SIVE"]["region"] == "瑞典"
+    assert by_symbol["SIVE"]["currency"] == "SEK"
+    assert by_symbol["SIVE"]["industryBucket"] == "科技TMT"
+    assert by_symbol["CASH_SEK"]["assetType"] == "现金"
+    assert by_symbol["CASH_SEK"]["region"] == "瑞典"
+    assert by_symbol["CASH_SEK"]["currency"] == "SEK"
+
+    market = {row["name"]: row for row in calculateMarketExposure(holdings, [])}
+    assert market["欧股"]["value_cny"] == pytest.approx(100.0)
+
+
+def test_korean_stock_stays_out_of_us_stock_asset_type_exposure() -> None:
+    payload = build_exposure_analysis_payload(
+        positions=[
+            {
+                "asset_name": "005930.KS - SAMSUNG ELECTRONICS CO LTD",
+                "symbol": "005930.KS",
+                "asset_type": "stock_kr",
+                "market_value_cny": 100.0,
+                "currency": "KRW",
+                "region": "Korea",
+                "industry": "Semiconductors",
+            },
+            {
+                "asset_name": "NVIDIA",
+                "symbol": "NVDA",
+                "asset_type": "stock_us",
+                "market_value_cny": 80.0,
+                "currency": "USD",
+                "industry": "Semiconductors",
+            },
+        ],
+        units=[],
+        quality={},
+        total_value=180.0,
+    )
+
+    asset_type = {row["name"]: row for row in payload["exposures"]["asset_type"]}
+    market = {row["name"]: row for row in payload["exposures"]["market"]}
+    assert asset_type["韩股个股"]["value_cny"] == pytest.approx(100.0)
+    assert asset_type["美股个股"]["value_cny"] == pytest.approx(80.0)
+    assert market["韩股"]["value_cny"] == pytest.approx(100.0)
+    assert market["美股"]["value_cny"] == pytest.approx(80.0)
 
 
 def test_fund_underlying_prefers_underlying_region_currency_and_symbol_market() -> None:

@@ -11,6 +11,7 @@ from datetime import date as Date, timedelta
 from decimal import Decimal
 from typing import Any
 
+from services.investment_return_data import IBKR_EQUITY_MARKETS
 from services.investment_return_math import dec, ibkr_return_effective_date
 from services.valuation_nav import fx_rate_at
 
@@ -261,7 +262,7 @@ def _ibkr_full_trade_return_series(
           COALESCE(MAX(NULLIF(currency, '')), 'USD') AS currency
         FROM pams_investment_trade_fact
         WHERE account_code = 'ibkr'
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) IN ('STK', '美股', '美股基金')
+          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
           AND symbol IS NOT NULL
           AND trade_date <= %s
           AND quantity IS NOT NULL
@@ -269,7 +270,7 @@ def _ibkr_full_trade_return_series(
         GROUP BY symbol
         ORDER BY symbol
         """,
-        (dates[-1],),
+        (list(IBKR_EQUITY_MARKETS), dates[-1]),
     )
     traded = [dict(r) for r in cur.fetchall()]
     if not traded:
@@ -302,11 +303,11 @@ def _ibkr_full_trade_return_series(
           AND symbol = ANY(%s::text[])
           AND trade_date <= %s
           AND quantity IS NOT NULL
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) IN ('STK', '美股', '美股基金')
+          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
           AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
         ORDER BY trade_date, trade_id
         """,
-        (active_symbols, dates[-1]),
+        (active_symbols, dates[-1], list(IBKR_EQUITY_MARKETS)),
     )
     trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
     for row in cur.fetchall():

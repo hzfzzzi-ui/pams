@@ -1,7 +1,15 @@
-﻿import { jget, typeLabel, accountLabel } from './api.js?v=20260617-linkage-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20260614-trade-mode-attribution-v12';
+import { jget, typeLabel, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20260620-page-boundary-v1';
 import { pnlPct } from './utils.js?v=20260606-refresh-v3';
 import { makeAccountCashHoldingRows } from './account_cash.js?v=20260606-cash-active-v1';
+
+function esc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 function cnyValue(r, key) {
   const cnyKey = `${key}_cny`;
@@ -238,7 +246,7 @@ function renderRows(rows, options = {}){
     if (showGroupRows && groupLabel !== lastGroup) {
       const group = document.createElement('tr');
       group.className = 'holdingGroupRow';
-      group.innerHTML = `<td colspan="11">${groupLabel}</td>`;
+      group.innerHTML = `<td colspan="11">${esc(groupLabel)}</td>`;
       tbody.appendChild(group);
       lastGroup = groupLabel;
     }
@@ -247,10 +255,10 @@ function renderRows(rows, options = {}){
     tr.dataset.detailTarget = `holding-detail-${index}`;
     tr.title = '点击查看完整字段';
     tr.innerHTML = `
-      <td class="nowrap">${r.symbol||'—'}</td>
-      <td class="name" title="${String(r.name || '').replace(/"/g, '&quot;')}">${r.name||''}${closedBadge(r)}</td>
-      <td>${groupLabel}</td>
-      <td>${accountLabel(r.account || r.account_code || '')}</td>
+      <td class="nowrap">${esc(r.symbol || '—')}</td>
+      <td class="name" title="${esc(r.name || '')}">${esc(r.name || '')}${closedBadge(r)}</td>
+      <td>${esc(groupLabel)}</td>
+      <td>${esc(accountLabel(r.account || r.account_code || ''))}</td>
       <td class="mono num">${formatCompactCurrency(value)}</td>
       <td class="mono num">${holdingQuantityText(r)}</td>
       <td class="mono num">${r.current_price ? formatNumber(r.current_price, 3) : '价格缺失'}</td>
@@ -267,9 +275,9 @@ function renderRows(rows, options = {}){
     detail.innerHTML = `
       <td colspan="11">
         <div class="rowDetailGrid">
-          <div><strong>类别</strong><span>${typeLabel(r.minor_category || r.type || r.major_category) || '其他'}</span></div>
-          <div><strong>账户</strong><span>${accountLabel(r.account || r.account_code || '')}</span></div>
-          <div><strong>币种</strong><span>${r.currency || 'CNY'}</span></div>
+          <div><strong>类别</strong><span>${esc(typeLabel(r.minor_category || r.type || r.major_category) || '其他')}</span></div>
+          <div><strong>账户</strong><span>${esc(accountLabel(r.account || r.account_code || ''))}</span></div>
+          <div><strong>币种</strong><span>${esc(r.currency || 'CNY')}</span></div>
           <div><strong>持仓占比</strong><span class="mono">${weight.toFixed(1)}%</span></div>
           <div><strong>市值</strong><span class="mono">${formatCompactCurrency(cnyValue(r, 'market_value'))}</span></div>
           <div><strong>剩余成本</strong><span class="mono">${formatCompactCurrency(cnyValue(r, 'cost'))}</span></div>
@@ -277,10 +285,10 @@ function renderRows(rows, options = {}){
           <div><strong>已实现</strong><span class="mono ${signedMoneyClass(realizedPnl(r))}">${formatSignedCurrency(realizedPnl(r))}</span></div>
           <div><strong>累计盈亏</strong><span class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</span></div>
           <div><strong>今日盈亏</strong><span class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</span></div>
-          <div><strong>份数</strong><span class="mono">${holdingQuantityText(r)}</span></div>
-          <div><strong>剩余成本均价</strong><span class="mono">${holdingAveragePriceText(r)}</span></div>
-          <div><strong>摊薄成本</strong><span class="mono">${dilutedAveragePriceText(r)}</span></div>
-          <div><strong>现价</strong><span class="mono">${holdingPriceText(r)}</span></div>
+          <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(r))}</span></div>
+          <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(r))}</span></div>
+          <div><strong>摊薄成本</strong><span class="mono">${esc(dilutedAveragePriceText(r))}</span></div>
+          <div><strong>现价</strong><span class="mono">${esc(holdingPriceText(r))}</span></div>
           <div><strong>数据</strong><span>${dataBadge(r)}</span></div>
           <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${formatSignedCurrency(floatPnl)} + ${formatSignedCurrency(realizedPnl(r))} = ${formatSignedCurrency(totalPnl)}</span></div>
         </div>
@@ -526,22 +534,25 @@ function renderMobileHoldingRows(rows, options = {}) {
     const name = shortHoldingName(r);
     const isCash = holdingGroupLabel(r) === '现金/活期';
     const cashNative = safeNum(r.market_value_native ?? r.market_value);
-    const quoteMain = isCash ? String(r.currency || 'CNY').toUpperCase() : signedPercentText(changePct);
     const quoteSub = isCash
       ? (String(r.currency || 'CNY').toUpperCase() === 'CNY' ? '' : formatNumber(cashNative, 2))
       : holdingPriceText(r);
     const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
+    const quantityText = holdingQuantityText(r);
+    const quoteItems = [
+      quantityText === '--' ? '' : `<span><em>份数</em><strong class="mono">${esc(quantityText)}</strong></span>`,
+      quoteSub ? `<span><em>${isCash ? '本币' : '现价'}</em><strong class="mono">${esc(quoteSub)}</strong></span>` : '',
+    ].filter(Boolean).join('<i aria-hidden="true">·</i>');
+    const quoteLine = quoteItems ? `<span class="mobileHoldingQuoteLine">${quoteItems}</span>` : '';
+    const dailyChange = isCash ? '' : `<small class="mobileHoldingChangePct mono ${quoteTone}">${signedPercentText(changePct)}</small>`;
     return `
-      <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${String(r.name || name).replace(/"/g, '&quot;')}">
+      <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${esc(r.name || name)}">
         <span class="mobileHoldingMain">
           <span class="mobileHoldingText">
-            <strong>${name}${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
-            <small>${holdingGroupLabel(r)}</small>
+            <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
+            <small>${esc(holdingGroupLabel(r))}</small>
           </span>
-          <span class="mobileHoldingQuote">
-            <b class="mono ${quoteTone}">${quoteMain}</b>
-            <small class="mono">${quoteSub}</small>
-          </span>
+          <span class="mobileHoldingQuote">${quoteLine}</span>
         </span>
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
@@ -555,12 +566,11 @@ function renderMobileHoldingRows(rows, options = {}) {
           </span>
           <span class="mobileHoldingMetric">
             <em>今日盈亏</em>
-            <strong class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</strong>
-            ${dailyBreakdown ? `<small class="mobileHoldingFxImpact">${dailyBreakdown}</small>` : ''}
-          </span>
-          <span class="mobileHoldingMetric">
-            <em>份数</em>
-            <strong class="mono">${holdingQuantityText(r)}</strong>
+            <span class="mobileHoldingDailyLine">
+              <strong class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</strong>
+              ${dailyChange}
+            </span>
+            ${dailyBreakdown ? `<small class="mobileHoldingFxImpact">${esc(dailyBreakdown)}</small>` : ''}
           </span>
         </span>
       </button>
@@ -583,17 +593,17 @@ function renderMobileHoldingRows(rows, options = {}) {
         ? `
           <div class="rowDetailFull">
             <strong>账户拆分</strong>
-            <span>${row.__accountRows.map((item) => `${accountLabel(item.account || item.account_code || '')}: ${formatCompactCurrency(cnyValue(item, 'market_value'))}`).join(' / ')}</span>
+            <span>${row.__accountRows.map((item) => `${esc(accountLabel(item.account || item.account_code || ''))}: ${formatCompactCurrency(cnyValue(item, 'market_value'))}`).join(' / ')}</span>
           </div>
         `
         : '';
       const html = `
         <div class="rowDetailGrid">
-          <div><strong>名称</strong><span>${row.name || row.symbol || '缺数据'}</span></div>
-          <div><strong>类别</strong><span>${holdingGroupLabel(row)}</span></div>
+          <div><strong>名称</strong><span>${esc(row.name || row.symbol || '缺数据')}</span></div>
+          <div><strong>类别</strong><span>${esc(holdingGroupLabel(row))}</span></div>
           <div><strong>持仓占比</strong><span class="mono">${weight.toFixed(1)}%</span></div>
-          <div><strong>账户</strong><span>${accountLabel(row.account || row.account_code || '') || '缺数据'}</span></div>
-          <div><strong>币种</strong><span>${row.currency || 'CNY'}</span></div>
+          <div><strong>账户</strong><span>${esc(accountLabel(row.account || row.account_code || '') || '缺数据')}</span></div>
+          <div><strong>币种</strong><span>${esc(row.currency || 'CNY')}</span></div>
           <div><strong>市值</strong><span class="mono">${formatCompactCurrency(value)}</span></div>
           <div><strong>剩余成本</strong><span class="mono">${formatCompactCurrency(cnyValue(row, 'cost'))}</span></div>
           <div><strong>当前浮盈</strong><span class="mono ${signedMoneyClass(floatPnl)}">${formatSignedCurrency(floatPnl)}</span></div>
@@ -601,12 +611,12 @@ function renderMobileHoldingRows(rows, options = {}) {
           <div><strong>累计盈亏</strong><span class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</span></div>
           <div><strong>今日盈亏</strong><span class="mono ${signedMoneyClass(dailyPnl)}">${formatSignedCurrency(dailyPnl)}</span></div>
           ${hasDailyTotalPnl(row) ? `<div><strong>价格影响</strong><span class="mono ${signedMoneyClass(priceDailyPnl)}">${formatSignedCurrency(priceDailyPnl)}</span></div>` : ''}
-          ${detailNativeDaily ? `<div><strong>本币今日</strong><span class="mono">${detailNativeDaily}</span></div>` : ''}
-          ${detailFxDaily ? `<div><strong>汇率影响</strong><span class="mono ${signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}">${detailFxDaily.replace(/^汇率\s*/, '')}</span></div>` : ''}
-          <div><strong>份数</strong><span class="mono">${holdingQuantityText(row)}</span></div>
-          <div><strong>剩余成本均价</strong><span class="mono">${holdingAveragePriceText(row)}</span></div>
-          <div><strong>摊薄成本</strong><span class="mono">${dilutedAveragePriceText(row)}</span></div>
-          <div><strong>现价</strong><span class="mono">${holdingPriceText(row)}</span></div>
+          ${detailNativeDaily ? `<div><strong>本币今日</strong><span class="mono">${esc(detailNativeDaily)}</span></div>` : ''}
+          ${detailFxDaily ? `<div><strong>汇率影响</strong><span class="mono ${signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}">${esc(detailFxDaily.replace(/^汇率\s*/, ''))}</span></div>` : ''}
+          <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(row))}</span></div>
+          <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(row))}</span></div>
+          <div><strong>摊薄成本</strong><span class="mono">${esc(dilutedAveragePriceText(row))}</span></div>
+          <div><strong>现价</strong><span class="mono">${esc(holdingPriceText(row))}</span></div>
           <div><strong>涨跌幅</strong><span class="mono ${Number(changePct) >= 0 ? 'up' : 'down'}">${signedPercentText(changePct)}</span></div>
           <div><strong>数据</strong><span>${dataBadge(row)}</span></div>
           <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${formatSignedCurrency(floatPnl)} + ${formatSignedCurrency(realized)} = ${formatSignedCurrency(totalPnl)}</span></div>
@@ -651,7 +661,7 @@ function setupHoldingGroupFilter(allRows) {
   const renderChips = () => {
     if (!chips) return;
     chips.innerHTML = [allLabel, ...groups].map((label) => `
-      <button class="mobileFilterChip ${label === selectedGroup ? 'active' : ''}" type="button" data-group="${label.replace(/"/g, '&quot;')}">${label}</button>
+      <button class="mobileFilterChip ${label === selectedGroup ? 'active' : ''}" type="button" data-group="${esc(label)}">${esc(label)}</button>
     `).join('');
     chips.querySelectorAll('[data-group]').forEach((btn) => {
       btn.addEventListener('click', () => {

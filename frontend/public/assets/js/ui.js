@@ -1,19 +1,19 @@
-﻿import { warmApiCache } from './api.js?v=20260617-linkage-v1';
+import { warmApiCache } from './api.js?v=20260619-investment-hardening-v1';
 
 export function setActiveNav() {
   const rawPath = location.pathname || '/';
-  const path = rawPath === '/' ? 'index.html' : (rawPath.split('/').pop() || 'index.html');
+  const path = rawPath === '/' ? 'investments.html' : (rawPath.split('/').pop() || 'investments.html');
   const aliases = {
-    index: 'index.html',
-    'index.html': 'index.html',
-    accounts: 'accounts.html',
-    'accounts.html': 'accounts.html',
+    index: 'investments.html',
+    'index.html': 'investments.html',
+    accounts: 'more.html',
+    'accounts.html': 'more.html',
     data_sources: 'more.html',
     'data_sources.html': 'more.html',
     research: 'more.html',
     'research.html': 'more.html',
-    risk: 'more.html',
-    'risk.html': 'more.html',
+    risk: 'investments.html',
+    'risk.html': 'investments.html',
   };
   const activePath = aliases[path] || path;
   enhanceMobileAppShell(activePath, path);
@@ -78,7 +78,7 @@ function enhanceMobileAppShell(activePath, path) {
   const nav = document.querySelector('.nav');
   if (nav) {
     const primary = new Set(['investments.html', 'ledger.html', 'more.html']);
-    const moreActive = new Set(['more.html', 'data_sources.html', 'research.html']);
+    const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html']);
     const investActive = new Set(['investments.html']);
     const ledgerActive = new Set(['ledger.html']);
     nav.querySelectorAll('[data-nav]').forEach((a) => {
@@ -184,20 +184,18 @@ function setupAppPreload(activePath, path) {
       ['investments.html', 'document'],
       ['ledger.html', 'document'],
       ['more.html', 'document'],
-      ['risk.html', 'document'],
-      ['assets/css/style.css?v=20260617-return-window-v1', 'style'],
-      ['assets/js/api.js?v=20260617-linkage-v1', 'script'],
-      ['assets/js/ui.js?v=20260614-trade-mode-attribution-v12', 'script'],
+      ['assets/css/style.css?v=20260619-trade-ledger-v1', 'style'],
+      ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/ui.js?v=20260620-page-boundary-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20260617-linkage-v1', 'script'],
-      ['assets/js/holdings_categories.js?v=20260618-return-date-v4', 'script'],
-      ['assets/js/lookthrough.js?v=20260618-nav-field-v1', 'script'],
+      ['assets/js/holdings.js?v=20260620-page-boundary-v1', 'script'],
+      ['assets/js/holdings_categories.js?v=20260620-page-boundary-v1', 'script'],
+      ['assets/js/lookthrough.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ledger_cashflow.js?v=20260607-shared-format-v1', 'script'],
-      ['assets/js/transactions.js?v=20260617-linkage-v1', 'script'],
-      ['assets/js/portfolio_risk.js?v=20260617-linkage-v1', 'script'],
-      ['assets/js/portfolio_config.js?v=20260617-linkage-v1', 'script'],
-      ['assets/js/more.js?v=20260607-more-ia-v1', 'script'],
-      ['assets/js/risk_metrics.js?v=20260607-risk-metrics-v1', 'script'],
+      ['assets/js/transactions.js?v=20260620-page-boundary-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/portfolio_config.js?v=20260619-investment-hardening-v1', 'script'],
+      ['assets/js/more.js?v=20260620-page-boundary-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));
   }, 250);
 

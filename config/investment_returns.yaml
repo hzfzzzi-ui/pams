@@ -1,21 +1,22 @@
-as_of: 2026-06-02
-source: 建设银行收益中心截图/腾讯理财通收益中心截图/用户确认
+as_of: 2026-06-19
+source: 建设银行收益中心截图/腾讯理财通收益中心截图/同花顺平台截图/用户确认
 
 account_performance:
   tonghuashun:
     label: 同花顺A股个股
     account_code: tonghuashun
-    as_of: 2026-05-31
-    use_reported_anchor: false
+    as_of: 2026-06-19
+    use_reported_anchor: true
     currency: CNY
-    total_return_gross: -18958.88
-    total_return_rate: -0.0171
-    annualized_return_rate: -0.1879
-    ytd_return_rate: -0.0022
-    one_month_return_rate: -0.0254
-    three_month_return_rate: -0.1280
-    basis: TradingView投资组合表现截图
-    note: 平台表现页口径仅保留审计；PAMS收益率按同花顺入金流水和个人确认累计投入25万元计算。
+    total_return_gross: -3143.33
+    total_return_rate: null
+    annualized_return_rate: null
+    ytd_return_rate: null
+    one_month_return_rate: null
+    three_month_return_rate: null
+    cash_balance_gross: 8471.36
+    basis: 同花顺平台当前盈亏与可用现金，用户 2026-06-20 确认
+    note: 同花顺平台盈亏用于 A 股账户汇总口径校准；持仓明细仍按持仓快照展示当前浮动盈亏。
 
   tencent_licaitong:
     label: 腾讯理财通

@@ -388,7 +388,56 @@ def test_statement_rows_by_account_falls_back_to_cashflow_fact() -> None:
 
     assert rows["ccb"][0]["amount"] == Decimal("-10")
     assert "pams_cashflow_fact" in cur.executed[1][0]
-    assert "affects_nav IS TRUE" in cur.executed[1][0]
+    assert "affects_nav IS TRUE" not in cur.executed[1][0]
+
+
+def test_statement_rows_by_account_includes_prior_statement_balance() -> None:
+    cur = FakeCursor(
+        [
+            {"bank_rows_exists": False, "cashflow_fact_exists": True},
+            [
+                {
+                    "id": 10,
+                    "account_code": "ccb",
+                    "transaction_date": date(2025, 12, 31),
+                    "amount": Decimal("-35"),
+                    "currency": "CNY",
+                    "category": "daily",
+                    "subcategory": None,
+                    "summary": "消费",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": "104031.82",
+                },
+                {
+                    "id": 11,
+                    "account_code": "ccb",
+                    "transaction_date": date(2026, 1, 5),
+                    "amount": Decimal("-1000"),
+                    "currency": "CNY",
+                    "category": "investment",
+                    "subcategory": None,
+                    "summary": "基金下账",
+                    "description": None,
+                    "counterparty": None,
+                    "statement_balance": "103031.82",
+                },
+            ],
+        ]
+    )
+
+    rows = _statement_rows_by_account(
+        cur,
+        ["ccb"],
+        date(2026, 1, 1),
+        date(2026, 1, 31),
+    )
+
+    sql, params = cur.executed[1]
+    assert "event_date <= %s" in sql
+    assert params == (["ccb"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
+    assert rows["ccb"][0]["transaction_date"] == date(2025, 12, 31)
+    assert rows["ccb"][0]["statement_balance"] == "104031.82"
 
 
 def test_statement_rows_by_account_tolerates_missing_legacy_and_fact_tables() -> None:
@@ -447,6 +496,40 @@ def test_bank_backcast_prefers_statement_running_balance_for_opening_nav() -> No
     assert values[date(2026, 1, 1)]["net_worth"] == Decimal("104031.82")
     assert values[date(2026, 1, 8)]["net_worth"] == Decimal("113356.98")
     assert values[date(2026, 6, 16)]["net_worth"] == Decimal("84756.92")
+
+
+def test_bank_backcast_uses_non_nav_rows_for_account_balance_changes() -> None:
+    rows = {
+        "icbc": [
+            {
+                "id": 1,
+                "account_code": "icbc",
+                "transaction_date": date(2026, 1, 6),
+                "amount": Decimal("-1000"),
+                "currency": "CNY",
+                "statement_balance": "0.63",
+            }
+        ]
+    }
+
+    values = _bank_backcast_series(
+        accounts=[
+            {
+                "account_code": "icbc",
+                "account_type": "funding",
+                "include_in_nav": True,
+                "base_currency": "CNY",
+            }
+        ],
+        rows_by_account=rows,
+        dates=[date(2026, 1, 1), date(2026, 1, 6)],
+        terminal_date=date(2026, 1, 31),
+        fx_timelines={"CNY": [(date(2026, 1, 1), Decimal("1"))]},
+        base_currency="CNY",
+    )
+
+    assert values[date(2026, 1, 1)]["net_worth"] == Decimal("1000.63")
+    assert values[date(2026, 1, 6)]["net_worth"] == Decimal("0.63")
 
 
 def test_build_nav_weekly_payload_clamps_start_after_anchor():

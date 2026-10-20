@@ -68,6 +68,7 @@ SECTION_CORRECTION_LABELS = {
     "us_stock": "\u7f8e\u80a1/\u6d77\u5916\u6536\u76ca\u53e3\u5f84\u6821\u51c6",
     "precious_metal": "\u8d35\u91d1\u5c5e\u6536\u76ca\u53e3\u5f84\u6821\u51c6",
 }
+CANONICAL_RECONCILIATION_SECTIONS = {"a_stock"}
 RETURN_ATTRIBUTION_MAJOR_CATEGORIES = {"A股", "美股", "ESOP", "贵金属", "加密"}
 RETURN_ATTRIBUTION_ASSET_TYPES = {
     "a_share_stock",
@@ -100,6 +101,17 @@ A_SHARE_NAME_FALLBACK = {
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _repair_mojibake_text(value: Any) -> str:
+    text = _text(value)
+    if not text:
+        return ""
+    try:
+        repaired = text.encode("gbk").decode("utf-8")
+    except UnicodeError:
+        return text
+    return repaired or text
 
 
 def _metric_value(row: dict[str, Any], *keys: str) -> float:
@@ -147,16 +159,17 @@ def _daily_row_to_position(row: dict[str, Any]) -> dict[str, Any]:
     daily_price = _num(row.get("daily_pnl_cny"))
     daily_fx = _num(row.get("daily_fx_pnl_cny"))
     daily_total = daily_price + daily_fx
-    major = row.get("major_category")
-    minor = row.get("minor_category")
+    major = _repair_mojibake_text(row.get("major_category"))
+    minor = _repair_mojibake_text(row.get("minor_category"))
     symbol = row.get("symbol")
     name = row.get("name") or symbol
+    asset_row = {**row, "major_category": major, "minor_category": minor, "asset_liability": "资产"}
     return {
         "account_code": row.get("account") or row.get("account_code"),
         "asset_id": symbol or name,
         "symbol": symbol,
         "asset_name": name,
-        "asset_type": _asset_type({"major_category": major, "minor_category": minor, "asset_liability": "资产"}),
+        "asset_type": _asset_type(asset_row),
         "major_category": major,
         "minor_category": minor,
         "quantity": row.get("quantity"),
@@ -179,12 +192,19 @@ def _daily_row_to_position(row: dict[str, Any]) -> dict[str, Any]:
 
 def _is_return_attribution_row(row: dict[str, Any]) -> bool:
     """Keep return attribution on the same investment universe as lookthrough."""
-    if str(row.get("asset_liability") or "资产") in {"负债", "liability", "debt"}:
+    asset_liability = _repair_mojibake_text(row.get("asset_liability") or "资产")
+    if asset_liability in {"负债", "liability", "debt"}:
         return False
-    major = _text(row.get("major_category"))
+    major = _repair_mojibake_text(row.get("major_category"))
     if major in RETURN_ATTRIBUTION_MAJOR_CATEGORIES or "基金" in major:
         return True
-    return _asset_type(row) in RETURN_ATTRIBUTION_ASSET_TYPES
+    asset_row = {
+        **row,
+        "major_category": major,
+        "minor_category": _repair_mojibake_text(row.get("minor_category")),
+        "asset_liability": asset_liability,
+    }
+    return _asset_type(asset_row) in RETURN_ATTRIBUTION_ASSET_TYPES
 
 
 def _symbol_digits(value: Any) -> str:
@@ -1078,7 +1098,7 @@ def _metric_sum(units: list[AttributionUnit], key: str) -> float:
 
 
 def _industry_attribution_eligible(unit: AttributionUnit) -> bool:
-    return unit.get("asset_type") in {"A股个股", "港股个股", "美股个股", "ETF / 基金"}
+    return unit.get("asset_type") in {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"}
 
 
 def _source_detail(unit: AttributionUnit, scale: float = 1.0) -> dict[str, Any]:
@@ -1217,6 +1237,7 @@ def build_return_attribution_from_positions(
     as_of: Any | None = None,
     industry_l1_by_symbol: dict[str, str] | None = None,
     asset_master_cur: Any | None = None,
+    sync_asset_master: bool = False,
     account_cfg: dict[str, Any] | None = None,
     reconciliation_cur: Any | None = None,
     base_currency: str = "CNY",
@@ -1231,6 +1252,7 @@ def build_return_attribution_from_positions(
         as_of=as_of,
         industry_l1_by_symbol=industry_l1_by_symbol,
         asset_master_cur=asset_master_cur,
+        sync_asset_master=sync_asset_master,
         portfolio_nav_cny=portfolio_nav_cny,
     )
     normalized = list(lookthrough.get("normalized_holdings") or [])
@@ -1238,6 +1260,7 @@ def build_return_attribution_from_positions(
     instrument_units, exposure_units = _build_units(normalized, underlyings, enriched_positions, cfg=cfg)
     reconciliation_meta: dict[str, Any] = {"sections": []}
     reconciliation_warnings: list[str] = []
+    reconciliation_units: list[AttributionUnit] = []
     if reconciliation_cur is not None and account_cfg is not None:
         targets, reconciliation_warnings = _section_target_payloads(
             reconciliation_cur,
@@ -1245,14 +1268,20 @@ def build_return_attribution_from_positions(
             base_currency=base_currency,
             view_as_of=_latest_snapshot_date(reconciliation_cur),
         )
+        targets = {
+            section: target
+            for section, target in targets.items()
+            if section in CANONICAL_RECONCILIATION_SECTIONS
+        }
         reconciliation_units, reconciliation_meta = _return_reconciliation_units(instrument_units, targets)
-        instrument_units.extend(reconciliation_units)
 
     total_market_value = _metric_sum(instrument_units, "market_value_cny")
     total_pnl = _metric_sum(instrument_units, "pnl_cny")
     total_daily_pnl = _metric_sum(instrument_units, "daily_pnl_cny")
     total_daily_price = _metric_sum(instrument_units, "daily_price_pnl_cny")
     total_daily_fx = _metric_sum(instrument_units, "daily_fx_pnl_cny")
+    canonical_total_pnl = total_pnl + _metric_sum(reconciliation_units, "pnl_cny")
+    canonical_daily_pnl = total_daily_pnl + _metric_sum(reconciliation_units, "daily_pnl_cny")
     nav_value = _num(portfolio_nav_cny) if portfolio_nav_cny is not None else _num(lookthrough.get("portfolio_nav_cny"))
 
     dimensions = {
@@ -1326,14 +1355,16 @@ def build_return_attribution_from_positions(
     if lookthrough.get("quality", {}).get("uncovered_value_cny"):
         notes.append("未穿透残差会承接基金收益，但不进入主题主图。")
 
-    return {
+    payload = {
         "status": "ok" if positions else "empty",
         "as_of": lookthrough.get("as_of"),
         "portfolio_nav_cny": nav_value,
         "gross_exposure_cny": total_market_value,
         "total_market_value_cny": total_market_value,
         "total_pnl_cny": total_pnl,
+        "canonical_total_pnl_cny": canonical_total_pnl,
         "daily_pnl_cny": total_daily_pnl,
+        "canonical_daily_pnl_cny": canonical_daily_pnl,
         "daily_price_pnl_cny": total_daily_price,
         "daily_fx_pnl_cny": total_daily_fx,
         "dimensions": dimensions,
@@ -1341,9 +1372,15 @@ def build_return_attribution_from_positions(
         "notes": notes,
         "model_version": "return_attribution_v1",
     }
+    return payload
 
 
-def build_return_attribution_payload(cur, *, base_currency: str = "CNY") -> dict[str, Any]:
+def build_return_attribution_payload(
+    cur,
+    *,
+    base_currency: str = "CNY",
+    sync_asset_master: bool = False,
+) -> dict[str, Any]:
     """Build the /api/analysis/return-attribution payload from current holdings."""
     account_cfg = _load_accounts_config()
     account_balances = load_account_balances(cur, base_currency, account_cfg)
@@ -1368,14 +1405,21 @@ def build_return_attribution_payload(cur, *, base_currency: str = "CNY") -> dict
         for row in holdings.get("rows") or []
         if _is_return_attribution_row(row)
     ]
+    daily_positions = [
+        position
+        for position in _load_daily_attribution_positions(cur, account_cfg)
+        if _is_return_attribution_row(position)
+    ]
+    positions = _merge_daily_positions(positions, daily_positions)
     industry_l1_by_symbol = _load_sw_l1_lookup(cur)
     return build_return_attribution_from_positions(
         positions,
         as_of=holdings.get("as_of") or view_as_of,
         industry_l1_by_symbol=industry_l1_by_symbol,
         asset_master_cur=cur,
+        sync_asset_master=sync_asset_master,
         account_cfg=account_cfg,
-        reconciliation_cur=None,
+        reconciliation_cur=cur if (account_cfg.get("accounts") or {}) else None,
         base_currency=base_currency,
         portfolio_nav_cny=portfolio_nav_cny,
     )

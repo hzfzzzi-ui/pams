@@ -44,6 +44,10 @@ def test_normalize_price_instruments_for_analysis_and_trade_review():
     assert kr_stock.market == "YF"
     assert kr_stock.symbol == "005930.KS"
 
+    se_stock = price_history.normalize_price_instrument("SIVE", market="SE_STOCK")
+    assert se_stock.market == "YF"
+    assert se_stock.symbol == "SIVE.ST"
+
 
 def test_rows_to_price_curve_normalizes_close_and_return():
     rows = [

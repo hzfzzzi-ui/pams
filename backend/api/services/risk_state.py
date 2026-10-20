@@ -25,8 +25,10 @@ if str(ROOT) not in sys.path:
 from services.portfolio_state import build_portfolio_state  # noqa: E402
 from services.holdings_view import latest_complete_snapshot_date  # noqa: E402
 from services.portfolio_valuation_state import (  # noqa: E402
+    is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state,
     published_valuation_state_meta,
+    published_valuation_stale_meta,
 )
 from src.core.concentration import (  # noqa: E402
     concentration_exposure,
@@ -641,14 +643,14 @@ def _concentration_rules_payload(limits: dict[str, Any]) -> dict[str, Any]:
             "label": "区域暴露",
             "yellow": region["yellow"],
             "red": region["red"],
-            "method": "多标签口径，单独观察 A股、港股、美股、韩股、海外权益等市场区域暴露。",
+            "method": "多标签口径，单独观察 A股、港股、美股、欧股、韩股、海外权益等市场区域暴露。",
         },
         {
             "key": "currency",
             "label": "币种暴露",
             "yellow": currency["yellow"],
             "red": currency["red"],
-            "method": "多标签口径，单独观察人民币、美元、港币、韩元等币种敞口；币种风险不等同于市场区域风险。",
+            "method": "多标签口径，单独观察人民币、美元、港币、瑞典克朗、韩元等币种敞口；币种风险不等同于市场区域风险。",
         },
         {
             "key": "special",
@@ -1736,6 +1738,21 @@ def _positions_reconciled_to_published_nav(
     raw_nav = total_nav(df, limits)
     if not valuation_state or valuation_state.get("net_liquidation_value") in (None, ""):
         return df, raw_nav, None
+
+    positions_as_of = ""
+    if "as_of" in df.columns and not df.empty:
+        dates = [str(value)[:10] for value in df["as_of"].dropna().tolist() if str(value or "")[:10]]
+        positions_as_of = max(dates) if dates else ""
+    if not is_published_valuation_fresh_for_date(valuation_state, positions_as_of):
+        meta = published_valuation_stale_meta(valuation_state, target_as_of=positions_as_of)
+        if meta is not None:
+            meta.update(
+                {
+                    "raw_positions_nav_cny": raw_nav,
+                    "nav_reconciliation_cny": 0.0,
+                }
+            )
+        return df, raw_nav, meta
 
     target_nav = _safe_float(valuation_state.get("net_liquidation_value"))
     adjustment = target_nav - raw_nav

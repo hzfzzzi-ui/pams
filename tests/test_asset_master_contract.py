@@ -12,6 +12,9 @@ if str(API_ROOT) not in sys.path:
 from services.asset_master import (  # noqa: E402
     ASSET_MASTER_FIELD_PRIORITY,
     SCHEMA_SQL,
+    VALID_CURRENCIES,
+    VALID_MARKETS,
+    VALID_REGIONS,
     _apply_asset_to_raw,
     _asset_record_from_raw,
     _find_asset,
@@ -19,6 +22,7 @@ from services.asset_master import (  # noqa: E402
     build_asset_master_missing_mapping_report,
     build_asset_master_payload,
     build_lookthrough_seed_units,
+    load_asset_master_lookup,
     sync_asset_master_from_lookthrough_config,
     validate_asset_master_whitelists,
 )
@@ -30,6 +34,15 @@ class FakeCursor:
 
     def execute(self, sql: str, params=None) -> None:
         self.statements.append(sql)
+
+
+class ReadOnlyLookupCursor(FakeCursor):
+    def __init__(self) -> None:
+        super().__init__()
+        self._results: list[list[dict]] = [[], [], [], []]
+
+    def fetchall(self) -> list[dict]:
+        return self._results.pop(0) if self._results else []
 
 
 def test_asset_master_schema_declares_core_tables() -> None:
@@ -54,6 +67,19 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "rental_income_annual",
     ]:
         assert column_name in SCHEMA_SQL
+
+
+def test_asset_master_lookup_can_skip_schema_writes_for_read_paths() -> None:
+    cur = ReadOnlyLookupCursor()
+
+    lookup = load_asset_master_lookup(cur, ensure_schema=False)
+
+    assert lookup == {"assets": {}, "alias_to_id": {}}
+    joined = "\n".join(cur.statements).upper()
+    assert "CREATE TABLE" not in joined
+    assert "INSERT " not in joined
+    assert "UPDATE " not in joined
+    assert "SELECT * FROM PAMS_ASSET_MASTER" in joined
 
 
 def test_holding_asset_identity_migration_backfills_asset_id_contract() -> None:
@@ -96,6 +122,71 @@ def test_gold_spot_benchmark_migration_seeds_non_holding_price_asset() -> None:
     assert "benchmark_only" in sql
     assert "is_holding" in sql
     assert "akshare_sge_daily:Au99.99" in sql
+
+
+def test_europe_sweden_mapping_migration_seeds_sive_and_sek_cash() -> None:
+    sql = Path("database/postgres/schema/049_europe_sweden_asset_mapping.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "'ASSET_SIVE'" in sql
+    assert "'欧股个股'" in sql
+    assert "'欧股'" in sql
+    assert "'瑞典'" in sql
+    assert "'SEK'" in sql
+    assert "'ASSET_CASH_SEK'" in sql
+    assert "UPPER(COALESCE(symbol, '')) = 'SIVE'" in sql
+    assert "UPPER(COALESCE(symbol, '')) = 'CASH_SEK'" in sql
+
+
+def test_asset_master_whitelist_allows_europe_sweden_and_sek() -> None:
+    assert "欧股" in VALID_MARKETS
+    assert {"欧洲", "瑞典"}.issubset(VALID_REGIONS)
+    assert "SEK" in VALID_CURRENCIES
+
+
+def test_korea_asset_normalization_migration_updates_korean_equities() -> None:
+    sql = Path("database/postgres/schema/050_korea_overseas_asset_normalization.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "'ASSET_005930_KS'" in sql
+    assert "'ASSET_000660_KS'" in sql
+    assert "'韩股个股'" in sql
+    assert "'韩股'" in sql
+    assert "'韩国'" in sql
+    assert "'KRW'" in sql
+    assert "'海外个股'" not in sql
+
+
+def test_asset_master_normalizes_english_regions_to_whitelist() -> None:
+    korea = _asset_record_from_raw(
+        {
+            "symbol": "005930.KS",
+            "asset_name": "Samsung Electronics",
+            "asset_type": "stock_kr",
+            "currency": "KRW",
+            "region": "Korea",
+        },
+        source="test",
+    )
+    sweden = _asset_record_from_raw(
+        {
+            "symbol": "SIVE",
+            "asset_name": "Sivers Semiconductors",
+            "asset_type": "stock_eu",
+            "currency": "SEK",
+            "region": "Sweden",
+        },
+        source="test",
+    )
+
+    assert korea["asset_type"] == "韩股个股"
+    assert korea["market"] == "韩股"
+    assert korea["economic_region"] == "韩国"
+    assert korea["listing_region"] == "韩国"
+    assert sweden["economic_region"] == "瑞典"
+    assert sweden["listing_region"] == "瑞典"
 
 
 def test_asset_master_id_canonicalizes_known_aliases() -> None:

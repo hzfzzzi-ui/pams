@@ -21,8 +21,8 @@ DEFAULT_PLAN = {
 
 INDEX_SYMBOLS = {"QQQ", "SPY", "VOO", "VTI", "IVV", "SCHB", "SPLG", "VT", "ACWI"}
 CODE_PREFIX_RE = re.compile(r"^([A-Z]{1,8}(?:\.[A-Z]{1,4})?|\d{4,6}(?:\.[A-Z]{1,4})?)\s*[-–]\s*(.+)$", re.I)
-PUBLIC_EQUITY_ASSET_TYPES = {"A股个股", "港股个股", "美股个股", "ETF / 基金"}
-PUBLIC_EQUITY_MARKETS = {"A股", "港股", "美股", "韩股"}
+PUBLIC_EQUITY_ASSET_TYPES = {"A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"}
+PUBLIC_EQUITY_MARKETS = {"A股", "港股", "美股", "欧股", "韩股"}
 NON_PUBLIC_EQUITY_ASSET_TYPES = {
     "非上市股权",
     "黄金 / 商品",
@@ -460,24 +460,32 @@ def _config_market(row: dict[str, Any]) -> str:
     if market in PUBLIC_EQUITY_MARKETS:
         return market
     asset_type = str(row.get("assetType") or row.get("asset_type") or "")
+    region = str(row.get("region") or "")
+    currency = str(row.get("currency") or "")
+    text = " ".join(
+        str(row.get(key) or "")
+        for key in ("name", "parentName", "underlyingName", "symbol", "underlyingSymbol", "assetSubtype")
+    )
+    if "韩国" in region or currency == "KRW" or re.search(r"(韩国|KOSPI|KOSDAQ|\.KS\b)", text, re.I):
+        return "韩股"
+    if "欧洲" in region or "瑞典" in region or currency == "SEK" or re.search(r"(欧洲|欧股|瑞典|Sweden|Sverige|Stockholm|SEK)", text, re.I):
+        return "欧股"
     if asset_type == "A股个股":
         return "A股"
     if asset_type == "港股个股":
         return "港股"
     if asset_type == "美股个股":
         return "美股"
-    text = " ".join(
-        str(row.get(key) or "")
-        for key in ("name", "parentName", "underlyingName", "symbol", "underlyingSymbol", "assetSubtype")
-    )
+    if asset_type == "欧股个股":
+        return "欧股"
+    if asset_type == "韩股个股":
+        return "韩股"
     if re.search(r"(恒生|港股|港股通|香港|H股)", text, re.I):
         return "港股"
     if re.search(r"(Nasdaq|纳斯达克|标普|S&P|美股|美国|QQQ|VOO|VTI|SPY|IVV)", text, re.I):
         return "美股"
     if re.search(r"(韩国|KOSPI|KOSDAQ)", text, re.I):
         return "韩股"
-    region = str(row.get("region") or "")
-    currency = str(row.get("currency") or "")
     if "中国" in region or currency == "CNY" or re.search(r"(中证|沪深|创业|科创|A股)", text, re.I):
         return "A股"
     return market or "其他"
@@ -488,7 +496,7 @@ def _equity_bucket_for_market(market: str) -> str:
         return "us_equity"
     if market in {"A股", "港股"}:
         return "cn_hk_equity"
-    if market == "韩股":
+    if market in {"韩股", "欧股"}:
         return "kr_other_equity"
     return "other_equity"
 
@@ -566,7 +574,7 @@ def _equity_market_model(
         "kr_other_equity": [],
         "other_equity": [],
     }
-    market_amounts = {"A股": 0.0, "港股": 0.0, "美股": 0.0, "韩股": 0.0, "其他": 0.0}
+    market_amounts = {"A股": 0.0, "港股": 0.0, "美股": 0.0, "欧股": 0.0, "韩股": 0.0, "其他": 0.0}
     covered_parents: set[str] = set()
 
     for row in _underlyings(payload):
@@ -967,7 +975,8 @@ def build_portfolio_config_payload_from_inputs(
     kr_other_amount = _n(equity_amounts.get("kr_other_equity"))
     other_equity_amount = _n(equity_amounts.get("other_equity"))
     us_broad_amount = _broad_us_value(lookthrough)
-    overseas_stock_amount = _exposure_value(lookthrough, "asset_type", "美股个股", look_total)
+    overseas_stock_types = ["美股个股", "欧股个股", "韩股个股"]
+    overseas_stock_amount = _exposure_value(lookthrough, "asset_type", overseas_stock_types, look_total)
     semiconductor_amount = _exposure_value(lookthrough, "theme", "半导体", look_total)
     ai_compute_amount = _exposure_value(lookthrough, "theme", "AI / 算力", look_total)
     resource_theme_amount = _exposure_value(lookthrough, "theme", "贵金属与铜", look_total)
@@ -981,7 +990,7 @@ def build_portfolio_config_payload_from_inputs(
     stock_children = [
         _allocation_child("美国权益", us_market_amount, nav, rule_id="us_equity"),
         _allocation_child("中国/港股权益", cn_hk_amount, nav, rule_id="cn_hk_equity"),
-        _allocation_child("韩国/其他权益", kr_other_amount, nav, rule_id="kr_other_equity"),
+        _allocation_child("韩国/欧洲/其他权益", kr_other_amount, nav, rule_id="kr_other_equity"),
     ]
     if other_equity_amount > 1:
         stock_children.append(_allocation_child("其他/待映射权益", other_equity_amount, nav, rule_id="other_equity"))
@@ -1089,13 +1098,13 @@ def build_portfolio_config_payload_from_inputs(
             "id": "kr_other_equity",
             "group_id": "primary_allocation",
             "display": False,
-            "name": "韩国/其他权益",
+            "name": "韩国/欧洲/其他权益",
             "current": kr_other_amount / nav if nav > 0 else 0.0,
             "current_amount_cny": kr_other_amount,
             "target_high": 0.10,
             "hard_high": 0.15,
             "target_label": "<=10.0%",
-            "detail": "用于约束非中美市场的单一国家暴露。",
+            "detail": "用于约束非中美市场的单一国家或地区暴露。",
             "children": _children_from_sources(equity_sources["kr_other_equity"], nav, total_cny=kr_other_amount),
         }),
         _rule({
@@ -1137,7 +1146,7 @@ def build_portfolio_config_payload_from_inputs(
             "hard_high": 0.30,
             "bias_high_at": 0.23,
             "detail": "保留进攻弹性，但新增个股不得继续集中到同一主题；当前包含美股及海外单票。",
-            "children": _children_from_exposure(lookthrough, "asset_type", "美股个股", nav),
+            "children": _children_from_exposure(lookthrough, "asset_type", overseas_stock_types, nav),
         }),
         _rule({
             "id": "commodity_gold",

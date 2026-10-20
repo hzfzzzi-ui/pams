@@ -30,3 +30,22 @@ def return_attribution_summary(baseCurrency: str = Query("CNY")) -> dict[str, An
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return build_return_attribution_payload(cur, base_currency=baseCurrency)
+
+
+@router.post("/asset-master/sync")
+def sync_asset_master_from_current_portfolio(baseCurrency: str = Query("CNY")) -> dict[str, Any]:
+    """Explicitly sync asset master from current lookthrough analysis."""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            payload = build_lookthrough_payload(
+                cur,
+                base_currency=baseCurrency,
+                sync_asset_master=True,
+            )
+        conn.commit()
+    return {
+        "status": "ok",
+        "as_of": payload.get("as_of"),
+        "master_data": payload.get("master_data"),
+        "data_warnings": payload.get("data_warnings") or [],
+    }

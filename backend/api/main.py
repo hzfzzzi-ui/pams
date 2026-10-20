@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import date as Date, datetime, timedelta
 from decimal import Decimal
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
 import yaml
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -70,11 +71,13 @@ from services.investment_view_date import (
     market_data_candidate_date as _market_data_candidate_date,
 )
 from services.portfolio_summary import (
+    apply_return_attribution_pnl_to_summary as _apply_return_attribution_pnl_to_summary,
     apply_published_valuation_state_to_summary as _apply_published_valuation_state_to_summary,
     build_holdings_by_account_payload as _build_holdings_by_account_payload,
     build_holdings_summary_payload as _build_holdings_summary_payload,
     build_summary2_from_holdings_latest_payload as _build_summary2_from_holdings_latest_payload,
 )
+from services.return_attribution import build_return_attribution_payload as _build_return_attribution_payload
 from services.portfolio_state import (
     _load_accounts_config as _load_portfolio_accounts_config,
     load_account_balances as _load_account_balances,
@@ -82,6 +85,7 @@ from services.portfolio_state import (
 )
 from services.portfolio_valuation_state import (
     apply_published_valuation_state_to_return_series_payload as _apply_published_valuation_state_to_return_series_payload,
+    is_published_valuation_fresh_for_date as _is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state as _latest_published_portfolio_valuation_state,
     published_nav_bucket_from_row as _published_nav_bucket_from_row,
 )
@@ -134,9 +138,48 @@ app.include_router(strategy_router, prefix="/api")
 app.include_router(backtest_router, prefix="/api")
 app.include_router(datahub_router, prefix="/api")
 
+def _allowed_web_origins() -> list[str]:
+    raw = os.environ.get("PAMS_ALLOWED_ORIGINS", "")
+    configured = [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+    defaults = [
+        "http://pams.local",
+        "http://localhost",
+        "http://localhost:8080",
+        "http://localhost:8090",
+        "http://127.0.0.1",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:8090",
+    ]
+    return sorted(set(configured or defaults))
+
+
+ALLOWED_WEB_ORIGINS = _allowed_web_origins()
+LOCAL_WRITE_HOSTS = {"pams.local", "localhost", "127.0.0.1", "::1"}
+MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _is_allowed_write_origin(value: str | None) -> bool:
+    if not value:
+        return True
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return host in LOCAL_WRITE_HOSTS or origin in ALLOWED_WEB_ORIGINS
+
+
+@app.middleware("http")
+async def local_write_origin_guard(request: Request, call_next):
+    if request.method.upper() in MUTATING_METHODS:
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        if not _is_allowed_write_origin(origin) or (not origin and not _is_allowed_write_origin(referer)):
+            return JSONResponse({"detail": "write request origin is not allowed"}, status_code=403)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_WEB_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -326,6 +369,38 @@ def _account_initial_capital_cny(account_code: str) -> Decimal | None:
     if account_key not in values:
         return None
     return Decimal(str(values[account_key]))
+
+
+def _apply_reported_account_performance(payload: dict[str, Any], account_code: str) -> dict[str, Any]:
+    """Overlay platform-confirmed account PnL while preserving economic audit fields."""
+    cfg = ((_reported_returns_cfg().get("account_performance") or {}).get(account_code)) or {}
+    if not isinstance(cfg, dict) or not cfg.get("use_reported_anchor"):
+        return payload
+
+    reported_total: Decimal | None = None
+    if cfg.get("total_return") not in (None, ""):
+        reported_total = Decimal(str(cfg["total_return"]))
+    elif cfg.get("total_return_gross") not in (None, ""):
+        reported_total = Decimal(str(cfg["total_return_gross"])) * _account_owner_ratio(account_code)
+    elif cfg.get("total_ytd_pnl") not in (None, ""):
+        reported_total = Decimal(str(cfg["total_ytd_pnl"])) * _account_owner_ratio(account_code)
+    if reported_total is None:
+        return payload
+
+    out = dict(payload)
+    out["economic_total_pnl_cny"] = out.get("total_pnl_cny")
+    out["total_pnl_cny"] = str(reported_total)
+    holding_pnl = Decimal(str(out.get("holding_pnl_cny") or "0"))
+    out["realized_pnl_cny"] = str(reported_total - holding_pnl)
+    out["return_basis"] = "reported_platform"
+    out["reported_performance"] = {
+        "as_of": str(cfg.get("as_of") or ""),
+        "basis": cfg.get("basis"),
+        "note": cfg.get("note"),
+        "cash_balance_gross": str(cfg.get("cash_balance_gross")) if cfg.get("cash_balance_gross") not in (None, "") else None,
+        "total_return_gross": str(cfg.get("total_return_gross")) if cfg.get("total_return_gross") not in (None, "") else None,
+    }
+    return out
 
 
 
@@ -540,6 +615,8 @@ def summary2_latest():
                 base_currency=base_currency,
                 account_balances=account_balances,
             )
+            attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
+            summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
             valuation_state = _latest_published_portfolio_valuation_state(
                 cur,
                 base_currency=base_currency,
@@ -622,7 +699,7 @@ def account_performance(account_code: str):
             )
             if payload is None:
                 raise HTTPException(status_code=404, detail=f"Account {account_code} has no holdings snapshot")
-            return json(payload)
+            return json(_apply_reported_account_performance(payload, account_code))
 @app.get("/holdings/history/{category}")
 def holdings_history_by_category(
     category: str,
@@ -686,7 +763,6 @@ def investment_section_return_series(
     start: str = Query("2026-01-01"),
     interval: str = Query("daily", pattern="^(daily|weekly)$"),
     baseCurrency: str = "CNY",
-    refreshSnapshot: bool = Query(False),
 ):
     """Return section return rates after removing deposits, subscriptions, and redemptions."""
     try:
@@ -698,19 +774,18 @@ def investment_section_return_series(
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             view_as_of = _investment_return_view_as_of(cur)
-            if not refreshSnapshot:
-                snapshot_payload = _build_section_return_series_payload_from_snapshot(
-                    cur,
-                    section=section,
-                    start_date=start_date,
-                    interval=interval,
-                    base_currency=baseCurrency,
-                    view_as_of=view_as_of,
-                    today_label_date=_investment_today_label_date(),
-                    require_data_completeness=True,
-                )
-                if snapshot_payload is not None:
-                    return json(snapshot_payload)
+            snapshot_payload = _build_section_return_series_payload_from_snapshot(
+                cur,
+                section=section,
+                start_date=start_date,
+                interval=interval,
+                base_currency=baseCurrency,
+                view_as_of=view_as_of,
+                today_label_date=_investment_today_label_date(),
+                require_data_completeness=True,
+            )
+            if snapshot_payload is not None:
+                return json(snapshot_payload)
             payload = _build_section_return_series_payload(
                 cur,
                 section=section,
@@ -725,17 +800,57 @@ def investment_section_return_series(
                 excluded_holding_accounts=_excluded_holding_accounts(),
                 today_label_date=_investment_today_label_date(),
             )
-            if refreshSnapshot:
-                try:
-                    _upsert_investment_return_series_snapshot(
-                        cur,
-                        payload=payload,
-                        base_currency=baseCurrency,
-                        section=section,
-                    )
-                except Exception:
-                    conn.rollback()
             return json(payload)
+
+
+@app.post("/investment/section-return-series/snapshot")
+def refresh_investment_section_return_series_snapshot(
+    section: str = Query(..., pattern="^(a_stock|a_fund|us_stock|precious_metal)$"),
+    start: str = Query("2026-01-01"),
+    interval: str = Query("daily", pattern="^(daily|weekly)$"),
+    baseCurrency: str = "CNY",
+):
+    """Explicitly rebuild and persist a section return-series snapshot."""
+    try:
+        start_date = Date.fromisoformat(start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
+
+    overview_payload = accounts_endpoint._overview_payload()
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            view_as_of = _investment_return_view_as_of(cur)
+            payload = _build_section_return_series_payload(
+                cur,
+                section=section,
+                start_date=start_date,
+                interval=interval,
+                base_currency=baseCurrency,
+                view_as_of=view_as_of,
+                reported_returns_cfg=_reported_returns_cfg(),
+                overview_payload=overview_payload,
+                owner_ratio_case_sql=_owner_ratio_case_sql,
+                account_owner_ratio=_account_owner_ratio,
+                excluded_holding_accounts=_excluded_holding_accounts(),
+                today_label_date=_investment_today_label_date(),
+            )
+            written = _upsert_investment_return_series_snapshot(
+                cur,
+                payload=payload,
+                base_currency=baseCurrency,
+                section=section,
+            )
+        conn.commit()
+    return json(
+        {
+            "status": "ok",
+            "section": section,
+            "base_currency": baseCurrency,
+            "rows": len(payload.get("rows") or []),
+            "written": written,
+            "as_of": payload.get("as_of"),
+        }
+    )
 
 
 @app.get("/nav/weekly")
@@ -755,18 +870,23 @@ def nav_weekly(
 
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
             published_state = (
                 _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
                 if latest
                 else None
             )
+            published_state_fresh = bool(
+                published_state
+                and _is_published_valuation_fresh_for_date(published_state, current_view_as_of)
+            )
             terminal_date = (
                 published_state["valuation_date"]
-                if published_state and published_state.get("valuation_date")
-                else (_investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE)
+                if published_state_fresh and published_state and published_state.get("valuation_date")
+                else current_view_as_of
             )
             terminal_nav_bucket = None
-            if published_state:
+            if published_state_fresh and published_state:
                 terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
             elif latest:
                 account_cfg = _load_portfolio_accounts_config()
@@ -801,7 +921,6 @@ def investment_return_series(
     start: str = Query("2026-01-01"),
     interval: str = Query("daily", pattern="^(daily|weekly)$"),
     baseCurrency: str = "CNY",
-    refreshSnapshot: bool = Query(False),
 ):
     """Return sampled investment return rate based on market value, cost, and confirmed income."""
     try:
@@ -816,27 +935,26 @@ def investment_return_series(
             view_as_of = _investment_return_view_as_of(cur)
             if start_date > view_as_of:
                 start_date = view_as_of
-            if not refreshSnapshot:
-                snapshot_payload = _build_investment_return_series_payload_from_snapshot(
+            snapshot_payload = _build_investment_return_series_payload_from_snapshot(
+                cur,
+                start_date=start_date,
+                interval=interval,
+                base_currency=baseCurrency,
+                view_as_of=view_as_of,
+                today_label_date=_investment_today_label_date(),
+                require_data_completeness=True,
+            )
+            if snapshot_payload is not None:
+                valuation_state = _latest_published_portfolio_valuation_state(
                     cur,
-                    start_date=start_date,
-                    interval=interval,
                     base_currency=baseCurrency,
-                    view_as_of=view_as_of,
-                    today_label_date=_investment_today_label_date(),
-                    require_data_completeness=True,
                 )
-                if snapshot_payload is not None:
-                    valuation_state = _latest_published_portfolio_valuation_state(
-                        cur,
-                        base_currency=baseCurrency,
+                return json(
+                    _apply_published_valuation_state_to_return_series_payload(
+                        snapshot_payload,
+                        valuation_state,
                     )
-                    return json(
-                        _apply_published_valuation_state_to_return_series_payload(
-                            snapshot_payload,
-                            valuation_state,
-                        )
-                    )
+                )
             payload = _build_investment_return_series_payload(
                 cur,
                 start_date=start_date,
@@ -851,15 +969,6 @@ def investment_return_series(
                 excluded_holding_accounts=_excluded_holding_accounts(),
                 today_label_date=_investment_today_label_date(),
             )
-            if refreshSnapshot:
-                try:
-                    _upsert_investment_return_series_snapshot(
-                        cur,
-                        payload=payload,
-                        base_currency=baseCurrency,
-                    )
-                except Exception:
-                    conn.rollback()
             valuation_state = _latest_published_portfolio_valuation_state(
                 cur,
                 base_currency=baseCurrency,
@@ -870,6 +979,56 @@ def investment_return_series(
                     valuation_state,
                 )
             )
+
+
+@app.post("/investment/return-series/snapshot")
+def refresh_investment_return_series_snapshot(
+    start: str = Query("2026-01-01"),
+    interval: str = Query("daily", pattern="^(daily|weekly)$"),
+    baseCurrency: str = "CNY",
+):
+    """Explicitly rebuild and persist the total investment return-series snapshot."""
+    try:
+        start_date = Date.fromisoformat(start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
+
+    overview_payload = accounts_endpoint._overview_payload()
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            view_as_of = _investment_return_view_as_of(cur)
+            if start_date > view_as_of:
+                start_date = view_as_of
+            payload = _build_investment_return_series_payload(
+                cur,
+                start_date=start_date,
+                interval=interval,
+                base_currency=baseCurrency,
+                view_as_of=view_as_of,
+                overview_payload=overview_payload,
+                reported_returns_cfg=_reported_returns_cfg(),
+                owner_ratio_case_sql=_owner_ratio_case_sql,
+                account_owner_ratio=_account_owner_ratio,
+                account_initial_capital_cny=_account_initial_capital_cny,
+                excluded_holding_accounts=_excluded_holding_accounts(),
+                today_label_date=_investment_today_label_date(),
+            )
+            written = _upsert_investment_return_series_snapshot(
+                cur,
+                payload=payload,
+                base_currency=baseCurrency,
+            )
+        conn.commit()
+    return json(
+        {
+            "status": "ok",
+            "section": "total",
+            "base_currency": baseCurrency,
+            "rows": len(payload.get("rows") or []),
+            "written": written,
+            "as_of": payload.get("as_of"),
+        }
+    )
 
 
 @app.get("/nav/drawdown")

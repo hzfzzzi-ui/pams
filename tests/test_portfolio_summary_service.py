@@ -12,6 +12,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from services.portfolio_summary import (  # noqa: E402
+    apply_return_attribution_pnl_to_summary,
     build_holdings_by_account_payload,
     build_holdings_summary_payload,
     build_summary2_from_holdings_latest_payload,
@@ -239,3 +240,53 @@ def test_build_summary2_from_holdings_latest_payload_adds_represented_account_re
         "A股": "240.00",
         "现金": "6.18",
     }
+
+
+def test_apply_return_attribution_pnl_to_summary_splits_total_and_current_float():
+    payload = {
+        "as_of": "2026-06-18",
+        "base_currency": "CNY",
+        "totals": {"market_value": "300.00", "holding_pnl": "12.00", "daily_pnl": "3.00"},
+        "by_asset_class": [],
+        "children": [],
+    }
+    attribution = {
+        "total_pnl_cny": "17.00",
+        "dimensions": {
+            "holding": [
+                {"name": "Current", "market_value_cny": "300.00", "pnl_cny": "12.00"},
+                {"name": "Closed", "market_value_cny": "0", "pnl_cny": "5.00"},
+            ]
+        },
+    }
+
+    out = apply_return_attribution_pnl_to_summary(payload, attribution)
+
+    assert out["totals"]["holding_pnl"] == "17.00"
+    assert out["totals"]["current_float_pnl"] == "12.00"
+    assert out["totals"]["closed_realized_pnl"] == "5.00"
+
+
+def test_apply_return_attribution_pnl_to_summary_prefers_canonical_total():
+    payload = {
+        "as_of": "2026-06-19",
+        "base_currency": "CNY",
+        "totals": {"market_value": "300.00", "holding_pnl": "12.00", "daily_pnl": "0"},
+        "by_asset_class": [],
+        "children": [],
+    }
+    attribution = {
+        "total_pnl_cny": "17.00",
+        "canonical_total_pnl_cny": "20.00",
+        "dimensions": {
+            "holding": [
+                {"name": "Current", "market_value_cny": "300.00", "pnl_cny": "12.00"},
+            ]
+        },
+    }
+
+    out = apply_return_attribution_pnl_to_summary(payload, attribution)
+
+    assert out["totals"]["holding_pnl"] == "20.00"
+    assert out["totals"]["current_float_pnl"] == "12.00"
+    assert out["totals"]["closed_realized_pnl"] == "8.00"

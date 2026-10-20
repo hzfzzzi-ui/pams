@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import re
 from datetime import date
 from pathlib import Path
 
@@ -12,7 +13,26 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+import services.lookthrough_state as lookthrough_state  # noqa: E402
 from services.lookthrough_state import _apply_industry_buckets, derive_lookthrough_payload  # noqa: E402
+
+
+class ReadOnlyAssetMasterCursor:
+    def __init__(self) -> None:
+        self.executed: list[str] = []
+        self._results: list[list[dict]] = [[], [], [], []]
+
+    def execute(self, sql, params=None) -> None:
+        self.executed.append(str(sql))
+
+    def fetchall(self) -> list[dict]:
+        return self._results.pop(0) if self._results else []
+
+
+def _assert_read_only_sql(statements: list[str]) -> None:
+    joined = "\n".join(statements).upper()
+    forbidden = ("INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "PG_ADVISORY")
+    assert not any(re.search(rf"(?:^|[^A-Z0-9_]){token}(?:$|[^A-Z0-9_])", joined) for token in forbidden)
 
 
 def test_unmapped_asset_master_bucket_can_be_remapped_from_leaf_label() -> None:
@@ -30,6 +50,60 @@ def test_unmapped_asset_master_bucket_can_be_remapped_from_leaf_label() -> None:
 
     assert units[0]["industry_bucket"] == "科技TMT"
     assert units[0]["industry_bucket_source"] == "industry_label"
+
+
+def test_derive_lookthrough_payload_reads_asset_master_without_syncing_by_default() -> None:
+    cur = ReadOnlyAssetMasterCursor()
+
+    payload = derive_lookthrough_payload(
+        [
+            {
+                "asset_name": "Samsung Electronics",
+                "symbol": "005930.KS",
+                "asset_type": "stock_kr",
+                "currency": "KRW",
+                "market_value_cny": 100.0,
+                "as_of": "2026-06-19",
+            }
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+        as_of="2026-06-19",
+        asset_master_cur=cur,
+    )
+
+    assert payload["master_data"]["status"] == "ok"
+    assert any("FROM pams_asset_master" in sql for sql in cur.executed)
+    _assert_read_only_sql(cur.executed)
+
+
+def test_derive_lookthrough_payload_syncs_asset_master_only_when_explicit(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_sync(cur, **kwargs):
+        calls.append(kwargs)
+        return {"assets": {}, "alias_to_id": {}}
+
+    monkeypatch.setattr(lookthrough_state, "sync_asset_master_from_analysis", fake_sync)
+
+    derive_lookthrough_payload(
+        [
+            {
+                "asset_name": "Samsung Electronics",
+                "symbol": "005930.KS",
+                "asset_type": "stock_kr",
+                "currency": "KRW",
+                "market_value_cny": 100.0,
+                "as_of": "2026-06-19",
+            }
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+        as_of="2026-06-19",
+        asset_master_cur=object(),
+        sync_asset_master=True,
+    )
+
+    assert calls
+    assert calls[0]["positions"][0]["symbol"] == "005930.KS"
 
 
 def test_derive_lookthrough_payload_splits_index_proxy_and_residual() -> None:
@@ -223,6 +297,39 @@ def test_a_share_stock_fallback_is_direct_full_coverage() -> None:
     assert unit["lookthroughType"] == "DIRECT"
     assert unit["underlyingWeightInFund"] == 1.0
     assert unit["effectiveMarketValue"] == 30500.0
+
+
+def test_overseas_stock_fallback_is_direct_full_coverage_for_kr_and_eu() -> None:
+    payload = derive_lookthrough_payload(
+        [
+            {
+                "asset_name": "Samsung Electronics",
+                "symbol": "005930.KS",
+                "asset_type": "stock_kr",
+                "currency": "KRW",
+                "market_value_cny": 100.0,
+                "as_of": "2026-06-05",
+            },
+            {
+                "asset_name": "Sivers Semiconductors",
+                "symbol": "SIVE",
+                "asset_type": "stock_eu",
+                "currency": "SEK",
+                "market_value_cny": 50.0,
+                "as_of": "2026-06-05",
+            },
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+        as_of="2026-06-05",
+    )
+
+    items = {item["symbol"]: item for item in payload["quality"]["items"]}
+    assert items["005930.KS"]["lookthrough_type"] == "DIRECT"
+    assert items["005930.KS"]["quality_status"] == "FULL"
+    assert items["SIVE"]["lookthrough_type"] == "DIRECT"
+    assert items["SIVE"]["quality_status"] == "FULL"
+    assert payload["quality"]["covered_value_cny"] == 150.0
+    assert payload["quality"]["product_tag_only_value_cny"] == 0.0
 
 
 def test_industry_bucket_prefers_sw_l1_and_falls_back_to_foreign_labels() -> None:

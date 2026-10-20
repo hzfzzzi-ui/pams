@@ -11,6 +11,14 @@ const API_CACHE_PREFIX = "pams.api.cache.v4:";
 const apiMemoryCache = new Map();
 const apiInFlight = new Map();
 
+function pageRefreshToken() {
+  try {
+    return new URLSearchParams(window.location.search || "").get("refresh") || "";
+  } catch {
+    return "";
+  }
+}
+
 function apiCacheTtl(path) {
   const raw = String(path || "");
   if (raw.includes("/api/analysis/lookthrough")) return 180_000;
@@ -46,6 +54,8 @@ function apiRequestTimeoutMs(path) {
 function normalizedApiCacheUrl(url) {
   try {
     const parsed = new URL(url, window.location.origin);
+    const refresh = pageRefreshToken();
+    if (refresh) parsed.searchParams.set("__page_refresh", refresh);
     parsed.searchParams.sort();
     const query = parsed.searchParams.toString();
     return `${parsed.origin}${parsed.pathname}${query ? `?${query}` : ""}`;
