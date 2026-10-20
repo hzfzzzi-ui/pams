@@ -24,6 +24,10 @@
   --pams-radius-control: var(--pams-radius-pill, 999px);
   --pams-row-min: 58px;
   --pams-chip-height: 30px;
+  --pams-shell-max-width: 1400px;
+  --pams-shell-gutter: 20px;
+  --pams-shell-gap: 16px;
+  --pams-card-pad: 16px;
   --pams-font-sans: var(--pams-font-ui, Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
   --pams-font-mono: var(--pams-font-number, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
@@ -45,6 +49,82 @@ body.app-shell *,
 body.app-shell *::before,
 body.app-shell *::after {
   box-sizing: border-box;
+}
+
+/* PAMS Page Shell Template v1 */
+body.app-shell .wrap {
+  width: 100%;
+  max-width: var(--pams-shell-max-width);
+  margin-right: auto;
+  margin-left: auto;
+  padding-right: var(--pams-shell-gutter);
+  padding-left: var(--pams-shell-gutter);
+}
+
+body.app-shell .pageHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin: 2px 0 14px;
+}
+
+body.app-shell .pageHeader h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.04;
+}
+
+body.app-shell .pageSubtitle {
+  max-width: 760px;
+  margin-top: 6px;
+  color: var(--pams-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body.app-shell .pageMeta,
+body.app-shell .sectionTitle .right {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+body.app-shell .card,
+body.app-shell details.card {
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: var(--pams-surface-raised);
+  padding: var(--pams-card-pad);
+}
+
+body.app-shell .card + .card,
+body.app-shell details.card + details.card {
+  margin-top: var(--pams-shell-gap);
+}
+
+body.app-shell .sectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+body.app-shell .sectionTitle > div,
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3 {
+  min-width: 0;
+}
+
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.12;
 }
 
 body.app-shell .mono,
@@ -542,8 +622,19 @@ body.app-shell :focus-visible {
 }
 
 @media (max-width: 760px) {
+  body.app-shell {
+    --pams-shell-gutter: 12px;
+    --pams-shell-gap: 10px;
+    --pams-card-pad: 12px;
+  }
+
   body.app-shell .wrap {
     max-width: 430px;
+  }
+
+  body.app-shell .pageHeader {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
   }
 
   body.app-shell .card,

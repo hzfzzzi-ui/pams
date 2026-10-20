@@ -104,7 +104,7 @@ docker compose up -d --build pams-web
 
 ```html
 <link rel="stylesheet" href="assets/css/style.css?v=20260620-mobile-density-v1" />
-<link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-tokens-v1" />
+<link rel="stylesheet" href="assets/css/design-system.css?v=20260620-page-shell-v1" />
 ```
 
 并补充静态契约测试，防止页面绕开设计系统。
