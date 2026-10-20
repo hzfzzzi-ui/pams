@@ -719,6 +719,43 @@ def test_apply_daily_return_status_uses_quote_snapshot_status():
     assert out[0]["daily_return_status_source"] == "databento_estimate"
 
 
+def test_apply_daily_return_status_does_not_confirm_historical_fund_nav():
+    cur = FakeCursor([
+        {"exists": False},
+        {"exists": True},
+        [{"symbol": "011613", "quote_date": date(2026, 6, 26),
+          "source": "tushare_fund_nav", "market": "CN_FUND"}],
+    ])
+    row = {"symbol": "011613", "as_of": date(2026, 10, 9),
+           "daily_total_pnl_cny": Decimal("0"), "market_value_cny": Decimal("51520.67")}
+    out = _apply_daily_return_status(cur, [row.copy()], date(2026, 10, 20))[0]
+    assert out["daily_return_status"] == "pending"
+    assert out["daily_return_status_label"] == "未刷新"
+    assert out["daily_return_status_as_of"] == date(2026, 6, 26)
+    assert all(out[key] == value for key, value in row.items())
+
+
+def test_apply_daily_return_status_does_not_reuse_prior_quote_confirmation():
+    cur = FakeCursor([
+        {"exists": True},
+        [{"symbol": "MU", "quote_date": date(2026, 10, 19),
+          "return_status": "confirmed", "source": "ibkr_flex", "market": "US"}],
+    ])
+    out = _apply_daily_return_status(cur, [{"symbol": "MU"}], date(2026, 10, 20))[0]
+    assert out["daily_return_status"] == "pending"
+    assert out["daily_return_status_as_of"] == date(2026, 10, 19)
+
+
+def test_apply_daily_return_status_preserves_same_day_fund_confirmation():
+    cur = FakeCursor([
+        {"exists": False}, {"exists": True},
+        [{"symbol": "011613", "quote_date": date(2026, 10, 20),
+          "source": "tushare_fund_nav", "market": "CN_FUND"}],
+    ])
+    out = _apply_daily_return_status(cur, [{"symbol": "011613"}], date(2026, 10, 20))[0]
+    assert out["daily_return_status"] == "confirmed"
+
+
 def test_apply_daily_return_status_marks_stale_daily_pnl_pending():
     rows = [
         {
