@@ -12,6 +12,15 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pams
+          POSTGRES_PASSWORD: pams_ci
+          POSTGRES_DB: pams
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U pams" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +40,7 @@ jobs:
       - name: 构建API镜像并验证导入
         run: |
           docker build -f backend/api/Dockerfile -t pams-api-ci .
-          docker run --rm --entrypoint python pams-api-ci -c "import main; print('API import OK')"
+          docker run --rm --network host -e PGHOST=127.0.0.1 -e PGUSER=pams -e PGPASSWORD=pams_ci -e PGDATABASE=pams --entrypoint python pams-api-ci -c "import main; assert main.health().status_code == 200; assert '/api/sync/center' in main.app.openapi()['paths']; print('API and database smoke OK')"
       - name: 构建前端镜像并验证代理配置
         run: |
           docker build -t pams-web-ci frontend
