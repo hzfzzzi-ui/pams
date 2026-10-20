@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css?v=20260620-design-system-v3" />
-  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v1" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     .page-ledger {
@@ -54,11 +54,6 @@
     .ruleItem { padding:var(--sp-2) 0; border-bottom:1px solid var(--line) }
     .ruleItem:last-child { border-bottom:none }
     .ruleName { font-weight:800; margin-bottom:4px }
-    .flowTag { display:inline-flex; align-items:center; justify-content:center; min-width:64px; padding:2px 8px; border-radius:var(--radius-sm); border:1px solid var(--line); font-size:var(--fs-xs); font-weight:800 }
-    .flowTag.income { color:var(--good); border-color:rgba(63,185,80,.38); background:rgba(63,185,80,.08) }
-    .flowTag.expense { color:var(--bad); border-color:rgba(248,81,73,.38); background:rgba(248,81,73,.08) }
-    .flowTag.transfer { color:var(--info); border-color:rgba(88,166,255,.38); background:rgba(88,166,255,.08) }
-    .flowTag.other { color:var(--warn); border-color:rgba(210,153,34,.38); background:rgba(210,153,34,.08) }
     .ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
     .ledgerAnchorNav { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
     .ledgerAnchorNav a { position:relative; display:flex; align-items:center; justify-content:center; min-height:30px; padding:0 4px; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:13px; font-weight:850; text-decoration:none; white-space:nowrap }
@@ -103,10 +98,6 @@
     .ledgerListMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap }
     .ledgerReviewHint { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.2px }
     .ledgerRowActions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap }
-    .ledgerActionBtn { min-width:72px; min-height:30px; padding:0 12px; border-radius:999px; border:1px solid rgba(255,255,255,.10); background:transparent; color:var(--text); font-size:12px; font-weight:850 }
-    .ledgerActionBtn.ghost { color:var(--text-secondary) }
-    .ledgerActionBtn.confirm { border-color:rgba(255,255,255,.12); color:var(--text); background:rgba(255,255,255,.03) }
-    .ledgerActionBtn:disabled { opacity:.6 }
     .ledgerInlineDetail { padding:0 0 12px; border-bottom:1px solid var(--line) }
     .ledgerEmpty { padding:14px 0; color:var(--muted); font-size:13px; font-weight:800 }
     .cashflowSidePanel { display:grid; gap:10px; margin-top:0 }

@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css?v=20260620-design-system-v3" />
-  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v1" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v2" />
   <style>
     .reconcileGrid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
     .profileList { display: grid; gap: 10px; }
@@ -69,17 +69,7 @@
     .accountGroupRow { cursor:pointer; }
     tr.accountCollapsed { display:none; }
     .groupMeta { color: var(--muted); font-weight: 600; margin-left: 8px; font-size: var(--fs-xs); }
-    .statusChip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px 6px; font-size: 11px; font-weight: 900; white-space:nowrap; }
-    .statusChip.ready_for_review { color: var(--warn); border-color: rgba(210,153,34,.38); background: rgba(210,153,34,.08); }
-    .statusChip.in_transit { color: var(--info); border-color: rgba(88,166,255,.38); background: rgba(88,166,255,.08); }
-    .statusChip.missing_statement, .statusChip.missing_platform, .statusChip.missing_manual, .statusChip.missing_data { color: var(--bad); border-color: rgba(248,81,73,.38); background: rgba(248,81,73,.08); }
-    .statusChip.approved { color: var(--good); border-color: rgba(63,185,80,.38); background: rgba(63,185,80,.08); }
-    .statusChip.missing_deferred { color: var(--muted); border-color: var(--line); background: rgba(139,148,158,.08); }
     .reviewActions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-    .reviewBtn { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text); padding: 4px 7px; font-size: 11px; font-weight: 900; cursor: pointer; }
-    .reviewBtn.primary { border-color: rgba(63,185,80,.5); color: var(--good); background: rgba(63,185,80,.08); }
-    .reviewBtn.warn { border-color: rgba(210,153,34,.5); color: var(--warn); background: rgba(210,153,34,.08); }
-    .reviewBtn:disabled { opacity: .55; cursor: not-allowed; }
     .balanceBreakdown { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .balancePill { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px 6px; font-family: 'JetBrains Mono', monospace; font-size: var(--fs-xs); }
     .basisBadge { display:inline-flex; align-items:center; border:1px solid rgba(88,166,255,.28); color:var(--info); background:rgba(88,166,255,.05); border-radius:999px; padding:2px 6px; font-size:11px; font-weight:900; white-space:nowrap; }
