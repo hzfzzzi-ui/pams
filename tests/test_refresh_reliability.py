@@ -190,3 +190,11 @@ def test_checkpoint_write_failure_blocks_refresh(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "STATE_PATH", path)
     monkeypatch.setattr(module, "refresh_post_close_investments", lambda _: pytest.fail("must not run"))
     assert module.run_due_window("asia", datetime(2026, 6, 22, 8, tzinfo=timezone.utc))["status"] == "error"
+
+
+def test_failed_snapshot_step_remains_in_audit(monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setattr(module, "refresh_investment_return_snapshots", lambda _: {"status": "blocked", "errors": ["snapshot_total"]})
+    result = module._refresh_window(date(2026, 6, 22), [], ("total",))
+    assert result["status"] == "blocked"
+    assert "snapshot_total" in result["steps"][-1]["issues"]

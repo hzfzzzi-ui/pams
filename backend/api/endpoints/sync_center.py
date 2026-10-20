@@ -425,6 +425,7 @@ def sync_center() -> dict[str, Any]:
         details="；".join(
             f"{key}: {job.get('status')}，最近成功 {job.get('last_success_date') or '无'}，"
             f"历史缺口起点 {job.get('history_gap_since') or '尚未核验'}，"
+            f"问题 {job.get('issues', [])}，"
             f"检查 {job.get('steps', [])}"
             for key, job in health["jobs"].items()
         ) or "尚无持久化自动刷新记录。",

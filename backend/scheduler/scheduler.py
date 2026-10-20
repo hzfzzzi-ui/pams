@@ -219,7 +219,9 @@ def _refresh_window(target, steps, sections):
             logger.error("Refresh blocked: step=%s issues=%s", name, issues)
             return {"status": "blocked", "steps": reports}
     result = refresh_investment_return_snapshots(sections)
-    return {"status": "blocked" if result_issues(result) else "ok", "steps": reports}
+    issues = result_issues(result)
+    reports.append({"name": "snapshots", "issues": issues + (result.get("errors", []) if isinstance(result, dict) else [])})
+    return {"status": "blocked" if issues else "ok", "steps": reports}
 
 
 def run_due_window(key, now=None):
