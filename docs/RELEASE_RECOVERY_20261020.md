@@ -40,9 +40,17 @@
 
 ```powershell
 docker compose --env-file C:/Users/hzfzzzi/openclaw/pams/.env config --quiet
-docker compose --env-file C:/Users/hzfzzzi/openclaw/pams/.env build pams-api pams-web pams-scheduler
+docker build -t pams-pams-api -f backend/api/Dockerfile .
+docker build -t pams-pams-web frontend
+docker build -t pams-pams-scheduler backend/scheduler
 ```
 
-运行部署须明确使用原项目 config/data/账单挂载目录、项目名 `pams` 及既有数据卷，避免把隔离工作区的空目录当成生产数据。
+镜像从稳定工作区构建。完成数据库备份与核验后，运行部署使用下面命令，让相对挂载路径仍指向原项目 config/data/账单，项目名 `pams` 及既有数据库卷保持一致：
+
+```powershell
+docker compose --project-directory C:/Users/hzfzzzi/openclaw/pams --env-file C:/Users/hzfzzzi/openclaw/pams/.env -f C:/Users/hzfzzzi/.codex/worktrees/release-recovery/pams/compose.yaml up -d --no-build pams-api pams-web pams-scheduler
+```
+
+不要使用 `--remove-orphans` 或删除原数据卷。配置与事实表迁移不在上述命令中自动执行。
 
 启用生产调度前：保存数据库底稿、核对迁移版本、验证 `/health` 和正式页面、检查行情授权及历史缺口。本轮不自动执行历史账务迁移。

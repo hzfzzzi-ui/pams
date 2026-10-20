@@ -138,9 +138,17 @@ services:
       IBKR_FLEX_POSITIONS_QUERY_ID: ${IBKR_FLEX_POSITIONS_QUERY_ID:-}
       IBKR_FLEX_OPEN_POSITIONS_QUERY_ID: ${IBKR_FLEX_OPEN_POSITIONS_QUERY_ID:-}
       PAMS_DATABENTO_API_KEY: ${PAMS_DATABENTO_API_KEY:-${DATABENTO_API_KEY:-}}
+      PAMS_IBKR_CP_API_BASE_URL: ${PAMS_IBKR_CP_API_BASE_URL:-https://host.docker.internal:5000/v1/api}
+      PAMS_IBKR_CP_VERIFY_SSL: ${PAMS_IBKR_CP_VERIFY_SSL:-false}
+      PAMS_IBKR_TWS_ENABLED: ${PAMS_IBKR_TWS_ENABLED:-true}
+      PAMS_IBKR_TWS_HOST: ${PAMS_IBKR_TWS_HOST:-host.docker.internal}
+      PAMS_IBKR_TWS_PORTS: ${PAMS_IBKR_TWS_PORTS:-4000,4001,4002,7497,7496}
+      PAMS_IBKR_TWS_PERSISTENT: ${PAMS_IBKR_TWS_PERSISTENT:-true}
+      PAMS_IBKR_TWS_CLIENT_ID: ${PAMS_IBKR_TWS_CLIENT_ID:-62017}
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
+      - ./账户台账:/host/account-ledger:ro
       - scheduler_state:/scheduler-state:ro
     ports:
       - "8090:8000"
