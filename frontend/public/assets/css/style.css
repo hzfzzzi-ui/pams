@@ -13829,6 +13829,100 @@ body.page-more details.card > :not(summary) {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+.investmentDetailFold {
+  margin-top: 14px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 18px;
+  background: rgba(255,255,255,.018);
+  overflow: hidden;
+}
+
+.investmentDetailFold[hidden] {
+  display: none !important;
+}
+
+.investmentDetailSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.investmentDetailSummary::-webkit-details-marker {
+  display: none;
+}
+
+.investmentDetailSummary span,
+.investmentDetailSummary strong,
+.investmentDetailSummary em {
+  min-width: 0;
+}
+
+.investmentDetailSummary strong {
+  display: block;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.investmentDetailSummary em {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.investmentDetailSummary b {
+  min-width: 48px;
+  border: 1px solid rgba(88,166,255,.28);
+  border-radius: 999px;
+  background: rgba(88,166,255,.10);
+  color: transparent;
+  font-size: 0;
+  font-weight: 900;
+  line-height: 26px;
+  text-align: center;
+}
+
+.investmentDetailSummary b::after {
+  color: var(--accent);
+  content: "展开";
+  font-size: 12px;
+}
+
+.investmentDetailFold[open] .investmentDetailSummary {
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.investmentDetailFold[open] .investmentDetailSummary b::after {
+  content: "收起";
+}
+
+.investmentDetailBody {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.investmentDetailFold:not([open]) > .investmentDetailBody {
+  display: none;
+}
+
+.investmentDetailBody > .card {
+  margin: 0;
+}
 @media (max-width: 760px) {
   .riskAppIntro { display: block; }
   .riskAppActions {
