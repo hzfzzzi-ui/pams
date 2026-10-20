@@ -28,6 +28,9 @@
   --pams-shell-gutter: 20px;
   --pams-shell-gap: 16px;
   --pams-card-pad: 16px;
+  --pams-list-gap: 8px;
+  --pams-list-row-pad-y: 10px;
+  --pams-list-row-pad-x: 12px;
   --pams-font-sans: var(--pams-font-ui, Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
   --pams-font-mono: var(--pams-font-number, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
@@ -578,22 +581,56 @@ body.sheet-open {
   overflow: hidden;
 }
 
+/* PAMS Core List Template v1 */
+body.app-shell .pamsList,
+body.app-shell .ledgerList,
+body.app-shell .syncCenterRows,
+body.app-shell .accountIssueRows,
+body.app-shell .sourceHealthList,
+body.app-shell .mobileHoldingList,
+body.app-shell .tradeReviewDirectionList {
+  display: grid;
+  gap: var(--pams-list-gap);
+}
+
 body.app-shell .ledgerListRow,
 body.app-shell .syncCenterRow,
 body.app-shell .accountIssueRow,
 body.app-shell .sourceHealthRow,
+body.app-shell .sourceTodo,
 body.app-shell .moreRow,
+body.app-shell .mobileHoldingRow,
 body.app-shell .tradeReviewDirectionTrade,
 body.app-shell .portfolioRiskInlineItem,
 body.app-shell .portfolioRuleChild,
 body.app-shell .assetMasterFundHolding {
   min-height: var(--pams-row-min);
+  min-width: 0;
+  border-color: var(--pams-border);
+  border-radius: var(--pams-radius-row);
+  background-color: var(--pams-surface-soft);
+  color: var(--pams-text);
+}
+
+body.app-shell .ledgerListRow,
+body.app-shell .accountIssueRow,
+body.app-shell .sourceHealthRow,
+body.app-shell .sourceTodo,
+body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .portfolioRiskInlineItem,
+body.app-shell .portfolioRuleChild,
+body.app-shell .assetMasterFundHolding {
+  padding: var(--pams-list-row-pad-y) var(--pams-list-row-pad-x);
 }
 
 body.app-shell .ledgerListMain,
 body.app-shell .syncCenterMain,
+body.app-shell .accountIssueRow,
+body.app-shell .sourceHealthRow,
 body.app-shell .moreRow span,
 body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .mobileHoldingMain,
+body.app-shell .mobileHoldingText,
 body.app-shell .mobileHoldingName {
   min-width: 0;
 }
@@ -602,10 +639,54 @@ body.app-shell .ledgerListMain strong,
 body.app-shell .ledgerListMain small,
 body.app-shell .syncCenterMain strong,
 body.app-shell .syncCenterMain small,
+body.app-shell .accountIssueRow strong,
+body.app-shell .accountIssueRow small,
+body.app-shell .sourceHealthRow strong,
+body.app-shell .sourceHealthRow small,
 body.app-shell .moreRow strong,
-body.app-shell .moreRow small {
+body.app-shell .moreRow small,
+body.app-shell .mobileHoldingText strong,
+body.app-shell .mobileHoldingText small,
+body.app-shell .tradeReviewDirectionTrade span,
+body.app-shell .tradeReviewDirectionTrade strong {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+body.app-shell .ledgerListMain strong,
+body.app-shell .syncCenterMain strong,
+body.app-shell .accountIssueRow strong,
+body.app-shell .sourceHealthRow strong,
+body.app-shell .moreRow strong,
+body.app-shell .mobileHoldingText strong,
+body.app-shell .tradeReviewDirectionTrade strong {
+  color: var(--pams-text);
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+body.app-shell .ledgerListMain small,
+body.app-shell .syncCenterMain small,
+body.app-shell .accountIssueRow small,
+body.app-shell .sourceHealthRow small,
+body.app-shell .moreRow small,
+body.app-shell .mobileHoldingText small,
+body.app-shell .tradeReviewDirectionTrade span {
+  color: var(--pams-muted);
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+body.app-shell .ledgerListSide,
+body.app-shell .syncCenterMeta,
+body.app-shell .accountIssueRow em,
+body.app-shell .sourceHealthRow em,
+body.app-shell .moreRow em,
+body.app-shell .mobileHoldingValue,
+body.app-shell .mobileHoldingQuote,
+body.app-shell .tradeReviewDirectionTrade em,
+body.app-shell .tradeReviewDirectionTrade b {
+  font-variant-numeric: tabular-nums;
 }
 
 body.app-shell .formInput,
@@ -626,6 +707,9 @@ body.app-shell :focus-visible {
     --pams-shell-gutter: 12px;
     --pams-shell-gap: 10px;
     --pams-card-pad: 12px;
+    --pams-list-gap: 7px;
+    --pams-list-row-pad-y: 9px;
+    --pams-list-row-pad-x: 10px;
   }
 
   body.app-shell .wrap {
