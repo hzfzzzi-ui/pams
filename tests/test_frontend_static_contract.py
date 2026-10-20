@@ -1431,7 +1431,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "assets/js/more.js?v=20260624-nav-quality-v1" in html
     assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
     assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20260622-data-state-a11y-v1" in data_sources_html
+    assert "assets/js/data_sources.js?v=20261020-quality-warnings-v1" in data_sources_html
     assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
     assert "./sync_center.js?v=20260622-data-state-a11y-v1" in data_sources_js
     assert "./ui.js?v=20260622-data-state-a11y-v1" in sync_center_js
