@@ -735,6 +735,17 @@ def test_apply_daily_return_status_does_not_confirm_historical_fund_nav():
     assert all(out[key] == value for key, value in row.items())
 
 
+def test_apply_daily_return_status_replaces_stale_legacy_aliases():
+    rows = [{"symbol": "011613", "daily_pnl_stale": True,
+             "daily_pnl_status": "confirmed", "daily_pnl_status_label": "今日收益已确认",
+             "market_value_cny": Decimal("51520.67"), "daily_total_pnl_cny": Decimal("0")}]
+    out = _apply_daily_return_status(FakeCursor([]), rows, date(2026, 10, 20))[0]
+    assert out["daily_pnl_status"] == out["daily_return_status"] == "pending"
+    assert out["daily_pnl_status_label"] == out["daily_return_status_label"] == "未刷新"
+    assert out["market_value_cny"] == Decimal("51520.67")
+    assert out["daily_total_pnl_cny"] == Decimal("0")
+
+
 def test_apply_daily_return_status_does_not_reuse_prior_quote_confirmation():
     cur = FakeCursor([
         {"exists": True},

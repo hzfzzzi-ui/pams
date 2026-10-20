@@ -485,6 +485,8 @@ def _apply_daily_return_status(cur, rows: list[dict[str, Any]], view_as_of: Any)
         row["daily_return_status_short_label"] = status_info["short_label"]
         row["daily_return_status_as_of"] = status_info.get("as_of")
         row["daily_return_status_source"] = status_info.get("source")
+        row["daily_pnl_status"] = status_info["status"]
+        row["daily_pnl_status_label"] = status_info["label"]
     return rows
 
 
