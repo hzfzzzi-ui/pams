@@ -120,7 +120,8 @@ services:
   # Minimal API to read holdings snapshots from Postgres
   pams-api:
     build:
-      context: ./backend/api
+      context: .
+      dockerfile: backend/api/Dockerfile
     container_name: pams-api
     restart: unless-stopped
     depends_on:
@@ -131,6 +132,15 @@ services:
       PGDATABASE: pams
       PGUSER: pams
       PGPASSWORD: ${POSTGRES_PASSWORD}
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      IBKR_FLEX_TOKEN: ${IBKR_FLEX_TOKEN:-}
+      IBKR_FLEX_QUERY_ID: ${IBKR_FLEX_QUERY_ID:-}
+      IBKR_FLEX_POSITIONS_QUERY_ID: ${IBKR_FLEX_POSITIONS_QUERY_ID:-}
+      IBKR_FLEX_OPEN_POSITIONS_QUERY_ID: ${IBKR_FLEX_OPEN_POSITIONS_QUERY_ID:-}
+      PAMS_DATABENTO_API_KEY: ${PAMS_DATABENTO_API_KEY:-${DATABENTO_API_KEY:-}}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
     ports:
       - "8090:8000"
 

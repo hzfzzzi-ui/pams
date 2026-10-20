@@ -1,5 +1,53 @@
 # PAMS Autonomous Improvement Report
 
+## 2026-06-28 追加：A股账户总盈亏绑定修复
+
+### 本轮目标
+
+- 修复持仓页 A 股账户顶部“总盈亏”显示退回持仓口径的问题。
+- 保持后端 API、数据库、事实表和持仓行展示不变，只修正前端汇总字段绑定。
+
+### 已修复问题
+
+- `holdings_categories.js` 中 A 股账户汇总现在显式将 `accountTotalPnl` 映射为通用 `totalPnl`，避免顶部卡片继续使用持仓行汇总盈亏。
+- A 股账户收益率优先使用 `accountReturnRate`，持仓收益率仅保留为行项目和持仓口径展示。
+- 同步提升 `holdings_categories.js` 静态资源版本号，避免浏览器继续加载旧缓存。
+- 新增前端静态契约测试，锁定 A 股账户卡必须使用账户级总盈亏。
+- 追加修复 IBKR 半字段账户 performance：当接口没有 `total_pnl_cny` 或 `net_deposit_cny` 时，不再用账户净值反推总盈亏，避免把融资现金负债推成组合大额亏损。
+
+### 验证记录
+
+- `node --check frontend\public\assets\js\holdings_categories.js`
+- `python -m pytest tests/test_frontend_static_contract.py -q`
+- `docker compose --env-file C:\Users\hzfzzzi\openclaw\pams\.env up -d --build pams-web`
+- HTTP smoke：`/investments.html` 已引用 `holdings_categories.js?v=20260628-account-total-pnl-v2`，线上脚本包含账户级总盈亏映射和 IBKR 半字段保护。
+
+## 2026-06-28
+
+### 本轮目标
+
+- 修复持仓页移动端条目“持有金额”误显示为市值的问题。
+- 保持总资产、市值、权重和收益口径不变，只调整单个展示字段。
+
+### 已修复问题
+
+- 移动端持仓条目的主金额由 `market_value` 改为 `cost`，文案同步为“持仓成本”。
+- 详情页仍保留“市值”和“剩余成本”，用于区分市场估值与成本口径。
+- 新增前端静态契约测试，防止该字段再次绑定回市值。
+
+### 验证记录
+
+- `node --check frontend\public\assets\js\holdings.js`
+- `python -m pytest tests/test_frontend_static_contract.py -q`
+- `git diff --check -- frontend/public/assets/js/holdings.js frontend/public/investments.html tests/test_frontend_static_contract.py`
+- `docker compose --env-file C:\Users\hzfzzzi\openclaw\pams\.env up -d --build pams-web`
+- 运行态 HTTP 校验：`/investments.html` 已引用 `holdings.js?v=20260628-holding-cost-display-v1`，新版 JS 包含“持仓成本”展示。
+
+### 风险项
+
+- 本轮没有修改后端资产事实表，也没有改变总资产、收益率、权重和 NAV 口径。
+- in-app browser 可视化刷新检查超时，已用 HTTP 静态资源校验替代；若右侧仍显示旧文案，需要浏览器强刷。
+
 ## 2026-06-24
 
 ### 本轮目标

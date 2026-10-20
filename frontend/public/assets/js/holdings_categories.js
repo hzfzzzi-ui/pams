@@ -574,8 +574,9 @@ function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: safeNum(aStockSummary.totalPnl),
       totalRate: safeNum(
-        aStockSummary.holdingReturnRate ??
+        aStockSummary.accountReturnRate ??
         aStockSummary.displayReturnRate ??
+        aStockSummary.holdingReturnRate ??
         categoryByLabel(categories, 'A股个股').totalReturnRate
       ),
       share: aStockValue / portfolioValue,
@@ -1176,10 +1177,16 @@ function renderIbkrPerformance(perf, positionAsOf = null) {
   if (!perf || perf.status !== 'ok') return null;
 
   const flexCoversPositionDate = !positionAsOf || isSameOrAfterDate(perf.as_of, positionAsOf);
+  const accountNetDeposit = perf.net_deposit_cny == null || perf.net_deposit_cny === ''
+    ? null
+    : safeNum(perf.net_deposit_cny);
+  const accountTotalPnl = perf.total_pnl_cny == null || perf.total_pnl_cny === ''
+    ? null
+    : safeNum(perf.total_pnl_cny);
   const summary = {
     totalValue: safeNum(perf.net_liquidation_cny),
-    totalCost: safeNum(perf.net_deposit_cny),
-    totalPnl: safeNum(perf.total_pnl_cny),
+    totalCost: accountNetDeposit,
+    totalPnl: accountTotalPnl,
     dailyPnl: null,
     positionValue: safeNum(perf.position_value_cny),
     cashValue: safeNum(perf.cash_cny),
@@ -3101,8 +3108,10 @@ async function main(){
           ? aStockAccountSummary.dailyPnl
           : aStockRowsSummary.dailyTotalPnl,
         dailyPnlEffective: aStockAccountDailyPnlEffective,
+        totalPnl: aStockAccountSummary.accountTotalPnl,
+        totalReturnRate: aStockAccountSummary.accountReturnRate,
         holdingReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
-        displayReturnRate: holdingReturnRateFromSummary(aStockHoldingRateSummary),
+        displayReturnRate: aStockAccountSummary.accountReturnRate,
         returnRateLabel: '持仓收益率',
         activeHoldingPnl: aStockHoldingRateSummary.activeHoldingPnl,
         activeTotalCost: aStockHoldingRateSummary.activeTotalCost,
@@ -3179,7 +3188,13 @@ async function main(){
       safeNum(ibkrOverviewBalance.amountCny) > 0 &&
       isSameOrAfterDate(ibkrOverviewBalance.asOf, usStock.as_of)
     );
-    const useIbkrAccountTotals = Boolean(ibkrSummary && ibkrFlexCoversPositionDate);
+    const ibkrHasAccountTotalPnl = ibkrSummary?.totalPnl != null && Number.isFinite(Number(ibkrSummary.totalPnl));
+    const ibkrHasAccountNetDeposit = ibkrSummary?.totalCost != null && Number.isFinite(Number(ibkrSummary.totalCost)) && safeNum(ibkrSummary.totalCost) > 0;
+    const useIbkrAccountTotals = Boolean(
+      ibkrSummary &&
+      ibkrFlexCoversPositionDate &&
+      (ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit)
+    );
     const ibkrUsesNetLiquidation = Boolean(
       useIbkrAccountTotals || ibkrHoldingsCoversPositionDate || ibkrOverviewCoversPositionDate
     );
@@ -3195,12 +3210,16 @@ async function main(){
       : (ibkrHoldingsCoversPositionDate
         ? safeNum(ibkrHoldingsNet.netValue)
         : (ibkrOverviewCoversPositionDate ? safeNum(ibkrOverviewBalance.amountCny) : usSummary.totalValue));
-    const ibkrNetDeposit = Number.isFinite(Number(ibkrSummary?.totalCost)) && safeNum(ibkrSummary?.totalCost) > 0
+    const ibkrNetDeposit = useIbkrAccountTotals && ibkrHasAccountNetDeposit
       ? safeNum(ibkrSummary?.totalCost)
       : safeNum(usSummary.totalCost);
-    const ibkrDerivedTotalPnl = ibkrNetDeposit > 0 ? ibkrAccountValue - ibkrNetDeposit : safeNum(ibkrSummary?.totalPnl);
+    const ibkrDerivedTotalPnl = useIbkrAccountTotals
+      ? (ibkrHasAccountNetDeposit && ibkrNetDeposit > 0
+        ? ibkrAccountValue - ibkrNetDeposit
+        : safeNum(ibkrSummary?.totalPnl))
+      : safeNum(usSummary.totalPnl);
     const usGrossHoldingReturnRate = holdingReturnRateFromSummary(usSummary);
-    const ibkrAccountReturnRate = ibkrNetDeposit > 0
+    const ibkrAccountReturnRate = useIbkrAccountTotals && ibkrNetDeposit > 0
       ? ibkrDerivedTotalPnl / ibkrNetDeposit
       : (Number.isFinite(Number(ibkrSummary?.totalReturnRate)) ? safeNum(ibkrSummary.totalReturnRate) : usGrossHoldingReturnRate);
     const usCategorySummary = (ibkrSummary || ibkrUsesNetLiquidation)

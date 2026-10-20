@@ -1,0 +1,15 @@
+.git
+.env*
+.codex-artifacts
+data
+reports
+uploads
+inbox
+账户台账
+*.xlsx
+*.xls
+*.pdf
+*.zip
+**/__pycache__
+**/node_modules
+backtest_V2/results
