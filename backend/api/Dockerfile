@@ -10,7 +10,6 @@ COPY backend/api/endpoints/ ./endpoints/
 COPY backend/api/strategy/ ./strategy/
 COPY backend/api/backtest/ ./backtest/
 COPY backend/api/common/ ./common/
-COPY backend/api/data/ ./data/
 COPY backend/api/datahub/ ./datahub/
 COPY backend/api/collectors/ ./collectors/
 COPY backend/api/services/ ./services/

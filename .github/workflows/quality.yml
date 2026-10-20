@@ -1,0 +1,47 @@
+name: 质量与镜像验证
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pams
+          POSTGRES_PASSWORD: pams_ci
+          POSTGRES_DB: pams
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U pams" --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装运行和测试依赖
+        run: pip install -r backend/api/requirements.txt -r backend/scheduler/requirements.txt pytest httpx ruff mypy
+      - name: 测试
+        run: python -m pytest tests -q
+      - name: Python与前端语法
+        run: |
+          python -m compileall -q backend/api backend/scheduler src
+          for file in frontend/public/assets/js/*.js; do node --check "$file"; done
+      - name: 构建API镜像并验证导入
+        run: |
+          docker build -f backend/api/Dockerfile -t pams-api-ci .
+          docker run --rm --network host -e PGHOST=127.0.0.1 -e PGUSER=pams -e PGPASSWORD=pams_ci -e PGDATABASE=pams --entrypoint python pams-api-ci -c "import main; assert main.health().status_code == 200; assert '/api/sync/center' in main.app.openapi()['paths']; print('API and database smoke OK')"
+      - name: 构建前端镜像并验证代理配置
+        run: |
+          docker build -t pams-web-ci frontend
+          docker run --rm --add-host pams-api:127.0.0.1 pams-web-ci nginx -t
