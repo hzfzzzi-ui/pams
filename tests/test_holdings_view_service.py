@@ -13,6 +13,7 @@ if str(API_ROOT) not in sys.path:
 
 from services.holdings_view import (  # noqa: E402
     _adjust_a_stock_daily_pnl_for_same_day_buys,
+    _apply_daily_return_status,
     _drop_superseded_account_snapshot_rows,
     _suppress_stale_daily_pnl,
     build_api_holdings_latest_payload,
@@ -300,6 +301,7 @@ def test_build_api_holdings_latest_payload_preserves_filters_and_rows():
     assert payload["rows"][0]["symbol"] == "QQQ"
     assert payload["rows"][0]["asset_id"] == "ETF_QQQ"
     assert payload["rows"][0]["market_value"] == "100.25"
+    assert payload["rows"][0]["daily_return_status"] == "pending"
     assert cur.executed[0][1] == ["ibkr", "美股"]
     assert cur.executed[1][1] == ["ibkr", "美股", date(2026, 5, 31), 10]
 
@@ -675,6 +677,63 @@ def test_suppress_stale_daily_pnl_keeps_rows_inside_rollover_window():
     assert out[1].get("daily_pnl_stale") is None
     assert out[2]["daily_total_pnl_cny"] == Decimal("3")
     assert out[2].get("daily_pnl_stale") is None
+
+
+def test_apply_daily_return_status_uses_quote_snapshot_status():
+    cur = FakeCursor(
+        [
+            {"exists": True},
+            [
+                {
+                    "asset_key": "US:MU",
+                    "asset_id": "US:MU",
+                    "symbol": "MU",
+                    "name": "MICRON TECHNOLOGY INC",
+                    "quote_date": date(2026, 6, 24),
+                    "return_status": "estimated",
+                    "source": "databento_estimate",
+                    "provider": "databento",
+                    "quote_session": "afterhours",
+                    "market": "US_EXTENDED",
+                }
+            ],
+            {"exists": False},
+        ]
+    )
+
+    rows = [
+        {
+            "symbol": "MU",
+            "name": "MICRON TECHNOLOGY INC",
+            "as_of": date(2026, 6, 24),
+            "daily_total_pnl_cny": Decimal("100"),
+        }
+    ]
+
+    out = _apply_daily_return_status(cur, rows, date(2026, 6, 24))
+
+    assert out[0]["daily_return_status"] == "estimated"
+    assert out[0]["daily_return_status_label"] == "预估收益"
+    assert out[0]["daily_return_status_short_label"] == "预估"
+    assert out[0]["daily_return_status_as_of"] == date(2026, 6, 24)
+    assert out[0]["daily_return_status_source"] == "databento_estimate"
+
+
+def test_apply_daily_return_status_marks_stale_daily_pnl_pending():
+    rows = [
+        {
+            "as_of": date(2026, 6, 23),
+            "daily_pnl_stale": True,
+            "daily_pnl_as_of": date(2026, 6, 23),
+        }
+    ]
+
+    out = _apply_daily_return_status(FakeCursor([]), rows, date(2026, 6, 24))
+
+    assert out[0]["daily_return_status"] == "pending"
+    assert out[0]["daily_return_status_label"] == "未刷新"
+    assert out[0]["daily_return_status_short_label"] == "未刷新"
+    assert out[0]["daily_return_status_as_of"] == date(2026, 6, 23)
 
 
 def test_build_holdings_by_category_payload_includes_closed_rows_when_requested():
