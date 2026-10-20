@@ -13,7 +13,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css?v=20260606-mobile-app-v1" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20260620-design-system-v3" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-design-system-v1" />
   <style>
     .reconcileGrid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
     .profileList { display: grid; gap: 10px; }
@@ -231,7 +232,7 @@
     }
   </style>
 </head>
-<body class="page-accounts">
+<body class="page-accounts app-shell">
   <div class="statusbar">
     <div class="status-left">
       <span class="brand">PAMS</span>
@@ -258,14 +259,14 @@
     </div>
     <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
-    <section class="appPageHero">
-      <div class="appHeroTop">
+    <section class="appWorkHeader">
+      <div class="appWorkHeaderTop">
         <div>
-          <span class="appHeroEyebrow">Accounts Center</span>
+          <span class="appWorkEyebrow">Accounts Center</span>
           <h2>账户</h2>
           <p>以账户核准为主线，把余额、在途、导入和转账放在同一工作流里，减少在流水页和更多页之间来回跳转。</p>
         </div>
-        <div class="appHeroLinks">
+        <div class="appWorkLinks">
           <a class="pill" href="ledger.html">流水</a>
           <a class="pill" href="data_sources.html#dataQuality">数据源</a>
         </div>
@@ -504,6 +505,6 @@
     </section>
   </div>
 
-  <script type="module" src="assets/js/bank_reconcile.js?v=20260620-page-boundary-v1"></script>
+  <script type="module" src="assets/js/bank_reconcile.js?v=20260620-design-system-v2"></script>
 </body>
 </html>

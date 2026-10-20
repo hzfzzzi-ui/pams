@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet } from './ui.js?v=20260614-trade-mode-attribution-v12';
+import { openBottomSheet } from './ui.js?v=20260620-design-system-v2';
 
 const DIMENSIONS = [
   ['asset_type', '资产类型'],

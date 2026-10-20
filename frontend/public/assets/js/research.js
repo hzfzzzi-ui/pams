@@ -1,5 +1,5 @@
 import { jget, jpost, apiBase, fmtMoneyCompact } from './api.js?v=20260606-refresh-v3';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20260620-page-boundary-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20260620-design-system-v2';
 
 function fmtNum(x, digits=2){
   if(x==null || x==='') return '—';

@@ -1,0 +1,374 @@
+/* ============================================================
+   PAMS Design System Layer v1
+
+   Loaded after the legacy stylesheet. Keep this file small:
+   tokens, shared app-shell primitives, and cross-page density rules only.
+   Page-specific business layouts should stay in their own modules.
+   ============================================================ */
+
+:root {
+  --pams-bg: var(--bg, #05070a);
+  --pams-surface: #0b1017;
+  --pams-surface-raised: #0f151e;
+  --pams-surface-soft: rgba(255,255,255,.026);
+  --pams-border: rgba(255,255,255,.085);
+  --pams-border-strong: rgba(255,255,255,.14);
+  --pams-text: var(--text, #f3f6fb);
+  --pams-muted: var(--muted, #6f7888);
+  --pams-good: var(--good, #23c26b);
+  --pams-bad: var(--bad, #ff5b5b);
+  --pams-warn: var(--warn, #f5a524);
+  --pams-info: var(--info, #4c8dff);
+  --pams-radius-panel: 14px;
+  --pams-radius-row: 12px;
+  --pams-radius-control: 999px;
+  --pams-row-min: 58px;
+  --pams-chip-height: 30px;
+  --pams-font-sans: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --pams-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body.app-shell {
+  background: var(--pams-bg);
+  color: var(--pams-text);
+  font-family: var(--pams-font-sans);
+  letter-spacing: 0;
+}
+
+body.app-shell *,
+body.app-shell *::before,
+body.app-shell *::after {
+  box-sizing: border-box;
+}
+
+body.app-shell .mono,
+body.app-shell .num,
+body.app-shell .kpi-value,
+body.app-shell .metricPanel .value,
+body.app-shell .ledgerKpi .value,
+body.app-shell .syncMetric strong,
+body.app-shell .mobileHeroValue,
+body.app-shell .mobileHoldingValue,
+body.app-shell .accountMobileValue {
+  font-variant-numeric: tabular-nums;
+}
+
+body.app-shell .pageHeader,
+body.app-shell .sectionTitle,
+body.app-shell .tradeReviewSubsectionHead,
+body.app-shell .returnChartHeader {
+  min-width: 0;
+}
+
+body.app-shell .pageHeader h1,
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3,
+body.app-shell .appWorkHeader h2,
+body.app-shell .moreRow strong,
+body.app-shell .ledgerListMain strong,
+body.app-shell .syncCenterMain strong {
+  letter-spacing: 0;
+}
+
+body.app-shell .card,
+body.app-shell details.card,
+body.app-shell .investmentPanel,
+body.app-shell .portfolioRiskCategory,
+body.app-shell .portfolioRiskChecklistCard,
+body.app-shell .portfolioRuleNode,
+body.app-shell .tradeReviewSubsection,
+body.app-shell .moreGroup,
+body.app-shell .qualityBox,
+body.app-shell .sourceTodo,
+body.app-shell .syncCenterPanel,
+body.app-shell .assetMasterFund {
+  border-color: var(--pams-border);
+  box-shadow: none;
+}
+
+body.app-shell .card:hover,
+body.app-shell details.card:hover,
+body.app-shell .investmentPanel:hover,
+body.app-shell .portfolioRiskCategory:hover,
+body.app-shell .portfolioRuleNode:hover,
+body.app-shell .moreGroup:hover {
+  transform: none;
+}
+
+body.app-shell .appWorkHeader {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 15px 16px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: linear-gradient(180deg, rgba(15,20,27,.98), rgba(9,13,19,.98));
+}
+
+body.app-shell .appWorkHeaderTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+body.app-shell .appWorkHeader h2 {
+  margin: 4px 0 0;
+  font-size: clamp(23px, 4vw, 30px);
+  line-height: 1.08;
+}
+
+body.app-shell .appWorkHeader p {
+  max-width: 760px;
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body.app-shell .appWorkEyebrow {
+  display: inline-flex;
+  align-items: center;
+  color: #9fc2ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+body.app-shell .appWorkLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+body.app-shell .appShortcutGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.app-shell .appShortcutCard {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  padding: 11px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-row);
+  background: var(--pams-surface-soft);
+  transition: border-color .16s ease, background .16s ease;
+}
+
+body.app-shell .appShortcutCard:hover {
+  border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-info) 8%, transparent);
+}
+
+body.app-shell .appShortcutCard strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-text);
+  font-size: 14px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .appShortcutCard small {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+body.app-shell .pill,
+body.app-shell .tag,
+body.app-shell .btn,
+body.app-shell .statusBadge,
+body.app-shell .statusChip,
+body.app-shell .flowTag,
+body.app-shell .basisBadge,
+body.app-shell .ledgerActionBtn,
+body.app-shell .reviewBtn,
+body.app-shell .analysisSwitch button,
+body.app-shell .returnSeriesToggle,
+body.app-shell .returnWindowSegment button,
+body.app-shell .tradeReviewDirectionFilterToggle {
+  min-height: var(--pams-chip-height);
+  border-radius: var(--pams-radius-control);
+  letter-spacing: 0;
+}
+
+body.app-shell .statusBadge,
+body.app-shell .statusChip,
+body.app-shell .tag,
+body.app-shell .flowTag,
+body.app-shell .basisBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+body.app-shell .statusBadge-data,
+body.app-shell .tag.data,
+body.app-shell .flowTag.transfer,
+body.app-shell .basisBadge {
+  border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-info) 11%, transparent);
+  color: #9dc7ff;
+}
+
+body.app-shell .tag.warn,
+body.app-shell .statusChip.ready_for_review,
+body.app-shell .reviewBtn.warn {
+  border-color: color-mix(in srgb, var(--pams-warn) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-warn) 10%, transparent);
+  color: #ffd184;
+}
+
+body.app-shell .tag.risk,
+body.app-shell .statusChip.missing_statement,
+body.app-shell .statusChip.missing_platform,
+body.app-shell .statusChip.missing_manual,
+body.app-shell .statusChip.missing_data,
+body.app-shell .flowTag.expense {
+  border-color: color-mix(in srgb, var(--pams-bad) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-bad) 10%, transparent);
+  color: #ff9a9a;
+}
+
+body.app-shell .tag.good,
+body.app-shell .statusChip.approved,
+body.app-shell .flowTag.income,
+body.app-shell .reviewBtn.primary {
+  border-color: color-mix(in srgb, var(--pams-good) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-good) 10%, transparent);
+  color: #7ee2a6;
+}
+
+body.app-shell .ledgerListRow,
+body.app-shell .syncCenterRow,
+body.app-shell .accountIssueRow,
+body.app-shell .sourceHealthRow,
+body.app-shell .moreRow,
+body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .portfolioRiskInlineItem,
+body.app-shell .portfolioRuleChild,
+body.app-shell .assetMasterFundHolding {
+  min-height: var(--pams-row-min);
+}
+
+body.app-shell .ledgerListMain,
+body.app-shell .syncCenterMain,
+body.app-shell .moreRow span,
+body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .mobileHoldingName {
+  min-width: 0;
+}
+
+body.app-shell .ledgerListMain strong,
+body.app-shell .ledgerListMain small,
+body.app-shell .syncCenterMain strong,
+body.app-shell .syncCenterMain small,
+body.app-shell .moreRow strong,
+body.app-shell .moreRow small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.app-shell .formInput,
+body.app-shell input,
+body.app-shell select,
+body.app-shell textarea {
+  border-color: var(--pams-border);
+  background-color: var(--pams-surface);
+}
+
+body.app-shell :focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pams-info) 72%, white);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  body.app-shell .wrap {
+    max-width: 430px;
+  }
+
+  body.app-shell .card,
+  body.app-shell .investmentPanel,
+  body.app-shell .portfolioRiskCategory,
+  body.app-shell .portfolioRiskChecklistCard,
+  body.app-shell .portfolioRuleNode,
+  body.app-shell .tradeReviewSubsection,
+  body.app-shell .moreGroup {
+    border-radius: var(--pams-radius-panel);
+  }
+
+  body.app-shell .sectionTitle {
+    margin-bottom: 10px;
+  }
+
+  body.app-shell .sectionTitle h2,
+  body.app-shell .sectionTitle h3 {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  body.app-shell .appWorkHeader {
+    margin-bottom: 12px;
+    padding: 13px 14px;
+  }
+
+  body.app-shell .appWorkHeaderTop {
+    grid-template-columns: 1fr;
+  }
+
+  body.app-shell .appWorkLinks {
+    justify-content: flex-start;
+  }
+
+  body.app-shell .appShortcutGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.app-shell .appShortcutCard {
+    min-height: 72px;
+  }
+
+  body.app-shell .nav {
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  body.app-shell .nav a[data-mobile-nav="primary"] {
+    min-height: 50px;
+  }
+
+  body.app-shell .nav .mobileNavText {
+    letter-spacing: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.app-shell *,
+  body.app-shell *::before,
+  body.app-shell *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

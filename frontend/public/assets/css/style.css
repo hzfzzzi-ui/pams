@@ -304,94 +304,6 @@ a { color: inherit; text-decoration: none }
 /* ---- Layout ---- */
 .wrap { max-width: 1400px; margin: 0 auto; padding: var(--sp-4) var(--sp-5) }
 
-.appPageHero {
-  display: grid;
-  gap: 14px;
-  margin-bottom: var(--sp-4);
-  padding: 18px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at top right, rgba(88,166,255,.18), transparent 34%),
-    linear-gradient(180deg, rgba(15,20,27,.98), rgba(9,12,18,.98));
-  box-shadow: 0 16px 40px rgba(0,0,0,.24);
-}
-
-.appHeroTop {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.appHeroTop h1,
-.appHeroTop h2 {
-  margin: 6px 0 0;
-  font-size: clamp(24px, 5vw, 32px);
-  line-height: 1.08;
-}
-
-.appHeroTop p {
-  margin: 8px 0 0;
-  max-width: 760px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.appHeroEyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #9fc2ff;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-}
-
-.appHeroBadgeGroup,
-.appHeroLinks {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.appShortcutGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.appShortcutCard {
-  display: grid;
-  gap: 4px;
-  min-height: 92px;
-  padding: 12px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 18px;
-  background: rgba(255,255,255,.03);
-  transition: border-color .16s ease, transform .16s ease, background .16s ease;
-}
-
-.appShortcutCard:hover {
-  border-color: rgba(88,166,255,.42);
-  background: rgba(88,166,255,.08);
-  transform: translateY(-1px);
-}
-
-.appShortcutCard strong {
-  font-size: 15px;
-  line-height: 1.2;
-}
-
-.appShortcutCard small {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .appSectionBlock {
   margin-bottom: 12px;
 }
@@ -684,148 +596,6 @@ a { color: inherit; text-decoration: none }
 
 /* ---- Risk Center ---- */
 .riskTopGrid { align-items: stretch }
-.riskActionList { display: flex; flex-direction: column; gap: var(--sp-2) }
-.riskAction {
-  padding: var(--sp-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-}
-.riskAction-red { border-color: rgba(248,81,73,.42); background: rgba(248,81,73,.05) }
-.riskAction-yellow { border-color: rgba(210,153,34,.42); background: rgba(210,153,34,.05) }
-.riskActionHead {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--sp-1);
-}
-.riskActionHead .tag { margin-right: 0 }
-.riskActionMsg { color: var(--text-secondary); line-height: 1.5 }
-.riskProfileGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--sp-2);
-}
-.riskProfileValue {
-  font-weight: 800;
-  color: var(--text);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---- Risk Workbench ---- */
-.page-risk { background: #0a0d12 }
-.riskWorkbench { max-width: 1480px }
-.riskSection {
-  margin-top: var(--sp-4);
-  padding: var(--sp-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, rgba(22,26,30,.98), rgba(15,18,23,.98));
-  box-shadow: 0 8px 24px rgba(0,0,0,.18);
-}
-.riskSectionTitle { align-items: flex-start; margin-bottom: var(--sp-4) }
-.riskSectionTitle h2 { margin: 0; font-size: var(--fs-xl) }
-.riskSectionTitle p { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-md) }
-.riskHero {
-  display: grid;
-  grid-template-columns: minmax(280px, .9fr) minmax(0, 1.4fr);
-  gap: var(--sp-4);
-  padding: var(--sp-5);
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-}
-.riskHero-green { border-color: rgba(63,185,80,.35); background: linear-gradient(135deg, rgba(63,185,80,.08), rgba(17,20,24,.96)) }
-.riskHero-yellow { border-color: rgba(210,153,34,.40); background: linear-gradient(135deg, rgba(210,153,34,.10), rgba(17,20,24,.96)) }
-.riskHero-orange { border-color: rgba(255,153,51,.42); background: linear-gradient(135deg, rgba(255,153,51,.12), rgba(17,20,24,.96)) }
-.riskHero-red { border-color: rgba(248,81,73,.45); background: linear-gradient(135deg, rgba(248,81,73,.12), rgba(17,20,24,.96)) }
-.riskHeroMain p { margin: var(--sp-2) 0 0; color: var(--text-secondary); max-width: 760px }
-.riskHeroLevel { margin-top: var(--sp-1); font-size: 36px; line-height: 1.1; font-weight: 900; color: var(--text) }
-.riskMetricGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3) }
-.riskMetricCard {
-  min-height: 126px;
-  padding: var(--sp-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: rgba(11,14,17,.72);
-}
-.riskMetricCard .value { margin-top: var(--sp-2); font-size: var(--fs-2xl); font-weight: 900; color: var(--text) }
-.riskMetricHelp { margin-top: var(--sp-2); color: var(--muted); font-size: var(--fs-md) }
-.riskMetricCard.risk { border-color: rgba(248,81,73,.42); background: rgba(248,81,73,.07) }
-.riskMetricCard.warn { border-color: rgba(210,153,34,.42); background: rgba(210,153,34,.07) }
-.riskMetricCard.data { border-color: rgba(88,166,255,.38); background: rgba(88,166,255,.07) }
-.riskMetricCard.pending { border-color: rgba(163,113,247,.38); background: rgba(163,113,247,.08) }
-.riskBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 22px;
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-xs);
-  font-weight: 800;
-  color: var(--text-secondary);
-  background: rgba(255,255,255,.03);
-}
-.riskBadge.risk { color: var(--bad); border-color: rgba(248,81,73,.45); background: rgba(248,81,73,.08) }
-.riskBadge.warn { color: var(--warn); border-color: rgba(210,153,34,.45); background: rgba(210,153,34,.08) }
-.riskBadge.data { color: var(--info); border-color: rgba(88,166,255,.45); background: rgba(88,166,255,.08) }
-.riskBadge.pending { color: #a371f7; border-color: rgba(163,113,247,.45); background: rgba(163,113,247,.08) }
-.riskActionGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3) }
-.riskActionGroup, .stressCard, .riskPanel {
-  min-width: 0;
-  padding: var(--sp-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-}
-.riskGroupHead, .stressHead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-3);
-}
-.riskGroupHead h3, .riskPanel h3, .stressCard h3 { margin: 0; font-size: var(--fs-lg) }
-.riskGroupHead p, .stressCard p { margin: 3px 0 0; color: var(--muted); font-size: var(--fs-md) }
-.riskGroupHead .mono { font-size: var(--fs-2xl); font-weight: 900 }
-.riskAlertList { display: flex; flex-direction: column; gap: var(--sp-2) }
-.riskAlertCard {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: rgba(11,14,17,.64);
-  overflow: hidden;
-}
-.riskAlert-risk { border-color: rgba(248,81,73,.42); background: rgba(248,81,73,.06) }
-.riskAlert-warn { border-color: rgba(210,153,34,.42); background: rgba(210,153,34,.06) }
-.riskAlert-pending { border-color: rgba(163,113,247,.42); background: rgba(163,113,247,.06) }
-.riskAlertCard summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--sp-3);
-  align-items: center;
-  padding: var(--sp-3);
-  cursor: pointer;
-}
-.riskAlertTitle { font-weight: 900; font-size: var(--fs-base); color: var(--text) }
-.riskAlertMeta { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2) }
-.riskAlertValue { color: var(--text); font-weight: 900 }
-.riskAlertBody { display: flex; flex-direction: column; gap: var(--sp-3); padding: 0 var(--sp-3) var(--sp-3) }
-.riskFactGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2) }
-.riskFactGrid > div, .beforeAfter > div {
-  padding: var(--sp-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: rgba(0,0,0,.16);
-}
-.riskFactGrid strong, .beforeAfter strong { display: block; margin-top: 2px; color: var(--text); font-size: var(--fs-base) }
-.riskWhy { color: var(--text-secondary); line-height: 1.6 }
-.riskWhy strong { color: var(--text) }
 .sourceList { display: flex; flex-direction: column; gap: 6px; margin-top: var(--sp-2) }
 .sourceRow {
   display: grid;
@@ -848,18 +618,8 @@ a { color: inherit; text-decoration: none }
   font-size: var(--fs-xs);
 }
 .sourceName, .ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.thresholdRow { margin: var(--sp-3) 0 }
 .thresholdHead, .thresholdMeta { display: flex; justify-content: space-between; gap: var(--sp-3); align-items: center }
 .thresholdLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800 }
-.thresholdTrack {
-  position: relative;
-  height: 12px;
-  margin: 7px 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #0c1015;
-  overflow: hidden;
-}
 .thresholdFill { height: 100%; border-radius: 999px; background: var(--accent) }
 .threshold-green .thresholdFill { background: var(--good) }
 .threshold-yellow .thresholdFill { background: var(--warn) }
@@ -870,7 +630,6 @@ a { color: inherit; text-decoration: none }
 .thresholdLine.dangerLine { background: var(--bad) }
 .thresholdMeta { color: var(--muted); font-size: var(--fs-md) }
 .stressGrid, .concentrationLayout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3) }
-.stressHead { margin-bottom: var(--sp-2) }
 .concentrationLayout { margin-top: var(--sp-3) }
 .panelWide { grid-column: 1 / -1 }
 .currencyRow, .targetRow {
@@ -882,14 +641,6 @@ a { color: inherit; text-decoration: none }
   padding: var(--sp-2) 0;
   border-bottom: 1px solid var(--line);
 }
-.pendingBox {
-  padding: var(--sp-3);
-  border: 1px dashed rgba(163,113,247,.45);
-  border-radius: var(--radius-md);
-  background: rgba(163,113,247,.06);
-}
-.pendingBox p { margin: var(--sp-2) 0; color: var(--text-secondary) }
-.beforeAfter { display: grid; grid-template-columns: 1fr; gap: var(--sp-2) }
 .riskSuggestionTable { min-width: 1280px }
 .issueList { display: flex; flex-direction: column; gap: var(--sp-2) }
 .detailAttributionItem { padding: var(--sp-3) 0; border-bottom: 1px solid var(--line) }
@@ -6380,54 +6131,31 @@ input[type="number"].formInput {
   .pageMeta { justify-content: flex-start }
 }
 
-@media (max-width: 1180px) {
-  .riskHero { grid-template-columns: 1fr }
-  .riskActionGrid { grid-template-columns: 1fr }
-  .riskMetricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)) }
-}
-
 @media (max-width: 900px) {
   .stressGrid,
-  .concentrationLayout,
-  .page-risk .grid2 {
+.concentrationLayout {
     grid-template-columns: 1fr;
   }
-  .riskFactGrid { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 }
 
 @media (max-width: 640px) {
-  .riskSection { padding: var(--sp-3) }
-  .riskHero { padding: var(--sp-3) }
-  .riskMetricGrid,
-  .riskFactGrid {
-    grid-template-columns: 1fr;
-  }
-  .riskAlertCard summary,
   .currencyRow,
-  .targetRow {
+.targetRow {
     grid-template-columns: 1fr;
   }
-  .riskHeroLevel { font-size: 30px }
 }
 
 /* ---- Design pass: compact investment/risk dashboards ---- */
-.page-investments,
-.page-risk {
+.page-investments {
   background: #080b10;
 }
 
-.page-investments .wrap,
-.page-risk .wrap {
+.page-investments .wrap {
   max-width: 1440px;
   padding: var(--sp-5) var(--sp-6);
 }
 
 .page-investments .card,
-.page-risk .card,
-.page-risk .riskSection,
-.page-risk .riskPanel,
-.page-risk .stressCard,
-.page-risk .riskActionGroup,
 .page-investments .compactPanel {
   background: #111821;
   border: 1px solid rgba(255,255,255,.06);
@@ -6435,29 +6163,23 @@ input[type="number"].formInput {
   box-shadow: none;
 }
 
-.page-investments .card:hover,
-.page-risk .card:hover,
-.page-risk .riskPanel:hover {
+.page-investments .card:hover {
   transform: none;
   box-shadow: none;
 }
 
-.page-investments .pageHeader h1,
-.page-risk .pageHeader h1 {
+.page-investments .pageHeader h1 {
   font-size: 24px;
   font-weight: 600;
 }
 
-.page-investments .sectionTitle h2,
-.page-risk .riskSectionTitle h2 {
+.page-investments .sectionTitle h2 {
   font-size: 18px;
   font-weight: 600;
 }
 
 .page-investments .pageSubtitle,
-.page-risk .pageSubtitle,
-.page-investments .muted,
-.page-risk .muted {
+.page-investments .muted {
   color: #8b949e;
 }
 
@@ -6484,17 +6206,9 @@ input[type="number"].formInput {
   background: rgba(88,166,255,.08);
 }
 
-.page-investments .investmentHero,
-.page-risk .riskHero {
+.page-investments .investmentHero {
   background: #111821;
   border-color: rgba(255,255,255,.08);
-}
-
-.page-risk .riskHero-green,
-.page-risk .riskHero-yellow,
-.page-risk .riskHero-orange,
-.page-risk .riskHero-red {
-  background: #111821;
 }
 
 .page-investments .investmentHeroGrid,
@@ -6503,8 +6217,7 @@ input[type="number"].formInput {
   gap: var(--sp-3);
 }
 
-.page-investments .investmentHeroMetric,
-.page-risk .riskMetricCard {
+.page-investments .investmentHeroMetric {
   min-height: 88px;
   padding: 12px;
   background: #0f151d;
@@ -6512,16 +6225,14 @@ input[type="number"].formInput {
   border-radius: 10px;
 }
 
-.page-investments .investmentHeroMetric .label,
-.page-risk .riskMetricCard .label {
+.page-investments .investmentHeroMetric .label {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .2px;
   text-transform: none;
 }
 
-.page-investments .investmentHeroMetric .value,
-.page-risk .riskMetricCard .value {
+.page-investments .investmentHeroMetric .value {
   margin-top: 6px;
   font-size: 24px;
   font-weight: 600;
@@ -6529,8 +6240,7 @@ input[type="number"].formInput {
   font-variant-numeric: tabular-nums;
 }
 
-.page-investments .investmentHeroMetric .help,
-.page-risk .riskMetricHelp {
+.page-investments .investmentHeroMetric .help {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.25;
@@ -6543,11 +6253,7 @@ input[type="number"].formInput {
 .page-investments .investmentHeroMetric.bad,
 .page-investments .investmentHeroMetric.warn,
 .page-investments .investmentHeroMetric.info,
-.page-investments .investmentHeroMetric.pending,
-.page-risk .riskMetricCard.risk,
-.page-risk .riskMetricCard.warn,
-.page-risk .riskMetricCard.data,
-.page-risk .riskMetricCard.pending {
+.page-investments .investmentHeroMetric.pending {
   background: #0f151d;
 }
 
@@ -6707,21 +6413,16 @@ details[open].compactDetails > summary {
 }
 .compactDetails > summary::-webkit-details-marker { display: none }
 
-.page-investments table,
-.page-risk table {
+.page-investments table {
   font-size: 13px;
 }
 .page-investments th,
-.page-investments td,
-.page-risk th,
-.page-risk td {
+.page-investments td {
   padding: 8px 10px;
   height: 38px;
 }
 .page-investments td.num,
-.page-risk td.num,
-.page-investments .mono,
-.page-risk .mono {
+.page-investments .mono {
   font-variant-numeric: tabular-nums;
 }
 .miniBadge {
@@ -6739,24 +6440,6 @@ details[open].compactDetails > summary {
 .miniBadge.pending { color: #d2a8ff; border-color: rgba(163,113,247,.38) }
 .miniBadge.ok { color: #7ee787; border-color: rgba(63,185,80,.35) }
 .miniBadge.data { color: #79c0ff; border-color: rgba(88,166,255,.35) }
-
-/* ---- Unified compact dashboard primitives ---- */
-.metricStrip {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--sp-2);
-}
-.metricTile {
-  min-width: 0;
-  min-height: 82px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-}
-.metricTile.good { border-left: 3px solid var(--good) }
-.metricTile.bad { border-left: 3px solid var(--bad) }
-.metricTile.warn { border-left: 3px solid var(--warn) }
 .metricLabel {
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -6776,11 +6459,6 @@ details[open].compactDetails > summary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.dashboardHero {
-  display: grid;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-3);
 }
 .dashboardUtilityRow {
   display: flex;
@@ -6824,10 +6502,6 @@ details[open].compactDetails > summary {
 }
 .rankedBarRow:last-child { border-bottom: 0 }
 
-.dashboardInvestTerminal {
-  margin-bottom: 12px;
-}
-
 .dashboardTodayLine {
   display: flex;
   align-items: center;
@@ -6857,55 +6531,6 @@ details[open].compactDetails > summary {
 .dashboardHoldingPreview {
   display: grid;
   gap: 7px;
-}
-
-.dashboardHoldingRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 54px;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255,255,255,.06);
-  color: var(--text);
-}
-
-.dashboardHoldingRow:last-child {
-  border-bottom: 0;
-}
-
-.dashboardHoldingRow span,
-.dashboardHoldingRow em {
-  min-width: 0;
-}
-
-.dashboardHoldingRow strong {
-  display: block;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 900;
-}
-
-.dashboardHoldingRow small {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.dashboardHoldingRow em {
-  text-align: right;
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.dashboardHoldingRow em b {
-  display: block;
-  font-size: 14px;
 }
 
 .accountIssueStrip {
@@ -7074,68 +6699,24 @@ details[open].compactDetails > summary {
   font-family: 'JetBrains Mono', monospace;
 }
 
-.page-dashboard .pageSubtitle,
 .page-accounts .pageSubtitle,
 .page-data-sources .pageSubtitle {
   display: none;
 }
-.page-dashboard .card,
 .page-accounts .card,
 .page-data-sources .card {
   padding: 16px;
 }
-.page-dashboard .card:hover,
 .page-accounts .card:hover,
 .page-data-sources .card:hover {
   transform: none;
 }
 
 @media (max-width: 1180px) {
-  .metricStrip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .structureSplit { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
-  .metricStrip { grid-template-columns: 1fr; }
   .dashboardUtilityRow { flex-direction: column; }
-}
-
-.page-risk .riskHero {
-  display: grid;
-  grid-template-columns: minmax(240px, .8fr) minmax(0, 1.6fr);
-  gap: var(--sp-4);
-  padding: 16px;
-}
-.page-risk .riskHeroLevel {
-  font-size: 30px;
-  font-weight: 600;
-}
-.page-risk .riskHeroMain p {
-  max-width: 520px;
-  margin-top: 8px;
-  line-height: 1.45;
-}
-.page-risk .riskMetricGrid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--sp-3);
-}
-.riskIssueToolbar {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-.riskIssueWrap { max-height: 520px }
-.riskIssueTable { min-width: 1120px }
-.riskIssueTable th:nth-child(2),
-.riskIssueTable td:nth-child(2) { width: 280px }
-.riskIssueName summary {
-  color: #e6edf3 !important;
-  font-size: 13px;
-}
-.riskIssueDetails div {
-  margin-top: 6px;
-  color: #8b949e;
-  line-height: 1.45;
 }
 
 .stressCompact {
@@ -7170,52 +6751,20 @@ details[open].compactDetails > summary {
   padding: 7px 0;
   border-bottom: 1px solid rgba(255,255,255,.06);
 }
-.compactSourceList .sourceRow {
-  padding: 7px 0;
-}
-
-.page-risk .thresholdRow {
-  padding: 10px 0;
-}
-.page-risk .thresholdTrack {
-  height: 7px;
-}
-.page-risk .riskFactGrid {
-  gap: 8px;
-}
-.page-risk .riskFactGrid > div,
-.page-risk .beforeAfter > div {
-  padding: 10px;
-  background: #0f151d;
-  border-color: rgba(255,255,255,.06);
-}
-.page-risk .riskWhy,
-.page-risk .pendingBox {
-  padding: 10px;
-  background: #0f151d;
-  border-color: rgba(255,255,255,.06);
-  line-height: 1.5;
-}
 
 @media (max-width: 1180px) {
   .page-investments .investmentMainGrid,
-  .stressCompact,
-  .page-risk .riskHero {
+.stressCompact {
     grid-template-columns: 1fr;
-  }
-  .page-risk .riskMetricGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
-  .page-investments .wrap,
-  .page-risk .wrap {
+  .page-investments .wrap {
     padding: var(--sp-3);
   }
   .page-investments .investmentHeroGrid,
-  .page-investments .transactionSummaryGrid,
-  .page-risk .riskMetricGrid {
+.page-investments .transactionSummaryGrid {
     grid-template-columns: 1fr;
   }
   .page-investments .investmentMainGrid {
@@ -7224,35 +6773,28 @@ details[open].compactDetails > summary {
 }
 
 /* ---- Compact pass v2: denser financial dashboard ---- */
-.page-investments .wrap,
-.page-risk .wrap {
+.page-investments .wrap {
   padding-top: 14px;
 }
 
-.page-investments .card,
-.page-risk .card,
-.page-risk .riskSection {
+.page-investments .card {
   padding: 16px;
 }
 
-.page-investments .card + .card,
-.page-risk .riskSection + .riskSection {
+.page-investments .card + .card {
   margin-top: 16px;
 }
 
-.page-investments .pageHeader,
-.page-risk .pageHeader {
+.page-investments .pageHeader {
   margin-bottom: 10px;
   align-items: center;
 }
 
-.page-investments .pageHeader h1,
-.page-risk .pageHeader h1 {
+.page-investments .pageHeader h1 {
   font-size: 26px;
 }
 
-.page-investments .pageSubtitle,
-.page-risk .pageSubtitle {
+.page-investments .pageSubtitle {
   display: none;
 }
 
@@ -7306,8 +6848,7 @@ details[open].compactDetails > summary {
   padding: 10px 12px;
 }
 
-.page-investments .investmentHeroMetric .value,
-.page-risk .riskMetricCard .value {
+.page-investments .investmentHeroMetric .value {
   font-size: 28px;
 }
 
@@ -7589,34 +7130,6 @@ details[open].compactDetails > summary {
   }
 }
 
-.page-risk .riskConclusionSection {
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.page-risk .riskHero {
-  grid-template-columns: minmax(220px, .8fr) minmax(0, 2.2fr);
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid rgba(255,255,255,.06);
-  background: #111821;
-}
-
-.page-risk .riskHeroMain {
-  min-width: 0;
-}
-
-.page-risk .riskHeroLevel {
-  margin-top: 2px;
-  font-size: 28px;
-}
-
-.riskHeroNote {
-  margin-top: 8px;
-  font-size: 12px;
-}
-
 .riskDriverChips {
   display: flex;
   flex-wrap: wrap;
@@ -7637,99 +7150,9 @@ details[open].compactDetails > summary {
   white-space: nowrap;
 }
 
-.page-risk .riskMetricGrid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-  align-self: stretch;
-}
-
-.page-risk .riskMetricCard {
-  min-height: 72px;
-  padding: 9px 10px;
-  border-radius: 8px;
-}
-
-.page-risk .riskMetricHelp {
-  margin-top: 3px;
-}
-
-.page-risk #risk-actions {
-  margin-top: 12px;
-}
-
-.riskIssueToolbar {
-  margin-bottom: 8px;
-}
-
-.riskIssueWrap {
-  max-height: 440px;
-  overflow-x: hidden;
-}
-
-.riskIssueTable {
-  width: 100%;
-  min-width: 0;
-  table-layout: fixed;
-}
-
-.riskIssueTable th,
-.riskIssueTable td {
-  height: 34px;
-  padding: 7px 8px;
-}
-
-.riskIssueTable th:nth-child(1),
-.riskIssueTable td:nth-child(1) { width: 72px }
-.riskIssueTable th:nth-child(2),
-.riskIssueTable td:nth-child(2) { width: auto }
-.riskIssueTable th:nth-child(3),
-.riskIssueTable td:nth-child(3) { width: 120px }
-.riskIssueTable th:nth-child(4),
-.riskIssueTable td:nth-child(4) { width: 120px }
-.riskIssueTable th:nth-child(5),
-.riskIssueTable td:nth-child(5) { width: 220px }
-.riskIssueTable th:nth-child(6),
-.riskIssueTable td:nth-child(6) { width: 96px }
-.riskIssueTable th:nth-child(7),
-.riskIssueTable td:nth-child(7) { width: 120px }
-
-.riskIssueTable td:nth-child(3),
-.riskIssueTable td:nth-child(4) {
-  text-align: right;
-}
-
-.riskIssueTable td:nth-child(5),
-.riskIssueTable td:nth-child(6),
-.riskIssueTable td:nth-child(7) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.riskIssueName summary {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 1040px) {
-  .page-risk .riskMetricGrid {
-    grid-template-columns: repeat(5, minmax(92px, 1fr));
-  }
-  .riskIssueTable th:nth-child(5),
-  .riskIssueTable td:nth-child(5) {
-    display: none;
-  }
-}
-
 @media (max-width: 900px) {
-  .page-risk .riskHero,
   .page-investments .investmentMainGrid {
     grid-template-columns: 1fr;
-  }
-  .page-risk .riskMetricGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -7750,8 +7173,7 @@ details[open].compactDetails > summary {
 .card:hover,
 .pill:hover,
 .btn:hover,
-.investmentHeroMetric:hover,
-.metricTile:hover {
+.investmentHeroMetric:hover {
   transform: none !important;
   box-shadow: none !important;
 }
@@ -7856,8 +7278,7 @@ th.num,
 }
 
 .tableWide th,
-.sourceMatrix th,
-.riskIssueTable th {
+.sourceMatrix th {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -7874,38 +7295,6 @@ th.num,
 .debugFooter {
   opacity: .55;
   font-size: 11px;
-}
-
-.appHeroStrip {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr);
-  gap: 14px;
-  margin-bottom: 14px;
-  border-color: rgba(88,166,255,.16);
-  background:
-    radial-gradient(circle at top right, rgba(88,166,255,.14), transparent 32%),
-    linear-gradient(180deg, rgba(12,16,22,.98), rgba(8,11,16,.98));
-}
-
-.appHeroStrip-compact {
-  grid-template-columns: minmax(0, 1fr) minmax(240px, .85fr);
-}
-
-.appHeroCopy {
-  min-width: 0;
-}
-
-.appHeroCopy h2 {
-  margin: 4px 0 8px;
-  font-size: 22px;
-  line-height: 1.2;
-}
-
-.appHeroCopy p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
 }
 
 .quickNavGrid,
@@ -8320,102 +7709,12 @@ body.app-shell .nav .mobileNavIcon {
   min-height: 280px;
 }
 
-/* Risk: show the action table earlier and remove right-side clipping */
-.page-risk .riskHero {
-  padding: 12px 14px;
-  grid-template-columns: minmax(220px,.66fr) minmax(0,1.7fr);
-}
-
-.page-risk .riskHeroLevel {
-  font-size: 28px;
-}
-
-.page-risk .riskHeroMain p {
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.page-risk .riskMetricGrid {
-  gap: 8px;
-}
-
-.page-risk .riskMetricCard {
-  min-height: 64px;
-  padding: 8px 10px;
-}
-
-.page-risk .riskMetricCard .value {
-  font-size: 22px;
-}
-
-.riskIssueWrap {
-  overflow-x: auto;
-  max-height: 520px;
-}
-
-.riskIssueTable {
-  min-width: 760px !important;
-  table-layout: fixed;
-}
-
-.riskIssueTable th:nth-child(1),
-.riskIssueTable td:nth-child(1) { width: 72px; }
-.riskIssueTable th:nth-child(2),
-.riskIssueTable td:nth-child(2) { width: auto; }
-.riskIssueTable th:nth-child(3),
-.riskIssueTable td:nth-child(3) { width: 120px; }
-.riskIssueTable th:nth-child(4),
-.riskIssueTable td:nth-child(4) { width: 120px; }
-.riskIssueTable th:nth-child(5),
-.riskIssueTable td:nth-child(5) { display: none; }
-.riskIssueTable th:nth-child(6),
-.riskIssueTable td:nth-child(6) { width: 96px; }
-.riskIssueTable th:nth-child(7),
-.riskIssueTable td:nth-child(7) { width: 120px; }
-
-.riskIssueTable td:nth-child(7) {
-  overflow: visible;
-  white-space: normal;
-}
-
 .page-data-sources .sourceHero {
   align-items: start;
 }
 
 .page-data-sources .sourceNote {
   align-self: start;
-}
-
-.page-dashboard .structureSplit {
-  grid-template-columns: minmax(0, 1fr) 132px;
-  align-items: start;
-}
-
-.page-dashboard .structureSplit .rankedBarList {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.page-dashboard .structureSplit .chartWrapSm {
-  grid-column: 2;
-  grid-row: 1;
-  width: 132px;
-  height: 132px;
-}
-
-@media (max-width: 720px) {
-  .page-dashboard .structureSplit {
-    grid-template-columns: 1fr;
-  }
-  .page-dashboard .structureSplit .rankedBarList,
-  .page-dashboard .structureSplit .chartWrapSm {
-    grid-column: auto;
-    grid-row: auto;
-  }
-  .page-dashboard .structureSplit .chartWrapSm {
-    width: 100%;
-    height: 150px;
-  }
 }
 
 /* ============================================================
@@ -8430,7 +7729,6 @@ body.app-shell .nav .mobileNavIcon {
   display: none !important;
 }
 
-.metricTile,
 .investmentHeroMetric,
 .ledgerKpi,
 .metricPanel {
@@ -8469,14 +7767,12 @@ details > summary {
 
 .compactDetails > summary,
 .rankedBarRow > summary,
-.riskIssueDetails > summary,
 .sourceNoteInline > summary {
   list-style: none;
 }
 
 .compactDetails > summary::-webkit-details-marker,
 .rankedBarRow > summary::-webkit-details-marker,
-.riskIssueDetails > summary::-webkit-details-marker,
 .sourceNoteInline > summary::-webkit-details-marker {
   display: none;
 }
@@ -8839,10 +8135,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   text-align: right;
 }
 
-.riskHeroDrivers {
-  align-items: center;
-}
-
 .inlineDetails {
   display: inline-flex;
   align-items: center;
@@ -8876,53 +8168,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #0b0f14;
-}
-
-.riskIssueWrap {
-  overflow-x: auto !important;
-}
-
-.riskIssueTable {
-  width: 100%;
-  min-width: 640px !important;
-  table-layout: fixed;
-}
-
-.riskIssueTable th,
-.riskIssueTable td {
-  height: 34px;
-  padding: 7px 8px;
-}
-
-.riskIssueTable th:nth-child(1),
-.riskIssueTable td:nth-child(1) { width: 72px !important; }
-.riskIssueTable th:nth-child(2),
-.riskIssueTable td:nth-child(2) { width: auto !important; }
-.riskIssueTable th:nth-child(3),
-.riskIssueTable td:nth-child(3) { width: 120px !important; text-align: right; }
-.riskIssueTable th:nth-child(4),
-.riskIssueTable td:nth-child(4) { width: 120px !important; text-align: right; }
-.riskIssueTable th:nth-child(5),
-.riskIssueTable td:nth-child(5) {
-  display: table-cell !important;
-  width: 120px !important;
-  overflow: visible !important;
-  white-space: nowrap !important;
-}
-
-.riskIssueName summary {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.riskIssueDetails[open] summary {
-  color: var(--info) !important;
-}
-
-.riskIssueDetails div {
-  font-size: 12px;
 }
 
 .riskSecondaryGroup {
@@ -8979,15 +8224,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .accountDetailGrid {
     width: min(420px, calc(100vw - 40px));
-  }
-
-  .riskIssueTable {
-    min-width: 520px !important;
-  }
-
-  .riskIssueTable th:nth-child(4),
-  .riskIssueTable td:nth-child(4) {
-    display: none !important;
   }
 }
 
@@ -9117,8 +8353,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .wrap,
-  .page-investments .wrap,
-  .page-risk .wrap {
+.page-investments .wrap {
     width: 100%;
     max-width: none;
     box-sizing: border-box;
@@ -9348,77 +8583,49 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .card,
-  .page-investments .card,
-  .page-risk .card,
-  .page-risk .riskSection,
-  .page-risk .riskPanel,
-  .page-risk .stressCard,
-  .page-risk .riskActionGroup,
-  .page-investments .compactPanel {
+.page-investments .card,
+.page-investments .compactPanel {
     padding: 12px;
     border-radius: 12px;
   }
 
   .grid2,
-  .grid3,
-  .grid4,
-  .grid5,
-  .pies2,
-  .dashRow1,
-  .dashboardUtilityRow,
-  .relationshipGrid,
-  .sourceHero,
-  .statusLine,
-  .qualityGrid,
-  .cashflowBodyGrid,
-  .page-investments .investmentMainGrid,
-  .page-risk .riskHero,
-  .stressGrid,
-  .concentrationLayout {
+.grid3,
+.grid4,
+.grid5,
+.pies2,
+.dashRow1,
+.dashboardUtilityRow,
+.relationshipGrid,
+.sourceHero,
+.statusLine,
+.qualityGrid,
+.cashflowBodyGrid,
+.page-investments .investmentMainGrid,
+.stressGrid,
+.concentrationLayout {
     grid-template-columns: 1fr !important;
   }
 
-  .metricStrip,
   .summaryCards,
-  .accountIssueQueue,
-  .ledgerKpiGrid,
-  .ipsStatusStrip,
-  .page-risk .riskMetricGrid {
+.accountIssueQueue,
+.ledgerKpiGrid,
+.ipsStatusStrip {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px;
   }
 
-  .page-dashboard .metricStrip {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-
-  .page-dashboard .metricStrip .metricTile:first-child {
-    grid-column: 1 / -1;
-  }
-
-  .page-dashboard .metricTile {
-    min-height: 68px;
-    padding: 10px 12px;
-  }
-
-  .page-dashboard .metricStrip .metricTile:first-child .metricValue {
-    font-size: 24px !important;
-  }
-
-  .metricTile,
   .metricPanel,
-  .ledgerKpi,
-  .ipsStatusItem,
-  .page-risk .riskMetricCard {
+.ledgerKpi,
+.ipsStatusItem {
     padding: 9px 10px;
     min-height: 62px;
   }
 
   .metricValue,
-  .metricPanel .value,
-  .ledgerKpi .value,
-  .ipsStatusValue,
-  .page-risk .riskMetricCard .value {
+.metricPanel .value,
+.ledgerKpi .value,
+.ipsStatusValue {
     font-size: 18px !important;
     line-height: 1.12;
   }
@@ -9495,8 +8702,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .tableWrap,
-  .riskIssueWrap,
-  .qualityMatrixWrap {
+.qualityMatrixWrap {
     margin-left: -2px;
     margin-right: -2px;
     border-radius: 10px;
@@ -9624,29 +8830,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none !important;
   }
 
-  .page-risk .riskHero {
-    padding: 12px;
-    gap: 10px;
-  }
-
-  .page-risk .riskHeroLevel {
-    font-size: 24px;
-  }
-
-  .page-risk .riskIssueTable {
-    min-width: 500px !important;
-  }
-
-  .page-risk .riskIssueTable th:nth-child(3),
-  .page-risk .riskIssueTable td:nth-child(3) {
-    width: 96px !important;
-  }
-
-  .page-risk .riskIssueTable th:nth-child(4),
-  .page-risk .riskIssueTable td:nth-child(4) {
-    display: none !important;
-  }
-
   .page-ledger .ledgerKpiGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
@@ -9731,16 +8914,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-more .moreHub {
     gap: 12px;
-  }
-
-  .appHeroStrip,
-  .appHeroStrip-compact {
-    grid-template-columns: 1fr;
-    padding: 12px;
-  }
-
-  .appHeroCopy h2 {
-    font-size: 18px;
   }
 
   .quickNavGrid,
@@ -10353,107 +9526,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     max-width: none;
   }
 
-  .page-risk .riskIssueWrap,
-  .page-risk .riskIssueTable,
-  .page-risk .riskIssueTable tbody {
-    display: block;
-    width: 100%;
-    min-width: 0 !important;
-    overflow: visible !important;
-  }
-
-  .page-risk .riskIssueTable thead {
-    display: none;
-  }
-
-  .page-risk .riskIssueTable tbody tr {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "priority risk action"
-      "current current current"
-      "target target target";
-    gap: 6px 9px;
-    min-height: 76px;
-    margin: 0 0 8px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: rgba(15,21,29,.76);
-  }
-
-  .page-risk .riskIssueTable tbody td {
-    display: block !important;
-    width: auto !important;
-    height: auto;
-    padding: 0 !important;
-    border: 0 !important;
-    white-space: normal !important;
-    overflow: visible !important;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(1) {
-    grid-area: priority;
-    display: inline-flex !important;
-    align-items: center;
-    min-height: 24px;
-    padding: 0 7px !important;
-    border: 1px solid rgba(255,91,91,.38) !important;
-    border-radius: 999px;
-    color: var(--bad);
-    font-weight: 900;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(2) {
-    grid-area: risk;
-    min-width: 0;
-    font-weight: 900;
-  }
-
-  .page-risk .riskIssueName summary {
-    max-width: none;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(3),
-  .page-risk .riskIssueTable tbody td:nth-child(4) {
-    display: flex !important;
-    justify-content: space-between;
-    gap: 10px;
-    padding-top: 6px !important;
-    border-top: 1px solid var(--line) !important;
-    color: var(--text);
-    text-align: right !important;
-    font-size: 12px;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(3) {
-    grid-area: current;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(4) {
-    grid-area: target;
-    padding-top: 0 !important;
-    border-top: 0 !important;
-    color: var(--muted);
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(3)::before {
-    content: "当前";
-    color: var(--muted);
-    font-family: 'Inter', sans-serif;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(4)::before {
-    content: "阈值";
-    color: var(--muted);
-    font-family: 'Inter', sans-serif;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(5) {
-    grid-area: action;
-    text-align: right;
-  }
-
   .page-data-sources .tableWrap,
   .page-data-sources .qualityMatrixWrap,
   .page-research .tableWrap {
@@ -10742,12 +9814,10 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 }
 
 @media (max-width: 360px) {
-  .metricStrip,
   .summaryCards,
-  .accountIssueQueue,
-  .ledgerKpiGrid,
-  .ipsStatusStrip,
-  .page-risk .riskMetricGrid {
+.accountIssueQueue,
+.ledgerKpiGrid,
+.ipsStatusStrip {
     grid-template-columns: 1fr !important;
   }
 
@@ -10777,8 +9847,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .wrap,
-  .page-investments .wrap,
-  .page-risk .wrap {
+.page-investments .wrap {
     padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
@@ -10826,70 +9895,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .mobileBottomMoreButton.active::before {
     left: 50% !important;
     transform: translateX(-50%) !important;
-  }
-
-  .page-dashboard .dashboardHero {
-    gap: 8px !important;
-  }
-
-  .page-dashboard .metricStrip {
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
-  }
-
-  .page-dashboard .metricStrip .metricTile {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-
-  .page-dashboard .metricStrip .metricTile:first-child {
-    min-height: 76px !important;
-    padding: 14px 16px !important;
-  }
-
-  .page-dashboard .metricStrip .metricTile:first-child .metricValue {
-    max-width: 100%;
-    margin-top: 7px !important;
-    overflow: hidden;
-    font-size: 28px !important;
-    letter-spacing: .01em;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .page-dashboard .metricStrip .metricTile:nth-child(n+2) {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    min-height: 54px !important;
-    padding: 12px 14px !important;
-    column-gap: 12px;
-    border-radius: 16px !important;
-  }
-
-  .page-dashboard .metricStrip .metricTile:nth-child(n+2) .metricLabel {
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .page-dashboard .metricStrip .metricTile:nth-child(n+2) .metricValue {
-    justify-self: end;
-    max-width: 210px;
-    margin: 0 !important;
-    overflow: hidden;
-    font-size: 22px !important;
-    line-height: 1;
-    text-align: right;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .page-dashboard .metricStrip .metricTile:nth-child(n+2) .metricHelp {
-    display: none !important;
   }
 }
 
@@ -11389,18 +10394,16 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .pageSubtitle,
-  .pageMeta,
-  .debugFooter,
-  .appHeroStrip,
-  .moreHero,
-  .moreShortcutStrip {
+.pageMeta,
+.debugFooter,
+.moreHero,
+.moreShortcutStrip {
     display: none !important;
   }
 
   .card,
-  .riskSection,
-  .accountPanel > .card,
-  .manualSyncPanel {
+.accountPanel > .card,
+.manualSyncPanel {
     border-radius: 18px;
     padding: 14px;
     background: #111820;
@@ -11422,23 +10425,20 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     line-height: 1.2;
   }
 
-  .metricStrip,
   .summaryCards,
-  .ledgerKpiGrid,
-  .page-investments .investmentHeroGrid,
-  .page-risk .riskMetricGrid,
-  .statusLine {
+.ledgerKpiGrid,
+.page-investments .investmentHeroGrid,
+.statusLine {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px !important;
   }
 
   .metricCard,
-  .summaryCard,
-  .ledgerKpi,
-  .investmentHeroMetric,
-  .riskMetricCard,
-  .statusLine .card {
+.summaryCard,
+.ledgerKpi,
+.investmentHeroMetric,
+.statusLine .card {
     min-height: 72px !important;
     padding: 10px 12px !important;
     border-radius: 14px !important;
@@ -11453,53 +10453,40 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .metricCard .label,
-  .summaryCard .label,
-  .ledgerKpi .label,
-  .investmentHeroMetric .label,
-  .riskMetricCard .label {
+.summaryCard .label,
+.ledgerKpi .label,
+.investmentHeroMetric .label {
     font-size: 11px !important;
     color: var(--muted) !important;
   }
 
   .metricCard .value,
-  .summaryCard .value,
-  .ledgerKpi .value,
-  .investmentHeroMetric .value,
-  .riskMetricCard .value {
+.summaryCard .value,
+.ledgerKpi .value,
+.investmentHeroMetric .value {
     font-size: 24px !important;
     line-height: 1.1;
     font-variant-numeric: tabular-nums;
   }
 
   .investmentHeroMetric .help,
-  .riskMetricHelp,
-  .metricCard .help,
-  .summaryCard .help,
-  .ledgerKpi .help,
-  .investmentConclusionText,
-  .truthNote,
-  .pipeline,
-  .sourceNote:not(.sourceNoteInline) {
+.metricCard .help,
+.summaryCard .help,
+.ledgerKpi .help,
+.investmentConclusionText,
+.truthNote,
+.pipeline,
+.sourceNote:not(.sourceNoteInline) {
     display: none !important;
   }
 
-  .dashboardHero,
-  .page-investments .investmentHero,
-  .riskConclusionSection {
+  .page-investments .investmentHero {
     margin-bottom: 10px;
   }
 
   .dashboardUtilityRow {
     display: block;
     margin-bottom: 10px;
-  }
-
-  .page-dashboard .appTaskList {
-    display: none;
-  }
-
-  .page-dashboard .dashboardInvestTerminal {
-    margin-top: -2px;
   }
 
   .fxDetails {
@@ -11653,23 +10640,9 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     min-width: 0 !important;
   }
 
-  .page-risk .riskSection {
-    margin-top: 10px;
-  }
-
-  .page-risk .riskActionGrid,
   .stressGrid,
-  .concentrationLayout {
+.concentrationLayout {
     grid-template-columns: 1fr !important;
-  }
-
-  .page-risk #risk-actions .riskActionGroup:nth-child(n+2) {
-    display: none;
-  }
-
-  .riskAlertCard summary,
-  .riskIssueTable tbody tr {
-    min-height: 56px;
   }
 }
 
@@ -11852,23 +10825,14 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .card,
-  .riskSection,
-  .manualSyncPanel {
+.manualSyncPanel {
     border-radius: 18px !important;
     padding: 14px !important;
     background: #111820 !important;
   }
 
-  .dashboardHero,
-  .investmentHero,
-  .riskConclusionSection {
+  .investmentHero {
     border-radius: 20px !important;
-  }
-
-  .page-dashboard .appTaskList {
-    display: grid !important;
-    gap: 8px;
-    margin: 10px 0;
   }
 
   .appTaskRow,
@@ -11892,17 +10856,13 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     white-space: nowrap;
   }
 
-  .metricStrip,
   .page-investments .investmentHeroGrid,
-  .ledgerKpiGrid,
-  .riskMetricGrid {
+.ledgerKpiGrid {
     gap: 8px !important;
   }
 
-  .metricTile,
   .investmentHeroMetric,
-  .ledgerKpi,
-  .riskMetricCard {
+.ledgerKpi {
     min-height: 70px !important;
     padding: 10px 12px !important;
     border-radius: 15px !important;
@@ -11910,18 +10870,14 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     border-left-width: 3px;
   }
 
-  .metricTile .metricHelp,
   .investmentHeroMetric .help,
-  .ledgerKpi .hint,
-  .riskMetricHelp,
-  .investmentConclusionText {
+.ledgerKpi .hint,
+.investmentConclusionText {
     display: none !important;
   }
 
-  .metricTile .metricValue,
   .investmentHeroMetric .value,
-  .ledgerKpi .value,
-  .riskMetricCard .value {
+.ledgerKpi .value {
     font-size: 24px !important;
     font-variant-numeric: tabular-nums;
   }
@@ -12040,10 +10996,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     margin-top: 10px;
   }
 
-  .page-risk #risk-actions {
-    margin-top: 10px;
-  }
-
   .riskSecondaryGroup {
     margin-top: 8px;
     border: 1px solid rgba(255,255,255,.08);
@@ -12055,15 +11007,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .riskSecondaryGroup summary {
     font-weight: 900;
     color: var(--muted);
-  }
-
-  .page-risk #stress-tests,
-  .page-risk #concentration,
-  .page-risk #account-currency,
-  .page-risk #rebalance,
-  .page-risk #data-quality,
-  .page-risk #risk-details {
-    margin-top: 10px;
   }
 
   .page-ledger .accountIssueStrip {
@@ -12286,8 +11229,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .wrap,
-  .page-investments .wrap,
-  .page-risk .wrap {
+.page-investments .wrap {
     padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
@@ -13920,46 +12862,38 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 /* Mobile app consistency pass for non-investment pages.
    Investment holdings is the visual baseline and is intentionally left untouched. */
 @media (max-width: 760px) {
-  body.page-dashboard,
   body.page-accounts,
-  body.page-ledger,
-  body.page-risk,
-  body.page-data-sources,
-  body.page-research,
-  body.page-more {
+body.page-ledger,
+body.page-data-sources,
+body.page-research,
+body.page-more {
     overflow-x: hidden;
     background: #070a0f;
   }
 
-  body.page-dashboard .wrap,
   body.page-accounts .wrap,
-  body.page-ledger .wrap,
-  body.page-risk .wrap,
-  body.page-data-sources .wrap,
-  body.page-research .wrap,
-  body.page-more .wrap {
+body.page-ledger .wrap,
+body.page-data-sources .wrap,
+body.page-research .wrap,
+body.page-more .wrap {
     max-width: 100%;
     padding-inline: 16px;
     padding-bottom: calc(88px + env(safe-area-inset-bottom));
   }
 
-  body.page-dashboard .pageHeader,
   body.page-accounts .pageHeader,
-  body.page-ledger .pageHeader,
-  body.page-risk .pageHeader,
-  body.page-data-sources .pageHeader,
-  body.page-research .pageHeader,
-  body.page-more .pageHeader {
+body.page-ledger .pageHeader,
+body.page-data-sources .pageHeader,
+body.page-research .pageHeader,
+body.page-more .pageHeader {
     margin: 10px 0 12px;
   }
 
-  body.page-dashboard .card,
   body.page-accounts .card,
-  body.page-ledger .card,
-  body.page-risk .card,
-  body.page-data-sources .card,
-  body.page-research .card,
-  body.page-more .card {
+body.page-ledger .card,
+body.page-data-sources .card,
+body.page-research .card,
+body.page-more .card {
     border-color: rgba(255,255,255,.08);
     border-radius: 18px;
     background: #10161d;
@@ -13967,24 +12901,20 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     box-shadow: none;
   }
 
-  body.page-dashboard details.card,
   body.page-accounts details.card,
-  body.page-ledger details.card,
-  body.page-risk details.card,
-  body.page-data-sources details.card,
-  body.page-research details.card,
-  body.page-more details.card {
+body.page-ledger details.card,
+body.page-data-sources details.card,
+body.page-research details.card,
+body.page-more details.card {
     padding: 0;
     overflow: hidden;
   }
 
-  body.page-dashboard details.card > summary,
   body.page-accounts details.card > summary,
-  body.page-ledger details.card > summary,
-  body.page-risk details.card > summary,
-  body.page-data-sources details.card > summary,
-  body.page-research details.card > summary,
-  body.page-more details.card > summary {
+body.page-ledger details.card > summary,
+body.page-data-sources details.card > summary,
+body.page-research details.card > summary,
+body.page-more details.card > summary {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -13994,23 +12924,19 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     list-style: none;
   }
 
-  body.page-dashboard details.card > summary::-webkit-details-marker,
   body.page-accounts details.card > summary::-webkit-details-marker,
-  body.page-ledger details.card > summary::-webkit-details-marker,
-  body.page-risk details.card > summary::-webkit-details-marker,
-  body.page-data-sources details.card > summary::-webkit-details-marker,
-  body.page-research details.card > summary::-webkit-details-marker,
-  body.page-more details.card > summary::-webkit-details-marker {
+body.page-ledger details.card > summary::-webkit-details-marker,
+body.page-data-sources details.card > summary::-webkit-details-marker,
+body.page-research details.card > summary::-webkit-details-marker,
+body.page-more details.card > summary::-webkit-details-marker {
     display: none;
   }
 
-  body.page-dashboard details.card > summary::after,
   body.page-accounts details.card > summary::after,
-  body.page-ledger details.card > summary::after,
-  body.page-risk details.card > summary::after,
-  body.page-data-sources details.card > summary::after,
-  body.page-research details.card > summary::after,
-  body.page-more details.card > summary::after {
+body.page-ledger details.card > summary::after,
+body.page-data-sources details.card > summary::after,
+body.page-research details.card > summary::after,
+body.page-more details.card > summary::after {
     content: "›";
     color: var(--muted);
     font-size: 22px;
@@ -14018,35 +12944,29 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     transition: transform .16s ease;
   }
 
-  body.page-dashboard details.card[open] > summary::after,
   body.page-accounts details.card[open] > summary::after,
-  body.page-ledger details.card[open] > summary::after,
-  body.page-risk details.card[open] > summary::after,
-  body.page-data-sources details.card[open] > summary::after,
-  body.page-research details.card[open] > summary::after,
-  body.page-more details.card[open] > summary::after {
+body.page-ledger details.card[open] > summary::after,
+body.page-data-sources details.card[open] > summary::after,
+body.page-research details.card[open] > summary::after,
+body.page-more details.card[open] > summary::after {
     transform: rotate(-90deg);
   }
 
-  body.page-dashboard details.card > :not(summary),
   body.page-accounts details.card > :not(summary),
-  body.page-ledger details.card > :not(summary),
-  body.page-risk details.card > :not(summary),
-  body.page-data-sources details.card > :not(summary),
-  body.page-research details.card > :not(summary),
-  body.page-more details.card > :not(summary) {
+body.page-ledger details.card > :not(summary),
+body.page-data-sources details.card > :not(summary),
+body.page-research details.card > :not(summary),
+body.page-more details.card > :not(summary) {
     margin: 0 14px 14px;
   }
 
-  .page-dashboard .dashboardHoldingRow,
   .page-accounts .mobileAccountRow,
-  .page-accounts .accountIssueRow,
-  .page-ledger .mobileLedgerRow,
-  .page-ledger .accountIssueRow,
-  .page-risk .riskAlertCard,
-  .page-data-sources .sourceHealthRow,
-  .page-research .researchListRow,
-  .page-more .moreRow {
+.page-accounts .accountIssueRow,
+.page-ledger .mobileLedgerRow,
+.page-ledger .accountIssueRow,
+.page-data-sources .sourceHealthRow,
+.page-research .researchListRow,
+.page-more .moreRow {
     min-height: 58px;
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 16px;
@@ -14054,32 +12974,15 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     padding: 13px 14px;
   }
 
-  .page-dashboard .dashboardHoldingRow small,
   .page-accounts .mobileAccountRow small,
-  .page-accounts .accountIssueRow small,
-  .page-ledger .mobileLedgerRow small,
-  .page-ledger .accountIssueRow small,
-  .page-data-sources .sourceHealthRow small,
-  .page-research .researchListRow small,
-  .page-more .moreRow small {
+.page-accounts .accountIssueRow small,
+.page-ledger .mobileLedgerRow small,
+.page-ledger .accountIssueRow small,
+.page-data-sources .sourceHealthRow small,
+.page-research .researchListRow small,
+.page-more .moreRow small {
     color: var(--muted);
     line-height: 1.25;
-  }
-
-  .page-risk .riskIssueTable,
-  .page-risk .riskIssueTable tbody,
-  .page-risk .riskIssueTable tr,
-  .page-risk .riskIssueTable td {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .page-risk .riskIssueTable tbody tr {
-    margin-bottom: 10px;
-  }
-
-  .page-risk .riskIssueTable tbody td:nth-child(5) {
-    min-width: 0;
   }
 
   .page-research .researchToolbar,
@@ -14115,13 +13018,11 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     white-space: nowrap;
   }
 
-  .page-dashboard .tableWrap,
   .page-accounts .tableWrap,
-  .page-ledger .tableWrap,
-  .page-risk .tableWrap,
-  .page-data-sources .tableWrap,
-  .page-research .tableWrap,
-  .page-more .tableWrap {
+.page-ledger .tableWrap,
+.page-data-sources .tableWrap,
+.page-research .tableWrap,
+.page-more .tableWrap {
     max-width: 100%;
     overflow-x: auto;
   }
@@ -14605,87 +13506,12 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
 }
 
-/* ---- Risk metrics v1 ---- */
-.page-risk-metrics {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(76,141,255,.14), transparent 32%),
-    radial-gradient(circle at 90% 8%, rgba(255,91,91,.11), transparent 28%),
-    #05070a;
-}
-
-.riskCommandHero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: end;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 24px;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.018)),
-    rgba(8,12,18,.94);
-  margin-bottom: 12px;
-  padding: 18px;
-}
-
 .riskEyebrow {
   color: #9fc2ff;
   font-size: 11px;
   font-weight: 950;
   letter-spacing: .16em;
   text-transform: uppercase;
-}
-
-.riskCommandHero h1 {
-  margin: 7px 0 0;
-  color: var(--text);
-  font-size: clamp(28px, 8vw, 42px);
-  line-height: .98;
-  letter-spacing: -.04em;
-}
-
-.riskCommandHero p {
-  max-width: 720px;
-  margin: 10px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 750;
-  line-height: 1.55;
-}
-
-.riskHeroStatus {
-  min-width: 108px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 18px;
-  background: rgba(255,255,255,.035);
-  padding: 12px;
-  text-align: right;
-}
-
-.riskHeroStatus span {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.riskHeroStatus strong {
-  display: block;
-  margin-top: 5px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 24px;
-  font-weight: 950;
-}
-
-.riskMetricPage {
-  display: grid;
-  gap: 12px;
-}
-
-.riskMetricDeck {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
 }
 
 .riskLimitCard,
@@ -14714,7 +13540,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 }
 
 .riskLimitTop,
-.riskPanelHead,
 .riskPriorityRow,
 .riskSourceRow {
   display: flex;
@@ -14731,8 +13556,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   letter-spacing: .08em;
 }
 
-.riskLimitTop h2,
-.riskPanelHead h2 {
+.riskLimitTop h2 {
   margin: 3px 0 0;
   color: var(--text);
   font-size: 15px;
@@ -14876,29 +13700,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   font-weight: 950;
 }
 
-@media (max-width: 980px) {
-  .riskMetricDeck {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 760px) {
-  .riskCommandHero,
   .riskFocusGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .riskCommandHero {
-    padding: 14px;
-    border-radius: 20px;
-  }
-
-  .riskHeroStatus {
-    width: 100%;
-    text-align: left;
-  }
-
-  .riskMetricDeck {
     grid-template-columns: 1fr;
   }
 
@@ -14914,36 +13717,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   body.page-investments[data-invest-tab="transactions"] #investment-conclusion,
   body.page-investments[data-invest-tab="allocation"] #investment-conclusion {
     display: none !important;
-  }
-
-  .page-risk .investAnchorNav {
-    display: flex !important;
-    gap: 22px !important;
-    margin: 0 0 12px !important;
-    padding: 0 0 8px !important;
-    border-bottom: 1px solid rgba(255,255,255,.08) !important;
-    overflow-x: auto !important;
-    scrollbar-width: none !important;
-    background: transparent !important;
-  }
-
-  .page-risk .investAnchorNav a {
-    flex: 0 0 auto !important;
-    min-height: 28px !important;
-    padding: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    color: var(--muted) !important;
-    font-size: 16px !important;
-    font-weight: 900 !important;
-    line-height: 28px !important;
-  }
-
-  .page-risk .investAnchorNav a.is-active,
-  .page-risk .investAnchorNav a[aria-current="page"] {
-    color: var(--text) !important;
-    box-shadow: inset 0 -2px 0 var(--accent) !important;
   }
 
   body.page-investments[data-invest-tab="analysis"] .mobilePortfolioHero,
@@ -15158,9 +13931,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     padding: 0 !important;
   }
 }
-
-/* ---- Risk Terminal MVP ---- */
-.page-risk .status-right { display: none; }
 .riskAppIntro {
   display: flex;
   align-items: flex-start;
@@ -15185,317 +13955,12 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.riskTerminalHero {
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 18px;
-  padding: 16px;
-  background: #0f141d;
-}
-.riskTerminalHero.red { border-color: rgba(248,81,73,.42); }
-.riskTerminalHero.yellow { border-color: rgba(240,185,11,.34); }
-.riskTerminalHeroTop {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.riskTerminalHeroTop strong {
-  display: block;
-  margin-top: 3px;
-  font-size: 30px;
-  line-height: 1;
-  letter-spacing: 0;
-}
-.riskTerminalLabel {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 800;
-}
-.riskTerminalHeroChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-.riskTerminalHeroChips span,
-.riskTerminalBadge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 900;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  color: var(--text-primary);
-}
-.riskTerminalHeroChips span.red {
-  color: #ff7b7b;
-  border-color: rgba(248,81,73,.42);
-  background: rgba(248,81,73,.12);
-}
-.riskTerminalHeroChips span.orange {
-  color: #ffbf66;
-  border-color: rgba(245,165,36,.42);
-  background: rgba(245,165,36,.12);
-}
-.riskTerminalHeroChips span.bluegray {
-  color: #9bb7d8;
-  border-color: rgba(88,166,255,.28);
-  background: rgba(88,166,255,.08);
-}
-.riskTerminalBadge.red { color: var(--bad); border-color: rgba(248,81,73,.42); background: rgba(248,81,73,.10); }
-.riskTerminalBadge.yellow { color: var(--warn); border-color: rgba(240,185,11,.42); background: rgba(240,185,11,.10); }
-.riskTerminalBadge.blue { color: var(--accent); border-color: rgba(88,166,255,.42); background: rgba(88,166,255,.10); }
-.riskTerminalBadge.gray { color: var(--text-secondary); }
-.riskTerminalDataHint {
-  margin-top: 10px;
-  color: #9bb7d8;
-  font-size: 12px;
-  font-weight: 800;
-}
-.riskTerminalMetrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 14px;
-}
-.riskTerminalMetrics div {
-  min-width: 0;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255,255,255,.08);
-}
-.riskTerminalMetrics span,
-.riskTerminalSheetGrid span {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-}
-.riskTerminalMetrics strong,
-.riskTerminalSheetGrid strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 18px;
-  font-variant-numeric: tabular-nums;
-}
-.riskTerminalSectionHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 8px 0 10px;
-}
-.riskTerminalSectionHead h2 {
-  margin: 0;
-  font-size: 22px;
-}
-.riskTerminalSectionHead span {
-  color: var(--text-secondary);
-  font-weight: 900;
-}
-.riskTerminalList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.riskTerminalTask {
-  width: 100%;
-  min-height: 64px;
-  display: grid;
-  grid-template-columns: 4px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 14px;
-  background: #0d1118;
-  padding: 10px 12px 10px 0;
-  color: var(--text-primary);
-  text-align: left;
-}
-.riskTerminalTaskBar {
-  width: 4px;
-  height: 100%;
-  min-height: 42px;
-  border-radius: 0 6px 6px 0;
-  background: rgba(255,255,255,.18);
-}
-.riskTerminalTask.red .riskTerminalTaskBar { background: var(--bad); }
-.riskTerminalTask.yellow .riskTerminalTaskBar { background: var(--warn); }
-.riskTerminalTask.blue .riskTerminalTaskBar { background: var(--accent); }
-.riskTerminalTaskMain { min-width: 0; }
-.riskTerminalTaskTitle {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 15px;
-  font-weight: 950;
-}
-.riskTerminalTaskMeta {
-  display: block;
-  margin-top: 5px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.riskTerminalTaskAdvice {
-  display: block;
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.25;
-}
-.riskTerminalTaskAction {
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  font-size: 12px;
-  font-weight: 950;
-  white-space: nowrap;
-}
-.riskTerminalCompactDetails {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-.riskTerminalDetails {
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 16px;
-  background: #0d1118;
-  margin: 10px 0;
-  overflow: hidden;
-}
-.riskTerminalDetails > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  cursor: pointer;
-  list-style: none;
-  font-weight: 950;
-}
-.riskTerminalDetails > summary::-webkit-details-marker { display: none; }
-.riskTerminalDetails > summary strong {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 900;
-}
-.riskTerminalDetails[open] > summary {
-  border-bottom: 1px solid rgba(255,255,255,.08);
-}
-.riskTerminalDetails > div {
-  padding: 14px;
-}
-.riskTerminalDetailList,
-.riskTerminalExposureList,
-.riskTerminalSourceList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.riskTerminalDetailRow,
-.riskTerminalExposure,
-.riskTerminalSourceRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255,255,255,.06);
-}
-.riskTerminalDetailRow span,
-.riskTerminalExposure span,
-.riskTerminalSourceRow span {
-  min-width: 0;
-  color: var(--text-primary);
-  font-weight: 900;
-}
-.riskTerminalDetailRow small,
-.riskTerminalExposure small {
-  display: block;
-  margin-top: 3px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  max-width: 230px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.riskTerminalDetailRow strong,
-.riskTerminalExposure strong,
-.riskTerminalSourceRow strong {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.riskTerminalSheet h3 {
-  margin: 10px 0 12px;
-}
-.riskTerminalSheet h4,
-.riskTerminalDetails h4 {
-  margin: 14px 0 8px;
-  color: var(--text-primary);
-}
-.riskTerminalSheet p {
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.55;
-}
-.riskTerminalSheetGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.riskTerminalSheetGrid div {
-  padding: 10px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 12px;
-  background: rgba(255,255,255,.03);
-}
-.riskTerminalChecks {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.riskTerminalNotice {
-  margin-top: 10px !important;
-  color: #9bb7d8 !important;
-  font-weight: 800;
-}
-.riskTerminalCode,
-.riskTerminalRaw {
-  padding: 10px;
-  border-radius: 12px;
-  background: rgba(255,255,255,.04);
-  color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 12px;
-  overflow: auto;
-}
-.riskTerminalMini,
-.riskTerminalEmpty {
-  color: var(--text-secondary);
-  font-weight: 800;
-}
 @media (max-width: 760px) {
-  .page-risk .statusbar .status-item:not(#asof) { display: none; }
-  .page-risk .riskWorkbench { padding-top: 12px; }
-  .page-risk .pageHeader { display: none; }
   .riskAppIntro { display: block; }
   .riskAppActions {
     margin-top: 10px;
     justify-content: flex-start;
   }
-  .page-risk .investAnchorNav { margin-bottom: 14px; }
-  .riskConclusionSection { margin-top: 8px; }
-  .riskTerminalMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .riskTerminalMetrics strong { font-size: 15px; }
-  .riskTerminalHeroTop strong { font-size: 28px; }
 }
 
 /* Lookthrough MVP: compact exposure and quality module. */
@@ -16613,42 +15078,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 .sheetSourceRow b { color: #f5f7fa; }
 .sheetSourceRow span { color: var(--muted); }
 @media (max-width: 760px) {
-  .appPageHero {
-    margin: 0 12px 12px;
-    padding: 16px 14px;
-    border-radius: 0;
-    border-left: 0;
-    border-right: 0;
-    background:
-      radial-gradient(circle at top right, rgba(88,166,255,.16), transparent 38%),
-      linear-gradient(180deg, rgba(15,20,27,.98), rgba(7,10,15,.98));
-  }
-
-  .appHeroTop {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .appHeroTop p {
-    max-width: none;
-  }
-
-  .appHeroBadgeGroup,
-  .appHeroLinks {
-    justify-content: flex-start;
-  }
-
-  .appShortcutGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .appShortcutCard {
-    min-height: 86px;
-    padding: 11px;
-    border-radius: 16px;
-  }
-
   .analysisSwitch { width: 100%; }
   .analysisSwitch button { flex: 1; }
   .lookthroughPanel { padding-top: 12px; }
@@ -16745,47 +15174,12 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 }
 
 @media (max-width: 760px) {
-  body.page-more .statusbar,
-  body.page-more .appPageHero {
+  body.page-more .statusbar {
     display: none !important;
   }
 
   body.page-more .wrap {
     padding: 12px 16px calc(96px + env(safe-area-inset-bottom, 0px)) !important;
-  }
-
-  .page-more #morePrimarySummary {
-    display: block !important;
-    min-height: 0;
-    margin: 0 0 14px;
-    padding: 18px 16px;
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 24px;
-    background:
-      radial-gradient(circle at 100% 0%, rgba(76,141,255,.22), transparent 38%),
-      linear-gradient(180deg, rgba(16,22,30,.98), rgba(8,12,17,.98));
-    box-shadow: none;
-  }
-
-  .page-more .mobileHeroValue {
-    margin-top: 6px;
-    font-size: 34px;
-    line-height: 1;
-  }
-
-  .page-more .mobileHeroStats {
-    margin-top: 18px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .page-more .mobileHeroStat {
-    min-width: 0;
-  }
-
-  .page-more .mobileHeroStat strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .page-more .moreHub {
