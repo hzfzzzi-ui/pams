@@ -141,6 +141,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
+      - scheduler_state:/scheduler-state:ro
     ports:
       - "8090:8000"
 
@@ -182,6 +183,9 @@ services:
     environment:
       PAMS_API_BASE: http://pams-api:8000/api
       TZ: UTC
+      PAMS_REFRESH_STATE_PATH: /state/refresh.json
+    volumes:
+      - scheduler_state:/state
 
   # Collectors + schedulers (we'll implement)
   # NOTE: Commented out until the image is built
@@ -206,4 +210,5 @@ volumes:
   caddy_data:
   caddy_config:
   pg_data:
+  scheduler_state:
   firefly_upload:

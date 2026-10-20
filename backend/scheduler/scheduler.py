@@ -14,11 +14,13 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 import schedule
+from refresh_state import RefreshJournal, latest_due_date, result_issues
 
 
 logging.basicConfig(
@@ -39,6 +41,7 @@ ASIA_PACIFIC_REFRESH_TZ = os.environ.get("PAMS_ASIA_PACIFIC_REFRESH_TZ", "Asia/S
 NORTH_AMERICA_REFRESH_TIME = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TIME", "16:30")
 NORTH_AMERICA_REFRESH_TZ = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TZ", "America/New_York")
 INVESTMENT_RETURN_START = os.environ.get("PAMS_INVESTMENT_RETURN_START", "2026-01-01")
+STATE_PATH = Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/state/refresh.json"))
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -56,15 +59,27 @@ def legacy_strategy_jobs_enabled() -> bool:
 def _call(endpoint: str, label: str):
     """Call an /api write endpoint."""
     url = f"{API_BASE}/{endpoint}"
-    try:
-        resp = requests.post(url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        logger.info("[%s] success: %s", label, data)
-        return data
-    except requests.RequestException as exc:
-        logger.error("[%s] failed: %s", label, exc)
-        return None
+    return _request_json("post", url, label)
+
+
+def _request_json(method: str, url: str, label: str, **kwargs):
+    for attempt in range(3):
+        try:
+            resp = getattr(requests, method)(url, timeout=REQUEST_TIMEOUT, **kwargs)
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, dict):
+                raise ValueError("expected object response")
+            logger.info("[%s] response received", label)
+            return data
+        except (requests.RequestException, ValueError) as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            logger.warning("[%s] attempt=%s failed=%s status=%s", label, attempt + 1, type(exc).__name__, status)
+            if status and 400 <= status < 500 and status != 429:
+                break
+            if attempt < 2:
+                time.sleep(attempt + 1)
+    return None
 
 
 def _get(endpoint: str, label: str):
@@ -84,15 +99,7 @@ def _get(endpoint: str, label: str):
 def _post_root(endpoint: str, label: str):
     """Call a root-level write endpoint."""
     url = f"{APP_BASE}/{endpoint}"
-    try:
-        resp = requests.post(url, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        logger.info("[%s] success: %s", label, data)
-        return data
-    except requests.RequestException as exc:
-        logger.error("[%s] failed: %s", label, exc)
-        return None
+    return _request_json("post", url, label)
 
 
 def _call_legacy_strategy(endpoint: str, label: str):
@@ -104,31 +111,18 @@ def _call_legacy_strategy(endpoint: str, label: str):
 
 def sync_ibkr_flex():
     """Run the IBKR Flex sync when API credentials are configured."""
-    try:
-        resp = requests.get(f"{API_BASE}/ibkr/flex/status", timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        status = resp.json()
-    except requests.RequestException as exc:
-        logger.error("[IBKR Flex] status check failed: %s", exc)
+    status = _request_json("get", f"{API_BASE}/ibkr/flex/status", "IBKR Flex status")
+    if not status:
         return None
 
     if not status.get("configured"):
         logger.warning("[IBKR Flex] skipped: missing API-side Flex token/query id")
         return {"skipped": True, "reason": "ibkr_flex_not_configured"}
 
-    try:
-        resp = requests.post(
-            f"{API_BASE}/ibkr/flex/sync",
-            json={"align_to_latest_snapshot": True},
-            timeout=REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        logger.info("[IBKR Flex] success: %s", data)
-        return data
-    except requests.RequestException as exc:
-        logger.error("[IBKR Flex] failed: %s", exc)
-        return None
+    return _request_json(
+        "post", f"{API_BASE}/ibkr/flex/sync", "IBKR Flex",
+        json={"align_to_latest_snapshot": False},
+    )
 
 
 def refresh_daily():
@@ -159,41 +153,95 @@ def refresh_investment_return_snapshots(sections: tuple[str, ...]):
                 "investment/return-series/snapshot"
                 f"?start={INVESTMENT_RETURN_START}&interval=daily&baseCurrency=CNY"
             )
-            _post_root(endpoint, "total return snapshot")
+            result = _post_root(endpoint, "total return snapshot")
         else:
             endpoint = (
                 "investment/section-return-series/snapshot"
                 f"?section={section}&start={INVESTMENT_RETURN_START}"
                 "&interval=daily&baseCurrency=CNY"
             )
-            _post_root(endpoint, f"{section} return snapshot")
+            result = _post_root(endpoint, f"{section} return snapshot")
+        if result_issues(result) or int(result.get("written") or 0) <= 0:
+            return {"status": "blocked", "errors": [f"snapshot_{section}"]}
+    return {"status": "ok"}
 
 
-def refresh_post_close_investments():
+def refresh_post_close_investments(target_date=None):
     """Asia-Pacific post-close investment refresh at 15:05 Beijing time."""
     logger.info("=== Asia-Pacific post-close investment refresh started ===")
-    _call("fx-rates/refresh", "FX rates")
-    sync_ibkr_flex()
-    _call("prices/refresh/a-stock", "A-share close")
-    _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")
-    refresh_fund_nav_estimates(use_intraday_estimate=True)
-    _call("prices/refresh/us-stock?market=hk&priceBasis=estimate", "Hong Kong estimate")
-    _call("prices/refresh/us-stock?market=us&priceBasis=estimate", "US overnight estimate")
-    _call("prices/refresh/precious-metal", "Precious metals")
-    refresh_investment_return_snapshots(("a_stock", "a_fund", "us_stock", "precious_metal", "total"))
-    logger.info("=== Asia-Pacific post-close investment refresh finished ===")
+    target = target_date or latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ)
+    return _refresh_window(target, [
+        ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
+        ("flex", sync_ibkr_flex),
+        ("a_stock", lambda: _call("prices/refresh/a-stock", "A-share close")),
+        ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
+        ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=True)),
+        ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=estimate", "Hong Kong estimate")),
+        ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=estimate", "US overnight estimate")),
+        ("metal", lambda: _call("prices/refresh/precious-metal", "Precious metals")),
+    ], ("a_stock", "a_fund", "us_stock", "precious_metal", "total"))
 
 
-def refresh_north_america_post_close_investments():
+def refresh_north_america_post_close_investments(target_date=None):
     """North America post-close refresh in New York market time."""
     logger.info("=== North America post-close investment refresh started ===")
-    _call("fx-rates/refresh", "FX rates")
-    sync_ibkr_flex()
-    refresh_fund_nav_estimates(use_intraday_estimate=False)
-    _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")
-    _call("prices/refresh/us-stock?market=us&priceBasis=close", "US confirmed close")
-    refresh_investment_return_snapshots(("a_fund", "us_stock", "precious_metal", "total"))
-    logger.info("=== North America post-close investment refresh finished ===")
+    target = target_date or latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ)
+    return _refresh_window(target, [
+        ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
+        ("flex", sync_ibkr_flex),
+        ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
+        ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),
+        ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close", "US confirmed close")),
+    ], ("a_fund", "us_stock", "precious_metal", "total"))
+
+
+def _refresh_window(target, steps, sections):
+    reports = []
+    for name, callback in steps:
+        result = callback()
+        expected = target
+        if name == "flex" and "a_stock" in sections:
+            expected -= timedelta(days=1)
+            while expected.weekday() >= 5:
+                expected -= timedelta(days=1)
+        issues = result_issues(result, target=expected)
+        if isinstance(result, dict):
+            if name == "fx" and int(result.get("stored") or 0) <= 0:
+                issues.append("missing_fx_rows")
+            elif name == "flex" and not result.get("statement_as_of"):
+                issues.append("missing_statement_date")
+            elif name == "fund" and ("processed" not in result or len(result.get("rows") or []) != result["processed"]):
+                issues.append("incomplete_fund_response")
+            elif name in {"a_stock", "korea", "hk", "us", "metal"} and "found" not in result:
+                issues.append("missing_coverage")
+        reports.append({"name": name, "issues": issues})
+        if issues:
+            logger.error("Refresh blocked: step=%s issues=%s", name, issues)
+            return {"status": "blocked", "steps": reports}
+    result = refresh_investment_return_snapshots(sections)
+    return {"status": "blocked" if result_issues(result) else "ok", "steps": reports}
+
+
+def run_due_window(key, now=None):
+    current = now or datetime.now(timezone.utc)
+    if key == "asia":
+        target = latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ, current)
+        callback = refresh_post_close_investments
+    else:
+        target = latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ, current)
+        callback = refresh_north_america_post_close_investments
+    beijing = current.astimezone(ZoneInfo("Asia/Shanghai"))
+    writable_date = beijing.date()
+    if key != "asia" and beijing.hour < 7:
+        writable_date -= timedelta(days=1)
+    if target != writable_date:
+        # Current-price endpoints cannot safely write a past trading date.
+        callback = lambda _target: {"status": "blocked", "steps": [{"name": "history", "issues": ["historical_backfill_required"]}]}
+    try:
+        return RefreshJournal(STATE_PATH).run(key, target, callback)
+    except (OSError, ValueError):
+        logger.exception("Refresh checkpoint unavailable; publication blocked")
+        return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
 def refresh_crypto():
@@ -291,9 +339,9 @@ def main():
         NORTH_AMERICA_REFRESH_TZ,
     )
 
-    schedule.every().day.at(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ).do(refresh_post_close_investments)
+    schedule.every().day.at(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ).do(lambda: run_due_window("asia"))
     schedule.every().day.at(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ).do(
-        refresh_north_america_post_close_investments
+        lambda: run_due_window("north_america")
     )
     schedule.every(30).minutes.do(refresh_crypto)
     schedule.every().day.at("07:25").do(refresh_trend_state)
@@ -309,10 +357,10 @@ def main():
     logger.info("Waiting for API readiness (10 seconds)...")
     time.sleep(10)
     refresh_crypto()
-    if should_catch_up_post_close_investments():
-        refresh_post_close_investments()
-    if should_catch_up_north_america_investments():
-        refresh_north_america_post_close_investments()
+    run_due_window("asia")
+    run_due_window("north_america")
+    schedule.every(30).minutes.do(lambda: run_due_window("asia"))
+    schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
 
     while True:
         schedule.run_pending()
