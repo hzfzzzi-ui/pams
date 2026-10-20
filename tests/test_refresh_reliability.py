@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -198,3 +199,18 @@ def test_failed_snapshot_step_remains_in_audit(monkeypatch):
     result = module._refresh_window(date(2026, 6, 22), [], ("total",))
     assert result["status"] == "blocked"
     assert "snapshot_total" in result["steps"][-1]["issues"]
+
+
+@pytest.mark.parametrize("job", [[], {"last_success_date": "invalid"}, {"recent_runs": {}}])
+def test_structurally_invalid_checkpoint_is_rejected(tmp_path, job):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"version": 1, "jobs": {"asia": job}}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        RefreshJournal(path).run("asia", date(2026, 6, 22), lambda _: pytest.fail("must not refresh"))
+
+
+def test_checkpoint_cannot_move_success_backwards(tmp_path):
+    journal = RefreshJournal(tmp_path / "state.json")
+    journal.run("asia", date(2026, 6, 23), lambda _: {"status": "ok"})
+    with pytest.raises(ValueError):
+        journal.run("asia", date(2026, 6, 22), lambda _: pytest.fail("must not refresh"))

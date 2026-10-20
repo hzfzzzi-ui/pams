@@ -26,6 +26,12 @@ def read_state(path: Path) -> dict:
     state = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(state, dict) or state.get("version") != 1 or not isinstance(state.get("jobs"), dict):
         raise ValueError("invalid refresh checkpoint")
+    for job in state["jobs"].values():
+        if not isinstance(job, dict) or not isinstance(job.get("recent_runs", []), list):
+            raise ValueError("invalid job checkpoint")
+        for field in ("last_success_date", "history_gap_since", "target_date"):
+            if job.get(field) is not None:
+                date.fromisoformat(str(job[field]))
     return state
 
 
@@ -92,6 +98,8 @@ class RefreshJournal:
             return {"status": "skipped", "reason": "already_completed"}
         gap = previous.get("history_gap_since")
         last = previous.get("last_success_date")
+        if last and date.fromisoformat(last) > target:
+            raise ValueError("checkpoint is ahead of target date")
         if last:
             candidate = date.fromisoformat(last) + timedelta(days=1)
             while candidate.weekday() >= 5:
