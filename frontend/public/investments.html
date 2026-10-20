@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css?v=20260620-mobile-density-v1" />
-  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-mobile-polish-v1" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body id="top" class="page-investments app-shell">
@@ -211,7 +211,7 @@
       </div>
     </div>
 
-    <details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">
+    <details id="category-detail-shell" class="investmentDetailFold" hidden>
       <summary class="investmentDetailSummary">
         <span>
           <strong>分类明细</strong>
@@ -690,7 +690,7 @@
   </div>
 
   <script type="module" src="assets/js/holdings.js?v=20260620-data-state-v1"></script>
-  <script type="module" src="assets/js/holdings_categories.js?v=20260620-investment-focus-v2"></script>
+  <script type="module" src="assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1"></script>
   <script type="module" src="assets/js/lookthrough.js?v=20260620-data-state-v1"></script>
   <script type="module" src="assets/js/transactions.js?v=20260620-data-state-v1"></script>
   <script type="module" src="assets/js/portfolio_risk.js?v=20260620-data-state-v1"></script>

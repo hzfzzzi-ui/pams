@@ -966,6 +966,124 @@ body.app-shell :focus-visible {
   }
 }
 
+/* PAMS Visual Cohesion v1 */
+body.app-shell {
+  font-size: var(--pams-font-size-base);
+}
+
+body.app-shell .pageHeader h1 {
+  font-size: clamp(24px, 3vw, 32px);
+}
+
+body.app-shell .pageSubtitle {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 620px;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3 {
+  font-size: 20px;
+}
+
+body.app-shell .card,
+body.app-shell details.card,
+body.app-shell .investmentPanel,
+body.app-shell .portfolioRiskCategory,
+body.app-shell .portfolioRiskChecklistCard,
+body.app-shell .portfolioRuleNode,
+body.app-shell .tradeReviewSubsection,
+body.app-shell .moreGroup,
+body.app-shell .qualityBox,
+body.app-shell .sourceTodo,
+body.app-shell .syncCenterPanel,
+body.app-shell .assetMasterFund {
+  background: var(--pams-surface-raised);
+  color: var(--pams-text);
+}
+
+body.app-shell .appWorkHeader {
+  background: var(--pams-surface-raised);
+}
+
+body.app-shell .appWorkHeader h2 {
+  font-size: clamp(22px, 3vw, 26px);
+}
+
+body.app-shell .appWorkHeader p {
+  display: none;
+}
+
+body.app-shell .appWorkEyebrow {
+  color: var(--pams-muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body.app-shell .moreGroupTitle,
+body.app-shell .kpi-label,
+body.app-shell .metricPanel .label,
+body.app-shell .ipsStatusLabel,
+body.app-shell .mobileHeroLabel,
+body.app-shell .accountMobileLabel {
+  color: var(--pams-muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+body.app-shell .moreRow {
+  border-left-color: color-mix(in srgb, var(--pams-info) 48%, transparent);
+}
+
+body.app-shell .moreRow.accent-data,
+body.app-shell .moreRow.accent-account {
+  border-left-color: color-mix(in srgb, var(--pams-info) 58%, transparent);
+}
+
+body.app-shell .moreRow.accent-invest {
+  border-left-color: color-mix(in srgb, var(--pams-good) 58%, transparent);
+}
+
+body.app-shell .moreRow.accent-risk {
+  border-left-color: color-mix(in srgb, var(--pams-bad) 58%, transparent);
+}
+
+body.app-shell .moreRow.accent-research {
+  border-left-color: color-mix(in srgb, var(--pams-warn) 58%, transparent);
+}
+
+body.app-shell .moreRow.accent-system {
+  border-left-color: var(--pams-border-strong);
+}
+
+@media (max-width: 760px) {
+  body.app-shell .statusbar,
+  body.app-shell .pageHeader {
+    display: none !important;
+  }
+
+  body.app-shell .wrap,
+  body.page-investments .wrap {
+    padding-top: 10px !important;
+  }
+
+  body.app-shell .appWorkHeader {
+    display: none !important;
+  }
+
+  body.app-shell .sectionTitle h2,
+  body.app-shell .sectionTitle h3 {
+    font-size: 18px !important;
+  }
+
+  body.app-shell .moreGroupTitle {
+    padding: 0 2px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body.app-shell *,
   body.app-shell *::before,
