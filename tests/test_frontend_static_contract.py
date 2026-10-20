@@ -239,15 +239,19 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     for page in _formal_html_pages():
         html = _read_public(page)
         parsed = _parse_html(html)
-        style_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith("assets/css/style.css"))
-        design_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith("assets/css/design-system.css"))
+        style_name = "style-phone" if page == "investments.html" else "style"
+        design_name = "design-system-phone" if page == "investments.html" else "design-system"
+        style_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith(f"assets/css/{style_name}.css"))
+        design_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith(f"assets/css/{design_name}.css"))
         design_href = parsed.stylesheets[design_index]
 
         assert style_index < design_index
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
-        assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260623-nav-growth-overflow-v1"
-        assert design_href == "assets/css/design-system.css?v=20260620-visual-cohesion-v1"
+        style_version = "20261020-phone-restore-v1" if page == "investments.html" else "20260623-nav-growth-overflow-v1"
+        design_version = "20261020-phone-restore-v1" if page == "investments.html" else "20260620-visual-cohesion-v1"
+        assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
+        assert design_href == f"assets/css/{design_name}.css?v={design_version}"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
             ("investments.html", "投资"),
@@ -771,15 +775,15 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260628-holding-cost-display-v1" in html
+    assert "assets/js/holdings.js?v=20261020-phone-restore-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
-    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2" in html
+    assert "assets/js/holdings_categories.js?v=20261020-phone-restore-v1" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
-    assert "style.css?v=20260623-nav-growth-overflow-v1" in html
+    assert "style-phone.css?v=20261020-phone-restore-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -1370,7 +1374,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
     assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in html
-    assert "assets/css/style.css?v=20260623-nav-growth-overflow-v1" in html
+    assert "assets/css/style-phone.css?v=20261020-phone-restore-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
