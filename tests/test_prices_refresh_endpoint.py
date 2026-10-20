@@ -406,39 +406,40 @@ def test_us_stock_estimate_prices_prefer_yahoo_premarket_quote(monkeypatch):
     assert calls == [{"period": "7d", "auto_adjust": False}]
 
 
-def test_us_stock_estimate_prices_prefer_ibkr_over_yahoo(monkeypatch):
+def test_us_stock_estimate_prices_prefer_databento_over_yahoo(monkeypatch):
     monkeypatch.setattr(
         prices,
         "_fetch_us_stock_prices_yf",
         lambda symbols, *, prefer_live_quote=False: {"MU": 1033.88, "NVDA": 207.55},
     )
-    monkeypatch.setattr(prices, "_fetch_ibkr_tws_estimate_prices", lambda symbols: {})
 
-    def fake_ibkr(symbols):
+    def fake_databento(symbols):
         prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
-            "source": "ibkr_client_portal_estimate",
-            "provider": "ibkr_client_portal",
+            "source": "databento_estimate",
+            "provider": "databento",
+            "session": "all_hours",
             "quote_type": "last",
             "confidence": "high",
             "price": 1047.0,
         }
         return {"MU": 1047.0}
 
-    monkeypatch.setattr(prices, "_fetch_ibkr_client_portal_estimate_prices", fake_ibkr)
+    monkeypatch.setattr(prices, "_fetch_databento_us_estimate_prices", fake_databento)
 
     result = prices._fetch_us_stock_estimate_prices(["MU", "NVDA"])
 
     assert result == {"MU": 1047.0, "NVDA": 207.55}
-    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "ibkr_client_portal_estimate"
+    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "databento_estimate"
     assert prices._US_ESTIMATE_QUOTE_CACHE["NVDA"]["source"] == "yahoo_estimate"
 
 
-def test_us_stock_estimate_prices_prefer_client_portal_then_tws_then_yahoo(monkeypatch):
+def test_us_stock_estimate_prices_prefer_databento_over_ibkr_fallback(monkeypatch):
     monkeypatch.setattr(
         prices,
         "_fetch_us_stock_prices_yf",
         lambda symbols, *, prefer_live_quote=False: {"MU": 1033.88, "NVDA": 207.55},
     )
+    monkeypatch.setenv("PAMS_IBKR_ESTIMATE_FALLBACK_ENABLED", "true")
 
     def fake_tws(symbols):
         prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
@@ -462,22 +463,35 @@ def test_us_stock_estimate_prices_prefer_client_portal_then_tws_then_yahoo(monke
         }
         return {"MU": 1048.0}
 
+    def fake_databento(symbols):
+        prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
+            "source": "databento_estimate",
+            "provider": "databento",
+            "session": "all_hours",
+            "quote_type": "DBEQ.BASIC:trades:price",
+            "confidence": "high",
+            "price": 1050.0,
+        }
+        return {"MU": 1050.0}
+
     monkeypatch.setattr(prices, "_fetch_ibkr_tws_estimate_prices", fake_tws)
     monkeypatch.setattr(prices, "_fetch_ibkr_client_portal_estimate_prices", fake_client_portal)
+    monkeypatch.setattr(prices, "_fetch_databento_us_estimate_prices", fake_databento)
 
     result = prices._fetch_us_stock_estimate_prices(["MU", "NVDA"])
 
-    assert result == {"MU": 1048.0, "NVDA": 207.55}
-    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "ibkr_client_portal_estimate"
+    assert result == {"MU": 1050.0, "NVDA": 207.55}
+    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "databento_estimate"
     assert prices._US_ESTIMATE_QUOTE_CACHE["NVDA"]["source"] == "yahoo_estimate"
 
 
-def test_us_stock_estimate_prices_uses_tws_when_client_portal_unavailable(monkeypatch):
+def test_us_stock_estimate_prices_uses_tws_when_enabled_and_databento_unavailable(monkeypatch):
     monkeypatch.setattr(
         prices,
         "_fetch_us_stock_prices_yf",
         lambda symbols, *, prefer_live_quote=False: {"MU": 1033.88, "NVDA": 207.55},
     )
+    monkeypatch.setenv("PAMS_IBKR_ESTIMATE_FALLBACK_ENABLED", "true")
 
     def fake_tws(symbols):
         prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
@@ -492,12 +506,57 @@ def test_us_stock_estimate_prices_uses_tws_when_client_portal_unavailable(monkey
 
     monkeypatch.setattr(prices, "_fetch_ibkr_tws_estimate_prices", fake_tws)
     monkeypatch.setattr(prices, "_fetch_ibkr_client_portal_estimate_prices", lambda symbols: {})
+    monkeypatch.setattr(prices, "_fetch_databento_us_estimate_prices", lambda symbols: {})
 
     result = prices._fetch_us_stock_estimate_prices(["MU", "NVDA"])
 
     assert result == {"MU": 1047.0, "NVDA": 207.55}
     assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "ibkr_tws_estimate"
     assert prices._US_ESTIMATE_QUOTE_CACHE["NVDA"]["source"] == "yahoo_estimate"
+
+
+def test_fetch_databento_us_estimate_prices_records_quote_source(monkeypatch):
+    import pandas as pd
+
+    captured = {}
+
+    class FakeResponse:
+        def to_df(self, price_type="fixed"):
+            captured["price_type"] = price_type
+            return pd.DataFrame(
+                [
+                    {"symbol": "MU", "ts_event": "2026-06-24T20:00:00Z", "price": 1160.0},
+                    {"symbol": "MU", "ts_event": "2026-06-24T20:05:00Z", "price": 1166.0},
+                ]
+            )
+
+    class FakeTimeseries:
+        def get_range(self, **kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+
+    class FakeHistorical:
+        def __init__(self, key):
+            captured["key"] = key
+            self.timeseries = FakeTimeseries()
+
+    monkeypatch.setenv("DATABENTO_API_KEY", "test-key")
+    monkeypatch.setenv("PAMS_DATABENTO_DATASET", "DBEQ.BASIC")
+    monkeypatch.setenv("PAMS_DATABENTO_SCHEMA", "trades")
+    monkeypatch.setitem(sys.modules, "databento", types.SimpleNamespace(Historical=FakeHistorical))
+
+    prices._US_ESTIMATE_QUOTE_CACHE.clear()
+    result = prices._fetch_databento_us_estimate_prices(["MU"])
+
+    assert result == {"MU": 1166.0}
+    assert captured["key"] == "test-key"
+    assert captured["dataset"] == "DBEQ.BASIC"
+    assert captured["schema"] == "trades"
+    assert captured["symbols"] == ["MU"]
+    assert captured["price_type"] == "float"
+    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "databento_estimate"
+    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["provider"] == "databento"
+    assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["confidence"] == "high"
 
 
 def test_ibkr_estimate_filter_rejects_yahoo_fallback_for_ibkr_holdings():
@@ -529,7 +588,7 @@ def test_ibkr_estimate_filter_rejects_yahoo_fallback_for_ibkr_holdings():
             "name": "Micron",
             "account_code": "ibkr",
             "source": "yahoo_estimate",
-            "reason": "ibkr_estimate_requires_ibkr_quote",
+            "reason": "ibkr_estimate_requires_high_confidence_quote",
         }
     ]
 
@@ -557,6 +616,30 @@ def test_ibkr_estimate_filter_keeps_plausible_project_price_scale():
     assert skipped == []
     assert filtered == {"MU": 1170.16}
     assert "scale_correction" not in prices._US_ESTIMATE_QUOTE_CACHE["MU"]
+
+
+def test_ibkr_estimate_filter_accepts_databento_quote_for_ibkr_holdings():
+    prices._US_ESTIMATE_QUOTE_CACHE.clear()
+    prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
+        "source": "databento_estimate",
+        "provider": "databento",
+        "confidence": "high",
+    }
+
+    filtered, skipped = prices._filter_us_estimate_prices_for_holdings(
+        [
+            {
+                "symbol": "MU",
+                "name": "Micron",
+                "account_code": "ibkr",
+                "current_price": Decimal("1133.99"),
+            }
+        ],
+        {"MU": 1166.0},
+    )
+
+    assert skipped == []
+    assert filtered == {"MU": 1166.0}
 
 
 def test_overseas_price_refresh_uses_daily_pnl_window_date(monkeypatch):

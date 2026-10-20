@@ -96,13 +96,13 @@ MARKET_DAILY_STATUS_JOIN = """
             LEFT JOIN LATERAL (
                 SELECT
                     CASE
-                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate', 'external_estimate')
+                        WHEN md.source IN ('databento_estimate', 'ibkr_tws_estimate', 'ibkr_client_portal_estimate', 'external_estimate')
                           OR md.market IN ('US_OVERNIGHT', 'US_EXTENDED', 'YAHOO_EXTENDED')
                         THEN 'estimated'
                         ELSE NULL
                     END AS daily_pnl_status,
                     CASE
-                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate', 'external_estimate')
+                        WHEN md.source IN ('databento_estimate', 'ibkr_tws_estimate', 'ibkr_client_portal_estimate', 'external_estimate')
                           OR md.market IN ('US_OVERNIGHT', 'US_EXTENDED', 'YAHOO_EXTENDED')
                         THEN '预估收益'
                         ELSE NULL
@@ -116,9 +116,10 @@ MARKET_DAILY_STATUS_JOIN = """
                   )
                 ORDER BY
                     CASE
-                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate') THEN 0
-                        WHEN md.source = 'external_estimate' THEN 1
-                        ELSE 2
+                        WHEN md.source = 'databento_estimate' THEN 0
+                        WHEN md.source IN ('ibkr_tws_estimate', 'ibkr_client_portal_estimate') THEN 1
+                        WHEN md.source = 'external_estimate' THEN 2
+                        ELSE 3
                     END,
                     md.updated_at DESC
                 LIMIT 1

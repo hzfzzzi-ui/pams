@@ -51,6 +51,12 @@ _IBKR_CONID_CACHE: Dict[str, str] = {}
 _IBKR_TWS_CONNECTION: Any | None = None
 _IBKR_TWS_CONNECTION_KEY: tuple[str, int, int] | None = None
 
+_HIGH_CONFIDENCE_US_ESTIMATE_SOURCES = {
+    "databento_estimate",
+    "ibkr_tws_estimate",
+    "ibkr_client_portal_estimate",
+}
+
 _A_STOCK_MAJOR_CATEGORY = "A\u80a1"
 _A_STOCK_MINOR_CATEGORY = "A\u80a1"
 _A_STOCK_FUND_MINOR_CATEGORY = "A\u80a1\u57fa\u91d1"
@@ -689,6 +695,8 @@ def _upsert_yfinance_closes(rows: List[dict]) -> int:
 
 def _estimate_quote_market(meta: dict[str, Any], symbol: str) -> str:
     source = str(meta.get("source") or "")
+    if source == "databento_estimate":
+        return "US_EXTENDED"
     if source == "ibkr_client_portal_estimate":
         return "US_EXTENDED"
     if source == "ibkr_tws_estimate":
@@ -797,17 +805,17 @@ def _is_ibkr_account(account_code: Any) -> bool:
     return raw in {"ibkr", "interactive_brokers", "interactivebrokers"}
 
 
-def _is_ibkr_estimate_source(symbol: Any) -> bool:
+def _is_high_confidence_us_estimate_source(symbol: Any) -> bool:
     meta = _US_ESTIMATE_QUOTE_CACHE.get(str(symbol or "").strip().upper()) or {}
     source = str(meta.get("source") or "")
-    return source in {"ibkr_tws_estimate", "ibkr_client_portal_estimate"}
+    return source in _HIGH_CONFIDENCE_US_ESTIMATE_SOURCES
 
 
 def _filter_us_estimate_prices_for_holdings(
     rows: List[dict],
     prices: Dict[str, float],
 ) -> tuple[Dict[str, float], list[dict[str, Any]]]:
-    """IBKR overnight marks must come from IBKR, not medium-confidence fallback quotes."""
+    """IBKR holdings need high-confidence all-hours marks, not fallback quotes."""
     filtered = dict(prices)
     skipped: list[dict[str, Any]] = []
     for row in rows:
@@ -817,7 +825,7 @@ def _filter_us_estimate_prices_for_holdings(
             continue
         if not _is_ibkr_account(row.get("account_code")):
             continue
-        if _is_ibkr_estimate_source(symbol):
+        if _is_high_confidence_us_estimate_source(symbol):
             corrected = _correct_ibkr_estimate_scale(
                 symbol=symbol,
                 price=filtered[price_key],
@@ -840,7 +848,7 @@ def _filter_us_estimate_prices_for_holdings(
                 "name": row.get("name"),
                 "account_code": row.get("account_code"),
                 "source": meta.get("source") or "untracked",
-                "reason": "ibkr_estimate_requires_ibkr_quote",
+                "reason": "ibkr_estimate_requires_high_confidence_quote",
             }
         )
     return filtered, skipped
@@ -1093,6 +1101,183 @@ def _looks_like_us_stock_symbol(symbol: str) -> bool:
     if raw.isdigit():
         return False
     return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", raw))
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def _databento_api_key() -> str | None:
+    raw = os.environ.get("PAMS_DATABENTO_API_KEY") or os.environ.get("DATABENTO_API_KEY") or ""
+    key = raw.strip()
+    return key or None
+
+
+def _databento_enabled() -> bool:
+    configured = _databento_api_key() is not None
+    return _env_bool("PAMS_DATABENTO_ENABLED", configured)
+
+
+def _databento_dataset() -> str:
+    return (os.environ.get("PAMS_DATABENTO_DATASET") or "DBEQ.BASIC").strip() or "DBEQ.BASIC"
+
+
+def _databento_schema() -> str:
+    return (os.environ.get("PAMS_DATABENTO_SCHEMA") or "trades").strip() or "trades"
+
+
+def _databento_lookback_minutes() -> int:
+    raw = os.environ.get("PAMS_DATABENTO_LOOKBACK_MINUTES", "1440")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 1440
+    return min(max(value, 15), 4320)
+
+
+def _databento_symbol(symbol: str) -> str:
+    """Return Databento raw_symbol input for a PAMS US ticker."""
+    return str(symbol or "").strip().upper().replace("-", ".")
+
+
+def _databento_json_safe(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return str(value)
+
+
+def _databento_prices_from_frame(frame: Any, requested_symbols: list[str]) -> dict[str, tuple[float, dict[str, Any]]]:
+    if frame is None or getattr(frame, "empty", False):
+        return {}
+
+    try:
+        table = frame.reset_index()
+    except Exception:
+        table = frame
+
+    columns = [str(col) for col in getattr(table, "columns", [])]
+    symbol_col = next((col for col in ("symbol", "raw_symbol", "stype_in") if col in columns), None)
+    price_col = next(
+        (col for col in ("price", "close", "last_price", "last") if col in columns),
+        None,
+    )
+    if price_col is None:
+        logger.info("Databento quote skipped: no supported price column in %s", columns)
+        return {}
+    if symbol_col is None and len(requested_symbols) != 1:
+        logger.info("Databento quote skipped: multi-symbol response missing symbol column")
+        return {}
+
+    time_col = next(
+        (col for col in ("ts_event", "ts_recv", "time", "timestamp", "index") if col in columns),
+        None,
+    )
+    if time_col is not None:
+        try:
+            table = table.sort_values(time_col)
+        except Exception:
+            pass
+
+    requested_by_raw = {_databento_symbol(symbol): str(symbol).strip().upper() for symbol in requested_symbols}
+    latest: dict[str, tuple[float, dict[str, Any]]] = {}
+    for _, row in table.iterrows():
+        if symbol_col is None:
+            raw_symbol = _databento_symbol(requested_symbols[0])
+        else:
+            raw_symbol = _databento_symbol(row.get(symbol_col))
+        symbol = requested_by_raw.get(raw_symbol)
+        if not symbol:
+            continue
+        price = _positive_quote_price(row.get(price_col))
+        if price is None:
+            continue
+        raw_row = {
+            str(key): _databento_json_safe(value)
+            for key, value in row.to_dict().items()
+        }
+        latest[symbol] = (
+            round(price, 4),
+            {
+                "price_column": price_col,
+                "time_column": time_col,
+                "event_time": _databento_json_safe(row.get(time_col)) if time_col else None,
+                "raw_row": raw_row,
+            },
+        )
+    return latest
+
+
+def _fetch_databento_us_estimate_prices(symbols: List[str]) -> Dict[str, float]:
+    """Fetch recent US all-hours marks from Databento for estimate PnL."""
+    wanted = [str(sym).strip().upper() for sym in symbols if _looks_like_us_stock_symbol(str(sym))]
+    if not wanted or not _databento_enabled():
+        return {}
+    api_key = _databento_api_key()
+    if not api_key:
+        logger.info("Databento quote skipped: DATABENTO_API_KEY is not configured")
+        return {}
+
+    try:
+        import databento as db
+    except Exception as exc:
+        logger.info("Databento quote skipped: databento package unavailable: %s", exc)
+        return {}
+
+    dataset = _databento_dataset()
+    schema = _databento_schema()
+    end_utc = datetime.now(ZoneInfo("UTC"))
+    start_utc = end_utc - timedelta(minutes=_databento_lookback_minutes())
+    raw_symbols = [_databento_symbol(symbol) for symbol in wanted]
+
+    try:
+        client = db.Historical(key=api_key)
+        response = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=raw_symbols,
+            stype_in="raw_symbol",
+            start=start_utc.isoformat(),
+            end=end_utc.isoformat(),
+        )
+        frame = response.to_df(price_type="float")
+    except Exception as exc:
+        logger.info("Databento quote skipped: %s", exc)
+        return {}
+
+    extracted = _databento_prices_from_frame(frame, wanted)
+    now_utc = end_utc.isoformat()
+    prices: Dict[str, float] = {}
+    for symbol, (price, meta) in extracted.items():
+        prices[symbol] = price
+        _US_ESTIMATE_QUOTE_CACHE[symbol] = {
+            "source": "databento_estimate",
+            "provider": "databento",
+            "session": "all_hours",
+            "quote_type": f"{dataset}:{schema}:{meta.get('price_column')}",
+            "confidence": "high",
+            "price": price,
+            "as_of_utc": now_utc,
+            "raw": {
+                "dataset": dataset,
+                "schema": schema,
+                "symbols": raw_symbols,
+                "start": start_utc.isoformat(),
+                "end": end_utc.isoformat(),
+                "event_time": meta.get("event_time"),
+                "row": meta.get("raw_row"),
+            },
+        }
+    return prices
 
 
 def _ibkr_client_portal_base_url() -> str | None:
@@ -1478,6 +1663,10 @@ def _ibkr_tws_use_overnight() -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
+def _ibkr_estimate_fallback_enabled() -> bool:
+    return _env_bool("PAMS_IBKR_ESTIMATE_FALLBACK_ENABLED", False)
+
+
 def _ibkr_tws_ticker_price(ticker: Any) -> tuple[float | None, str | None]:
     for attr, label in (
         ("last", "last"),
@@ -1759,7 +1948,7 @@ def _record_yahoo_estimate_quote_sources(symbols: List[str], prices: Dict[str, f
 
 
 def _fetch_us_stock_estimate_prices(symbols: List[str]) -> Dict[str, float]:
-    """Fetch overseas holdings with live/fast quotes preferred over stored closes."""
+    """Fetch overseas holdings with Databento all-hours marks preferred."""
     fund_codes = [s for s in symbols if _is_fund_code(s)]
     stock_syms = [s for s in symbols if not _is_fund_code(s)]
 
@@ -1773,11 +1962,15 @@ def _fetch_us_stock_estimate_prices(symbols: List[str]) -> Dict[str, float]:
         prices.update(yahoo_prices)
         _record_yahoo_estimate_quote_sources(stock_syms, yahoo_prices)
 
-        tws_prices = _fetch_ibkr_tws_estimate_prices(stock_syms)
-        prices.update(tws_prices)
+        if _ibkr_estimate_fallback_enabled():
+            tws_prices = _fetch_ibkr_tws_estimate_prices(stock_syms)
+            prices.update(tws_prices)
 
-        ibkr_prices = _fetch_ibkr_client_portal_estimate_prices(stock_syms)
-        prices.update(ibkr_prices)
+            ibkr_prices = _fetch_ibkr_client_portal_estimate_prices(stock_syms)
+            prices.update(ibkr_prices)
+
+        databento_prices = _fetch_databento_us_estimate_prices(stock_syms)
+        prices.update(databento_prices)
 
     return prices
 
