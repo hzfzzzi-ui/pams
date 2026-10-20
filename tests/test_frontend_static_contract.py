@@ -123,7 +123,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     design_doc = (REPO_ROOT / "docs" / "PAMS_FRONTEND_DESIGN_SYSTEM.md").read_text(encoding="utf-8")
 
     for token in [
-        "PAMS Design System Layer v3",
+        "PAMS Design System Layer v4",
         "--pams-surface",
         "--pams-radius-panel",
         "--pams-row-min",
@@ -151,6 +151,19 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     assert "appPageHero" not in legacy_css
     assert "appHeroTop" not in legacy_css
     assert "appHeroLinks" not in legacy_css
+    for canonical_token in [
+        "--pams-bg-canvas: #05070a",
+        "--pams-bg-panel: #0f141b",
+        "--pams-text-primary: #f3f6fb",
+        "--pams-profit: #23c26b",
+        "--pams-loss: #ff5b5b",
+        "--pams-action: #58a6ff",
+        "--bg: var(--pams-bg-canvas)",
+        "--card: var(--pams-bg-panel)",
+        "--good: var(--pams-profit)",
+        "--bad: var(--pams-loss)",
+    ]:
+        assert canonical_token in legacy_css
     assert "appShortcutGrid" not in legacy_css
     for migrated_selector in [
         ".emptyState {\n",
@@ -199,6 +212,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
         assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260620-mobile-density-v1"
+        assert design_href == "assets/css/design-system.css?v=20260620-visual-tokens-v1"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
             ("investments.html", "投资"),
@@ -210,7 +224,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "page-dashboard" not in parsed.body_classes
 
     for phrase in [
-        "PAMS 前端设计系统收敛 v3",
+        "PAMS 前端设计系统收敛 v4",
         "`design-system.css` 必须在带版本号的 `style.css?v=...` 后加载",
         "不要恢复大 hero",
     ]:
@@ -1144,7 +1158,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
-    assert "assets/css/design-system.css?v=20260620-design-system-v3" in ui_js
+    assert "assets/css/design-system.css?v=20260620-visual-tokens-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js

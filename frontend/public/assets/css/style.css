@@ -3,50 +3,98 @@
    ============================================================ */
 
 :root {
-  /* Backgrounds */
-  --bg: #05070a;
-  --bg-surface: #0b0f14;
-  --card: #0f141b;
-  --card-hover: #111821;
+  /* PAMS App Template v1 - canonical visual tokens from the investment page */
+  --pams-bg-canvas: #05070a;
+  --pams-bg-surface: #0b0f14;
+  --pams-bg-panel: #0f141b;
+  --pams-bg-panel-hover: #111821;
+  --pams-bg-soft: rgba(255,255,255,.026);
+  --pams-bg-raised: rgba(255,255,255,.04);
 
-  /* Borders */
-  --line: rgba(255,255,255,.08);
-  --line-bright: rgba(255,255,255,.14);
+  --pams-line-subtle: rgba(255,255,255,.08);
+  --pams-line-strong: rgba(255,255,255,.14);
 
-  /* Text */
-  --text: #f3f6fb;
-  --text-secondary: #a2aab8;
-  --muted: #6f7888;
+  --pams-text-primary: #f3f6fb;
+  --pams-text-secondary: #a2aab8;
+  --pams-text-muted: #6f7888;
 
-  /* Semantic */
-  --good: #23c26b;
-  --bad: #ff5b5b;
-  --warn: #f5a524;
-  --info: #4c8dff;
+  --pams-profit: #23c26b;
+  --pams-loss: #ff5b5b;
+  --pams-warning: #f5a524;
+  --pams-info: #4c8dff;
+  --pams-action: #58a6ff;
+  --pams-action-muted: rgba(88,166,255,.10);
+  --pams-action-strong: #1f6feb;
 
-  /* Accent */
-  --accent: #58a6ff;
-  --accent-dim: rgba(88,166,255,.10);
-  --accent-secondary: #1f6feb;
+  --pams-glow-profit: rgba(63,185,80,.35);
+  --pams-glow-loss: rgba(248,81,73,.35);
+  --pams-glow-action: rgba(88,166,255,.25);
 
-  /* Glow */
-  --glow-good: rgba(63,185,80,.35);
-  --glow-bad: rgba(248,81,73,.35);
-  --glow-accent: rgba(88,166,255,.25);
+  --pams-space-1: 4px;
+  --pams-space-2: 8px;
+  --pams-space-3: 12px;
+  --pams-space-4: 16px;
+  --pams-space-5: 20px;
+  --pams-space-6: 24px;
+  --pams-space-8: 32px;
 
-  /* Spacing (4px base) */
-  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
-  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+  --pams-radius-xs: 4px;
+  --pams-radius-sm: 6px;
+  --pams-radius-md: 8px;
+  --pams-radius-lg: 14px;
+  --pams-radius-xl: 16px;
+  --pams-radius-pill: 999px;
 
-  /* Radius */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --pams-font-ui: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --pams-font-number: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Font sizes */
-  --fs-xs: 10px; --fs-sm: 11px; --fs-md: 12px;
-  --fs-base: 13px; --fs-lg: 15px; --fs-xl: 18px;
-  --fs-2xl: 24px; --fs-3xl: 32px;
+  --pams-font-size-xs: 10px;
+  --pams-font-size-sm: 11px;
+  --pams-font-size-md: 12px;
+  --pams-font-size-base: 13px;
+  --pams-font-size-lg: 15px;
+  --pams-font-size-xl: 18px;
+  --pams-font-size-2xl: 24px;
+  --pams-font-size-3xl: 32px;
+
+  /* Legacy aliases kept for existing business CSS. */
+  --bg: var(--pams-bg-canvas);
+  --bg-surface: var(--pams-bg-surface);
+  --card: var(--pams-bg-panel);
+  --card-hover: var(--pams-bg-panel-hover);
+  --line: var(--pams-line-subtle);
+  --line-bright: var(--pams-line-strong);
+  --text: var(--pams-text-primary);
+  --text-secondary: var(--pams-text-secondary);
+  --muted: var(--pams-text-muted);
+  --good: var(--pams-profit);
+  --bad: var(--pams-loss);
+  --warn: var(--pams-warning);
+  --info: var(--pams-info);
+  --accent: var(--pams-action);
+  --accent-dim: var(--pams-action-muted);
+  --accent-secondary: var(--pams-action-strong);
+  --glow-good: var(--pams-glow-profit);
+  --glow-bad: var(--pams-glow-loss);
+  --glow-accent: var(--pams-glow-action);
+  --sp-1: var(--pams-space-1);
+  --sp-2: var(--pams-space-2);
+  --sp-3: var(--pams-space-3);
+  --sp-4: var(--pams-space-4);
+  --sp-5: var(--pams-space-5);
+  --sp-6: var(--pams-space-6);
+  --sp-8: var(--pams-space-8);
+  --radius-sm: var(--pams-radius-xs);
+  --radius-md: var(--pams-radius-sm);
+  --radius-lg: var(--pams-radius-md);
+  --fs-xs: var(--pams-font-size-xs);
+  --fs-sm: var(--pams-font-size-sm);
+  --fs-md: var(--pams-font-size-md);
+  --fs-base: var(--pams-font-size-base);
+  --fs-lg: var(--pams-font-size-lg);
+  --fs-xl: var(--pams-font-size-xl);
+  --fs-2xl: var(--pams-font-size-2xl);
+  --fs-3xl: var(--pams-font-size-3xl);
 }
 
 /* Unified sync center */
