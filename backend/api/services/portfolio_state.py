@@ -261,6 +261,8 @@ def _statement_balances(cur) -> dict[str, dict[str, Any]]:
         and _table_exists(cur, "pams_bank_statement_rows")
     ):
         return {}
+
+    balances: dict[str, dict[str, Any]] = {}
     cur.execute(
         """
         WITH latest_import AS (
@@ -286,8 +288,49 @@ def _statement_balances(cur) -> dict[str, dict[str, Any]]:
         ORDER BY i.account_code, i.profile_code
         """
     )
-    balances: dict[str, dict[str, Any]] = {}
-    for row in cur.fetchall():
+    rows = cur.fetchall()
+
+    if _table_exists(cur, "pams_cashflow_fact"):
+        cur.execute(
+            """
+            WITH fact_balance AS (
+                SELECT DISTINCT ON (f.account_code)
+                       f.account_code,
+                       CASE
+                           WHEN COALESCE(a.account_type, '') = 'liability' OR a.is_asset IS FALSE THEN 'credit_card'
+                           ELSE COALESCE(a.account_type, '')
+                       END AS account_kind,
+                       f.event_date AS latest_balance_date,
+                       NULLIF(COALESCE(
+                           f.raw_json #>> '{statement_row,balance}',
+                           f.raw_json #>> '{statement_row,raw_json,balance}',
+                           f.raw_json #>> '{balance}'
+                       ), '')::numeric AS latest_balance
+                FROM pams_cashflow_fact f
+                LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+                WHERE NULLIF(COALESCE(
+                          f.raw_json #>> '{statement_row,balance}',
+                          f.raw_json #>> '{statement_row,raw_json,balance}',
+                          f.raw_json #>> '{balance}'
+                      ), '') IS NOT NULL
+                  AND COALESCE(LOWER(f.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'duplicate')
+                ORDER BY f.account_code, f.event_date DESC, f.cashflow_id DESC
+            )
+            SELECT account_code AS profile_code,
+                   account_code,
+                   account_kind,
+                   NULL::numeric AS statement_balance,
+                   latest_balance_date AS statement_end,
+                   NULL::timestamp AS imported_at,
+                   latest_balance_date,
+                   latest_balance
+            FROM fact_balance
+            ORDER BY account_code
+            """
+        )
+        rows = [*rows, *cur.fetchall()]
+
+    for row in rows:
         amount = _net_statement_balance(
             row.get("latest_balance") if row.get("latest_balance") is not None else row.get("statement_balance"),
             row.get("account_kind"),
@@ -506,6 +549,108 @@ def _asset_type(row: dict[str, Any]) -> str:
     return "manual_asset"
 
 
+BROKERAGE_SNAPSHOT_CASH_TYPES = {"brokerage", "fund_platform"}
+CASH_CARRY_FORWARD_LOOKBACK_DAYS = 14
+
+
+def _is_cash_like_holding(row: dict[str, Any]) -> bool:
+    symbol = str(row.get("symbol") or "").upper()
+    name = str(row.get("name") or "")
+    asset_liability = str(row.get("asset_liability") or "")
+    major = str(row.get("major_category") or "")
+    minor = str(row.get("minor_category") or "")
+    return (
+        symbol.startswith("CASH_")
+        or name.startswith("Cash ")
+        or asset_liability == "负债"
+        or "现金" in major
+        or "现金" in minor
+        or "借款" in major
+        or "借款" in minor
+    )
+
+
+def _cash_like_carry_forward_rows(
+    cur,
+    *,
+    account_cfg: dict[str, Any],
+    selected_rows: list[dict[str, Any]],
+    excluded_accounts: set[str],
+) -> list[dict[str, Any]]:
+    """Carry forward broker cash/liability rows when a partial market refresh omits them."""
+    accounts = account_cfg.get("accounts") or {}
+    account_as_of: dict[str, Any] = {}
+    account_has_rows: set[str] = set()
+    account_has_cash_like: set[str] = set()
+
+    for row in selected_rows:
+        account_code = str(row.get("account_code") or "")
+        if not account_code:
+            continue
+        account_has_rows.add(account_code)
+        row_as_of = row.get("as_of")
+        current_as_of = account_as_of.get(account_code)
+        if row_as_of and (not current_as_of or str(row_as_of) > str(current_as_of)):
+            account_as_of[account_code] = row_as_of
+        if _is_cash_like_holding(row):
+            account_has_cash_like.add(account_code)
+
+    targets: list[tuple[str, Any]] = []
+    for account_code in sorted(account_has_rows - account_has_cash_like):
+        if account_code in excluded_accounts or not _is_investment_account(account_cfg, account_code):
+            continue
+        cfg = accounts.get(account_code) or {}
+        account_type = str(cfg.get("account_type") or "").lower()
+        if account_type not in BROKERAGE_SNAPSHOT_CASH_TYPES:
+            continue
+        selected_as_of = account_as_of.get(account_code) or _view_as_of()
+        targets.append((account_code, selected_as_of))
+
+    if not targets:
+        return []
+
+    values_sql = ", ".join(["(%s::text, %s::date)"] * len(targets))
+    params: list[Any] = []
+    for account_code, selected_as_of in targets:
+        params.extend([account_code, selected_as_of])
+
+    cur.execute(
+        f"""
+        WITH targets(account_code, selected_as_of) AS (
+            VALUES {values_sql}
+        )
+        SELECT DISTINCT ON (
+               h.account_code,
+               COALESCE(NULLIF(h.symbol, ''), h.name),
+               h.currency,
+               h.asset_liability
+        )
+               h.*
+        FROM pams_holdings_snapshot h
+        JOIN targets t ON t.account_code = h.account_code
+        WHERE h.as_of < t.selected_as_of
+          AND h.as_of >= t.selected_as_of - INTERVAL '{CASH_CARRY_FORWARD_LOOKBACK_DAYS} days'
+          AND (
+              UPPER(COALESCE(h.symbol, '')) LIKE 'CASH\\_%%' ESCAPE '\\'
+              OR h.name LIKE 'Cash %%'
+          )
+        ORDER BY h.account_code,
+                 COALESCE(NULLIF(h.symbol, ''), h.name),
+                 h.currency,
+                 h.asset_liability,
+                 h.as_of DESC,
+                 h.id DESC
+        """,
+        params,
+    )
+    carried: list[dict[str, Any]] = []
+    for row in cur.fetchall():
+        item = dict(row)
+        item["__cash_carry_forward"] = True
+        carried.append(item)
+    return carried
+
+
 def load_investment_positions(
     cur,
     base_currency: str,
@@ -528,11 +673,21 @@ def load_investment_positions(
         """,
         (_view_as_of(), sorted(excluded)),
     )
+    snapshot_rows = [dict(row) for row in cur.fetchall()]
+    carried_cash_rows = _cash_like_carry_forward_rows(
+        cur,
+        account_cfg=account_cfg,
+        selected_rows=snapshot_rows,
+        excluded_accounts=excluded,
+    )
+    cash_carry_forward_accounts = {
+        str(row.get("account_code") or "") for row in carried_cash_rows if row.get("account_code")
+    }
+    snapshot_rows.extend(carried_cash_rows)
     rows: list[dict[str, Any]] = []
     account_position_value_cny: dict[str, Decimal] = {}
     account_position_as_of: dict[str, Any] = {}
-    for row in cur.fetchall():
-        item = dict(row)
+    for item in snapshot_rows:
         account_code = str(item.get("account_code") or "")
         if not _is_investment_account(account_cfg, account_code):
             continue
@@ -557,7 +712,9 @@ def load_investment_positions(
                 "cost_cny": cost * rate,
                 "holding_pnl_cny": pnl * rate,
                 "as_of": item.get("as_of"),
-                "source_type": "holdings_snapshot",
+                "source_type": "holdings_snapshot_cash_carry_forward"
+                if item.get("__cash_carry_forward")
+                else "holdings_snapshot",
             }
         )
         account_position_value_cny[account_code] = (
@@ -575,6 +732,7 @@ def load_investment_positions(
             account_position_value_cny=account_position_value_cny,
             account_position_as_of=account_position_as_of,
             account_balances=account_balances,
+            skip_accounts=cash_carry_forward_accounts,
         )
     )
     return rows
@@ -588,6 +746,7 @@ def _synthetic_broker_cash_positions(
     account_position_value_cny: dict[str, Decimal],
     account_position_as_of: dict[str, Any] | None = None,
     account_balances: list[dict[str, Any]] | None = None,
+    skip_accounts: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Represent account-level broker cash when snapshots only list securities.
 
@@ -604,7 +763,10 @@ def _synthetic_broker_cash_positions(
         if row.get("include_in_nav", True) and row.get("amount_cny") not in (None, "")
     }
     out: list[dict[str, Any]] = []
+    skip_accounts = skip_accounts or set()
     for account_code, cfg in accounts.items():
+        if account_code in skip_accounts:
+            continue
         if not _is_investment_account(account_cfg, account_code):
             continue
         account_type = str(cfg.get("account_type") or "").lower()
@@ -661,6 +823,41 @@ def _synthetic_broker_cash_positions(
 
 def load_investment_transactions(cur, base_currency: str, limit: int = 5000) -> list[dict[str, Any]]:
     """Load normalized investment transactions used by return and cost calculations."""
+    if _table_exists(cur, "pams_investment_trade_fact"):
+        fx_rates = _latest_fx_rates(cur, base_currency)
+        cur.execute(
+            """
+            SELECT account_code,
+                   trade_date,
+                   symbol,
+                   name,
+                   COALESCE(side, trade_type) AS side,
+                   quantity,
+                   price,
+                   gross_amount,
+                   (COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0)) AS fees,
+                   currency,
+                   COALESCE(source_table, 'pams_investment_trade_fact') AS source,
+                   COALESCE(source_key, trade_id::text) AS source_key,
+                   trade_type,
+                   net_cash,
+                   net_cash_cny,
+                   realized_pnl_cny
+            FROM pams_investment_trade_fact
+            WHERE COALESCE(review_status, '') <> 'deleted'
+            ORDER BY trade_date DESC, trade_time DESC NULLS LAST, trade_id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            currency = str(item.get("currency") or base_currency).upper()
+            item["gross_amount_cny"] = _dec(item.get("gross_amount")) * _fx_rate(fx_rates, currency, base_currency)
+            rows.append(item)
+        return rows
+
     if not _table_exists(cur, "pams_investment_transactions"):
         return []
     fx_rates = _latest_fx_rates(cur, base_currency)
@@ -737,8 +934,61 @@ def load_fx_rates(cur, base_currency: str) -> list[dict[str, Any]]:
     return rows
 
 
-def load_valuation_series(cur, limit: int = 370) -> list[dict[str, Any]]:
+def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> list[dict[str, Any]]:
     """Load available valuation rows and project them to the valuation series contract."""
+    if _table_exists(cur, "pams_portfolio_valuation_state"):
+        cur.execute(
+            """
+            WITH ranked AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY valuation_date
+                           ORDER BY
+                               CASE WHEN status = 'published' THEN 0 ELSE 1 END,
+                               published_at DESC NULLS LAST,
+                               updated_at DESC NULLS LAST
+                       ) AS rn
+                FROM pams_portfolio_valuation_state
+                WHERE base_currency = %s
+            )
+            SELECT valuation_date,
+                   assets_cny,
+                   liabilities_cny,
+                   net_liquidation_value,
+                   investment_value_cny,
+                   total_pnl_cny
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY valuation_date DESC
+            LIMIT %s
+            """,
+            (base_currency, limit),
+        )
+        raw_rows = list(reversed([dict(r) for r in cur.fetchall()]))
+        rows: list[dict[str, Any]] = []
+        for raw in raw_rows:
+            investment_value = raw.get("investment_value_cny")
+            investment_pnl = raw.get("total_pnl_cny")
+            investment_cost = None
+            return_rate = None
+            if investment_value is not None and investment_pnl is not None:
+                investment_cost = _dec(investment_value) - _dec(investment_pnl)
+                if abs(investment_cost) >= Decimal("0.01"):
+                    return_rate = _dec(investment_pnl) / investment_cost
+            rows.append(
+                {
+                    "date": raw.get("valuation_date"),
+                    "assets_cny": raw.get("assets_cny"),
+                    "liabilities_cny": raw.get("liabilities_cny"),
+                    "net_worth_cny": raw.get("net_liquidation_value"),
+                    "investment_value_cny": investment_value,
+                    "investment_cost_cny": investment_cost,
+                    "investment_pnl_cny": investment_pnl,
+                    "investment_return_rate": return_rate,
+                }
+            )
+        return rows
+
     if not _table_exists(cur, "pams_nav_daily"):
         return []
     cur.execute(
@@ -820,6 +1070,120 @@ def _freshness(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _quality_check(
+    check_id: str,
+    *,
+    status: str,
+    severity: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "status": status,
+        "severity": severity,
+        "message": message,
+        "details": details or {},
+    }
+
+
+def _quality_summary(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    error_count = sum(1 for check in checks if check.get("severity") == "error" and check.get("status") != "ok")
+    warning_count = sum(1 for check in checks if check.get("severity") == "warning" and check.get("status") != "ok")
+    if error_count:
+        status = "error"
+    elif warning_count:
+        status = "warning"
+    else:
+        status = "ok"
+    return {
+        "status": status,
+        "check_count": len(checks),
+        "error_count": error_count,
+        "warning_count": warning_count,
+    }
+
+
+def _quality_checks(
+    *,
+    coverage: dict[str, dict[str, Any]],
+    freshness: dict[str, dict[str, Any]],
+    missing_accounts: list[str],
+    positions_missing_as_of: list[str],
+    account_balances: list[dict[str, Any]],
+    investment_positions: list[dict[str, Any]],
+    fx_rates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+
+    missing_components = [name for name, item in coverage.items() if not item.get("has_data")]
+    checks.append(
+        _quality_check(
+            "component_coverage",
+            status="attention" if missing_components else "ok",
+            severity="warning",
+            message="PortfolioState components should have rows before pages rely on them.",
+            details={"missing_components": missing_components},
+        )
+    )
+
+    checks.append(
+        _quality_check(
+            "account_balance_coverage",
+            status="attention" if missing_accounts else "ok",
+            severity="warning",
+            message="Accounts marked missing_data need statement or manual balance confirmation.",
+            details={"missing_accounts": missing_accounts},
+        )
+    )
+
+    checks.append(
+        _quality_check(
+            "position_freshness",
+            status="attention" if positions_missing_as_of else "ok",
+            severity="warning",
+            message="Investment positions should carry an as_of date.",
+            details={"positions_missing_as_of": positions_missing_as_of[:20]},
+        )
+    )
+
+    position_latest = (freshness.get("investment_positions") or {}).get("latest_as_of")
+    valuation_latest = (freshness.get("valuation_series") or {}).get("latest_as_of")
+    valuation_stale = bool(position_latest and valuation_latest and valuation_latest < position_latest)
+    checks.append(
+        _quality_check(
+            "valuation_series_freshness",
+            status="attention" if valuation_stale else "ok",
+            severity="warning",
+            message="Valuation series should not lag current investment positions.",
+            details={
+                "investment_positions_latest_as_of": position_latest,
+                "valuation_series_latest_as_of": valuation_latest,
+            },
+        )
+    )
+
+    base_currency = "CNY"
+    required_currencies = {
+        str(row.get("currency") or row.get("base_currency") or base_currency).upper()
+        for row in [*account_balances, *investment_positions]
+        if row.get("currency") or row.get("base_currency")
+    }
+    quoted_currencies = {str(row.get("quote_currency") or "").upper() for row in fx_rates}
+    missing_fx = sorted(c for c in required_currencies if c and c != base_currency and c not in quoted_currencies)
+    checks.append(
+        _quality_check(
+            "fx_rate_coverage",
+            status="attention" if missing_fx else "ok",
+            severity="error",
+            message="All non-CNY balances and positions need a current FX rate.",
+            details={"missing_currencies": missing_fx},
+        )
+    )
+
+    return checks
+
+
 def build_data_quality(
     *,
     account_balances: list[dict[str, Any]],
@@ -850,20 +1214,33 @@ def build_data_quality(
         for row in investment_positions
         if not row.get("as_of")
     ]
+    coverage = {
+        name: {
+            "rows": len(rows),
+            "has_data": bool(rows),
+        }
+        for name, rows in components.items()
+    }
+    freshness = {name: _freshness(rows) for name, rows in components.items()}
+    checks = _quality_checks(
+        coverage=coverage,
+        freshness=freshness,
+        missing_accounts=missing_accounts,
+        positions_missing_as_of=positions_missing_as_of,
+        account_balances=account_balances,
+        investment_positions=investment_positions,
+        fx_rates=fx_rates,
+    )
     return {
-        "coverage": {
-            name: {
-                "rows": len(rows),
-                "has_data": bool(rows),
-            }
-            for name, rows in components.items()
-        },
-        "freshness": {name: _freshness(rows) for name, rows in components.items()},
+        "coverage": coverage,
+        "freshness": freshness,
         "missing": {
             "account_balances_missing_data": missing_accounts,
             "investment_positions_missing_as_of": positions_missing_as_of,
             "components_without_rows": [name for name, rows in components.items() if not rows],
         },
+        "checks": checks,
+        "summary": _quality_summary(checks),
     }
 
 
@@ -959,7 +1336,7 @@ def load_portfolio_state_parts(
             cash_transactions = load_cash_transactions(cur)
             transfer_matches = load_transfer_matches(cur)
             fx_rates = load_fx_rates(cur, base)
-            valuation_series = load_valuation_series(cur)
+            valuation_series = load_valuation_series(cur, base_currency=base)
 
     as_of_values = []
     for row in account_balances:

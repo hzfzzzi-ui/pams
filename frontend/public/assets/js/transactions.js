@@ -1,5 +1,5 @@
 import { accountLabel, fmt2, jget, jpost } from './api.js?v=20260619-investment-hardening-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260620-data-state-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
 import {
   byId as $,
   escapeHtml,
@@ -1503,6 +1503,37 @@ function tradeReviewHeatTileStyle(tile, maxWeight) {
   return `--tile-grow:${grow.toFixed(2)};--tile-basis:${basis};`;
 }
 
+function tradeReviewPatternReasonFold(examples, opts = {}) {
+  const rows = (examples || [])
+    .filter((trade) => trade?.trade_id)
+    .slice(0, opts.limit || 5);
+  if (!rows.length) return '';
+  const compactClass = opts.compact ? ' compact' : '';
+  return `
+    <details class="tradeReviewPatternReasonFold${compactClass}">
+      <summary>
+        <strong>展开标的原因</strong>
+        <span>${escapeHtml(rows.length)} 笔</span>
+      </summary>
+      <div class="tradeReviewPatternReasonList">
+        ${rows.map((trade) => {
+          const tone = tradeReviewTradeTone(trade);
+          return `
+            <button type="button" class="tradeReviewPatternReasonTrade ${tone}" data-trade-review="${escapeHtml(String(trade.trade_id || ''))}">
+              <div>
+                <strong>${escapeHtml(trade.name || trade.symbol || '--')}</strong>
+                <span>${escapeHtml(trade.trade_date || '--')} · ${escapeHtml(sideLabel(trade.side))} · ${escapeHtml(trade.auto_label || trade.contribution_label || '自动归因')}</span>
+                <p>${escapeHtml(tradeReviewTradeReason(trade))}</p>
+              </div>
+              <em class="${pctTone(trade.estimated_decision_effect_cny)}">${escapeHtml(formatCnyEffect(trade.estimated_decision_effect_cny))}</em>
+            </button>
+          `;
+        }).join('')}
+      </div>
+    </details>
+  `;
+}
+
 function TradeReviewPatternHeatmap(patterns, opts = {}) {
   const tiles = tradeReviewPatternTiles(patterns, {
     limit: opts.heatLimit || 14,
@@ -1553,6 +1584,7 @@ function TradeReviewPatternHeatmap(patterns, opts = {}) {
                     <small>${escapeHtml(primaryTrade.trade_date || '--')} · ${escapeHtml(sideLabel(primaryTrade.side))}${tile.examples.length > 1 ? ` · +${tile.examples.length - 1}` : ''}</small>
                   </button>
                 ` : '<div class="tradeReviewHeatTrades muted">暂无代表交易</div>'}
+                ${tradeReviewPatternReasonFold(tile.examples, { limit: 5, compact: true })}
               </article>
             `;
           }).join('')}
@@ -1733,13 +1765,7 @@ function TradeReviewPatternList(patterns, opts = {}) {
                 ${(row.examples || []).length ? `
                   <div class="tradeReviewPatternExamples">
                     <span>代表交易</span>
-                    ${(row.examples || []).slice(0, 3).map((trade) => `
-                      <button type="button" class="tradeReviewPatternTrade" data-trade-review="${escapeHtml(String(trade.trade_id || ''))}">
-                        <strong>${escapeHtml(trade.name || trade.symbol || '--')}</strong>
-                        <em>${escapeHtml(trade.trade_date || '--')} · ${escapeHtml(sideLabel(trade.side))}</em>
-                        <small class="${pctTone(trade.estimated_decision_effect_cny)}">${escapeHtml(formatCnyEffect(trade.estimated_decision_effect_cny))}</small>
-                      </button>
-                    `).join('')}
+                    ${tradeReviewPatternReasonFold(row.examples, { limit: 6 })}
                   </div>
                 ` : ''}
               </div>

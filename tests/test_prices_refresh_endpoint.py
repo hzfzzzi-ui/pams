@@ -14,6 +14,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from endpoints import prices  # noqa: E402
+from services.fund_nav_estimates import should_copy_confirmed_nav_to_current_snapshot  # noqa: E402
 
 
 class DummyConn:
@@ -26,6 +27,11 @@ class DummyConn:
 
 def _payload(response):
     return json.loads(response.body.decode("utf-8"))
+
+
+def test_stale_confirmed_nav_is_not_copied_to_current_snapshot() -> None:
+    assert should_copy_confirmed_nav_to_current_snapshot(date(2026, 6, 22), date(2026, 6, 22))
+    assert not should_copy_confirmed_nav_to_current_snapshot(date(2026, 6, 18), date(2026, 6, 22))
 
 
 def test_a_stock_same_day_rollforward_applies_buy_once():
@@ -492,6 +498,159 @@ def test_us_stock_estimate_prices_uses_tws_when_client_portal_unavailable(monkey
     assert result == {"MU": 1047.0, "NVDA": 207.55}
     assert prices._US_ESTIMATE_QUOTE_CACHE["MU"]["source"] == "ibkr_tws_estimate"
     assert prices._US_ESTIMATE_QUOTE_CACHE["NVDA"]["source"] == "yahoo_estimate"
+
+
+def test_ibkr_estimate_filter_rejects_yahoo_fallback_for_ibkr_holdings():
+    prices._US_ESTIMATE_QUOTE_CACHE.clear()
+    prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
+        "source": "yahoo_estimate",
+        "provider": "yahoo_finance",
+        "confidence": "medium",
+    }
+    prices._US_ESTIMATE_QUOTE_CACHE["NVDA"] = {
+        "source": "ibkr_tws_estimate",
+        "provider": "ibkr_tws",
+        "confidence": "high",
+    }
+
+    filtered, skipped = prices._filter_us_estimate_prices_for_holdings(
+        [
+            {"symbol": "MU", "name": "Micron", "account_code": "ibkr"},
+            {"symbol": "NVDA", "name": "NVIDIA", "account_code": "ibkr"},
+            {"symbol": "AAPL", "name": "Apple", "account_code": "manual_us"},
+        ],
+        {"MU": 1151.95, "NVDA": 210.33, "AAPL": 200.0},
+    )
+
+    assert filtered == {"NVDA": 210.33, "AAPL": 200.0}
+    assert skipped == [
+        {
+            "symbol": "MU",
+            "name": "Micron",
+            "account_code": "ibkr",
+            "source": "yahoo_estimate",
+            "reason": "ibkr_estimate_requires_ibkr_quote",
+        }
+    ]
+
+
+def test_ibkr_estimate_filter_keeps_plausible_project_price_scale():
+    prices._US_ESTIMATE_QUOTE_CACHE.clear()
+    prices._US_ESTIMATE_QUOTE_CACHE["MU"] = {
+        "source": "ibkr_tws_estimate",
+        "provider": "ibkr_tws",
+        "confidence": "high",
+    }
+
+    filtered, skipped = prices._filter_us_estimate_prices_for_holdings(
+        [
+            {
+                "symbol": "MU",
+                "name": "Micron",
+                "account_code": "ibkr",
+                "current_price": Decimal("1133.99"),
+            }
+        ],
+        {"MU": 1170.16},
+    )
+
+    assert skipped == []
+    assert filtered == {"MU": 1170.16}
+    assert "scale_correction" not in prices._US_ESTIMATE_QUOTE_CACHE["MU"]
+
+
+def test_overseas_price_refresh_uses_daily_pnl_window_date(monkeypatch):
+    monkeypatch.setattr(prices, "_daily_pnl_window_date", lambda: date(2026, 6, 22))
+    monkeypatch.setattr(prices, "_today_cst", lambda: date(2026, 6, 23))
+
+    assert prices._price_refresh_as_of("美股", "estimate") == date(2026, 6, 22)
+    assert prices._price_refresh_as_of("A股", "close") == date(2026, 6, 23)
+
+
+def test_overseas_refresh_query_groups_latest_snapshot_by_market_bucket(monkeypatch):
+    executed: list[str] = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            executed.append(query)
+
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self, cursor_factory=None):
+            return FakeCursor()
+
+    monkeypatch.setattr(prices, "_get_conn", lambda: FakeConn())
+
+    assert prices._get_holdings_with_symbol("美股", market_buckets=("us",)) == []
+    assert "market_bucket" in executed[0]
+
+
+def test_ibkr_tws_ports_default_includes_gateway_local_port(monkeypatch):
+    monkeypatch.delenv("PAMS_IBKR_TWS_PORTS", raising=False)
+    monkeypatch.delenv("IBKR_TWS_PORTS", raising=False)
+
+    assert prices._ibkr_tws_ports() == [4000, 4001, 4002, 7497, 7496]
+
+
+def test_ibkr_tws_connection_reuses_persistent_socket(monkeypatch):
+    created = []
+
+    class FakeIB:
+        def __init__(self):
+            self.connected = False
+            self.connect_calls = []
+            created.append(self)
+
+        def connect(self, host, port, clientId, timeout, readonly):
+            self.connected = True
+            self.connect_calls.append((host, port, clientId, timeout, readonly))
+
+        def isConnected(self):
+            return self.connected
+
+        def disconnect(self):
+            self.connected = False
+
+    monkeypatch.setenv("PAMS_IBKR_TWS_PERSISTENT", "true")
+    monkeypatch.setattr(prices, "_IBKR_TWS_CONNECTION", None)
+    monkeypatch.setattr(prices, "_IBKR_TWS_CONNECTION_KEY", None)
+
+    first, first_port, first_persistent = prices._get_ibkr_tws_connection(
+        FakeIB,
+        host="127.0.0.1",
+        ports=[4000, 7497],
+        client_id=62017,
+        timeout=2.0,
+    )
+    second, second_port, second_persistent = prices._get_ibkr_tws_connection(
+        FakeIB,
+        host="127.0.0.1",
+        ports=[4000, 7497],
+        client_id=62017,
+        timeout=2.0,
+    )
+
+    assert first is second
+    assert first_port == 4000
+    assert second_port == 4000
+    assert first_persistent is True
+    assert second_persistent is True
+    assert len(created) == 1
+    assert created[0].connect_calls == [("127.0.0.1", 4000, 62017, 2.0, True)]
 
 
 def test_ibkr_tws_estimate_prices_request_overnight_contract(monkeypatch):

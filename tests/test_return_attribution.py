@@ -156,8 +156,16 @@ def test_return_attribution_payload_uses_latest_holdings_without_reconciliation(
         return_attribution,
         "load_account_balances",
         lambda cur, base_currency, account_cfg: [
-            {"amount_cny": 120.0, "include_in_nav": True},
-            {"amount_cny": 999.0, "include_in_nav": False},
+            {"account_code": "cash_account", "amount_cny": 20.0, "include_in_nav": True},
+            {"account_code": "tonghuashun", "amount_cny": 999.0, "include_in_nav": True},
+            {"account_code": "ignored", "amount_cny": 999.0, "include_in_nav": False},
+        ],
+    )
+    monkeypatch.setattr(
+        return_attribution,
+        "load_investment_positions",
+        lambda cur, base_currency, account_cfg, account_balances=None: [
+            {"account_code": "tonghuashun", "market_value_cny": 100.0}
         ],
     )
     monkeypatch.setattr(return_attribution, "derive_lookthrough_payload", fake_derive_lookthrough)
@@ -323,6 +331,49 @@ def test_return_reconciliation_sets_canonical_total_without_visible_unit(monkeyp
     assert payload["canonical_daily_pnl_cny"] == pytest.approx(3.0)
     assert not any("RETURN_RECONCILIATION" in str(row.get("symbol")) for row in payload["dimensions"]["holding"])
     assert payload["quality"]["return_reconciliation"]["sections"][0]["pnl_delta_cny"] == pytest.approx(10.0)
+
+
+def test_section_target_payloads_rolls_back_failed_section_savepoint(monkeypatch) -> None:
+    class FakeCursor:
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        def execute(self, sql, params=None):
+            self.executed.append(str(sql))
+
+    def fake_section_payload(cur, *, section, **kwargs):
+        if section == "broken":
+            raise RuntimeError("section failed")
+        return {
+            "rows": [{"market_value": 120.0}],
+            "summary": {"total_return": 12.0},
+            "today_window": {"total_return": 3.0},
+        }
+
+    monkeypatch.setattr(return_attribution, "SECTION_ACCOUNT_MAP", {"broken": [], "ok": []})
+    monkeypatch.setattr(return_attribution, "_load_reported_returns_config", lambda: {})
+    monkeypatch.setattr(return_attribution, "_overview_payload_from_account_balances", lambda cur, cfg, base: {})
+    monkeypatch.setattr(return_attribution, "_owner_ratios", lambda cfg: ({}, 1))
+    monkeypatch.setattr(return_attribution, "_excluded_accounts", lambda cfg: [])
+    monkeypatch.setattr(return_attribution, "_owner_ratio_case_sql", lambda cfg: (lambda alias: ("1", [])))
+    monkeypatch.setattr(return_attribution, "_account_owner_ratio_lookup", lambda cfg: (lambda account: 1))
+    monkeypatch.setattr(return_attribution, "build_section_return_series_payload", fake_section_payload)
+
+    cur = FakeCursor()
+    targets, warnings = return_attribution._section_target_payloads(
+        cur,
+        account_cfg={"accounts": {}},
+        base_currency="CNY",
+        view_as_of="2026-06-22",
+    )
+
+    assert targets["ok"]["pnl_cny"] == pytest.approx(12.0)
+    assert warnings == ["broken: section failed"]
+    assert "SAVEPOINT return_attr_section_broken" in cur.executed
+    assert "ROLLBACK TO SAVEPOINT return_attr_section_broken" in cur.executed
+    assert "RELEASE SAVEPOINT return_attr_section_broken" in cur.executed
+    assert "SAVEPOINT return_attr_section_ok" in cur.executed
+    assert cur.executed[-1] == "RELEASE SAVEPOINT return_attr_section_ok"
 
 
 def test_return_attribution_uses_exposure_dimensions_without_cash_in_industry() -> None:
@@ -647,3 +698,35 @@ def test_duplicate_symbol_positions_match_by_position_value_not_aggregated_symbo
     assert payload["total_pnl_cny"] == pytest.approx(40.0)
     assert row["market_value_cny"] == pytest.approx(400.0)
     assert row["pnl_cny"] == pytest.approx(40.0)
+
+
+def test_duplicate_symbol_positions_preserve_source_accounts() -> None:
+    payload = build_return_attribution_from_positions(
+        [
+            {
+                "account_code": "tencent_licaitong",
+                "asset_name": "红利基金",
+                "symbol": "016440",
+                "asset_type": "fund",
+                "currency": "CNY",
+                "market_value_cny": 14480.46,
+                "holding_pnl_cny": -519.54,
+            },
+            {
+                "account_code": "ccb_yhs300_fund",
+                "asset_name": "红利基金",
+                "symbol": "016440",
+                "asset_type": "fund",
+                "currency": "CNY",
+                "market_value_cny": 4970.27,
+                "holding_pnl_cny": -29.73,
+            },
+        ],
+        {"asset_mapping": [], "asset_lookthrough": []},
+    )
+
+    row = _row(payload["dimensions"]["holding"], "红利基金")
+    accounts = {detail["account"] for detail in row["source_details"]}
+    assert accounts == {"tencent_licaitong", "ccb_yhs300_fund"}
+    assert row["market_value_cny"] == pytest.approx(19450.73)
+    assert row["pnl_cny"] == pytest.approx(-549.27)

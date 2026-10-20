@@ -2304,23 +2304,39 @@ def _event_matches_pattern(group_name: str, key: str, record: dict[str, Any]) ->
     return False
 
 
-def _pattern_examples(group_name: str, key: str, event_records: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
+def _pattern_examples(
+    group_name: str,
+    key: str,
+    event_records: list[dict[str, Any]],
+    *,
+    row_effect: Any = None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
     matched = [
         record
         for record in event_records
         if record.get("estimated_decision_effect_cny") is not None and _event_matches_pattern(group_name, key, record)
     ]
+    group_effect = dec(row_effect)
+
+    def _sort_key(item: dict[str, Any]) -> tuple[Decimal, int, str]:
+        effect = dec(item.get("estimated_decision_effect_cny"))
+        priority = int(dec(item.get("priority_score")))
+        date_key = str(item.get("trade_date") or "")
+        if group_effect > Decimal("0.01"):
+            return (-effect, -priority, date_key)
+        if group_effect < Decimal("-0.01"):
+            return (effect, -priority, date_key)
+        return (-abs(effect), -priority, date_key)
+
     ranked = sorted(
         matched,
-        key=lambda item: (
-            dec(item.get("estimated_decision_effect_cny")),
-            -int(dec(item.get("priority_score"))),
-            str(item.get("trade_date") or ""),
-        ),
+        key=_sort_key,
     )
     out = []
     for record in ranked[:limit]:
         auto = record.get("auto_review") or {}
+        contribution = _asset_trade_contribution_reason(record, dec(record.get("estimated_decision_effect_cny")))
         out.append(
             {
                 "trade_id": record.get("trade_id"),
@@ -2331,7 +2347,13 @@ def _pattern_examples(group_name: str, key: str, event_records: list[dict[str, A
                 "position_lifecycle_status": record.get("position_lifecycle_status"),
                 "current_return_pct": norm(record.get("current_return_pct")),
                 "estimated_decision_effect_cny": norm(record.get("estimated_decision_effect_cny")),
-                "auto_label": auto.get("label") or auto.get("kind"),
+                "auto_label": contribution.get("auto_label") or auto.get("label") or auto.get("kind"),
+                "auto_summary": contribution.get("auto_summary") or auto.get("summary"),
+                "auto_level": contribution.get("auto_level") or auto.get("level"),
+                "auto_kind": contribution.get("auto_kind") or auto.get("kind"),
+                "contribution_reason": contribution.get("contribution_reason"),
+                "contribution_label": contribution.get("contribution_label"),
+                "contribution_tone": contribution.get("contribution_tone"),
             }
         )
     return out
@@ -2367,7 +2389,12 @@ def _pattern_rows(
                 "avoided_loss_count": row.get("avoided_loss_count"),
                 "quality": row.get("quality"),
                 "takeaway": _pattern_takeaway(group_name, row),
-                "examples": _pattern_examples(group_name, str(row.get("key") or row.get("label") or ""), event_records or []),
+                "examples": _pattern_examples(
+                    group_name,
+                    str(row.get("key") or row.get("label") or ""),
+                    event_records or [],
+                    row_effect=row.get("estimated_decision_effect_cny"),
+                ),
             }
         )
     return out

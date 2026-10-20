@@ -105,6 +105,10 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     assert "'risk.html': 'investments.html'" in ui_js
     assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html', 'research.html'])" in ui_js
     assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
+    assert "const stateRole = tone === 'error' ? 'alert' : 'status'" in ui_js
+    assert "const liveMode = tone === 'error' ? 'assertive' : 'polite'" in ui_js
+    assert 'role="${stateRole}" aria-live="${liveMode}"' in ui_js
+    assert "empty: '暂无'" in ui_js
 
     for page in [
         "accounts.html",
@@ -242,7 +246,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert style_index < design_index
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
-        assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260620-mobile-density-v1"
+        assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260623-nav-growth-overflow-v1"
         assert design_href == "assets/css/design-system.css?v=20260620-visual-cohesion-v1"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
@@ -305,27 +309,218 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     css = _read_public("assets/css/style.css")
 
     assert 'class="ledgerAnchorNav"' in html
+    assert ".ledgerAnchorNav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr))" in html
+    assert ".page-ledger .cashflowBodyGrid {" in html
+    assert "display:grid !important;" in html
+    assert "grid-template-columns:minmax(0, 7fr) minmax(280px, 3fr) !important;" in html
+    assert ".page-ledger .cashflowBodyGrid > div:first-child { order:2 }" in html
+    assert "body.page-ledger.app-shell .ledgerTop > .sectionTitle" in html
+    assert "body.page-ledger.app-shell .ledgerTop .ledgerToolbar" not in html
     for href in [
         "#cashflow-workbench",
         "#recent-flow-section",
-        "#income-section",
-        "#accountIssueStrip",
-        "#transfers",
-        "#review-section",
+        "#account-cashflow-section",
     ]:
         assert f'href="{href}"' in html
+    assert 'href="#review-section"' not in html
+    assert 'data-ledger-tab="review"' not in html
+    for removed_href in ["#income-section", "#accountIssueStrip", "#transfers"]:
+        assert f'data-ledger-tab' in html
+        assert f'href="{removed_href}" data-ledger-tab=' not in html
 
-    assert 'id="reviewRows" class="ledgerList"' in html
+    assert 'id="accountFlowRows" class="accountFlowList"' in html
+    assert 'id="recentSearchToggle"' in html
+    assert 'id="recentSearchBar"' not in html
+    assert 'id="recentSearch" class="formInput" type="search"' not in html
+    assert 'id="recentAccountScope" class="recentAccountScope" hidden' in html
+    assert 'id="recentFlowChips" class="ledgerFlowChips"' in html
+    assert 'id="recentSortToggle"' in html
+    assert 'id="recentSortChips"' not in html
+    assert 'data-recent-sort="amount_desc"' not in html
+    assert 'data-recent-sort="amount_asc"' not in html
+    assert ">金额从大到小</button>" not in html
+    assert ">金额从小到大</button>" not in html
+    for flow_filter in ["income", "expense", "investment_transfer", "internal_transfer", "review"]:
+        assert f'data-ledger-flow-filter="{flow_filter}"' in html
+
+    assert 'id="reviewRows" class="ledgerList"' not in html
     assert 'id="recentRows" class="ledgerList"' in html
+    assert 'id="recentFlowFilter"' not in html
+    assert 'id="categoryInsightTitle"' in html
+    assert 'id="overviewCategoryPieChart"' in html
+    assert 'id="overviewCategoryRank"' in html
+    assert 'data-overview-flow="income"' in html
+    assert 'data-overview-flow="expense"' in html
+    assert "categoryInsightGrid" in html
+    assert "categoryPieWrap" in html
+    assert "categoryPieFallback" in html
+    assert "消费排行" not in html
+    assert "消费 Top 5" not in html
+    assert "reviewEntryHeader" not in html
+    assert "reviewEntryStatus" not in html
+    assert "accountPendingBadge" in html
     assert "ledgerRowsTable" not in html
     assert "mobileReviewRows" not in html
+    assert 'id="accountIssueStrip"' not in html
     assert "<table" not in html
     assert "overflow-x:auto" not in html
+    assert 'data-account-period=' not in html
 
     assert "ledgerListRow" in js
+    assert "categoryBarList" in js
+    assert "categoryBarMeta" in js
+    assert "categoryBarHead" not in js
+    assert "reviewEntryRow" not in js
+    assert "reviewEntryStatus" not in js
+    assert "accountPendingBadgeHtml" in js
+    assert "renderAccountFlowSummary" in js
+    assert "openRecentForAccount" in js
+    assert "recentAccountFilter" in js
+    assert "account_summary" in js
+    assert "account_summary_ytd" in js
+    assert "currentAccountSummary" in js
+    assert "高优先级" not in js
+    assert " / 详情" not in js
+    assert "recentFlowFilter" in js
+    assert "recentSearch" in js
+    assert "openRecentSearchSheet" in js
+    assert "recentAmountSort" in js
+    assert "sortRecentRows" in js
+    assert "openRecentSortSheet" in js
+    assert "RECENT_SORT_OPTIONS" in js
+    assert "data-recent-sort-option" in js
+    assert "156010860" in js
+    assert "from: investmentAccount || counterparty" in js
+    assert "isImporterCounterparty" in js
+    assert "investmentFundingSourceAccount" in js
+    assert "raw === 'tradingview'" in js
+    assert "return 'ccb_7332'" in js
+    infer_account_fn = js[js.index("function inferInvestmentAccountCode") : js.index("function transferEndpointName")]
+    assert infer_account_fn.index("156010860") < infer_account_fn.index("direct_investment")
+    assert "isInvestmentTransferRow" in js
+    assert "isInternalTransferRow" in js
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
-    assert 'href="#review-section"' in js
+    assert "'#review-section': 'account'" in js
+    assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in html
+    assert 'id="overviewTitle"' in html
+    assert '<h3 id="overviewTitle">总览</h3>' in html
+    assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
+    assert "${overviewPeriodLabel()}可支配结余" in js
+    assert "cashflowBridgeLine" in js
+    assert "cashflowTransferGrid" in js
+    assert "NAV 内部迁移，不计入消费" in js
+    assert "内部资金流动" in js
+    assert "投资账户流动" in js
+    assert "投资转账" not in js
+    assert "['内部转账', signedMoney(otherTransfer)" not in js
+    assert "cashflowBridgeChip" not in html
+    assert "cashflowBridgeChip" not in js
+    assert "['收入', money(period.income || 0), 'good']" not in js
+    assert 'data-overview-period="month"' in html
+    assert 'data-overview-period="ytd"' in html
+    assert 'class="accountPeriodButton active" type="button" data-overview-period="ytd"' in html
+    assert 'id="monthPicker"' not in html
+    assert "overviewPeriod: 'ytd'" in js
+    assert "overviewFlow: 'income'" in js
+    assert "currentOverviewPeriod" in js
+    assert "currentOverviewCategories" in js
+    assert "renderOverviewPeriodButtons" in js
+    assert "renderOverviewFlowButtons" in js
+    assert "renderOverviewCategoryInsight" in js
+    assert "renderOverviewCategoryPie" in js
+    assert "renderOverviewCategoryPieFallback" in js
+    assert "overviewPieRows" in js
+    assert "CATEGORY_PIE_COLORS" in js
+    assert "data-overview-flow" in js
+    assert "overviewCategoryPieChart" in js
+    assert "overviewCategoryRank" in js
+    assert "expense_categories_ytd" in js
+    assert "income_categories_ytd" in js
+    assert "transfer_summary_month" in js
+    assert "transfer_summary_ytd" in js
+    assert 'data-recent-period="month"' in html
+    assert 'data-recent-period="ytd"' in html
+    assert "recentPeriod: 'ytd'" in js
+    assert 'class="accountPeriodButton active" type="button" data-recent-period="ytd"' in html
+    assert "recent_rows_month" in js
+    assert "recent_rows_ytd" in js
+    assert "originalCurrencyText" in js
+    assert "transferRouteHtml" in js
+    assert "转出账户" in js
+    assert "转入账户" in js
+    assert "投资入金" in js
+    assert "TRANSFER_ENDPOINT_LABELS" in js
+    assert "ccb_7332: '建行7332账户'" in js
+    assert "hpf: '公积金账户'" in js
+    assert "const label = transferEndpointName(raw) || accountFriendlyName(raw);" in js
+    assert "const transferPeer = counterAccount || counterparty" in js
+    assert "payment_proxy:" in js
+    assert "function isAccountValidationRow(row)" in js
+    assert "function rowTagLabel(row)" in js
+    assert "function rowAmountClass(row, amount)" in js
+    assert "function rowDateText(row)" in js
+    assert "function accountFriendlyName(value)" in js
+    assert "to_tonghuashun" in js
+    assert "direct_investment" in js
+    assert "function rowSearchText(row)" in js
+    assert "function rowMetaText(row)" in js
+    assert "function ledgerEditSheetHtml(row)" in js
+    assert "function bindLedgerEditSheet(row)" in js
+    assert "function openLedgerEdit(row)" in js
+    assert "function ledgerEditActionLabel(row)" in js
+    assert "LEDGER_EDIT_CATEGORY_OPTIONS" in js
+    assert "LEDGER_EDIT_SUBCATEGORY_OPTIONS" in js
+    assert 'data-edit-field="category"' in js
+    assert 'data-edit-field="subcategory"' in js
+    assert "function updateLedgerSubcategoryOptions(form, preferredValue)" in js
+    assert "工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认']" in js
+    assert "内部划转: ['换汇转账', '转账退回', '投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认']" in js
+    assert "ledgerInlineEditBtn" in html
+    assert "ledgerInlineEditBtn" in js
+    assert "${transferRouteHtml(row)}\n      ${editButton}" in js
+    assert "保存并确认" in js
+    assert "layout: { padding: { left: 8, right: 18, top: 2, bottom: 4 } }" in js
+    assert "/api/ledger/rows/${encodeURIComponent(row.id)}/update" in js
+    assert "data-ledger-confirm" not in js
+    assert "确认这笔消费" not in js
+    assert "data-ledger-edit" in js
+    assert "ledgerEditGrid" in html
+    assert 'class="ledgerListAccount"' in js
+    assert 'class="ledgerListDate"' in js
+    assert "[row.summary, row.description, row.counterparty].filter(Boolean).join(' / ')" not in js
+    assert ".transferRoute" in html
+    assert ".ledgerListSide b.transfer" in html
+    assert "ledgerOriginalAmount" in html
+    assert "jget(`/api/ledger/workbench?${params.toString()}`, { cache: false })" in js
+    assert "ACCOUNT_GROUPS" in js
+    assert "buildAccountFlowGroups" in js
+    assert "accountPrimaryBalance" in js
+    assert "accountBalanceSummary" in js
+    assert "accountBalanceValue" in html
+    assert "accountFlowHeader" in html
+    assert "accountFlowFooter" in html
+    assert "accountFlowNetBadge" in html
+    assert "accountInvestmentBalanceEntries" in js
+    assert "investmentAccountStatsEntries" in js
+    assert "accountInvestmentChip" in html
+    assert "融资负债" in js
+    assert "净入金" in js
+    assert "个人入金" in js
+    assert "funding_scope === 'personal_capital'" in js
+    assert ".accountFlowFooterMeta" in html
+    assert "white-space:nowrap" in html
+    assert "年初净流入" in js
+    assert "账户余额优先展示；现金流变化统一按年初至今计算。" in html
+    assert "return data.account_summary_ytd || data.account_summary || [];" in js
+    assert "{ code: 'icbc_6689', label: '工商银行', children: ['icbc_6689_cny', 'icbc_6689_usd'], forceChildren: true }" in js
+    assert "icbc_6689_cny: '6689 人民币'" in js
+    assert "icbc_6689_usd: '6689 美元'" in js
+    assert "accountGroupRow" in html
+    assert "accountSubRow" in html
+    assert "accountSyncBadge" in html
+    assert "syncBadgeHtml" in js
+    assert "latest_sync_at" in js
     assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
 
 
@@ -366,6 +561,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "portfolioRiskCategories",
     ]:
         assert f'id="{element_id}"' in html
+    assert 'id="navGrowthExplanationPanel"' not in html
     assert "portfolioRiskInputs" not in html
     assert '<details id="category-detail-shell" class="investmentDetailFold" hidden>' in html
     assert '<details id="category-detail-shell" class="investmentDetailFold" data-invest-panel="analysis">' not in html
@@ -389,6 +585,10 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert 'data-analysis-panel-page="lookthrough"' not in analysis_panel_html
     assert "investmentDetailFold" in _read_public("assets/css/style.css")
     assert ".investmentDetailFold:not([open]) > .investmentDetailBody" in _read_public("assets/css/style.css")
+    assert (
+        "grid-template-columns: minmax(0, .92fr) minmax(0, .92fr) minmax(88px, 1.16fr)"
+        in _read_public("assets/css/style.css")
+    )
     assert "window.setTimeout(loadVisibleCategoryReturnChart, 900)" in holdings_js
     assert "window.setTimeout(loadAllCategoryReturnCharts, 900)" not in holdings_js
     assert "key === 'category-details' || CATEGORY_SECTION_IDS.includes(key)" in holdings_js
@@ -417,8 +617,13 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     first_main_load = main_js.split("await Promise.all([", 1)[1].split("]);", 1)[0]
     assert "runWhenInvestmentAnalysisVisible" in holdings_js
     assert "loadAllCategoryReturnCharts" in holdings_js
-    assert "const aStockDailyPnl = Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
-    assert "dailyPnl: Number.isFinite(Number(aStockAccountSummary.dailyPnl))" in holdings_js
+    assert "const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
+    assert "const aStockAccountDailyPnlEffective = Boolean(" in holdings_js
+    assert "aStockAccountSummary.dailyPnlEffective !== false" in holdings_js
+    assert "aStockAccountSummary.dailyPnl != null" in holdings_js
+    assert "dailyPnl: aStockAccountDailyPnlEffective" in holdings_js
+    assert "priceDailyPnl: aStockAccountDailyPnlEffective ? aStockAccountSummary.dailyPnl : aStockRowsSummary.dailyPnl" in holdings_js
+    assert "fxDailyPnl: aStockAccountDailyPnlEffective ? 0 : aStockRowsSummary.fxDailyPnl" in holdings_js
     assert "const dailyPnlEffective = perf.daily_pnl_effective !== false" in holdings_js
     assert "dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))" in holdings_js
     assert 'id="investmentNavChart"' in html
@@ -426,9 +631,12 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "function createInvestmentReturnCanvasFallback(canvas, data)" in holdings_js
     assert "if (typeof Chart === 'undefined')" in holdings_js
     assert "function returnEventAdjustedAmount(row, prev)" in holdings_js
+    assert "return safeNum(row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate)" in holdings_js
     assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in holdings_js
     assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in holdings_js
     assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in holdings_js
+    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" not in holdings_js
+    assert "function renderNavGrowthExplanationPanel(bridgePayload)" not in holdings_js
     assert "function normalizeInvestmentNavRows(rows)" in holdings_js
     assert "row.netWorth ?? row.net_worth ?? row.market_value" in holdings_js
     assert "updateInvestmentNavChart(state);" in holdings_js
@@ -505,12 +713,15 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260620-data-state-v1" in html
-    assert "assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1" in html
-    assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
-    assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
-    assert "style.css?v=20260620-mobile-density-v1" in html
+    assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in html
+    assert "holdingDailyStatusBadge" in holding_rows_js
+    assert "今日收益已确认" in holding_rows_js
+    assert "预估收益" in holding_rows_js
+    assert "assets/js/holdings_categories.js?v=20260623-nav-growth-more-v1" in html
+    assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
+    assert "style.css?v=20260623-nav-growth-overflow-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -571,7 +782,22 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "makeAccountCashHoldingRows" in holding_rows_js
     assert "subtractMoneyCents" in holding_rows_js
     assert "returnRateFromCapitalBase" in holdings_js
-    assert "fundActiveSummary" in holdings_js
+    assert "holdingReturnRateFromSummary" in holdings_js
+    assert "displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate" in holdings_js
+    assert "returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率'" in holdings_js
+    assert "const ibkrAccountReturnRate = ibkrNetDeposit > 0" in holdings_js
+    assert "const ibkrGrossHoldingRate" in holdings_js
+    assert "accountTotalPnl" in holdings_js
+    assert "totalPnl: safeNum(aStockSummary.totalPnl)" in holdings_js
+    assert "aStockSummary.holdingReturnRate ??" in holdings_js
+    assert "returnRateLabel: '持仓收益率'" in holdings_js
+    assert "summary.returnRateLabel || '持仓收益率'" in holdings_js
+    assert "activeHoldingPnl" in holdings_js
+    assert "activeTotalCost" in holdings_js
+    assert "fundActiveSummary" not in holdings_js
+    assert "returnRateFromCapitalBase(fundSummaryBase, fundActiveSummary)" not in holdings_js
+    assert "totalReturnRate: returnRateFromCapitalBase(fundSummaryBase)" not in holdings_js
+    assert "totalReturnRate: holdingReturnRateFromSummary(fundDisplaySummary)" in holdings_js
     assert "setKpiLabel('dailyPnlUSStock', '已实现 / 未实现')" not in holdings_js
     assert "setKpiLabel('dailyPnlAStockEquity', '已实现 / 未实现')" not in holdings_js
     assert "dailyTotalPnl += rowDailyTotalPnl" in holdings_js
@@ -628,8 +854,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ledger_html
+    assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1085,12 +1311,14 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260620-data-state-v1" in html
-    assert "assets/css/style.css?v=20260620-mobile-density-v1" in html
+    assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in html
+    assert "assets/css/style.css?v=20260623-nav-growth-overflow-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
     html = _read_public("more.html")
+    more_js = _read_public("assets/js/more.js")
+    nav_growth_js = _read_public("assets/js/nav_growth_explanation.js")
     accounts_html = _read_public("accounts.html")
     data_sources_html = _read_public("data_sources.html")
     research_html = _read_public("research.html")
@@ -1116,6 +1344,16 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "moreHeroDate" not in html
     assert "moreDataState" not in html
     assert "moreToolState" not in html
+    assert 'id="moreNavGrowthDetails"' in html
+    assert 'id="moreNavGrowthExplanationPanel"' in html
+    assert "NAV增值解释" in html
+    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" in more_js
+    assert "renderNavGrowthExplanationPanel(payload, panel)" in more_js
+    assert "growth_explanation" in nav_growth_js
+    assert "navGrowthDrivers-compact" in nav_growth_js
+    assert "bridgePayload?.quality" in nav_growth_js
+    assert "advisory_checks" in nav_growth_js
+    assert "总账闭合 · 归因口径差" in nav_growth_js
 
     for href in [
         "data_sources.html#dataQuality",
@@ -1132,12 +1370,13 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260620-data-state-v1" in html
-    assert "assets/js/bank_reconcile.js?v=20260620-data-state-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20260620-data-state-v1" in data_sources_html
-    assert "assets/js/research.js?v=20260620-data-state-v1" in research_html
-    assert "./sync_center.js?v=20260620-data-state-v1" in data_sources_js
-    assert "./ui.js?v=20260620-data-state-v1" in sync_center_js
+    assert "assets/js/more.js?v=20260624-nav-quality-v1" in html
+    assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
+    assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20260622-data-state-a11y-v1" in data_sources_html
+    assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
+    assert "./sync_center.js?v=20260622-data-state-a11y-v1" in data_sources_js
+    assert "./ui.js?v=20260622-data-state-a11y-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
     assert "function dataStateHtml" in ui_js
     assert "function renderDataState" in ui_js
@@ -1195,17 +1434,17 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/css/style.css?v=20260623-nav-growth-overflow-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
-    assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260620-category-detail-hidden-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in ui_js
-    assert "assets/js/more.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260623-nav-growth-more-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/more.js?v=20260623-nav-growth-more-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 

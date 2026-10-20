@@ -84,6 +84,8 @@ from services.portfolio_state import (
     load_investment_positions as _load_investment_positions,
 )
 from services.portfolio_valuation_state import (
+    apply_holdings_category_pnl_to_section_return_series_payload as _apply_holdings_category_pnl_to_section_return_series_payload,
+    apply_summary_pnl_to_return_series_payload as _apply_summary_pnl_to_return_series_payload,
     apply_published_valuation_state_to_return_series_payload as _apply_published_valuation_state_to_return_series_payload,
     is_published_valuation_fresh_for_date as _is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state as _latest_published_portfolio_valuation_state,
@@ -104,6 +106,7 @@ from services.valuation_nav import (
     build_nav_series_payload as _build_nav_series_payload,
     build_nav_weekly_payload as _build_nav_weekly_payload,
     build_weekly_nav_rows as _build_weekly_nav_rows,
+    current_nav_account_values_from_parts as _current_nav_account_values_from_parts,
     current_nav_bucket_from_parts as _current_nav_bucket_from_parts,
     format_weekly_nav_payload as _format_weekly_nav_payload,
     fx_rate_at as _fx_rate_at,
@@ -388,16 +391,32 @@ def _apply_reported_account_performance(payload: dict[str, Any], account_code: s
         return payload
 
     out = dict(payload)
-    out["economic_total_pnl_cny"] = out.get("total_pnl_cny")
+    owner_ratio = _account_owner_ratio(account_code)
+    cash_balance_gross: Decimal | None = None
+    if cfg.get("cash_balance_gross") not in (None, ""):
+        cash_balance_gross = Decimal(str(cfg["cash_balance_gross"]))
+        position_gross = Decimal(str(out.get("position_market_value_gross_cny") or "0"))
+        expected_net_gross = position_gross + cash_balance_gross
+        current_net_gross = Decimal(str(out.get("net_liquidation_gross_cny") or "0"))
+        if expected_net_gross and abs(current_net_gross - expected_net_gross) > Decimal("0.005"):
+            out["net_liquidation_gross_cny"] = str(expected_net_gross)
+            out["net_liquidation_cny"] = str(expected_net_gross * owner_ratio)
+            out["cash_or_uninvested_cny"] = str(cash_balance_gross * owner_ratio)
+            out["net_liquidation_source"] = "reported_platform"
+    initial_personal = Decimal(str(out.get("initial_capital_cny") or "0"))
+    net_personal = Decimal(str(out.get("net_liquidation_cny") or "0"))
+    economic_total = net_personal - initial_personal if initial_personal else Decimal(str(out.get("total_pnl_cny") or "0"))
+    out["economic_total_pnl_cny"] = str(economic_total)
     out["total_pnl_cny"] = str(reported_total)
     holding_pnl = Decimal(str(out.get("holding_pnl_cny") or "0"))
     out["realized_pnl_cny"] = str(reported_total - holding_pnl)
+    out["return_ratio"] = str(reported_total / initial_personal) if initial_personal > 0 else out.get("return_ratio")
     out["return_basis"] = "reported_platform"
     out["reported_performance"] = {
         "as_of": str(cfg.get("as_of") or ""),
         "basis": cfg.get("basis"),
         "note": cfg.get("note"),
-        "cash_balance_gross": str(cfg.get("cash_balance_gross")) if cfg.get("cash_balance_gross") not in (None, "") else None,
+        "cash_balance_gross": str(cash_balance_gross) if cash_balance_gross is not None else None,
         "total_return_gross": str(cfg.get("total_return_gross")) if cfg.get("total_return_gross") not in (None, "") else None,
     }
     return out
@@ -408,6 +427,40 @@ def _apply_reported_account_performance(payload: dict[str, Any], account_code: s
 
 
 
+
+
+SECTION_RETURN_HOLDINGS_OVERLAY = {
+    "a_fund": ("\u0041\u80a1", "\u0041\u80a1\u57fa\u91d1"),
+}
+
+
+def _apply_section_holdings_pnl_overlay(
+    cur,
+    *,
+    section: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    spec = SECTION_RETURN_HOLDINGS_OVERLAY.get(section)
+    if not spec:
+        return payload
+    category, minor_category = spec
+    holdings_payload = _build_holdings_by_category_payload(
+        cur,
+        category=category,
+        limit=5000,
+        minor_category=minor_category,
+        include_closed=True,
+        view_as_of=_holdings_market_view_as_of(cur),
+        excluded_accounts=_excluded_holding_accounts(),
+        owner_ratios=_account_owner_ratios(),
+        default_owner_ratio=_default_owner_ratio(),
+        daily_pnl_start_as_of=_daily_pnl_view_as_of(),
+    )
+    return _apply_holdings_category_pnl_to_section_return_series_payload(
+        payload,
+        holdings_payload,
+        source=f"holdings.by_category.{section}",
+    )
 
 
 def _owner_ratio_case_sql(alias: str = "h") -> tuple[str, list[Any]]:
@@ -520,7 +573,7 @@ def refresh_fx_rates():
     from datetime import date as d_date
 
     today = d_date.today()
-    currencies = ['CNY', 'USD', 'MXN', 'HKD', 'KRW']
+    currencies = ['CNY', 'USD', 'MXN', 'HKD', 'KRW', 'SEK']
     all_rates = {}
 
     # 分别从公开API获取每个币种为基准的汇率
@@ -589,39 +642,43 @@ def _get_base_currency(cur) -> str:
         return 'CNY'
 
 
+def _build_summary2_latest_payload_for_request(cur) -> dict[str, Any]:
+    base_currency = _get_base_currency(cur)
+    holdings_payload = _build_holdings_latest_payload(
+        cur,
+        limit=5000,
+        include_closed=False,
+        view_as_of=_holdings_market_view_as_of(cur),
+        excluded_accounts=_excluded_holding_accounts(),
+        owner_ratios=_account_owner_ratios(),
+        default_owner_ratio=_default_owner_ratio(),
+        daily_pnl_start_as_of=_daily_pnl_view_as_of(),
+    )
+    account_balances = _load_account_balances(
+        cur,
+        base_currency,
+        _load_portfolio_accounts_config(),
+    )
+    summary_payload = _build_summary2_from_holdings_latest_payload(
+        holdings_payload,
+        base_currency=base_currency,
+        account_balances=account_balances,
+    )
+    attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
+    summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
+    valuation_state = _latest_published_portfolio_valuation_state(
+        cur,
+        base_currency=base_currency,
+    )
+    return _apply_published_valuation_state_to_summary(summary_payload, valuation_state)
+
+
 @app.get("/summary2/latest")
 def summary2_latest():
     """总览页汇总（前端兼容）- 使用major_category替代asset_class_map"""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            base_currency = _get_base_currency(cur)
-            holdings_payload = _build_holdings_latest_payload(
-                cur,
-                limit=5000,
-                include_closed=False,
-                view_as_of=_holdings_market_view_as_of(cur),
-                excluded_accounts=_excluded_holding_accounts(),
-                owner_ratios=_account_owner_ratios(),
-                default_owner_ratio=_default_owner_ratio(),
-                daily_pnl_start_as_of=_daily_pnl_view_as_of(),
-            )
-            account_balances = _load_account_balances(
-                cur,
-                base_currency,
-                _load_portfolio_accounts_config(),
-            )
-            summary_payload = _build_summary2_from_holdings_latest_payload(
-                holdings_payload,
-                base_currency=base_currency,
-                account_balances=account_balances,
-            )
-            attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
-            summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
-            valuation_state = _latest_published_portfolio_valuation_state(
-                cur,
-                base_currency=base_currency,
-            )
-            return json(_apply_published_valuation_state_to_summary(summary_payload, valuation_state))
+            return json(_build_summary2_latest_payload_for_request(cur))
 
 @app.get("/holdings/latest")
 def holdings_latest_compat(
@@ -785,7 +842,7 @@ def investment_section_return_series(
                 require_data_completeness=True,
             )
             if snapshot_payload is not None:
-                return json(snapshot_payload)
+                return json(_apply_section_holdings_pnl_overlay(cur, section=section, payload=snapshot_payload))
             payload = _build_section_return_series_payload(
                 cur,
                 section=section,
@@ -800,6 +857,7 @@ def investment_section_return_series(
                 excluded_holding_accounts=_excluded_holding_accounts(),
                 today_label_date=_investment_today_label_date(),
             )
+            payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
             return json(payload)
 
 
@@ -834,6 +892,7 @@ def refresh_investment_section_return_series_snapshot(
                 excluded_holding_accounts=_excluded_holding_accounts(),
                 today_label_date=_investment_today_label_date(),
             )
+            payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
             written = _upsert_investment_return_series_snapshot(
                 cur,
                 payload=payload,
@@ -886,6 +945,7 @@ def nav_weekly(
                 else current_view_as_of
             )
             terminal_nav_bucket = None
+            terminal_account_values = None
             if published_state_fresh and published_state:
                 terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
             elif latest:
@@ -897,7 +957,18 @@ def nav_weekly(
                     account_cfg,
                     account_balances=account_balances,
                 )
+                current_as_of_dates = [
+                    str(item.get("as_of") or "")[:10]
+                    for item in [*account_balances, *investment_positions]
+                    if item.get("as_of")
+                ]
+                if current_as_of_dates:
+                    terminal_date = Date.fromisoformat(max(current_as_of_dates))
                 terminal_nav_bucket = _current_nav_bucket_from_parts(
+                    account_balances=account_balances,
+                    investment_positions=investment_positions,
+                )
+                terminal_account_values = _current_nav_account_values_from_parts(
                     account_balances=account_balances,
                     investment_positions=investment_positions,
                 )
@@ -911,6 +982,7 @@ def nav_weekly(
                     account_owner_ratio=_account_owner_ratio,
                     terminal_date=terminal_date,
                     terminal_nav_bucket=terminal_nav_bucket,
+                    terminal_account_values_cny=terminal_account_values,
                     interval=interval,
                 )
             )
@@ -949,12 +1021,14 @@ def investment_return_series(
                     cur,
                     base_currency=baseCurrency,
                 )
-                return json(
+                payload_with_valuation = (
                     _apply_published_valuation_state_to_return_series_payload(
                         snapshot_payload,
                         valuation_state,
                     )
                 )
+                summary_payload = _build_summary2_latest_payload_for_request(cur)
+                return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
             payload = _build_investment_return_series_payload(
                 cur,
                 start_date=start_date,
@@ -973,12 +1047,14 @@ def investment_return_series(
                 cur,
                 base_currency=baseCurrency,
             )
-            return json(
+            payload_with_valuation = (
                 _apply_published_valuation_state_to_return_series_payload(
                     payload,
                     valuation_state,
                 )
             )
+            summary_payload = _build_summary2_latest_payload_for_request(cur)
+            return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
 
 
 @app.post("/investment/return-series/snapshot")

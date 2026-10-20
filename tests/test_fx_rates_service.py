@@ -54,3 +54,30 @@ def test_build_latest_fx_rates_payload_preserves_shape_and_date_normalization():
     assert payload["rates"][0]["rate"] == "7.20"
     assert "DISTINCT ON (quote_currency)" in cur.executed[0][0]
     assert cur.executed[0][1] == ("CNY",)
+
+
+def test_build_latest_fx_rates_payload_uses_max_rate_date_as_top_level_date():
+    cur = FakeCursor(
+        [
+            {
+                "as_of": date(2026, 5, 31),
+                "base_currency": "CNY",
+                "quote_currency": "HKD",
+                "rate": Decimal("0.91"),
+                "source": "manual",
+            },
+            {
+                "as_of": date(2026, 6, 22),
+                "base_currency": "CNY",
+                "quote_currency": "USD",
+                "rate": Decimal("7.18"),
+                "source": "manual",
+            },
+        ]
+    )
+
+    payload = build_latest_fx_rates_payload(cur, base_currency="CNY")
+
+    assert payload["as_of"] == "2026-06-22"
+    assert payload["rates"][0]["as_of"] == "2026-05-31"
+    assert payload["rates"][1]["as_of"] == "2026-06-22"

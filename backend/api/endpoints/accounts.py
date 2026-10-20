@@ -343,7 +343,45 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
         """
     )
     by_account: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in cur.fetchall():
+    rows = list(cur.fetchall())
+    cur.execute(
+        """
+        WITH fact_balance AS (
+            SELECT DISTINCT ON (f.account_code)
+                   f.account_code AS profile_code,
+                   'pams_cashflow_fact'::text AS bank,
+                   f.account_code,
+                   CASE
+                       WHEN COALESCE(a.account_type, '') = 'liability' OR a.is_asset IS FALSE THEN 'credit_card'
+                       ELSE COALESCE(a.account_type, '')
+                   END AS account_kind,
+                   NULL::numeric AS statement_balance,
+                   f.event_date AS statement_end,
+                   1::bigint AS row_count,
+                   f.updated_at AS imported_at,
+                   f.event_date AS latest_balance_date,
+                   NULLIF(COALESCE(
+                       f.raw_json #>> '{statement_row,balance}',
+                       f.raw_json #>> '{statement_row,raw_json,balance}',
+                       f.raw_json #>> '{balance}'
+                   ), '')::numeric AS latest_balance
+            FROM pams_cashflow_fact f
+            LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+            WHERE NULLIF(COALESCE(
+                      f.raw_json #>> '{statement_row,balance}',
+                      f.raw_json #>> '{statement_row,raw_json,balance}',
+                      f.raw_json #>> '{balance}'
+                  ), '') IS NOT NULL
+              AND COALESCE(LOWER(f.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'duplicate')
+            ORDER BY f.account_code, f.event_date DESC, f.cashflow_id DESC
+        )
+        SELECT *
+        FROM fact_balance
+        ORDER BY account_code
+        """
+    )
+    rows.extend(cur.fetchall())
+    for row in rows:
         item = dict(row)
         raw_balance = item.get("latest_balance")
         if raw_balance is None:
@@ -352,6 +390,8 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
         item["balance"] = _net_statement_balance(raw_balance, item.get("account_kind"))
         item["balance_as_of"] = as_of
         by_account[str(item["account_code"])].append(item)
+    for items in by_account.values():
+        items.sort(key=lambda item: (str(item.get("balance_as_of") or ""), str(item.get("imported_at") or "")))
     return by_account
 
 
@@ -430,35 +470,46 @@ def _primary_platform_balance(
 ) -> dict[str, Any] | None:
     if not platform_balances:
         return None
-    same_currency = [b for b in platform_balances if str(b.get("currency") or "").upper() == base_currency.upper()]
-    if len(platform_balances) == 1:
-        row = platform_balances[0]
-        return _money(row.get("market_value"), row.get("currency"), row.get("as_of"), "platform_snapshot")
     base = base_currency.upper()
+    currency_totals: dict[str, Decimal] = defaultdict(Decimal)
+    currency_as_of: dict[str, Any] = {}
+    latest_as_of = None
+    for row in platform_balances:
+        currency = str(row.get("currency") or base).upper()
+        currency_totals[currency] += Decimal(str(row.get("market_value") or "0"))
+        row_as_of = row.get("as_of")
+        if row_as_of is not None:
+            if latest_as_of is None or str(row_as_of) > str(latest_as_of):
+                latest_as_of = row_as_of
+            if currency not in currency_as_of or str(row_as_of) > str(currency_as_of[currency]):
+                currency_as_of[currency] = row_as_of
+    if len(currency_totals) == 1:
+        currency, amount = next(iter(currency_totals.items()))
+        return _money(amount, currency, currency_as_of.get(currency) or latest_as_of, "platform_snapshot")
+
     fx_rates = (fx_rates_by_base or {}).get(base, {})
-    if fx_rates:
-        converted = Decimal("0")
-        converted_all = True
-        as_of = None
-        for row in platform_balances:
-            currency = str(row.get("currency") or base).upper()
-            if currency == base:
-                rate = Decimal("1")
-            elif currency in fx_rates:
-                rate = fx_rates[currency]
-            else:
-                converted_all = False
-                break
-            converted += Decimal(str(row.get("market_value") or "0")) * rate
-            row_as_of = row.get("as_of")
-            if row_as_of is not None and (as_of is None or str(row_as_of) > str(as_of)):
-                as_of = row_as_of
-        if converted_all:
-            return _money(converted, base_currency, as_of, "platform_snapshot")
-    if same_currency:
-        amount = sum((Decimal(str(b.get("market_value") or "0")) for b in same_currency), Decimal("0"))
-        as_of = max((b.get("as_of") for b in same_currency if b.get("as_of") is not None), default=None)
-        return _money(amount, base_currency, as_of, "platform_snapshot")
+    if fx_rates or base in currency_totals:
+        converted = currency_totals.get(base, Decimal("0"))
+        converted_any = base in currency_totals
+        missing_material_fx = []
+        # Tiny residual cash/rounding balances must not make IBKR fall back to USD-only.
+        immaterial_native_balance = Decimal("10")
+        for currency, amount in currency_totals.items():
+            if currency == base or amount == 0:
+                continue
+            rate = fx_rates.get(currency)
+            if rate is None:
+                if abs(amount) <= immaterial_native_balance:
+                    continue
+                missing_material_fx.append(currency)
+                continue
+            converted += amount * rate
+            converted_any = True
+        if converted_any and not missing_material_fx:
+            return _money(converted, base_currency, latest_as_of, "platform_snapshot")
+
+    if base in currency_totals:
+        return _money(currency_totals[base], base_currency, currency_as_of.get(base) or latest_as_of, "platform_snapshot")
     return None
 
 
@@ -483,7 +534,7 @@ def _reconcile_status(
     if account_type == "bridge":
         return "in_transit" if manual_balance else "missing_data"
     if truth_source in {"bank_statement", "official_statement"}:
-        return "ready_for_review" if statement_balance else "missing_statement"
+        return "ready_for_review" if statement_balance or manual_balance else "missing_statement"
     if truth_source in {"platform_snapshot", "ibkr_flex"}:
         return "ready_for_review" if platform_balance else "missing_platform"
     if truth_source == "manual":
@@ -507,6 +558,8 @@ def _status_label(status: str) -> str:
 def _pick_primary_balance(
     *,
     truth_source: str,
+    account_type: str = "",
+    reconcile_method: str = "",
     statement_balance: dict[str, Any] | None,
     platform_balance: dict[str, Any] | None,
     manual_balance: dict[str, Any] | None,
@@ -515,6 +568,18 @@ def _pick_primary_balance(
         statement_as_of = str(statement_balance.get("as_of") or "")
         manual_as_of = str(manual_balance.get("as_of") or "")
         return statement_balance if statement_as_of >= manual_as_of else manual_balance
+    platform_is_primary = (
+        truth_source in {"platform_snapshot", "ibkr_flex"}
+        or account_type in {"brokerage", "fund_platform", "cash_management"}
+        or reconcile_method == "position_nav"
+    )
+    if platform_is_primary and platform_balance:
+        if not manual_balance:
+            return platform_balance
+        platform_as_of = str(platform_balance.get("as_of") or "")
+        manual_as_of = str(manual_balance.get("as_of") or "")
+        if not manual_as_of or platform_as_of > manual_as_of:
+            return platform_balance
     if manual_balance:
         return manual_balance
     if truth_source in {"bank_statement", "official_statement"} and statement_balance:
@@ -574,6 +639,8 @@ def _build_accounts_overview(
         manual_balance = _apply_owner_ratio_to_money(manual_balance, owner_ratio)
         primary_balance = _pick_primary_balance(
             truth_source=truth_source,
+            account_type=account_type,
+            reconcile_method=str(cfg.get("reconcile_method") or "balance"),
             statement_balance=statement_balance,
             platform_balance=platform_balance,
             manual_balance=manual_balance,

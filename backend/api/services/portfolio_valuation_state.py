@@ -27,6 +27,7 @@ from services.portfolio_state import (
     load_investment_positions,
 )
 from services.valuation_nav import current_nav_bucket_from_parts
+from services.valuation_nav import current_nav_account_values_from_parts
 
 
 STATE_TABLE = "pams_portfolio_valuation_state"
@@ -210,6 +211,225 @@ def apply_published_valuation_state_to_return_series_payload(
     return _norm(out)
 
 
+def apply_summary_pnl_to_return_series_payload(
+    payload: dict[str, Any],
+    summary_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Overlay the terminal return row with summary2's cumulative PnL basis.
+
+    The investment return chart and the holdings page should speak the same
+    accounting language at the current endpoint: total PnL is the user-facing
+    cumulative holdings PnL from summary2, current_float_pnl is open-position
+    floating PnL, and closed_realized_pnl is the closed/realized remainder.
+    """
+    if not summary_payload:
+        return payload
+    totals = dict(summary_payload.get("totals") or {})
+    summary_total_pnl = totals.get("holding_pnl")
+    if summary_total_pnl in (None, ""):
+        return payload
+
+    rows = [dict(row) for row in (payload.get("rows") or [])]
+    if not rows:
+        return payload
+
+    latest = rows[-1]
+    summary_date = str(summary_payload.get("as_of") or "")[:10]
+    latest_date = str(latest.get("date") or latest.get("asOfDate") or "")[:10]
+    meta = {
+        "source": "summary2.latest",
+        "as_of": summary_date,
+        "overlay_applied": False,
+    }
+    if summary_date and latest_date and summary_date != latest_date:
+        out = dict(payload)
+        out["return_pnl_state"] = {**meta, "overlay_reason": "date_mismatch"}
+        return _norm(out)
+
+    total_pnl = _dec(summary_total_pnl)
+    current_float_pnl = _dec(totals.get("current_float_pnl"))
+    closed_realized_pnl = _dec(totals.get("closed_realized_pnl"))
+    market_value = totals.get("market_value")
+    cost = _dec(latest.get("cost"))
+
+    latest["total_pnl"] = total_pnl
+    latest["position_pnl"] = current_float_pnl
+    latest["realized_income"] = closed_realized_pnl
+    if market_value not in (None, ""):
+        latest["market_value"] = _dec(market_value)
+        latest["net_liquidation_value"] = _dec(market_value)
+    if cost > Decimal("0.0001"):
+        latest["return_rate"] = total_pnl / cost
+    latest["return_pnl_source"] = "summary2.latest"
+    rows[-1] = latest
+
+    out = dict(payload)
+    out["rows"] = rows
+    out["return_pnl_state"] = {
+        **meta,
+        "overlay_applied": True,
+        "total_pnl": total_pnl,
+        "current_float_pnl": current_float_pnl,
+        "closed_realized_pnl": closed_realized_pnl,
+    }
+    return _norm(out)
+
+
+def _annualized_return_rate(rate: Decimal, start_date: str, end_date: str) -> Decimal:
+    try:
+        start = Date.fromisoformat(start_date[:10])
+        end = Date.fromisoformat(end_date[:10])
+    except (TypeError, ValueError):
+        return Decimal("0")
+    days = max((end - start).days, 1)
+    if rate <= Decimal("-1"):
+        return Decimal("0")
+    return Decimal(str((float(Decimal("1") + rate) ** (365 / days)) - 1))
+
+
+def _row_return_rate(row: dict[str, Any]) -> Decimal:
+    for key in ("return_rate", "display_return_rate", "time_weighted_return_rate", "capital_return_rate"):
+        if row.get(key) not in (None, ""):
+            return _dec(row.get(key))
+    cost = _dec(row.get("cost"))
+    if cost > Decimal("0.0001") and row.get("total_pnl") not in (None, ""):
+        return _dec(row.get("total_pnl")) / cost
+    return Decimal("0")
+
+
+def _recalibrate_return_curve_to_terminal_rate(rows: list[dict[str, Any]], terminal_rate: Decimal) -> list[dict[str, Any]]:
+    """Keep a section curve continuous while aligning its latest return rate.
+
+    Historical section snapshots can be anchored to stale platform totals. When
+    the current holdings table becomes the terminal truth, only changing the
+    last row creates a visual step. Re-scaling the cumulative rate path preserves
+    the existing curve shape and makes every displayed rate field use one basis.
+    """
+    if not rows:
+        return rows
+    old_rates = [_row_return_rate(row) for row in rows]
+    old_terminal = old_rates[-1]
+    if abs(old_terminal) > Decimal("0.000000000001"):
+        factor = terminal_rate / old_terminal
+        new_rates = [rate * factor for rate in old_rates]
+    else:
+        denominator = Decimal(max(len(rows) - 1, 1))
+        new_rates = [terminal_rate * Decimal(index) / denominator for index, _ in enumerate(rows)]
+
+    out: list[dict[str, Any]] = []
+    previous_rate: Decimal | None = None
+    for index, row in enumerate(rows):
+        next_row = dict(row)
+        rate = terminal_rate if index == len(rows) - 1 else new_rates[index]
+        next_row["return_rate"] = rate
+        next_row["display_return_rate"] = rate
+        if previous_rate is None:
+            next_row["daily_return_rate"] = rate
+        else:
+            denominator = Decimal("1") + previous_rate
+            next_row["daily_return_rate"] = (
+                ((Decimal("1") + rate) / denominator) - Decimal("1")
+                if abs(denominator) > Decimal("0.000000000001")
+                else rate - previous_rate
+            )
+        if next_row.get("cost") not in (None, ""):
+            cost = _dec(next_row.get("cost"))
+            if cost > Decimal("0.0001"):
+                next_row["total_pnl"] = rate * cost
+        out.append(next_row)
+        previous_rate = rate
+    return out
+
+
+def apply_holdings_category_pnl_to_section_return_series_payload(
+    payload: dict[str, Any],
+    holdings_payload: dict[str, Any] | None,
+    *,
+    source: str = "holdings.by_category",
+) -> dict[str, Any]:
+    """Overlay a section return payload with current category holdings PnL.
+
+    Section return charts can be sourced from historical snapshots or platform
+    reported anchors. At the terminal point, the user-facing section total must
+    still reconcile to the holdings table: open-position float PnL plus closed
+    realized PnL, divided by the same rows' cost basis.
+    """
+    if not holdings_payload:
+        return payload
+    holding_rows = [dict(row) for row in (holdings_payload.get("rows") or [])]
+    rows = [dict(row) for row in (payload.get("rows") or [])]
+    if not holding_rows or not rows:
+        return payload
+
+    latest = rows[-1]
+    holdings_date = str(holdings_payload.get("as_of") or "")[:10]
+    latest_date = str(latest.get("date") or latest.get("asOfDate") or "")[:10]
+    meta = {
+        "source": source,
+        "as_of": holdings_date,
+        "overlay_applied": False,
+    }
+    if holdings_date and latest_date and holdings_date != latest_date:
+        out = dict(payload)
+        out["section_pnl_state"] = {**meta, "overlay_reason": "date_mismatch"}
+        return _norm(out)
+
+    total_value = Decimal("0")
+    total_cost = Decimal("0")
+    total_pnl = Decimal("0")
+    current_float_pnl = Decimal("0")
+    daily_pnl = Decimal("0")
+    for holding in holding_rows:
+        market_value = _dec(holding.get("market_value_cny", holding.get("market_value")))
+        cost = _dec(holding.get("cost_cny", holding.get("cost")))
+        pnl = _dec(holding.get("holding_pnl_cny", holding.get("holding_pnl")))
+        total_value += market_value
+        total_cost += cost
+        total_pnl += pnl
+        if not holding.get("is_closed"):
+            current_float_pnl += market_value - cost
+        daily_pnl += _dec(holding.get("daily_total_pnl_cny", holding.get("daily_pnl_cny", holding.get("daily_pnl"))))
+
+    realized_pnl = total_pnl - current_float_pnl
+    return_rate = total_pnl / total_cost if total_cost > Decimal("0.0001") else Decimal("0")
+    start_date = str((payload.get("start") or (rows[0].get("date") if rows else "")) or "")[:10]
+    annualized = _annualized_return_rate(return_rate, start_date, latest_date)
+
+    rows = _recalibrate_return_curve_to_terminal_rate(rows, return_rate)
+    latest = rows[-1]
+    latest["market_value"] = total_value
+    latest["total_pnl"] = total_pnl
+    latest["position_pnl"] = current_float_pnl
+    latest["realized_income"] = realized_pnl
+    latest["cost"] = total_cost
+    latest["return_rate"] = return_rate
+    latest["display_return_rate"] = return_rate
+    latest["daily_return_amount"] = daily_pnl
+    latest["return_pnl_source"] = source
+    rows[-1] = latest
+
+    summary = dict(payload.get("summary") or {})
+    summary["total_return"] = total_pnl
+    summary["total_return_rate"] = return_rate
+    summary["annualized_return_rate"] = annualized
+
+    out = dict(payload)
+    out["summary"] = summary
+    out["rows"] = rows
+    out["section_pnl_state"] = {
+        **meta,
+        "overlay_applied": True,
+        "total_value": total_value,
+        "total_cost": total_cost,
+        "total_pnl": total_pnl,
+        "current_float_pnl": current_float_pnl,
+        "closed_realized_pnl": realized_pnl,
+        "return_rate": return_rate,
+        "row_count": len(holding_rows),
+    }
+    return _norm(out)
+
+
 def build_portfolio_valuation_state_from_parts(
     *,
     account_balances: list[dict[str, Any]],
@@ -232,6 +452,10 @@ def build_portfolio_valuation_state_from_parts(
         if row.get("account_code")
     }
     nav_bucket = current_nav_bucket_from_parts(
+        account_balances=account_balances,
+        investment_positions=investment_positions,
+    )
+    account_values_cny = current_nav_account_values_from_parts(
         account_balances=account_balances,
         investment_positions=investment_positions,
     )
@@ -291,6 +515,7 @@ def build_portfolio_valuation_state_from_parts(
             "liabilities": nav_bucket["liabilities"],
             "net_worth": nav_bucket["net_worth"],
         },
+        "account_values_cny": account_values_cny,
     }
     state = {
         "valuation_date": valuation_date,
@@ -441,7 +666,7 @@ def build_portfolio_valuation_state_payload(
     refresh: bool = False,
     conn_factory: Callable[[], Any] = get_conn,
 ) -> dict[str, Any]:
-    """Return the latest published valuation state, or a computed draft fallback."""
+    """Return the latest fresh published valuation state, or a computed read-only fallback."""
     base = str(base_currency or "CNY").upper()
     with conn_factory() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -450,11 +675,33 @@ def build_portfolio_valuation_state_payload(
                 row = publish_current_portfolio_valuation_state(cur, base_currency=base, cycle=cycle)
                 return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
 
+            state = _build_current_state(cur, base_currency=base, cycle=cycle, status="draft")
             row = latest_published_portfolio_valuation_state(cur, base_currency=base)
             if row:
-                return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
+                state_date = _date_key(state.get("valuation_date"))
+                published_date = published_valuation_date_key(row)
+                published_hash = row.get("source_hash")
+                current_hash = state.get("source_hash")
+                if (
+                    published_date
+                    and state_date
+                    and published_date >= state_date
+                    and published_hash == current_hash
+                ):
+                    return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
+                stale_meta = published_valuation_stale_meta(
+                    row,
+                    target_as_of=state.get("valuation_date"),
+                    reason="stale_or_changed_valuation_state",
+                )
+                return {
+                    "table_ready": table_ready,
+                    "source": "computed_current",
+                    "published_state": stale_meta,
+                    **_norm(state),
+                    "as_of": state["valuation_date"],
+                }
 
-            state = _build_current_state(cur, base_currency=base, cycle=cycle, status="draft")
             return {"table_ready": table_ready, "source": "computed_unpublished", **_norm(state), "as_of": state["valuation_date"]}
 
 

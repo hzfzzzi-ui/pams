@@ -458,6 +458,40 @@ asset_mapping:
   is_core: true
   mapping_confidence: HIGH
   note: 使用深圳住房公积金官方账户余额，不再走低可信兜底分类。
+- asset_name: 深圳养老保险个人账户
+  symbol: PENSION_SHENZHEN
+  aliases:
+  - pension_insurance
+  - 深圳养老保险
+  - 养老保险个人账户
+  asset_class: cash
+  risk_bucket: CASH_SHORT_DURATION
+  region: China
+  currency: CNY
+  industry: 养老保险
+  theme: 福利账户/养老保险
+  style: 现金/短久期
+  is_tradable: false
+  is_core: true
+  mapping_confidence: HIGH
+  note: 使用深圳社保个人权益记录单的养老保险个人账户本金。
+- asset_name: 深圳医保个人账户
+  symbol: MEDICAL_SHENZHEN
+  aliases:
+  - medical_insurance
+  - 深圳医保
+  - 医保个人账户
+  asset_class: cash
+  risk_bucket: CASH_SHORT_DURATION
+  region: China
+  currency: CNY
+  industry: 医保个人账户
+  theme: 福利账户/医疗保险
+  style: 现金/短久期
+  is_tradable: false
+  is_core: true
+  mapping_confidence: HIGH
+  note: 使用医保账户官方/推算余额，只计入进入个人账户的金额。
 asset_lookthrough:
 - parent_symbol: QQQ
   parent_asset_name: QQQ

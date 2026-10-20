@@ -70,6 +70,10 @@ def test_build_holdings_summary_payload_preserves_legacy_shape():
     assert payload["as_of"] == "2026-06-01"
     assert payload["total"] == {"value": "150.25", "cost": "135.0", "pnl": "15.25"}
     assert payload["by_category"][0]["total_value_base"] == "100.25"
+    sql, params = cur.executed[1]
+    assert "JOIN latest_account la" in sql
+    assert "latest_position" not in sql
+    assert params == (date(2026, 6, 1), "CNY")
 
 
 def test_build_holdings_by_account_payload_preserves_legacy_shape():
@@ -100,6 +104,10 @@ def test_build_holdings_by_account_payload_preserves_legacy_shape():
     assert payload["as_of"] == "2026-06-01"
     assert payload["by_account"][0]["account_code"] == "ibkr"
     assert payload["by_account"][0]["total_value_base"] == "200.00"
+    sql, params = cur.executed[1]
+    assert "JOIN latest_account la" in sql
+    assert "latest_position" not in sql
+    assert params == (date(2026, 6, 1), "CNY")
 
 
 def test_build_summary2_latest_payload_preserves_legacy_shape():

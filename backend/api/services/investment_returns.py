@@ -478,22 +478,6 @@ def _ibkr_holdings_today_window_payload(
             LIMIT 1
         ) prev_overseas_px ON TRUE
         LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily prev_fx
-            WHERE prev_fx.base_currency = %s
-              AND prev_fx.quote_currency = h.currency
-              AND COALESCE(
-                  prev_overseas_px.trade_date,
-                  h.as_of - 1
-              ) IS NOT NULL
-              AND prev_fx.as_of <= COALESCE(
-                  prev_overseas_px.trade_date,
-                  h.as_of - 1
-              )
-            ORDER BY prev_fx.as_of DESC
-            LIMIT 1
-        ) prev_overseas_fx ON TRUE
-        LEFT JOIN LATERAL (
             SELECT hs.current_price
             FROM pams_holdings_snapshot hs
             WHERE hs.account_code = h.account_code
@@ -508,8 +492,35 @@ def _ibkr_holdings_today_window_payload(
         ) prev_snap ON TRUE
         LEFT JOIN LATERAL (
             SELECT
+                CASE
+                    WHEN h.current_price IS NOT NULL
+                     AND curr_overseas_px.close IS NOT NULL
+                     AND h.current_price IS DISTINCT FROM curr_overseas_px.close
+                    THEN curr_overseas_px.close
+                    ELSE COALESCE(prev_overseas_px.close, prev_snap.current_price)
+                END AS previous_price,
+                CASE
+                    WHEN h.current_price IS NOT NULL
+                     AND curr_overseas_px.close IS NOT NULL
+                     AND h.current_price IS DISTINCT FROM curr_overseas_px.close
+                    THEN curr_overseas_px.trade_date
+                    ELSE COALESCE(prev_overseas_px.trade_date, h.as_of - 1)
+                END AS previous_as_of
+        ) prev_basis ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT rate
+            FROM pams_fx_rates_daily prev_fx
+            WHERE prev_fx.base_currency = %s
+              AND prev_fx.quote_currency = h.currency
+              AND prev_basis.previous_as_of IS NOT NULL
+              AND prev_fx.as_of <= prev_basis.previous_as_of
+            ORDER BY prev_fx.as_of DESC
+            LIMIT 1
+        ) prev_overseas_fx ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
                 h.current_price AS current_price,
-                COALESCE(prev_overseas_px.close, prev_snap.current_price) AS previous_price
+                prev_basis.previous_price AS previous_price
         ) eff ON TRUE
         GROUP BY l.as_of, ps.as_of
         """,

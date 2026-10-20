@@ -3,11 +3,12 @@
 The job has two responsibilities:
 - store confirmed unit NAV from Tushare fund_nav when available, with
   Eastmoney F10 as a fallback;
-- optionally store intraday estimated NAV from Tiantian Fund after A-share close.
+- store intraday estimated NAV from Tiantian Fund after A-share close, then
+  correct the same day with confirmed NAV after the US post-close refresh.
 
-By default, holding snapshots use confirmed fund NAVs only. This keeps the
-Tencent Licaitong view aligned with platform balances, which usually remain on
-the latest confirmed NAV until fund companies publish the next NAV.
+Confirmed NAV must only backfill the NAV date it belongs to. A stale confirmed
+NAV from the previous trading day must not be copied forward as today's
+confirmed return.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 import requests
@@ -584,6 +586,16 @@ def estimate_delta_pct(delta: Decimal, base: Decimal) -> Decimal:
     return (delta / base).quantize(RATIO, rounding=ROUND_HALF_UP)
 
 
+def should_copy_confirmed_nav_to_current_snapshot(confirmed_nav_date: date, current_date: date) -> bool:
+    """Only same-day confirmed NAV can be copied into the current snapshot."""
+    return confirmed_nav_date == current_date
+
+
+def current_china_fund_date() -> date:
+    """Return the fund trading date boundary used by the Beijing post-close job."""
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
 def refresh_fund_nav_estimates(
     conn,
     *,
@@ -599,6 +611,7 @@ def refresh_fund_nav_estimates(
     review_items = 0
     if use_intraday_estimates is None:
         use_intraday_estimates = intraday_estimates_enabled()
+    current_date = current_china_fund_date()
     tushare_available = bool(os.environ.get("TUSHARE_TOKEN"))
     tushare_pro: Any | None = None
     if tushare_available:
@@ -813,21 +826,27 @@ def refresh_fund_nav_estimates(
                     }
                 )
             elif confirmed:
-                # Keep all active funds represented on the current max snapshot date.
-                copy_date = date.today()
-                copied_value = estimate_value(units, confirmed.unit_nav)
-                wrote = insert_or_update_generated_snapshot(
-                    cur,
-                    holding=holding,
-                    as_of=copy_date,
-                    market_value=copied_value,
-                    units=units,
-                    unit_nav=confirmed.unit_nav,
-                    update_existing=False,
-                )
-                if wrote:
-                    inserted_snapshots += 1
-                item.update({"status": "confirmed_no_intraday_estimate"})
+                if should_copy_confirmed_nav_to_current_snapshot(confirmed.nav_date, current_date):
+                    copied_value = estimate_value(units, confirmed.unit_nav)
+                    wrote = insert_or_update_generated_snapshot(
+                        cur,
+                        holding=holding,
+                        as_of=current_date,
+                        market_value=copied_value,
+                        units=units,
+                        unit_nav=confirmed.unit_nav,
+                        update_existing=False,
+                    )
+                    if wrote:
+                        inserted_snapshots += 1
+                    item.update({"status": "confirmed_no_intraday_estimate"})
+                else:
+                    item.update(
+                        {
+                            "status": "confirmed_stale_no_intraday_estimate",
+                            "current_date": current_date.isoformat(),
+                        }
+                    )
 
             processed.append(item)
         conn.commit()

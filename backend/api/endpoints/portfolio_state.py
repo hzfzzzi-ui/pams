@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date as Date
+
 from fastapi import APIRouter, Query
 
+from endpoints import accounts as accounts_endpoint
 from services.portfolio_config import build_portfolio_config_payload
+from services.portfolio_equity_bridge import build_equity_bridge_payload
 from services.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload
 from services.portfolio_state import build_portfolio_data_quality, build_portfolio_state
 from services.portfolio_valuation_state import (
@@ -38,6 +42,19 @@ def portfolio_config(baseCurrency: str = Query("CNY")):
 def portfolio_risk_disclosure(baseCurrency: str = Query("CNY")):
     """Return seven-surface risk disclosure for the investment risk page."""
     return build_portfolio_risk_disclosure_payload(base_currency=baseCurrency)
+
+
+@router.get("/portfolio/equity-bridge")
+def portfolio_equity_bridge(
+    start: Date = Query(Date(2026, 1, 1)),
+    baseCurrency: str = Query("CNY"),
+):
+    """Return NAV bridge diagnostics between cashflow facts and investment PnL."""
+    return build_equity_bridge_payload(
+        start_date=start,
+        base_currency=baseCurrency,
+        overview_payload=accounts_endpoint._overview_payload(),
+    )
 
 
 @router.get("/portfolio/valuation-state")

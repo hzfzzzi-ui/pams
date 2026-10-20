@@ -113,6 +113,8 @@ def _counter_account(row: Mapping[str, Any], transfer_match: Mapping[str, Any] |
     if not transfer_match:
         value = row.get("counter_account_code")
         return str(value) if value else None
+    if str(transfer_match.get("match_type") or "").lower() == "payment_proxy" and _match_side(row, transfer_match) == "target":
+        return None
     account_code = str(row.get("account_code") or "")
     from_account = str(transfer_match.get("from_account_code") or "")
     to_account = str(transfer_match.get("to_account_code") or "")
@@ -121,6 +123,17 @@ def _counter_account(row: Mapping[str, Any], transfer_match: Mapping[str, Any] |
     if account_code and account_code == to_account:
         return from_account or None
     return to_account or from_account or None
+
+
+def _match_side(row: Mapping[str, Any], transfer_match: Mapping[str, Any] | None) -> str | None:
+    if not transfer_match:
+        return None
+    row_id = str(row.get("id") or "")
+    if row_id and row_id == str(transfer_match.get("source_row_id") or ""):
+        return "source"
+    if row_id and row_id == str(transfer_match.get("target_row_id") or ""):
+        return "target"
+    return None
 
 
 def classify_cashflow_type(row: Mapping[str, Any], transfer_match: Mapping[str, Any] | None = None) -> str:
@@ -134,6 +147,10 @@ def classify_cashflow_type(row: Mapping[str, Any], transfer_match: Mapping[str, 
             return "debt_repayment"
         if match_type == "investment_funding":
             return "investment_withdrawal" if amount > 0 else "investment_funding"
+        if match_type == "payment_proxy":
+            if _match_side(row, transfer_match) == "target":
+                return "operating_income" if amount > 0 else "operating_expense"
+            return "internal_transfer"
         if match_type in {"account_transfer", "payment_proxy", "internal_transfer"}:
             return "internal_transfer"
 
@@ -275,6 +292,12 @@ def fetch_cashflow_source_rows(cur, *, limit: int | None = None, base_currency: 
                 FROM pams_cashflow_fact f
                 WHERE f.source_table = %(source_table)s
                   AND f.source_id = r.id::text
+            )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM pams_cashflow_fact f
+                WHERE f.source_table = %(source_table)s
+                  AND f.source_uid = r.source_uid
             )
             ORDER BY r.transaction_date, r.id
             {limit_sql}

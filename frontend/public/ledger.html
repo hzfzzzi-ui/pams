@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css?v=20260620-mobile-density-v1" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20260623-nav-growth-overflow-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
@@ -44,18 +44,52 @@
     .ledgerKpi { padding:0; min-height:auto; border:0; border-radius:0; background:transparent }
     .ledgerKpi .label { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:0 }
     .ledgerKpi .value { margin-top:4px; font-size:20px; line-height:1.15; font-weight:760; font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-variant-numeric:tabular-nums; letter-spacing:0 }
-    .cashflowBodyGrid { display:grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr); gap:18px; margin-top:14px; align-items:start }
-    .cashflowBodyGrid .chartWrap { height:300px !important }
-    .categoryBarRow { padding:7px 0; border-bottom:1px solid var(--line) }
+    .page-ledger .cashflowBodyGrid {
+      display:grid !important;
+      grid-template-columns:minmax(0, 7fr) minmax(280px, 3fr) !important;
+      gap:18px !important;
+      width:100%;
+      min-width:0;
+      margin-top:14px;
+      align-items:start;
+    }
+    .page-ledger .cashflowBodyGrid > div { min-width:0 }
+    .page-ledger .cashflowBodyGrid .chartWrap {
+      width:100%;
+      min-width:0;
+      height:300px !important;
+      min-height:260px !important;
+      overflow:visible;
+      padding:0 6px 0 8px;
+    }
+    .categoryBarList { display:grid; border-top:1px solid var(--line) }
+    .categoryBarRow { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:62px; padding:10px 0; border-bottom:1px solid var(--line) }
     .categoryBarRow:last-child { border-bottom:none }
-    .categoryBarHead { display:flex; justify-content:space-between; gap:var(--sp-2); align-items:center; margin-bottom:5px; font-size:13px }
-    .categoryTrack { height:6px; border-radius:999px; background:rgba(139,148,158,.14); overflow:hidden }
-    .categoryFill { height:100%; border-radius:999px; background:linear-gradient(90deg, rgba(248,81,73,.72), rgba(210,153,34,.82)) }
+    .categoryBarRank { width:22px; height:22px; display:grid; place-items:center; border:1px solid rgba(139,148,158,.18); border-radius:999px; background:rgba(88,166,255,.08); color:#a8b3c7; font-size:11px; font-weight:850; font-variant-numeric:tabular-nums }
+    .categoryBarMain { min-width:0 }
+    .categoryBarName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:850 }
+    .categoryTrack { height:3px; margin-top:7px; border-radius:999px; background:rgba(139,148,158,.14); overflow:hidden }
+    .categoryFill { height:100%; border-radius:999px; background:linear-gradient(90deg, rgba(88,166,255,.78), rgba(63,185,80,.62)) }
+    .categoryBarList.expense .categoryFill { background:linear-gradient(90deg, rgba(248,81,73,.78), rgba(210,153,34,.62)) }
+    .categoryBarCount { margin-top:5px; color:var(--muted); font-size:11px; line-height:1; font-weight:800 }
+    .categoryBarMeta { display:grid; gap:4px; justify-items:end; min-width:92px; white-space:nowrap }
+    .categoryBarMeta b { color:var(--text); font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:14px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
+    .categoryBarMeta span { color:var(--muted); font-size:11px; line-height:1; font-weight:850; font-variant-numeric:tabular-nums }
+    .categoryInsightPanel { display:grid; gap:12px; min-width:0 }
+    .categoryModeSwitch { display:flex; gap:6px; justify-content:flex-end; margin-bottom:0 }
+    .categoryModeSwitch .tab-btn { min-height:28px; padding:0 11px }
+    .categoryInsightGrid { display:grid; grid-template-columns:128px minmax(0,1fr); gap:12px; align-items:center; min-width:0 }
+    .categoryPieWrap { position:relative; width:128px; height:128px; min-width:128px }
+    .categoryPieWrap canvas { width:128px !important; height:128px !important }
+    .categoryPieFallback { position:absolute; inset:0; border:1px solid rgba(139,148,158,.16); border-radius:999px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04), 0 10px 26px rgba(0,0,0,.22) }
+    .categoryPieEmpty { position:absolute; inset:0; display:grid; place-items:center; padding:12px; border:1px solid rgba(139,148,158,.14); border-radius:999px; color:var(--muted); font-size:11px; line-height:1.35; font-weight:800; text-align:center }
     .ruleItem { padding:var(--sp-2) 0; border-bottom:1px solid var(--line) }
     .ruleItem:last-child { border-bottom:none }
     .ruleName { font-weight:800; margin-bottom:4px }
     .ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
-    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
+    .compactSectionTools { margin-top:-4px }
+    .compactSectionTools .ledgerFilterGrid { grid-template-columns:minmax(0, 1fr); width:100% }
+    .ledgerAnchorNav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line) }
     .ledgerAnchorNav a { position:relative; display:flex; align-items:center; justify-content:center; min-height:30px; padding:0 4px; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:13px; font-weight:850; text-decoration:none; white-space:nowrap }
     .ledgerAnchorNav a::after { content:""; position:absolute; left:50%; right:50%; bottom:-10px; height:2px; background:var(--info); transition:left .16s ease, right .16s ease }
     .ledgerAnchorNav a.is-active,
@@ -64,7 +98,93 @@
     .ledgerAnchorNav a.is-active::after { left:12px; right:12px }
     .ledgerPanelGroup { display:grid; gap:12px }
     .ledgerPanelGroup[hidden] { display:none !important }
-    .cashflowBridge { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
+    .ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+    .ledgerFlowChip { min-height:32px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:var(--muted); font-size:12px; font-weight:850; cursor:pointer; }
+    .ledgerFlowChip.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text); }
+    .ledgerSectionToolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; margin-left:auto }
+    .ledgerIconButton { width:34px; height:34px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:#a8b3c7; cursor:pointer }
+    .ledgerIconButton:hover,
+    .ledgerIconButton:focus,
+    .ledgerIconButton.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text) }
+    .ledgerIconButton svg { width:16px; height:16px; stroke:currentColor; stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round }
+    .ledgerSearchSheet { display:grid; gap:12px }
+    .ledgerSearchSheetActions { display:grid; grid-template-columns:1fr 1fr; gap:8px }
+    .ledgerOptionSheet { display:grid; gap:8px }
+    .ledgerOptionButton { width:100%; min-height:44px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:rgba(13,17,23,.72); color:var(--text); text-align:left; cursor:pointer }
+    .ledgerOptionButton.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16) }
+    .ledgerOptionButton strong { font-size:14px; line-height:1.2; font-weight:850 }
+    .ledgerOptionButton small { margin-top:3px; display:block; color:var(--muted); font-size:11px; line-height:1.2; font-weight:760 }
+    .ledgerOptionButton em { width:18px; height:18px; display:grid; place-items:center; border-radius:999px; background:rgba(88,166,255,.18); color:#79c0ff; font-style:normal; font-size:11px; font-weight:900 }
+    .recentAccountScope { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:850 }
+    .recentAccountScope strong { color:var(--text); font-weight:850 }
+    .recentAccountScope button { border:0; background:transparent; color:#79c0ff; font-size:12px; font-weight:850; cursor:pointer }
+    .accountFlowList { display:grid; border-top:1px solid var(--line) }
+    .accountPeriodToggle { display:flex; gap:8px; justify-content:flex-end; align-items:center; flex-wrap:wrap }
+    .accountPeriodButton { min-height:30px; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:rgba(13,17,23,.72); color:var(--muted); font-size:12px; font-weight:850; cursor:pointer }
+    .accountPeriodButton.active { border-color:rgba(88,166,255,.72); background:rgba(56,139,253,.16); color:var(--text) }
+    .accountFlowRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
+    .accountGroupBlock { border-bottom:1px solid var(--line) }
+    .accountGroupBlock:last-child { border-bottom:0 }
+    .accountGroupBlock .accountFlowRow:last-child { border-bottom:0 }
+    .accountGroupRow { min-height:72px; border-bottom:0 }
+    .accountStandaloneRow { border-bottom:1px solid var(--line) }
+    .accountFlowHeader { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:start; min-width:0 }
+    .accountFlowMain { min-width:0 }
+    .accountFlowMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:16px; line-height:1.28; font-weight:850 }
+    .accountFlowMain small { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1; font-weight:800 }
+    .accountFlowMetaLine { display:flex !important; align-items:center; gap:7px; min-width:0; flex-wrap:wrap }
+    .accountSyncBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(139,148,158,.18); border-radius:999px; background:rgba(139,148,158,.08); color:#a8b3c7; font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
+    .accountFlowFooter { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0 }
+    .accountFlowFooter.is-compact { justify-content:flex-end }
+    .accountFlowStats { display:flex; align-items:center; gap:8px; margin-top:0; color:var(--muted); font-size:11px; font-weight:850; flex-wrap:wrap; min-width:0 }
+    .accountFlowStats span { white-space:nowrap }
+    .accountFlowFooterMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex:0 0 auto; min-width:max-content; color:var(--muted); font-size:11px; font-weight:850; text-align:right; white-space:nowrap }
+    .accountFlowNetBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:#a8b3c7; white-space:nowrap }
+    .accountFlowNetBadge.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
+    .accountFlowNetBadge.down { border-color:rgba(248,81,73,.28); background:rgba(248,81,73,.08); color:#ff8b81 }
+    .accountInvestmentFooter { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center }
+    .accountInvestmentStats { display:flex; align-items:center; gap:5px; flex:1 1 auto; flex-wrap:wrap; min-width:0 }
+    .accountInvestmentChip { display:inline-flex; align-items:center; gap:4px; max-width:170px; min-height:22px; padding:0 7px; border:1px solid rgba(139,148,158,.16); border-radius:999px; background:rgba(139,148,158,.06); color:var(--muted); font-size:11px; line-height:1; font-weight:850; white-space:nowrap; overflow:hidden }
+    .accountInvestmentChip span,
+    .accountInvestmentChip strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+    .accountInvestmentChip strong { color:var(--text); font-weight:850; font-variant-numeric:tabular-nums }
+    .accountInvestmentChip.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
+    .accountInvestmentChip.down,
+    .accountInvestmentChip.risk { border-color:rgba(248,81,73,.30); background:rgba(248,81,73,.08); color:#ff8b81 }
+    .accountInvestmentChip.data { border-color:rgba(88,166,255,.24); background:rgba(56,139,253,.08); color:#9ecbff }
+    .accountInvestmentChip.up strong { color:#7ee787 }
+    .accountInvestmentChip.down strong,
+    .accountInvestmentChip.risk strong { color:#ff8b81 }
+    .accountInvestmentChip.data strong { color:#d7eaff }
+    .accountFlowSide { display:grid; gap:4px; justify-items:end; min-width:124px; white-space:nowrap; text-align:right }
+    .accountFlowSide b { font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:15px; line-height:1.15; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:0 }
+    .accountFlowSide small { color:var(--muted); font-size:11px; font-weight:850 }
+    .accountBalanceValue { color:var(--text); font-size:16px !important }
+    .accountBalanceValue.down { color:#ff7b72 }
+    .accountBalanceValue.is-missing { color:var(--muted) }
+    .accountGroupToggle { display:inline-flex; align-items:center; justify-content:center; min-height:24px; padding:0 9px; border:1px solid rgba(88,166,255,.34); border-radius:999px; background:rgba(56,139,253,.08); color:#9ecbff; font-size:11px; font-weight:850 }
+    .accountPendingBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(248,81,73,.32); border-radius:999px; background:rgba(248,81,73,.1); color:#ff8b81; font-size:11px; line-height:1; font-weight:850; white-space:nowrap }
+    .accountSubList { display:grid; margin:0 0 8px 13px; padding-left:13px; border-left:1px solid rgba(88,166,255,.18) }
+    .accountSubList[hidden] { display:none !important }
+    .accountSubRow { min-height:58px; padding:10px 0; border-bottom:1px solid rgba(139,148,158,.12) }
+    .accountSubRow .accountFlowMain strong { font-size:14px }
+    .accountSubRow .accountFlowMain small { margin-top:4px; font-size:11px }
+    .accountSubRow .accountFlowStats { gap:8px }
+    .accountSubRow .accountFlowSide { min-width:118px }
+    .accountFlowRow.is-empty { cursor:default; opacity:.52 }
+    .cashflowBridge { display:block; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
+    .cashflowBridgeLine { display:grid; gap:9px; padding:10px 0 11px; border:0; border-top:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent }
+    .cashflowBridgeHead { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0 }
+    .cashflowBridgeHead span { color:var(--muted); font-size:12px; font-weight:850 }
+    .cashflowBridgeHead strong { color:#6e7681; font-size:11px; font-weight:800; white-space:nowrap }
+    .cashflowTransferGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 }
+    .cashflowTransferStat { min-width:0; padding:0 10px; border-left:1px solid rgba(255,255,255,.08) }
+    .cashflowTransferStat:first-child { border-left:0; padding-left:0 }
+    .cashflowTransferStat span { display:block; color:var(--muted); font-size:11px; font-weight:800 }
+    .cashflowTransferStat strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:3px; color:var(--text); font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-size:14px; font-weight:760; font-variant-numeric:tabular-nums; letter-spacing:0 }
+    .cashflowTransferStat.good strong { color:var(--good); text-shadow:0 0 8px var(--glow-good) }
+    .cashflowTransferStat.bad strong { color:var(--bad); text-shadow:0 0 8px var(--glow-bad) }
+    .cashflowTransferStat.data strong { color:var(--text) }
     .cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
     .cashflowBridgeItem:first-child { border-left:0; padding-left:0 }
     .cashflowBridgeItem.good,
@@ -76,35 +196,43 @@
     .cashflowBridgeOp { display:none }
     .ledgerJumpCard { scroll-margin-top:16px }
     .ledgerList { display:grid; border-top:1px solid var(--line) }
-    .ledgerList.reviewList { border-top:1px solid var(--line); gap:0 }
-    .ledgerList.reviewList .ledgerListRow {
-      min-height:78px;
-      padding:14px 0;
-      border:0;
-      border-bottom:1px solid var(--line);
-      border-radius:0;
-      background:transparent;
-      box-shadow:none;
-    }
-    .ledgerList.reviewList .ledgerListRow:hover { border-color:var(--line); background:transparent }
-    .ledgerListRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; min-height:70px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
+    .ledgerListRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
     .ledgerListRow:active { transform:scale(.995) }
-    .ledgerListMain { min-width:0 }
+    .ledgerListMain { min-width:0; display:flex; flex-direction:column; align-self:stretch }
     .ledgerListMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; line-height:1.28; font-weight:850 }
-    .ledgerListMain small { display:block; margin-top:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; font-weight:800 }
+    .ledgerListMain small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; font-weight:800 }
+    .ledgerListAccount { margin-top:6px; color:#8b949e !important }
+    .ledgerListDate { margin-top:auto; padding-top:8px; color:#6e7681 !important; font-variant-numeric:tabular-nums }
     .ledgerListSide { display:grid; gap:5px; justify-items:end; min-width:120px; white-space:nowrap }
     .ledgerListSide b { font-size:15px; font-weight:850; font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; font-variant-numeric:tabular-nums; letter-spacing:0 }
+    .ledgerListSide b.transfer { color:#79c0ff; text-shadow:0 0 8px rgba(121,192,255,.22) }
     .ledgerListSide small { color:var(--muted); font-size:12px; font-weight:800 }
+    .ledgerOriginalAmount { color:#8b949e !important; font-size:11px !important; font-weight:850 !important; font-variant-numeric:tabular-nums }
+    .transferRoute { display:grid !important; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr); gap:8px; align-items:stretch; padding:0 0 12px; border-bottom:1px solid rgba(139,148,158,.16) }
+    .transferRouteHeader { grid-column:1 / -1; color:#79c0ff; font-size:11px; line-height:1; font-weight:850 }
+    .transferRouteNode { min-width:0; padding:9px 10px; border:1px solid rgba(139,148,158,.18); border-radius:8px; background:rgba(139,148,158,.07) }
+    .transferRouteNode.is-target { border-color:rgba(88,166,255,.38); background:rgba(56,139,253,.12) }
+    .transferRouteNode em { display:block; margin-bottom:5px; color:var(--muted); font-size:11px; line-height:1; font-style:normal; font-weight:850 }
+    .transferRouteNode strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:850 }
+    .transferRouteArrow { display:grid; place-items:center; color:#79c0ff; font-size:18px; line-height:1; font-weight:850 }
     .ledgerListMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap }
     .ledgerReviewHint { color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.2px }
+    .ledgerInlineEditBtn {
+      min-height:28px;
+      padding:0 12px;
+      border:1px solid rgba(88,166,255,.42);
+      border-radius:999px;
+      background:rgba(56,139,253,.14);
+      color:#a5d6ff;
+      font-size:12px;
+      font-weight:850;
+      line-height:1;
+      cursor:pointer;
+    }
     .ledgerRowActions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap }
     .ledgerInlineDetail { padding:0 0 12px; border-bottom:1px solid var(--line) }
     .ledgerEmpty { padding:14px 0; color:var(--muted); font-size:13px; font-weight:800 }
     .cashflowSidePanel { display:grid; gap:10px; margin-top:0 }
-    .reviewEntry { padding:10px 0 2px; font-size:13px; border:0; border-bottom:1px solid var(--line); background:transparent; border-radius:0 }
-    .reviewEntryWide { margin-top:8px }
-    .reviewEntryWide .analysisRow { grid-template-columns: minmax(0, 1fr) auto; }
-    .reviewEntry a { color:var(--text); font-weight:850; }
     .ledgerRules { margin-top:10px; border:0; border-top:1px solid var(--line); border-radius:0; padding:10px 0 0; background:transparent; }
     .ledgerRules summary { cursor:pointer; color:var(--text); font-weight:850; }
     .ledgerMobileHero { display:none; }
@@ -165,9 +293,38 @@
       min-height:38px;
       border-radius:999px;
     }
+    .ledgerDetailActions {
+      display:flex !important;
+      justify-content:flex-end;
+      padding:0 0 10px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .ledgerDetailActions .ledgerActionBtn { min-inline-size:120px }
+    .ledgerEditGrid {
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    .ledgerEditGrid label {
+      display:grid;
+      gap:6px;
+      min-width:0;
+    }
+    .ledgerEditGrid label > span {
+      color:var(--muted);
+      font-size:11px;
+      font-weight:850;
+    }
+    .ledgerEditGrid .formInput {
+      width:100%;
+      min-height:38px;
+      border-radius:10px;
+      font-weight:800;
+    }
+    .ledgerEditFull { grid-column:1 / -1 }
     @media (max-width: 880px) {
       .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
-      .cashflowBodyGrid { grid-template-columns:1fr }
+      .page-ledger .cashflowBodyGrid { grid-template-columns:1fr !important }
       .cashflowBridge { grid-template-columns:repeat(2,minmax(0,1fr)) }
       .ledgerAnchorNav { grid-template-columns:repeat(3,minmax(0,1fr)) }
     }
@@ -191,7 +348,7 @@
         border-radius: 0 !important;
       }
       .ledgerKpiGrid { grid-template-columns:1fr 1fr }
-      .ledgerToolbar { justify-content:flex-start }
+      body.page-ledger.app-shell .ledgerToolbar { justify-content:flex-start }
       .ledgerFilterGrid { grid-template-columns:1fr }
       .page-ledger .pageHeader { display:none; }
       .ledgerAnchorNav {
@@ -199,7 +356,7 @@
         top:0;
         z-index:20;
         display:grid;
-        grid-template-columns:repeat(6, minmax(0, 1fr));
+        grid-template-columns:repeat(3, minmax(0, 1fr));
         gap:0;
         padding:8px 12px 10px;
         margin:0 0 8px;
@@ -211,12 +368,16 @@
       .ledgerAnchorNav a { min-height:32px; padding:0 0 6px; font-size:16px; font-weight:900; line-height:28px; letter-spacing:0 }
       .ledgerAnchorNav a::after { bottom:0; background:#58a6ff; }
       .ledgerAnchorNav a.is-active::after { left:0; right:0; }
+      .ledgerFlowChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none; }
+      .ledgerFlowChips::-webkit-scrollbar { display:none; }
+      .ledgerFlowChip { flex:0 0 auto; border-radius:999px !important; }
+      .ledgerSectionToolbar { gap:6px; min-width:0 }
+      .accountPeriodToggle { justify-content:flex-start }
       .page-ledger .ledgerPanelGroup {
         padding-left: 12px;
         padding-right: 12px;
       }
-      .page-ledger .accountIssueStrip { margin-top:6px; }
-      .ledgerTop {
+      body.page-ledger.app-shell .ledgerTop {
         margin-top:0;
         padding:0;
         border:0;
@@ -224,28 +385,17 @@
         background:transparent;
         box-shadow:none;
       }
-      .ledgerTop > .sectionTitle {
-        display:grid;
-        grid-template-columns:1fr;
-        align-items:start;
-        gap:8px;
-        margin-bottom:6px;
-      }
-      .ledgerTop > .sectionTitle h3 {
+      body.page-ledger.app-shell .ledgerTop > .sectionTitle h3 {
         margin:0;
+        min-width:0;
         white-space:nowrap;
         line-height:1.08;
       }
-      .ledgerTop .ledgerToolbar {
-        display:grid;
-        grid-template-columns:minmax(0, 1fr) auto;
-        width:100%;
-        gap:8px;
+      body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle {
+        min-width:0;
       }
-      .ledgerTop .ledgerToolbar .formInput,
-      .ledgerTop .ledgerToolbar .btn {
-        width:100% !important;
-        min-height:38px;
+      body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle .accountPeriodButton {
+        padding:0 8px;
       }
       .ledgerMobileHero {
         display:block;
@@ -294,18 +444,62 @@
         font-variant-numeric:tabular-nums;
         letter-spacing:0;
       }
+      .cashflowBridgeLine { padding:9px 0 10px; border-radius:0 }
+      .cashflowBridgeHead { align-items:flex-start; flex-direction:column; gap:3px }
+      .cashflowBridgeHead strong { white-space:normal }
+      .cashflowTransferStat { padding:0 8px }
+      .cashflowTransferStat strong { font-size:13px }
       .page-ledger .ledgerKpiGrid { display:none; }
-      .page-ledger .cashflowBodyGrid { margin-top:8px; }
-      .ledgerListRow { min-height:72px; padding:12px 0; grid-template-columns:minmax(0,1fr) 118px; align-items:flex-start }
-      .ledgerList.reviewList .ledgerListRow { padding:13px 0; min-height:76px }
+      .page-ledger .cashflowBodyGrid {
+        display:grid !important;
+        grid-template-columns:1fr !important;
+        gap:18px !important;
+        margin-top:8px;
+      }
+      .page-ledger .cashflowBodyGrid > div:first-child { order:2 }
+      .page-ledger .cashflowBodyGrid > div:nth-child(2) { order:1 }
+      .page-ledger .cashflowBodyGrid .chartWrap {
+        height:280px !important;
+        min-height:260px !important;
+        padding:0 8px 0 10px;
+      }
+      .categoryInsightGrid {
+        grid-template-columns:104px minmax(0,1fr);
+        gap:10px;
+      }
+      .categoryPieWrap,
+      .categoryPieWrap canvas {
+        width:104px !important;
+        height:104px !important;
+        min-width:104px;
+      }
+      .ledgerListRow { min-height:82px; padding:12px 0; grid-template-columns:minmax(0,1fr) 118px; align-items:stretch }
       .ledgerListMain strong { font-size:15px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
-      .ledgerListMain small { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
+      .ledgerListMain small { white-space:nowrap; display:block }
+      .ledgerListAccount { white-space:normal !important; display:-webkit-box !important; -webkit-line-clamp:1; -webkit-box-orient:vertical }
+      .ledgerListDate { display:block !important; white-space:nowrap !important }
       .ledgerListSide { min-width:118px; gap:8px }
       .ledgerListMeta { justify-content:flex-end }
+      .accountFlowRow { min-height:76px; padding:12px 0; align-items:stretch }
+      .accountFlowHeader { gap:10px }
+      .accountFlowMain strong { font-size:15px }
+      .accountFlowStats { gap:8px }
+      .accountInvestmentStats { gap:5px }
+      .accountInvestmentChip { max-width:100%; overflow:hidden; text-overflow:ellipsis }
+      .accountFlowSide { min-width:112px }
+      .accountFlowFooter { align-items:flex-start }
+      .categoryBarRow { min-height:58px; grid-template-columns:26px minmax(0,1fr) auto; padding:9px 0 }
+      .categoryBarName { font-size:15px }
+      .categoryBarMeta { min-width:86px }
       .ledgerRowActions { display:grid; grid-template-columns:1fr; width:100% }
       .ledgerActionBtn { width:100% }
       .ledgerConfirmMeta,
-      .ledgerConfirmActions { grid-template-columns:1fr }
+      .ledgerConfirmActions,
+      .ledgerEditGrid { grid-template-columns:1fr }
+      .ledgerDetailActions { justify-content:stretch }
+      .ledgerDetailActions .ledgerActionBtn { width:100% }
+      .transferRoute { grid-template-columns:1fr; gap:7px }
+      .transferRouteArrow { min-height:18px; transform:rotate(90deg) }
     }
     @media (max-width: 520px) {
       .ledgerKpiGrid { grid-template-columns:1fr }
@@ -323,7 +517,7 @@
     <div class="pageHeader">
       <div>
         <h1>流水</h1>
-        <div class="pageSubtitle">现金流、待确认流水与内部转账。</div>
+        <div class="pageSubtitle">现金流、账户流水与内部转账。</div>
         <details class="compactDetails">
           <summary>口径说明</summary>
           <div class="pageSubtitle">按月查看消费结构、收入来源和资金流转。投资买卖明细已移到投资页，避免把现金消费和投资交易混在一起。</div>
@@ -338,19 +532,16 @@
     <nav class="ledgerAnchorNav" aria-label="收支模块">
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
-      <a href="#income-section" data-ledger-tab="income">收入</a>
-      <a href="#accountIssueStrip" data-ledger-tab="account">账户</a>
-      <a href="#transfers" data-ledger-tab="transfer">转账</a>
-      <a href="#review-section" data-ledger-tab="review">待确认</a>
+      <a href="#account-cashflow-section" data-ledger-tab="account">账户</a>
     </nav>
 
     <div class="ledgerPanelGroup" data-ledger-panel="overview">
       <section class="ledgerSection ledgerTop ledgerJumpCard" id="cashflow-workbench" style="border-radius:0 !important;border:0 !important;background:transparent !important;box-shadow:none !important;">
         <div class="sectionTitle">
-          <h3>本月现金流</h3>
-          <div class="ledgerToolbar">
-            <input id="monthPicker" class="formInput mono" type="month" style="width:150px" />
-            <button id="btnReloadLedger" class="btn">刷新</button>
+          <h3 id="overviewTitle">总览</h3>
+          <div class="accountPeriodToggle ledgerOverviewPeriodToggle" aria-label="总览统计周期">
+            <button class="accountPeriodButton" type="button" data-overview-period="month">本月至今</button>
+            <button class="accountPeriodButton active" type="button" data-overview-period="ytd">本年至今</button>
           </div>
         </div>
 
@@ -383,8 +574,6 @@
         </div>
 
         <div id="cashflowBridge" class="cashflowBridge"></div>
-        <div id="reviewEntry" class="reviewEntry reviewEntryWide"></div>
-
         <div class="cashflowBodyGrid">
           <div>
             <div class="sectionTitle" style="margin-top:var(--sp-3)">
@@ -398,9 +587,21 @@
           </div>
           <div>
             <div class="cashflowSidePanel">
-              <div>
-                <div class="sectionTitle"><h3>消费 Top 5</h3></div>
-                <div id="expenseCategories"></div>
+              <div class="categoryInsightPanel">
+                <div class="sectionTitle">
+                  <h3 id="categoryInsightTitle">收入排行</h3>
+                  <div class="tab-buttons categoryModeSwitch" aria-label="分类视图">
+                    <button class="tab-btn active" type="button" data-overview-flow="income">收入</button>
+                    <button class="tab-btn" type="button" data-overview-flow="expense">消费</button>
+                  </div>
+                </div>
+                <div class="categoryInsightGrid">
+                  <div class="categoryPieWrap">
+                    <canvas id="overviewCategoryPieChart"></canvas>
+                    <div id="overviewCategoryPieEmpty" class="categoryPieEmpty" hidden></div>
+                  </div>
+                  <div id="overviewCategoryRank"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -408,47 +609,14 @@
       </section>
     </div>
 
-    <div class="ledgerPanelGroup" data-ledger-panel="income" hidden>
-      <section class="ledgerSection ledgerJumpCard" id="income-section">
-        <div class="sectionTitle"><h3>本月收入来源</h3></div>
-        <div id="incomeCategories"></div>
-      </section>
-    </div>
-
     <div class="ledgerPanelGroup" data-ledger-panel="account" hidden>
-      <section class="ledgerSection accountIssueStrip ledgerJumpCard" id="accountIssueStrip">
+      <section class="ledgerSection ledgerJumpCard" id="account-cashflow-section">
         <div class="sectionTitle">
-          <h3>账户异常</h3>
-          <a class="miniBadge data" href="accounts.html">详情</a>
+          <h3>按账户统计</h3>
         </div>
-        <div id="ledgerAccountIssueStrip" class="ledgerAccountIssueStrip">
-          <div class="skeletonLine"></div>
-          <div class="skeletonLine"></div>
-        </div>
+        <div id="accountFlowHint" class="muted" style="margin:-4px 0 8px">账户余额优先展示；现金流变化统一按年初至今计算。</div>
+        <div id="accountFlowRows" class="accountFlowList"></div>
       </section>
-
-      <section class="ledgerSection" id="manual-import">
-        <div class="sectionTitle">
-          <h3>手动导入</h3>
-        </div>
-        <div class="appTaskList">
-          <a class="appTaskRow data" href="data_sources.html">
-            <span><strong>数据源健康</strong><small>IBKR / A股 / 基金 / 银行账单</small></span>
-            <em>›</em>
-          </a>
-          <a class="appTaskRow info" href="accounts.html#sources">
-            <span><strong>账单导入</strong><small>银行 / 钱包 / 信用卡底表</small></span>
-            <em>›</em>
-          </a>
-        </div>
-      </section>
-
-      <details class="ledgerRules">
-        <summary>粗分类规则</summary>
-        <div style="margin-top:10px">
-          <div id="classificationRules"></div>
-        </div>
-      </details>
     </div>
 
     <div class="ledgerPanelGroup" data-ledger-panel="transfer" hidden>
@@ -458,36 +626,44 @@
       </section>
     </div>
 
-    <div class="ledgerPanelGroup" data-ledger-panel="review" hidden>
-      <section class="ledgerSection ledgerJumpCard" id="review-section">
-        <div class="sectionTitle">
-          <h3>待确认流水</h3>
-          <div class="muted">需要后续补规则或人工确认的行</div>
-        </div>
-        <div id="reviewRows" class="ledgerList"></div>
-      </section>
-    </div>
-
     <div class="ledgerPanelGroup" data-ledger-panel="recent" hidden>
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section">
         <div class="sectionTitle">
-          <h3>最近 30 天流水</h3>
-          <div class="ledgerFilterGrid">
-            <select id="recentFlowFilter" class="formInput">
-              <option value="">全部类型</option>
-              <option value="income">收入</option>
-              <option value="expense">消费</option>
-              <option value="transfer">资金流转</option>
-              <option value="review">待确认</option>
-            </select>
-            <input id="recentSearch" class="formInput" type="search" placeholder="搜索摘要 / 商户 / 粗分类" />
+          <h3>现金流水</h3>
+          <div class="ledgerSectionToolbar">
+            <div class="accountPeriodToggle" aria-label="流水统计周期">
+              <button class="accountPeriodButton" type="button" data-recent-period="month">本月</button>
+              <button class="accountPeriodButton active" type="button" data-recent-period="ytd">年初至今</button>
+            </div>
+            <button id="recentSearchToggle" class="ledgerIconButton" type="button" aria-label="搜索流水" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m16.5 16.5 4 4"></path>
+              </svg>
+            </button>
+            <button id="recentSortToggle" class="ledgerIconButton" type="button" aria-label="流水排序" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h10"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 17h7"></path>
+              </svg>
+            </button>
           </div>
+        </div>
+        <div id="recentAccountScope" class="recentAccountScope" hidden></div>
+        <div id="recentFlowChips" class="ledgerFlowChips" aria-label="流水类型筛选">
+          <button class="ledgerFlowChip active" type="button" data-ledger-flow-filter="">全部</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="income">收入</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="expense">消费</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="investment_transfer">投资转账</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="internal_transfer">内部转账</button>
+          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="review">待确认</button>
         </div>
         <div id="recentRows" class="ledgerList"></div>
       </section>
     </div>
   </div>
 
-  <script type="module" src="assets/js/ledger_cashflow.js?v=20260620-data-state-v1"></script>
+  <script type="module" src="assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1"></script>
 </body>
 </html>

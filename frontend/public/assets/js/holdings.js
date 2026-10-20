@@ -1,6 +1,6 @@
 import { jget, typeLabel, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20260620-data-state-v1';
-import { pnlPct } from './utils.js?v=20260606-refresh-v3';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
+import { pnlPct } from './utils.js?v=20260622-fund-pnl-v1';
 import { makeAccountCashHoldingRows } from './account_cash.js?v=20260606-cash-active-v1';
 
 function esc(value) {
@@ -99,6 +99,22 @@ function dataBadge(row) {
   if (category === '贵金属' || String(row.minor_category || '').includes('基金')) return '<span class="miniBadge warn">需核准</span>';
   if (!row.current_price && !row.buy_price && !row.quantity) return '<span class="miniBadge pending">净值型</span>';
   return '<span class="muted">—</span>';
+}
+
+function holdingDailyStatusBadge(row, options = {}) {
+  const status = String(row?.daily_pnl_status || row?.daily_return_status || '').toLowerCase();
+  const label = row?.daily_pnl_status_label || (status === 'confirmed' ? '今日收益已确认' : status === 'estimated' ? '预估收益' : '');
+  if (!label) return '';
+  const tone = status === 'confirmed' ? 'ok' : 'warn';
+  const extraClass = options.className ? ` ${esc(options.className)}` : '';
+  return `<span class="miniBadge ${tone}${extraClass}">${esc(label)}</span>`;
+}
+
+function mergedDailyPnlStatus(rows) {
+  const statuses = rows.map((row) => String(row?.daily_pnl_status || row?.daily_return_status || '').toLowerCase()).filter(Boolean);
+  if (statuses.includes('estimated')) return { status: 'estimated', label: '预估收益' };
+  if (statuses.includes('confirmed')) return { status: 'confirmed', label: '今日收益已确认' };
+  return { status: '', label: '' };
 }
 
 function showClosedPositions() {
@@ -256,7 +272,7 @@ function renderRows(rows, options = {}){
     tr.title = '点击查看完整字段';
     tr.innerHTML = `
       <td class="nowrap">${esc(r.symbol || '—')}</td>
-      <td class="name" title="${esc(r.name || '')}">${esc(r.name || '')}${closedBadge(r)}</td>
+      <td class="name" title="${esc(r.name || '')}">${esc(r.name || '')}${closedBadge(r)}${holdingDailyStatusBadge(r)}</td>
       <td>${esc(groupLabel)}</td>
       <td>${esc(accountLabel(r.account || r.account_code || ''))}</td>
       <td class="mono num">${formatCompactCurrency(value)}</td>
@@ -471,6 +487,7 @@ function aggregateMobileHoldingRows(rows) {
     const currentPrice = quantity > 0 ? marketValue / quantity : safeNum(first.current_price);
     const previousPrice = quantity > 0 ? (marketValue - dailyPnl) / quantity : safeNum(first.previous_price);
     const buyPrice = quantity > 0 ? cost / quantity : safeNum(first.buy_price);
+    const dailyStatus = mergedDailyPnlStatus(groupRows);
     grouped.push({
       ...first,
       account: 'mixed',
@@ -501,6 +518,8 @@ function aggregateMobileHoldingRows(rows) {
       previous_price: Number.isFinite(previousPrice) ? previousPrice : null,
       price_change_pct: previousPrice ? (currentPrice - previousPrice) / previousPrice : null,
       price_change_amount: previousPrice ? currentPrice - previousPrice : null,
+      daily_pnl_status: dailyStatus.status || first.daily_pnl_status || first.daily_return_status,
+      daily_pnl_status_label: dailyStatus.label || first.daily_pnl_status_label,
       __isAggregated: true,
       __accountRows: groupRows,
     });
@@ -549,7 +568,7 @@ function renderMobileHoldingRows(rows, options = {}) {
       <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${esc(r.name || name)}">
         <span class="mobileHoldingMain">
           <span class="mobileHoldingText">
-            <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
+            <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${holdingDailyStatusBadge(r)}${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
             <small>${esc(holdingGroupLabel(r))}</small>
           </span>
           <span class="mobileHoldingQuote">${quoteLine}</span>

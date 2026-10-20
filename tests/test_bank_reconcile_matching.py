@@ -15,6 +15,7 @@ from endpoints.bank_reconcile import (  # noqa: E402
     _fetch_transfer_matches,
     _fetch_unmatched_confirmation_rows,
     _row_transfer_amount,
+    _sync_reconciliation_cases_from_transfer_matches,
     _table_exists,
 )
 
@@ -151,7 +152,7 @@ def test_guangfa_usd_card_payment_matches_bank_by_original_cny_amount():
     assert matches[0]["amount"] == Decimal("1478.01")
 
 
-def test_santander_ibkr_source_only_investment_funding():
+def test_santander_ibkr_source_only_is_pending_account_transfer():
     row = _row(
         1,
         "santander",
@@ -179,6 +180,7 @@ def test_santander_ibkr_source_only_investment_funding():
     )
 
     assert len(matches) == 1
+    assert matches[0]["match_type"] == "account_transfer"
     assert matches[0]["relation_code"] == "santander_to_ibkr"
     assert matches[0]["from_account_code"] == "santander"
     assert matches[0]["to_account_code"] == "ibkr"
@@ -186,7 +188,7 @@ def test_santander_ibkr_source_only_investment_funding():
     assert matches[0]["amount"] == Decimal("90000")
 
 
-def test_ccb_to_tonghuashun_source_only_investment_funding():
+def test_ccb_to_tonghuashun_source_only_is_pending_account_transfer():
     row = _row(
         1,
         "ccb_7332",
@@ -212,6 +214,7 @@ def test_ccb_to_tonghuashun_source_only_investment_funding():
     )
 
     assert len(matches) == 1
+    assert matches[0]["match_type"] == "account_transfer"
     assert matches[0]["relation_code"] == "ccb_to_tonghuashun"
     assert matches[0]["from_account_code"] == "ccb_7332"
     assert matches[0]["to_account_code"] == "tonghuashun"
@@ -243,6 +246,30 @@ class _MissingTransferMatchCursor:
         return self.fetchall_rows
 
 
+class _ReconciliationCaseCursor:
+    def __init__(self) -> None:
+        self.fetchone_row = None
+        self.fetchall_rows: list[dict] = []
+        self.queries: list[str] = []
+        self.params: list[object] = []
+        self.rowcount = 0
+
+    def execute(self, query: str, params=None):
+        self.queries.append(query)
+        self.params.append(params)
+        if "to_regclass" in query:
+            self.fetchone_row = {"table_name": "pams_reconciliation_case"}
+            self.rowcount = 0
+            return
+        self.rowcount = 1 if "INSERT INTO pams_reconciliation_case" in query else 0
+
+    def fetchone(self):
+        return self.fetchone_row
+
+    def fetchall(self):
+        return self.fetchall_rows
+
+
 def test_bank_transfer_match_readers_tolerate_missing_match_table():
     cur = _MissingTransferMatchCursor()
 
@@ -250,6 +277,54 @@ def test_bank_transfer_match_readers_tolerate_missing_match_table():
     assert _fetch_transfer_matches(cur) == []
     assert _fetch_transfer_match_summary(cur) == []
     assert _fetch_unmatched_confirmation_rows(cur, date(2026, 1, 1)) == []
+
+
+def test_transfer_matches_sync_to_canonical_reconciliation_cases():
+    paired = _build_transfer_matches(
+        [
+            _row(1, "icbc_6689_cny", "-15193.76", summary="bank out", day=date(2026, 1, 18)),
+            _row(2, "ccb_7332", "15193.76", summary="bank in", day=date(2026, 1, 18)),
+        ],
+        {
+            "account_relationships": [
+                {
+                    "code": "icbc_to_ccb_7332",
+                    "relation_type": "account_transfer",
+                    "from_account": "icbc_6689_cny",
+                    "to_account": "ccb_7332",
+                    "match_keywords": {"from": ["bank out"], "to": ["bank in"]},
+                }
+            ]
+        },
+    )[0]
+    source_only = _build_transfer_matches(
+        [_row(3, "santander", "-29000", summary="TRANSFERENCIA A INTERACTIVE BROKERS LLC")],
+        {
+            "account_relationships": [
+                {
+                    "code": "santander_to_ibkr",
+                    "relation_type": "investment_funding",
+                    "match_mode": "source_only",
+                    "from_account": "santander",
+                    "to_account": "ibkr",
+                    "match_keywords": {"from": ["INTERACTIVE BROKERS"]},
+                }
+            ]
+        },
+    )[0]
+
+    cur = _ReconciliationCaseCursor()
+    inserted = _sync_reconciliation_cases_from_transfer_matches(cur, [paired, source_only])
+
+    inserts = [
+        params
+        for query, params in zip(cur.queries, cur.params)
+        if "INSERT INTO pams_reconciliation_case" in query
+    ]
+    assert inserted == 2
+    assert inserts[0][12] == "auto"
+    assert inserts[1][12] == "open"
+    assert inserts[1][7] is None
 
 
 def test_icbc_to_ccb_account_transfer_matches_by_amount_and_date():

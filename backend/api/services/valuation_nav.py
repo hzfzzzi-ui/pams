@@ -190,6 +190,13 @@ def add_nav_amount(bucket: dict[str, Decimal], amount_cny: Decimal) -> None:
     bucket["net_worth"] += amount_cny
 
 
+def signed_account_native_value(account: dict[str, Any], value: Decimal) -> Decimal:
+    """Normalize statement balances to NAV sign conventions."""
+    if str(account.get("account_type") or "") == "liability":
+        return -abs(value)
+    return value
+
+
 def build_weekly_nav_rows(
     *,
     dates: list[Date],
@@ -241,6 +248,31 @@ def current_nav_bucket_from_parts(
     return bucket
 
 
+def current_nav_account_values_from_parts(
+    *,
+    account_balances: list[dict[str, Any]],
+    investment_positions: list[dict[str, Any]],
+) -> dict[str, Decimal]:
+    """Return canonical current net value by account using PortfolioState parts."""
+    represented_accounts = {
+        str(row.get("account_code") or "")
+        for row in investment_positions
+        if row.get("account_code")
+    }
+    values: dict[str, Decimal] = {}
+    for row in investment_positions:
+        account_code = str(row.get("account_code") or "")
+        if not account_code:
+            continue
+        values[account_code] = values.get(account_code, Decimal("0")) + _dec(row.get("market_value_cny"))
+    for row in account_balances:
+        account_code = str(row.get("account_code") or "")
+        if not account_code or not row.get("include_in_nav", True) or account_code in represented_accounts:
+            continue
+        values[account_code] = values.get(account_code, Decimal("0")) + _dec(row.get("amount_cny"))
+    return values
+
+
 def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize internal NAV keys without changing the legacy API field names."""
     return {
@@ -283,27 +315,41 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
         """
     )
     exists = cur.fetchone() or {}
+    rows_by_account: dict[str, list[dict[str, Any]]] = {}
     if exists.get("bank_rows_exists"):
         cur.execute(
             """
-            SELECT id, account_code, transaction_date, amount, currency,
+            SELECT id, source_uid, account_code, transaction_date, amount, currency,
                    category, subcategory, summary, description, counterparty,
                    balance AS statement_balance
             FROM pams_bank_statement_rows
             WHERE account_code = ANY(%s::text[])
               AND (
-                  transaction_date > %s
-                  OR (transaction_date <= %s AND balance IS NOT NULL)
+                  transaction_date >= %s
+                  OR (transaction_date < %s AND balance IS NOT NULL)
               )
               AND transaction_date <= %s
             ORDER BY account_code, transaction_date, id
             """,
             (account_codes, start_date, start_date, terminal_date),
         )
-    elif exists.get("cashflow_fact_exists"):
+        for row in cur.fetchall():
+            item = dict(row)
+            rows_by_account.setdefault(str(item["account_code"]), []).append(item)
+
+    cashflow_account_codes = account_codes
+
+    if exists.get("cashflow_fact_exists") and cashflow_account_codes:
+        seen_source_uids = {
+            str(row.get("source_uid"))
+            for rows in rows_by_account.values()
+            for row in rows
+            if row.get("source_uid")
+        }
         cur.execute(
             """
             SELECT cashflow_id AS id,
+                   source_uid,
                    account_code,
                    event_date AS transaction_date,
                    amount,
@@ -321,9 +367,9 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
             FROM pams_cashflow_fact
             WHERE account_code = ANY(%s::text[])
               AND (
-                  event_date > %s
+                  event_date >= %s
                   OR (
-                      event_date <= %s
+                      event_date < %s
                       AND NULLIF(COALESCE(
                           raw_json #>> '{statement_row,balance}',
                           raw_json #>> '{statement_row,raw_json,balance}',
@@ -335,14 +381,16 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
               AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
             ORDER BY account_code, event_date, cashflow_id
             """,
-            (account_codes, start_date, start_date, terminal_date),
+            (cashflow_account_codes, start_date, start_date, terminal_date),
         )
-    else:
+        for row in cur.fetchall():
+            item = dict(row)
+            if item.get("source_uid") and str(item.get("source_uid")) in seen_source_uids:
+                continue
+            rows_by_account.setdefault(str(item["account_code"]), []).append(item)
+
+    if not exists.get("bank_rows_exists") and not exists.get("cashflow_fact_exists"):
         return {}
-    rows_by_account: dict[str, list[dict[str, Any]]] = {}
-    for row in cur.fetchall():
-        item = dict(row)
-        rows_by_account.setdefault(str(item["account_code"]), []).append(item)
     return rows_by_account
 
 
@@ -367,6 +415,7 @@ def _statement_balance_native_value(
     *,
     sample_date: Date,
     currency: str,
+    liability: bool = False,
 ) -> tuple[Decimal, Date] | None:
     """Return account value from statement running balances when available."""
     ccy = str(currency or "CNY").upper()
@@ -403,6 +452,8 @@ def _statement_balance_native_value(
         tx_date = _row_date(row.get("transaction_date"))
         if tx_date is not None and sample_date < tx_date <= future_date:
             reverse_flow += _dec(row.get("amount"))
+    if liability:
+        return future_balance + reverse_flow, latest_balance_date or future_date
     return future_balance - reverse_flow, latest_balance_date or future_date
 
 
@@ -423,7 +474,10 @@ def _bank_backcast_series(
         rows = rows_by_account.get(code, [])
         if anchor is None:
             anchor_currency = str(account.get("base_currency") or "CNY").upper()
-            if not any(_statement_balance(row) is not None for row in rows):
+            if not rows:
+                continue
+            has_statement_balance = any(_statement_balance(row) is not None for row in rows)
+            if str(account.get("account_type") or "") == "liability" and not has_statement_balance:
                 continue
             anchor_amount = Decimal("0")
             anchor_date = terminal_date
@@ -438,6 +492,7 @@ def _bank_backcast_series(
                 rows,
                 sample_date=sample_date,
                 currency=anchor_currency,
+                liability=str(account.get("account_type") or "") == "liability",
             )
             if statement_value is not None:
                 statement_native_value, latest_statement_date = statement_value
@@ -461,8 +516,9 @@ def _bank_backcast_series(
                             reverse_flow += _dec(row.get("amount"))
                 native_value = anchor_amount - reverse_flow
 
+            signed_native_value = signed_account_native_value(account, native_value)
             rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
-            add_nav_amount(values[sample_date], native_value * rate)
+            add_nav_amount(values[sample_date], signed_native_value * rate)
     return values
 
 
@@ -867,6 +923,7 @@ def build_nav_weekly_payload(
     account_owner_ratio,
     terminal_date: Date | None = None,
     terminal_nav_bucket: dict[str, Any] | None = None,
+    terminal_account_values_cny: dict[str, Any] | None = None,
     interval: str = "weekly",
 ) -> dict[str, Any]:
     """Return the legacy /nav/weekly payload."""
@@ -909,12 +966,16 @@ def build_nav_weekly_payload(
         base_currency=base_currency,
         account_owner_ratio=account_owner_ratio,
     )
-    tonghuashun_anchor_cny = account_anchor_value_cny(
-        next((a for a in overview_accounts if str(a.get("account_code") or "") == "tonghuashun"), None),
-        fx_timelines=fx_timelines,
-        as_of=terminal_date,
-        base_currency=base_currency,
-    )
+    terminal_account_values = terminal_account_values_cny or {}
+    if "tonghuashun" in terminal_account_values:
+        tonghuashun_anchor_cny = _dec(terminal_account_values["tonghuashun"])
+    else:
+        tonghuashun_anchor_cny = account_anchor_value_cny(
+            next((a for a in overview_accounts if str(a.get("account_code") or "") == "tonghuashun"), None),
+            fx_timelines=fx_timelines,
+            as_of=terminal_date,
+            base_currency=base_currency,
+        )
     a_share_series = scale_series_to_terminal_anchor(
         a_share_series,
         terminal_date=terminal_date,

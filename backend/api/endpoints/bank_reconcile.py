@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
+from services.cashflow_fact import backfill_cashflow_facts
 
 router = APIRouter()
 
@@ -130,14 +131,15 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
             payload["is_asset"],
         ),
     )
-    cur.execute(
-        """
-        INSERT INTO pams_asset_categories (major_category, minor_category)
-        VALUES (%s, %s)
-        ON CONFLICT (major_category, minor_category) DO NOTHING
-        """,
-        (payload["major_category"], payload["minor_category"]),
-    )
+    if _table_exists(cur, "pams_asset_categories"):
+        cur.execute(
+            """
+            INSERT INTO pams_asset_categories (major_category, minor_category)
+            VALUES (%s, %s)
+            ON CONFLICT (major_category, minor_category) DO NOTHING
+            """,
+            (payload["major_category"], payload["minor_category"]),
+        )
     cur.execute(
         """
         INSERT INTO pams_holdings_snapshot (
@@ -782,7 +784,7 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
             matched_source_ids.add(row["id"])
             matches.append(
                 _make_match(
-                    match_type="investment_funding",
+                    match_type="account_transfer",
                     relation_code=str(relation.get("code") or f"{from_account}_to_{to_account}"),
                     from_account_code=str(from_account),
                     to_account_code=str(to_account),
@@ -791,7 +793,7 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
                     target_row=None,
                     date_delta_days=0,
                     confidence=Decimal("0.85"),
-                    note="银行账单中的单边投资账户转账，当前未找到投资平台侧成对现金流水",
+                    note="银行账单中的单边投资账户转账，投资平台侧到账记录缺失，暂按在途资金处理",
                 )
             )
 
@@ -999,6 +1001,8 @@ def _write_transfer_matches(cur, matches: list[dict[str, Any]]) -> int:
         )
         inserted += 1
 
+    _sync_reconciliation_cases_from_transfer_matches(cur, matches)
+
     internal_row_ids: set[int] = set()
     bank_transfer_row_ids: set[int] = set()
     credit_payment_row_ids: set[int] = set()
@@ -1062,6 +1066,68 @@ def _write_transfer_matches(cur, matches: list[dict[str, Any]]) -> int:
             """,
             (PAYMENT_PROXY_CATEGORY, PAYMENT_PROXY_SUBCATEGORY, list(proxy_wechat_row_ids)),
         )
+    return inserted
+
+
+def _sync_reconciliation_cases_from_transfer_matches(cur, matches: list[dict[str, Any]]) -> int:
+    """Mirror current bank-transfer matches into the canonical reconciliation table."""
+
+    if not _table_exists(cur, "pams_reconciliation_case"):
+        return 0
+
+    cur.execute(
+        """
+        DELETE FROM pams_reconciliation_case
+        WHERE COALESCE(status, 'auto') IN ('auto', 'open')
+          AND reviewed_at IS NULL
+          AND case_type <> 'account_review'
+          AND (
+                source_ref_table = 'pams_bank_statement_rows'
+             OR target_ref_table = 'pams_bank_statement_rows'
+          )
+        """
+    )
+
+    inserted = 0
+    for match in matches:
+        has_target = match.get("target_row_id") is not None
+        status = "auto" if has_target else "open"
+        raw_json = {
+            **match,
+            "source": "bank_transfer_matcher",
+            "status_policy": "paired_auto" if has_target else "source_only_open",
+        }
+        cur.execute(
+            """
+            INSERT INTO pams_reconciliation_case (
+                case_type, relation_code, from_account_code, to_account_code,
+                source_ref_table, source_ref_id, target_ref_table, target_ref_id,
+                amount, currency, case_date, confidence, status, note, raw_json
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s
+            )
+            """,
+            (
+                match["match_type"],
+                match["relation_code"],
+                match["from_account_code"],
+                match["to_account_code"],
+                "pams_bank_statement_rows" if match.get("source_row_id") is not None else None,
+                str(match["source_row_id"]) if match.get("source_row_id") is not None else None,
+                "pams_bank_statement_rows" if match.get("target_row_id") is not None else None,
+                str(match["target_row_id"]) if match.get("target_row_id") is not None else None,
+                match["amount"],
+                match["currency"],
+                match["match_date"],
+                match["confidence"],
+                status,
+                match["note"],
+                psycopg2.extras.Json(_norm(raw_json)),
+            ),
+        )
+        inserted += max(int(getattr(cur, "rowcount", 0) or 0), 0)
     return inserted
 
 
@@ -1274,6 +1340,8 @@ def import_bank_reconcile(req: ImportRequest):
     import_ids: list[int] = []
     inserted_rows = 0
     synced_snapshots: list[dict[str, Any]] = []
+    transfer_match_count = 0
+    cashflow_backfill: dict[str, int] = {"source_count": 0, "inserted_count": 0, "skipped_count": 0}
 
     with get_conn() as conn:
         ensure_tables(conn)
@@ -1346,6 +1414,10 @@ def import_bank_reconcile(req: ImportRequest):
                 snapshot = _sync_holding_snapshot_from_statement(cur, result, profile)
                 if snapshot is not None:
                     synced_snapshots.append(snapshot)
+            staged_rows = _load_staged_rows(cur)
+            matches = _build_transfer_matches(staged_rows, config)
+            transfer_match_count = _write_transfer_matches(cur, matches)
+            cashflow_backfill = backfill_cashflow_facts(cur)
             conn.commit()
 
     return _norm(
@@ -1353,6 +1425,8 @@ def import_bank_reconcile(req: ImportRequest):
             "status": "ok",
             "import_ids": import_ids,
             "inserted_rows": inserted_rows,
+            "transfer_match_count": transfer_match_count,
+            "cashflow_backfill": cashflow_backfill,
             "synced_snapshots": synced_snapshots,
             "summary": _summarize(results),
         }
@@ -1434,6 +1508,7 @@ def run_transfer_matching():
             rows = _load_staged_rows(cur)
             matches = _build_transfer_matches(rows, config)
             inserted = _write_transfer_matches(cur, matches)
+            cashflow_backfill = backfill_cashflow_facts(cur)
             conn.commit()
             persisted = _fetch_transfer_matches(cur)
             summary = _fetch_transfer_match_summary(cur)
@@ -1441,6 +1516,7 @@ def run_transfer_matching():
         {
             "status": "ok",
             "matched": inserted,
+            "cashflow_backfill": cashflow_backfill,
             "summary": summary,
             "matches": persisted,
         }

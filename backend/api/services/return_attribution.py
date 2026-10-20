@@ -39,6 +39,7 @@ from services.lookthrough_state import (
     derive_lookthrough_payload,
     load_lookthrough_config,
 )
+from services.portfolio_valuation_state import apply_holdings_category_pnl_to_section_return_series_payload
 from services.portfolio_state import (
     _asset_type,
     _excluded_accounts,
@@ -48,6 +49,7 @@ from services.portfolio_state import (
     load_account_balances,
     load_investment_positions,
 )
+from services.valuation_nav import current_nav_account_values_from_parts
 
 
 AttributionUnit = dict[str, Any]
@@ -445,9 +447,13 @@ def _section_target_payloads(
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     reported_returns_cfg = _load_reported_returns_config()
     overview_payload = _overview_payload_from_account_balances(cur, account_cfg, base_currency)
+    owner_ratios, default_owner_ratio = _owner_ratios(account_cfg)
+    excluded_accounts = _excluded_accounts(account_cfg)
     targets: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
     for section in SECTION_ACCOUNT_MAP:
+        savepoint = f"return_attr_section_{section}"
+        cur.execute(f"SAVEPOINT {savepoint}")
         try:
             payload = build_section_return_series_payload(
                 cur,
@@ -460,12 +466,33 @@ def _section_target_payloads(
                 overview_payload=overview_payload,
                 owner_ratio_case_sql=_owner_ratio_case_sql(account_cfg),
                 account_owner_ratio=_account_owner_ratio_lookup(account_cfg),
-                excluded_holding_accounts=_excluded_accounts(account_cfg),
+                excluded_holding_accounts=excluded_accounts,
                 today_label_date=view_as_of,
             )
+            if section == "a_fund":
+                holdings_payload = build_holdings_by_category_payload(
+                    cur,
+                    category="\u0041\u80a1",
+                    limit=5000,
+                    minor_category="\u0041\u80a1\u57fa\u91d1",
+                    include_closed=True,
+                    view_as_of=view_as_of,
+                    excluded_accounts=excluded_accounts,
+                    owner_ratios=owner_ratios,
+                    default_owner_ratio=default_owner_ratio,
+                    daily_pnl_start_as_of=daily_pnl_window_date(),
+                )
+                payload = apply_holdings_category_pnl_to_section_return_series_payload(
+                    payload,
+                    holdings_payload,
+                    source="holdings.by_category.a_fund",
+                )
         except Exception as exc:  # pragma: no cover - defensive live-data guard
+            cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
             warnings.append(f"{section}: {exc}")
             continue
+        cur.execute(f"RELEASE SAVEPOINT {savepoint}")
         rows = payload.get("rows") or []
         latest = rows[-1] if rows else {}
         today = payload.get("today_window") or {}
@@ -1384,9 +1411,11 @@ def build_return_attribution_payload(
     """Build the /api/analysis/return-attribution payload from current holdings."""
     account_cfg = _load_accounts_config()
     account_balances = load_account_balances(cur, base_currency, account_cfg)
-    portfolio_nav_cny = sum(
-        (Decimal(str(row.get("amount_cny") or 0)) for row in account_balances if row.get("include_in_nav")),
-        Decimal("0"),
+    investment_positions = load_investment_positions(
+        cur,
+        base_currency,
+        account_cfg,
+        account_balances=account_balances,
     )
     view_as_of = _latest_snapshot_date(cur)
     owner_ratios, default_owner_ratio = _owner_ratios(account_cfg)
@@ -1411,6 +1440,13 @@ def build_return_attribution_payload(
         if _is_return_attribution_row(position)
     ]
     positions = _merge_daily_positions(positions, daily_positions)
+    portfolio_nav_cny = sum(
+        current_nav_account_values_from_parts(
+            account_balances=account_balances,
+            investment_positions=investment_positions,
+        ).values(),
+        Decimal("0"),
+    )
     industry_l1_by_symbol = _load_sw_l1_lookup(cur)
     return build_return_attribution_from_positions(
         positions,
