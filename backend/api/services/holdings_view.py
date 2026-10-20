@@ -207,7 +207,7 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
 
     accounts = sorted({account for account, _, _ in keys})
     symbols = sorted({symbol for _, symbol, _ in keys})
-    dates = sorted({as_of for _, _, as_of in keys})
+    dates = sorted({as_of for _, _, as_of in keys if as_of is not None})
 
     if _trade_fact_rows_available(cur):
         cur.execute(
@@ -472,6 +472,14 @@ def _apply_daily_return_status(cur, rows: list[dict[str, Any]], view_as_of: Any)
                     "source": None,
                 },
             )
+        if _date_key(status_info.get("as_of")) != _date_key(view_as_of):
+            # A historical confirmed NAV does not confirm today's return.
+            status_info = {
+                **status_info,
+                "status": RETURN_STATUS_PENDING,
+                "label": return_status_label(RETURN_STATUS_PENDING),
+                "short_label": _return_status_short_label(RETURN_STATUS_PENDING),
+            }
         row["daily_return_status"] = status_info["status"]
         row["daily_return_status_label"] = status_info["label"]
         row["daily_return_status_short_label"] = status_info["short_label"]
