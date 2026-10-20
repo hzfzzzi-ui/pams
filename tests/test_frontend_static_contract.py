@@ -148,6 +148,10 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell .mobileHoldingRow",
         "body.app-shell .moreRow",
         "body.app-shell .tradeReviewDirectionTrade",
+        "PAMS Low Frequency Page Template v1",
+        "body.app-shell.app-low-frequency .lowFrequencyStack",
+        "body.app-shell.app-low-frequency .appWorkHeader",
+        "body.app-shell.app-low-frequency details.card > summary",
         "body.app-shell .appWorkHeader",
         "body.app-shell .appShortcutGrid",
         "body.app-shell .appBottomSheet",
@@ -229,7 +233,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
         assert parsed.stylesheets[style_index] == "assets/css/style.css?v=20260620-mobile-density-v1"
-        assert design_href == "assets/css/design-system.css?v=20260620-list-template-v1"
+        assert design_href == "assets/css/design-system.css?v=20260620-low-frequency-v1"
         assert "app-shell" in parsed.body_classes
         assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
             ("investments.html", "投资"),
@@ -1083,6 +1087,11 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     portfolio_config_js = _read_public("assets/js/portfolio_config.js")
     portfolio_risk_js = _read_public("assets/js/portfolio_risk.js")
 
+    for low_frequency_html in [html, accounts_html, data_sources_html, research_html]:
+        assert "app-low-frequency" in low_frequency_html
+        assert 'data-page-role="low-frequency"' in low_frequency_html
+
+    assert "lowFrequencyStack" in html
     assert "appTaskList" not in html
     assert 'id="sync"' not in html
     assert 'id="syncSummaryStrip"' not in html
@@ -1175,7 +1184,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
     assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
     assert "assets/css/style.css?v=20260620-mobile-density-v1" in ui_js
-    assert "assets/css/design-system.css?v=20260620-list-template-v1" in ui_js
+    assert "assets/css/design-system.css?v=20260620-low-frequency-v1" in ui_js
     assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260620-investment-focus-v2" in ui_js

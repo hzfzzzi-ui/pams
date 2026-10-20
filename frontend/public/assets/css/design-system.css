@@ -689,6 +689,85 @@ body.app-shell .tradeReviewDirectionTrade b {
   font-variant-numeric: tabular-nums;
 }
 
+/* PAMS Low Frequency Page Template v1 */
+body.app-shell.app-low-frequency .lowFrequencyStack,
+body.app-shell.app-low-frequency .moreHub,
+body.app-shell.app-low-frequency .profileList,
+body.app-shell.app-low-frequency .actionChecklist,
+body.app-shell.app-low-frequency .qualityList,
+body.app-shell.app-low-frequency .researchMobileList {
+  display: grid;
+  gap: var(--pams-list-gap);
+}
+
+body.app-shell.app-low-frequency .appWorkHeader {
+  margin-bottom: var(--pams-shell-gap);
+}
+
+body.app-shell.app-low-frequency .moreGroup,
+body.app-shell.app-low-frequency .qualityBox,
+body.app-shell.app-low-frequency .metricPanel,
+body.app-shell.app-low-frequency .ipsStatusItem,
+body.app-shell.app-low-frequency .profileItem,
+body.app-shell.app-low-frequency .pipelineStep,
+body.app-shell.app-low-frequency .accountMobileStat,
+body.app-shell.app-low-frequency .mobileAccountRow {
+  border-color: var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: var(--pams-surface-raised);
+}
+
+body.app-shell.app-low-frequency .qualityBox,
+body.app-shell.app-low-frequency .metricPanel,
+body.app-shell.app-low-frequency .ipsStatusItem,
+body.app-shell.app-low-frequency .profileItem,
+body.app-shell.app-low-frequency .pipelineStep,
+body.app-shell.app-low-frequency .accountMobileStat {
+  padding: var(--pams-list-row-pad-y) var(--pams-list-row-pad-x);
+}
+
+body.app-shell.app-low-frequency details.card > summary,
+body.app-shell.app-low-frequency .sourceNote > summary,
+body.app-shell.app-low-frequency .truthNote > summary {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--pams-text);
+  font-weight: 900;
+}
+
+body.app-shell.app-low-frequency details.card > summary::after,
+body.app-shell.app-low-frequency .sourceNote > summary::after,
+body.app-shell.app-low-frequency .truthNote > summary::after {
+  content: "展开";
+  min-width: 42px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-control);
+  color: var(--pams-muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 22px;
+  text-align: center;
+}
+
+body.app-shell.app-low-frequency details.card[open] > summary::after,
+body.app-shell.app-low-frequency .sourceNote[open] > summary::after,
+body.app-shell.app-low-frequency .truthNote[open] > summary::after {
+  content: "收起";
+  color: var(--pams-info);
+}
+
+body.app-shell.app-low-frequency .statusLine,
+body.app-shell.app-low-frequency .summaryCards,
+body.app-shell.app-low-frequency .qualityGrid,
+body.app-shell.app-low-frequency .ipsStatusStrip,
+body.app-shell.app-low-frequency .pipeline,
+body.app-shell.app-low-frequency .relationshipGrid {
+  gap: var(--pams-list-gap);
+}
+
 body.app-shell .formInput,
 body.app-shell input,
 body.app-shell select,
