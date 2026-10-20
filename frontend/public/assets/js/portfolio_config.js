@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet } from './ui.js?v=20260620-design-system-v2';
+import { dataStateHtml, openBottomSheet } from './ui.js?v=20260620-data-state-v1';
 
 let currentRules = [];
 let currentDrilldownRules = [];
@@ -248,6 +248,15 @@ function renderCurrentPortfolioConfig() {
   if (asOfEl) asOfEl.textContent = currentAsOf;
   if (rulesEl) rulesEl.innerHTML = renderRuleGroups(currentRules);
   if (queueEl) {
+    if (!currentRebalance.length) {
+      queueEl.innerHTML = dataStateHtml({
+        tone: 'empty',
+        title: '暂无再平衡动作',
+        detail: '当前目标配置没有触发需要执行的再平衡建议。',
+        compact: true,
+      });
+      return;
+    }
     queueEl.innerHTML = currentRebalance.map(rebalanceRow).join('')
       || '<div class="lookthroughEmpty compact">当前没有再平衡动作</div>';
   }
@@ -297,6 +306,14 @@ async function loadPortfolioConfig() {
     renderPortfolioConfig(payload);
   } catch (error) {
     const rulesEl = document.getElementById('portfolioConfigRules');
+    if (rulesEl) {
+      rulesEl.innerHTML = dataStateHtml({
+        tone: 'error',
+        title: '组合配置读取失败',
+        detail: error?.message || error,
+      });
+      return;
+    }
     if (rulesEl) rulesEl.innerHTML = `<div class="lookthroughEmpty">组合配置读取失败：${esc(error?.message || error)}</div>`;
   }
 }

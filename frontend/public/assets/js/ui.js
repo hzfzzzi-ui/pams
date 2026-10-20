@@ -63,6 +63,54 @@ export function closeBottomSheet() {
   document.body.classList.remove('sheet-open');
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+export function dataStateHtml(options = {}) {
+  const tone = options.tone || 'empty';
+  const title = options.title || '暂无数据';
+  const detail = options.detail || '';
+  const badge = options.badge || {
+    error: '失败',
+    loading: '加载中',
+    stale: '待更新',
+    empty: '空',
+  }[tone] || '状态';
+  const badgeTone = {
+    error: 'warn',
+    loading: 'pending',
+    stale: 'warn',
+    empty: 'data',
+  }[tone] || 'data';
+  const compact = options.compact ? ' compact' : '';
+  const action = options.actionHref && options.actionLabel
+    ? `<a class="miniBadge data dataStateAction" href="${escapeHtml(options.actionHref)}">${escapeHtml(options.actionLabel)}</a>`
+    : '';
+  return `
+    <div class="emptyState dataState dataState-${escapeHtml(tone)}${compact}">
+      <div class="dataStateTop">
+        <strong class="dataStateTitle">${escapeHtml(title)}</strong>
+        <span class="miniBadge ${escapeHtml(badgeTone)}">${escapeHtml(badge)}</span>
+      </div>
+      ${detail ? `<p class="dataStateDetail">${escapeHtml(detail)}</p>` : ''}
+      ${action}
+    </div>
+  `;
+}
+
+export function renderDataState(target, options = {}) {
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!el) return;
+  el.innerHTML = dataStateHtml(options);
+}
+
 const MOBILE_TABS = {
   'investments.html': { key: 'invest', label: '投资' },
   'ledger.html': { key: 'ledger', label: '收支' },
@@ -185,18 +233,18 @@ function setupAppPreload(activePath, path) {
       ['ledger.html', 'document'],
       ['more.html', 'document'],
       ['assets/css/style.css?v=20260620-design-system-v3', 'style'],
-      ['assets/css/design-system.css?v=20260620-design-system-v2', 'style'],
+      ['assets/css/design-system.css?v=20260620-design-system-v3', 'style'],
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
-      ['assets/js/ui.js?v=20260620-design-system-v2', 'script'],
+      ['assets/js/ui.js?v=20260620-data-state-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/holdings_categories.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/lookthrough.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/ledger_cashflow.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/transactions.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2', 'script'],
-      ['assets/js/portfolio_config.js?v=20260620-design-system-v2', 'script'],
-      ['assets/js/more.js?v=20260620-design-system-v2', 'script'],
+      ['assets/js/holdings.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/holdings_categories.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/lookthrough.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/ledger_cashflow.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/transactions.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/portfolio_config.js?v=20260620-data-state-v1', 'script'],
+      ['assets/js/more.js?v=20260620-data-state-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));
   }, 250);
 

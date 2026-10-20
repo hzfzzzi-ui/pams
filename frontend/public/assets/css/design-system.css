@@ -1,5 +1,5 @@
 /* ============================================================
-   PAMS Design System Layer v2
+   PAMS Design System Layer v3
 
    Loaded after the legacy stylesheet. Keep this file small:
    tokens, shared app-shell primitives, and cross-page density rules only.
@@ -342,6 +342,62 @@ body.app-shell .emptyState {
   color: var(--pams-muted);
   font-size: 13px;
   font-weight: 800;
+}
+
+body.app-shell .dataState {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+body.app-shell .dataStateTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+body.app-shell .dataStateTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-text);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .dataStateDetail {
+  margin: 0;
+  color: var(--pams-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+body.app-shell .dataStateAction {
+  justify-self: flex-start;
+}
+
+body.app-shell .dataState.compact {
+  padding: 10px 12px;
+}
+
+body.app-shell .dataState-error {
+  border-color: color-mix(in srgb, var(--pams-bad) 40%, transparent);
+  background: color-mix(in srgb, var(--pams-bad) 7%, transparent);
+}
+
+body.app-shell .dataState-stale,
+body.app-shell .dataState-loading {
+  border-color: color-mix(in srgb, var(--pams-warn) 35%, transparent);
+  background: color-mix(in srgb, var(--pams-warn) 6%, transparent);
+}
+
+body.app-shell .dataState-empty {
+  border-color: var(--pams-border-strong);
 }
 
 body.app-shell .skeletonCard,

@@ -1,5 +1,5 @@
 import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260620-design-system-v2';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260620-data-state-v1';
 import {
   byId as $,
   clearError,

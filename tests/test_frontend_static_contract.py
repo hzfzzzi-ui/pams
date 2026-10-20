@@ -123,7 +123,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     design_doc = (REPO_ROOT / "docs" / "PAMS_FRONTEND_DESIGN_SYSTEM.md").read_text(encoding="utf-8")
 
     for token in [
-        "PAMS Design System Layer v2",
+        "PAMS Design System Layer v3",
         "--pams-surface",
         "--pams-radius-panel",
         "--pams-row-min",
@@ -135,6 +135,8 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell .appShortcutGrid",
         "body.app-shell .appBottomSheet",
         "body.app-shell .emptyState",
+        "body.app-shell .dataState",
+        "body.app-shell .dataState-error",
         "body.app-shell .miniBadge",
         "body.app-shell .skeletonCard",
         "body.app-shell .statusChip.in_transit",
@@ -207,7 +209,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert "page-dashboard" not in parsed.body_classes
 
     for phrase in [
-        "PAMS 前端设计系统收敛 v2",
+        "PAMS 前端设计系统收敛 v3",
         "`design-system.css` 必须在带版本号的 `style.css?v=...` 后加载",
         "不要恢复大 hero",
     ]:
@@ -439,11 +441,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20260620-design-system-v2" in html
-    assert "assets/js/holdings_categories.js?v=20260620-design-system-v2" in html
-    assert "assets/js/lookthrough.js?v=20260620-design-system-v2" in html
-    assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in html
-    assert "assets/js/portfolio_config.js?v=20260620-design-system-v2" in html
+    assert "assets/js/holdings.js?v=20260620-data-state-v1" in html
+    assert "assets/js/holdings_categories.js?v=20260620-data-state-v1" in html
+    assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in html
+    assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in html
     assert "style.css?v=20260620-design-system-v3" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -562,8 +564,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20260620-design-system-v2" in ledger_html
-    assert "assets/js/transactions.js?v=20260620-design-system-v2" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ledger_html
+    assert "assets/js/transactions.js?v=20260620-data-state-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1019,7 +1021,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260620-design-system-v2" in html
+    assert "assets/js/transactions.js?v=20260620-data-state-v1" in html
     assert "assets/css/style.css?v=20260620-design-system-v3" in html
 
 
@@ -1030,6 +1032,9 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     research_html = _read_public("research.html")
     data_sources_js = _read_public("assets/js/data_sources.js")
     sync_center_js = _read_public("assets/js/sync_center.js")
+    ui_js = _read_public("assets/js/ui.js")
+    portfolio_config_js = _read_public("assets/js/portfolio_config.js")
+    portfolio_risk_js = _read_public("assets/js/portfolio_risk.js")
 
     assert "appTaskList" not in html
     assert 'id="sync"' not in html
@@ -1058,13 +1063,19 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260620-design-system-v2" in html
-    assert "assets/js/bank_reconcile.js?v=20260620-design-system-v2" in accounts_html
-    assert "assets/js/data_sources.js?v=20260620-design-system-v3" in data_sources_html
-    assert "assets/js/research.js?v=20260620-design-system-v2" in research_html
-    assert "./sync_center.js?v=20260620-design-system-v3" in data_sources_js
-    assert "./ui.js?v=20260620-design-system-v2" in sync_center_js
+    assert "assets/js/more.js?v=20260620-data-state-v1" in html
+    assert "assets/js/bank_reconcile.js?v=20260620-data-state-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20260620-data-state-v1" in data_sources_html
+    assert "assets/js/research.js?v=20260620-data-state-v1" in research_html
+    assert "./sync_center.js?v=20260620-data-state-v1" in data_sources_js
+    assert "./ui.js?v=20260620-data-state-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
+    assert "function dataStateHtml" in ui_js
+    assert "function renderDataState" in ui_js
+    assert "renderDataState(el" in data_sources_js
+    assert "dataStateHtml({" in sync_center_js
+    assert "dataStateHtml({" in portfolio_config_js
+    assert "dataStateHtml({" in portfolio_risk_js
 
 
 def test_risk_capability_lives_in_investment_subpage() -> None:
@@ -1115,17 +1126,17 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20260620-data-state-v1" in ui_js
     assert "assets/css/style.css?v=20260620-design-system-v3" in ui_js
-    assert "assets/css/design-system.css?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/ui.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/holdings.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/lookthrough.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/transactions.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260620-trade-attribution-v2" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260620-design-system-v2" in ui_js
-    assert "assets/js/more.js?v=20260620-design-system-v2" in ui_js
+    assert "assets/css/design-system.css?v=20260620-design-system-v3" in ui_js
+    assert "assets/js/ui.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/holdings.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/transactions.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20260620-data-state-v1" in ui_js
+    assert "assets/js/more.js?v=20260620-data-state-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
