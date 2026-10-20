@@ -70,6 +70,7 @@ def test_build_holdings_latest_payload_preserves_legacy_shape_and_owner_ratio():
                     "account": "tonghuashun",
                     "type": "A股个股",
                     "symbol": "601899",
+                    "asset_id": "A_601899",
                     "name": "紫金矿业",
                     "currency": "CNY",
                     "market_value": Decimal("1000.00"),
@@ -126,6 +127,7 @@ def test_build_holdings_latest_payload_preserves_legacy_shape_and_owner_ratio():
     assert len(payload["rows"]) == 1
     row = payload["rows"][0]
     assert row["account"] == "tonghuashun"
+    assert row["asset_id"] == "A_601899"
     assert row["is_closed"] is False
     assert row["owner_ratio"] == "0.625"
     assert Decimal(row["market_value_cny"]) == Decimal("625.00000")
@@ -267,6 +269,7 @@ def test_build_api_holdings_latest_payload_preserves_filters_and_rows():
                 {
                     "id": 1,
                     "symbol": "QQQ",
+                    "asset_id": "ETF_QQQ",
                     "name": "Invesco QQQ",
                     "asset_liability": "资产",
                     "currency": "USD",
@@ -294,6 +297,7 @@ def test_build_api_holdings_latest_payload_preserves_filters_and_rows():
     assert set(payload) == {"as_of", "rows"}
     assert payload["as_of"] == "2026-05-31"
     assert payload["rows"][0]["symbol"] == "QQQ"
+    assert payload["rows"][0]["asset_id"] == "ETF_QQQ"
     assert payload["rows"][0]["market_value"] == "100.25"
     assert cur.executed[0][1] == ["ibkr", "美股"]
     assert cur.executed[1][1] == ["ibkr", "美股", date(2026, 5, 31), 10]
@@ -306,6 +310,7 @@ def test_build_api_holdings_latest_payload_respects_market_view_date():
                 {
                     "id": 1,
                     "symbol": "QQQ",
+                    "asset_id": "ETF_QQQ",
                     "name": "Invesco QQQ",
                     "asset_liability": "asset",
                     "currency": "USD",
@@ -333,6 +338,7 @@ def test_build_api_holdings_latest_payload_respects_market_view_date():
 
     assert payload["as_of"] == "2026-06-16"
     assert payload["rows"][0]["symbol"] == "QQQ"
+    assert payload["rows"][0]["asset_id"] == "ETF_QQQ"
     assert "as_of <= %s" in cur.executed[0][0]
     assert cur.executed[0][1] == ["ibkr", date(2026, 6, 16)]
     assert cur.executed[1][1] == ["ibkr", date(2026, 6, 16), 10]
