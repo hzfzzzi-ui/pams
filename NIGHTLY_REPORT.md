@@ -1,5 +1,16 @@
 # PAMS Autonomous Improvement Report
 
+## 2026-10-20：旧手机布局恢复（M 级，待用户验收）
+
+- 用户确认投资页宽屏也使用旧手机布局；不重做页面，不修改后端与账务。
+- 根因：全局 design-system 展示手机列表，但桌面断点没有应用手机行内样式，产生表格/列表重复及字体间距差异。
+- 构建时复用原 CSS 级联生成投资页专用手机样式，虚拟宽度上限 430px；其他页面继续原样式。原 CSS 哈希锁定，避免人工复制大段样式。
+- 投资页使用既有手机标签交互；pending 徽章恢复隐藏，预估/确认标记保留，API 状态不变。
+- 正式 tests 504 项通过，定向 lint/type、JS 语法、镜像构建、nginx 检查通过；1039px/390px 页面、五项标签、非空图表和交易折叠已验证，浏览器无 error/warn。
+- 只重建并部署 web；summary/holdings 响应与部署前逐字一致，API/scheduler 未重启。回退镜像 `pams-pams-web:before-mobile-restore-20261020` 已保留。
+- 风险：本轮验证不核准历史资产数据；图表首次读取仍较慢，未在 UI 恢复任务中修改；尚未用户验收，PR 不自动合并。
+- 下一轮：先由用户验收展示，再按回退盘点逐项决定是否恢复其他能力。
+
 ## 2026-10-20：持仓状态别名兼容（M 级）
 
 - 页面复测发现旧 `daily_pnl_status` 仍先于新 `daily_return_status` 被读取，可能一边 pending、一边 confirmed。

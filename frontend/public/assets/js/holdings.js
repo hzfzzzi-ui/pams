@@ -103,6 +103,7 @@ function dataBadge(row) {
 
 function holdingDailyStatusBadge(row, options = {}) {
   const status = String(row?.daily_pnl_status || row?.daily_return_status || '').toLowerCase();
+  if (!status || status === 'pending') return '';
   const label = row?.daily_pnl_status_label || (status === 'confirmed' ? '今日收益已确认' : status === 'estimated' ? '预估收益' : '');
   if (!label) return '';
   const tone = status === 'confirmed' ? 'ok' : 'warn';

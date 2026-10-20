@@ -1,6 +1,14 @@
+FROM python:3.12-slim AS phone-styles
+COPY tools/requirements.txt /tools/requirements.txt
+RUN pip install --no-cache-dir -r /tools/requirements.txt
+COPY tools/mobile_styles.py /tools/mobile_styles.py
+COPY public/assets/css/ /css/
+RUN python /tools/mobile_styles.py /css
+
 FROM nginx:1.27-alpine
 
 COPY ./public /usr/share/nginx/html
+COPY --from=phone-styles /css/style-phone.css /css/design-system-phone.css /usr/share/nginx/html/assets/css/
 
 # Simple SPA-friendly config
 RUN printf '%s\n' \

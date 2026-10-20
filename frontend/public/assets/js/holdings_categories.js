@@ -3,6 +3,9 @@ import { openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20260622-fund-pnl-v1';
 import { accountCashBreakdown } from './account_cash.js?v=20260606-cash-active-v1';
 
+// Investment uses the existing phone interaction model at every viewport width.
+const INVESTMENT_PHONE_QUERY = '(min-width: 0px)';
+
 function jgetFresh(path) {
   return jget(path, { cache: false });
 }
@@ -922,7 +925,7 @@ async function renderInvestmentReturnChart() {
   ]);
   const rows = resp.rows || [];
   const navRows = normalizeInvestmentNavRows(navResp.rows || []);
-  const isMobileReturnChart = window.matchMedia?.('(max-width: 760px)')?.matches;
+  const isMobileReturnChart = window.matchMedia?.(INVESTMENT_PHONE_QUERY)?.matches;
   const sectionRowsByKey = new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.rows || []]));
   const chartState = {
     rows,
@@ -2753,7 +2756,7 @@ function bindInvestmentPageTabs() {
   const panels = Array.from(document.querySelectorAll('[data-invest-panel]'));
   if (!links.length || !panels.length) return;
 
-  const media = window.matchMedia('(max-width: 760px)');
+  const media = window.matchMedia(INVESTMENT_PHONE_QUERY);
   let activeTab = 'holdings';
 
   const tabFromHash = (hash) => {
@@ -2830,7 +2833,7 @@ function bindInvestmentPageTabs() {
 }
 
 function runWhenInvestmentAnalysisVisible(callback, options = {}) {
-  const media = window.matchMedia('(max-width: 760px)');
+  const media = window.matchMedia(INVESTMENT_PHONE_QUERY);
   let started = false;
   const delayMs = Number(options.delayMs || 0);
   const start = () => {
@@ -3011,7 +3014,7 @@ function CategoryDetailTabs() {
 }
 
 function promoteHoldingsTable() {
-  if (window.matchMedia('(max-width: 760px)').matches) return;
+  if (window.matchMedia(INVESTMENT_PHONE_QUERY).matches) return;
   const hero = document.getElementById('investment-conclusion');
   const holdings = document.getElementById('holdings-smart-table');
   if (hero && holdings && hero.nextElementSibling !== holdings) {

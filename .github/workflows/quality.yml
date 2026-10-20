@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: '22'
       - name: 安装运行和测试依赖
-        run: pip install -r backend/api/requirements.txt -r backend/scheduler/requirements.txt pytest httpx ruff mypy
+        run: pip install -r backend/api/requirements.txt -r backend/scheduler/requirements.txt -r frontend/tools/requirements.txt pytest httpx ruff mypy
       - name: 测试
         run: python -m pytest tests -q
       - name: Python与前端语法
