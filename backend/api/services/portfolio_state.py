@@ -399,22 +399,23 @@ def _rolled_forward_account_balance(
     manual_balance: dict[str, Any] | None,
     owner_ratio: Decimal,
 ) -> dict[str, Any] | None:
-    """Use the account-performance roll-forward when positions omit brokerage cash."""
+    """Use the shared balance basis when positions omit brokerage cash."""
     if account_code != "tonghuashun" or not manual_balance:
         return None
 
     try:
-        from services.investment_returns import build_account_performance_payload
+        from services.account_balance import load_account_balance_basis
 
         manual_currency = str(manual_balance.get("currency") or "CNY").upper()
         if manual_currency != "CNY":
             return None
         manual_amount = _dec(manual_balance.get("amount"))
-        payload = build_account_performance_payload(
+        # Keep legacy capital validation and its failure fallback.
+        _account_initial_capital_cny(account_cfg, account_code)
+        payload = load_account_balance_basis(
             cur,
             account_code=account_code,
             owner_ratio=owner_ratio,
-            initial_capital=_account_initial_capital_cny(account_cfg, account_code),
             net_liquidation_gross=manual_amount,
             net_liquidation=manual_amount * owner_ratio,
             net_liquidation_as_of=manual_balance.get("as_of"),
@@ -422,14 +423,16 @@ def _rolled_forward_account_balance(
     except Exception:
         return None
 
-    if not payload or payload.get("net_liquidation_cny") in (None, ""):
+    if not payload or payload.get("net_personal") in (None, ""):
         return None
-    net_value = _dec(payload.get("net_liquidation_cny"))
+    net_value = _dec(payload.get("net_personal"))
+    as_of = payload.get("as_of")
+    as_of = as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of)
     return {
         "amount": net_value,
         "currency": "CNY",
         "amount_cny": net_value,
-        "as_of": payload.get("as_of") or manual_balance.get("as_of"),
+        "as_of": as_of or manual_balance.get("as_of"),
         "source": payload.get("net_liquidation_source") or "rolled_forward_account_performance",
     }
 
