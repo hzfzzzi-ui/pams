@@ -10,6 +10,8 @@ import re
 import time
 import xml.etree.ElementTree as ET
 import hashlib
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -22,6 +24,7 @@ import requests
 FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 SYNC_SOURCE = "ibkr_flex"
 USER_AGENT = "PAMS-IBKR-Flex/1.0"
+logger = logging.getLogger(__name__)
 
 
 class IBKRFlexError(RuntimeError):
@@ -1116,8 +1119,13 @@ def sync_ibkr_flex_to_db(
     align_to_latest_snapshot: bool = False,
     raw_dir: Path | None = None,
     flex_version: int = 3,
+    after_write: Callable[[Any], None] | None = None,
 ) -> dict[str, Any]:
-    """Download one IBKR Flex report, save raw XML, and upsert PAMS holdings."""
+    """Sync a report atomically, including optional dependent writes.
+
+    `after_write` shares this transaction and must not commit or roll back.
+    Raw XML retention is outside the database transaction.
+    """
     started_at = datetime.now(timezone.utc)
     raw_path: Path | None = None
     try:
@@ -1149,6 +1157,8 @@ def sync_ibkr_flex_to_db(
             parsed.cash_movements,
             account_code=account_code,
         )
+        if after_write is not None:
+            after_write(conn)
         record = record_sync_run(
             conn,
             status="success",
@@ -1196,12 +1206,15 @@ def sync_ibkr_flex_to_db(
             "sync_run": record,
         }
     except Exception as exc:
-        conn.rollback()
-        record_sync_run(
-            conn,
-            status="failed",
-            started_at=started_at,
-            raw_file=str(raw_path) if raw_path else None,
-            error=str(exc),
-        )
+        try:
+            conn.rollback()
+            record_sync_run(
+                conn,
+                status="failed",
+                started_at=started_at,
+                raw_file=str(raw_path) if raw_path else None,
+                error=str(exc),
+            )
+        except Exception:
+            logger.exception("Could not persist failed IBKR Flex sync audit")
         raise
