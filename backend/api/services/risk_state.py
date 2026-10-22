@@ -1337,7 +1337,7 @@ def _manual_data_task(
 
 def _latest_ibkr_performance() -> dict[str, Any] | None:
     try:
-        from endpoints.ibkr import _latest_flex_xml_path, _parse_flex_performance  # type: ignore
+        from services.ibkr_performance import _latest_flex_xml_path, _parse_flex_performance
 
         path = _latest_flex_xml_path()
         if path is None:
