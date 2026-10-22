@@ -239,7 +239,7 @@ function setupAppPreload(activePath, path) {
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
       ['assets/js/ui.js?v=20260622-data-state-a11y-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/holdings.js?v=20261022-detail-status-v1', 'script'],
       ['assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2', 'script'],
       ['assets/js/lookthrough.js?v=20260622-data-state-a11y-v1', 'script'],
       ['assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1', 'script'],
