@@ -775,10 +775,16 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261020-phone-restore-v1" in html
+    assert "assets/js/holdings.js?v=20261022-detail-status-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
+    desktop_details = holding_rows_js.split("function renderRows(", 1)[1].split("function shortHoldingName(", 1)[0]
+    mobile_details = holding_rows_js.split("function renderMobileHoldingRows(", 1)[1].split("function isInvestmentRow(", 1)[0]
+    for template, row_name in [(desktop_details, "r"), (mobile_details, "row")]:
+        assert template.count("<strong>收益状态</strong>") == 1
+        assert f"holdingDailyStatusBadge({row_name}) || '<span class=\"muted\">—</span>'" in template
+        assert template.index("<strong>今日盈亏</strong>") < template.index("<strong>收益状态</strong>")
     assert "assets/js/holdings_categories.js?v=20261020-phone-restore-v1" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
@@ -1500,7 +1506,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/css/style.css?v=20260623-nav-growth-overflow-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
     assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/holdings.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/holdings.js?v=20261022-detail-status-v1" in ui_js
     assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2" in ui_js
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
