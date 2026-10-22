@@ -94,16 +94,21 @@ def ibkr_flex_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
 
     try:
         with get_conn() as conn:
+            trade_fact_backfill: dict[str, int] = {}
+
+            def backfill_facts(sync_conn: Any) -> None:
+                with sync_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    trade_fact_backfill.update(backfill_investment_trade_facts(cur))
+
             result = sync_ibkr_flex_to_db(
                 conn,
                 token=token,
                 query_id=query_id,
                 requested_as_of=req.as_of,
                 align_to_latest_snapshot=req.align_to_latest_snapshot,
+                after_write=backfill_facts,
             )
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                result["trade_fact_backfill"] = backfill_investment_trade_facts(cur)
-            conn.commit()
+            result["trade_fact_backfill"] = trade_fact_backfill
             return result
     except IBKRFlexError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
