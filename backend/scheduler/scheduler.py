@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -109,7 +109,7 @@ def _call_legacy_strategy(endpoint: str, label: str):
     return _call(endpoint, label)
 
 
-def sync_ibkr_flex():
+def sync_ibkr_flex(expected_reference=None):
     """Run the IBKR Flex sync when API credentials are configured."""
     status = _request_json("get", f"{API_BASE}/ibkr/flex/status", "IBKR Flex status")
     if not status:
@@ -121,7 +121,9 @@ def sync_ibkr_flex():
 
     return _request_json(
         "post", f"{API_BASE}/ibkr/flex/sync", "IBKR Flex",
-        json={"align_to_latest_snapshot": False},
+        json={"align_to_latest_snapshot": False, **(
+            {"expected_statement_reference": expected_reference.isoformat()} if expected_reference else {}
+        )},
     )
 
 
@@ -172,7 +174,7 @@ def refresh_post_close_investments(target_date=None):
     target = target_date or latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
-        ("flex", sync_ibkr_flex),
+        ("flex", lambda: sync_ibkr_flex(target - timedelta(days=1))),
         ("a_stock", lambda: _call("prices/refresh/a-stock", "A-share close")),
         ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=True)),
@@ -188,7 +190,7 @@ def refresh_north_america_post_close_investments(target_date=None):
     target = target_date or latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
-        ("flex", sync_ibkr_flex),
+        ("flex", lambda: sync_ibkr_flex(target)),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),
         ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close", "US confirmed close")),
@@ -204,6 +206,15 @@ def _refresh_window(target, steps, sections):
             expected -= timedelta(days=1)
             while expected.weekday() >= 5:
                 expected -= timedelta(days=1)
+        if name == "flex" and isinstance(result, dict) and result.get("expected_statement_as_of"):
+            # The API normalizes the reference with the offline exchange calendar before writes.
+            try:
+                normalized = date.fromisoformat(result["expected_statement_as_of"])
+                if normalized > expected:
+                    return {"status": "blocked", "steps": [{"name": name, "issues": ["invalid_expected_date"]}]}
+                expected = normalized
+            except (ValueError, TypeError):
+                return {"status": "blocked", "steps": [{"name": name, "issues": ["invalid_expected_date"]}]}
         issues = result_issues(result, target=expected)
         if isinstance(result, dict):
             if name == "fx" and int(result.get("stored") or 0) <= 0:

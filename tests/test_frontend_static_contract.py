@@ -1441,9 +1441,9 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "assets/js/more.js?v=20260624-nav-quality-v1" in html
     assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
     assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20261020-quality-warnings-v1" in data_sources_html
+    assert "assets/js/data_sources.js?v=20261023-ibkr-publication-v1" in data_sources_html
     assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
-    assert "./sync_center.js?v=20260622-data-state-a11y-v1" in data_sources_js
+    assert "./sync_center.js?v=20261023-ibkr-publication-v1" in data_sources_js
     assert "./ui.js?v=20260622-data-state-a11y-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
     assert "function dataStateHtml" in ui_js
@@ -1592,3 +1592,13 @@ def test_investment_holding_rows_escape_imported_fields() -> None:
     assert "${esc(holdingGroupLabel(r))}" in holdings_js
     assert "${esc(row.name || row.symbol || '缺数据')}" in holdings_js
     assert "${row.name || row.symbol || '缺数据'}" not in holdings_js
+
+
+def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
+    js = _read_public("assets/js/sync_center.js")
+    assert "const result = await jpost(" in js
+    assert "result?.success === false" in js
+    assert "['blocked', 'failed', 'error'].includes(result?.status)" in js
+    assert "throw new Error(result.reason || result.error" in js
+    assert "sync_center.js?v=20261023-ibkr-publication-v1" in _read_public("assets/js/data_sources.js")
+    assert "data_sources.js?v=20261023-ibkr-publication-v1" in _read_public("data_sources.html")

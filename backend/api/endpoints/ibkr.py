@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from typing import Any
 
 import psycopg2
@@ -17,6 +18,8 @@ from collectors.ibkr_flex import (
     sync_ibkr_flex_to_db,
 )
 from services.ibkr_performance import (
+    read_published_performance,
+    published_report_status,
     get_conn,
     _norm,
     _dec as _dec,
@@ -35,6 +38,7 @@ class IBKRFlexSyncRequest(BaseModel):
 
     as_of: str | None = None
     align_to_latest_snapshot: bool = False
+    expected_statement_reference: date | None = None
 
 
 def _record(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -59,23 +63,27 @@ def ibkr_flex_status() -> dict[str, Any]:
     token, query_id = _credentials()
     with get_conn() as conn:
         latest = latest_sync_status(conn)
+        quality = published_report_status(conn)
     return {
         "source": "ibkr_flex",
         "configured": bool(token and query_id),
         "has_token": bool(token),
         "has_query_id": bool(query_id),
         "latest": _record(latest),
+        "report_quality": quality,
     }
 
 
 @router.get("/performance")
 def ibkr_performance() -> dict[str, Any]:
     """Return IBKR account performance from Flex account NAV and net deposits."""
-    path = _latest_flex_xml_path()
-    if path is None:
-        raise HTTPException(status_code=404, detail="No local IBKR Flex XML report is available")
     try:
-        return _parse_flex_performance(path)
+        result = read_published_performance()
+        if result is None:
+            raise HTTPException(status_code=404, detail="No published IBKR Flex report is available")
+        return result
+    except HTTPException:
+        raise
     except IBKRFlexError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -107,6 +115,7 @@ def ibkr_flex_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
                 requested_as_of=req.as_of,
                 align_to_latest_snapshot=req.align_to_latest_snapshot,
                 after_write=backfill_facts,
+                expected_statement_reference=req.expected_statement_reference,
             )
             result["trade_fact_backfill"] = trade_fact_backfill
             return result

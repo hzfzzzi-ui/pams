@@ -1337,12 +1337,9 @@ def _manual_data_task(
 
 def _latest_ibkr_performance() -> dict[str, Any] | None:
     try:
-        from services.ibkr_performance import _latest_flex_xml_path, _parse_flex_performance
+        from services.ibkr_performance import read_published_performance
 
-        path = _latest_flex_xml_path()
-        if path is None:
-            return None
-        return _parse_flex_performance(path)
+        return read_published_performance()
     except Exception:
         return None
 
@@ -1358,6 +1355,15 @@ def _data_check_tasks(
 ) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     perf_as_of = str((ibkr_performance or {}).get("as_of") or "")
+    quality = (ibkr_performance or {}).get("report_quality") or {}
+    if quality and quality.get("status") != "ok":
+        tasks.append(_manual_data_task(
+            task_id="data_check:ibkr_report_publication",
+            title="IBKR 有效报告待核准",
+            message=f"{quality.get('label')}；有效日期 {perf_as_of}，应有日期 {quality.get('expected_statement_as_of')}。",
+            recommendation="先核对 Flex 同步中心；上一有效值不是当日日终确认，不用零值代替缺失报告。",
+            as_of=as_of,
+        ))
     if perf_as_of and perf_as_of != as_of:
         tasks.append(
             _manual_data_task(

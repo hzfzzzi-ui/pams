@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sys
@@ -19,12 +20,15 @@ sys.path.insert(0, str(ROOT / "backend" / "api"))
 
 from collectors import ibkr_flex as collector  # noqa: E402
 from endpoints import ibkr  # noqa: E402
+from services import ibkr_report_state  # noqa: E402
 
 XML = """<FlexQueryResponse><FlexStatements>
 <FlexStatement accountId="U_TEST" toDate="20261022">
 <OpenPosition accountId="U_TEST" symbol="TEST" description="TEST STOCK"
  currency="USD" reportDate="20261022" position="2" markPrice="190.5"
- marketValue="381" costBasisMoney="340" costBasisPrice="170" assetCategory="STK" />
+ marketValue="381" positionValue="381" costBasisMoney="340" costBasisPrice="170" assetCategory="STK" />
+<CashReportCurrency currency="BASE_SUMMARY" toDate="20261022"
+ endingCash="-500" depositWithdrawalsYTD="100" />
 <CashReportCurrency accountId="U_TEST" currency="USD" toDate="20261022"
  endingCash="-500" deposits="100" />
 <Trade accountId="U_TEST" symbol="TEST" description="TEST STOCK" assetCategory="STK"
@@ -71,6 +75,7 @@ def database():
 
 @pytest.fixture
 def sync_case(database, monkeypatch, tmp_path):
+    monkeypatch.setattr(ibkr_report_state, "utc_now", lambda: datetime(2026, 10, 22, 22, tzinfo=timezone.utc))
     conn = database(connection_factory=ObservedConnection)
     with conn.cursor() as cur:
         cur.execute("""
@@ -191,6 +196,7 @@ def test_success_keeps_fields_amounts_and_retry_is_idempotent(sync_case, databas
         "success", "status", "as_of", "statement_as_of", "row_count", "trade_count",
         "history_row_count", "confirmed_funding_count", "confirmed_fundings", "raw_file",
         "reference_code", "sync_run", "trade_fact_backfill",
+        "expected_statement_as_of",
     }
     assert result["as_of"] == result["statement_as_of"] == "2026-10-22"
     assert (result["row_count"], result["history_row_count"], result["trade_count"]) == (2, 2, 1)
@@ -200,6 +206,7 @@ def test_success_keeps_fields_amounts_and_retry_is_idempotent(sync_case, databas
         "id", "source", "asset_scope", "status", "started_at", "finished_at", "as_of",
         "statement_as_of", "row_count", "trade_count", "history_row_count",
         "confirmed_funding_count", "raw_file", "message", "error",
+        "publication",
     }
     assert conn.commit_calls == 1
     stock = next(row for row in rows(database, "pams_holdings_snapshot") if row["symbol"] == "TEST")
@@ -213,7 +220,7 @@ def test_success_keeps_fields_amounts_and_retry_is_idempotent(sync_case, databas
     assert rows(database, "pams_bank_transfer_matches")[0]["note"].startswith("keep user note")
     counts = {table: len(rows(database, table)) for table in TABLES}
     repeated = client.post("/api/ibkr/flex/sync", json={}).json()
-    assert repeated["trade_fact_backfill"] == {"source_count": 0, "inserted_count": 0, "skipped_count": 0}
+    assert repeated["trade_fact_backfill"] == {}
     assert repeated["confirmed_funding_count"] == 0
     assert {table: len(rows(database, table)) for table in TABLES} == counts
     assert all(row["net_cash_cny"] == fact["net_cash_cny"] for row in rows(database, "pams_investment_trade_fact"))

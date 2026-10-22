@@ -167,7 +167,11 @@ export async function triggerSync(row, { statusEl, after } = {}) {
   if (!row?.trigger_endpoint) return;
   setStatus(statusEl, `${row.source} 刷新中...`, 'loading');
   try {
-    await jpost(row.trigger_endpoint, row.trigger_body || {});
+    const result = await jpost(row.trigger_endpoint, row.trigger_body || {});
+    if (result?.success === false || ['blocked', 'failed', 'error'].includes(result?.status)) {
+      if (after) await after();
+      throw new Error(result.reason || result.error || '未通过发布检查，保留上一有效值');
+    }
     setStatus(statusEl, `${row.source} 已刷新`, 'ok');
     if (after) await after();
   } catch (err) {
