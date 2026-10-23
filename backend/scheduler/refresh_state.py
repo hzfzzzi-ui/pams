@@ -4,9 +4,54 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import re
+import errno
+from importlib import import_module
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+
+@contextmanager
+def job_lock(path: Path, key: str, *, blocking: bool = False):
+    """Local shared-volume OS locks are released even when a scheduler process dies."""
+    if not re.fullmatch(r"[a-z_]+", key):
+        raise ValueError("invalid checkpoint lock key")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(path.name + "." + key + ".lock").open("a+b") as stream:
+        stream.seek(0, os.SEEK_END)
+        if stream.tell() == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        try:
+            if os.name == "nt":
+                msvcrt = import_module("msvcrt")
+                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl = import_module("fcntl")
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        except OSError as exc:
+            if not blocking and exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise BlockingIOError("checkpoint job is already running") from None
+            raise
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def store_job(path: Path, key: str, job: dict) -> None:
+    # Merge under a short lock; never overwrite another task's newer checkpoint.
+    with job_lock(path, "state", blocking=True):
+        state = read_state(path)
+        state["jobs"][key] = job
+        write_state(path, state)
 
 
 def latest_due_date(local_time: str, zone: str, now: datetime | None = None) -> date:
@@ -92,6 +137,13 @@ class RefreshJournal:
         self.path = path
 
     def run(self, key: str, target: date, callback) -> dict:
+        try:
+            with job_lock(self.path, key):
+                return self._run(key, target, callback)
+        except BlockingIOError:
+            return {"status": "deferred", "reason": "job_busy"}
+
+    def _run(self, key: str, target: date, callback) -> dict:
         state = read_state(self.path)
         previous = state["jobs"].get(key, {})
         if previous.get("status") == "success" and previous.get("last_success_date") == target.isoformat():
@@ -113,8 +165,7 @@ class RefreshJournal:
             "history_coverage": "gap" if gap else previous.get("history_coverage", "unverified"),
             "recent_runs": previous.get("recent_runs", [])[-19:],
         }
-        state["jobs"][key] = run
-        write_state(self.path, state)
+        store_job(self.path, key, run)
         try:
             result = callback(target)
             issues = result_issues(result)
@@ -127,5 +178,5 @@ class RefreshJournal:
             run.update(status="error", issues=[type(exc).__name__])
         run["finished_at"] = datetime.now(timezone.utc).isoformat()
         run["recent_runs"].append({k: run[k] for k in ("target_date", "status", "started_at", "finished_at", "issues")})
-        write_state(self.path, state)
+        store_job(self.path, key, run)
         return run

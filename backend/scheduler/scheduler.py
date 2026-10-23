@@ -15,12 +15,14 @@ import logging
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 import schedule
 from refresh_state import RefreshJournal, latest_due_date, result_issues
+from flex_confirmation import FlexConfirmationJournal
 
 
 logging.basicConfig(
@@ -62,8 +64,20 @@ def _call(endpoint: str, label: str):
     return _request_json("post", url, label)
 
 
-def _request_json(method: str, url: str, label: str, **kwargs):
-    for attempt in range(3):
+def _retry_after(value):
+    try:
+        text = str(value or "").strip()
+        if text.isdigit():
+            return (datetime.now(timezone.utc) + timedelta(seconds=int(text))).isoformat()
+        parsed = parsedate_to_datetime(text)
+        return parsed.astimezone(timezone.utc).isoformat() if parsed.tzinfo else None
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _request_json(method: str, url: str, label: str, *, failure_details=False, max_attempts=3, **kwargs):
+    failure = None
+    for attempt in range(max_attempts):
         try:
             resp = getattr(requests, method)(url, timeout=REQUEST_TIMEOUT, **kwargs)
             resp.raise_for_status()
@@ -74,12 +88,16 @@ def _request_json(method: str, url: str, label: str, **kwargs):
             return data
         except (requests.RequestException, ValueError) as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
+            if failure_details:
+                headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
+                failure = {"success": False, "status": "error", "http_status": status,
+                           "retry_after": _retry_after(headers.get("Retry-After"))}
             logger.warning("[%s] attempt=%s failed=%s status=%s", label, attempt + 1, type(exc).__name__, status)
             if status and 400 <= status < 500 and status != 429:
                 break
-            if attempt < 2:
+            if attempt < max_attempts - 1:
                 time.sleep(attempt + 1)
-    return None
+    return failure
 
 
 def _get(endpoint: str, label: str):
@@ -111,9 +129,11 @@ def _call_legacy_strategy(endpoint: str, label: str):
 
 def sync_ibkr_flex(expected_reference=None):
     """Run the IBKR Flex sync when API credentials are configured."""
-    status = _request_json("get", f"{API_BASE}/ibkr/flex/status", "IBKR Flex status")
+    status = _flex_status()
     if not status:
         return None
+    if status.get("success") is False:
+        return status
 
     if not status.get("configured"):
         logger.warning("[IBKR Flex] skipped: missing API-side Flex token/query id")
@@ -124,7 +144,25 @@ def sync_ibkr_flex(expected_reference=None):
         json={"align_to_latest_snapshot": False, **(
             {"expected_statement_reference": expected_reference.isoformat()} if expected_reference else {}
         )},
+        failure_details=True, max_attempts=1,
     )
+
+
+def _flex_status():
+    return _request_json("get", f"{API_BASE}/ibkr/flex/status", "IBKR Flex status",
+                         failure_details=True, max_attempts=1)
+
+
+def run_flex_confirmation(now=None):
+    """This task may acquire an official report after the quote window has expired."""
+    try:
+        result = FlexConfirmationJournal(STATE_PATH).run(_flex_status, sync_ibkr_flex, now=now)
+        logger.info("[Flex confirmation] status=%s reason=%s next_retry=%s",
+                    result.get("status"), result.get("reason"), result.get("next_retry_at"))
+        return result
+    except (OSError, ValueError):
+        logger.exception("Flex confirmation checkpoint unavailable; sync blocked")
+        return {"success": False, "status": "error", "reason": "checkpoint_unavailable"}
 
 
 def refresh_daily():
@@ -174,7 +212,7 @@ def refresh_post_close_investments(target_date=None):
     target = target_date or latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
-        ("flex", lambda: sync_ibkr_flex(target - timedelta(days=1))),
+        ("flex", run_flex_confirmation),
         ("a_stock", lambda: _call("prices/refresh/a-stock", "A-share close")),
         ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=True)),
@@ -190,7 +228,7 @@ def refresh_north_america_post_close_investments(target_date=None):
     target = target_date or latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
-        ("flex", lambda: sync_ibkr_flex(target)),
+        ("flex", run_flex_confirmation),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),
         ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close", "US confirmed close")),
@@ -370,10 +408,12 @@ def main():
     logger.info("Waiting for API readiness (10 seconds)...")
     time.sleep(10)
     refresh_crypto()
+    run_flex_confirmation()
     run_due_window("asia")
     run_due_window("north_america")
     schedule.every(30).minutes.do(lambda: run_due_window("asia"))
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
+    schedule.every(30).minutes.do(run_flex_confirmation)
 
     while True:
         schedule.run_pending()

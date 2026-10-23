@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend" / "api"))
+sys.path.insert(0, str(ROOT / "backend" / "scheduler"))
 
 from collectors import ibkr_flex as collector  # noqa: E402
 from endpoints import ibkr  # noqa: E402
@@ -151,6 +152,57 @@ def rows(database, table):
 
 def business_state(database):
     return {table: rows(database, table) for table in TABLES}
+
+
+@pytest.mark.parametrize("lose_response", [False, True])
+def test_late_confirmation_uses_official_transaction_and_recovers_ack(
+    sync_case, database, monkeypatch, tmp_path, lose_response,
+):
+    from datetime import timedelta
+    from flex_confirmation import FlexConfirmationJournal
+    from refresh_state import read_state, write_state
+
+    client, _, report = sync_case
+    now = datetime(2026, 10, 23, 22, tzinfo=timezone.utc)
+    monkeypatch.setattr(ibkr_report_state, "utc_now", lambda: now)
+    path = tmp_path / "scheduler.json"
+    history = {"status": "blocked", "last_success_date": None,
+               "history_gap_since": "2026-10-20", "history_coverage": "gap"}
+    write_state(path, {"version": 1, "jobs": {"asia": history, "north_america": history}})
+    calls = []
+    def probe():
+        response = client.get("/api/ibkr/flex/status")
+        assert response.status_code == 200
+        return response.json()
+    def sync(target):
+        calls.append(target)
+        response = client.post("/api/ibkr/flex/sync", json={
+            "align_to_latest_snapshot": False, "expected_statement_reference": str(target),
+        })
+        assert response.status_code == 200
+        result = response.json()
+        if lose_response and result.get("success"):
+            raise TimeoutError("injected after official transaction commit")
+        return result
+    task = FlexConfirmationJournal(path)
+    before = business_state(database)
+    assert not task.run(probe, sync, now=now)["success"]
+    assert business_state(database) == before  # Delayed report must not mutate any business row.
+    assert read_state(path)["jobs"]["ibkr_flex"]["last_success_date"] is None
+    report["xml"] = XML.replace("20261022", "20261023")
+    result = task.run(probe, sync, now=now + timedelta(minutes=31))
+    assert result["success"] and result["publication_verified"]
+    assert result["statement_as_of"] == "2026-10-23"
+    after = business_state(database)
+    stock = next(row for row in after["pams_holdings_snapshot"] if row["symbol"] == "TEST" and str(row["as_of"]) == "2026-10-23")
+    assert (stock["market_value"], stock["cost"], stock["quantity"], stock["current_price"]) == (381, 340, 2, 190.5)
+    trade = next(row for row in after["pams_ibkr_trades"] if row["trade_id"] == "T1")
+    fact = next(row for row in after["pams_investment_trade_fact"] if row["source_id"] == str(trade["id"]))
+    assert (fact["gross_amount"], fact["fee_amount"], fact["net_cash"], fact["net_cash_cny"]) == (340, 1.25, -341.25, -2388.75)
+    assert task.run(probe, sync, now=now + timedelta(hours=1))["success"]
+    assert len(calls) == 2 and business_state(database) == after
+    jobs = read_state(path)["jobs"]
+    assert jobs["asia"] == jobs["north_america"] == history
 
 
 @pytest.mark.parametrize("stage", ["holdings", "history", "trades", "funding", "facts", "success_log"])
