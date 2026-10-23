@@ -17,6 +17,7 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
 from services.sync_health import scheduler_health
+from services.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -191,6 +192,7 @@ def _row(
 def sync_center() -> dict[str, Any]:
     """Return a normalized sync matrix for the mobile sync center."""
     now = _now_local()
+    reconciliation = read_ibkr_reconciliation()
     with get_conn() as conn:
         from services.ibkr_performance import published_report_status
 
@@ -261,6 +263,8 @@ def sync_center() -> dict[str, Any]:
             )
 
     ibkr_status, ibkr_label = ibkr_quality["status"], ibkr_quality["label"]
+    if ibkr_status == 'ok' and reconciliation['status'] != 'ok':
+        ibkr_status, ibkr_label = reconciliation['status'], reconciliation['label']
     fund_needs_review = int(fund_review.get("review_rows") or 0) > 0
     fund_status, fund_label = _fresh_status(
         fund_review.get("as_of") or a_fund.get("as_of"),
@@ -346,7 +350,7 @@ def sync_center() -> dict[str, Any]:
             href="data_sources.html#syncMatrix",
             details=(f"{ibkr_label}；应有报告日期 {ibkr_quality['expected_statement_as_of'] or '待核准'}；"
                      f"最近尝试 {ibkr_quality['last_attempt_status'] or '无'}。"
-                     "失败、过期或未提交的原始文件不替代有效报告。"),
+                     "失败、过期或未提交的原始文件不替代有效报告。" + reconciliation['details']),
             trigger_endpoint="/api/ibkr/flex/sync",
             trigger_body={"align_to_latest_snapshot": True},
         ),
@@ -456,4 +460,5 @@ def sync_center() -> dict[str, Any]:
         "rows": rows,
         "workflows": workflows,
         "scheduler": health,
+        "ibkr_reconciliation": reconciliation,
     }
