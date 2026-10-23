@@ -424,7 +424,7 @@ def sync_center() -> dict[str, Any]:
         status=health["status"], status_label=health["label"],
         action="查看阻断步骤及历史缺口", href="data_sources.html#syncMatrix",
         details="；".join(
-            f"{key}: {job.get('status')}，最近成功 {job.get('last_success_date') or '无'}，"
+            job.get("display_detail") or f"{key}: {job.get('status')}，最近成功 {job.get('last_success_date') or '无'}，"
             f"历史缺口起点 {job.get('history_gap_since') or '尚未核验'}，"
             f"问题 {job.get('issues', [])}，"
             f"检查 {job.get('steps', [])}"
