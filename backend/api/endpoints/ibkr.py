@@ -29,6 +29,7 @@ from services.ibkr_performance import (
     _parse_flex_performance as _parse_flex_performance,
 )
 from services.investment_trade_fact import backfill_investment_trade_facts
+from services.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
 
@@ -72,6 +73,12 @@ def ibkr_flex_status() -> dict[str, Any]:
         "latest": _record(latest),
         "report_quality": quality,
     }
+
+
+@router.get("/reconciliation")
+def ibkr_reconciliation() -> dict[str, Any]:
+    """Inspect published evidence and existing ledgers without any refresh or repair."""
+    return read_ibkr_reconciliation()
 
 
 @router.get("/performance")
