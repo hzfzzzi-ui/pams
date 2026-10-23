@@ -11,6 +11,8 @@ import time
 import xml.etree.ElementTree as ET
 import hashlib
 import logging
+import tempfile
+from uuid import uuid4
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -20,6 +22,7 @@ from typing import Any
 import psycopg2.extras
 from psycopg2.extras import Json
 import requests
+from services import ibkr_report_state as report_state
 
 FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 SYNC_SOURCE = "ibkr_flex"
@@ -495,8 +498,18 @@ def save_raw_flex_xml(xml_text: str, query_id: str, *, raw_dir: Path | None = No
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_query = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(query_id))[:80]
-    path = directory / f"{stamp}_query_{safe_query}.xml"
-    path.write_text(xml_text, encoding="utf-8")
+    path = directory / f"{stamp}_query_{safe_query}_{uuid4().hex}.xml"
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=directory, suffix=".pending", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(xml_text.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return path
 
 
@@ -998,6 +1011,7 @@ def record_sync_run(
     message: str | None = None,
     confirmed_funding_count: int = 0,
     error: str | None = None,
+    publication: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist one sync run status row and return it."""
     ensure_sync_table(conn)
@@ -1010,6 +1024,8 @@ def record_sync_run(
         "raw_file": raw_file,
         "message": message,
     }
+    if publication is not None:
+        summary["publication"] = publication
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -1106,6 +1122,7 @@ def _sync_row_to_status(row: dict[str, Any]) -> dict[str, Any]:
         "raw_file": summary.get("raw_file"),
         "message": summary.get("message"),
         "error": row.get("error_text"),
+        **({"publication": summary["publication"]} if "publication" in summary else {}),
     }
 
 
@@ -1120,6 +1137,7 @@ def sync_ibkr_flex_to_db(
     raw_dir: Path | None = None,
     flex_version: int = 3,
     after_write: Callable[[Any], None] | None = None,
+    expected_statement_reference: date | None = None,
 ) -> dict[str, Any]:
     """Sync a report atomically, including optional dependent writes.
 
@@ -1128,6 +1146,8 @@ def sync_ibkr_flex_to_db(
     """
     started_at = datetime.now(timezone.utc)
     raw_path: Path | None = None
+    publication: dict[str, Any] = {"version": 1, "state": "rejected", "account_code": account_code}
+    observed: date | None = None
     try:
         reference = request_flex_reference(token, query_id, flex_version=flex_version)
         xml_text = fetch_flex_statement(
@@ -1136,7 +1156,24 @@ def sync_ibkr_flex_to_db(
             flex_version=flex_version,
         )
         raw_path = save_raw_flex_xml(xml_text, query_id, raw_dir=raw_dir)
+        publication["sha256"] = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+        observed = report_state.inspect_report(xml_text)
         parsed = parse_flex_report(xml_text, account_code=account_code)
+        if observed != parsed.statement_as_of:
+            raise report_state.ReportRejected("parsed_statement_date_mismatch")
+        publication["report_date"] = observed.isoformat()
+        expected = report_state.expected_statement_date(expected_statement_reference)
+        publication["expected_date"] = expected.isoformat()
+        # Serialize publishers before selecting the active report or touching business rows.
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(7362198401)")
+        previous, _ = report_state.select_report(conn, raw_path.parent)
+        report_state.validate_candidate(observed, expected, previous, minimum=report_state.publication_floor(conn))
+        # Exact XML identity includes performance-only fields not present in parsed holdings.
+        # A standalone import must not suppress a later import with dependent fact writes.
+        publication["data_sha256"] = hashlib.sha256(
+            f"{publication['sha256']}:{after_write is not None}".encode("ascii")
+        ).hexdigest()
         has_position_rows = any(row.get("major_category") == "美股" for row in parsed.rows)
         if not has_position_rows and _contains_tag(xml_text, "PriorPeriodPosition"):
             raise IBKRFlexError(
@@ -1149,6 +1186,20 @@ def sync_ibkr_flex_to_db(
             statement_as_of=parsed.statement_as_of,
             align_to_latest_snapshot=align_to_latest_snapshot,
         )
+        if target_date == observed and previous and previous.data_sha256 == publication["data_sha256"]:
+            publication["state"] = "unchanged"
+            record = record_sync_run(
+                conn, status="success", started_at=started_at, as_of=target_date,
+                statement_as_of=observed, raw_file=str(raw_path), publication=publication,
+                message="Identical report; active publication and business rows retained",
+            )
+            return {
+                "success": True, "status": "success", "as_of": target_date.isoformat(),
+                "statement_as_of": observed.isoformat(), "row_count": 0, "trade_count": 0,
+                "history_row_count": 0, "confirmed_funding_count": 0, "confirmed_fundings": [],
+                "raw_file": str(raw_path), "reference_code": reference["reference_code"],
+                "sync_run": record, "expected_statement_as_of": expected.isoformat(),
+            }
         row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date)
         history_row_count = _write_position_history(conn, parsed.history_rows, account_code=account_code)
         trade_count = _write_trades(conn, parsed.trades, account_code=account_code)
@@ -1159,6 +1210,7 @@ def sync_ibkr_flex_to_db(
         )
         if after_write is not None:
             after_write(conn)
+        publication["state"] = "published" if target_date == observed else "historical"
         record = record_sync_run(
             conn,
             status="success",
@@ -1176,6 +1228,7 @@ def sync_ibkr_flex_to_db(
                 f"confirmed_fundings={len(confirmed_fundings)}"
             ),
             confirmed_funding_count=len(confirmed_fundings),
+            publication=publication,
         )
         return {
             "success": True,
@@ -1204,16 +1257,31 @@ def sync_ibkr_flex_to_db(
             "raw_file": str(raw_path),
             "reference_code": reference["reference_code"],
             "sync_run": record,
+            "expected_statement_as_of": expected.isoformat(),
+        }
+    except report_state.ReportRejected as exc:
+        conn.rollback()
+        record = record_sync_run(
+            conn, status="blocked", started_at=started_at, statement_as_of=observed,
+            raw_file=str(raw_path) if raw_path else None, publication=publication, error=str(exc),
+            message="Candidate rejected before business writes; previous publication retained",
+        )
+        return {
+            "success": False, "status": "blocked", "reason": str(exc),
+            "statement_as_of": observed.isoformat() if observed else None,
+            "expected_statement_as_of": publication.get("expected_date"), "sync_run": record,
         }
     except Exception as exc:
         try:
             conn.rollback()
+            publication["state"] = "rejected"
             record_sync_run(
                 conn,
                 status="failed",
                 started_at=started_at,
                 raw_file=str(raw_path) if raw_path else None,
                 error=str(exc),
+                publication=publication,
             )
         except Exception:
             logger.exception("Could not persist failed IBKR Flex sync audit")

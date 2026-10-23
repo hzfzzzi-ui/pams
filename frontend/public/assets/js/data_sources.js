@@ -1,6 +1,6 @@
 import { jget } from './api.js?v=20260606-refresh-v3';
 import { renderDataState, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
-import { loadSyncCenter } from './sync_center.js?v=20260622-data-state-a11y-v1';
+import { loadSyncCenter } from './sync_center.js?v=20261023-ibkr-publication-v1';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({

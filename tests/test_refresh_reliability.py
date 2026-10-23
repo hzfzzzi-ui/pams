@@ -214,3 +214,27 @@ def test_checkpoint_cannot_move_success_backwards(tmp_path):
     journal.run("asia", date(2026, 6, 23), lambda _: {"status": "ok"})
     with pytest.raises(ValueError):
         journal.run("asia", date(2026, 6, 22), lambda _: pytest.fail("must not refresh"))
+
+
+def test_flex_sends_validation_reference_not_snapshot_override(monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    calls = []
+    def request(method, endpoint, label, **kwargs):
+        calls.append((method, kwargs))
+        return {"configured": True} if method == "get" else {"status": "blocked"}
+    monkeypatch.setattr(module, "_request_json", request)
+    module.sync_ibkr_flex(date(2026, 6, 19))
+    assert calls[-1][1]["json"] == {
+        "align_to_latest_snapshot": False, "expected_statement_reference": "2026-06-19",
+    }
+    assert "as_of" not in calls[-1][1]["json"]
+
+
+def test_flex_uses_api_normalized_holiday_date_for_post_validation(monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setattr(module, "refresh_investment_return_snapshots", lambda _: {"status": "ok"})
+    result = module._refresh_window(date(2026, 6, 19), [("flex", lambda: {
+        "status": "success", "success": True,
+        "statement_as_of": "2026-06-18", "expected_statement_as_of": "2026-06-18",
+    })], ("total",))
+    assert result["status"] == "ok"

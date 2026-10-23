@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 import psycopg2
 
 from collectors.ibkr_flex import IBKRFlexError
+from services import ibkr_report_state as report_state
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -51,14 +53,34 @@ def _ib_date(value: str | None) -> str | None:
 
 
 def _latest_flex_xml_path() -> Path | None:
+    with get_conn() as conn:
+        report, _ = report_state.select_report(conn, _raw_dir())
+    return report.path if report else None
+
+
+def _raw_dir() -> Path:
     data_dir = Path(os.environ.get("PAMS_DATA_DIR") or (ROOT / "data"))
-    raw_dir = data_dir / "raw" / "ibkr"
-    if not raw_dir.exists():
+    return data_dir / "raw" / "ibkr"
+
+
+def published_report_status(conn=None) -> dict[str, Any]:
+    if conn is None:
+        with get_conn() as connection:
+            return published_report_status(connection)
+    report, latest = report_state.select_report(conn, _raw_dir())
+    return report_state.report_quality(report, latest)
+
+
+def read_published_performance() -> dict[str, Any] | None:
+    with get_conn() as conn:
+        report, latest = report_state.select_report(conn, _raw_dir())
+    if report is None:
         return None
-    files = [p for p in raw_dir.glob("*.xml") if p.is_file()]
-    if not files:
-        return None
-    return max(files, key=lambda p: p.stat().st_mtime)
+    result = _parse_flex_performance(report.path)
+    if hashlib.sha256(report.path.read_bytes()).hexdigest() != report.sha256:
+        raise IBKRFlexError("Published IBKR report changed during read")
+    result["report_quality"] = report_state.report_quality(report, latest)
+    return result
 
 
 def _latest_usd_cny_rate() -> Decimal | None:

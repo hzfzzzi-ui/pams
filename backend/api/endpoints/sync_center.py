@@ -192,6 +192,9 @@ def sync_center() -> dict[str, Any]:
     """Return a normalized sync matrix for the mobile sync center."""
     now = _now_local()
     with get_conn() as conn:
+        from services.ibkr_performance import published_report_status
+
+        ibkr_quality = published_report_status(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             ibkr_run = _latest_sync_run(cur, "ibkr_flex", "ibkr")
             cn_run = _latest_sync_run(cur, "cn_a_ohlcv_daily", "cn_a_equity")
@@ -257,11 +260,7 @@ def sync_center() -> dict[str, Any]:
                 """,
             )
 
-    ibkr_failed = bool(ibkr_run and ibkr_run.get("status") not in {"success", "ok"})
-    ibkr_status, ibkr_label = _fresh_status(
-        ibkr_run.get("latest_trade_date_after") if ibkr_run else None,
-        failed=ibkr_failed,
-    )
+    ibkr_status, ibkr_label = ibkr_quality["status"], ibkr_quality["label"]
     fund_needs_review = int(fund_review.get("review_rows") or 0) > 0
     fund_status, fund_label = _fresh_status(
         fund_review.get("as_of") or a_fund.get("as_of"),
@@ -338,14 +337,16 @@ def sync_center() -> dict[str, Any]:
             id="ibkr-flex",
             source="IBKR Flex",
             sync_type="账户真值同步",
-            latest_date=ibkr_run.get("latest_trade_date_after") if ibkr_run else None,
+            latest_date=ibkr_quality["statement_as_of"],
             latest_time=ibkr_run.get("finished_at") if ibkr_run else None,
-            rows=ibkr_run.get("rows_upserted") if ibkr_run else 0,
+            rows=ibkr_quality["active_row_count"],
             status=ibkr_status,
             status_label=ibkr_label,
             action="有当日授权则同步 Flex",
             href="data_sources.html#syncMatrix",
-            details=(ibkr_run.get("summary_json") or {}).get("message") if ibkr_run else "等待 IBKR Flex 授权。",
+            details=(f"{ibkr_label}；应有报告日期 {ibkr_quality['expected_statement_as_of'] or '待核准'}；"
+                     f"最近尝试 {ibkr_quality['last_attempt_status'] or '无'}。"
+                     "失败、过期或未提交的原始文件不替代有效报告。"),
             trigger_endpoint="/api/ibkr/flex/sync",
             trigger_body={"align_to_latest_snapshot": True},
         ),

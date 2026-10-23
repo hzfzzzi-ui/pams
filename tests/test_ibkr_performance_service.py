@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ast
 from decimal import Decimal
+from datetime import date
+from contextlib import nullcontext
 import hashlib
-import os
 from pathlib import Path
 import sys
 
@@ -21,12 +22,12 @@ from services import risk_state  # noqa: E402
 
 
 # AST fingerprints captured from main fdae2a1 before moving the functions.
+# Selection intentionally changes in the publication PR; monetary/FX parsers stay frozen.
 BASELINE_FUNCTIONS = {
     "get_conn": "c85e2736a5582dbee0b4149324705c010d065c8d00a35e105b0873bae1036159",
     "_norm": "11dc300a34cda207f9e829c2f1cc6fed077083249d80496ad802a42996cf3388",
     "_dec": "a0f3ea41ec85d93e536192e81dd87fd5150fa528168eeb42b56dcf1ae0444a96",
     "_ib_date": "746e5401c43ef48501ebc6e840a9c6f11af567b3c8d3fa96e508039fd09ec534",
-    "_latest_flex_xml_path": "d7fdcb9634d3def68ac0d97c1b5ab7e18de3a79ddda509538837e6dd05f8d625",
     "_latest_usd_cny_rate": "7e56914bdb8a3fd935a94be84239bed5c2482a8c397d87ced9ffb0dd53f72eaf",
     "_parse_flex_performance": "fd85b84f13f853c2acd1b2f5e3f8607cc4948f96c18b1cf548dfef485416d405",
 }
@@ -84,7 +85,10 @@ def client():
 @pytest.mark.parametrize("fx", [None, Decimal("7"), Decimal("0")])
 def test_parser_and_http_preserve_all_fields_and_amounts(report, monkeypatch, client, fx):
     monkeypatch.setattr(service, "_latest_usd_cny_rate", lambda: fx)
-    monkeypatch.setattr(ibkr, "_latest_flex_xml_path", lambda: report)
+    selected = service.report_state.PublishedReport(report, date(2026, 10, 21), 1,
+        hashlib.sha256(report.read_bytes()).hexdigest(), None)
+    monkeypatch.setattr(service, "get_conn", lambda: nullcontext(None))
+    monkeypatch.setattr(service.report_state, "select_report", lambda *args: (selected, None))
     expected = dict(EXPECTED)
     if fx is not None:
         expected["fx_rate_to_cny"] = float(fx)
@@ -96,7 +100,9 @@ def test_parser_and_http_preserve_all_fields_and_amounts(report, monkeypatch, cl
     assert service._parse_flex_performance(report) == expected
     response = client.get("/api/ibkr/performance")
     assert response.status_code == 200
-    assert response.json() == expected
+    payload = response.json()
+    assert payload.pop("report_quality")["statement_as_of"] == expected["as_of"]
+    assert payload == expected
     assert report.read_bytes() == before
 
 
@@ -124,27 +130,25 @@ def test_no_positions_and_no_deposits(report, monkeypatch):
 def test_latest_report_selection_preserves_env_and_default_root(tmp_path, monkeypatch):
     monkeypatch.delenv("PAMS_DATA_DIR", raising=False)
     monkeypatch.setattr(service, "ROOT", tmp_path)
+    monkeypatch.setattr(service, "get_conn", lambda: nullcontext(None))
+    calls = []
+    def select(conn, raw):
+        calls.append(raw)
+        return None, None
+    monkeypatch.setattr(service.report_state, "select_report", select)
     assert service._latest_flex_xml_path() is None
-    raw = tmp_path / "data" / "raw" / "ibkr"
-    raw.mkdir(parents=True)
-    assert service._latest_flex_xml_path() is None
-    old, latest = raw / "z.xml", raw / "a.xml"
-    old.write_text("<R/>", encoding="utf-8")
-    latest.write_text("<R/>", encoding="utf-8")
-    os.utime(old, (100, 100))
-    os.utime(latest, (200, 200))
-    (raw / "directory.xml").mkdir()
-    assert service._latest_flex_xml_path() == latest
+    assert calls[-1] == tmp_path / "data/raw/ibkr"
     monkeypatch.setenv("PAMS_DATA_DIR", str(tmp_path / "other"))
     assert service._latest_flex_xml_path() is None
+    assert calls[-1] == tmp_path / "other/raw/ibkr"
 
 
 def test_http_error_contract_preserved(report, monkeypatch, client):
-    monkeypatch.setattr(ibkr, "_latest_flex_xml_path", lambda: None)
+    monkeypatch.setattr(ibkr, "read_published_performance", lambda: None)
     response = client.get("/api/ibkr/performance")
     assert response.status_code == 404
-    assert response.json() == {"detail": "No local IBKR Flex XML report is available"}
-    monkeypatch.setattr(ibkr, "_latest_flex_xml_path", lambda: report)
+    assert response.json() == {"detail": "No published IBKR Flex report is available"}
+    monkeypatch.setattr(ibkr, "read_published_performance", lambda: service._parse_flex_performance(report))
     report.write_text("<R/>", encoding="utf-8")
     response = client.get("/api/ibkr/performance")
     assert response.status_code == 422
@@ -157,16 +161,15 @@ def test_http_error_contract_preserved(report, monkeypatch, client):
 
 def test_risk_uses_service_without_endpoint_import(monkeypatch):
     monkeypatch.setitem(sys.modules, "endpoints.ibkr", None)
-    monkeypatch.setattr(service, "_latest_flex_xml_path", lambda: Path("report.xml"))
-    monkeypatch.setattr(service, "_parse_flex_performance", lambda path: dict(EXPECTED))
+    monkeypatch.setattr(service, "read_published_performance", lambda: dict(EXPECTED))
     assert risk_state._latest_ibkr_performance() == EXPECTED
-    monkeypatch.setattr(service, "_latest_flex_xml_path", lambda: None)
+    monkeypatch.setattr(service, "read_published_performance", lambda: None)
     assert risk_state._latest_ibkr_performance() is None
 
     def fail():
         raise IBKRFlexError("unavailable")
 
-    monkeypatch.setattr(service, "_latest_flex_xml_path", fail)
+    monkeypatch.setattr(service, "read_published_performance", fail)
     assert risk_state._latest_ibkr_performance() is None
     for path in (Path(service.__file__), Path(risk_state.__file__)):
         tree = ast.parse(path.read_text(encoding="utf-8"))
