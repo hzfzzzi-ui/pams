@@ -31,3 +31,18 @@
 独立连接在首个查询前设置 PostgreSQL `REPEATABLE READ READ ONLY`；有 5 秒单条 SQL 超时并关闭连接。不调用 ensure/DDL、刷新、回填、修账、审计入库或原文写入。读取后再次核验内容哈希；失败只返回安全错误类型，不输出 DSN、凭据或错误正文。
 
 验证使用独立 PostgreSQL：服务器拒绝注入的 UPDATE、所有业务/审计表与原文前后相同；覆盖稳定源键与物理 ID 错配、重复/漏单、费用和净现金、跨币种/日期、缺值、现金空仓及 legacy 场景。生产资产修正须另行确认，不能借本模块自动执行。
+
+## 跨币种费用核准子结果
+
+成功读源后，同一只读事务取得的输入供 `ibkr_fee_review.review_fees` 使用，原 GET 仅追加 `fee_review` 子对象。旧 5 组检查、计数、状态与差额不变，来源关联/费用币种阻断不解除；同步中心和前端不新增消费或计算逻辑。缺报告/缺表等提前返回时该子对象可以不存在。
+
+- 输入：同一已发布 XML、质量状态、原始交易及 canonical fact。只按来源账户/执行编号和稳定键匹配，不能用可复用的物理 ID 错配费用。
+- 范围：币种不同、币种缺失或原始费用无效的记录；明确零额与缺失值分开。`total`、完整汇总与最多 100 条样本分开，`truncated` 明示样本截断。
+- 数值：原文佣金保留正负，fact 费用按既有绝对值口径核对；同时检查净现金和数量。数值一致不等于 fee_amount 的币种已独立建模，币种仅存于原始/内嵌 JSON 时仍 `review`，不能把告警清零作为目标。
+- 现金：以原文明确的账户本位币及官方 `fxRateToBase`，核对同日全部 Trade 佣金与唯一日频 `BASE_SUMMARY.commissions`。不是只查费用列示币种的现金行，不使用当前汇率；缺字段/第三币种缺换算依据/重复或非日频现金表均不能确认。
+- 上述现金证据只到每日汇总，`individual_allocation_verified=false`；不能据此分配到单笔结算、判定所有历史交易完整或核准全账户 NAV。FX `netCash=0` 本身不是漏扣费用证据。
+- 路径追踪：现金滚动读取 net_cash_cny/net_cash，不再单独减 fee_amount；IBKR 股票/ETF 重构受既有市场筛选约束，CASH 换汇记录不进入该重构。报告列出实际记录 flags 与市场，不把排除路径说成所有成本/收益均已核准。
+- 官方账户表现读取报告现金余额和证券市值，并非再次从 fact 扣佣金；`individual_fee_effect_on_nav_or_pnl=null`，不伪造每笔费用对当前 NAV 的增减。
+- 新服务是纯输入/输出函数，不持有连接、无 ensure/DDL、写入、外部行情或修复功能。异常仅输出安全类型；旧字段不能因新增诊断失败而更改。
+
+官方字段参考：[Trades Flex](https://www.ibkrguides.com/reportingreference/reportguide/tradesfq.htm)、[Cash Report Flex](https://www.ibkrguides.com/reportingreference/reportguide/cash%20reportfq.htm)。按原文字段及账户/日期核对，不用通用说明覆盖原文实际的费用币种或现金扣收币种。
