@@ -27,6 +27,17 @@
 
 真实底稿实验的结构为一个 41 条占用环和两个空闲目标，合计 43 条映射。只改外层 ID 可让物理关联错配归零，但会出现 43 条历史证据 ID 提示，并保留 10 条费用币种提示。因此当前结论为“隔离结构试验通过、生产修复仍未就绪”，不是可批准执行清单。
 
+## 审计证据解释（不替代原阻断）
+
+规划新增 `audit_evidence` 子结果，原 `projected_after_counts` / `projected_after_reasons` 与所有执行标志不变。解释的是完整底稿的确定投影，不是自动放行生产现状。
+
+- `complete_scope` 要求原文、来源及 IBKR fact 的稳定键多重集合完整一致且唯一；分页或费用截断不能当完整证据。缺失、重复、报告或金额冲突仍按旧预检阻断。
+- 仅允许映射内的 `embedded_evidence_mismatch.field=source_id` 解释为 `historical_reference_preserved`：内嵌 ID 须等于底稿旧值，投影外层 ID 与稳定执行对应目标相同，其他字段/哈希/原文全部保留。执行编号、账户或其他历史字段冲突不能借此消除。
+- 费用只在 `unit_review.status=source_unit_verified` 时区分其来源单位证据，仍保留 `fee_currency_not_modeled` / `individual_cash_settlement_unverified`。旧费用警告不删除、不再扣费、不宣称单笔 NAV 已核准。
+- `review_rehearsal_evidence(baseline, plan, projected_facts)` 从原始完整底稿重建规划并核对整个投影指纹；缺底稿、部分完成、原始 JSON/时间戳/金额变化、调用者自行重算哈希的篡改规划都拒绝。返回副本，不修改输入或连接数据库；异常仅输出安全类型。
+- 指纹不是授权签名，也不证明调用者提供底稿的外部真实性；底稿来源、保管与用户审批必须独立保留。真实修复后若无可证明的原底稿/映射，不能仅凭当前字段相似自动认可历史 ID。
+- 即使 `unresolved_evidence=0`，状态仍为 `review`，`production_repair_ready=false`；人工审批、费用持久模型/现金结算、历史覆盖和全账核准不被替代。生产仍有真实物理错配时，该问题及批次占用保护不因投影解释而消失。
+
 ## 证据和边界
 
 - 单元及真实 PostgreSQL 覆盖环/链、缺证据、缺币种、非法数值、输入/规划变化、稳定身份重定向、幂等、中断/约束/提交失败、并发锁及只改 source_id。

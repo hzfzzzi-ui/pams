@@ -13,7 +13,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'backend/api'))
 from collectors.ibkr_flex import parse_flex_report
-from services.ibkr_lineage_rehearsal import plan_rehearsal, safe_plan_rehearsal, fingerprint, protected_facts_fingerprint
+from services.ibkr_lineage_rehearsal import (plan_rehearsal, safe_plan_rehearsal, fingerprint,
+                                           protected_facts_fingerprint, review_rehearsal_evidence)
 from services.ibkr_lineage_preflight import preflight_lineage
 from services.ibkr_report_state import PublishedReport
 from services.investment_trade_fact import build_investment_trade_fact
@@ -247,3 +248,118 @@ def test_resigned_plan_cannot_redirect_stable_identity(scratch,database):
             apply_in_scratch(conn,plan,xml_text=scratch['xml_text'])
         assert fingerprint(rows(database,'pams_investment_trade_fact'))==fingerprint(scratch['facts'])
     finally: conn.close()
+
+
+def project(case, plan):
+    facts = deepcopy(case['facts'])
+    targets = {row['fact_id']: row['after'] for row in plan['mappings']}
+    for fact in facts:
+        if str(fact['trade_id']) in targets:
+            fact['source_id'] = targets[str(fact['trade_id'])]
+    return facts
+
+
+@pytest.mark.parametrize('links', [[11,10], [9,10], [8,9]])
+def test_history_explanation_requires_exact_full_projection_and_keeps_legacy_blockers(tmp_path, links):
+    case = make_case(tmp_path, 2, links)
+    before = deepcopy(case)
+    plan = plan_rehearsal(**case)
+    projected = project(case, plan)
+    result = review_rehearsal_evidence(baseline=case, plan=plan, projected_facts=projected)
+    assert result == plan['audit_evidence'] and result['status'] == 'review'
+    assert result['counts'] == {'historical_ids_explained': 2, 'fee_units_verified': 0, 'unresolved_evidence': 0}
+    assert plan['projected_after_reasons'] == {'embedded_evidence_mismatch': 2}
+    assert all(row['status'] == 'historical_reference_preserved' for row in result['history_records'])
+    assert not result['executable'] and not result['production_repair_ready']
+    assert 'user_approval_required' in result['remaining_requirements']
+    assert case == before
+
+
+def test_projected_cross_currency_unit_is_explained_but_cash_and_model_remain_unverified(tmp_path):
+    case = make_case(tmp_path, fee_currency='HKD')
+    plan = plan_rehearsal(**case)
+    result = review_rehearsal_evidence(baseline=case, plan=plan, projected_facts=project(case, plan))
+    assert result['counts'] == {'historical_ids_explained': 1, 'fee_units_verified': 1, 'unresolved_evidence': 0}
+    assert result['fee_records'][0]['unit_review']['read_model']['currency'] == 'HKD'
+    assert plan['projected_after_reasons'] == {'embedded_evidence_mismatch': 1, 'fee_currency_unverified': 1}
+    assert {'fee_currency_not_modeled', 'individual_cash_settlement_unverified'} <= set(result['remaining_requirements'])
+    assert result['legacy_blockers_preserved'] and not result['production_write_supported']
+
+
+@pytest.mark.parametrize('change', ['partial', 'extra', 'historical_id', 'hash', 'quantity', 'fee', 'net_cash',
+                                  'timestamp', 'wrong_target', 'omitted_fact'])
+def test_changed_projection_cannot_explain_away_real_errors(case, change):
+    plan = plan_rehearsal(**case)
+    projected = project(case, plan)
+    fact = projected[0]
+    if change == 'partial': fact['source_id'] = case['facts'][0]['source_id']
+    elif change == 'extra': projected.append(deepcopy(fact))
+    elif change == 'historical_id': fact['raw_json']['source_row']['source_id'] = 'forged'
+    elif change == 'hash': fact['source_hash'] = 'bad'
+    elif change == 'quantity': fact['quantity'] += 1
+    elif change == 'fee': fact['fee_amount'] += 1
+    elif change == 'net_cash': fact['net_cash'] += 1
+    elif change == 'timestamp': fact['updated_at'] = '2030-01-01'
+    elif change == 'wrong_target': fact['source_id'] = '999'
+    else: projected.clear()
+    result = review_rehearsal_evidence(baseline=case, plan=plan, projected_facts=projected)
+    assert result['status'] == 'blocked' and result['history_records'] == []
+    assert not result['executable'] and not result['production_repair_ready']
+
+
+@pytest.mark.parametrize('change', ['mapping', 'history', 'quality', 'source', 'report'])
+def test_changed_baseline_or_rehashed_plan_is_not_proof(case, change):
+    plan = plan_rehearsal(**case)
+    projected = project(case, plan)
+    if change == 'mapping':
+        plan['mappings'][0]['after'] = '999'
+        plan['plan_sha256'] = fingerprint([{k:v for k,v in plan.items() if k != 'plan_sha256'}])
+    elif change == 'history': case['facts'][0]['raw_json']['source_row']['source_id'] = 'forged'
+    elif change == 'quality': case['quality']['expected_statement_as_of'] = '2026-10-23'
+    elif change == 'source': case['trades'][0]['id'] = 999
+    else: case['xml_text'] += ' '
+    result = review_rehearsal_evidence(baseline=case, plan=plan, projected_facts=projected)
+    assert result['status'] == 'blocked' and not result['executable']
+
+
+def test_omitted_official_execution_cannot_pass_complete_scope_check(tmp_path):
+    case = make_case(tmp_path, 2, [8,9])
+    case['facts'].pop()
+    case['trades'].pop()
+    plan = plan_rehearsal(**case)
+    assert plan['audit_evidence']['status'] == 'blocked'
+    assert not plan['audit_evidence']['complete_scope']
+    assert plan['audit_evidence']['history_records'] == []
+
+
+def test_new_review_does_not_suppress_non_id_history_mismatch(case, monkeypatch):
+    from services import ibkr_lineage_rehearsal as audit
+    original = audit.preflight_lineage
+    def with_error(**kwargs):
+        result = original(**kwargs)
+        if kwargs['facts'][0]['source_id'] == '10':
+            result['records'][0]['blockers'].append({'reason':'embedded_evidence_mismatch', 'field':'execution_id'})
+        return result
+    monkeypatch.setattr(audit, 'preflight_lineage', with_error)
+    plan = plan_rehearsal(**case)
+    result = plan['audit_evidence']
+    assert result['status'] == 'blocked' and result['counts']['unresolved_evidence'] == 1
+    assert result['unresolved_evidence'][0]['field'] == 'execution_id'
+
+
+def test_real_postgres_history_review_preserves_rows_after_isolated_mapping(scratch, database):
+    baseline = deepcopy(scratch)
+    plan = plan_rehearsal(**baseline)
+    conn = database()
+    try:
+        assert apply_in_scratch(conn, plan, xml_text=baseline['xml_text'])['updated'] == 2
+    finally:
+        conn.close()
+    after = rows(database, 'pams_investment_trade_fact')
+    old = fingerprint(after)
+    first = review_rehearsal_evidence(baseline=baseline, plan=plan, projected_facts=after)
+    second = review_rehearsal_evidence(baseline=baseline, plan=plan, projected_facts=after)
+    assert first == second and first['counts']['historical_ids_explained'] == 2
+    assert fingerprint(rows(database, 'pams_investment_trade_fact')) == old
+    assert protected_facts_fingerprint(after) == protected_facts_fingerprint(baseline['facts'])
+    assert not first['executable'] and first['status'] == 'review'
