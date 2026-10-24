@@ -42,8 +42,8 @@ jobs:
       - name: 同步模块静态检查
         run: |
           if test -f backend/scheduler/refresh_state.py; then
-            ruff check --select E9,F backend/scheduler/refresh_state.py backend/scheduler/scheduler.py backend/scheduler/flex_confirmation.py backend/api/services/sync_health.py tests/test_refresh_reliability.py tests/test_flex_confirmation.py backend/api/services/holdings_view.py tests/test_holdings_view_service.py backend/api/services/ibkr_reconciliation.py tests/test_ibkr_reconciliation.py backend/api/services/ibkr_lineage_preflight.py tests/test_ibkr_lineage_preflight.py backend/api/services/ibkr_fee_review.py tests/test_ibkr_fee_review.py
-            mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/scheduler/flex_confirmation.py backend/api/services/sync_health.py backend/api/services/holdings_view.py backend/api/services/ibkr_reconciliation.py backend/api/services/ibkr_lineage_preflight.py backend/api/services/ibkr_fee_review.py
+            ruff check --select E9,F backend/scheduler/refresh_state.py backend/scheduler/scheduler.py backend/scheduler/flex_confirmation.py backend/api/services/sync_health.py tests/test_refresh_reliability.py tests/test_flex_confirmation.py backend/api/services/holdings_view.py tests/test_holdings_view_service.py backend/api/services/ibkr_reconciliation.py tests/test_ibkr_reconciliation.py backend/api/services/ibkr_lineage_preflight.py tests/test_ibkr_lineage_preflight.py backend/api/services/ibkr_fee_review.py tests/test_ibkr_fee_review.py backend/api/services/ibkr_lineage_rehearsal.py tests/test_ibkr_lineage_rehearsal.py tests/ibkr_rehearsal_support.py
+            mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/scheduler/flex_confirmation.py backend/api/services/sync_health.py backend/api/services/holdings_view.py backend/api/services/ibkr_reconciliation.py backend/api/services/ibkr_lineage_preflight.py backend/api/services/ibkr_fee_review.py backend/api/services/ibkr_lineage_rehearsal.py tests/ibkr_rehearsal_support.py
           fi
       - name: 构建API镜像并验证导入
         run: |
