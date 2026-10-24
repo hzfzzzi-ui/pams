@@ -15,6 +15,7 @@ import psycopg2.extras
 
 from collectors.ibkr_flex import default_data_dir, parse_flex_report, _parse_ib_date, _num
 from services.ibkr_performance import get_conn
+from services.ibkr_fee_review import review_fees
 from services.ibkr_report_state import PublishedReport, report_quality, select_report
 from services.investment_trade_fact import classify_trade_type, normalize_side
 
@@ -316,8 +317,11 @@ def read_ibkr_reconciliation(*, connection_factory=None, raw_dir: Path | None = 
                 content = report.path.read_bytes()
                 if hashlib.sha256(content).hexdigest() != report.sha256:
                     raise ValueError('report changed during read')
-                return reconcile_report(report=report, xml_text=content.decode('utf-8'), quality=report_quality(report,latest),
-                                        trades=trades, facts=facts, history=history, snapshots=snapshots)
+                xml_text, quality = content.decode('utf-8'), report_quality(report,latest)
+                result = reconcile_report(report=report, xml_text=xml_text, quality=quality,
+                                          trades=trades, facts=facts, history=history, snapshots=snapshots)
+                result['fee_review'] = review_fees(xml_text=xml_text, quality=quality, trades=trades, facts=facts)
+                return result
     except Exception as exc:
         item = _check('source','报告依据')
         _issue(item, 'read_failed', status='error', error_type=type(exc).__name__)
