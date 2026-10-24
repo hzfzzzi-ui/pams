@@ -1,5 +1,15 @@
 # PAMS Autonomous Improvement Report
 
+## 2026-10-25：Docker 恢复与 IBKR 只读验收盘点（运行 M 级，记录 S 级，无新版本部署）
+
+- 用户仅授权拉起 Docker、复核版本/IBKR 并列周验收清单；无业务代码、配置、schema、人工刷新、修账、构建或镜像切换。原 Docker Desktop 启动后核心服务自动恢复，四容器 ID/镜像与 #46 底稿一致；API #46、scheduler #44、web #43，API 109 文件指纹逐项相同，数据库仍原卷。
+- 原调度于北京时间 05:12:48–05:13:14 自动发布 10/23 官方报告（run 415），与应有日期相同、quality=ok。启动引起正常同步不是人工修账；报告推进及其真实金额变化不能隐藏，也没有启动前财务快照可证明金额不变。
+- 只读对账 3 ok / 2 review / 0 error：66 笔交易/fact 可比金额份额与 11 项报告日/当前证券份额无差异项；仍有 43 条来源 ID 关联、10 笔费用币种待核准。预检 1 candidate / 43 blocked / 22 unchanged，41 条目标占用；候选仅 MU 2026-06-04 元数据，全部 executable=false，无执行器。候选 0→1 源于报告过期阻断消除，不是已修复。
+- Flex success 至 10/23，无待重试；两时区历史任务仍 historical_backfill_required、coverage unverified，未清保护。报告有效/同步成功不等于费用、现金、NAV、FX、收益率或历史覆盖核准。
+- health/两只读诊断/performance/投资 HTML 5 次 GET 均 200，SQL 显式 REPEATABLE READ READ ONLY。首次只读摘要查询误假设主键 id，事务报错后改整行哈希排序通过，未改表/业务。未执行浏览器回归、完整财务前后对照、故障注入或本地业务测试；不得将 HTML 200 当页面验收。
+- 私有 runtime-audit-20261025 保存身份、HTTP/调度/只读数据库证据与 WEEKLY_ACCEPTANCE.md；不是完整恢复备份，工作区基线读取于启动后。状态/报告同步原工作区并留既有分支，摘要归原 #46 评论，不新开 PR、不合并/部署；用户验收及其余业务开发继续暂停/待确认。
+- 原生 pytest/Playwright/GitHub 报告方向按用户决定保留，不自研验证框架；DEVELOPMENT_STATE 的旧工具计划标记取消。周验收仍需处理关联/费用/历史覆盖、全账户期初与 NAV/收益、同花顺归属资料和用户页面验收，未建立 stable 基线。
+
 ## 2026-10-24：PR #47 文档合并与规则发布（S 级，不重建容器）
 
 - 用户授权合并发布并给出下一计划。最终 head `4f99fb4` CI `40068228506` 成功，合并至 `24c4fc660967bac37973417b2109189b866b8a82`，origin/main 已更新，合并树相同，仅三份 Markdown；该合并 head 的 main 自动 CI `40068549464` 于北京时间 14:03:34 完成且成功，不手动重复测试或构建。
