@@ -7,7 +7,7 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from collectors.ibkr_flex import (
@@ -30,6 +30,7 @@ from services.ibkr_performance import (
 )
 from services.investment_trade_fact import backfill_investment_trade_facts
 from services.ibkr_reconciliation import read_ibkr_reconciliation
+from services.ibkr_lineage_preflight import read_lineage_preflight
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
 
@@ -79,6 +80,12 @@ def ibkr_flex_status() -> dict[str, Any]:
 def ibkr_reconciliation() -> dict[str, Any]:
     """Inspect published evidence and existing ledgers without any refresh or repair."""
     return read_ibkr_reconciliation()
+
+
+@router.get("/lineage-preflight")
+def ibkr_lineage_preflight(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
+    """Propose source-link metadata for review, never execute a repair."""
+    return read_lineage_preflight(offset=offset, limit=limit)
 
 
 @router.get("/performance")
