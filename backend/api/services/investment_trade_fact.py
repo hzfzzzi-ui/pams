@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+import logging
 from typing import Any, Mapping, Sequence
 
 import psycopg2.extras
 
 from services.cashflow_fact import make_source_hash
+from services.ibkr_fee_currency import explicit_ibkr_fee_currency
+
+logger = logging.getLogger(__name__)
 
 
 MANUAL_TABLE = "pams_investment_transactions"
@@ -262,6 +266,7 @@ def build_investment_trade_fact(row: Mapping[str, Any], *, base_currency: str = 
         "price": _optional_dec(row.get("price")),
         "gross_amount": gross,
         "fee_amount": fee_amount,
+        "fee_currency": explicit_ibkr_fee_currency(row, fee_amount),
         "tax_amount": tax_amount,
         "net_cash": net_cash,
         "fx_rate_to_cny": fx_rate,
@@ -282,12 +287,28 @@ def build_investment_trade_fact(row: Mapping[str, Any], *, base_currency: str = 
 def insert_investment_trade_facts(cur, facts: Sequence[Mapping[str, Any]]) -> int:
     """Insert normalized trade facts, skipping duplicates by source keys."""
 
+    has_explicit_fee = any(fact.get('fee_currency') is not None for fact in facts)
+    include_fee_currency = False
+    if has_explicit_fee:
+        cur.execute("""SELECT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_attribute
+            WHERE attrelid=to_regclass('public.pams_investment_trade_fact')
+              AND attname='fee_currency' AND NOT attisdropped
+        ) AS exists""")
+        row = cur.fetchone()
+        include_fee_currency = bool(row.get('exists') if isinstance(row, Mapping) else row and row[0])
+        if not include_fee_currency:
+            logger.warning('Trade fact fee_currency column unavailable; explicit unit remains in raw evidence only')
+    # An unmigrated database keeps the original insert contract; no runtime DDL or backfill.
+    fee_column = ', fee_currency' if include_fee_currency else ''
+    fee_value = ', %(fee_currency)s' if include_fee_currency else ''
     inserted = 0
     for fact in facts:
         params = dict(fact)
+        params.setdefault('fee_currency', None)
         params["raw_json"] = psycopg2.extras.Json(_json_ready(params.get("raw_json") or {}))
         cur.execute(
-            """
+            f"""
             INSERT INTO pams_investment_trade_fact (
                 trade_date, trade_time, settle_date, account_code, broker, portfolio_code,
                 asset_id, symbol, name, market, currency,
@@ -295,7 +316,7 @@ def insert_investment_trade_facts(cur, facts: Sequence[Mapping[str, Any]]) -> in
                 net_cash, fx_rate_to_cny, net_cash_cny,
                 affects_position, affects_cost_basis, affects_realized_pnl, affects_cash,
                 realized_pnl, realized_pnl_cny, cashflow_id,
-                source_table, source_id, source_key, source_hash, raw_json, review_status
+                source_table, source_id, source_key, source_hash, raw_json, review_status{fee_column}
             ) VALUES (
                 %(trade_date)s, %(trade_time)s, %(settle_date)s, %(account_code)s, %(broker)s, %(portfolio_code)s,
                 %(asset_id)s, %(symbol)s, %(name)s, %(market)s, %(currency)s,
@@ -303,7 +324,7 @@ def insert_investment_trade_facts(cur, facts: Sequence[Mapping[str, Any]]) -> in
                 %(net_cash)s, %(fx_rate_to_cny)s, %(net_cash_cny)s,
                 %(affects_position)s, %(affects_cost_basis)s, %(affects_realized_pnl)s, %(affects_cash)s,
                 %(realized_pnl)s, %(realized_pnl_cny)s, %(cashflow_id)s,
-                %(source_table)s, %(source_id)s, %(source_key)s, %(source_hash)s, %(raw_json)s, %(review_status)s
+                %(source_table)s, %(source_id)s, %(source_key)s, %(source_hash)s, %(raw_json)s, %(review_status)s{fee_value}
             )
             ON CONFLICT DO NOTHING
             """,

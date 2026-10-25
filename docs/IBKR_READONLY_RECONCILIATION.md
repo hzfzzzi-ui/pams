@@ -53,5 +53,6 @@
 
 - `source_unit_verified` 仅表示官方原始费币、当前来源及不可变内嵌证据的身份/费币/数值一致，fact 稳定键/来源哈希、原始方向及全部内嵌金融字段均可核对；缺值、重复、冲突或非有限值保持 `unverified`，不补零。显式零费用也须通过相同证据检查。
 - `read_model` 仅提供现存 fact 费用数值的原字符串和有据可查的原币种，来源为 `official_and_immutable_embedded_raw`；不换汇、不改写 fact、不推导当前汇率。证据不足时该对象为 null，不能从交易币种猜测费币。
-- `fact_fee_currency_persisted=false` / `currency_model=not_modeled` 表示 scalar 列仍未独立保存币种；`individual_cash_settlement=unverified` 独立于单位证据和日级汇总是否相等。数值/单位匹配不代表费用已在某条现金腿扣收。
+- 未迁移旧库仍返回 `fact_fee_currency_persisted=false` / `currency_model=not_modeled`；可空字段存在后，另区分未记录与显式持久值。`unit_review.fact_currency_check` 核对存储值，`summary.fact_fee_currency_matched_rows` 统计匹配数；有非 NULL 值不代表正确。详见 [手续费币种契约](IBKR_FEE_CURRENCY.md)。
+- `individual_cash_settlement=unverified` 独立于单位证据、持久币种和日级汇总是否相等。数值/单位匹配不代表费用已在某条现金腿扣收；旧 schema 的原费用结果除明确新增字段外保持相同，不清除来源保护。
 - `additional_deduction_proposed=false` / `executable=false`，不新增现金扣款、成本调整或生产修账入口；原 `fee_currency_not_modeled` 问题保留。与来源关联投影的历史解释一起用于审阅，不是全账可信或实际修复验收。

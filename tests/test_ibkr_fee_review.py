@@ -40,6 +40,7 @@ def make_case(xml=XML):
             'source_id': str(source['id']), 'source_key': 'ibkr:' + row['source_trade_key'],
             'market': row['asset_category'], 'fee_amount': abs(row['commission']), 'fx_rate_to_cny': 7})
         fact['trade_id'] = i + 21
+        fact.pop('fee_currency', None)  # This fixture represents the legacy, unmigrated fact schema.
         facts.append(fact)
     return {'xml_text': xml, 'quality': {'status': 'ok', 'legacy_unverified': False,
             'statement_as_of': '2026-10-22', 'expected_statement_as_of': '2026-10-22'},
