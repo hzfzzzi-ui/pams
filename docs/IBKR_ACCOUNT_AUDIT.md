@@ -64,13 +64,23 @@ Missing tags or unsupported semantics mean review and no affected comparison.
 
 - Select exactly one FlexStatement for the requested account and closing date.
   Other accounts/dates never contribute to its amounts. Model-level evidence or
-  contradictory child account IDs cannot establish full-account scope.
+  contradictory account IDs cannot establish full-account scope. Every consumed
+  evidence node, including ConversionRate, is checked along its entire ancestor
+  chain through the document root. Section/statement/custom-wrapper scope cannot
+  be overridden by an apparently matching leaf. An empty OpenPositions section
+  is subject to the same ownership checks before it can prove zero positions.
 - Base currency must be explicit in AccountInformation; USD is not assumed.
 - Cash is signed CashReportCurrency.endingCash from BASE_SUMMARY, or complete
   currency rows converted using explicit same-date official rates. Missing base
   summary is not replaced if it exists but is invalid/ambiguous. Native cash and
   the base summary are not added together. Negative cash is already included;
   no second financing deduction is proposed.
+  Native fallback requires a same-date row for every native currency observed in
+  the selected statement, not just currencies surviving a date filter. Uncovered
+  currencies keep their raw stale/missing/invalid/future-date reason and prevent
+  a partial sum from becoming complete cash. An older observation is ignored only
+  when that currency also has adequate current evidence. Currency coverage and
+  rate completeness are explicit, separate evidence fields.
 - Positions require an OpenPositions section and SUMMARY rows with stable
   contract/currency identities and explicit quantity/value. LOT rows are never
   added to summary rows. Any lot-only contract blocks the aggregate. An explicit
@@ -82,6 +92,13 @@ Missing tags or unsupported semantics mean review and no affected comparison.
   FX, inverted or forward-filled rate is invented. Base-to-base is exactly one.
   Conflicts/missing rates block affected derived values; base summary cash and
   independently reported NAV do not require reconstructing FX.
+  A cross-section cash/position rate conflict removes that rate from the usable
+  map and nulls dependent aggregates before any internal comparison. Independent
+  BASE_SUMMARY cash and NAV can still be compared, including reporting their real
+  deltas. Native FX completeness stays false even when base-summary cash is usable.
+  Internal rates must also be positive, with exact base identity one, before
+  numerical tolerance is considered; invalid rate semantics are review, not a
+  financial delta or a tiny-difference success.
 - NAV requires EquitySummaryByReportDateInBase.total for the same account/date.
   Cash plus position values is **not** accepted as complete NAV, because accruals,
   derivatives and other balance-sheet components may differ.
@@ -111,7 +128,10 @@ matching the existing reconciliation convention, not a dollar/count/date whiteli
 All input data is evaluated; only output issue/detail/date lists are capped at 30,
 with counts/truncation flags. XML input is resource bounded at 32 MiB; DTD/entities
 are refused. Numeric input representation is bounded without a business amount
-threshold. Namespaced Flex XML is supported.
+threshold. Decimal arithmetic uses an independent context (precision 160,
+exponents -512 to 512), covering the existing parsed magnitude bounds and their
+products/sums without inheriting caller precision, exponent limits, rounding or
+traps. Namespaced Flex XML is supported.
 
 - `ok`: only the named, adequate/comparable check passed. Position aggregate
   equality does not certify absent details (`detail_comparison=not_supplied`).

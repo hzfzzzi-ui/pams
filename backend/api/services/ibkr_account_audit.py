@@ -10,7 +10,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 TOLERANCE = Decimal("0.00000001")
@@ -56,6 +56,22 @@ def _text(number: Decimal | None) -> str | None:
 
 def _elements(root: ET.Element, tag: str) -> list[ET.Element]:
     return [node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == tag]
+
+
+def _evidence_scope(check: dict[str, Any], root: ET.Element, statement: ET.Element, account: str) -> None:
+    tags = {"FlexStatement", "AccountInformation", "CashReport", "CashReportCurrency", "OpenPositions",
+            "OpenPosition", "EquitySummaryByReportDateInBase", "ChangeInNAV", "ConversionRate", "ConversionRates"}
+    parents = {child: parent for parent in root.iter() for child in parent}
+    checked: set[ET.Element] = set()
+    for evidence in statement.iter():
+        if evidence.tag.rsplit("}", 1)[-1] not in tags:
+            continue
+        node: ET.Element | None = evidence
+        while node is not None and node not in checked:
+            checked.add(node)
+            if node.get("accountId") not in (None, "", account) or node.get("model"):
+                _issue(check, "official_account_or_ownership_mismatch", section=node.tag.rsplit("}", 1)[-1])
+            node = parents.get(node)
 
 
 def _check(key: str) -> dict[str, Any]:
@@ -159,14 +175,25 @@ def _rate(check: dict[str, Any], row: ET.Element, rates: list[ET.Element],
 
 def _cash(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
           as_of: date, base: str) -> tuple[Decimal | None, dict[str, Decimal], dict[str, Decimal]]:
-    rows = [r for r in _elements(statement, "CashReportCurrency") if _day(r.get("toDate")) == as_of]
+    all_rows = _elements(statement, "CashReportCurrency")
+    rows = [r for r in all_rows if _day(r.get("toDate")) == as_of]
     base_rows = [r for r in rows if r.get("currency") == "BASE_SUMMARY"]
     native: dict[str, Decimal] = {}
     conversions: dict[str, Decimal] = {}
     converted: list[Decimal] = []
     native_rows = [r for r in rows if r.get("currency") != "BASE_SUMMARY"]
     currencies = {r.get("currency") for r in native_rows}
-    complete = bool(native_rows)
+    observed_currencies = {r.get("currency") for r in all_rows if r.get("currency") != "BASE_SUMMARY"}
+    missing_currencies = observed_currencies - currencies
+    coverage_complete = bool(native_rows) and not missing_currencies and all(currencies)
+    complete = coverage_complete
+    for uncovered in all_rows:
+        if uncovered.get("currency") not in missing_currencies:
+            continue
+        raw_date, day = uncovered.get("toDate"), _day(uncovered.get("toDate"))
+        reason = ("missing_cash_date" if not raw_date else "invalid_cash_date") if day is None else (
+            "stale_cash_date" if day < as_of else "cash_date_mismatch")
+        _issue(check, reason, currency=uncovered.get("currency"), actual=raw_date, expected=as_of.isoformat())
     for currency in sorted(currencies, key=str):
         group = [r for r in native_rows if r.get("currency") == currency]
         row = _one(check, group, "CashReportCurrency:" + str(currency))
@@ -206,7 +233,11 @@ def _cash(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
                          "additional_financing_deduction": False,
                          "native_cash": {k: _text(v) for k, v in sorted(native.items())[:ISSUE_LIMIT]},
                          "native_currency_count": len(native), "native_fx_complete": complete,
-                         "truncated": len(native) > ISSUE_LIMIT}
+                         "native_currency_coverage_complete": coverage_complete,
+                         "observed_native_currency_count": len(observed_currencies),
+                         "missing_native_currencies": sorted(str(c) for c in missing_currencies)[:ISSUE_LIMIT],
+                         "missing_native_currency_count": len(missing_currencies),
+                         "truncated": len(native) > ISSUE_LIMIT or len(missing_currencies) > ISSUE_LIMIT}
     return cash, native, conversions
 
 
@@ -419,11 +450,7 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
     info = _elements(statement, "AccountInformation")
     if not info or {r.get("currency") for r in info} != {base_currency}:
         _issue(source, "missing_base_currency" if not info else "base_currency_mismatch")
-    financial_tags = {"AccountInformation", "CashReportCurrency", "OpenPosition", "EquitySummaryByReportDateInBase", "ChangeInNAV"}
-    for node in statement.iter():
-        if (node.tag.rsplit("}", 1)[-1] in financial_tags
-                and (node.get("accountId") not in (None, "", account_id) or node.get("model"))):
-            _issue(source, "official_account_or_ownership_mismatch")
+    _evidence_scope(source, root, statement, account_id)
     if source["issue_count"]:
         return finish()
     comparable = _scope(source, internal_state, account_id, as_of, base_currency)
@@ -433,20 +460,35 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
         _issue(source, "source_unverified")
         comparable = False
     source["evidence"] = {"selected_statement_date": as_of.isoformat(), "internal_comparable": comparable}
-    with localcontext() as context:
-        context.prec = 160  # Bounded input decimals; do not inherit a caller's low precision.
+    # Parsed magnitudes are bounded to 10**+/-64; products and sums fit these
+    # independent exponent/precision bounds without inheriting caller traps.
+    with localcontext(Context(prec=160, Emax=512, Emin=-512)):
         cash, native, cash_rates = _cash(checks["cash"], checks["fx"], statement, as_of, base_currency)
         positions, position_rates, position_rows = _positions(checks["positions"], checks["fx"], statement, as_of, base_currency)
         nav = _nav(checks["nav"], statement, as_of, base_currency)
         period = _period(checks["period_return"], statement, period_start, as_of, base_currency, nav)
         rates = dict(cash_rates)
+        conflicts: set[str] = set()
         for currency, rate in position_rates.items():
             if currency in rates and abs(rates[currency] - rate) > TOLERANCE:
                 _issue(checks["fx"], "conflicting_fx", currency=currency)
+                conflicts.add(currency)
             rates[currency] = rate
+        for currency in sorted(conflicts):
+            rates.pop(currency)
+            _issue(checks["positions"], "conflicting_fx", currency=currency)
+            positions = None
+            checks["positions"]["evidence"]["position_value_base"] = None
+            checks["cash"]["evidence"]["native_fx_complete"] = False
+            if checks["cash"]["evidence"]["basis"] == "native_cash_at_explicit_statement_fx":
+                _issue(checks["cash"], "conflicting_fx", currency=currency)
+                cash = None
+                checks["cash"]["evidence"]["cash_base"] = None
         checks["fx"]["evidence"] = {"rates_to_base": {k: _text(v) for k, v in sorted(rates.items())[:ISSUE_LIMIT]},
                                     "currency_count": len(rates), "historical_only": True,
-                                    "truncated": len(rates) > ISSUE_LIMIT}
+                                    "conflicting_currencies": sorted(conflicts)[:ISSUE_LIMIT],
+                                    "conflicting_currency_count": len(conflicts),
+                                    "truncated": len(rates) > ISSUE_LIMIT or len(conflicts) > ISSUE_LIMIT}
         if not comparable:
             for key in ("cash", "positions", "nav", "fx", "period_return"):
                 _issue(checks[key], "internal_not_comparable")
@@ -482,7 +524,12 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
                 if isinstance(actual_rates, Mapping):
                     official_fx_complete = not checks["fx"]["issue_count"]
                     for currency in sorted(rates.keys() | actual_rates.keys(), key=str):
-                        if currency not in rates:
+                        actual_rate = _number(actual_rates.get(currency))
+                        if actual_rate is not None and actual_rate <= 0:
+                            _issue(checks["fx"], "invalid_internal_fx", field="fx:" + str(currency), actual=_text(actual_rate))
+                        elif actual_rate is not None and currency == base_currency and actual_rate != 1:
+                            _issue(checks["fx"], "invalid_internal_base_fx", field="fx:" + str(currency), actual=_text(actual_rate))
+                        elif currency not in rates:
                             _issue(checks["fx"], "currency_not_covered", currency=str(currency))
                         elif official_fx_complete:
                             _compare(checks["fx"], "fx:" + str(currency), rates[currency], actual_rates.get(currency))

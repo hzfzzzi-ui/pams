@@ -6,7 +6,7 @@ import sys
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from datetime import date
-from decimal import Decimal, localcontext
+from decimal import ROUND_UP, Decimal, Subnormal, Underflow, localcontext
 from pathlib import Path
 
 import pytest
@@ -537,3 +537,190 @@ def test_result_limits_do_not_limit_financial_audit_or_hide_tail_delta():
     assert len(item["issues"]) == audit.ISSUE_LIMIT and item["truncated"]
     assert item["evidence"]["position_count"] == audit.ISSUE_LIMIT + 1
     assert item["compared"] == 1 + (audit.ISSUE_LIMIT + 1) * 2
+
+
+@pytest.mark.parametrize("tag", ["FlexStatement", "CashReport", "OpenPositions", "ConversionRates", "ConversionRate", "Envelope"])
+@pytest.mark.parametrize("field,value", [("accountId", "ANOTHER_SYNTHETIC_ACCOUNT"), ("model", "MODEL_SCOPE")])
+def test_consumed_evidence_and_its_ancestors_must_have_full_account_scope(tag, field, value):
+    root, internal = foreign_case()
+    if tag == "Envelope":
+        wrapper = ET.Element(tag)
+        wrapper.append(root)
+        root = wrapper
+    next(root.iter(tag)).set(field, value)
+    result = run(root, internal)
+    assert check(result, "source")["status"] == "review"
+    assert all(c["compared"] == 0 for c in result["checks"])
+    assert all("financial_delta" not in c["reason_counts"] for c in result["checks"])
+
+
+def test_scoped_empty_positions_cannot_prove_full_account_zero():
+    root, internal = statement(), state()
+    remove(root, "OpenPosition")
+    next(root.iter("OpenPositions")).set("model", "MODEL_SCOPE")
+    internal.update(position_value_base="0", positions=[])
+    result = run(root, internal)
+    assert "official_account_or_ownership_mismatch" in reasons(result, "source")
+    assert check(result, "positions")["compared"] == 0
+
+
+def test_unknown_wrapper_scope_is_checked_but_nonconsumed_sibling_is_not():
+    root = statement()
+    cash = root.find("CashReport")
+    root.remove(cash)
+    wrapper = ET.SubElement(root, "CustomEvidenceWrapper", model="MODEL_SCOPE")
+    wrapper.append(cash)
+    assert "official_account_or_ownership_mismatch" in reasons(run(root), "source")
+    wrapper.attrib.clear()
+    ET.SubElement(root, "Trade", accountId="OTHER", model="OTHER_MODEL")
+    result = run(root)
+    assert check(result, "cash")["status"] == "ok"
+    assert check(result, "positions")["status"] == "ok"
+
+
+def test_matching_explicit_ancestor_scope_and_blank_model_remain_supported():
+    root, internal = foreign_case()
+    for node in root.iter():
+        node.set("accountId", "SYNTHETIC")
+        node.set("model", "")
+    assert check(run(root, internal), "positions")["status"] == "ok"
+
+
+@pytest.mark.parametrize("currency", ["EUR", "JPY"])
+@pytest.mark.parametrize("raw_date,reason", [("20240407", "stale_cash_date"), (None, "missing_cash_date"),
+    ("invalid-date", "invalid_cash_date"), ("20240409", "cash_date_mismatch")])
+def test_native_cash_fallback_requires_current_coverage_for_every_observed_currency(currency, raw_date, reason):
+    root = statement()
+    cash = root.find("CashReport")
+    cash.remove(next(r for r in cash if r.get("currency") == "BASE_SUMMARY"))
+    row = ET.SubElement(cash, "CashReportCurrency", currency=currency, endingCash="100", fxRateToBase="0.1")
+    if raw_date is not None:
+        row.set("toDate", raw_date)
+    result = run(root)
+    item = check(result, "cash")
+    assert reason in reasons(result, "cash")
+    assert item["evidence"]["cash_base"] is None
+    assert item["evidence"]["native_currency_coverage_complete"] is False
+    assert item["evidence"]["missing_native_currencies"] == [currency]
+    assert item["compared"] == 0 and "financial_delta" not in reasons(result, "cash")
+    issue = next(i for i in item["issues"] if i["reason"] == reason)
+    assert issue["currency"] == currency and issue["actual"] == raw_date
+
+
+def test_native_cash_with_fresh_coverage_can_ignore_older_same_currency_observation():
+    root, internal = statement(), state()
+    cash = root.find("CashReport")
+    cash.remove(next(r for r in cash if r.get("currency") == "BASE_SUMMARY"))
+    for raw_date in ("20240407", "20240408"):
+        ET.SubElement(cash, "CashReportCurrency", currency="EUR", toDate=raw_date,
+                      endingCash="10", fxRateToBase="0.1", levelOfDetail="Currency")
+    internal.update(cash_base="-19", cash_by_currency={"USD": "-20", "EUR": "10"},
+                    fx_rates_to_base={"USD": "1", "EUR": "0.1"})
+    result = run(root, internal)
+    assert check(result, "cash")["status"] == "ok"
+    assert check(result, "cash")["evidence"]["native_currency_coverage_complete"]
+
+
+def conflicting_sections(*, base_summary=True):
+    root, internal = foreign_case()
+    remove(root, "ConversionRates")
+    next(root.iter("OpenPosition")).set("fxRateToBase", "0.2")
+    cash = root.find("CashReport")
+    native = next(r for r in cash if r.get("currency") != "BASE_SUMMARY")
+    native.set("currency", "HKD")
+    native.set("endingCash", "-200")
+    native.set("fxRateToBase", "0.1")
+    if not base_summary:
+        cash.remove(next(r for r in cash if r.get("currency") == "BASE_SUMMARY"))
+    internal.update(cash_by_currency={"HKD": "-200"}, position_value_base="200",
+                    fx_rates_to_base={"HKD": "0.2"})
+    return root, internal
+
+
+@pytest.mark.parametrize("base_summary", [True, False])
+def test_cross_section_fx_conflict_blocks_affected_derived_values_not_independent_nav(base_summary):
+    root, internal = conflicting_sections(base_summary=base_summary)
+    internal["position_value_base"] = "999"
+    if not base_summary:
+        internal["cash_base"] = "999"
+    result = run(root, internal)
+    assert "conflicting_fx" in reasons(result, "fx")
+    positions = check(result, "positions")
+    assert positions["evidence"]["position_value_base"] is None and positions["compared"] == 0
+    assert "conflicting_fx" in reasons(result, "positions")
+    assert "financial_delta" not in reasons(result, "positions")
+    cash = check(result, "cash")
+    assert cash["evidence"]["native_fx_complete"] is False
+    if base_summary:
+        assert cash["status"] == "ok" and cash["compared"] > 0
+    else:
+        assert cash["evidence"]["cash_base"] is None and cash["compared"] == 0
+        assert "conflicting_fx" in reasons(result, "cash")
+    assert check(result, "nav")["status"] == "ok" and check(result, "nav")["compared"] == 1
+    assert "HKD" not in check(result, "fx")["evidence"]["rates_to_base"]
+
+
+def test_fx_conflict_cannot_hide_independent_base_cash_or_nav_delta():
+    root, internal = conflicting_sections()
+    internal.update(cash_base="-21", net_liquidation_base="84")
+    result = run(root, internal)
+    for key in ("cash", "nav"):
+        assert "financial_delta" in reasons(result, key) and check(result, key)["status"] == "error"
+    assert "financial_delta" not in reasons(result, "positions")
+
+
+def test_different_currency_section_rates_are_not_conflicts():
+    root, internal = conflicting_sections()
+    native = next(r for r in root.iter("CashReportCurrency") if r.get("currency") != "BASE_SUMMARY")
+    native.set("currency", "EUR")
+    internal.update(cash_by_currency={"EUR": "-200"}, fx_rates_to_base={"EUR": "0.1", "HKD": "0.2"})
+    result = run(root, internal)
+    assert check(result, "positions")["status"] == "ok"
+    assert check(result, "cash")["status"] == "ok"
+    assert check(result, "fx")["status"] == "ok"
+
+
+@pytest.mark.parametrize("invalid_rate", ["0", "-0.000000001", "-0.000000000001"])
+def test_internal_fx_must_be_positive_even_when_delta_is_below_tolerance(invalid_rate):
+    root, internal = foreign_case("0.000000001")
+    internal["position_value_base"] = "0.000001"
+    internal["fx_rates_to_base"]["HKD"] = invalid_rate
+    result = run(root, internal)
+    assert check(result, "fx")["status"] == "review"
+    assert "invalid_internal_fx" in reasons(result, "fx")
+    assert "financial_delta" not in reasons(result, "fx")
+
+
+@pytest.mark.parametrize("invalid_rate", ["1.000000001", "0.999999999", "0", "-1"])
+def test_internal_base_identity_fx_is_exact_not_tolerance_based(invalid_rate):
+    internal = state()
+    internal["fx_rates_to_base"]["USD"] = invalid_rate
+    result = run(internal=internal)
+    assert check(result, "fx")["status"] == "review"
+    assert {"invalid_internal_fx", "invalid_internal_base_fx"} & reasons(result, "fx")
+    assert check(result, "fx")["compared"] == 0
+
+
+@pytest.mark.parametrize("official_rate", ["0.000000001", "1e-64"])
+def test_small_positive_internal_fx_is_still_valid(official_rate):
+    root, internal = foreign_case(official_rate)
+    internal["position_value_base"] = str(Decimal(1000) * Decimal(official_rate))
+    assert check(run(root, internal), "fx")["status"] == "ok"
+
+
+@pytest.mark.parametrize("bounds", [(1, -1), (2, -2)])
+@pytest.mark.parametrize("value,rate", [("1000", "0.1"), ("1e64", "1e64"), ("1e-64", "1e-64")])
+def test_decimal_exponent_limits_traps_and_rounding_are_isolated(bounds, value, rate):
+    root, internal = foreign_case(rate)
+    next(root.iter("OpenPosition")).set("positionValue", value)
+    expected = run(root, internal)
+    with localcontext() as context:
+        context.prec = 2
+        context.Emax, context.Emin = bounds
+        context.rounding = ROUND_UP
+        context.clamp = 1
+        context.traps[Subnormal] = True
+        context.traps[Underflow] = True
+        assert run(root, internal) == expected
+        assert (context.Emax, context.Emin) == bounds and context.prec == 2
+        assert context.traps[Subnormal] and context.traps[Underflow] and context.rounding == ROUND_UP
