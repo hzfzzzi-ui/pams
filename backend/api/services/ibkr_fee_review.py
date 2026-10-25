@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from collectors.ibkr_flex import parse_flex_report, _parse_ib_date
 from services.cashflow_fact import make_source_hash
 from services.ibkr_fee_currency import fact_currency_check
+from services.ibkr_fee_settlement import review_fee_settlement
 from services.investment_return_data import IBKR_EQUITY_MARKETS
 from services.investment_trade_fact import classify_trade_type, normalize_side
 
@@ -157,10 +158,17 @@ def _unit_review(item: dict, fact: dict | None = None, embedded: dict | None = N
 def review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict]) -> dict:
     """All inputs are frozen by the caller's read-only report transaction."""
     try:
-        return _review_fees(xml_text=xml_text, quality=quality, trades=trades, facts=facts)
+        result = _review_fees(xml_text=xml_text, quality=quality, trades=trades, facts=facts)
     except Exception as exc:
-        return {'status': 'unavailable', 'read_only': True, 'executable': False,
-                'error_type': type(exc).__name__, 'records': [], 'total': None}
+        result = {'status': 'unavailable', 'read_only': True, 'executable': False,
+                  'error_type': type(exc).__name__, 'records': [], 'total': None}
+    try:
+        result['settlement_evidence'] = review_fee_settlement(xml_text=xml_text, quality=quality)
+    except Exception as exc:
+        result['settlement_evidence'] = {'status': 'unavailable', 'read_only': True, 'executable': False,
+            'error_type': type(exc).__name__, 'records': [], 'total': None,
+            'additional_deduction_proposed': False, 'financial_values_changed': False}
+    return result
 
 
 def _review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict]) -> dict:

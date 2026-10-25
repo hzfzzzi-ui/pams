@@ -377,3 +377,21 @@ def test_fee_unit_neither_uses_daily_aggregate_as_individual_proof_nor_current_f
     assert item['unit_review']['status'] == 'source_unit_verified'
     assert item['unit_review']['read_model']['currency'] == 'USD'
     assert item['unit_review']['individual_cash_settlement'] == 'unverified'
+
+
+def test_settlement_is_additive_and_failure_cannot_replace_existing_fee_checks(monkeypatch):
+    from services import ibkr_fee_review as service
+    case = complete_fee_case()
+    before = deepcopy(case)
+    expected = service._review_fees(**case)
+    result = service.review_fees(**case)
+    evidence = result.pop('settlement_evidence')
+    assert result == expected and evidence['read_only'] and not evidence['executable']
+    assert case == before
+    def fail(**kwargs):
+        raise ValueError('private-error-must-not-leak')
+    monkeypatch.setattr(service, 'review_fee_settlement', fail)
+    failed = service.review_fees(**case)
+    child = failed.pop('settlement_evidence')
+    assert failed == expected and child['status'] == 'unavailable'
+    assert 'private-error' not in str(child) and case == before

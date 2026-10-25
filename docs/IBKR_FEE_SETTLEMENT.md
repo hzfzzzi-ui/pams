@@ -111,6 +111,15 @@ Run the targeted pytest file, full Ruff for the service / E9/F for tests, and my
 `--ignore-missing-imports --follow-imports=skip --check-untyped-defs` on the service.
 No DB integration/build/browser/release validation is claimed by this component.
 
+## Integration Contract
+
+The existing `review_fees` wrapper adds only `settlement_evidence`; all previous
+fields and blockers are preserved. A child-diagnostic exception becomes a bounded,
+sanitized `unavailable` child result, not a failure or replacement of the existing
+fee checks. Its caller still owns the selected-original hash and server-enforced
+repeatable-read read-only transaction. This result does not feed cash, cost, NAV,
+return calculations, write paths, migrations or frontend bindings.
+
 Field semantics are based on IBKR's official
 [Statement of Funds Flex reference](https://www.ibkrguides.com/reportingreference/reportguide/statement%20of%20fundsfq.htm).
 Conservative proof rules and unsupported scopes above are this diagnostic's policy,
