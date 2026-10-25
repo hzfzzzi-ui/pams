@@ -70,6 +70,17 @@ Missing tags or unsupported semantics mean review and no affected comparison.
   be overridden by an apparently matching leaf. An empty OpenPositions section
   is subject to the same ownership checks before it can prove zero positions.
 - Base currency must be explicit in AccountInformation; USD is not assumed.
+- Native cash/position units, FX source/target units and internal currency-map
+  keys must be exactly ASCII `[A-Z]{3}`. Missing values, lowercase/mixed case,
+  Unicode lookalikes, whitespace and arbitrary unit strings remain review; no
+  trimming, uppercasing, registry lookup or default currency is applied.
+  `BASE_SUMMARY` is only the explicit cash-summary marker, never a native currency
+  or an internal currency-map key. Invalid units cannot enter native amounts,
+  contract identities, rate maps or their affected comparisons. Malformed current
+  ConversionRate currency pairs block non-base conversions even when a position
+  also supplies a rate; known base identity and independent base NAV/summary
+  evidence do not depend on that conversion. Independent supplied base aggregates
+  are not inferred from invalid internal detail keys.
 - Cash is signed CashReportCurrency.endingCash from BASE_SUMMARY, or complete
   currency rows converted using explicit same-date official rates. Missing base
   summary is not replaced if it exists but is invalid/ambiguous. Native cash and

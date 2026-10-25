@@ -724,3 +724,123 @@ def test_decimal_exponent_limits_traps_and_rounding_are_isolated(bounds, value, 
         assert run(root, internal) == expected
         assert (context.Emax, context.Emin) == bounds and context.prec == 2
         assert context.traps[Subnormal] and context.traps[Underflow] and context.rounding == ROUND_UP
+
+
+INVALID_UNITS = [None, "", "BAD_UNIT", "usd", "uSd", "US", "USDD", "US1", "USD ", "\uff35SD", "U\u017fD"]
+
+
+@pytest.mark.parametrize("unit", INVALID_UNITS)
+@pytest.mark.parametrize("base_summary", [True, False])
+def test_invalid_native_cash_currency_never_becomes_a_valid_unit(unit, base_summary):
+    root, internal = statement(), state()
+    cash = root.find("CashReport")
+    native = next(r for r in cash if r.get("currency") != "BASE_SUMMARY")
+    native.set("fxRateToBase", "1")
+    if unit is None:
+        native.attrib.pop("currency")
+    else:
+        native.set("currency", unit)
+    if not base_summary:
+        cash.remove(next(r for r in cash if r.get("currency") == "BASE_SUMMARY"))
+    internal["cash_by_currency"] = {unit: "-20"}
+    result = run(root, internal)
+    item = check(result, "cash")
+    assert "invalid_currency" in reasons(result, "cash")
+    assert item["status"] == "review" and item["compared"] == 0
+    assert item["evidence"]["native_cash"] == {}
+    assert item["evidence"]["native_fx_complete"] is False
+    if not base_summary:
+        assert item["evidence"]["cash_base"] is None
+    assert "financial_delta" not in reasons(result, "cash")
+    assert check(result, "nav")["status"] == "ok"
+    assert check(result, "positions")["status"] == "ok"
+
+
+@pytest.mark.parametrize("unit", [*INVALID_UNITS, "BASE_SUMMARY"])
+def test_invalid_position_currency_cannot_use_explicit_one_fx(unit):
+    root, internal = statement(), state()
+    row = next(root.iter("OpenPosition"))
+    if unit is None:
+        row.attrib.pop("currency")
+    else:
+        row.set("currency", unit)
+    internal["positions"][0]["currency"] = unit
+    result = run(root, internal)
+    item = check(result, "positions")
+    assert "invalid_currency" in reasons(result, "positions")
+    assert item["status"] == "review" and item["compared"] == 0
+    assert item["evidence"]["position_value_base"] is None
+    assert "financial_delta" not in reasons(result, "positions")
+    assert check(result, "nav")["status"] == "ok" and check(result, "cash")["status"] == "ok"
+
+
+@pytest.mark.parametrize("unit", [*INVALID_UNITS, "BASE_SUMMARY"])
+def test_rate_consumption_rejects_invalid_source_unit_even_with_explicit_rate(unit):
+    item = audit._check("fx")
+    value = audit._rate(item, ET.Element("OpenPosition", fxRateToBase="1"), [], unit, "USD", DAY)
+    assert value is None and item["status"] == "review"
+    assert "invalid_currency" in item["reason_counts"]
+
+
+@pytest.mark.parametrize("field", ["fromCurrency", "toCurrency"])
+@pytest.mark.parametrize("unit", ["BAD_UNIT", "usd", "\uff35SD", "U\u017fD", "BASE_SUMMARY", ""])
+@pytest.mark.parametrize("explicit_position_rate", [False, True])
+def test_conversion_rate_currency_pair_must_be_explicit_ascii(field, unit, explicit_position_rate):
+    root, internal = foreign_case()
+    next(root.iter("ConversionRate")).set(field, unit)
+    if explicit_position_rate:
+        next(root.iter("OpenPosition")).set("fxRateToBase", "0.1")
+    result = run(root, internal)
+    assert "invalid_currency" in reasons(result, "fx")
+    assert check(result, "fx")["status"] == "review"
+    assert check(result, "positions")["evidence"]["position_value_base"] is None
+    assert check(result, "positions")["status"] == "review"
+    assert check(result, "positions")["compared"] == 0
+    assert check(result, "cash")["status"] == "ok" and check(result, "nav")["status"] == "ok"
+
+
+@pytest.mark.parametrize("field,key", [("cash_by_currency", "cash"), ("fx_rates_to_base", "fx")])
+@pytest.mark.parametrize("unit", ["BAD_UNIT", "usd", "\uff35SD", "U\u017fD", "BASE_SUMMARY", "", None, 7])
+def test_invalid_internal_currency_map_keys_are_not_compared_or_normalized(field, key, unit):
+    internal = state()
+    internal[field] = {unit: "999"}
+    result = run(internal=internal)
+    assert "invalid_internal_currency" in reasons(result, key)
+    assert check(result, key)["status"] == "review"
+    assert "financial_delta" not in reasons(result, key)
+    if key == "fx":
+        assert check(result, key)["compared"] == 0
+    assert check(result, "nav")["status"] == "ok"
+
+
+@pytest.mark.parametrize("unit", ["BAD_UNIT", "usd", "\uff35SD", "BASE_SUMMARY", None])
+def test_internal_position_currency_identity_is_strict(unit):
+    internal = state()
+    internal["positions"][0]["currency"] = unit
+    result = run(internal=internal)
+    assert "invalid_internal_currency" in reasons(result, "positions")
+    assert check(result, "positions")["status"] == "review"
+    assert check(result, "positions")["compared"] == 1  # Independent supplied base aggregate only.
+    assert "financial_delta" not in reasons(result, "positions")
+
+
+@pytest.mark.parametrize("unit", ["AAA", "XZZ"])
+def test_currency_format_validation_does_not_invent_a_hardcoded_registry(unit):
+    root, internal = foreign_case("1")
+    next(root.iter("OpenPosition")).set("currency", unit)
+    next(root.iter("ConversionRate")).set("fromCurrency", unit)
+    internal["position_value_base"] = "1000"
+    internal["positions"][0]["currency"] = unit
+    internal["fx_rates_to_base"] = {"USD": "1", unit: "1"}
+    result = run(root, internal)
+    assert check(result, "positions")["status"] == "ok" and check(result, "fx")["status"] == "ok"
+
+
+def test_base_summary_is_allowed_only_as_a_cash_summary_not_a_native_unit():
+    result = run()
+    assert check(result, "cash")["status"] == "ok"
+    root = statement()
+    next(r for r in root.iter("CashReportCurrency") if r.get("currency") == "BASE_SUMMARY").set("levelOfDetail", "Currency")
+    result = run(root)
+    assert "unsupported_cash_scope" in reasons(result, "cash")
+    assert check(result, "cash")["compared"] == 0

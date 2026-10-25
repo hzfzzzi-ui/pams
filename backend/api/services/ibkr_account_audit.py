@@ -21,6 +21,10 @@ FLOW_FIELDS = ("depositsWithdrawals", "internalCashTransfers", "assetTransfers",
                "linkingAdjustments", "debitCardActivity", "billPay")
 
 
+def _currency(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[A-Z]{3}", value, flags=re.ASCII) is not None
+
+
 def _day(value: Any) -> date | None:
     if isinstance(value, datetime):
         return None
@@ -145,10 +149,23 @@ def _scope(source: dict[str, Any], state: Mapping[str, Any] | None,
 
 def _rate(check: dict[str, Any], row: ET.Element, rates: list[ET.Element],
           currency: str, base: str, as_of: date) -> Decimal | None:
+    if not _currency(currency) or not _currency(base):
+        _issue(check, "invalid_currency", currency=currency, base_currency=base)
+        return None
     explicit = row.get("fxRateToBase")
     value = _number(explicit) if explicit not in (None, "") else None
     if explicit not in (None, "") and (value is None or value <= 0):
         _issue(check, "invalid_fx", currency=currency)
+        return None
+    invalid_pair = False
+    for quote in rates:
+        if _day(quote.get("reportDate")) != as_of:
+            continue
+        for field in ("fromCurrency", "toCurrency"):
+            if not _currency(quote.get(field)):
+                _issue(check, "invalid_currency", section="ConversionRate", field=field, currency=quote.get(field))
+                invalid_pair = True
+    if invalid_pair and currency != base:
         return None
     candidates = [r for r in rates if r.get("fromCurrency") == currency
                   and r.get("toCurrency") == base and _day(r.get("reportDate")) == as_of]
@@ -185,7 +202,7 @@ def _cash(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
     currencies = {r.get("currency") for r in native_rows}
     observed_currencies = {r.get("currency") for r in all_rows if r.get("currency") != "BASE_SUMMARY"}
     missing_currencies = observed_currencies - currencies
-    coverage_complete = bool(native_rows) and not missing_currencies and all(currencies)
+    coverage_complete = bool(native_rows) and not missing_currencies and all(_currency(c) for c in currencies)
     complete = coverage_complete
     for uncovered in all_rows:
         if uncovered.get("currency") not in missing_currencies:
@@ -195,9 +212,13 @@ def _cash(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
             "stale_cash_date" if day < as_of else "cash_date_mismatch")
         _issue(check, reason, currency=uncovered.get("currency"), actual=raw_date, expected=as_of.isoformat())
     for currency in sorted(currencies, key=str):
+        if not currency or not _currency(currency):
+            _issue(check, "invalid_currency", field="currency", currency=currency)
+            complete = False
+            continue
         group = [r for r in native_rows if r.get("currency") == currency]
         row = _one(check, group, "CashReportCurrency:" + str(currency))
-        if row is None or not currency or row.get("levelOfDetail") not in (None, "", "Currency"):
+        if row is None or row.get("levelOfDetail") not in (None, "", "Currency"):
             _issue(check, "unsupported_cash_scope")
             complete = False
             continue
@@ -265,14 +286,19 @@ def _positions(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
     for row in rows:
         currency, conid = row.get("currency"), row.get("conid")
         identity = (conid, currency)
-        valid_identity = bool(conid and currency and row.get("symbol")) and identity not in identities
+        valid_identity = bool(conid and _currency(currency) and row.get("symbol")) and identity not in identities
         identities.add(identity)
+        if not _currency(currency):
+            _issue(check, "invalid_currency", field="currency", currency=currency)
+            complete = False
         if not valid_identity or row.get("assetCategory") in (None, "", "CASH"):
             _issue(check, "ambiguous_position_identity" if not valid_identity else "unsupported_position_category")
             complete = False
         quantity = _required(check, row.attrib, "position")
         value = _required(check, row.attrib, "positionValue")
         rate = _rate(fx, row, rates, currency, base, as_of) if currency else None
+        if rate is None:
+            _issue(check, "position_fx_unverified", currency=currency)
         if quantity is None or value is None or rate is None:
             complete = False
         if value is not None and rate is not None:
@@ -301,6 +327,9 @@ def _position_details(check: dict[str, Any], rows: list[ET.Element], actual: Any
     official = {(r.get("conid"), r.get("currency")): r for r in rows}
     supplied: dict[tuple[Any, Any], Mapping[str, Any]] = {}
     for row in actual:
+        if not _currency(row.get("currency")):
+            _issue(check, "invalid_internal_currency", field="positions.currency", currency=str(row.get("currency")))
+            return
         key = (row.get("conid"), row.get("currency"))
         if not all(isinstance(v, str) and v for v in key) or key in supplied:
             _issue(check, "ambiguous_internal_position_identity")
@@ -422,7 +451,7 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
         result["status"] = "error" if counts["error"] else "review" if counts["review"] else "ok"
         return result
 
-    if not account_id or not re.fullmatch(r"[A-Z]{3}", base_currency, flags=re.ASCII):
+    if not account_id or not _currency(base_currency):
         _issue(source, "invalid_scope")
         return finish()
     if expected_sha256 is not None and digest != expected_sha256:
@@ -512,7 +541,9 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
             actual_cash = internal_state["cash_by_currency"]
             if isinstance(actual_cash, Mapping):
                 for currency in sorted(native.keys() | actual_cash.keys(), key=str):
-                    if currency not in native:
+                    if not _currency(currency):
+                        _issue(checks["cash"], "invalid_internal_currency", field="cash_by_currency", currency=str(currency))
+                    elif currency not in native:
                         _issue(checks["cash"], "currency_not_covered", currency=str(currency))
                     else:
                         _compare(checks["cash"], "cash:" + currency, native[currency], actual_cash.get(currency))
@@ -524,6 +555,9 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
                 if isinstance(actual_rates, Mapping):
                     official_fx_complete = not checks["fx"]["issue_count"]
                     for currency in sorted(rates.keys() | actual_rates.keys(), key=str):
+                        if not _currency(currency):
+                            _issue(checks["fx"], "invalid_internal_currency", field="fx_rates_to_base", currency=str(currency))
+                            continue
                         actual_rate = _number(actual_rates.get(currency))
                         if actual_rate is not None and actual_rate <= 0:
                             _issue(checks["fx"], "invalid_internal_fx", field="fx:" + str(currency), actual=_text(actual_rate))
