@@ -109,7 +109,8 @@ def _finish(item: dict[str, Any], status: str, reason: str, classification: str 
 
 def _review_trade(trade: dict[str, str], trades: list[dict[str, str]],
                   lines: list[dict[str, str]], account: str, as_of: date,
-                  line_issues: Mapping[int, str], trade_issue: str | None) -> dict[str, Any]:
+                  line_issues: Mapping[int, str], line_as_of: Mapping[int, date],
+                  trade_issue: str | None) -> dict[str, Any]:
     day, settle = _date(trade.get('tradedate')), _date(trade.get('settledatetarget'))
     fee = _number(trade.get('ibcommission'))
     item: dict[str, Any] = {
@@ -127,7 +128,7 @@ def _review_trade(trade: dict[str, str], trades: list[dict[str, str]],
         return _finish(item, 'unverified', trade_issue)
     if trade.get('accountid') != account or not item['execution_id']:
         return _finish(item, 'unverified', 'missing_or_conflicting_execution_account')
-    if any(sum(other.get('accountid') == account and other.get(field) == trade[field] for other in trades) != 1
+    if any(sum(other.get('accountid') in (None, '', account) and other.get(field) == trade[field] for other in trades) != 1
            for field in ('tradeid', 'transactionid') if trade.get(field)):
         return _finish(item, 'conflict', 'duplicate_trade_identity')
     if trade.get('levelofdetail') != 'EXECUTION':
@@ -142,7 +143,7 @@ def _review_trade(trade: dict[str, str], trades: list[dict[str, str]],
         return _finish(item, 'unverified', 'missing_trade_semantics')
 
     candidates = [(index, line) for index, line in enumerate(lines)
-                  if line.get('accountid') == account and _related(trade, line)]
+                  if line.get('accountid') in (None, '', account) and _related(trade, line)]
     item['funds_line_indices'] = [index for index, _ in candidates]
     item['candidate_line_count'] = len(candidates)
     linked_issues = [{'line_index': index, 'reason': line_issues[index]}
@@ -158,6 +159,10 @@ def _review_trade(trade: dict[str, str], trades: list[dict[str, str]],
         return _finish(item, 'sufficient', 'official_explicit_zero_only', 'explicit_zero') if fee == 0 else _finish(
             item, 'unverified', 'no_uniquely_linked_statement_of_funds_line')
     line = candidates[0][1]
+    if sum(_related(other, line) for other in trades) != 1:
+        return _finish(item, 'conflict', 'funds_identity_shared_by_multiple_executions')
+    if line.get('accountid') != account:
+        return _finish(item, 'unverified', 'missing_explicit_funds_account')
     # A secondary identity must not contradict a matching primary identity.
     if any(line.get(field) and trade.get(field) and line[field] != trade[field]
            for field in ('tradeid', 'transactionid')):
@@ -182,6 +187,8 @@ def _review_trade(trade: dict[str, str], trades: list[dict[str, str]],
         return _finish(item, 'unverified', 'settlement_date_not_proven')
     if settle > as_of:
         return _finish(item, 'unverified', 'settlement_after_report_as_of')
+    if candidates[0][0] not in line_as_of or settle > line_as_of[candidates[0][0]]:
+        return _finish(item, 'unverified', 'settlement_after_funds_evidence_as_of')
     if currency_code(line.get('currency')) != item['fee_currency']:
         return _finish(item, 'unverified', 'fee_currency_not_proven_no_fx_conversion')
 
@@ -210,6 +217,10 @@ def _review_trade(trade: dict[str, str], trades: list[dict[str, str]],
         return _finish(item, 'conflict', 'cash_line_arithmetic_or_sign_conflict')
     if fee == 0:
         return _finish(item, 'sufficient', 'official_and_funds_explicit_zero', 'explicit_zero')
+    if trade['assetcategory'] == 'CASH' and activity != 'ADJ':
+        return _finish(item, 'unverified', 'fx_cash_legs_not_individual_settlement')
+    if line.get('levelofdetail') == 'BaseCurrency':
+        return _finish(item, 'unverified', 'translated_principal_not_native_settlement')
     if gross == 0 and tax == 0 and amount == fee:
         return _finish(item, 'sufficient', 'uniquely_linked_commission_only_cash_line', 'separate')
     if activity == 'ADJ':
@@ -327,8 +338,9 @@ def review_fee_settlement(*, xml_text: str, quality: Mapping[str, Any]) -> dict[
             return {**result, 'reason': 'unsupported_nonempty_trade_section'}
         trades, lines = [_attributes(node) for node in trade_nodes], [_attributes(node) for node in line_nodes]
         records = []
+        line_as_of = {index: coverage[node][1] for index, node in enumerate(line_nodes) if node in coverage}
         for index, (node, trade) in enumerate(zip(trade_nodes, trades)):
-            item = _review_trade(trade, trades, lines, account, as_of, line_issues, trade_issues.get(index))
+            item = _review_trade(trade, trades, lines, account, as_of, line_issues, line_as_of, trade_issues.get(index))
             item['trade_evidence_period'] = {
                 'from_date': coverage[node][0].isoformat() if node in coverage else None,
                 'to_date': coverage[node][1].isoformat() if node in coverage else None,

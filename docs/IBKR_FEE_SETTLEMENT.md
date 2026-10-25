@@ -144,6 +144,15 @@ fee checks. Its caller still owns the selected-original hash and server-enforced
 repeatable-read read-only transaction. This result does not feed cash, cost, NAV,
 return calculations, write paths, migrations or frontend bindings.
 
+Cash evidence is one-to-one in both directions: a line matching multiple executions
+cannot certify either. A missing leaf account keeps its identity in candidate and
+duplicate checks, but does not become native settlement proof. Projected settlement
+must be no later than the linked funds line's own evidence-period end; a later empty
+statement cannot advance that evidence. BaseCurrency representations never certify
+nonzero native settlement. An FX/FOREX leg with zero displayed principal is not a
+commission-only line; only a uniquely linked native Currency ADJ with explicit
+commission-only arithmetic can support the separate-fee classification.
+
 Field semantics are based on IBKR's official
 [Statement of Funds Flex reference](https://www.ibkrguides.com/reportingreference/reportguide/statement%20of%20fundsfq.htm).
 Conservative proof rules and unsupported scopes above are this diagnostic's policy,

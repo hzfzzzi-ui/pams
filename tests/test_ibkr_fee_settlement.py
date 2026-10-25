@@ -76,6 +76,70 @@ def separate(data):
     return data
 
 
+def test_one_cash_line_cannot_be_owned_by_two_disjoint_execution_keys():
+    data = case()
+    original = data['trades'][0]
+    other = deepcopy(original)
+    original.pop('transactionID')
+    other.pop('tradeID')
+    data['trades'].append(other)
+    result = review(data)
+    assert all(item['status'] == 'conflict' for item in result['records'])
+    assert all(item['reasons'] == ['funds_identity_shared_by_multiple_executions'] for item in result['records'])
+    assert not any(item['individual_cash_settlement_verified'] for item in result['records'])
+
+
+@pytest.mark.parametrize('fee', ['0', '-1.25'])
+@pytest.mark.parametrize('invalid_date', [False, True])
+def test_missing_leaf_account_does_not_hide_a_duplicate_candidate(fee, invalid_date):
+    data = case(fee=fee)
+    duplicate = deepcopy(data['lines'][0])
+    duplicate.pop('accountId')
+    if invalid_date:
+        duplicate['date'] = '20310415'
+    data['lines'].append(duplicate)
+    item = record(data)
+    assert item['candidate_line_count'] == 2 and item['status'] == 'conflict'
+    assert not item['individual_cash_settlement_verified']
+
+
+def test_single_missing_leaf_account_is_not_native_cash_proof():
+    data = case()
+    data['lines'][0].pop('accountId')
+    assert record(data)['reasons'] == ['missing_explicit_funds_account']
+
+
+@pytest.mark.parametrize('rate', [None, '1', '0.125'])
+def test_base_currency_representation_never_certifies_native_settlement(rate):
+    data = case()
+    data['lines'][0]['levelOfDetail'] = 'BaseCurrency'
+    if rate is not None:
+        data['lines'][0]['fxRateToBase'] = rate
+    item = record(data)
+    assert item['status'] == 'unverified' and not item['individual_cash_settlement_verified']
+    assert item['reasons'] == ['translated_principal_not_native_settlement']
+
+
+def test_fx_leg_with_displayed_zero_principal_is_not_a_separate_commission():
+    data = separate(case())
+    data['trades'][0].update(assetCategory='CASH', currency='MXN', netCash='0')
+    data['lines'][0].update(assetCategory='CASH', activityCode='FOREX')
+    item = record(data)
+    assert item['status'] == 'unverified' and item['reasons'] == ['fx_cash_legs_not_individual_settlement']
+
+
+def test_later_empty_statement_does_not_confirm_earlier_projected_settlement():
+    first = ET.fromstring(xml_text(case()))
+    first.set('toDate', '20310416')
+    root = ET.Element('FlexStatements')
+    root.append(first)
+    later = ET.SubElement(root, 'FlexStatement', accountId='SYNTH_A', fromDate='20310418', toDate='20310418')
+    ET.SubElement(later, 'Trades')
+    item = review_xml(root)['records'][0]
+    assert item['status'] == 'unverified'
+    assert item['reasons'] == ['settlement_after_funds_evidence_as_of']
+
+
 @pytest.mark.parametrize('account,execution,currency', [
     ('SYNTH_A', 'arbitrary-17', 'CAD'), ('not-an-IB-account-pattern', 'X/Y:42', 'JPY'),
     ('PORTFOLIO_992', 'another-execution', 'CHF'),
@@ -579,6 +643,8 @@ def test_generic_ancestor_period_can_narrow_but_never_expand_statement_coverage(
 @pytest.mark.parametrize('namespace', ['', 'urn:synthetic:flex'])
 def test_valid_ancestor_scope_and_narrowed_periods_are_preserved_in_evidence(namespace):
     root = ET.fromstring(xml_text(case(account='SCOPE_ACCOUNT', execution='SCOPE_EXECUTION')))
+    root.find('Trades/Trade').set('settleDateTarget', '20310416')
+    root.find('StatementOfFunds/StatementOfFundsLine').set('settleDate', '20310416')
     ET.SubElement(root, 'AccountInformation', accountId='SCOPE_ACCOUNT', currency='CAD')
     for node in (root.find('Trades'), root.find('StatementOfFunds')):
         node.set('accountId', 'SCOPE_ACCOUNT')
