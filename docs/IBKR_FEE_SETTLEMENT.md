@@ -32,6 +32,8 @@ hash/quality. `funds_line_indices` are zero-based positions among all
 Each classified record also retains `trade_evidence_period` and
 `funds_evidence_periods` (including line indices): these are the intersection of
 its explicit statement/container ancestor periods, not the enclosing report span.
+Unsupported rows retain these fields with `scope_verified=false` and a reason;
+unavailable ancestor periods have null dates, never invented replacement coverage.
 
 ## Rules
 
@@ -46,8 +48,14 @@ its explicit statement/container ancestor periods, not the enclosing report span
   Explicit container periods may narrow but never expand statement coverage.
   Trade.tradeDate and StatementOfFundsLine.date must lie within their own effective
   ancestor period; sibling statements and gaps provide no substitute coverage.
-  Missing/invalid dates or contradictory scope leave the report unverified and
-  its total unknown. Settlement target/date rules below are unchanged.
+  Invalid/out-of-period row dates or row/container period gaps quarantine only the
+  affected row, not other executions. A quarantined Trade is unverified before
+  any zero shortcut. A uniquely linked quarantined funds line likewise blocks
+  that trade, including zero commission. All raw identities remain in duplicate
+  detection; no bad row is filtered out to select a convenient alternative.
+  Account/model/AccountInformation contradictions, invalid statement periods and
+  publication failures remain global fail-closed gates with unknown totals.
+  Settlement target/date rules below are unchanged.
 - Every statement must explicitly include Trades. Missing Trades is unknown
   (`total=null`), not zero. Only explicitly empty Trades across all statements
   produces `total=0` / `explicit_empty_trade_section`; unsupported nonempty
@@ -89,6 +97,18 @@ Adequately scoped reports remain `review`; invalid/missing report scope remains
 `unverified`. Every execution/deduction flag is false, and no value is supplied
 to valuation or repairs.
 
+`trade_scope_diagnostics` and `funds_scope_diagnostics` expose evaluated status,
+full row/unsupported-row counts, complete reason counts and at most 30 issue
+details with document-order `trade_index` / `line_index` and a truncation flag.
+Only details are capped: all rows, including issues beyond that limit, are checked.
+An unsupported empty funds container can add an issue with null line index; it
+does not increase the unsupported-line count. Global rejection may leave these
+summaries unevaluated; zero reported issues then is not proof of usable evidence.
+Each linked trade also has bounded `funds_scope_issues`, a full issue count and
+truncation flag. Unrelated bad postings stay visible in report diagnostics without
+blocking otherwise adequate execution evidence. A known `total` counts official
+Trade rows, including quarantined ones; it is not a count of certified settlements.
+
 ## Limitations And Validation
 
 Related/original transaction links, adjustments with principal, multiple cash-leg
@@ -107,6 +127,10 @@ dates, namespaces, misleading FX/translated principal, aggregates, blank cash
 legs, exact arithmetic, multi-period reports and input immutability. Review fixes
 add parameterized parent/gap/ancestor coverage, model/account contradictions,
 using_previous and missing-versus-empty Trades regressions, including zero fees.
+Row-level availability regressions cover unrelated out-of-period postings,
+linked bad funds rows/zero fees, quarantined trades beside valid executions,
+duplicate identities, global contradictions hidden behind bad periods, and
+bounded summaries without dropping tail evidence. No activity/date/ID whitelist.
 Run the targeted pytest file, full Ruff for the service / E9/F for tests, and mypy with
 `--ignore-missing-imports --follow-imports=skip --check-untyped-defs` on the service.
 No DB integration/build/browser/release validation is claimed by this component.

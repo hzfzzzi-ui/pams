@@ -56,6 +56,19 @@ def record(data):
     return review(data)['records'][0]
 
 
+def assert_quarantined_row(result, reason, tag):
+    assert result['status'] == 'review' and result['total'] == 1 and len(result['records']) == 1
+    item = result['records'][0]
+    assert item['status'] == 'unverified' and item['reasons'] == [reason] and item['classification'] is None
+    assert not item['individual_cash_settlement_verified'] and not item['additional_deduction_proposed']
+    key = 'trade_scope_diagnostics' if tag == 'Trade' else 'funds_scope_diagnostics'
+    summary = result[key]
+    assert summary['evaluated'] and summary['issue_count'] == 1
+    assert summary['reason_counts'] == {reason: 1} and summary['issues'][0]['section'] == tag
+    evidence = item['trade_evidence_period'] if tag == 'Trade' else item['funds_evidence_periods'][0]
+    assert evidence['scope_verified'] is False and evidence['reason'] == reason
+
+
 def separate(data):
     line = data['lines'][0]
     line.update(activityCode='ADJ', tradeGross='0', tradeTax='0', amount=line['tradeCommission'],
@@ -98,8 +111,7 @@ def test_missing_explicit_trade_fields_never_use_defaults(field, value):
     else:
         data['trades'][0][field] = value
     if field == 'tradeDate':
-        assert review(data)['reason'] == 'missing_or_invalid_row_date'
-        assert review(data)['total'] is None
+        assert_quarantined_row(review(data), 'missing_or_invalid_row_date', 'Trade')
     else:
         assert record(data)['status'] == 'unverified'
 
@@ -183,8 +195,7 @@ def test_scope_date_and_semantic_proof_cannot_be_replaced_by_amount_equality(fie
     data = case()
     data['lines'][0][field] = value
     if field == 'date' and not value:
-        assert review(data)['reason'] == 'missing_or_invalid_row_date'
-        assert review(data)['total'] is None
+        assert_quarantined_row(review(data), 'missing_or_invalid_row_date', 'StatementOfFundsLine')
         return
     item = record(data)
     assert item['status'] in {'unverified', 'conflict'} and item['reasons'] == [reason]
@@ -336,7 +347,7 @@ def test_xml_namespace_and_iso_dates_are_supported_without_substring_date_parsin
     text = xml_text(data).replace('<FlexStatement ', '<FlexStatement xmlns="urn:synthetic-flex" ')
     assert review_fee_settlement(xml_text=text, quality=QUALITY)['records'][0]['status'] == 'sufficient'
     data['lines'][0]['date'] += ';12:34:56'
-    assert review(data)['reason'] == 'missing_or_invalid_row_date'
+    assert_quarantined_row(review(data), 'missing_or_invalid_row_date', 'StatementOfFundsLine')
 
 
 def test_duplicate_case_insensitive_attributes_are_rejected_instead_of_overwritten():
@@ -528,8 +539,7 @@ def test_row_date_must_be_inside_its_own_statement_not_just_before_report_as_of(
     root = ET.fromstring(xml_text(case(fee=fee)))
     next(root.iter(tag)).set(field, day)
     result = review_xml(root)
-    assert result['reason'] == 'row_date_outside_ancestor_period' and result['section'] == tag
-    assert result['total'] is None and result['records'] == []
+    assert_quarantined_row(result, 'row_date_outside_ancestor_period', tag)
 
 
 @pytest.mark.parametrize('tag', ['Trade', 'StatementOfFundsLine'])
@@ -549,8 +559,7 @@ def test_reparented_rows_cannot_borrow_sibling_coverage_or_fill_period_gaps(tag,
     root.extend([first, second])
     quality = {**QUALITY, 'statement_as_of': '2031-04-20', 'expected_statement_as_of': '2031-04-20'}
     result = review_xml(root, quality)
-    assert result['reason'] == 'row_date_outside_ancestor_period' and result['section'] == tag
-    assert result['total'] is None and result['records'] == []
+    assert_quarantined_row(result, 'row_date_outside_ancestor_period', tag)
 
 
 @pytest.mark.parametrize('container', ['Trades', 'StatementOfFunds'])
@@ -564,7 +573,7 @@ def test_generic_ancestor_period_can_narrow_but_never_expand_statement_coverage(
     if end is not None:
         node.set('toDate', end)
     result = review_xml(root)
-    assert result['reason'] == reason and result['records'] == [] and result['total'] is None
+    assert_quarantined_row(result, reason, 'Trade' if container == 'Trades' else 'StatementOfFundsLine')
 
 
 @pytest.mark.parametrize('namespace', ['', 'urn:synthetic:flex'])
@@ -619,7 +628,7 @@ def test_trade_outside_explicit_trades_section_is_not_borrowed_from_empty_siblin
     trades.remove(row)
     root.append(row)
     result = review_xml(root)
-    assert result['reason'] == 'missing_trade_section_ancestor' and result['total'] is None
+    assert_quarantined_row(result, 'missing_trade_section_ancestor', 'Trade')
 
 
 @pytest.mark.parametrize('tag', ['UnknownExecution', 'TradeSummary'])
@@ -628,3 +637,109 @@ def test_nonempty_unsupported_trades_content_does_not_masquerade_as_explicit_emp
     ET.SubElement(ET.SubElement(root, 'Trades'), tag)
     result = review_xml(root)
     assert result['reason'] == 'unsupported_nonempty_trade_section' and result['total'] is None
+
+
+@pytest.mark.parametrize('classification', ['included', 'separate', 'explicit_zero'])
+@pytest.mark.parametrize('activity', ['DEP', 'FOREX', 'UNSUPPORTED_ACTIVITY'])
+@pytest.mark.parametrize('day', ['20310415', '20310419', 'invalid'])
+def test_unrelated_bad_funds_row_is_visible_without_blocking_valid_evidence(classification, activity, day):
+    data = case(fee='0' if classification == 'explicit_zero' else '-1.25')
+    if classification == 'separate':
+        separate(data)
+    data['lines'].append({'accountId': 'SYNTH_A', 'transactionID': 'unrelated-posting',
+                          'activityCode': activity, 'date': day})
+    result = review(data)
+    assert result['total'] == 1 and result['records'][0]['classification'] == classification
+    summary = result['funds_scope_diagnostics']
+    assert summary['evaluated'] and summary['line_count'] == 2 and summary['unsupported_line_count'] == 1
+    assert summary['issue_count'] == 1 and summary['issues'][0]['line_index'] == 1
+    assert summary['issues'][0]['reason'] == ('missing_or_invalid_row_date' if day == 'invalid' else
+                                             'row_date_outside_ancestor_period')
+    assert result['records'][0]['funds_line_indices'] == [0]
+
+
+@pytest.mark.parametrize('tag', ['Trade', 'StatementOfFundsLine'])
+@pytest.mark.parametrize('day', ['', '20310415'])
+@pytest.mark.parametrize('bad_fee', ['0', '-1.25'])
+@pytest.mark.parametrize('good_fee', ['0', '-1.25'])
+def test_bad_trade_or_linked_funds_row_is_quarantined_and_other_execution_survives(tag, day, bad_fee, good_fee):
+    data = case(execution='bad-execution', fee=bad_fee)
+    other = case(execution='independent-good-execution', fee=good_fee)
+    data['trades'].extend(other['trades'])
+    data['lines'].extend(other['lines'])
+    row = data['trades'][0] if tag == 'Trade' else data['lines'][0]
+    row['tradeDate' if tag == 'Trade' else 'date'] = day
+    result = review(data)
+    bad, good = result['records']
+    reason = 'missing_or_invalid_row_date' if not day else 'row_date_outside_ancestor_period'
+    assert result['total'] == 2 and result['status'] == 'review'
+    assert bad['status'] == 'unverified' and bad['classification'] is None and bad['reasons'] == [reason]
+    assert not bad['individual_cash_settlement_verified']
+    assert good['status'] == 'sufficient' and good['classification'] == ('explicit_zero' if good_fee == '0' else 'included')
+    if tag == 'StatementOfFundsLine':
+        assert bad['funds_line_indices'] == [0] and bad['funds_scope_issue_count'] == 1
+        assert bad['funds_scope_issues'] == [{'line_index': 0, 'reason': reason}]
+        assert bad['funds_evidence_periods'][0]['scope_verified'] is False
+    else:
+        assert bad['trade_evidence_period']['scope_verified'] is False
+
+
+def test_bad_funds_duplicate_is_not_dropped_to_select_the_good_line():
+    data = case(fee='0')
+    data['lines'].append({**data['lines'][0], 'date': '20310415'})
+    item = record(data)
+    assert item['status'] == 'conflict' and item['classification'] is None
+    assert item['candidate_line_count'] == 2 and item['funds_line_indices'] == [0, 1]
+    assert item['funds_scope_issue_count'] == 1 and item['funds_scope_issues'][0]['line_index'] == 1
+
+
+def test_bad_trade_duplicate_identity_remains_visible_to_the_other_execution():
+    data = case(fee='0')
+    data['trades'].append({**data['trades'][0], 'tradeDate': '20310415'})
+    result = review(data)
+    assert result['total'] == 2
+    assert result['records'][0]['reasons'] == ['duplicate_trade_identity']
+    assert result['records'][1]['reasons'] == ['row_date_outside_ancestor_period']
+    assert all(item['classification'] is None for item in result['records'])
+
+
+def test_funds_summary_is_bounded_but_tail_linked_bad_line_is_still_checked():
+    data = case(fee='0')
+    linked = data['lines'][0]
+    data['lines'] = [{'accountId': 'SYNTH_A', 'transactionID': 'unrelated-' + str(index), 'date': '20310415'}
+                     for index in range(35)]
+    data['lines'].append({**linked, 'date': '20310415'})
+    result = review(data)
+    summary = result['funds_scope_diagnostics']
+    assert summary['issue_count'] == summary['unsupported_line_count'] == 36
+    assert len(summary['issues']) == 30 and summary['truncated']
+    assert summary['reason_counts'] == {'row_date_outside_ancestor_period': 36}
+    item = result['records'][0]
+    assert item['status'] == 'unverified' and item['funds_line_indices'] == [35]
+    assert item['funds_scope_issues'][0]['line_index'] == 35
+
+
+def test_trade_summary_is_bounded_without_dropping_bad_rows_or_valid_tail_execution():
+    data = case(fee='0')
+    good = data['trades'][0]
+    data['trades'] = [{**good, 'tradeID': 'bad-' + str(index), 'transactionID': 'bad-tx-' + str(index),
+                       'tradeDate': '20310415'} for index in range(35)] + [good]
+    result = review(data)
+    summary = result['trade_scope_diagnostics']
+    assert result['total'] == summary['trade_count'] == 36
+    assert summary['issue_count'] == summary['unsupported_trade_count'] == 35
+    assert len(summary['issues']) == 30 and summary['truncated']
+    assert all(item['status'] == 'unverified' for item in result['records'][:-1])
+    assert result['records'][-1]['classification'] == 'explicit_zero'
+
+
+@pytest.mark.parametrize('tag,container', [('Trade', 'Trades'), ('StatementOfFundsLine', 'StatementOfFunds')])
+@pytest.mark.parametrize('attribute,value', [('accountId', 'WRONG_ACCOUNT'), ('model', 'MODEL')])
+def test_bad_ancestor_period_does_not_mask_global_child_account_or_model_contradictions(tag, container, attribute, value):
+    root = ET.fromstring(xml_text(case(fee='0')))
+    root.find(container).set('fromDate', '20310419')
+    root.find(container).set('toDate', '20310420')
+    next(root.iter(tag)).set(attribute, value)
+    result = review_xml(root)
+    assert result['reason'] == 'contradictory_account_or_model_scope'
+    assert result['total'] is None and result['records'] == []
