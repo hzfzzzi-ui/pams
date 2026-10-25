@@ -159,3 +159,29 @@ Overall status remains review unless an error occurs, because history is not
 certified. No output authorizes repair, additional fees, deductions or baseline
 promotion. Production financial correctness, complete history, live endpoint
 behavior, publication authenticity and deployment are not proved by unit tests.
+
+## Read Adapter And HTTP Contract
+
+`GET /api/ibkr/account-audit` optionally accepts ISO `period_start`. The adapter
+selects one published original in a server-enforced repeatable-read read-only
+transaction, checks its original-byte hash before and after the subject parser,
+and reads existing position-history dates in that same snapshot. It creates no
+tables or audit rows, refreshes nothing, and sanitizes read errors.
+
+A document may contain daily statements: one explicit account and one exact
+closing statement are required. Historical statements remain in the original;
+current-date cash/position rows in another statement or outside the statement
+hierarchy cannot enter the subject comparison. Duplicate closing scopes block it.
+
+The existing performance parser is the subject, not the oracle. Its new keyword
+`include_display_fx=True` preserves every old default response; the adapter passes
+False to avoid an unrelated current-CNY lookup. Only that display opt-out is
+normalized by the original AST fingerprint regression; the financial calculation
+body retains the old fingerprint and fixed-input API comparisons remain required.
+
+Subject cash and signed position value may be comparable. Subject NAV is explicitly
+`cash_plus_positions_not_official_nav_total`; YTD deposits/returns are not relabelled
+as an audited period. Missing independent NAV, internal historical FX, qualified
+period values or full history remains review. The adapter never replaces existing
+financial responses with its independently derived evidence or clears other
+fee/source-link blockers. The audit is not a user-accepted financial baseline.
