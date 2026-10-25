@@ -29,20 +29,34 @@ def _original_scope(content: bytes, as_of: date) -> tuple[str, str]:
         raise ValueError("unsupported_xml")
     root = ET.fromstring(text)
     statements = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "FlexStatement"]
-    information = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "AccountInformation"]
-    if len(statements) != 1 or len(information) != 1:
+    accounts = {s.get("accountId") for s in statements}
+    if len(accounts) != 1 or not all(accounts):
         raise ValueError("ambiguous_or_missing_account_scope")
-    statement, info = statements[0], information[0]
+    current = [s for s in statements if _report_date(s.get("toDate")) == as_of]
+    if len(current) != 1:
+        raise ValueError("ambiguous_or_missing_closing_statement")
+    statement = current[0]
+    information = [e for e in statement.iter() if e.tag.rsplit("}", 1)[-1] == "AccountInformation"]
+    if len(information) != 1:
+        raise ValueError("ambiguous_or_missing_account_scope")
+    info = information[0]
     members = set(statement.iter())
+    all_members = {e for s in statements for e in s.iter()}
     account, base = statement.get("accountId"), info.get("currency")
     if (not account or info not in members or info.get("accountId") != account
             or not base or not re.fullmatch(r"[A-Z]{3}", base, flags=re.ASCII)
             or _report_date(statement.get("toDate")) != as_of):
         raise ValueError("unverified_account_scope")
     # The subject scans the whole document; an orphan row must not inherit this account.
-    if any(e not in members and e.tag.rsplit("}", 1)[-1] in {"CashReportCurrency", "OpenPosition"}
-           for e in root.iter()):
-        raise ValueError("unbound_subject_rows")
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag not in {"CashReportCurrency", "OpenPosition"}:
+            continue
+        if node not in all_members:
+            raise ValueError("unbound_subject_rows")
+        field = "reportDate" if tag == "OpenPosition" else "toDate"
+        if node.get(field) and _report_date(node.get(field)) == as_of and node not in members:
+            raise ValueError("closing_rows_outside_selected_statement")
     return account, base
 
 

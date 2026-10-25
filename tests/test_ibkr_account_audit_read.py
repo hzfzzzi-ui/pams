@@ -237,6 +237,38 @@ def test_rows_outside_statement_cannot_inherit_subject_account_even_at_zero(loca
     assert read(local_case)["status"] == "unavailable"
 
 
+def test_daily_statement_history_does_not_replace_exact_closing_scope(local_case):
+    earlier = (b'<FlexStatement accountId="U_TEST" fromDate="20261021" toDate="20261021">'
+        b'<AccountInformation accountId="U_TEST" currency="USD" />'
+        b'<CashReportCurrency accountId="U_TEST" currency="BASE_SUMMARY" toDate="20261021" endingCash="-1000" />'
+        b'<OpenPosition accountId="U_TEST" currency="USD" reportDate="20261021" positionValue="9999" />'
+        b'</FlexStatement>')
+    rewrite(local_case, XML.replace(b"<FlexStatements>", b"<FlexStatements>" + earlier))
+    result = read(local_case)
+    assert result["status"] == "review"
+    assert check(result, "cash")["status"] == check(result, "positions")["status"] == "ok"
+    assert check(result, "cash")["evidence"]["cash_base"] == "-20"
+
+
+@pytest.mark.parametrize("row", [
+    b'<CashReportCurrency accountId="U_TEST" currency="BASE_SUMMARY" toDate="20261022" endingCash="0" />',
+    b'<CashReportCurrency accountId="U_TEST" currency="USD" toDate="20261022" endingCash="0" />',
+    b'<OpenPosition accountId="U_TEST" currency="USD" reportDate="20261022" positionValue="0" />',
+])
+def test_older_statement_cannot_inject_closing_rows_into_subject(local_case, row):
+    earlier = (b'<FlexStatement accountId="U_TEST" fromDate="20261021" toDate="20261021">'
+               + row + b'</FlexStatement>')
+    rewrite(local_case, XML.replace(b"<FlexStatements>", b"<FlexStatements>" + earlier))
+    result = read(local_case)
+    assert result["status"] == "unavailable" and result["checks"] == []
+
+
+def test_duplicate_closing_statement_is_not_selected_by_order(local_case):
+    duplicate = b'<FlexStatement accountId="U_TEST" fromDate="20261022" toDate="20261022" />'
+    rewrite(local_case, XML.replace(b"</FlexStatements>", duplicate + b"</FlexStatements>"))
+    assert read(local_case)["status"] == "unavailable"
+
+
 def test_missing_statement_fx_is_not_latest_display_fx(local_case):
     content = XML.replace(b'currency="USD" reportDate=', b'currency="HKD" reportDate=').replace(b' fxRateToBase="1"', b'')
     rewrite(local_case, content)
