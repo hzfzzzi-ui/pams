@@ -50,6 +50,8 @@ jobs:
             mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_fee_currency.py backend/api/services/investment_trade_fact.py
             ruff check --select E9,F scripts/verify_release.py tests/test_verify_release.py
             mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs scripts/verify_release.py
+            ruff check --select E9,F backend/api/services/ibkr_fee_settlement.py tests/test_ibkr_fee_settlement.py
+            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_fee_settlement.py
           fi
       - name: 构建API镜像并验证导入
         run: |
