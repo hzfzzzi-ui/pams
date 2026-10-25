@@ -29,12 +29,29 @@ file bytes if a caller has stripped a BOM or otherwise normalized the text. The
 existing caller remains responsible for verifying the selected file's publication
 hash/quality. `funds_line_indices` are zero-based positions among all
 `StatementOfFundsLine` elements in document order, anchored to this text hash.
+Each classified record also retains `trade_evidence_period` and
+`funds_evidence_periods` (including line indices): these are the intersection of
+its explicit statement/container ancestor periods, not the enclosing report span.
 
 ## Rules
 
 - Require verified current report quality and matching expected/as-of dates.
-  Multiple statements are accepted only for one explicit account with valid,
-  non-overlapping periods; report as-of is their maximum explicit end date.
+  `using_previous` reports are refused even with otherwise matching quality dates.
+  Every statement, including a single statement, needs explicit valid ordered
+  from/to dates. Multiple statements are accepted only for one explicit account
+  with non-overlapping periods; report as-of is their maximum explicit end date.
+- Before any commission/zero classification, inspect each consumed row and its
+  entire ancestor chain for contradictory account IDs/aliases or model scope.
+  FlexStatement, AccountInformation and empty trade/funds containers are gated too.
+  Explicit container periods may narrow but never expand statement coverage.
+  Trade.tradeDate and StatementOfFundsLine.date must lie within their own effective
+  ancestor period; sibling statements and gaps provide no substitute coverage.
+  Missing/invalid dates or contradictory scope leave the report unverified and
+  its total unknown. Settlement target/date rules below are unchanged.
+- Every statement must explicitly include Trades. Missing Trades is unknown
+  (`total=null`), not zero. Only explicitly empty Trades across all statements
+  produces `total=0` / `explicit_empty_trade_section`; unsupported nonempty
+  trade-section content cannot establish an empty result.
 - Require an explicit unique execution account and trade ID or transaction ID.
   Every supplied secondary identity must agree. Duplicate executions, reused
   secondary IDs, or multiple matching funds lines are conflicts, never deduplicated
@@ -68,8 +85,9 @@ Each record contains `status` (`sufficient`, `unverified`, `conflict`),
 `individual_cash_settlement_verified` flag. `sufficient` is limited to that scope.
 `report_component_arithmetic` retains the narrower amount/gross/commission/tax
 check even when cash-leg evidence is incomplete; it is not settlement approval.
-The report's overall status remains `review`; every execution/deduction flag is
-false, and no value is supplied to valuation or repairs.
+Adequately scoped reports remain `review`; invalid/missing report scope remains
+`unverified`. Every execution/deduction flag is false, and no value is supplied
+to valuation or repairs.
 
 ## Limitations And Validation
 
@@ -79,12 +97,17 @@ explicit debit/credit values can leave valid-looking report rows unverified when
 the unused leg is blank. Native cash evidence does not establish actual bank
 clearing, fee persistence, historical completeness, NAV, PnL or full-account
 approval. No real account/financial rows or XML are included in fixtures.
+Strict parent-period gating can leave late-posted rows outside the containing
+statement's business-date window unverified; reportDate is not substituted for
+tradeDate/date to make them pass.
 
 Synthetic pytest covers arbitrary accounts/IDs/currencies, all classifications,
 signed rebates/zero/missing/nonfinite values, duplicate/secondary identities,
 dates, namespaces, misleading FX/translated principal, aggregates, blank cash
-legs, exact arithmetic, multi-period reports and input immutability. Run the
-targeted pytest file, Ruff E9/F for service/tests, and mypy with
+legs, exact arithmetic, multi-period reports and input immutability. Review fixes
+add parameterized parent/gap/ancestor coverage, model/account contradictions,
+using_previous and missing-versus-empty Trades regressions, including zero fees.
+Run the targeted pytest file, full Ruff for the service / E9/F for tests, and mypy with
 `--ignore-missing-imports --follow-imports=skip --check-untyped-defs` on the service.
 No DB integration/build/browser/release validation is claimed by this component.
 

@@ -33,6 +33,34 @@ def _date(value: str | None) -> date | None:
     return None
 
 
+def _ancestor_scope(node: ET.Element, parents: Mapping[ET.Element, ET.Element],
+                    account: str) -> tuple[tuple[date, date] | None, str | None]:
+    """Intersect explicit ancestor coverage; never borrow a sibling's period/scope."""
+    chain = []
+    current: ET.Element | None = node
+    while current is not None:
+        chain.append(current)
+        current = parents.get(current)
+    period = None
+    for ancestor in reversed(chain):
+        attrs = _attributes(ancestor)
+        if attrs.get('model') or any(attrs.get(key) and attrs[key] != account for key in ('accountid', 'acctid')):
+            return None, 'contradictory_account_or_model_scope'
+        if 'fromdate' in attrs or 'todate' in attrs:
+            start, end = _date(attrs.get('fromdate')), _date(attrs.get('todate'))
+            if start is None or end is None or start > end:
+                return None, 'missing_or_invalid_ancestor_period'
+            period = (max(start, period[0]), min(end, period[1])) if period else (start, end)
+            if period[0] > period[1]:
+                return None, 'disjoint_ancestor_periods'
+    if not any(ancestor.tag.rsplit('}', 1)[-1] == 'FlexStatement' for ancestor in chain):
+        return None, 'missing_statement_ancestor'
+    if node.tag.rsplit('}', 1)[-1] == 'Trade' and not any(
+            ancestor.tag.rsplit('}', 1)[-1] == 'Trades' for ancestor in chain[1:]):
+        return None, 'missing_trade_section_ancestor'
+    return period, None
+
+
 def _number(value: str | None) -> Decimal | None:
     if not value:
         return None
@@ -210,23 +238,53 @@ def review_fee_settlement(*, xml_text: str, quality: Mapping[str, Any]) -> dict[
             return {**result, 'reason': 'unverified_report_or_account'}
         account = str(next(iter(accounts)))
         as_of = max(end for end in ends if end is not None)
-        if len(statements) > 1:
-            periods = sorted((_date(attrs.get('fromdate')) or date.min, end)
-                             for attrs, end in zip(attributes, ends) if end is not None)
-            if (any(start == date.min or start > end for start, end in periods)
-                    or any(left[1] >= right[0] for left, right in pairwise(periods))):
-                return {**result, 'reason': 'missing_or_overlapping_statement_periods'}
-        if (quality.get('status') != 'ok' or quality.get('legacy_unverified')
+        starts = [_date(attrs.get('fromdate')) for attrs in attributes]
+        periods = sorted((start, end) for start, end in zip(starts, ends) if start is not None and end is not None)
+        if (len(periods) != len(statements) or any(start > end for start, end in periods)
+                or any(left[1] >= right[0] for left, right in pairwise(periods))):
+            return {**result, 'reason': 'missing_or_overlapping_statement_periods'}
+        if (quality.get('status') != 'ok' or quality.get('legacy_unverified') or quality.get('using_previous')
                 or quality.get('statement_as_of') != as_of.isoformat()
                 or quality.get('expected_statement_as_of') != as_of.isoformat()):
             return {**result, 'reason': 'unverified_report_or_account'}
-        trades = [_attributes(node) for statement in statements for node in statement.iter()
-                  if node.tag.rsplit('}', 1)[-1] == 'Trade']
-        lines = [_attributes(node) for statement in statements for node in statement.iter()
-                 if node.tag.rsplit('}', 1)[-1] == 'StatementOfFundsLine']
-        records = [_review_trade(trade, trades, lines, account, as_of) for trade in trades]
+        parents = {child: parent for parent in root.iter() for child in parent}
+        scoped_tags = {'FlexStatement', 'AccountInformation', 'Trades', 'Trade',
+                       'StatementOfFunds', 'StmtFunds', 'StatementOfFundsLine'}
+        coverage: dict[ET.Element, tuple[date, date]] = {}
+        for node in root.iter():
+            tag = node.tag.rsplit('}', 1)[-1]
+            if tag not in scoped_tags:
+                continue
+            period, reason = _ancestor_scope(node, parents, account)
+            if reason or period is None:
+                return {**result, 'reason': reason or 'missing_ancestor_period', 'section': tag}
+            coverage[node] = period
+            field = {'Trade': 'tradedate', 'StatementOfFundsLine': 'date'}.get(tag)
+            if field:
+                day = _date(_attributes(node).get(field))
+                if day is None:
+                    return {**result, 'reason': 'missing_or_invalid_row_date', 'section': tag, 'field': field}
+                if not period[0] <= day <= period[1]:
+                    return {**result, 'reason': 'row_date_outside_ancestor_period', 'section': tag, 'field': field}
+        if any(not any(node.tag.rsplit('}', 1)[-1] == 'Trades' for node in statement.iter())
+               for statement in statements):
+            return {**result, 'reason': 'missing_trade_section'}
+        trade_nodes = [node for node in root.iter() if node.tag.rsplit('}', 1)[-1] == 'Trade']
+        line_nodes = [node for node in root.iter() if node.tag.rsplit('}', 1)[-1] == 'StatementOfFundsLine']
+        if not trade_nodes and any(list(node) for node in coverage if node.tag.rsplit('}', 1)[-1] == 'Trades'):
+            return {**result, 'reason': 'unsupported_nonempty_trade_section'}
+        trades, lines = [_attributes(node) for node in trade_nodes], [_attributes(node) for node in line_nodes]
+        records = []
+        for node, trade in zip(trade_nodes, trades):
+            item = _review_trade(trade, trades, lines, account, as_of)
+            item['trade_evidence_period'] = {'from_date': coverage[node][0].isoformat(),
+                                             'to_date': coverage[node][1].isoformat()}
+            item['funds_evidence_periods'] = [
+                {'line_index': index, 'from_date': coverage[line_nodes[index]][0].isoformat(),
+                 'to_date': coverage[line_nodes[index]][1].isoformat()} for index in item['funds_line_indices']]
+            records.append(item)
     except (ET.ParseError, ValueError):
         return {**result, 'reason': 'malformed_or_ambiguous_xml'}
     return {**result, 'status': 'review', 'statement_as_of': as_of.isoformat(), 'statement_count': len(statements),
             'records': records, 'total': len(records), 'counts': dict(Counter(item['status'] for item in records)),
-            'reason': 'scoped_evidence_only' if trades else 'missing_trade_section'}
+            'reason': 'scoped_evidence_only' if trades else 'explicit_empty_trade_section'}

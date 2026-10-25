@@ -32,7 +32,8 @@ def case(*, account='SYNTH_A', execution='arbitrary-17', currency='CAD', fee='-1
 
 
 def xml_text(data):
-    statement = ET.Element('FlexStatement', accountId=data['trades'][0]['accountId'], toDate='20310418')
+    statement = ET.Element('FlexStatement', accountId=data['trades'][0]['accountId'],
+                           fromDate='20310416', toDate='20310418')
     trades = ET.SubElement(statement, 'Trades')
     for trade in data['trades']:
         ET.SubElement(trades, 'Trade', trade)
@@ -44,6 +45,11 @@ def xml_text(data):
 
 def review(data):
     return review_fee_settlement(xml_text=xml_text(data), quality=data['quality'])
+
+
+def review_xml(root, quality=None):
+    return review_fee_settlement(xml_text=ET.tostring(root, encoding='unicode'),
+                                 quality=QUALITY if quality is None else quality)
 
 
 def record(data):
@@ -91,7 +97,11 @@ def test_missing_explicit_trade_fields_never_use_defaults(field, value):
         data['trades'][0].pop(field)
     else:
         data['trades'][0][field] = value
-    assert record(data)['status'] == 'unverified'
+    if field == 'tradeDate':
+        assert review(data)['reason'] == 'missing_or_invalid_row_date'
+        assert review(data)['total'] is None
+    else:
+        assert record(data)['status'] == 'unverified'
 
 
 @pytest.mark.parametrize('value', ['', 'NaN', 'sNaN', 'Infinity', '-Infinity', 'not-a-number'])
@@ -172,6 +182,10 @@ def test_single_available_stable_identity_can_link_but_no_identity_cannot(field)
 def test_scope_date_and_semantic_proof_cannot_be_replaced_by_amount_equality(field, value, reason):
     data = case()
     data['lines'][0][field] = value
+    if field == 'date' and not value:
+        assert review(data)['reason'] == 'missing_or_invalid_row_date'
+        assert review(data)['total'] is None
+        return
     item = record(data)
     assert item['status'] in {'unverified', 'conflict'} and item['reasons'] == [reason]
     assert not item['individual_cash_settlement_verified']
@@ -183,14 +197,19 @@ def test_wrong_identity_never_links_by_symbol_amount_or_nearest_date(field):
     data['lines'][0][field] = 'wrong'
     if field != 'accountId':
         data['lines'][0].pop('transactionID' if field == 'tradeID' else 'tradeID')
+    else:
+        assert review(data)['reason'] == 'contradictory_account_or_model_scope'
+        assert review(data)['total'] is None
+        return
     item = record(data)
     assert item['status'] == 'unverified' and item['candidate_line_count'] == 0
 
 
-def test_identical_ids_in_other_accounts_are_not_duplicates_or_candidates():
+def test_contradictory_child_account_is_blocked_instead_of_silently_ignored():
     data = case()
     data['lines'].append({**data['lines'][0], 'accountId': 'OTHER-SYNTHETIC-ACCOUNT'})
-    assert record(data)['status'] == 'sufficient' and record(data)['candidate_line_count'] == 1
+    assert review(data)['reason'] == 'contradictory_account_or_model_scope'
+    assert review(data)['records'] == [] and review(data)['total'] is None
 
 
 def test_daily_cash_report_even_exactly_equal_never_proves_individual_settlement():
@@ -317,7 +336,7 @@ def test_xml_namespace_and_iso_dates_are_supported_without_substring_date_parsin
     text = xml_text(data).replace('<FlexStatement ', '<FlexStatement xmlns="urn:synthetic-flex" ')
     assert review_fee_settlement(xml_text=text, quality=QUALITY)['records'][0]['status'] == 'sufficient'
     data['lines'][0]['date'] += ';12:34:56'
-    assert record(data)['reasons'] == ['transaction_date_not_proven']
+    assert review(data)['reason'] == 'missing_or_invalid_row_date'
 
 
 def test_duplicate_case_insensitive_attributes_are_rejected_instead_of_overwritten():
@@ -339,10 +358,13 @@ def test_multiple_statements_are_not_merged_or_first_selected():
 
 def test_disjoint_daily_statements_share_exact_identity_scope_not_date_heuristics():
     first = ET.fromstring(xml_text(case()))
-    first.set('fromDate', '20310418')
     second = ET.fromstring(xml_text(case(execution='another-independent-fill')))
     second.set('fromDate', '20310419')
     second.set('toDate', '20310419')
+    second.find('./Trades/Trade').set('tradeDate', '20310419')
+    second.find('./Trades/Trade').set('settleDateTarget', '20310419')
+    second.find('./StatementOfFunds/StatementOfFundsLine').set('date', '20310419')
+    second.find('./StatementOfFunds/StatementOfFundsLine').set('settleDate', '20310419')
     root = ET.Element('FlexStatements')
     root.extend([first, second])
     quality = {**QUALITY, 'statement_as_of': '2031-04-19', 'expected_statement_as_of': '2031-04-19'}
@@ -350,14 +372,17 @@ def test_disjoint_daily_statements_share_exact_identity_scope_not_date_heuristic
     assert result['statement_count'] == 2 and result['total'] == 2
     assert all(item['classification'] == 'included' for item in result['records'])
     assert result['records'][1]['funds_line_indices'] == [1]
+    assert result['records'][0]['trade_evidence_period'] == {'from_date': '2031-04-16', 'to_date': '2031-04-18'}
+    assert result['records'][1]['funds_evidence_periods'] == [
+        {'line_index': 1, 'from_date': '2031-04-19', 'to_date': '2031-04-19'}]
     second.set('fromDate', '20310418')
     assert review_fee_settlement(xml_text=ET.tostring(root, encoding='unicode'), quality=quality)['reason'] == (
         'missing_or_overlapping_statement_periods')
 
 
 def test_multiple_accounts_are_not_silently_combined():
-    first = xml_text(case()).replace('toDate=', 'fromDate="20310418" toDate=', 1)
-    second = xml_text(case(account='SYNTH_B')).replace('toDate=', 'fromDate="20310419" toDate=', 1)
+    first = xml_text(case())
+    second = xml_text(case(account='SYNTH_B'))
     result = review_fee_settlement(xml_text='<FlexStatements>' + first + second + '</FlexStatements>', quality=QUALITY)
     assert result['reason'] == 'unverified_report_or_account'
 
@@ -416,3 +441,190 @@ def test_unsupported_decimal_range_does_not_overflow_or_approve_evidence():
     data = case()
     data['lines'][0]['tradeGross'] = '1e99999'
     assert record(data)['reasons'] == ['unsupported_decimal_range']
+
+
+@pytest.mark.parametrize('classification', ['included', 'separate', 'explicit_zero'])
+@pytest.mark.parametrize('account,execution', [('RANDOM_ACCOUNT_A', 'fill-x'), ('OTHER_SYNTHETIC', 'fill-y')])
+def test_using_previous_publication_blocks_every_commission_classification(classification, account, execution):
+    data = case(account=account, execution=execution, fee='0' if classification == 'explicit_zero' else '-1.25')
+    if classification == 'separate':
+        separate(data)
+    data['quality']['using_previous'] = True
+    result = review(data)
+    assert result['reason'] == 'unverified_report_or_account'
+    assert result['status'] == 'unverified' and result['total'] is None and result['records'] == []
+    data['quality']['using_previous'] = False
+    assert record(data)['classification'] == classification
+
+
+@pytest.mark.parametrize('tag', ['FlexStatement', 'Trades', 'Trade', 'StatementOfFunds',
+                               'StatementOfFundsLine', 'AccountInformation', 'ArbitraryAncestor', 'OuterWrapper'])
+@pytest.mark.parametrize('attribute,value', [('model', 'SYNTHETIC_MODEL'), ('accountId', 'WRONG_ACCOUNT'),
+                                            ('acctId', 'WRONG_ACCOUNT')])
+@pytest.mark.parametrize('fee', ['0', '-1.25'])
+def test_ancestor_scope_contradictions_block_before_even_explicit_zero(tag, attribute, value, fee):
+    root = ET.fromstring(xml_text(case(account='ARBITRARY_ACCOUNT', execution='ARBITRARY_FILL', fee=fee)))
+    if tag == 'AccountInformation':
+        node = ET.SubElement(root, tag, accountId='ARBITRARY_ACCOUNT', currency='CAD')
+    elif tag == 'ArbitraryAncestor':
+        trades = root.find('Trades')
+        trade = trades.find('Trade')
+        trades.remove(trade)
+        node = ET.SubElement(trades, tag)
+        node.append(trade)
+    elif tag == 'OuterWrapper':
+        node = ET.Element(tag)
+        node.append(root)
+        root = node
+    else:
+        node = next(root.iter(tag))
+    node.set(attribute, value)
+    result = review_xml(root)
+    assert result['reason'] == 'contradictory_account_or_model_scope'
+    assert result['status'] == 'unverified' and result['records'] == [] and result['total'] is None
+
+
+@pytest.mark.parametrize('tag', ['Trades', 'StatementOfFunds', 'StmtFunds'])
+@pytest.mark.parametrize('attribute,value', [('model', 'MODEL'), ('accountId', 'OTHER')])
+def test_empty_containers_still_carry_binding_scope_before_zero(tag, attribute, value):
+    data = case(fee='0')
+    data['lines'] = []
+    root = ET.fromstring(xml_text(data))
+    if tag == 'Trades':
+        root.find('Trades').clear()
+    elif tag == 'StmtFunds':
+        root.find('StatementOfFunds').tag = tag
+    next(root.iter(tag)).set(attribute, value)
+    assert review_xml(root)['reason'] == 'contradictory_account_or_model_scope'
+    assert review_xml(root)['total'] is None
+
+
+@pytest.mark.parametrize('count', [1, 2])
+@pytest.mark.parametrize('field,value', [('fromDate', None), ('fromDate', ''), ('fromDate', 'invalid'),
+                                      ('fromDate', '20310419'), ('toDate', None), ('toDate', ''),
+                                      ('toDate', '20310230'), ('toDate', '20310415')])
+def test_every_statement_requires_valid_explicit_ordered_period_even_single(count, field, value):
+    first = ET.fromstring(xml_text(case(fee='0')))
+    if value is None:
+        first.attrib.pop(field)
+    else:
+        first.set(field, value)
+    root, quality = first, deepcopy(QUALITY)
+    if count == 2:
+        second = ET.Element('FlexStatement', accountId='SYNTH_A', fromDate='20310420', toDate='20310420')
+        ET.SubElement(second, 'Trades')
+        root = ET.Element('FlexStatements')
+        root.extend([first, second])
+        quality.update(statement_as_of='2031-04-20', expected_statement_as_of='2031-04-20')
+    result = review_xml(root, quality)
+    assert result['status'] == 'unverified' and result['records'] == [] and result['total'] is None
+    assert result['reason'] in {'missing_or_overlapping_statement_periods', 'unverified_report_or_account'}
+
+
+@pytest.mark.parametrize('tag,field', [('Trade', 'tradeDate'), ('StatementOfFundsLine', 'date')])
+@pytest.mark.parametrize('day', ['20310415', '20310419'])
+@pytest.mark.parametrize('fee', ['0', '-1.25'])
+def test_row_date_must_be_inside_its_own_statement_not_just_before_report_as_of(tag, field, day, fee):
+    root = ET.fromstring(xml_text(case(fee=fee)))
+    next(root.iter(tag)).set(field, day)
+    result = review_xml(root)
+    assert result['reason'] == 'row_date_outside_ancestor_period' and result['section'] == tag
+    assert result['total'] is None and result['records'] == []
+
+
+@pytest.mark.parametrize('tag', ['Trade', 'StatementOfFundsLine'])
+@pytest.mark.parametrize('day', ['20310416', '20310419'])
+@pytest.mark.parametrize('fee', ['0', '-1.25'])
+def test_reparented_rows_cannot_borrow_sibling_coverage_or_fill_period_gaps(tag, day, fee):
+    first = ET.fromstring(xml_text(case(fee=fee)))
+    second = ET.Element('FlexStatement', accountId='SYNTH_A', fromDate='20310420', toDate='20310420')
+    second_trades = ET.SubElement(second, 'Trades')
+    second_funds = ET.SubElement(second, 'StatementOfFunds')
+    parent = first.find('Trades' if tag == 'Trade' else 'StatementOfFunds')
+    row = parent.find(tag)
+    parent.remove(row)
+    row.set('tradeDate' if tag == 'Trade' else 'date', day)
+    (second_trades if tag == 'Trade' else second_funds).append(row)
+    root = ET.Element('FlexStatements')
+    root.extend([first, second])
+    quality = {**QUALITY, 'statement_as_of': '2031-04-20', 'expected_statement_as_of': '2031-04-20'}
+    result = review_xml(root, quality)
+    assert result['reason'] == 'row_date_outside_ancestor_period' and result['section'] == tag
+    assert result['total'] is None and result['records'] == []
+
+
+@pytest.mark.parametrize('container', ['Trades', 'StatementOfFunds'])
+@pytest.mark.parametrize('start,end,reason', [('20310417', '20310418', 'row_date_outside_ancestor_period'),
+                                           ('20310419', '20310420', 'disjoint_ancestor_periods'),
+                                           ('20310416', None, 'missing_or_invalid_ancestor_period')])
+def test_generic_ancestor_period_can_narrow_but_never_expand_statement_coverage(container, start, end, reason):
+    root = ET.fromstring(xml_text(case(fee='0')))
+    node = root.find(container)
+    node.set('fromDate', start)
+    if end is not None:
+        node.set('toDate', end)
+    result = review_xml(root)
+    assert result['reason'] == reason and result['records'] == [] and result['total'] is None
+
+
+@pytest.mark.parametrize('namespace', ['', 'urn:synthetic:flex'])
+def test_valid_ancestor_scope_and_narrowed_periods_are_preserved_in_evidence(namespace):
+    root = ET.fromstring(xml_text(case(account='SCOPE_ACCOUNT', execution='SCOPE_EXECUTION')))
+    ET.SubElement(root, 'AccountInformation', accountId='SCOPE_ACCOUNT', currency='CAD')
+    for node in (root.find('Trades'), root.find('StatementOfFunds')):
+        node.set('accountId', 'SCOPE_ACCOUNT')
+        node.set('model', '')
+        node.set('fromDate', '20310416')
+        node.set('toDate', '20310416')
+    if namespace:
+        for node in root.iter():
+            node.tag = '{' + namespace + '}' + node.tag
+    result = review_xml(root)
+    item = result['records'][0]
+    assert item['classification'] == 'included'
+    assert item['trade_evidence_period'] == {'from_date': '2031-04-16', 'to_date': '2031-04-16'}
+    assert item['funds_evidence_periods'] == [
+        {'line_index': 0, 'from_date': '2031-04-16', 'to_date': '2031-04-16'}]
+
+
+@pytest.mark.parametrize('count', [1, 2])
+@pytest.mark.parametrize('present', [False, True])
+def test_missing_trades_section_is_unknown_not_an_explicit_empty_result(count, present):
+    root = ET.Element('FlexStatements')
+    for index in range(count):
+        day = '20310417' if index == 0 and count == 2 else '20310418'
+        statement = ET.SubElement(root, 'FlexStatement', accountId='EMPTY_ACCOUNT', fromDate=day, toDate=day)
+        if present or index != count - 1:
+            ET.SubElement(statement, 'Trades')
+    result = review_xml(root)
+    assert result['records'] == []
+    assert result['total'] == (0 if present else None)
+    assert result['reason'] == ('explicit_empty_trade_section' if present else 'missing_trade_section')
+    assert result['status'] == ('review' if present else 'unverified')
+
+
+def test_one_missing_trades_section_blocks_otherwise_sufficient_zero_in_another_statement():
+    root = ET.Element('FlexStatements')
+    root.append(ET.fromstring(xml_text(case(fee='0'))))
+    ET.SubElement(root, 'FlexStatement', accountId='SYNTH_A', fromDate='20310420', toDate='20310420')
+    quality = {**QUALITY, 'statement_as_of': '2031-04-20', 'expected_statement_as_of': '2031-04-20'}
+    result = review_xml(root, quality)
+    assert result['reason'] == 'missing_trade_section' and result['total'] is None and result['records'] == []
+
+
+def test_trade_outside_explicit_trades_section_is_not_borrowed_from_empty_sibling():
+    root = ET.fromstring(xml_text(case(fee='0')))
+    trades = root.find('Trades')
+    row = trades.find('Trade')
+    trades.remove(row)
+    root.append(row)
+    result = review_xml(root)
+    assert result['reason'] == 'missing_trade_section_ancestor' and result['total'] is None
+
+
+@pytest.mark.parametrize('tag', ['UnknownExecution', 'TradeSummary'])
+def test_nonempty_unsupported_trades_content_does_not_masquerade_as_explicit_empty(tag):
+    root = ET.Element('FlexStatement', accountId='EMPTY_ACCOUNT', fromDate='20310418', toDate='20310418')
+    ET.SubElement(ET.SubElement(root, 'Trades'), tag)
+    result = review_xml(root)
+    assert result['reason'] == 'unsupported_nonempty_trade_section' and result['total'] is None
