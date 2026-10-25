@@ -100,7 +100,7 @@ def _latest_usd_cny_rate() -> Decimal | None:
     return _dec(row[0]) if row else None
 
 
-def _parse_flex_performance(path: Path) -> dict[str, Any]:
+def _parse_flex_performance(path: Path, *, include_display_fx: bool = True) -> dict[str, Any]:
     root = ET.parse(path).getroot()
 
     cash_rows = [
@@ -159,7 +159,7 @@ def _parse_flex_performance(path: Path) -> dict[str, Any]:
     return_ratio = total_pnl_base / net_deposit_base if net_deposit_base > 0 else Decimal("0")
     negative_cash_ratio = abs(ending_cash_base) / net_liquidation_base if ending_cash_base < 0 and net_liquidation_base > 0 else Decimal("0")
 
-    usd_cny = _latest_usd_cny_rate()
+    usd_cny = _latest_usd_cny_rate() if include_display_fx else None
     payload: dict[str, Any] = {
         "status": "ok",
         "as_of": _ib_date(report_date),
