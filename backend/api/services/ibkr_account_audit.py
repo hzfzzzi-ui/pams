@@ -263,7 +263,7 @@ def _cash(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
 
 
 def _positions(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
-               as_of: date, base: str) -> tuple[Decimal | None, dict[str, Decimal], list[ET.Element]]:
+               as_of: date, base: str) -> tuple[Decimal | None, dict[str, Decimal], list[ET.Element], set[str]]:
     all_rows = _elements(statement, "OpenPosition")
     dated = [r for r in all_rows if _day(r.get("reportDate")) == as_of]
     rows = [r for r in dated if r.get("levelOfDetail") == "SUMMARY"]
@@ -282,6 +282,7 @@ def _positions(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
     identities: set[tuple[str | None, str | None]] = set()
     evidence: list[dict[str, Any]] = []
     conversions: dict[str, Decimal] = {}
+    conflicts: set[str] = set()
     rates = _elements(statement, "ConversionRate")
     for row in rows:
         currency, conid = row.get("currency"), row.get("conid")
@@ -306,6 +307,7 @@ def _positions(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
         if currency and rate is not None:
             if currency in conversions and abs(conversions[currency] - rate) > TOLERANCE:
                 _issue(fx, "conflicting_fx", currency=currency)
+                conflicts.add(currency)
                 complete = False
             conversions[currency] = rate
         if len(evidence) < ISSUE_LIMIT:
@@ -316,7 +318,9 @@ def _positions(check: dict[str, Any], fx: dict[str, Any], statement: ET.Element,
                          "position_count": len(rows), "positions": evidence,
                          "truncated": len(rows) > len(evidence), "basis": "signed_market_value",
                          "is_complete_nav": False, "detail_comparison": "not_supplied"}
-    return (total if complete else None), conversions, rows
+    for currency in conflicts:
+        conversions.pop(currency, None)
+    return (total if complete else None), conversions, rows, conflicts
 
 
 def _position_details(check: dict[str, Any], rows: list[ET.Element], actual: Any,
@@ -493,11 +497,12 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
     # independent exponent/precision bounds without inheriting caller traps.
     with localcontext(Context(prec=160, Emax=512, Emin=-512)):
         cash, native, cash_rates = _cash(checks["cash"], checks["fx"], statement, as_of, base_currency)
-        positions, position_rates, position_rows = _positions(checks["positions"], checks["fx"], statement, as_of, base_currency)
+        positions, position_rates, position_rows, position_conflicts = _positions(
+            checks["positions"], checks["fx"], statement, as_of, base_currency)
         nav = _nav(checks["nav"], statement, as_of, base_currency)
         period = _period(checks["period_return"], statement, period_start, as_of, base_currency, nav)
         rates = dict(cash_rates)
-        conflicts: set[str] = set()
+        conflicts = set(position_conflicts)
         for currency, rate in position_rates.items():
             if currency in rates and abs(rates[currency] - rate) > TOLERANCE:
                 _issue(checks["fx"], "conflicting_fx", currency=currency)
