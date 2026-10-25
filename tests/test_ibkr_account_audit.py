@@ -705,6 +705,31 @@ def test_position_fx_conflict_cannot_be_erased_by_final_row_order(rates, base_su
         assert cash["evidence"]["cash_base"] is None
 
 
+@pytest.mark.parametrize("rates", [("0.2", "0.1"), ("0.1", "0.2")])
+@pytest.mark.parametrize("base_summary", [False, True])
+def test_position_only_fx_conflict_preserves_unrelated_cash_currency(rates, base_summary):
+    root, internal = conflicting_sections(base_summary=base_summary)
+    native = next(r for r in root.iter("CashReportCurrency") if r.get("currency") != "BASE_SUMMARY")
+    native.set("currency", "USD")
+    native.set("endingCash", "-20")
+    native.set("fxRateToBase", "1")
+    internal["cash_by_currency"] = {"USD": "-20"}
+    positions = root.find("OpenPositions")
+    first = next(positions.iter("OpenPosition"))
+    first.set("fxRateToBase", rates[0])
+    second = deepcopy(first)
+    second.set("conid", "disjoint-currency-contract")
+    second.set("symbol", "DISJOINT_SYNTHETIC")
+    second.set("fxRateToBase", rates[1])
+    positions.append(second)
+    result = run(root, internal)
+    assert "HKD" not in check(result, "fx")["evidence"]["rates_to_base"]
+    assert check(result, "positions")["compared"] == 0
+    assert check(result, "cash")["status"] == "ok"
+    assert check(result, "cash")["evidence"]["native_fx_complete"] is True
+    assert check(result, "nav")["status"] == "ok"
+
+
 @pytest.mark.parametrize("invalid_rate", ["0", "-0.000000001", "-0.000000000001"])
 def test_internal_fx_must_be_positive_even_when_delta_is_below_tolerance(invalid_rate):
     root, internal = foreign_case("0.000000001")

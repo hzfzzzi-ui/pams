@@ -509,15 +509,16 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
                 conflicts.add(currency)
             rates[currency] = rate
         for currency in sorted(conflicts):
-            rates.pop(currency)
+            rates.pop(currency, None)
             _issue(checks["positions"], "conflicting_fx", currency=currency)
             positions = None
             checks["positions"]["evidence"]["position_value_base"] = None
-            checks["cash"]["evidence"]["native_fx_complete"] = False
-            if checks["cash"]["evidence"]["basis"] == "native_cash_at_explicit_statement_fx":
-                _issue(checks["cash"], "conflicting_fx", currency=currency)
-                cash = None
-                checks["cash"]["evidence"]["cash_base"] = None
+            if currency in cash_rates:
+                checks["cash"]["evidence"]["native_fx_complete"] = False
+                if checks["cash"]["evidence"]["basis"] == "native_cash_at_explicit_statement_fx":
+                    _issue(checks["cash"], "conflicting_fx", currency=currency)
+                    cash = None
+                    checks["cash"]["evidence"]["cash_base"] = None
         checks["fx"]["evidence"] = {"rates_to_base": {k: _text(v) for k, v in sorted(rates.items())[:ISSUE_LIMIT]},
                                     "currency_count": len(rates), "historical_only": True,
                                     "conflicting_currencies": sorted(conflicts)[:ISSUE_LIMIT],
