@@ -46,3 +46,12 @@
 - 新服务是纯输入/输出函数，不持有连接、无 ensure/DDL、写入、外部行情或修复功能。异常仅输出安全类型；旧字段不能因新增诊断失败而更改。
 
 官方字段参考：[Trades Flex](https://www.ibkrguides.com/reportingreference/reportguide/tradesfq.htm)、[Cash Report Flex](https://www.ibkrguides.com/reportingreference/reportguide/cash%20reportfq.htm)。按原文字段及账户/日期核对，不用通用说明覆盖原文实际的费用币种或现金扣收币种。
+
+### 费用单位的只读取证结果
+
+`fee_review.records[].unit_review` 与 `summary.source_unit_verified_rows` 为向后兼容追加字段，旧检查/状态/计数/警告不改变，不被收益或 NAV 服务消费。
+
+- `source_unit_verified` 仅表示官方原始费币、当前来源及不可变内嵌证据的身份/费币/数值一致，fact 稳定键/来源哈希、原始方向及全部内嵌金融字段均可核对；缺值、重复、冲突或非有限值保持 `unverified`，不补零。显式零费用也须通过相同证据检查。
+- `read_model` 仅提供现存 fact 费用数值的原字符串和有据可查的原币种，来源为 `official_and_immutable_embedded_raw`；不换汇、不改写 fact、不推导当前汇率。证据不足时该对象为 null，不能从交易币种猜测费币。
+- `fact_fee_currency_persisted=false` / `currency_model=not_modeled` 表示 scalar 列仍未独立保存币种；`individual_cash_settlement=unverified` 独立于单位证据和日级汇总是否相等。数值/单位匹配不代表费用已在某条现金腿扣收。
+- `additional_deduction_proposed=false` / `executable=false`，不新增现金扣款、成本调整或生产修账入口；原 `fee_currency_not_modeled` 问题保留。与来源关联投影的历史解释一起用于审阅，不是全账可信或实际修复验收。

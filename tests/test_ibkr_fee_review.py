@@ -293,6 +293,8 @@ def test_real_postgres_additive_api_preserves_checks_and_never_writes(sync_case,
     second = client.get('/api/ibkr/reconciliation').json()
     assert first == second and first['fee_review']['summary']['reviewed_rows'] == 1
     assert first['fee_review']['summary']['numeric_evidence_matched_rows'] == 1
+    assert first['fee_review']['summary']['source_unit_verified_rows'] == 1
+    assert first['fee_review']['records'][0]['unit_review']['status'] == 'source_unit_verified'
     assert first['read_only'] and first['fee_review']['existing_fee_and_lineage_blockers_preserved']
     original = {key: value for key, value in first.items() if key != 'fee_review'}
     monkeypatch.setattr(audit, 'review_fees', lambda **kwargs: {})
@@ -310,3 +312,67 @@ def test_real_postgres_additive_api_preserves_checks_and_never_writes(sync_case,
     assert before == {**business_state(database), 'runs': rows(database, 'pams_data_sync_runs'),
                       'jobs': rows(database, 'pams_data_job_run')}
     assert files == sorted(str(path) for path in tmp_path.rglob('*.xml'))
+
+
+def complete_fee_case(xml=XML):
+    case = make_case(xml)
+    # The real fact writer supplies explicit zero tax; absence must remain unverified.
+    for fact in case['facts']:
+        fact['raw_json']['source_row']['tax_amount'] = 0
+    return case
+
+
+@pytest.mark.parametrize('commission', ['-2', '0', '2'])
+def test_derived_fee_unit_is_separate_from_cash_settlement_and_persisted_model(commission):
+    case = complete_fee_case(XML.replace('ibCommission="-2"', f'ibCommission="{commission}"'))
+    before = deepcopy(case)
+    result = review_fees(**case)
+    item = result['records'][0]
+    unit = item['unit_review']
+    assert unit['status'] == 'source_unit_verified'
+    assert unit['read_model']['currency'] == 'USD'
+    assert unit['read_model']['amount'] == str(case['facts'][0]['fee_amount'])
+    assert not unit['fact_fee_currency_persisted'] and unit['currency_model'] == 'not_modeled'
+    assert unit['individual_cash_settlement'] == 'unverified'
+    assert not unit['additional_deduction_proposed'] and not unit['executable']
+    assert 'fee_currency_not_modeled' in item['issues'] and result['status'] == 'review'
+    assert result['summary']['source_unit_verified_rows'] == 1 and case == before
+
+
+@pytest.mark.parametrize('change', ['hash', 'stable_key', 'fee', 'missing_tax', 'tax', 'price',
+    'embedded_key', 'embedded_side', 'embedded_account', 'embedded_currency', 'embedded_fee_currency',
+    'source_fee_currency', 'embedded_execution', 'duplicate', 'missing_official_currency'])
+def test_incomplete_or_conflicting_fee_evidence_never_becomes_a_verified_unit(change):
+    case = complete_fee_case()
+    fact = case['facts'][0]
+    embedded = fact['raw_json']['source_row']
+    if change == 'hash': fact['source_hash'] = 'wrong'
+    elif change == 'stable_key': fact['source_key'] = 'ibkr:other'
+    elif change == 'fee': fact['fee_amount'] = 3
+    elif change == 'missing_tax': embedded.pop('tax_amount')
+    elif change == 'tax': embedded['tax_amount'] = 1
+    elif change == 'price': embedded['price'] = 999
+    elif change == 'embedded_key': embedded['source_key'] = 'ibkr:other'
+    elif change == 'embedded_side': embedded['side'] = 'sell'
+    elif change == 'embedded_account': embedded['account_code'] = 'other'
+    elif change == 'embedded_currency': embedded['currency'] = 'HKD'
+    elif change == 'embedded_fee_currency': embedded['raw_json']['ibCommissionCurrency'] = 'EUR'
+    elif change == 'source_fee_currency': case['trades'][0]['raw_json']['ibCommissionCurrency'] = 'EUR'
+    elif change == 'embedded_execution': embedded['raw_json']['tradeID'] = 'OTHER'
+    elif change == 'duplicate': case['facts'].append(deepcopy(fact))
+    else: case['xml_text'] = XML.replace('ibCommissionCurrency="USD"', '', 1)
+    unit = record(case)['unit_review']
+    assert unit['status'] == 'unverified' and unit['read_model'] is None
+    assert not unit['executable'] and not unit['additional_deduction_proposed']
+
+
+def test_fee_unit_neither_uses_daily_aggregate_as_individual_proof_nor_current_fx():
+    case = complete_fee_case(XML.replace('commissions="-3"', 'commissions="-100"'))
+    for fact in case['facts']:
+        fact['fx_rate_to_cny'] = 100
+    item = record(case)
+    assert item['daily_cash_commission_evidence']['status'] == 'mismatch'
+    assert not item['daily_cash_commission_evidence']['individual_allocation_verified']
+    assert item['unit_review']['status'] == 'source_unit_verified'
+    assert item['unit_review']['read_model']['currency'] == 'USD'
+    assert item['unit_review']['individual_cash_settlement'] == 'unverified'

@@ -7,6 +7,7 @@ from typing import Any
 import xml.etree.ElementTree as ET
 
 from collectors.ibkr_flex import parse_flex_report, _parse_ib_date
+from services.cashflow_fact import make_source_hash
 from services.investment_return_data import IBKR_EQUITY_MARKETS
 from services.investment_trade_fact import classify_trade_type, normalize_side
 
@@ -125,6 +126,29 @@ def _impact(fact: dict, checks: dict) -> dict:
     }
 
 
+def _unit_review(item: dict, fact: dict | None = None, embedded: dict | None = None) -> dict:
+    """A derived unit is not a persisted currency or a cash-settlement approval."""
+    fact, embedded = fact or {}, embedded or {}
+    currency = item.get('fee_currency')
+    side = 'fx_conversion' if classify_trade_type(embedded) == 'fx_conversion' else normalize_side(embedded)
+    verified = bool(
+        currency and len(currency) == 3 and currency.isascii() and currency.isalpha()
+        and item.get('fee_unit_evidence') == 'raw_and_embedded_only_no_fact_fee_currency_column'
+        and item.get('checks') and all(check['status'] == 'matched' for check in item['checks'].values())
+        and str(embedded.get('side', '')).upper() == str(_raw(embedded).get('buysell', '')).upper() != ''
+        and _scope_matches(fact, {**embedded, 'side': side},
+                           ('source_table','source_key','account_code','trade_date','symbol','currency','side'))
+        and fact.get('source_hash') == make_source_hash('pams_ibkr_trades', fact)
+        and all(_comparison(fact.get(key), embedded.get(key))['status'] == 'matched'
+                for key in ('quantity','price','gross_amount','fee_amount','tax_amount','net_cash')))
+    return {'status': 'source_unit_verified' if verified else 'unverified',
+            'reason': 'raw_embedded_and_scalar_match' if verified else 'incomplete_or_conflicting_evidence',
+            'read_model': {'amount': _text(fact['fee_amount']), 'currency': currency,
+                           'provenance': 'official_and_immutable_embedded_raw'} if verified else None,
+            'fact_fee_currency_persisted': False, 'individual_cash_settlement': 'unverified',
+            'currency_model': 'not_modeled', 'additional_deduction_proposed': False, 'executable': False}
+
+
 def review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict]) -> dict:
     """All inputs are frozen by the caller's read-only report transaction."""
     try:
@@ -177,6 +201,7 @@ def _review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: lis
             'official_commission_signed': _text(fee), 'status': 'review', 'executable': False,
             'commission_sign': 'unknown' if fee is None else 'zero' if fee == 0 else 'negative' if fee < 0 else 'positive',
             'issues': [], 'checks': {}, 'impact': None}
+        item['unit_review'] = _unit_review(item)
         if fee is not None:
             nonzero += fee != 0
             zero += fee == 0
@@ -236,6 +261,7 @@ def _review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: lis
                 if day not in cash_groups:
                     cash_groups[day] = _daily_cash_evidence(root, parsed.trades, base, day, account)
                 item['daily_cash_commission_evidence'] = cash_groups[day]
+                item['unit_review'] = _unit_review(item, fact, embedded)
         item['conclusion'] = ('explicit_zero_fee_not_an_inferred_zero' if fee == 0 else
                               'nonzero_fee_requires_currency_and_cash_scope_review' if fee is not None else
                               'missing_or_invalid_official_fee')
@@ -244,6 +270,8 @@ def _review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: lis
                   summary={'scanned_trade_rows': len(parsed.trades), 'reviewed_rows': len(records),
                            'numeric_evidence_matched_rows': numeric_matches, 'nonzero_fee_rows': nonzero,
                            'explicit_zero_fee_rows': zero,
+                           'source_unit_verified_rows': sum(
+                               row['unit_review']['status'] == 'source_unit_verified' for row in records),
                            'daily_cash_aggregate_matched_rows': sum(
                                row.get('daily_cash_commission_evidence', {}).get('status') == 'matched' for row in records),
                            'equity_reconstruction_excluded_rows': sum(

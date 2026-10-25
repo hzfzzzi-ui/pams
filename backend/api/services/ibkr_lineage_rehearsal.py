@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
 import hashlib
 import json
 from typing import Any
 
+from collectors.ibkr_flex import parse_flex_report
 from services.ibkr_fee_review import review_fees
 from services.ibkr_lineage_preflight import SOURCE_TABLE, preflight_lineage
 from services.ibkr_report_state import PublishedReport
@@ -137,8 +139,75 @@ def plan_rehearsal(*, report: PublishedReport, xml_text: str, quality: dict,
                   projected_after_counts=after['counts'], projected_after_reasons=after['reason_counts'],
                   projected_history_id_mismatches=after['reason_counts'].get('embedded_evidence_mismatch', 0),
                   note='Preserve historical raw_json IDs; projected audit blockers are not suppressed.')
+    result['audit_evidence'] = _projected_evidence(before, after, mappings, fees, trades, facts, xml_text)
     result['plan_sha256'] = fingerprint([result])
     return result
+
+
+def _projected_evidence(before: dict, after: dict, mappings: list[dict], fees: dict,
+                        trades: list[dict], facts: list[dict], xml_text: str) -> dict:
+    """Explain legacy audit reasons only within a fully evidenced, frozen projection."""
+    parsed = parse_flex_report(xml_text)
+    official_keys = Counter('ibkr:' + row['source_trade_key'] for row in parsed.trades)
+    complete = (bool(official_keys)
+        and official_keys == Counter(str(r['account_code']) + ':' + str(r['source_trade_key']) for r in trades)
+        == Counter(r.get('source_key') for r in facts if r.get('source_table') == SOURCE_TABLE)
+        and all(value == 1 for value in official_keys.values())
+        and not before['global_blockers'] and not before['has_more'] and not after['has_more']
+        and fees.get('total') is not None and not fees.get('truncated'))
+    result: dict[str, Any] = {'status': 'review', 'read_only': True, 'simulation_only': True,
+        'executable': False, 'production_repair_ready': False, 'production_write_supported': False,
+        'baseline_legacy_counts': before['counts'], 'projected_legacy_counts': after['counts'],
+        'legacy_blockers_preserved': True, 'complete_scope': complete, 'history_records': [],
+        'fee_records': [], 'unresolved_evidence': [],
+        'remaining_requirements': ['user_approval_required', 'not_a_nav_or_full_account_audit']}
+    if not complete:
+        return {**result, 'status': 'blocked', 'unresolved_evidence': [{'reason': 'incomplete_evidence_scope'}]}
+    by_id = {row['fact_id']: row for row in mappings}
+    fee_rows = {row['source_key']: row for row in fees['records']}
+    explained = units = 0
+    for row in after['records']:
+        mapping = by_id.get(row['fact_id'])
+        fee = fee_rows.get(row['source_key'])
+        unit = fee and fee['unit_review']
+        unit_proven = bool(unit and unit['status'] == 'source_unit_verified')
+        if fee:
+            result['fee_records'].append({'fact_id': row['fact_id'], 'source_key': row['source_key'],
+                                         'unit_review': unit, 'executable': False})
+            units += unit_proven
+        for block in row['blockers']:
+            if (mapping and block['reason'] == 'embedded_evidence_mismatch' and block.get('field') == 'source_id'
+                    and row['history'].get('embedded_source_id') == mapping['before']
+                    and row['current_source_id'] == row['target_source_id'] == mapping['after']):
+                result['history_records'].append({'fact_id': row['fact_id'], 'source_key': row['source_key'],
+                    'historical_source_id': mapping['before'], 'projected_source_id': mapping['after'],
+                    'status': 'historical_reference_preserved', 'executable': False})
+                explained += 1
+            elif block['reason'] != 'fee_currency_unverified' or not unit_proven:
+                result['unresolved_evidence'].append({'fact_id': row['fact_id'], **block})
+    if fee_rows:
+        result['remaining_requirements'] += ['fee_currency_not_modeled', 'individual_cash_settlement_unverified']
+    result['counts'] = {'historical_ids_explained': explained, 'fee_units_verified': units,
+                        'unresolved_evidence': len(result['unresolved_evidence'])}
+    if result['unresolved_evidence']:
+        result['status'] = 'blocked'
+    return result
+
+
+def review_rehearsal_evidence(*, baseline: dict, plan: dict, projected_facts: list[dict]) -> dict:
+    """Re-derive the whole plan; a caller-rehashed mapping is not trusted evidence."""
+    try:
+        expected = plan_rehearsal(**baseline)
+        if (expected.get('status') != 'ready_for_isolated_rehearsal'
+                or fingerprint([plan]) != fingerprint([expected])
+                or fingerprint(projected_facts) != expected['projected_fact_rows_sha256']):
+            raise ValueError('Frozen baseline, plan or projected facts differ')
+        return deepcopy(expected['audit_evidence'])
+    except Exception as exc:
+        return {'status': 'blocked', 'read_only': True, 'simulation_only': True, 'executable': False,
+                'production_repair_ready': False, 'production_write_supported': False,
+                'reason': 'unverified_baseline_or_projection', 'error_type': type(exc).__name__,
+                'history_records': [], 'fee_records': []}
 
 
 def safe_plan_rehearsal(**kwargs) -> dict:
