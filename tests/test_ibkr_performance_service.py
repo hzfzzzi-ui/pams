@@ -63,6 +63,19 @@ EXPECTED = {
 def test_moved_function_ast_is_identical_to_baseline(name, fingerprint):
     tree = ast.parse(Path(service.__file__).read_text(encoding="utf-8"))
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+    if name == "_parse_flex_performance":
+        # Permit only the read-only display opt-out; preserve the original formula hash.
+        assert len(node.args.kwonlyargs) == len(node.args.kw_defaults) == 1
+        assert node.args.kwonlyargs[0].arg == "include_display_fx"
+        assert ast.dump(node.args.kwonlyargs[0].annotation) == "Name(id='bool', ctx=Load())"
+        assert isinstance(node.args.kw_defaults[0], ast.Constant) and node.args.kw_defaults[0].value is True
+        node.args.kwonlyargs, node.args.kw_defaults = [], []
+        assignment = next(n for n in node.body if isinstance(n, ast.Assign)
+                          and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "usd_cny")
+        assert isinstance(assignment.value, ast.IfExp)
+        assert isinstance(assignment.value.test, ast.Name) and assignment.value.test.id == "include_display_fx"
+        assert isinstance(assignment.value.orelse, ast.Constant) and assignment.value.orelse.value is None
+        assignment.value = assignment.value.body
     assert hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest() == fingerprint
     assert getattr(ibkr, name) is getattr(service, name)
 
