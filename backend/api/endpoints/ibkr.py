@@ -31,6 +31,7 @@ from services.ibkr_performance import (
 from services.investment_trade_fact import backfill_investment_trade_facts
 from services.ibkr_reconciliation import read_ibkr_reconciliation
 from services.ibkr_lineage_preflight import read_lineage_preflight
+from services.ibkr_account_audit_read import read_ibkr_account_audit
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
 
@@ -86,6 +87,12 @@ def ibkr_reconciliation() -> dict[str, Any]:
 def ibkr_lineage_preflight(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
     """Propose source-link metadata for review, never execute a repair."""
     return read_lineage_preflight(offset=offset, limit=limit)
+
+
+@router.get("/account-audit")
+def ibkr_account_audit(period_start: date | None = None) -> dict[str, Any]:
+    """Audit published account evidence without refreshing or changing any ledger."""
+    return read_ibkr_account_audit(period_start=period_start)
 
 
 @router.get("/performance")
