@@ -41,6 +41,8 @@ async function chartModule(fallback = false) {
     const values = specifier.includes('api.js') ? { jget, fmt2: String, accountLabel: String }
       : specifier.includes('utils.js') ? { safeNum: value => Number.isFinite(Number(value)) ? Number(value) : 0,
         pnlPct: () => 0, createReturnRateChart() {} }
+        : specifier.includes('investment_startup.js') ? { trackInvestmentNav: value => value,
+          trackInvestmentHoldings: value => value, afterInvestmentNav: task => Promise.resolve().then(task) }
         : specifier.includes('investment_requests.js') ? { loadInvestmentSummaryFresh() {} }
           : specifier.includes('account_cash.js') ? { accountCashBreakdown() {} }
             : { openBottomSheet() {}, setActiveNav() {} };

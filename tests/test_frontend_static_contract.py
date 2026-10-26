@@ -649,7 +649,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "grid-template-columns: minmax(0, .92fr) minmax(0, .92fr) minmax(88px, 1.16fr)"
         in _read_public("assets/css/style.css")
     )
-    assert "window.setTimeout(loadVisibleCategoryReturnChart, 900)" in holdings_js
+    assert "afterInvestmentNav(() => queueVisibleCategoryReturnChart(900))" in holdings_js
     assert "window.setTimeout(loadAllCategoryReturnCharts, 900)" not in holdings_js
     assert "key === 'category-details' || CATEGORY_SECTION_IDS.includes(key)" in holdings_js
     assert "CATEGORY_SECTION_IDS.includes(key)) show(key, { openShell: true })" in holdings_js
@@ -674,7 +674,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         assert fn in holdings_js + tx_js
 
     main_js = holdings_js.split("async function main()", 1)[1]
-    first_main_load = main_js.split("await Promise.all([", 1)[1].split("]);", 1)[0]
+    first_main_load = main_js.split("await trackInvestmentHoldings(afterInvestmentNav(() => Promise.all([", 1)[1].split("]), 'holdings'));", 1)[0]
     assert "runWhenInvestmentAnalysisVisible" in holdings_js
     assert "loadAllCategoryReturnCharts" in holdings_js
     assert "const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
@@ -775,7 +775,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261022-detail-status-v1" in html
+    assert "assets/js/holdings.js?v=20261026-startup-order-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
@@ -785,10 +785,10 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         assert template.count("<strong>收益状态</strong>") == 1
         assert f"holdingDailyStatusBadge({row_name}) || '<span class=\"muted\">—</span>'" in template
         assert template.index("<strong>今日盈亏</strong>") < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261026-nav-independent-v1" in html
-    assert "assets/js/lookthrough.js?v=20261026-nav-independent-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
-    assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261026-startup-order-v1" in html
+    assert "assets/js/lookthrough.js?v=20261026-startup-order-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20261026-startup-order-v1" in html
+    assert "assets/js/portfolio_config.js?v=20261026-startup-order-v1" in html
     assert "style-phone.css?v=20261020-phone-restore-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -925,7 +925,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in investments_html
+    assert "assets/js/transactions.js?v=20261026-startup-order-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1381,7 +1381,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20260624-pattern-reasons-v1" in html
+    assert "assets/js/transactions.js?v=20261026-startup-order-v1" in html
     assert "assets/css/style-phone.css?v=20261020-phone-restore-v1" in html
 
 
@@ -1507,13 +1507,13 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ui_js
     assert "assets/css/style.css?v=20260623-nav-growth-overflow-v1" in ui_js
     assert "assets/css/design-system.css?v=20260620-visual-cohesion-v1" in ui_js
-    assert "assets/js/ui.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/holdings.js?v=20261022-detail-status-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2" in ui_js
-    assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/transactions.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in ui_js
+    assert "assets/js/ui.js?v=20261026-startup-order-v1" in ui_js
+    assert "assets/js/holdings.js?v=20261026-startup-order-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20261026-startup-order-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20261026-startup-order-v1" in ui_js
+    assert "assets/js/transactions.js?v=20261026-startup-order-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20261026-startup-order-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20261026-startup-order-v1" in ui_js
     assert "assets/js/more.js?v=20260623-nav-growth-more-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js

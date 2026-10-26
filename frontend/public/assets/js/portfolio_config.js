@@ -1,5 +1,6 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { dataStateHtml, openBottomSheet } from './ui.js?v=20260622-data-state-a11y-v1';
+import { dataStateHtml, openBottomSheet } from './ui.js?v=20261026-startup-order-v1';
+import { afterInvestmentStartup } from './investment_startup.js?v=20261026-startup-order-v1';
 
 let currentRules = [];
 let currentDrilldownRules = [];
@@ -319,4 +320,4 @@ async function loadPortfolioConfig() {
 }
 
 bindPortfolioConfigEvents();
-loadPortfolioConfig();
+afterInvestmentStartup(loadPortfolioConfig, 'allocation').catch(() => {});
