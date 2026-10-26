@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 MANUAL_TABLE = "pams_investment_transactions"
 TRADINGVIEW_TABLE = "pams_tradingview_transactions"
 IBKR_TABLE = "pams_ibkr_trades"
+_STRICT_FACT_COLUMNS = (
+    "trade_date", "trade_time", "settle_date", "account_code", "broker", "portfolio_code",
+    "asset_id", "symbol", "name", "market", "currency", "trade_type", "side", "quantity",
+    "price", "gross_amount", "fee_amount", "tax_amount", "net_cash", "fx_rate_to_cny",
+    "net_cash_cny", "affects_position", "affects_cost_basis", "affects_realized_pnl",
+    "affects_cash", "realized_pnl", "realized_pnl_cny", "cashflow_id", "source_table",
+    "source_id", "source_key", "source_hash", "raw_json", "review_status",
+)
 
 BUY_TERMS = {"buy", "bought", "purchase", "\u4e70\u5165", "\u5b9a\u6295"}
 SUBSCRIBE_TERMS = {"subscribe", "subscription", "fund_subscription", "\u7533\u8d2d"}
@@ -284,7 +292,9 @@ def build_investment_trade_fact(row: Mapping[str, Any], *, base_currency: str = 
     }
 
 
-def insert_investment_trade_facts(cur, facts: Sequence[Mapping[str, Any]]) -> int:
+def insert_investment_trade_facts(
+    cur, facts: Sequence[Mapping[str, Any]], *, strict_source: bool = False,
+) -> int:
     """Insert normalized trade facts, skipping duplicates by source keys."""
 
     has_explicit_fee = any(fact.get('fee_currency') is not None for fact in facts)
@@ -307,6 +317,29 @@ def insert_investment_trade_facts(cur, facts: Sequence[Mapping[str, Any]]) -> in
         params = dict(fact)
         params.setdefault('fee_currency', None)
         params["raw_json"] = psycopg2.extras.Json(_json_ready(params.get("raw_json") or {}))
+        if strict_source:
+            # Only opt-in immutable sources use this guard; legacy backfills retain their contract.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                        (f"{params['source_table']}:{params['source_key']}",))
+            columns = _STRICT_FACT_COLUMNS + (("fee_currency",) if include_fee_currency else ())
+            comparisons = " AND ".join(
+                f"{key} IS NOT DISTINCT FROM %({key})s" + ("::jsonb" if key == "raw_json" else "")
+                for key in columns
+            )
+            cur.execute(
+                f"""SELECT ({comparisons}) AS same FROM pams_investment_trade_fact
+                    WHERE source_hash = %(source_hash)s OR
+                        (source_table = %(source_table)s AND
+                            (source_id = %(source_id)s OR source_key = %(source_key)s))
+                    FOR UPDATE""", params,
+            )
+            existing = cur.fetchall()
+            if existing:
+                if len(existing) != 1 or not all(
+                    item.get("same") if isinstance(item, Mapping) else item[0] for item in existing
+                ):
+                    raise ValueError(f"Conflicting immutable trade source: {params['source_key']}")
+                continue
         cur.execute(
             f"""
             INSERT INTO pams_investment_trade_fact (
@@ -331,6 +364,8 @@ def insert_investment_trade_facts(cur, facts: Sequence[Mapping[str, Any]]) -> in
             params,
         )
         inserted += max(int(getattr(cur, "rowcount", 0) or 0), 0)
+        if strict_source and cur.rowcount != 1:
+            raise ValueError(f"Concurrent immutable trade source conflict: {params['source_key']}")
     return inserted
 
 

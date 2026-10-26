@@ -196,6 +196,7 @@ services:
       TZ: UTC
       PAMS_REFRESH_STATE_PATH: /state/refresh.json
       PAMS_IBKR_DAILY_CLOSE_SYNC_ENABLED: ${PAMS_IBKR_DAILY_CLOSE_SYNC_ENABLED:-false}
+      PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED: ${PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED:-false}
     volumes:
       - scheduler_state:/state
 

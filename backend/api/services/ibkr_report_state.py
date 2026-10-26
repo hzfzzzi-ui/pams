@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 import hashlib
 import os
+import re
 from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
@@ -18,6 +19,52 @@ import psycopg2.extras
 
 class ReportRejected(ValueError):
     """A downloaded report must not replace the current published state."""
+
+
+MAX_XML_BYTES = 32 * 1024 * 1024
+
+
+def production_scope(content: bytes, as_of: date, *, strict_ancestors: bool = False) -> tuple[str, str]:
+    if len(content) > MAX_XML_BYTES:
+        raise ValueError("unsupported_xml")
+    text = content.decode("utf-8")
+    if re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, re.IGNORECASE):
+        raise ValueError("unsupported_xml")
+    root = ET.fromstring(text)
+    statements = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "FlexStatement"]
+    accounts = {s.get("accountId") for s in statements}
+    if len(accounts) != 1 or not all(accounts):
+        raise ValueError("ambiguous_or_missing_account_scope")
+    current = [s for s in statements if _report_date(s.get("toDate")) == as_of]
+    if len(current) != 1:
+        raise ValueError("ambiguous_or_missing_closing_statement")
+    statement = current[0]
+    information = [e for e in statement.iter() if e.tag.rsplit("}", 1)[-1] == "AccountInformation"]
+    if len(information) != 1:
+        raise ValueError("ambiguous_or_missing_account_scope")
+    info = information[0]
+    members = set(statement.iter())
+    all_members = {e for s in statements for e in s.iter()}
+    account, base = statement.get("accountId"), info.get("currency")
+    if (not account or info not in members or info.get("accountId") != account
+            or not base or not re.fullmatch(r"[A-Z]{3}", base, flags=re.ASCII)
+            or _report_date(statement.get("toDate")) != as_of):
+        raise ValueError("unverified_account_scope")
+    # The independent auditor reports ancestor conflicts itself; publication must reject them first.
+    if strict_ancestors and any(node.get("accountId") not in (None, "", account)
+           or node.get("acctId") not in (None, "", account) or node.get("model") for node in root.iter()):
+        raise ValueError("contradictory_account_or_model_scope")
+    # The subject scans the whole document; an orphan row must not inherit this account.
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag not in {"CashReportCurrency", "OpenPosition"}:
+            continue
+        if node not in all_members:
+            raise ValueError("unbound_subject_rows")
+        field = "reportDate" if tag == "OpenPosition" else "toDate"
+        if node.get(field) and _report_date(node.get(field)) == as_of and node not in members:
+            raise ValueError("closing_rows_outside_selected_statement")
+    return account, base
 
 
 def utc_now() -> datetime:

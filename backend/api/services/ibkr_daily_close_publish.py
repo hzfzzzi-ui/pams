@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 from services.ibkr_daily_close import MAX_XML_BYTES, parse_daily_close_evidence, parse_daily_close_series
 from services.ibkr_daily_close_read import MAX_MANIFEST_BYTES, read_bounded, validate_close_day
@@ -95,12 +96,15 @@ def _publish_locked(content: bytes, *, directory: Path, account_id: str, as_of: 
                 or hashlib.sha256(read_bounded(old_path, MAX_XML_BYTES)).hexdigest() != previous["source_sha256"]):
             raise ValueError("previous_source_integrity_failure")
         if historical_series is not None:
-            old_series = parse_daily_close_series(read_bounded(old_path, MAX_XML_BYTES).decode("utf-8"),
+            old_content = read_bounded(old_path, MAX_XML_BYTES)
+            old_series = parse_daily_close_series(old_content.decode("utf-8"),
                 account_id=account_id, expected_sha256=previous["source_sha256"])
             if (old_series["status"] != "ok" or any(
                 _financial_close(close) != _financial_close(historical_series["daily_closes"].get(day, {}))
                 for day, close in old_series["daily_closes"].items()
             )):
+                raise ValueError("publication_historical_revision_requires_review")
+            if _period_bridges(old_content, account_id, previous["as_of"]) != _period_bridges(content, account_id, previous["as_of"]):
                 raise ValueError("publication_historical_revision_requires_review")
     name = digest + ".xml"
     source = directory / name
@@ -136,3 +140,19 @@ def _publish_locked(content: bytes, *, directory: Path, account_id: str, as_of: 
 def _financial_close(close: dict) -> dict:
     # Source identity changes with a new report; historical financial proof must not.
     return {key: value for key, value in close.items() if key != "source_sha256"}
+
+
+def _period_bridges(content: bytes, account: str, through: str) -> dict:
+    """Compare old period evidence too; equal closing NAV does not imply equal P&L."""
+    from services.ibkr_report_state import _report_date
+    result = {}
+    for statement in ET.fromstring(content).iter():
+        if statement.tag.rsplit("}", 1)[-1] != "FlexStatement" or statement.get("accountId") != account:
+            continue
+        day = _report_date(statement.get("toDate")).isoformat()
+        if day > through:
+            continue
+        bridges = [{key: value for key, value in row.attrib.items() if key != "acctAlias"}
+                   for row in statement.iter() if row.tag.rsplit("}", 1)[-1] == "ChangeInNAV"]
+        result[day] = sorted(json.dumps(row, sort_keys=True) for row in bridges)
+    return result

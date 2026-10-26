@@ -197,6 +197,38 @@ def run_daily_close_confirmation(now=None):
         return {"success": False, "status": "error", "reason": "checkpoint_unavailable"}
 
 
+def _cash_event_info(payload):
+    value = payload.get("confirmed_day")
+    target = date.fromisoformat(value) if value else None
+    blocked_events = any(item.get("reason") != "bank_match_pending" for item in payload.get("pending", []))
+    verified = bool(payload.get("status") == "ready" and target
+        and re.fullmatch(r"[0-9a-f]{64}", str(payload.get("source_sha256", "")))
+        and payload.get("queued_day_count") == 0 and payload.get("retryable_pending_count") == 0
+        and not blocked_events)
+    return target, target, verified
+
+
+def run_cash_event_confirmation(now=None):
+    """Cash facts retry independently from already confirmed official close evidence."""
+    if not _env_bool("PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED"):
+        return {"status": "skipped", "reason": "cash_event_sync_disabled"}
+    def probe():
+        value = _request_json("get", f"{API_BASE}/ibkr/cash-events/status", "IBKR cash fact status",
+                              failure_details=True, max_attempts=1)
+        if isinstance(value, dict):
+            value = {**value, "configured": value.get("status") == "ready"}
+        return value
+    def sync(_target):
+        return _request_json("post", f"{API_BASE}/ibkr/cash-events/sync", "IBKR cash facts",
+                             json={}, failure_details=True, max_attempts=1)
+    try:
+        return FlexConfirmationJournal(STATE_PATH, key="ibkr_cash_events", probe_info=_cash_event_info).run(
+            probe, sync, now=now)
+    except (OSError, ValueError):
+        logger.exception("Cash fact checkpoint unavailable; import blocked")
+        return {"success": False, "status": "error", "reason": "checkpoint_unavailable"}
+
+
 def refresh_daily():
     """Backward-compatible daily refresh entrypoint."""
     refresh_north_america_post_close_investments()
@@ -442,12 +474,14 @@ def main():
     refresh_crypto()
     run_flex_confirmation()
     run_daily_close_confirmation()
+    run_cash_event_confirmation()
     run_due_window("asia")
     run_due_window("north_america")
     schedule.every(30).minutes.do(lambda: run_due_window("asia"))
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
     schedule.every(30).minutes.do(run_flex_confirmation)
     schedule.every(30).minutes.do(run_daily_close_confirmation)
+    schedule.every(30).minutes.do(run_cash_event_confirmation)
 
     while True:
         schedule.run_pending()

@@ -60,7 +60,7 @@ def configured(tmp_path, monkeypatch):
     monkeypatch.setenv(service.QUERY_ENV, "200")
     monkeypatch.setattr(service, "expected_statement_date", lambda reference=None: NEXT)
     production = tmp_path / "production.xml"
-    production.write_bytes(b"immutable-production")
+    production.write_bytes(advanced())
     report = PublishedReport(production, NEXT, 1, hashlib.sha256(production.read_bytes()).hexdigest(), None)
     quality = {"status": "ok", "legacy_unverified": False, "statement_as_of": str(NEXT),
                "expected_statement_as_of": str(NEXT)}
@@ -208,3 +208,53 @@ def test_legacy_get_routes_do_not_create_schema():
                      and decorator.func.attr == "get" for decorator in function.decorator_list)
         if is_get:
             assert not any(isinstance(node, ast.Name) and node.id.startswith("ensure_") for node in ast.walk(function))
+
+
+@pytest.mark.parametrize("same_day", [False, True])
+def test_equal_amounts_from_another_account_never_confirm_or_publish(configured, monkeypatch, same_day):
+    target = DAY if same_day else NEXT
+    content = daily_report() if same_day else advanced()
+    path = configured / "production.xml"
+    path.write_bytes(content.replace(ACCOUNT.encode(), b"OTHER_ACCOUNT"))
+    report = PublishedReport(path, target, 1, hashlib.sha256(path.read_bytes()).hexdigest(), None)
+    quality = {"status": "ok", "legacy_unverified": False, "statement_as_of": str(target),
+               "expected_statement_as_of": str(target)}
+    monkeypatch.setattr(service, "select_report", lambda *a: (report, {}))
+    monkeypatch.setattr(service.performance.report_state, "report_quality", lambda *a, **k: quality)
+    monkeypatch.setattr(service, "expected_statement_date", lambda reference=None: target)
+    monkeypatch.setattr(service, "request_flex_reference", lambda *a: pytest.fail("foreign account"))
+    before = (configured / "daily-close.json").read_bytes()
+    assert not service.daily_close_status()["publication_verified"]
+    assert service.sync_daily_close()["reason"] == "production_account_or_base_mismatch"
+    assert (configured / "daily-close.json").read_bytes() == before
+
+
+def test_changed_old_external_flow_cannot_hide_behind_unchanged_nav(configured, monkeypatch):
+    root = ET.fromstring(advanced())
+    next(root.iter("ChangeInNAV")).set("depositsWithdrawals", "30")
+    monkeypatch.setattr(service, "fetch_flex_statement", lambda *a: ET.tostring(root, encoding="unicode"))
+    before = (configured / "daily-close.json").read_bytes()
+    result = service.sync_daily_close()
+    assert result["reason"] == "publication_historical_revision_requires_review", result
+    assert (configured / "daily-close.json").read_bytes() == before
+
+
+def test_history_block_reason_survives_in_checkpoint_and_existing_health(tmp_path, monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setenv("PAMS_IBKR_DAILY_CLOSE_SYNC_ENABLED", "true")
+    path = tmp_path / "state.json"
+    monkeypatch.setattr(module, "STATE_PATH", path)
+    reason = "publication_historical_revision_requires_review"
+    def request(method, *a, **k):
+        if method == "post":
+            return {"status": "blocked", "reason": reason}
+        return {"source": "ibkr_daily_close", "configured": True, "publication_verified": False,
+            "report_quality": {"expected_statement_as_of": str(NEXT), "statement_as_of": str(DAY)}}
+    monkeypatch.setattr(module, "_request_json", request)
+    now = datetime(2024, 1, 4, tzinfo=timezone.utc)
+    result = module.run_daily_close_confirmation(now=now)
+    assert result["status"] == "blocked" and result["reason"] == reason
+    job = json.loads(path.read_text())["jobs"]["ibkr_daily_close"]
+    assert job["recent_runs"][-1]["reason"] == reason
+    from services.sync_health import scheduler_health
+    assert "历史资金流或收益修订已隔离" in scheduler_health(path, now)["jobs"]["ibkr_daily_close"]["display_detail"]
