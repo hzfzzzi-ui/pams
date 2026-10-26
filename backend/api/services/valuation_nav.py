@@ -970,6 +970,8 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
     result = {}
     identities: dict[Date, dict[str, Any]] = {}
     rates: dict[Date, dict[str, Any]] = {}
+    ratio: Decimal | None = None
+    ratio_loaded = False
     for day, legacy in values.items():
         requested = day.isoformat()
         index = bisect_right(proven_days, requested) - 1
@@ -991,9 +993,14 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
             if account_owner_ratio is None:
                 metadata["reasons"] = ["missing_owner_ratio"]
             else:
-                try:
-                    ratio = Decimal(str(account_owner_ratio("ibkr")))
-                except (ValueError, TypeError, InvalidOperation):
+                # Resolve this invocation's config once, only after eligible evidence.
+                if not ratio_loaded:
+                    try:
+                        ratio = Decimal(str(account_owner_ratio("ibkr")))
+                    except (ValueError, TypeError, InvalidOperation):
+                        ratio = None
+                    ratio_loaded = True
+                if ratio is None:
                     result[day] = {**legacy, "daily_close": {**metadata, "reasons": ["invalid_owner_ratio"]}}
                     continue
                 if source_day not in rates:
