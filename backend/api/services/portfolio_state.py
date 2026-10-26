@@ -21,6 +21,7 @@ import psycopg2.extras
 import yaml
 
 from services.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from services.quote_valuation import quote_valuation_cte, snapshot_tables
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -351,16 +352,20 @@ def _statement_balances(cur) -> dict[str, dict[str, Any]]:
 
 
 def _platform_balances(cur, base_currency: str, fx_rates: dict[str, Decimal]) -> dict[str, dict[str, Any]]:
-    if not _table_exists(cur, "pams_holdings_snapshot"):
+    tables = snapshot_tables(cur)
+    if not tables.get("table_name"):
         return {}
+    quote_overlay = quote_valuation_cte(bool(tables.get("quote_available")))
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
-        SELECT h.account_code, h.currency, la.account_as_of AS as_of,
+        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
+            SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
+              ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+        ), {quote_overlay}
+        SELECT h.account_code, h.currency, h.as_of,
                SUM(CASE WHEN h.asset_liability = '负债' THEN -ABS(h.market_value) ELSE h.market_value END) AS market_value
-        FROM pams_holdings_snapshot h
-        JOIN latest_account la ON la.account_code = h.account_code AND la.account_as_of = h.as_of
-        GROUP BY h.account_code, h.currency, la.account_as_of
+        FROM h
+        GROUP BY h.account_code, h.currency, h.as_of
         ORDER BY h.account_code, h.currency
         """,
         (_view_as_of(),),
@@ -701,16 +706,19 @@ def load_investment_positions(
     account_balances: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Load latest holding rows normalized to investment position contract fields."""
-    if not _table_exists(cur, "pams_holdings_snapshot"):
+    tables = snapshot_tables(cur)
+    if not tables.get("table_name"):
         return []
     excluded = _excluded_accounts(account_cfg)
     fx_rates = _latest_fx_rates(cur, base_currency)
+    quote_overlay = quote_valuation_cte(bool(tables.get("quote_available")))
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
-        SELECT h.*
-        FROM pams_holdings_snapshot h
-        JOIN latest_account la ON la.account_code = h.account_code AND la.account_as_of = h.as_of
+        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
+            SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
+              ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+        ), {quote_overlay}
+        SELECT h.* FROM h
         WHERE NOT (h.account_code = ANY(%s::text[]))
         ORDER BY h.account_code, h.major_category, h.market_value DESC NULLS LAST
         """,

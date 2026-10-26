@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
-from services.sync_health import scheduler_health
+from services.sync_health import read_overseas_quote_health, scheduler_health
 from services.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -166,8 +166,9 @@ def _row(
     details: str = "",
     trigger_endpoint: str | None = None,
     trigger_body: dict[str, Any] | None = None,
+    freshness_checked: bool = False,
 ) -> dict[str, Any]:
-    if status == "ok" and sync_type == "行情刷新":
+    if status == "ok" and sync_type == "行情刷新" and not freshness_checked:
         status, status_label = _fresh_status(latest_date)
     if status == "stale":
         status = "review"
@@ -202,7 +203,7 @@ def sync_center() -> dict[str, Any]:
             cn_run = _latest_sync_run(cur, "cn_a_ohlcv_daily", "cn_a_equity")
             a_stock = _holding_summary(cur, major_category="A股", minor_category="A股")
             a_fund = _holding_summary(cur, major_category="A股", minor_category="A股基金")
-            us_stock = _holding_summary(cur, major_category="美股")
+            us_stock = read_overseas_quote_health(cur, now)
             metal = _holding_summary(cur, major_category="贵金属")
             fx = _count_query(
                 cur,
@@ -298,13 +299,15 @@ def sync_center() -> dict[str, Any]:
             latest_date=us_stock.get("as_of"),
             latest_time=us_stock.get("updated_at"),
             rows=us_stock.get("rows"),
-            status="ok" if us_stock.get("as_of") else "missing",
-            status_label="正常" if us_stock.get("as_of") else "缺数据",
+            status=us_stock["status"],
+            status_label=us_stock["label"],
             action="刷新公开行情；IBKR授权后同步真实现金和交易",
             href="investments.html#holdings-smart-table",
-            details="公开行情用于更新持仓市值和今日盈亏；IBKR Flex 用于更新真实持仓、现金、交易和历史净值。",
+            details=("公开行情用于更新持仓市值和今日盈亏；IBKR Flex 用于更新真实持仓、现金、交易和历史净值。"
+                     + us_stock["details"]),
             trigger_endpoint="/api/prices/refresh/investments",
             trigger_body={"scopes": ["us_stock"]},
+            freshness_checked=True,
         ),
         _row(
             id="market-fund",
@@ -420,6 +423,8 @@ def sync_center() -> dict[str, Any]:
             details=cn_run.get("error_text") if cn_run else "研究数据入库状态缺失。",
         ),
     ]
+
+    next(row for row in rows if row["id"] == "market-us-stock")["coverage"] = _norm(us_stock["coverage"])
 
     health = scheduler_health(Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/scheduler-state/refresh.json")))
     rows.append(_row(

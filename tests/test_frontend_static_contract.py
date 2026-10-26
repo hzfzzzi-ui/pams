@@ -1606,3 +1606,53 @@ def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
     assert "throw new Error(result.reason || result.error" in js
     assert "sync_center.js?v=20261023-ibkr-publication-v1" in _read_public("assets/js/data_sources.js")
     assert "data_sources.js?v=20261023-ibkr-publication-v1" in _read_public("data_sources.html")
+
+
+def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
+    rows_js = _read_public("assets/js/holdings.js")
+    hero_js = _read_public("assets/js/holdings_categories.js")
+    html = _read_public("investments.html")
+
+    pending = rows_js.split("function holdingDailyPnlPending(row)", 1)[1].split("function hasDailyTotalPnl", 1)[0]
+    assert "row?.daily_pnl_stale === true" in pending
+    assert "row?.daily_return_status" in pending
+    assert "'pending'" in pending
+    assert "daily_pnl_cny" not in pending
+    assert "Date" not in pending
+
+    for render_name, end_name in [("renderRows", "shortHoldingName"), ("renderMobileHoldingRows", "isInvestmentRow")]:
+        renderer = rows_js.split(f"function {render_name}(", 1)[1].split(f"function {end_name}(", 1)[0]
+        assert "holdingDailyPnlPending" in renderer
+        assert "dailyPending ? '待更新' : formatSignedCurrency(dailyPnl)" in renderer
+        assert "dailyPending ? '' : signedMoneyClass(dailyPnl)" in renderer
+        assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in renderer
+        assert "dailyPending ? 'muted'" not in renderer
+        assert "dailyPending ? '待更新' : holdingDailyStatusBadge" in renderer
+
+    profiles = hero_js.split("function makeMobileHeroProfiles(", 1)[1].split("function ", 1)[0]
+    assert "usRows = []" in profiles
+    assert "row.daily_pnl_stale === true ? 'pending'" in profiles
+    assert "row.daily_return_status || row.daily_pnl_status" in profiles
+    assert "[row.major_category, row.minor_category, row.type]" in profiles
+    assert "dailyStatus: usDailyStatus" in profiles
+    assert "Date" not in profiles.split("const usDailyStatuses", 1)[1].split("const ibkrTotalPnl", 1)[0]
+    assert "      usRows,\n      ibkrSummary: usCategorySummary" in hero_js
+
+    hero = hero_js.split("function MobilePortfolioHero(", 1)[1].split("function categoryByLabel", 1)[0]
+    assert "profile.dailyStatus === 'pending'" in hero
+    assert "dailyPending ? '待更新' : formatOptionalMoney(dailyPnl" in hero
+    assert "dailyPending || dailyPartial ? '--' : signedPctText(dailyRate)" in hero
+    assert "dailyPending ? '' : dailyPnl" in hero
+    assert "dailyPending ? 'muted'" not in hero
+    assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
+    assert "holdings.js?v=20261026-startup-order-v1-daily-status-v2" in html
+    assert "holdings_categories.js?v=20261026-startup-order-v1-ibkr-ready-v1-daily-status-v3" in html
+
+
+def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
+    rows_js = _read_public("assets/js/holdings.js")
+    native = rows_js.split("function dailyNativeText(row)", 1)[1].split("function holdingDailyPnlPending", 1)[0]
+    fx = rows_js.split("function dailyFxText(row)", 1)[1].split("function dailyNativeText", 1)[0]
+    assert "if (!native) return '';" in native
+    assert "`-- ${String(row.currency).trim().toUpperCase()}`" in native
+    assert fx.index("if (Math.abs(fx) <= 0.005) return '';") < fx.index("if (holdingDailyPnlPending(row)) return '汇率 --';")

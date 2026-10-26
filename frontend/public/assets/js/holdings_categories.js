@@ -411,7 +411,11 @@ function mobileHeroMetaItem(label, value, tone = '') {
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   const value = safeNum(profile.value);
+  const dailyPending = profile.dailyStatus === 'pending';
+  const dailyPartial = profile.dailyStatus === 'partial';
   const dailyPnl = Number.isFinite(Number(profile.dailyPnl)) ? safeNum(profile.dailyPnl) : 0;
+  const dailyTone = dailyPending ? '' : dailyPnl >= 0 ? 'up' : 'down';
+  const dailyStatusLabel = { pending: '待更新', partial: '仅含已更新标的，仍有持仓待更新', estimated: '预估收益', confirmed: '今日收益已确认' }[profile.dailyStatus] || '';
   const dailyBase = Math.max(value - dailyPnl, 1);
   const dailyRate = Number.isFinite(Number(profile.dailyRate)) ? safeNum(profile.dailyRate) : pctFromAmount(dailyPnl, dailyBase);
   const totalPnl = Number.isFinite(Number(profile.totalPnl)) ? safeNum(profile.totalPnl) : 0;
@@ -442,9 +446,9 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <strong class="mobileHeroValue ${value < 0 ? 'down' : ''}">${valueDisplay}</strong>
       </div>
       <div class="mobileHeroPrimaryMetric">
-        <span>${esc(profile.dailyLabel || '今日盈亏')}</span>
-        <strong class="${dailyPnl >= 0 ? 'up' : 'down'}">${formatOptionalMoney(dailyPnl, 'CNY', { signed: true })}</strong>
-        <em class="${dailyPnl >= 0 ? 'up' : 'down'}">${signedPctText(dailyRate)}</em>
+        <span${dailyStatusLabel ? ` title="${esc(dailyStatusLabel)}"` : ''}>${esc(dailyPartial ? '今日盈亏（部分）' : profile.dailyLabel || '今日盈亏')}</span>
+        <strong class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatOptionalMoney(dailyPnl, 'CNY', { signed: true })}</strong>
+        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending || dailyPartial ? '--' : signedPctText(dailyRate)}</em>
       </div>
       <div class="mobileHeroPrimaryMetric">
         <span>${esc(profile.totalLabel || '总盈亏')}</span>
@@ -505,6 +509,7 @@ function makeMobileHeroProfiles({
   fundDisplaySummary,
   fundSummary,
   usSummary,
+  usRows = [],
   ibkrSummary,
   preciousSummary,
   esopSummary,
@@ -534,6 +539,14 @@ function makeMobileHeroProfiles({
   const cashAssets = Math.max(aStockCash, 0) + Math.max(ibkrCash, 0) + accountCash.cashAssets;
   const cashLiabilities = Math.max(-ibkrCash, 0) + accountCash.cashLiabilities;
   const usProfileCategory = categoryByLabel(categories, '美股/海外');
+  // Cash balances and historical closed positions do not establish today's price-return quality.
+  const usDailyStatuses = usRows.filter(row => !row.is_closed
+    && ![row.major_category, row.minor_category, row.type].some(category => ['现金', '现金/活期'].includes(category)))
+    .map(row => row.daily_pnl_stale === true ? 'pending' : String(row.daily_return_status || row.daily_pnl_status || '').toLowerCase());
+  const usDailyStatus = usDailyStatuses.includes('pending')
+    ? (usDailyStatuses.some(status => ['estimated', 'confirmed'].includes(status)) ? 'partial' : 'pending')
+    : usDailyStatuses.includes('estimated') ? 'estimated'
+      : usDailyStatuses.length && usDailyStatuses.every(status => status === 'confirmed') ? 'confirmed' : '';
   const ibkrTotalPnl = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalPnl))
     ? safeNum(ibkrSummary.totalPnl)
     : safeNum(usProfileCategory.totalPnl);
@@ -562,6 +575,7 @@ function makeMobileHeroProfiles({
     value: summary.marketValue,
     dailyLabel: '今日盈亏',
     dailyPnl: summary.dailyPnl,
+    dailyStatus: usDailyStatus === 'pending' ? 'pending' : '',
     dailyRate: pctFromAmount(summary.dailyPnl, Math.max(summary.marketValue - summary.dailyPnl, 1)),
     totalLabel: '总盈亏',
     totalPnl: summary.totalPnl,
@@ -620,6 +634,7 @@ function makeMobileHeroProfiles({
       value: ibkrNlv,
       dailyLabel: '今日盈亏',
       dailyPnl: categoryByLabel(categories, '美股/海外').dailyPnl,
+      dailyStatus: usDailyStatus,
       totalLabel: '总盈亏',
       totalPnl: ibkrTotalPnl,
       totalRate: ibkrTotalRate,
@@ -3527,6 +3542,7 @@ async function main(){
       fundDisplaySummary,
       fundSummary: { ...fundSummary, totalReturnRate: categoryByLabel(dashboardCategories, '基金').totalReturnRate },
       usSummary,
+      usRows,
       ibkrSummary: usCategorySummary,
       preciousSummary: { ...preciousSummary, totalReturnRate: categoryByLabel(dashboardCategories, '贵金属').totalReturnRate },
       esopSummary: { ...esopSummary, totalReturnRate: categoryByLabel(dashboardCategories, '内部股份/分红').totalReturnRate },
