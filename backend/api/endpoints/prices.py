@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field
 from services.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from services.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
 from services.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
+from services.ibkr_report_state import expected_statement_date
 from services.price_history import (
     build_price_series_payload,
     ensure_price_history,
@@ -2324,6 +2325,7 @@ def _refresh_category(
     exclude_minor_categories: Tuple[str, ...] = (),
     market_buckets: Tuple[str, ...] = (),
     price_basis: str = "close",
+    require_current_close: bool = False,
 ) -> dict:
     """刷新指定类别的价格"""
     holdings = _get_holdings_with_symbol(
@@ -2360,6 +2362,10 @@ def _refresh_category(
             quote_sources = _estimate_quote_source_summary(priced_symbols)
         if price_basis == "close":
             prices = _latest_stored_yfinance_prices(symbols, as_of=target_as_of, fallback=prices)
+            if require_current_close:
+                # Do not stamp Friday's last close as Monday's confirmed quote.
+                prices = {sym: close for sym in symbols for trade_date, close in _YFINANCE_CLOSE_CACHE.get(str(sym), [])
+                          if trade_date == target_as_of}
 
     updates = []
     errors = []
@@ -2383,6 +2389,10 @@ def _refresh_category(
             target_as_of,
             source="tencent_a_stock_close",
             market="CN_A",
+        )
+    elif category == _OVERSEAS_MAJOR_CATEGORY and require_current_close and price_basis == "close":
+        daily_quote_rows = _upsert_daily_return_quote_snapshots(
+            holdings, prices, target_as_of, source="yahoo_close", market="US", currency="USD",
         )
 
     return {
@@ -2534,6 +2544,7 @@ def refresh_a_stock():
 def refresh_us_stock(
     market: Optional[str] = Query(None),
     price_basis: str = Query("close", alias="priceBasis"),
+    scheduled: bool = Query(False),
 ):
     """刷新美股价格"""
     if not isinstance(market, str):
@@ -2542,13 +2553,23 @@ def refresh_us_stock(
         price_basis = "close"
     if price_basis not in {"close", "estimate"}:
         price_basis = "close"
+    if scheduled is True:
+        now = datetime.now(ZoneInfo("America/New_York"))
+        target = _price_refresh_as_of(_OVERSEAS_MAJOR_CATEGORY)
+        session_date = now.date() + timedelta(days=now.hour >= 20)
+        if market != "us" or target != session_date or expected_statement_date(target) != target:
+            return _json({"status": "skipped", "reason": "outside_us_quote_session", "as_of": str(target)})
+        # Official statements may arrive later; quote refresh never waits for Flex.
+        price_basis = "close" if target == now.date() and (now.hour, now.minute) >= (16, 30) else "estimate"
     market_buckets = _normalize_overseas_market_filter(market)
     fetch_fn = _fetch_us_stock_estimate_prices if price_basis == "estimate" else _fetch_us_stock_prices
+    scheduled_options: dict[str, Any] = {"require_current_close": True} if scheduled is True else {}
     result = _refresh_category(
         "美股",
         fetch_fn,
         market_buckets=market_buckets,
         price_basis=price_basis,
+        **scheduled_options,
     )
     return _json(result)
 

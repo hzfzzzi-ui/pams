@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 import schedule
-from refresh_state import RefreshJournal, latest_due_date, result_issues
+from refresh_state import RefreshJournal, job_lock, latest_due_date, read_state, result_issues, store_job
 from flex_confirmation import FlexConfirmationJournal
 
 
@@ -302,7 +302,11 @@ def refresh_north_america_post_close_investments(target_date=None):
 def _refresh_window(target, steps, sections):
     reports = []
     for name, callback in steps:
-        result = callback()
+        try:
+            result = callback()
+        except Exception as exc:
+            reports.append({"name": name, "issues": [type(exc).__name__]})
+            continue
         expected = target
         if name == "flex" and "a_stock" in sections:
             expected -= timedelta(days=1)
@@ -313,10 +317,13 @@ def _refresh_window(target, steps, sections):
             try:
                 normalized = date.fromisoformat(result["expected_statement_as_of"])
                 if normalized > expected:
-                    return {"status": "blocked", "steps": [{"name": name, "issues": ["invalid_expected_date"]}]}
-                expected = normalized
+                    reports.append({"name": name, "issues": ["invalid_expected_date"]})
+                    continue
+                else:
+                    expected = normalized
             except (ValueError, TypeError):
-                return {"status": "blocked", "steps": [{"name": name, "issues": ["invalid_expected_date"]}]}
+                reports.append({"name": name, "issues": ["invalid_expected_date"]})
+                continue
         issues = result_issues(result, target=expected)
         if isinstance(result, dict):
             if name == "fx" and int(result.get("stored") or 0) <= 0:
@@ -330,7 +337,8 @@ def _refresh_window(target, steps, sections):
         reports.append({"name": name, "issues": issues})
         if issues:
             logger.error("Refresh blocked: step=%s issues=%s", name, issues)
-            return {"status": "blocked", "steps": reports}
+    if any(report["issues"] for report in reports):
+        return {"status": "blocked", "steps": reports}
     result = refresh_investment_return_snapshots(sections)
     issues = result_issues(result)
     reports.append({"name": "snapshots", "issues": issues + (result.get("errors", []) if isinstance(result, dict) else [])})
@@ -362,6 +370,47 @@ def run_due_window(key, now=None):
 def refresh_crypto():
     """Refresh crypto prices."""
     return _call("prices/refresh/crypto", "Crypto")
+
+
+def refresh_us_quotes(now=None):
+    """Poll current US quotes independently; never publish an all-market snapshot."""
+    current = now or datetime.now(timezone.utc)
+    try:
+        with job_lock(STATE_PATH, "us_quotes"):
+            previous = read_state(STATE_PATH)["jobs"].get("us_quotes", {})
+            checked = previous.get("last_checked_at")
+            if checked and current - datetime.fromisoformat(checked) < timedelta(minutes=5):
+                return {"status": "deferred", "reason": "quote_poll_not_due"}
+            job = {**previous, "status": "running", "last_checked_at": current.isoformat()}
+            store_job(STATE_PATH, "us_quotes", job)
+            try:
+                result = _call("prices/refresh/us-stock?market=us&scheduled=true", "US current quotes")
+                if isinstance(result, dict) and result.get("status") == "skipped" and result.get("reason") == "outside_us_quote_session":
+                    job.update(status="idle", reason=result["reason"], issues=[])
+                elif isinstance(result, dict) and result.get("found") == 0 and not result_issues(result):
+                    job.update(status="idle", reason="no_us_holdings", issues=[])
+                else:
+                    issues = result_issues(result)
+                    if not isinstance(result, dict) or "found" not in result or "as_of" not in result:
+                        issues.append("missing_quote_coverage")
+                    job.update(status="blocked" if issues else "success", issues=issues,
+                               reason="quote_refresh_incomplete" if issues else "quotes_refreshed")
+                    if isinstance(result, dict):
+                        job.update(target_date=result.get("as_of"), found=result.get("found"),
+                                   updated=result.get("updated"), quote_sources=result.get("quote_sources", {}))
+                    if not issues:
+                        job["last_success_date"] = result["as_of"]
+            except Exception as exc:
+                job.update(status="error", issues=[type(exc).__name__], reason="quote_refresh_failed")
+            job["finished_at"] = datetime.now(timezone.utc).isoformat()
+            store_job(STATE_PATH, "us_quotes", job)
+            logger.info("[US current quotes] status=%s reason=%s", job["status"], job["reason"])
+            return job
+    except BlockingIOError:
+        return {"status": "deferred", "reason": "job_busy"}
+    except (OSError, ValueError):
+        logger.exception("US quote checkpoint unavailable")
+        return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
 def refresh_trend_state():
@@ -459,6 +508,7 @@ def main():
         lambda: run_due_window("north_america")
     )
     schedule.every(30).minutes.do(refresh_crypto)
+    schedule.every(5).minutes.do(refresh_us_quotes)
     schedule.every().day.at("07:25").do(refresh_trend_state)
     schedule.every().day.at("07:30").do(strategy_eod_scan)
     schedule.every().day.at("07:32").do(watchlist_daily_exit_check)
@@ -471,6 +521,7 @@ def main():
 
     logger.info("Waiting for API readiness (10 seconds)...")
     time.sleep(10)
+    refresh_us_quotes()
     refresh_crypto()
     run_flex_confirmation()
     run_daily_close_confirmation()
