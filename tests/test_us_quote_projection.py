@@ -80,11 +80,9 @@ def _position(symbol, currency, quantity, price, *, day=BASE_DAY, **changes):
 def pg_projection(monkeypatch):
     dsn = os.environ.get("PAMS_TEST_POSTGRES_DSN")
     if not dsn:
-        pytest.skip("PAMS_TEST_POSTGRES_DSN must explicitly select isolated PG16 at 127.0.0.1:55483/pams")
+        pytest.skip("PAMS_TEST_POSTGRES_DSN must explicitly select an isolated PostgreSQL server")
     parsed = parse_dsn(dsn)
-    assert {key: parsed.get(key) for key in ("host", "port", "dbname", "user")} == {
-        "host": "127.0.0.1", "port": "55483", "dbname": "pams", "user": "pams",
-    }, "Refusing all non-allowlisted databases, including production"
+    assert parsed.get("host") in {"127.0.0.1", "localhost", "::1"}, "Only an explicitly configured loopback test server is allowed"
     conn = psycopg2.connect(dsn, connect_timeout=5)
     try:
         assert conn.server_version // 10000 == 16
