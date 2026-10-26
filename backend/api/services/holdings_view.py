@@ -10,7 +10,7 @@ from datetime import timedelta
 from decimal import Decimal
 from collections.abc import Mapping
 from typing import Any
-from services.quote_valuation import quote_valuation_cte
+from services.quote_valuation import quote_price_as_of, quote_valuation_cte
 
 from services.daily_return_state import (
     RETURN_STATUS_CONFIRMED,
@@ -582,7 +582,7 @@ def _suppress_stale_daily_pnl(
         "price_change_amount",
     )
     for row in rows:
-        row_key = _date_key(row.get("as_of") or row.get("snapshot_as_of"))
+        row_key = _date_key(row.get("snapshot_as_of") or row.get("as_of"))
         if not row_key or start_key <= row_key <= view_key:
             continue
         for field in daily_fields:
@@ -590,7 +590,7 @@ def _suppress_stale_daily_pnl(
         if row.get("current_price") is not None:
             row["previous_price"] = row.get("current_price")
         row["daily_pnl_stale"] = True
-        row["daily_pnl_as_of"] = row.get("as_of") or row.get("snapshot_as_of")
+        row["daily_pnl_as_of"] = row.get("snapshot_as_of") or row.get("as_of")
     return rows
 
 
@@ -678,6 +678,7 @@ def build_holdings_by_category_payload(
         return {"as_of": None, "rows": []}
 
     quote_overlay = quote_valuation_cte(bool(row.get("quote_available")))
+    price_as_of = quote_price_as_of(bool(row.get("quote_available")))
     if category == "其他":
         cur.execute(
             f"""
@@ -736,7 +737,7 @@ def build_holdings_by_category_payload(
                    END AS daily_pnl_cny,
                    major_category,
                    h.as_of,
-                   h.as_of AS snapshot_as_of,
+                   {price_as_of} AS snapshot_as_of,
                    h.quantity, h.buy_price, h.current_price,
                    prev_snap.current_price AS previous_price,
                    CASE
@@ -874,7 +875,7 @@ def build_holdings_by_category_payload(
                    END AS daily_total_pnl_cny,
                    major_category,
                    h.as_of,
-                   h.as_of AS snapshot_as_of,
+                   {price_as_of} AS snapshot_as_of,
                    h.quantity, h.buy_price, eff.current_price AS current_price,
                    eff.previous_price AS previous_price,
                    CASE
@@ -1463,6 +1464,7 @@ def build_holdings_latest_payload(
     cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('pams_market_quote_snapshot') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
     row = cur.fetchone()
     quote_overlay = quote_valuation_cte(bool(row and row.get("quote_available")))
+    price_as_of = quote_price_as_of(bool(row and row.get("quote_available")))
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
@@ -1551,7 +1553,7 @@ def build_holdings_latest_payload(
                 ELSE 0
             END AS daily_total_pnl_cny,
             h.major_category, h.minor_category, h.as_of,
-            h.as_of AS snapshot_as_of,
+            {price_as_of} AS snapshot_as_of,
             h.quantity, h.buy_price, eff.current_price AS current_price,
             eff.previous_price AS previous_price,
             CASE

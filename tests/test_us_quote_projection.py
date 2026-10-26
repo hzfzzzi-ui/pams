@@ -29,7 +29,7 @@ from services.daily_return_state import (
     quote_snapshot_from_market_daily,
     upsert_quote_snapshot,
 )
-from services.quote_valuation import quote_valuation_cte
+from services.quote_valuation import quote_price_as_of, quote_valuation_cte
 
 BASE_DAY = date(2026, 10, 23)
 QUOTE_DAY = date(2026, 10, 26)
@@ -235,6 +235,33 @@ def _refresh(conn):
     assert result["errors"] == []
     assert result["valuation_projection_only"] is True
     return result
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_pg16_account_date_never_confirms_other_markets_old_price(pg_projection, enabled):
+    conn = pg_projection
+    _refresh(conn)
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(f"""
+            WITH {holdings_view.COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
+                SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
+                  ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+            ), {quote_valuation_cte(enabled)}
+            SELECT h.*, {quote_price_as_of(enabled)} AS snapshot_as_of,
+                   99::numeric AS daily_pnl, 99::numeric AS daily_total_pnl_cny FROM h
+        """, (QUOTE_DAY,))
+        rows = [dict(row) for row in cur.fetchall()]
+    assert len(rows) == 16
+    output = holdings_view._suppress_stale_daily_pnl(rows, QUOTE_DAY)
+    for row in output:
+        quoted = enabled and row["symbol"] in US_SYMBOLS
+        assert row["snapshot_as_of"] == (QUOTE_DAY if quoted else BASE_DAY)
+        assert row["as_of"] == (QUOTE_DAY if enabled else BASE_DAY)
+        assert row["daily_pnl"] == (Decimal(99) if quoted else Decimal(0))
+        assert row["daily_total_pnl_cny"] == (Decimal(99) if quoted else Decimal(0))
+        assert row.get("daily_pnl_stale", False) is not quoted
+        if not quoted:
+            assert row["daily_pnl_as_of"] == BASE_DAY
 
 
 class _CapturedProjection(Exception):

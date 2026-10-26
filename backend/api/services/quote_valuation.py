@@ -8,6 +8,14 @@ def snapshot_tables(cur) -> dict:
     return dict(cur.fetchone() or {})
 
 
+def quote_price_as_of(enabled: bool) -> str:
+    """Keep price evidence dates separate from the complete account's date."""
+    if not enabled:
+        return "h.as_of"
+    return """(SELECT COALESCE(q.quote_date, s.as_of) FROM source_holdings s
+               LEFT JOIN quote_marks q ON q.id = s.id WHERE s.id = h.id)"""
+
+
 def quote_valuation_cte(enabled: bool) -> str:
     """Consume source_holdings plus the existing bounded account snapshot CTE."""
     if not enabled:
