@@ -1,7 +1,7 @@
 """Daily-close consumers: generalized synthetic reports and disposable PG only."""
 from copy import deepcopy
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
@@ -235,6 +235,118 @@ def test_series_uses_cached_bulk_reader_and_explicit_last_valid_metadata(tmp_pat
     assert payload["rows"][1]["ibkr_daily_close"]["status"] == "ok"
     assert payload["rows"][2]["ibkr_daily_close"]["status"] == "last_valid"
     json.dumps(payload)
+
+
+@pytest.mark.parametrize("ratio", ["0", "0.25", "1"])
+def test_series_resolves_owner_ratio_once_without_changing_dates_or_ownership(tmp_path, monkeypatch, ratio):
+    publish(tmp_path, monkeypatch)
+    calls = []
+    def resolve(account):
+        calls.append(account)
+        return D(ratio)
+    dates = [DAY - timedelta(days=1), DAY, DAY + timedelta(days=1), DAY + timedelta(days=2)]
+    legacy = {day: {"assets": D(900), "liabilities": D(140), "net_worth": D(760)} for day in dates}
+    before = deepcopy(legacy)
+    result = nav._overlay_ibkr_daily_closes(RateCursor(), values=legacy, base_currency="CNY",
+                                          account_owner_ratio=resolve)
+    assert calls == ["ibkr"] and legacy == before
+    assert result[dates[0]]["net_worth"] == 760
+    assert result[dates[0]]["daily_close"]["status"] == "unconfirmed"
+    for day in dates[1:]:
+        assert result[day]["assets"] == D(714) * D(ratio)
+        assert result[day]["liabilities"] == D(161) * D(ratio)
+        assert result[day]["net_worth"] == D(553) * D(ratio)
+        proof = result[day]["daily_close"]
+        assert proof["owner_ratio"] == ratio
+        assert proof["status"] == ("ok" if day == DAY else "last_valid")
+        assert proof["requested_as_of"] == day.isoformat() and proof["as_of"] == DAY.isoformat()
+        assert proof["age_days"] == (day - DAY).days
+
+
+@pytest.mark.parametrize("failure", [ValueError, TypeError, InvalidOperation])
+def test_series_invalid_owner_ratio_is_resolved_once_and_preserves_legacy(tmp_path, monkeypatch, failure):
+    publish(tmp_path, monkeypatch)
+    calls = []
+    def resolve(account):
+        calls.append(account)
+        raise failure("synthetic invalid owner config")
+    dates = [DAY, DAY + timedelta(days=1)]
+    legacy = {day: {"assets": D(900), "liabilities": D(140), "net_worth": D(760)} for day in dates}
+    result = nav._overlay_ibkr_daily_closes(RateCursor(), values=legacy, base_currency="CNY",
+                                          account_owner_ratio=resolve)
+    assert calls == ["ibkr"]
+    for day in dates:
+        assert result[day] == {**legacy[day], "daily_close": {
+            "status": "unconfirmed", "as_of": day.isoformat(), "requested_as_of": day.isoformat(),
+            "carried": False, "reasons": ["invalid_owner_ratio"]}}
+
+
+@pytest.mark.parametrize("ratio", [None, "not-a-number", "NaN", "Infinity", "-1"])
+def test_series_keeps_existing_invalid_value_reason_and_never_substitutes_zero(tmp_path, monkeypatch, ratio):
+    publish(tmp_path, monkeypatch)
+    calls = []
+    def resolve(account):
+        calls.append(account)
+        return ratio
+    dates = [DAY, DAY + timedelta(days=1)]
+    legacy = {day: {"assets": D(900), "liabilities": D(140), "net_worth": D(760)} for day in dates}
+    result = nav._overlay_ibkr_daily_closes(RateCursor(), values=legacy, base_currency="CNY",
+                                          account_owner_ratio=resolve)
+    assert calls == ["ibkr"]
+    reason = "invalid_owner_ratio" if ratio in (None, "not-a-number") else "missing_gross_nav_proof"
+    for day in dates:
+        assert all(result[day][key] == value for key, value in legacy[day].items())
+        assert result[day]["daily_close"]["status"] == "unconfirmed"
+        assert result[day]["daily_close"]["reasons"] == [reason]
+
+
+def test_series_owner_ratio_result_and_failure_do_not_leak_into_next_invocation(tmp_path, monkeypatch):
+    publish(tmp_path, monkeypatch)
+    configured = {"ratio": "0.25"}
+    calls = []
+    def resolve(account):
+        calls.append(account)
+        return configured["ratio"]
+    legacy = {day: {"assets": D(900), "liabilities": D(140), "net_worth": D(760)}
+              for day in (DAY, DAY + timedelta(days=1))}
+    for ratio in ("0.25", "bad", "1", "0"):
+        configured["ratio"] = ratio
+        result = nav._overlay_ibkr_daily_closes(RateCursor(), values=legacy, base_currency="CNY",
+                                              account_owner_ratio=resolve)
+        if ratio == "bad":
+            assert result[DAY]["net_worth"] == 760
+            assert result[DAY]["daily_close"]["reasons"] == ["invalid_owner_ratio"]
+        else:
+            assert result[DAY]["net_worth"] == D(553) * D(ratio)
+            assert result[DAY]["daily_close"]["status"] == "ok"
+    assert calls == ["ibkr"] * 4
+
+
+@pytest.mark.parametrize("case", ["disabled", "empty", "before_evidence", "identity", "evidence"])
+def test_series_does_not_resolve_owner_ratio_without_eligible_evidence(tmp_path, monkeypatch, case):
+    publish(tmp_path, monkeypatch)
+    day = DAY - timedelta(days=1) if case == "before_evidence" else DAY
+    legacy = {} if case == "empty" else {day: {"assets": D(900), "liabilities": D(140), "net_worth": D(760)}}
+    if case == "disabled":
+        monkeypatch.delenv(reader.MANIFEST_ENV)
+    elif case == "evidence":
+        monkeypatch.setattr(reader, "read_series", lambda: {"daily_closes": {}, "reasons": ["source_sha256_mismatch"]})
+    cur = RateCursor(identities=[] if case == "identity" else None)
+    result = nav._overlay_ibkr_daily_closes(cur, values=legacy, base_currency="CNY",
+        account_owner_ratio=lambda account: pytest.fail("ineligible dates must not read owner config"))
+    assert all(all(result[key][field] == value for field, value in row.items()) for key, row in legacy.items())
+
+
+def test_series_missing_resolver_and_unexpected_exception_keep_existing_behavior(tmp_path, monkeypatch):
+    publish(tmp_path, monkeypatch)
+    legacy = {DAY: {"assets": D(900), "liabilities": D(140), "net_worth": D(760)}}
+    result = nav._overlay_ibkr_daily_closes(RateCursor(), values=legacy, base_currency="CNY", account_owner_ratio=None)
+    assert result[DAY]["net_worth"] == 760
+    assert result[DAY]["daily_close"]["reasons"] == ["missing_owner_ratio"]
+    def unavailable(account):
+        raise RuntimeError("synthetic unexpected config failure")
+    with pytest.raises(RuntimeError, match="synthetic unexpected config failure"):
+        nav._overlay_ibkr_daily_closes(RateCursor(), values=legacy, base_currency="CNY", account_owner_ratio=unavailable)
 
 
 @pytest.mark.parametrize("offset", [1, 2, 3])
