@@ -35,12 +35,12 @@ def _probe_info(payload: dict) -> tuple[date | None, date | None, bool]:
     return target, statement, verified
 
 
-def _safe_probe(callback: Callable[[], dict]) -> dict:
+def _safe_probe(callback: Callable[[], dict], probe_info: Callable = _probe_info) -> dict:
     try:
         payload = callback()
         if not isinstance(payload, dict):
             return {}
-        _probe_info(payload)
+        probe_info(payload)
         return payload
     except Exception:
         # Provider exception messages and response bodies can contain credentials.
@@ -59,27 +59,31 @@ def _result(job: dict, *, deferred: bool = False) -> dict:
 
 
 class FlexConfirmationJournal:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, key: str = KEY, probe_info: Callable = _probe_info):
+        if key not in {KEY, "ibkr_daily_close"}:
+            raise ValueError("unsupported confirmation job")
         self.path = path
+        self.key = key
+        self.probe_info = probe_info
 
     def run(self, probe: Callable[[], dict], sync: Callable[[date], Any], *, now: datetime | None = None) -> dict:
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("confirmation clock must include timezone")
         try:
-            with job_lock(self.path, KEY):
+            with job_lock(self.path, self.key):
                 return self._run(probe, sync, current, now is None)
         except BlockingIOError:
             return {"success": False, "status": "deferred", "reason": "job_busy"}
 
     def _run(self, probe, sync, current: datetime, real_clock: bool) -> dict:
-        previous = read_state(self.path)["jobs"].get(KEY, {})
+        previous = read_state(self.path)["jobs"].get(self.key, {})
         attempts = previous.get("attempt_count", 0)
         if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 0:
             raise ValueError("invalid confirmation attempt count")
         due = _timestamp(previous["next_retry_at"]) if previous.get("next_retry_at") else None
-        payload = _safe_probe(probe)  # Local metadata GET, not a provider download.
-        target, statement, verified = _probe_info(payload)
+        payload = _safe_probe(probe, self.probe_info)  # Local metadata GET, not a provider download.
+        target, statement, verified = self.probe_info(payload)
         run = {
             **previous, "scope": "official_report_only", "last_checked_at": current.isoformat(),
             "target_date": target.isoformat() if target else previous.get("target_date"),
@@ -93,11 +97,11 @@ class FlexConfirmationJournal:
         if verified and statement is not None and (last is None or statement >= last):
             return self._success(run, statement, current)
         if due and current < due:
-            store_job(self.path, KEY, run)
+            store_job(self.path, self.key, run)
             return _result(run, deferred=True)
         run.update(status="running", started_at=current.isoformat(), finished_at=None,
                    attempt_count=attempts + 1, recovered_interrupted=previous.get("status") == "running")
-        store_job(self.path, KEY, run)  # A durable intent is required before any provider POST.
+        store_job(self.path, self.key, run)  # A durable intent is required before any provider POST.
         response: dict = payload
         regression = bool(verified and last and statement is not None and statement < last)
         if target and payload.get("configured") is True and not regression:
@@ -106,8 +110,8 @@ class FlexConfirmationJournal:
                 response = value if isinstance(value, dict) else {}
             except Exception:
                 response = {}
-            after = _safe_probe(probe)
-            after_target, observed, accepted = _probe_info(after)
+            after = _safe_probe(probe, self.probe_info)
+            after_target, observed, accepted = self.probe_info(after)
             if after_target:
                 run["target_date"] = after_target.isoformat()
             if observed:
@@ -142,7 +146,7 @@ class FlexConfirmationJournal:
         run["recent_runs"].append({key: run.get(key) for key in (
             "status", "target_date", "started_at", "finished_at", "reason", "attempt_count",
         )})
-        store_job(self.path, KEY, run)
+        store_job(self.path, self.key, run)
         return _result(run)
 
     def _success(self, run: dict, statement: date, current: datetime) -> dict:
@@ -154,5 +158,5 @@ class FlexConfirmationJournal:
         if changed:
             run["recent_runs"].append({"status": "success", "target_date": run.get("target_date"),
                                        "finished_at": current.isoformat(), "attempt_count": attempt})
-        store_job(self.path, KEY, run)
+        store_job(self.path, self.key, run)
         return _result(run)
