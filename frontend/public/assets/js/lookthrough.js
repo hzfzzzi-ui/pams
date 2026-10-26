@@ -1,5 +1,6 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
 import { openBottomSheet } from './ui.js?v=20260622-data-state-a11y-v1';
+import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261026-nav-independent-v1';
 
 const DIMENSIONS = [
   ['asset_type', '资产类型'],
@@ -189,7 +190,7 @@ function loadReturnAttributionHoldingDailySummary() {
     return Promise.resolve(returnAttributionHoldingDailySummary);
   }
   if (returnAttributionHoldingDailyLoadPromise) return returnAttributionHoldingDailyLoadPromise;
-  returnAttributionHoldingDailyLoadPromise = jget('/summary2/latest?baseCurrency=CNY', { cache: false })
+  returnAttributionHoldingDailyLoadPromise = loadInvestmentSummaryFresh()
     .then((data) => {
       setReturnAttributionHoldingDailySummary(data);
       return data;
