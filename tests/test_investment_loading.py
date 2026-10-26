@@ -15,8 +15,8 @@ def test_nav_starts_before_holdings_barrier_and_only_for_analysis():
     source = (Path(__file__).resolve().parents[1] / "frontend/public/assets/js/holdings_categories.js").read_text(encoding="utf-8")
     main = source[source.index("async function main(){"):]
     assert main.index("bindInvestmentPageTabs();") < main.index("loadInvestmentNavChartOnce()")
-    assert main.index("loadInvestmentNavChartOnce()") < main.index("await Promise.all")
-    assert main.index("runWhenInvestmentAnalysisVisible") < main.index("await Promise.all")
+    assert main.index("loadInvestmentNavChartOnce()") < main.index("await trackInvestmentHoldings")
+    assert main.index("runWhenInvestmentAnalysisVisible") < main.index("await trackInvestmentHoldings")
     assert "if (document.body.dataset.investTab === 'analysis')" in main
 
 

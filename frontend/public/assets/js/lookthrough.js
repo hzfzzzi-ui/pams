@@ -1,6 +1,7 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet } from './ui.js?v=20260622-data-state-a11y-v1';
+import { openBottomSheet } from './ui.js?v=20261026-startup-order-v1';
 import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261026-nav-independent-v1';
+import { afterInvestmentNav } from './investment_startup.js?v=20261026-startup-order-v1';
 
 const DIMENSIONS = [
   ['asset_type', '资产类型'],
@@ -1493,7 +1494,12 @@ function scheduleVisibleAnalysisLoad() {
     safeStorageSet('pams.analysis.panel', activeAnalysisPanel);
   }
   renderAnalysisPanelSwitch();
-  if (isAnalysisPanelVisible()) loadActiveAnalysisPanel();
+  if (isAnalysisPanelVisible()) {
+    if (activeAnalysisPanel === 'trade_attribution') return loadActiveAnalysisPanel();
+    afterInvestmentNav(() => {
+      if (isAnalysisPanelVisible() && activeAnalysisPanel !== 'trade_attribution') return loadActiveAnalysisPanel();
+    }).catch(() => {});
+  }
 }
 
 function scheduleRiskExposureLoad() {

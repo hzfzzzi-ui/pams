@@ -1,4 +1,5 @@
 import { warmApiCache } from './api.js?v=20260619-investment-hardening-v1';
+import { afterInvestmentStartup } from './investment_startup.js?v=20261026-startup-order-v1';
 
 export function setActiveNav() {
   const rawPath = location.pathname || '/';
@@ -229,7 +230,7 @@ function setupAppPreload(activePath, path) {
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (connection?.saveData) return;
 
-  scheduleIdle(() => {
+  scheduleIdle(() => afterInvestmentStartup(() => {
     [
       ['investments.html', 'document'],
       ['ledger.html', 'document'],
@@ -237,28 +238,28 @@ function setupAppPreload(activePath, path) {
       ['assets/css/style.css?v=20260623-nav-growth-overflow-v1', 'style'],
       ['assets/css/design-system.css?v=20260620-visual-cohesion-v1', 'style'],
       ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
-      ['assets/js/ui.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/ui.js?v=20261026-startup-order-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20261022-detail-status-v1', 'script'],
-      ['assets/js/holdings_categories.js?v=20260628-account-total-pnl-v2', 'script'],
-      ['assets/js/lookthrough.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/holdings.js?v=20261026-startup-order-v1', 'script'],
+      ['assets/js/holdings_categories.js?v=20261026-startup-order-v1', 'script'],
+      ['assets/js/lookthrough.js?v=20261026-startup-order-v1', 'script'],
       ['assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1', 'script'],
-      ['assets/js/transactions.js?v=20260622-data-state-a11y-v1', 'script'],
-      ['assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1', 'script'],
-      ['assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1', 'script'],
+      ['assets/js/transactions.js?v=20261026-startup-order-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20261026-startup-order-v1', 'script'],
+      ['assets/js/portfolio_config.js?v=20261026-startup-order-v1', 'script'],
       ['assets/js/more.js?v=20260623-nav-growth-more-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));
-  }, 250);
+  }).catch(() => {}), 250);
 
   const month = currentMonthParam();
-  scheduleIdle(() => {
+  scheduleIdle(() => afterInvestmentStartup(() => (
     warmApiCache([
       '/api/accounts/overview',
       '/api/sync/center',
       '/api/portfolio/data-quality?baseCurrency=CNY',
       `/api/ledger/workbench?month=${month}`,
-    ]).catch(() => {});
-  }, 900);
+    ])
+  )).catch(() => {}), 900);
 }
 
 export function kpi(label, value, deltaText, deltaDir) {

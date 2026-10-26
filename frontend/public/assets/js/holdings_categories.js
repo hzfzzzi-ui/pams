@@ -1,6 +1,7 @@
 ﻿import { jget, fmt2, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20261026-startup-order-v1';
 import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261026-nav-independent-v1';
+import { afterInvestmentNav, trackInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261026-startup-order-v1';
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20260622-fund-pnl-v1';
 import { accountCashBreakdown } from './account_cash.js?v=20260606-cash-active-v1';
 
@@ -2994,7 +2995,7 @@ function getInvestmentChartState() {
 function loadInvestmentNavChartOnce() {
   if (!investmentNavChartPromise) {
     const state = getInvestmentChartState();
-    investmentNavChartPromise = jget('/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily')
+    investmentNavChartPromise = trackInvestmentNav(jget('/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily')
       .catch(() => ({ rows: [] }))
       .then((response) => {
         state.navRows = normalizeInvestmentNavRows(response.rows || []);
@@ -3006,7 +3007,7 @@ function loadInvestmentNavChartOnce() {
         investmentNavChartPromise = null;
         console.error('NAV曲线加载失败', error);
         throw error;
-      });
+      }));
   }
   return investmentNavChartPromise;
 }
@@ -3033,8 +3034,8 @@ function setupAnalysisHeavyLoaders() {
   if (chartWrap) chartWrap.hidden = false;
   if (toggle) toggle.hidden = false;
   loadInvestmentNavChartOnce().catch(() => null);
-  window.setTimeout(() => loadInvestmentReturnChartOnce().catch(() => null), 300);
-  window.setTimeout(loadVisibleCategoryReturnChart, 900);
+  afterInvestmentNav(() => loadInvestmentReturnChartOnce()).catch(() => null);
+  afterInvestmentNav(() => queueVisibleCategoryReturnChart(900)).catch(() => null);
 }
 
 function CategoryDetailTabs() {
@@ -3117,7 +3118,7 @@ async function main(){
       reportedReturns,
       portfolioSummary,
       portfolioValuationState,
-    ] = await Promise.all([
+    ] = await trackInvestmentHoldings(afterInvestmentNav(() => Promise.all([
       jgetFresh('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true'),
       jgetFresh(withClosedParam('/holdings/by-category/A股?minor_category=A股基金&limit=500')),
       jgetFresh('/holdings/by-category/A股?minor_category=A股基金&limit=500&include_closed=true'),
@@ -3132,7 +3133,7 @@ async function main(){
       jgetFresh('/api/investment-returns/reported').catch(() => null),
       loadInvestmentSummaryFresh().catch(() => null),
       jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(() => null),
-    ]);
+    ]), 'holdings'));
     const aStockReturn = null;
     const aFundReturn = null;
     const usStockReturn = null;

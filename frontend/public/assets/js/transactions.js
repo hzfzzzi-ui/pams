@@ -1,5 +1,5 @@
 import { accountLabel, fmt2, jget, jpost } from './api.js?v=20260619-investment-hardening-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261026-startup-order-v1';
 import {
   byId as $,
   escapeHtml,
