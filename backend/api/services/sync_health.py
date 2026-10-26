@@ -14,6 +14,15 @@ def _flex_diagnostic(job: dict, current: datetime, *, key: str = "ibkr_flex",
         "report_delayed": "官方报告尚未到达", "report_unconfirmed": "尚未取得有效发布确认",
         "rate_limited": "接口限流", "report_date_regression": "报告日期倒退已阻断",
         "source_unavailable": "状态读取或同步失败",
+        "cash_events_confirmed": "已发布报表中的正常资金事件已处理",
+        "production_account_or_base_mismatch": "生产与日结账户或本位币不一致，已阻断",
+        "production_close_components_mismatch": "生产与日结组成不一致，已阻断",
+        "production_report_changed": "读取期间生产原文变化，已阻断",
+        "publication_historical_revision_requires_review": "官方历史资金流或收益修订已隔离，不自动改账",
+        "publication_scope_or_date_regression": "日结范围或日期倒退，已阻断",
+        "publication_same_date_source_conflict": "同日日结原文冲突，已阻断",
+        "previous_source_integrity_failure": "上一有效日结原文完整性检查失败",
+        "approved_close_evidence_unavailable": "已批准日结证据不可用，未自动替换",
     }
     issues = []
     status = job.get("status")

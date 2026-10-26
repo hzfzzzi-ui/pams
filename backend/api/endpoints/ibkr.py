@@ -1,7 +1,8 @@
-"""IBKR read-only integration endpoints."""
+"""Official report ingestion and read-only diagnostics; no broker order capability."""
 from __future__ import annotations
 
 import os
+from contextlib import closing
 from datetime import date
 from typing import Any
 
@@ -31,6 +32,8 @@ from services.ibkr_reconciliation import read_ibkr_reconciliation
 from services.ibkr_lineage_preflight import read_lineage_preflight
 from services.ibkr_account_audit_read import read_ibkr_account_audit
 from services.ibkr_daily_close_sync import daily_close_status, sync_daily_close
+from services import ibkr_cash_event_sync
+from services.ibkr_cash_events import configured_cutoff
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
 
@@ -94,6 +97,26 @@ def ibkr_daily_close_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
     return sync_daily_close(expected_statement_reference=req.expected_statement_reference)
 
 
+@router.get("/cash-events/status")
+def ibkr_cash_event_status() -> dict[str, Any]:
+    with closing(get_conn()) as conn:
+        conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+        with conn:
+            return ibkr_cash_event_sync.status(conn)
+
+
+@router.post("/cash-events/sync")
+def ibkr_cash_event_sync_run(req: IBKRFlexSyncRequest) -> dict[str, Any]:
+    if req.as_of is not None or req.align_to_latest_snapshot or req.expected_statement_reference is not None:
+        raise HTTPException(status_code=422, detail="Cash events use published evidence and the configured cutoff")
+    try:
+        with closing(get_conn()) as conn:
+            return ibkr_cash_event_sync.sync(conn)
+    except Exception as exc:
+        # Do not return source attributes, database credentials, or provider errors.
+        raise HTTPException(status_code=503, detail="Cash event sync failed; previous facts retained") from exc
+
+
 @router.get("/lineage-preflight")
 def ibkr_lineage_preflight(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
     """Propose source-link metadata for review, never execute a repair."""
@@ -124,7 +147,7 @@ def ibkr_performance() -> dict[str, Any]:
 
 @router.post("/flex/sync")
 def ibkr_flex_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
-    """Run a manual read-only IBKR Flex sync into `pams_holdings_snapshot`."""
+    """Import official reports into local ledgers within one transaction."""
     token, query_id = _credentials()
     if not token or not query_id:
         raise HTTPException(
@@ -137,6 +160,9 @@ def ibkr_flex_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
             trade_fact_backfill: dict[str, int] = {}
 
             def backfill_facts(sync_conn: Any) -> None:
+                if configured_cutoff() is not None:
+                    trade_fact_backfill.update(source_count=0, inserted_count=0, skipped_count=0)
+                    return
                 with sync_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     trade_fact_backfill.update(backfill_investment_trade_facts(cur))
 
@@ -268,7 +294,7 @@ def ibkr_reconcile() -> dict[str, Any]:
     closed_or_nonheld_traded = sorted(trade_symbols - holding_symbols)
 
     return {
-        "latest_holding_as_of": _record(dict(holdings[0]))["as_of"] if holdings else None,
+        "latest_holding_as_of": _norm(holdings[0]["as_of"]) if holdings else None,
         "holding_symbol_count": len(holding_symbols),
         "trade_symbol_count": len(trade_symbols),
         "position_history_symbol_count": len(history_symbols),

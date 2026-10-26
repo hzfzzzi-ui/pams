@@ -60,7 +60,7 @@ def _result(job: dict, *, deferred: bool = False) -> dict:
 
 class FlexConfirmationJournal:
     def __init__(self, path: Path, *, key: str = KEY, probe_info: Callable = _probe_info):
-        if key not in {KEY, "ibkr_daily_close"}:
+        if key not in {KEY, "ibkr_daily_close", "ibkr_cash_events"}:
             raise ValueError("unsupported confirmation job")
         self.path = path
         self.key = key
@@ -85,7 +85,7 @@ class FlexConfirmationJournal:
         payload = _safe_probe(probe, self.probe_info)  # Local metadata GET, not a provider download.
         target, statement, verified = self.probe_info(payload)
         run = {
-            **previous, "scope": "official_report_only", "last_checked_at": current.isoformat(),
+            **previous, "scope": "post_cutoff_cash_facts" if self.key == "ibkr_cash_events" else "official_report_only", "last_checked_at": current.isoformat(),
             "target_date": target.isoformat() if target else previous.get("target_date"),
             "last_observed_statement_as_of": statement.isoformat() if statement else None,
             "last_success_date": previous.get("last_success_date"),
@@ -128,6 +128,13 @@ class FlexConfirmationJournal:
             state, reason = "waiting", "rate_limited"
         elif regression:
             state, reason = "blocked", "report_date_regression"
+        elif response.get("status") == "blocked" and response.get("reason") in {
+            "production_account_or_base_mismatch", "production_close_components_mismatch",
+            "production_report_changed", "publication_historical_revision_requires_review",
+            "publication_scope_or_date_regression", "publication_same_date_source_conflict",
+            "previous_source_integrity_failure", "approved_close_evidence_unavailable",
+        }:
+            state, reason = "blocked", response["reason"]
         elif response.get("reason") == "stale_statement_date":
             state, reason = "waiting", "report_delayed"
         elif response.get("status") in {"blocked", "success"} or response.get("success") is True:
@@ -152,7 +159,7 @@ class FlexConfirmationJournal:
     def _success(self, run: dict, statement: date, current: datetime) -> dict:
         changed = run.get("status") != "success" or run.get("last_success_date") != statement.isoformat()
         attempt = run.get("attempt_count", 0)
-        run.update(status="success", reason="official_report_confirmed", last_success_date=statement.isoformat(),
+        run.update(status="success", reason="cash_events_confirmed" if self.key == "ibkr_cash_events" else "official_report_confirmed", last_success_date=statement.isoformat(),
                    last_observed_statement_as_of=statement.isoformat(), finished_at=current.isoformat(),
                    next_retry_at=None, attempt_count=0, http_status=None, issues=[])
         if changed:

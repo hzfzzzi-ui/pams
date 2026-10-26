@@ -5,15 +5,13 @@ from contextlib import closing
 from datetime import date
 import hashlib
 from pathlib import Path
-import re
 from typing import Any
-import xml.etree.ElementTree as ET
 
 import psycopg2.extras
 
 from services import ibkr_performance as performance
-from services.ibkr_account_audit import MAX_XML_BYTES, audit_ibkr_account
-from services.ibkr_report_state import _report_date, report_quality, select_report
+from services.ibkr_account_audit import audit_ibkr_account
+from services.ibkr_report_state import _report_date, report_quality, select_report, production_scope
 
 
 def _unavailable(reason: str, error_type: str | None = None) -> dict[str, Any]:
@@ -22,43 +20,7 @@ def _unavailable(reason: str, error_type: str | None = None) -> dict[str, Any]:
 
 
 def _original_scope(content: bytes, as_of: date) -> tuple[str, str]:
-    if len(content) > MAX_XML_BYTES:
-        raise ValueError("unsupported_xml")
-    text = content.decode("utf-8")
-    if re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, re.IGNORECASE):
-        raise ValueError("unsupported_xml")
-    root = ET.fromstring(text)
-    statements = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1] == "FlexStatement"]
-    accounts = {s.get("accountId") for s in statements}
-    if len(accounts) != 1 or not all(accounts):
-        raise ValueError("ambiguous_or_missing_account_scope")
-    current = [s for s in statements if _report_date(s.get("toDate")) == as_of]
-    if len(current) != 1:
-        raise ValueError("ambiguous_or_missing_closing_statement")
-    statement = current[0]
-    information = [e for e in statement.iter() if e.tag.rsplit("}", 1)[-1] == "AccountInformation"]
-    if len(information) != 1:
-        raise ValueError("ambiguous_or_missing_account_scope")
-    info = information[0]
-    members = set(statement.iter())
-    all_members = {e for s in statements for e in s.iter()}
-    account, base = statement.get("accountId"), info.get("currency")
-    if (not account or info not in members or info.get("accountId") != account
-            or not base or not re.fullmatch(r"[A-Z]{3}", base, flags=re.ASCII)
-            or _report_date(statement.get("toDate")) != as_of):
-        raise ValueError("unverified_account_scope")
-    # The subject scans the whole document; an orphan row must not inherit this account.
-    for node in root.iter():
-        tag = node.tag.rsplit("}", 1)[-1]
-        if tag not in {"CashReportCurrency", "OpenPosition"}:
-            continue
-        if node not in all_members:
-            raise ValueError("unbound_subject_rows")
-        field = "reportDate" if tag == "OpenPosition" else "toDate"
-        if node.get(field) and _report_date(node.get(field)) == as_of and node not in members:
-            raise ValueError("closing_rows_outside_selected_statement")
-    return account, base
-
+    return production_scope(content, as_of)
 
 def _history_dates(conn, account: str) -> tuple[list[date], str]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

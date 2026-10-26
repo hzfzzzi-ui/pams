@@ -66,6 +66,8 @@ jobs:
             mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_funding_repair.py
             ruff check --select E9,F backend/api/services/ibkr_daily_close_publish.py backend/api/services/ibkr_daily_close_sync.py tests/test_ibkr_daily_close_sync.py
             mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_daily_close_publish.py backend/api/services/ibkr_daily_close_sync.py
+            ruff check --select E9,F backend/api/services/ibkr_cash_events.py backend/api/services/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py tests/test_ibkr_cash_events.py tests/test_ibkr_automation_scheduler.py
+            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_cash_events.py backend/api/services/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py backend/api/services/ibkr_report_state.py
           fi
       - name: 构建API镜像并验证导入
         run: |

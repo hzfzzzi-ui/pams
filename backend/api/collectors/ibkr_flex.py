@@ -23,6 +23,7 @@ import psycopg2.extras
 from psycopg2.extras import Json
 import requests
 from services import ibkr_report_state as report_state
+from services import ibkr_cash_events
 
 FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 SYNC_SOURCE = "ibkr_flex"
@@ -44,6 +45,7 @@ class FlexParseResult:
     trades: list[dict[str, Any]] = field(default_factory=list)
     history_rows: list[dict[str, Any]] = field(default_factory=list)
     cash_movements: list[dict[str, Any]] = field(default_factory=list)
+    cash_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _local_name(tag: str) -> str:
@@ -424,6 +426,8 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
     history_rows: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
     cash_movements: list[dict[str, Any]] = []
+    cash_events: list[dict[str, Any]] = []
+    parents = {child: parent for parent in root.iter() for child in parent}
 
     statements = [elem for elem in root.iter() if _local_name(elem.tag).lower() == "flexstatement"]
     if not statements:
@@ -467,6 +471,14 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
                     trades.append(trade)
                     if trade.get("source_account_id"):
                         source_accounts.add(str(trade["source_account_id"]))
+            elif local == "cashtransaction":
+                envelope: dict[str, Any] = {"raw": dict(elem.attrib), "statement_account_id": acct}
+                ancestor: ET.Element | None = elem
+                while ancestor is not None:
+                    if ancestor.get("accountId") not in (None, "", acct) or ancestor.get("model"):
+                        envelope["scope_error"] = True
+                    ancestor = parents.get(ancestor)
+                cash_events.append(envelope)
 
     if not history_rows:
         raise IBKRFlexError("No holdings or cash rows were parsed from the IBKR Flex report")
@@ -484,6 +496,7 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
         trades=trades,
         history_rows=history_rows,
         cash_movements=cash_movements,
+        cash_events=cash_events,
     )
 
 
@@ -1093,7 +1106,8 @@ def record_sync_run(
 
 def latest_sync_status(conn, *, source: str = SYNC_SOURCE) -> dict[str, Any] | None:
     """Return the latest sync run for the requested source, or `None`."""
-    ensure_sync_table(conn)
+    if not _table_exists(conn, "pams_data_sync_runs"):
+        return None
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -1106,14 +1120,25 @@ def latest_sync_status(conn, *, source: str = SYNC_SOURCE) -> dict[str, Any] | N
             (source,),
         )
         row = cur.fetchone()
-    return _sync_row_to_status(dict(row)) if row else None
+        if not row:
+            return None
+        status = _sync_row_to_status(dict(row))
+        if "cash_events" not in status and os.environ.get("PAMS_IBKR_CASH_EVENTS_AFTER"):
+            cur.execute("""SELECT summary_json #> '{publication,cash_events}' AS cash_events
+                FROM pams_data_sync_runs WHERE sync_key = %s AND status = 'success'
+                  AND summary_json #> '{publication,cash_events}' IS NOT NULL
+                ORDER BY started_at DESC, id DESC LIMIT 1""", (source,))
+            previous = cur.fetchone()
+            if previous:
+                status["cash_events"] = previous["cash_events"]
+    return status
 
 
 def _sync_row_to_status(row: dict[str, Any]) -> dict[str, Any]:
     summary = row.get("summary_json") or {}
     if not isinstance(summary, dict):
         summary = {}
-    return {
+    status = {
         "id": row.get("id"),
         "source": row.get("sync_key"),
         "asset_scope": row.get("asset_scope"),
@@ -1131,6 +1156,10 @@ def _sync_row_to_status(row: dict[str, Any]) -> dict[str, Any]:
         "error": row.get("error_text"),
         **({"publication": summary["publication"]} if "publication" in summary else {}),
     }
+    publication = summary.get("publication")
+    if isinstance(publication, dict) and isinstance(publication.get("cash_events"), dict):
+        status["cash_events"] = publication["cash_events"]
+    return status
 
 
 def sync_ibkr_flex_to_db(
@@ -1156,6 +1185,7 @@ def sync_ibkr_flex_to_db(
     publication: dict[str, Any] = {"version": 1, "state": "rejected", "account_code": account_code}
     observed: date | None = None
     try:
+        cash_events_after = ibkr_cash_events.configured_cutoff()
         reference = request_flex_reference(token, query_id, flex_version=flex_version)
         xml_text = fetch_flex_statement(
             token,
@@ -1168,6 +1198,9 @@ def sync_ibkr_flex_to_db(
         parsed = parse_flex_report(xml_text, account_code=account_code)
         if observed != parsed.statement_as_of:
             raise report_state.ReportRejected("parsed_statement_date_mismatch")
+        cash_events = [{**event, "source_evidence": {"broker_source": SYNC_SOURCE,
+            "source_sha256": publication["sha256"], "confirmed_day": observed.isoformat()}}
+            for event in parsed.cash_events]
         publication["report_date"] = observed.isoformat()
         expected = report_state.expected_statement_date(expected_statement_reference)
         publication["expected_date"] = expected.isoformat()
@@ -1178,9 +1211,8 @@ def sync_ibkr_flex_to_db(
         report_state.validate_candidate(observed, expected, previous, minimum=report_state.publication_floor(conn))
         # Exact XML identity includes performance-only fields not present in parsed holdings.
         # A standalone import must not suppress a later import with dependent fact writes.
-        publication["data_sha256"] = hashlib.sha256(
-            f"{publication['sha256']}:{after_write is not None}".encode("ascii")
-        ).hexdigest()
+        data_identity = f"{publication['sha256']}:{after_write is not None}"
+        publication["data_sha256"] = hashlib.sha256(data_identity.encode("ascii")).hexdigest()
         has_position_rows = any(row.get("major_category") == "美股" for row in parsed.rows)
         if not has_position_rows and _contains_tag(xml_text, "PriorPeriodPosition"):
             raise IBKRFlexError(
@@ -1194,11 +1226,17 @@ def sync_ibkr_flex_to_db(
             align_to_latest_snapshot=align_to_latest_snapshot,
         )
         if target_date == observed and previous and previous.data_sha256 == publication["data_sha256"]:
+            if cash_events_after is not None:
+                publication["cash_events"] = ibkr_cash_events.import_cash_events(
+                    conn, cash_events, account_code=account_code,
+                    cutoff=cash_events_after, statement_as_of=observed,
+                )
             publication["state"] = "unchanged"
             record = record_sync_run(
                 conn, status="success", started_at=started_at, as_of=target_date,
                 statement_as_of=observed, raw_file=str(raw_path), publication=publication,
-                message="Identical report; active publication and business rows retained",
+                message="Identical report; active publication retained" if cash_events_after is not None
+                else "Identical report; active publication and business rows retained",
             )
             return {
                 "success": True, "status": "success", "as_of": target_date.isoformat(),
@@ -1207,15 +1245,28 @@ def sync_ibkr_flex_to_db(
                 "raw_file": str(raw_path), "reference_code": reference["reference_code"],
                 "sync_run": record, "expected_statement_as_of": expected.isoformat(),
             }
-        row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date)
-        history_row_count = _write_position_history(conn, parsed.history_rows, account_code=account_code)
-        trade_count = _write_trades(conn, parsed.trades, account_code=account_code)
-        confirmed_fundings = _confirm_investment_funding_cashflows(
-            conn,
-            parsed.cash_movements,
-            account_code=account_code,
-        )
-        if after_write is not None:
+        if cash_events_after is None:
+            row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date)
+            history_row_count = _write_position_history(conn, parsed.history_rows, account_code=account_code)
+            trade_count = _write_trades(conn, parsed.trades, account_code=account_code)
+        else:
+            history_floor = max(cash_events_after, previous.as_of) if previous else cash_events_after
+            row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date) if target_date > cash_events_after else 0
+            future_history = [row for row in parsed.history_rows if row["as_of"] > history_floor]
+            future_trades = [row for row in parsed.trades if row["trade_date"] > history_floor]
+            history_row_count = _write_position_history(conn, future_history, account_code=account_code) if future_history else 0
+            trade_count = _write_trades(conn, future_trades, account_code=account_code) if future_trades else 0
+        confirmed_fundings = []
+        if cash_events_after is None:
+            confirmed_fundings = _confirm_investment_funding_cashflows(
+                conn, parsed.cash_movements, account_code=account_code,
+            )
+        else:
+            publication["cash_events"] = ibkr_cash_events.import_cash_events(
+                conn, cash_events, account_code=account_code,
+                cutoff=cash_events_after, statement_as_of=observed,
+            )
+        if after_write is not None and (cash_events_after is None or row_count or history_row_count or trade_count):
             after_write(conn)
         publication["state"] = "published" if target_date == observed else "historical"
         record = record_sync_run(
