@@ -12,8 +12,6 @@ from pydantic import BaseModel
 
 from collectors.ibkr_flex import (
     IBKRFlexError,
-    ensure_ibkr_trade_table,
-    ensure_ibkr_position_history_table,
     latest_sync_status,
     sync_ibkr_flex_to_db,
 )
@@ -32,6 +30,7 @@ from services.investment_trade_fact import backfill_investment_trade_facts
 from services.ibkr_reconciliation import read_ibkr_reconciliation
 from services.ibkr_lineage_preflight import read_lineage_preflight
 from services.ibkr_account_audit_read import read_ibkr_account_audit
+from services.ibkr_daily_close_sync import daily_close_status, sync_daily_close
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
 
@@ -81,6 +80,18 @@ def ibkr_flex_status() -> dict[str, Any]:
 def ibkr_reconciliation() -> dict[str, Any]:
     """Inspect published evidence and existing ledgers without any refresh or repair."""
     return read_ibkr_reconciliation()
+
+
+@router.get("/daily-close/status")
+def ibkr_daily_close_status() -> dict[str, Any]:
+    return daily_close_status()
+
+
+@router.post("/daily-close/sync")
+def ibkr_daily_close_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
+    if req.as_of is not None or req.align_to_latest_snapshot:
+        raise HTTPException(status_code=422, detail="Daily close cannot relabel report dates")
+    return sync_daily_close(expected_statement_reference=req.expected_statement_reference)
 
 
 @router.get("/lineage-preflight")
@@ -151,7 +162,6 @@ def ibkr_trades(limit: int = 200) -> dict[str, Any]:
     """Return locally imported IBKR trade records."""
     limit = max(1, min(limit, 5000))
     with get_conn() as conn:
-        ensure_ibkr_trade_table(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
@@ -179,7 +189,6 @@ def ibkr_position_history(symbol: str | None = None, limit: int = 500) -> dict[s
         params.append(symbol.upper())
     params.append(limit)
     with get_conn() as conn:
-        ensure_ibkr_position_history_table(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 f"""
@@ -201,8 +210,6 @@ def ibkr_position_history(symbol: str | None = None, limit: int = 500) -> dict[s
 def ibkr_reconcile() -> dict[str, Any]:
     """Compare latest IBKR holdings symbols with imported IBKR trade symbols."""
     with get_conn() as conn:
-        ensure_ibkr_trade_table(conn)
-        ensure_ibkr_position_history_table(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """

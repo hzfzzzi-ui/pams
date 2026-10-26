@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -162,6 +163,37 @@ def run_flex_confirmation(now=None):
         return result
     except (OSError, ValueError):
         logger.exception("Flex confirmation checkpoint unavailable; sync blocked")
+        return {"success": False, "status": "error", "reason": "checkpoint_unavailable"}
+
+
+def _daily_close_info(payload):
+    quality = payload.get("report_quality") or {}
+    target = date.fromisoformat(quality["expected_statement_as_of"]) if quality.get("expected_statement_as_of") else None
+    observed = date.fromisoformat(quality["statement_as_of"]) if quality.get("statement_as_of") else None
+    verified = bool(payload.get("source") == "ibkr_daily_close" and target and observed == target
+                    and payload.get("publication_verified") is True and quality.get("status") == "ok"
+                    and re.fullmatch(r"[0-9a-f]{64}", str(payload.get("source_sha256", ""))))
+    return target, observed, verified
+
+
+def run_daily_close_confirmation(now=None):
+    """Use the existing durable journal; never invoke ledger or quote writers."""
+    if not _env_bool("PAMS_IBKR_DAILY_CLOSE_SYNC_ENABLED"):
+        return {"status": "skipped", "reason": "daily_close_sync_disabled"}
+    def probe():
+        return _request_json("get", f"{API_BASE}/ibkr/daily-close/status", "IBKR close status",
+                             failure_details=True, max_attempts=1)
+    def sync(target):
+        return _request_json("post", f"{API_BASE}/ibkr/daily-close/sync", "IBKR close confirmation",
+            json={"expected_statement_reference": target.isoformat()}, failure_details=True, max_attempts=1)
+    try:
+        result = FlexConfirmationJournal(STATE_PATH, key="ibkr_daily_close", probe_info=_daily_close_info).run(
+            probe, sync, now=now)
+        logger.info("[Close confirmation] status=%s reason=%s next_retry=%s",
+                    result.get("status"), result.get("reason"), result.get("next_retry_at"))
+        return result
+    except (OSError, ValueError):
+        logger.exception("Close confirmation checkpoint unavailable; publication blocked")
         return {"success": False, "status": "error", "reason": "checkpoint_unavailable"}
 
 
@@ -409,11 +441,13 @@ def main():
     time.sleep(10)
     refresh_crypto()
     run_flex_confirmation()
+    run_daily_close_confirmation()
     run_due_window("asia")
     run_due_window("north_america")
     schedule.every(30).minutes.do(lambda: run_due_window("asia"))
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
     schedule.every(30).minutes.do(run_flex_confirmation)
+    schedule.every(30).minutes.do(run_daily_close_confirmation)
 
     while True:
         schedule.run_pending()
