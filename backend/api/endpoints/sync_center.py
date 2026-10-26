@@ -204,7 +204,6 @@ def sync_center() -> dict[str, Any]:
             a_fund = _holding_summary(cur, major_category="A股", minor_category="A股基金")
             us_stock = _holding_summary(cur, major_category="美股")
             metal = _holding_summary(cur, major_category="贵金属")
-            ibkr_cash = _holding_summary(cur, account_code="ibkr")
             fx = _count_query(
                 cur,
                 """
@@ -346,13 +345,14 @@ def sync_center() -> dict[str, Any]:
             rows=ibkr_quality["active_row_count"],
             status=ibkr_status,
             status_label=ibkr_label,
-            action="有当日授权则同步 Flex",
+            action="后台自动同步，失败自动重试",
             href="data_sources.html#syncMatrix",
             details=(f"{ibkr_label}；应有报告日期 {ibkr_quality['expected_statement_as_of'] or '待核准'}；"
                      f"最近尝试 {ibkr_quality['last_attempt_status'] or '无'}。"
-                     "失败、过期或未提交的原始文件不替代有效报告。" + reconciliation['details']),
+                     "失败、过期或未提交的原始文件不替代有效报告。"
+                     "正常同步无需逐次确认；历史账目诊断独立保留。" + reconciliation['details']),
             trigger_endpoint="/api/ibkr/flex/sync",
-            trigger_body={"align_to_latest_snapshot": True},
+            trigger_body={"align_to_latest_snapshot": False},
         ),
         _row(
             id="investment-ledger",
