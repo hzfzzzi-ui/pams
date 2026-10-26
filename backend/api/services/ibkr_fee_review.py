@@ -6,10 +6,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 import xml.etree.ElementTree as ET
 
-from collectors.ibkr_flex import parse_flex_report, _parse_ib_date
+from collectors.ibkr_flex import FlexParseResult, parse_flex_report, _parse_ib_date
 from services.cashflow_fact import make_source_hash
 from services.ibkr_fee_currency import fact_currency_check
-from services.ibkr_fee_settlement import review_fee_settlement
+from services.ibkr_fee_settlement import _review_fee_settlement
 from services.investment_return_data import IBKR_EQUITY_MARKETS
 from services.investment_trade_fact import classify_trade_type, normalize_side
 
@@ -157,13 +157,24 @@ def _unit_review(item: dict, fact: dict | None = None, embedded: dict | None = N
 
 def review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict]) -> dict:
     """All inputs are frozen by the caller's read-only report transaction."""
+    return _review_fees_with_report(xml_text=xml_text, quality=quality, trades=trades, facts=facts)
+
+
+def _review_fees_with_report(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict],
+                             parsed: FlexParseResult | None = None, root: ET.Element | None = None) -> dict:
     try:
-        result = _review_fees(xml_text=xml_text, quality=quality, trades=trades, facts=facts)
+        if parsed is None:
+            parsed = parse_flex_report(xml_text)
+        if root is None:
+            root = ET.fromstring(xml_text)
+        result = _review_fees(xml_text=xml_text, quality=quality, trades=trades, facts=facts,
+                              parsed=parsed, root=root)
     except Exception as exc:
         result = {'status': 'unavailable', 'read_only': True, 'executable': False,
                   'error_type': type(exc).__name__, 'records': [], 'total': None}
     try:
-        result['settlement_evidence'] = review_fee_settlement(xml_text=xml_text, quality=quality)
+        # Share only the XML tree, never the normalized trades or fee conclusions.
+        result['settlement_evidence'] = _review_fee_settlement(xml_text=xml_text, quality=quality, root=root)
     except Exception as exc:
         result['settlement_evidence'] = {'status': 'unavailable', 'read_only': True, 'executable': False,
             'error_type': type(exc).__name__, 'records': [], 'total': None,
@@ -171,8 +182,12 @@ def review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list
     return result
 
 
-def _review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict]) -> dict:
-    parsed, root = parse_flex_report(xml_text), ET.fromstring(xml_text)
+def _review_fees(*, xml_text: str, quality: dict, trades: list[dict], facts: list[dict],
+                 parsed: FlexParseResult | None = None, root: ET.Element | None = None) -> dict:
+    if parsed is None:
+        parsed = parse_flex_report(xml_text)
+    if root is None:
+        root = ET.fromstring(xml_text)
     result: dict[str, Any] = {'status': 'review', 'read_only': True, 'executable': False,
         'tolerance': str(TOLERANCE), 'records': [], 'total': 0, 'truncated': False,
         'scope': 'cross-currency, missing-currency or invalid official fees; not a NAV or settlement reconciliation',

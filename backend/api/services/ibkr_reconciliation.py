@@ -13,9 +13,9 @@ import xml.etree.ElementTree as ET
 
 import psycopg2.extras
 
-from collectors.ibkr_flex import default_data_dir, parse_flex_report, _parse_ib_date, _num
+from collectors.ibkr_flex import FlexParseResult, default_data_dir, parse_flex_report, _parse_ib_date, _num
 from services.ibkr_performance import get_conn
-from services.ibkr_fee_review import review_fees
+from services.ibkr_fee_review import _review_fees_with_report
 from services.ibkr_report_state import PublishedReport, report_quality, select_report
 from services.investment_trade_fact import classify_trade_type, normalize_side
 
@@ -179,6 +179,13 @@ def _position_check(check: dict, expected: list, actual: list, account: str, *, 
 def reconcile_report(*, report: PublishedReport, xml_text: str, quality: dict,
                      trades: list[dict], facts: list[dict], history: list[dict], snapshots: list[dict]) -> dict:
     parsed = parse_flex_report(xml_text)
+    return _reconcile_report(report=report, xml_text=xml_text, quality=quality, trades=trades,
+                             facts=facts, history=history, snapshots=snapshots, parsed=parsed)
+
+
+def _reconcile_report(*, report: PublishedReport, xml_text: str, quality: dict,
+                      trades: list[dict], facts: list[dict], history: list[dict], snapshots: list[dict],
+                      parsed: FlexParseResult, root: ET.Element | None = None) -> dict:
     checks = [_check('source','报告依据'), _check('trade_ledger','原始交易入账'),
               _check('trade_facts','投资交易 fact'), _check('position_history','报告日持仓历史'),
               _check('current_snapshot','当前快照份额')]
@@ -198,7 +205,8 @@ def reconcile_report(*, report: PublishedReport, xml_text: str, quality: dict,
         return _result(checks, scope, report, quality)
     account = parsed.source_account_ids[0]
     scope['source_account_id'] = account
-    root = ET.fromstring(xml_text)
+    if root is None:
+        root = ET.fromstring(xml_text)
     expected_groups = _groups(parsed.trades, lambda row: (row.get('source_account_id') or account, _execution(row)))
     stored_groups = _groups(trades, lambda row: (row.get('source_account_id'), _execution(row)))
     by_fact = _groups(facts, lambda row: str(row.get('source_id')))
@@ -318,9 +326,11 @@ def read_ibkr_reconciliation(*, connection_factory=None, raw_dir: Path | None = 
                 if hashlib.sha256(content).hexdigest() != report.sha256:
                     raise ValueError('report changed during read')
                 xml_text, quality = content.decode('utf-8'), report_quality(report,latest)
-                result = reconcile_report(report=report, xml_text=xml_text, quality=quality,
-                                          trades=trades, facts=facts, history=history, snapshots=snapshots)
-                result['fee_review'] = review_fees(xml_text=xml_text, quality=quality, trades=trades, facts=facts)
+                parsed, root = parse_flex_report(xml_text), ET.fromstring(xml_text)
+                result = _reconcile_report(report=report, xml_text=xml_text, quality=quality,
+                    trades=trades, facts=facts, history=history, snapshots=snapshots, parsed=parsed, root=root)
+                result['fee_review'] = _review_fees_with_report(xml_text=xml_text, quality=quality,
+                    trades=trades, facts=facts, parsed=parsed, root=root)
                 return result
     except Exception as exc:
         item = _check('source','报告依据')
