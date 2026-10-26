@@ -269,7 +269,7 @@ def build_summary2_latest_payload(
     )
     children = cur.fetchall()
 
-    totals = {"market_value": 0, "holding_pnl": 0, "daily_pnl": 0}
+    totals: dict[str, float] = {"market_value": 0, "holding_pnl": 0, "daily_pnl": 0}
     for row in by_asset_class:
         totals["market_value"] += float(row["market_value"] or 0)
         totals["holding_pnl"] += float(row["holding_pnl"] or 0)
@@ -447,10 +447,16 @@ def apply_return_attribution_pnl_to_summary(
 def apply_published_valuation_state_to_summary(
     payload: dict[str, Any],
     valuation_state: dict[str, Any] | None,
+    *, account_balances: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Use a fresh published portfolio valuation as the authoritative total."""
     if not valuation_state or valuation_state.get("net_liquidation_value") in (None, ""):
         return payload
+    from services.portfolio_valuation_state import published_daily_close_compatible
+    if not published_daily_close_compatible(valuation_state, account_balances=account_balances):
+        return {**payload, "valuation_state": {"source": "published", "overlay_applied": False,
+                "overlay_reason": "daily_close_evidence_basis_mismatch",
+                "as_of": str(valuation_state.get("valuation_date") or "")}}
     fact_as_of = _summary_fact_as_of(payload)
     if not is_published_valuation_fresh_for_date(valuation_state, fact_as_of):
         out = dict(payload)

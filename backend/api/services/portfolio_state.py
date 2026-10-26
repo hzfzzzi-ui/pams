@@ -213,7 +213,7 @@ def _fx_rate(rates: dict[str, Decimal], currency: str, base_currency: str) -> De
 
 def _excluded_accounts(account_cfg: dict[str, Any]) -> set[str]:
     defaults = account_cfg.get("defaults") or {}
-    values = []
+    values: list[Any] = []
     values.extend(account_cfg.get("excluded_accounts") or [])
     values.extend(defaults.get("excluded_accounts") or [])
     return {str(v).strip() for v in values if str(v).strip()}
@@ -437,6 +437,45 @@ def _rolled_forward_account_balance(
     }
 
 
+def _apply_daily_close_balance(cur, row: dict[str, Any], *, base_currency: str, owner_ratio: Decimal,
+                              selected_source: str | None = None) -> None:
+    from services import ibkr_daily_close_read as daily_close
+    from services.valuation_nav import daily_close_account_identity, daily_close_nav_bucket, daily_close_value_metadata
+
+    if (row["account_code"] != "ibkr" or row.get("truth_source") != "ibkr_flex"
+            or selected_source not in {None, "platform_snapshot"} or not daily_close.configured()):
+        return
+    try:
+        day = Date.fromisoformat(str(row["as_of"])[:10])
+    except (TypeError, ValueError):
+        row["daily_close"] = {"status": "unconfirmed", "reasons": ["missing_account_date"]}
+        return
+    close = daily_close.read_close(as_of=day)
+    if close.get("status") != "ok" or close.get("as_of") != day.isoformat():
+        row["daily_close"] = {"status": "unconfirmed", "as_of": day.isoformat(),
+                              "reasons": close.get("reasons") or ["closing_scope_mismatch"]}
+        return
+    identity = daily_close_account_identity(cur, source_account_id=close["account_id"], as_of=day)
+    if identity["status"] != "ok":
+        row["daily_close"] = {"status": "unconfirmed", "as_of": day.isoformat(),
+                              "reasons": identity["reasons"], "identity_evidence": identity}
+        return
+    fx = daily_close.historical_fx(cur, currency=close["base_currency"], base_currency=base_currency, as_of=day)
+    rate = fx.get("rate") if fx.get("status") == "ok" else None
+    bucket = daily_close_nav_bucket(close, rate=rate, owner_ratio=owner_ratio)
+    if bucket is None or rate is None:
+        row["daily_close"] = {"status": "unconfirmed", "as_of": day.isoformat(),
+                              "fx_evidence": {k: str(v) if isinstance(v, Decimal) else v for k, v in fx.items()},
+                              "reasons": fx.get("reasons") if rate is None else ["missing_gross_nav_proof"]}
+        return
+    metadata = daily_close_value_metadata(close, rate=rate, owner_ratio=owner_ratio,
+                                         legacy_value=_dec(row["amount_cny"]), fx_evidence=fx)
+    metadata.update({"valuation_currency": base_currency, "assets_cny": str(bucket["assets"]),
+                     "liabilities_cny": str(bucket["liabilities"]), "identity_evidence": identity})
+    row.update(amount=bucket["net_worth"], currency=base_currency, amount_cny=bucket["net_worth"],
+               daily_close=metadata)
+
+
 def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) -> list[dict[str, Any]]:
     """Load account-level balances selected from manual, statement, or platform sources."""
     accounts = account_cfg.get("accounts") or {}
@@ -511,22 +550,23 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
                 amount_cny = _dec(rolled.get("amount_cny"))
                 as_of = rolled.get("as_of")
 
-        rows.append(
-            {
-                "account_code": code,
-                "parent_account_code": cfg.get("parent_account_code"),
-                "display_name": cfg.get("display_name") or code,
-                "account_type": account_type,
-                "base_currency": account_base,
-                "amount": amount,
-                "currency": currency,
-                "amount_cny": amount_cny,
-                "as_of": as_of,
-                "truth_source": truth_source,
-                "review_status": review_status,
-                "include_in_nav": include_in_nav,
-            }
-        )
+        row: dict[str, Any] = {
+            "account_code": code,
+            "parent_account_code": cfg.get("parent_account_code"),
+            "display_name": cfg.get("display_name") or code,
+            "account_type": account_type,
+            "base_currency": account_base,
+            "amount": amount,
+            "currency": currency,
+            "amount_cny": amount_cny,
+            "as_of": as_of,
+            "truth_source": truth_source,
+            "review_status": review_status,
+            "include_in_nav": include_in_nav,
+        }
+        _apply_daily_close_balance(cur, row, base_currency=base_currency, owner_ratio=owner_ratio,
+                                  selected_source=selected.get("source") if selected else None)
+        rows.append(row)
     return rows
 
 
@@ -777,6 +817,9 @@ def _synthetic_broker_cash_positions(
             continue
         positions_as_of = (account_position_as_of or {}).get(account_code)
         balance = balances_by_account.get(account_code)
+        # Account accruals and the FX bridge are not brokerage cash positions.
+        if account_code == "ibkr" and balance and (balance.get("daily_close") or {}).get("status") == "ok":
+            continue
         source_as_of = balance.get("as_of") if balance else None
         if balance:
             currency = str(balance.get("currency") or cfg.get("base_currency") or base_currency).upper()
@@ -1004,7 +1047,7 @@ def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> 
         (limit,),
     )
     raw_rows = list(reversed([dict(r) for r in cur.fetchall()]))
-    rows: list[dict[str, Any]] = []
+    rows = []
     for raw in raw_rows:
         net_worth = raw.get("net_worth_cny", raw.get("total_market_value"))
         rows.append(

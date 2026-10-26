@@ -100,11 +100,11 @@ def _state_as_of(
     account_balances: list[dict[str, Any]],
     investment_positions: list[dict[str, Any]],
 ) -> str:
-    values = []
+    values: list[str | None] = []
     values.extend(_date_key(row.get("as_of")) for row in account_balances)
     values.extend(_date_key(row.get("as_of")) for row in investment_positions)
-    values = [value for value in values if value]
-    return max(values) if values else Date.today().isoformat()
+    valid_values = [value for value in values if value]
+    return max(valid_values) if valid_values else Date.today().isoformat()
 
 
 def _state_hash(payload: dict[str, Any]) -> str:
@@ -140,15 +140,19 @@ def _normalize_db_row(row: dict[str, Any] | None, *, source: str | None = None) 
     return _norm(payload)
 
 
-def published_nav_bucket_from_row(row: dict[str, Any] | None) -> dict[str, Decimal] | None:
+def published_nav_bucket_from_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return a NAV bucket using the published valuation-state row fields."""
     if not row:
         return None
-    return {
+    result: dict[str, Any] = {
         "assets": _dec(row.get("assets_cny")),
         "liabilities": _dec(row.get("liabilities_cny")),
         "net_worth": _dec(row.get("net_liquidation_value")),
     }
+    raw = row.get("raw_json")
+    if isinstance(raw, dict) and isinstance(raw.get("ibkr_daily_close"), dict):
+        result["ibkr_daily_close"] = dict(raw["ibkr_daily_close"])
+    return result
 
 
 def published_valuation_state_meta(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -517,6 +521,16 @@ def build_portfolio_valuation_state_from_parts(
         },
         "account_values_cny": account_values_cny,
     }
+    from services import ibkr_daily_close_read as daily_close
+    if daily_close.configured():
+        from services.valuation_nav import current_daily_close_accounts
+        applied = current_daily_close_accounts(account_balances, investment_positions)
+        raw_json["ibkr_daily_close"] = {
+            **applied["ibkr"]["daily_close"], "net_worth_cny": str(applied["ibkr"]["amount_cny"])
+        } if "ibkr" in applied else {
+            "status": "unconfirmed", "reasons": ["confirmed_account_close_not_applied"]}
+        if "ibkr" not in applied:
+            data_completeness = "partial"
     state = {
         "valuation_date": valuation_date,
         "cycle": str(cycle or "manual_publish"),
@@ -584,6 +598,61 @@ def latest_published_portfolio_valuation_state(
         (str(base_currency or "CNY").upper(),),
     )
     return cur.fetchone()
+
+
+def published_daily_close_compatible(row: dict[str, Any] | None, *,
+                                     account_balances: list[dict[str, Any]] | None = None) -> bool:
+    """A legacy NAV projection cannot overwrite an opt-in confirmed close.
+
+    This gate applies to NAV consumers only. Holding-return projection semantics
+    remain independent and must not be disabled as a side effect.
+    """
+    from services import ibkr_daily_close_read as daily
+
+    if not daily.configured():
+        return True
+    evidence = daily.load_evidence()
+    if not row or evidence.get("status") != "ok":
+        return False
+    raw = row.get("raw_json")
+    if not isinstance(raw, dict):
+        return False
+    proof = raw.get("ibkr_daily_close")
+    source_matches = bool(isinstance(proof, dict) and proof.get("status") == "ok"
+        and proof.get("nav_basis") == "official_base_nav_at_internal_historical_fx"
+        and proof.get("source_sha256") == evidence["sha256"]
+        and proof.get("source_account_id") == evidence["account_id"]
+        and proof.get("as_of") == evidence["as_of"].isoformat())
+    if not source_matches:
+        return False
+    assert isinstance(proof, dict)
+    current = [balance for balance in (account_balances or [])
+               if balance.get("account_code") == "ibkr" and balance.get("include_in_nav", True)]
+    if len(current) != 1:
+        return False
+    actual = current[0].get("daily_close") or {}
+    if (actual.get("status") != "ok" or str(current[0].get("as_of"))[:10] != actual.get("as_of")):
+        return False
+    for field in ("source_sha256", "source_account_id", "as_of", "nav_basis", "valuation_currency", "fx_evidence"):
+        if field not in proof or field not in actual or proof[field] != actual[field]:
+            return False
+    # XML identity alone does not bind mutable internal FX or ownership settings.
+    for field in ("owner_ratio", "fx_rate", "assets_cny", "liabilities_cny", "net_worth_cny"):
+        expected = current[0].get("amount_cny") if field == "net_worth_cny" else actual.get(field)
+        left, right = _exact_amount(proof.get(field)), _exact_amount(expected)
+        if left is None or right is None or left != right:
+            return False
+    return True
+
+
+def _exact_amount(value: Any) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        amount = Decimal(str(value))
+        return amount if amount.is_finite() else None
+    except (ValueError, ArithmeticError):
+        return None
 
 
 def publish_current_portfolio_valuation_state(
@@ -671,6 +740,7 @@ def build_portfolio_valuation_state_payload(
     with conn_factory() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             table_ready = _table_exists(cur, STATE_TABLE)
+            row: dict[str, Any] | None
             if refresh:
                 row = publish_current_portfolio_valuation_state(cur, base_currency=base, cycle=cycle)
                 return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}

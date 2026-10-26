@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import os
 import hashlib
+import re
 import xml.etree.ElementTree as ET
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -72,15 +74,61 @@ def published_report_status(conn=None) -> dict[str, Any]:
 
 
 def read_published_performance() -> dict[str, Any] | None:
+    from services import ibkr_daily_close_read as daily
     with get_conn() as conn:
         report, latest = report_state.select_report(conn, _raw_dir())
     if report is None:
         return None
-    result = _parse_flex_performance(report.path)
+    result = (_parse_flex_performance(report.path, include_display_fx=False)
+              if daily.configured() else _parse_flex_performance(report.path))
+    if hashlib.sha256(report.path.read_bytes()).hexdigest() != report.sha256:
+        raise IBKRFlexError("Published IBKR report changed during read")
+    result = apply_daily_close(result, report.path)
+    if daily.configured() and (result.get("daily_close") or {}).get("status") == "ok":
+        from services.ibkr_portfolio_binding import read_bound_performance
+        result = read_bound_performance(result, enabled=True)
+    elif daily.configured():
+        result = {**result, "status": "unavailable"}
     if hashlib.sha256(report.path.read_bytes()).hexdigest() != report.sha256:
         raise IBKRFlexError("Published IBKR report changed during read")
     result["report_quality"] = report_state.report_quality(report, latest)
     return result
+
+
+def apply_daily_close(result: dict[str, Any], source_path: Path, *, cur=None,
+                      period_start: date | None = None) -> dict[str, Any]:
+    """Use separately approved close evidence without importing it as transactions."""
+    from services import ibkr_daily_close_read as daily
+
+    if not daily.configured():
+        return result
+    try:
+        content = daily.read_bounded(source_path, 32 * 1024 * 1024)
+        if re.search(rb"<!\s*(?:DOCTYPE|ENTITY)\b", content, re.IGNORECASE):
+            raise ValueError("unsafe_xml")
+        root = ET.fromstring(content)
+        as_of = date.fromisoformat(result["as_of"])
+    except (OSError, ValueError, KeyError, TypeError, ET.ParseError):
+        return {**result, "daily_close": {"status": "unavailable",
+                "value_basis": "legacy_cash_plus_positions_unconfirmed", "reasons": ["invalid_production_scope"]}}
+    accounts = {node.get("accountId") for node in root.iter("FlexStatement")}
+    if len(accounts) != 1 or not all(accounts):
+        return {**result, "daily_close": {"status": "unavailable", "reasons": ["ambiguous_production_account"]}}
+    account = str(next(iter(accounts)))
+    close = daily.read_close(as_of=as_of, account_id=account,
+                             period_start=period_start or date(as_of.year, 1, 1))
+    preview = daily.overlay_performance(result, account_id=account, close=close)
+    if preview.get("daily_close", {}).get("status") != "ok":
+        return preview
+    if cur is None:
+        with get_conn() as conn:
+            with conn.cursor() as cursor:
+                fx = daily.historical_fx(cursor, currency=result["base_currency"],
+                                         base_currency="CNY", as_of=as_of)
+    else:
+        fx = daily.historical_fx(cur, currency=result["base_currency"], base_currency="CNY", as_of=as_of)
+    return daily.overlay_performance(result, account_id=account, close=close,
+                                     fx_rate=fx.get("rate"), fx_evidence=fx)
 
 
 def _latest_usd_cny_rate() -> Decimal | None:
