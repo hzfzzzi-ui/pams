@@ -785,8 +785,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         assert template.count("<strong>收益状态</strong>") == 1
         assert f"holdingDailyStatusBadge({row_name}) || '<span class=\"muted\">—</span>'" in template
         assert template.index("<strong>今日盈亏</strong>") < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261026-ibkr-close-binding-v1" in html
-    assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261026-nav-independent-v1" in html
+    assert "assets/js/lookthrough.js?v=20261026-nav-independent-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
     assert "style-phone.css?v=20261020-phone-restore-v1" in html
@@ -1527,7 +1527,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "returnAttributionOverride" not in lookthrough_js
     assert "holdingsKpiSummary" not in lookthrough_js
     assert "盈亏总额以持仓页最终 KPI 为准" not in lookthrough_js
-    assert "/summary2/latest?baseCurrency=CNY" in lookthrough_js
+    assert "loadInvestmentSummaryFresh" in lookthrough_js
     assert "ReturnAttributionAssetHeatmap" in lookthrough_js
     assert "returnAttributionHeatmapRows" in lookthrough_js
     assert "returnAttributionLookupHoldingDaily" in lookthrough_js
@@ -1549,7 +1549,9 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "safeStorageGet" in lookthrough_js
     assert "safeStorageSet" in lookthrough_js
     assert "localStorage.getItem('pams.lookthrough.dimension')" not in lookthrough_js
-    assert "jget('/summary2/latest?baseCurrency=CNY', { cache: false })" in lookthrough_js
+    requests_js = _read_public("assets/js/investment_requests.js")
+    assert "loadInvestmentSummaryFresh()" in lookthrough_js
+    assert "jget('/summary2/latest?baseCurrency=CNY', { cache: false })" in requests_js
     assert "pams:load-trade-attribution" in lookthrough_js
     assert "returnAssetHeatmapCanvas" in css
     assert "--return-asset-name" in css
@@ -1566,11 +1568,11 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
     holdings_js = _read_public("assets/js/holdings_categories.js")
     api_js = _read_public("assets/js/api.js")
 
-    assert "/summary2/latest?baseCurrency=CNY" in holdings_js
+    assert "loadInvestmentSummaryFresh" in holdings_js
     assert "function canonicalPortfolioDashboardSummary" in holdings_js
     assert "jgetFresh('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true')" in holdings_js
     assert "jgetFresh(withClosedParam('/holdings/by-category/美股?limit=500'))" in holdings_js
-    assert "jgetFresh('/summary2/latest?baseCurrency=CNY')" in holdings_js
+    assert "loadInvestmentSummaryFresh().catch(() => null)" in holdings_js
     assert "jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY')" in holdings_js
     assert "totals.daily_pnl" in holdings_js
     assert "totals.market_value" in holdings_js

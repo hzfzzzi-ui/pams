@@ -1,5 +1,6 @@
 ﻿import { jget, fmt2, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
 import { openBottomSheet, setActiveNav } from './ui.js?v=20260622-data-state-a11y-v1';
+import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261026-nav-independent-v1';
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20260622-fund-pnl-v1';
 import { accountCashBreakdown } from './account_cash.js?v=20260606-cash-active-v1';
 
@@ -915,6 +916,7 @@ function TopContributionPanel(model) {
 async function renderInvestmentReturnChart() {
   const el = document.getElementById('investmentReturnChart');
   if (!el) return null;
+  loadInvestmentNavChartOnce().catch(() => null);
 
   const sectionSpecs = [
     { key: 'a_stock', label: 'A股个股', color: '#f85149', url: '/investment/section-return-series?section=a_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
@@ -922,30 +924,25 @@ async function renderInvestmentReturnChart() {
     { key: 'us_stock', label: '美股', color: '#58a6ff', url: '/investment/section-return-series?section=us_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
     { key: 'precious_metal', label: '贵金属', color: '#a371f7', url: '/investment/section-return-series?section=precious_metal&start=2026-01-01&interval=daily&baseCurrency=CNY' },
   ];
-  const [resp, navResp, ...sectionResponses] = await Promise.all([
+  const [resp, ...sectionResponses] = await Promise.all([
     jget('/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY').catch(() => ({ rows: [] })),
-    jget('/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily').catch(() => ({ rows: [] })),
     ...sectionSpecs.map(spec => jget(spec.url).catch(() => ({ rows: [] }))),
   ]);
   const rows = resp.rows || [];
-  const navRows = normalizeInvestmentNavRows(navResp.rows || []);
-  const isMobileReturnChart = window.matchMedia?.(INVESTMENT_PHONE_QUERY)?.matches;
+  const chartState = getInvestmentChartState();
+  const isMobileReturnChart = chartState.isMobile;
   const sectionRowsByKey = new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.rows || []]));
-  const chartState = {
+  Object.assign(chartState, {
     rows,
-    navRows,
     sectionRowsByKey,
     sectionSpecs,
-    activeWindow: readReturnWindowPreference(),
-    isMobile: isMobileReturnChart,
     events: buildReturnEvents(rows),
     visibleRows: [],
     visibleEvents: [],
     topContribution: null,
     pnlMap: new Map(),
     valueMap: new Map(),
-    navChart: null,
-  };
+  });
   const initialWindowData = buildInvestmentReturnWindowData(
     chartState.rows,
     chartState.sectionRowsByKey,
@@ -1005,7 +1002,6 @@ async function renderInvestmentReturnChart() {
     });
     bindReturnEventPopover(window.__investmentReturnChart, chartState);
     renderReturnEventHotspots(window.__investmentReturnChart, chartState);
-    chartState.navChart = renderInvestmentNavChart(chartState.navRows, chartState.activeWindow, chartState.isMobile);
     renderInvestmentReturnToggle(window.__investmentReturnChart, sectionSpecs, chartState);
     renderInvestmentReturnWindowToggle(window.__investmentReturnChart, chartState);
     renderReturnContributionPanel(chartState.topContribution);
@@ -1118,7 +1114,6 @@ async function renderInvestmentReturnChart() {
   });
   bindReturnEventPopover(window.__investmentReturnChart, chartState);
   renderReturnEventHotspots(window.__investmentReturnChart, chartState);
-  chartState.navChart = renderInvestmentNavChart(chartState.navRows, chartState.activeWindow, chartState.isMobile);
   renderInvestmentReturnToggle(window.__investmentReturnChart, sectionSpecs, chartState);
   renderInvestmentReturnWindowToggle(window.__investmentReturnChart, chartState);
   renderReturnContributionPanel(chartState.topContribution);
@@ -2192,10 +2187,14 @@ function bindReturnEventPopover(chart, state) {
 }
 
 function applyInvestmentReturnWindow(chart, state, nextWindowKey, persist = true) {
-  if (!chart || !state) return;
+  if (!state) return;
   state.activeWindow = normalizeReturnWindowKey(nextWindowKey);
   if (persist) {
     writeReturnWindowPreference(state.activeWindow);
+  }
+  if (!chart) {
+    updateInvestmentNavChart(state);
+    return;
   }
   const windowData = buildInvestmentReturnWindowData(
     state.rows,
@@ -2237,7 +2236,7 @@ function applyInvestmentReturnWindow(chart, state, nextWindowKey, persist = true
 
 function renderInvestmentReturnWindowToggle(chart, state) {
   const el = document.getElementById('investmentReturnWindowToggle');
-  if (!el || !chart || !state) return;
+  if (!el || !state) return;
   const activeWindow = normalizeReturnWindowKey(state.activeWindow);
   el.innerHTML = RETURN_WINDOW_OPTIONS.map(item => `
     <button type="button" data-return-window="${esc(item.key)}" class="${item.key === activeWindow ? 'active' : ''}" aria-pressed="${item.key === activeWindow ? 'true' : 'false'}">
@@ -2976,7 +2975,41 @@ function queueVisibleCategoryReturnChart(delayMs = 0) {
 }
 
 let investmentReturnChartPromise = null;
+let investmentNavChartPromise = null;
+let investmentChartState = null;
 let analysisHeavyLoadersStarted = false;
+
+function getInvestmentChartState() {
+  if (!investmentChartState) {
+    investmentChartState = {
+      navRows: [],
+      activeWindow: readReturnWindowPreference(),
+      isMobile: window.matchMedia?.(INVESTMENT_PHONE_QUERY)?.matches,
+      navChart: null,
+    };
+  }
+  return investmentChartState;
+}
+
+function loadInvestmentNavChartOnce() {
+  if (!investmentNavChartPromise) {
+    const state = getInvestmentChartState();
+    investmentNavChartPromise = jget('/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily')
+      .catch(() => ({ rows: [] }))
+      .then((response) => {
+        state.navRows = normalizeInvestmentNavRows(response.rows || []);
+        state.navChart = renderInvestmentNavChart(state.navRows, state.activeWindow, state.isMobile);
+        if (!window.__investmentReturnChart) renderInvestmentReturnWindowToggle(null, state);
+        return state.navChart;
+      })
+      .catch((error) => {
+        investmentNavChartPromise = null;
+        console.error('NAV曲线加载失败', error);
+        throw error;
+      });
+  }
+  return investmentNavChartPromise;
+}
 
 function loadInvestmentReturnChartOnce() {
   if (!investmentReturnChartPromise) {
@@ -2999,6 +3032,7 @@ function setupAnalysisHeavyLoaders() {
   const toggle = document.getElementById('investmentReturnToggle');
   if (chartWrap) chartWrap.hidden = false;
   if (toggle) toggle.hidden = false;
+  loadInvestmentNavChartOnce().catch(() => null);
   window.setTimeout(() => loadInvestmentReturnChartOnce().catch(() => null), 300);
   window.setTimeout(loadVisibleCategoryReturnChart, 900);
 }
@@ -3062,6 +3096,10 @@ async function main(){
   bindContributionTabs();
   bindInvestmentPageTabs();
   promoteHoldingsTable();
+  if (document.body.dataset.investTab === 'analysis') {
+    loadInvestmentNavChartOnce().catch(() => null);
+  }
+  runWhenInvestmentAnalysisVisible(() => setupAnalysisHeavyLoaders());
 
   try {
     const [
@@ -3092,7 +3130,7 @@ async function main(){
       jgetFresh('/api/ibkr/performance').catch(() => null),
       jgetFresh('/api/account-performance/tonghuashun').catch(() => null),
       jgetFresh('/api/investment-returns/reported').catch(() => null),
-      jgetFresh('/summary2/latest?baseCurrency=CNY').catch(() => null),
+      loadInvestmentSummaryFresh().catch(() => null),
       jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(() => null),
     ]);
     const aStockReturn = null;
@@ -3484,9 +3522,6 @@ async function main(){
       mobileProfiles,
     });
 
-    runWhenInvestmentAnalysisVisible(() => {
-      setupAnalysisHeavyLoaders();
-    });
     if (isInvestmentAnalysisHash(window.location.hash)) {
       window.setTimeout(() => setupAnalysisHeavyLoaders(), 500);
     }
