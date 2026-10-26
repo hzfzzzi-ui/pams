@@ -809,3 +809,57 @@ def test_bad_ancestor_period_does_not_mask_global_child_account_or_model_contrad
     result = review_xml(root)
     assert result['reason'] == 'contradictory_account_or_model_scope'
     assert result['total'] is None and result['records'] == []
+
+
+@pytest.mark.parametrize('change', ['included', 'separate', 'zero', 'arithmetic', 'ancestor',
+                                  'row_period', 'duplicate', 'ambiguous_attribute', 'missing_fee', 'stale'])
+def test_shared_tree_keeps_independent_scope_arithmetic_hash_and_full_result(monkeypatch, change):
+    from services import ibkr_fee_settlement as service
+
+    data = case(fee='0' if change == 'zero' else '-1.25')
+    if change == 'separate':
+        separate(data)
+    elif change == 'arithmetic':
+        data['lines'][0]['amount'] = '-99'
+    elif change == 'row_period':
+        data['lines'][0]['date'] = '20310415'
+    elif change == 'duplicate':
+        data['lines'].append(deepcopy(data['lines'][0]))
+    elif change == 'ambiguous_attribute':
+        data['lines'][0]['tradecommission'] = '-99'
+    elif change == 'missing_fee':
+        data['trades'][0].pop('ibCommission')
+    elif change == 'stale':
+        data['quality']['status'] = 'stale'
+    root = ET.fromstring(xml_text(data))
+    if change == 'ancestor':
+        root.set('model', 'UNSUPPORTED_MODEL')
+    text = ET.tostring(root, encoding='unicode')
+    expected = review_fee_settlement(xml_text=text, quality=data['quality'])
+    before = ET.tostring(root)
+    counts = {'scope': 0, 'arithmetic': 0}
+    scope, arithmetic = service._ancestor_scope, service._sum_matches
+
+    def observe_scope(*args):
+        counts['scope'] += 1
+        return scope(*args)
+
+    def observe_arithmetic(*args):
+        counts['arithmetic'] += 1
+        return arithmetic(*args)
+
+    def unexpected_parse(*args, **kwargs):
+        pytest.fail('Settlement must reuse the supplied tree without reparsing')
+
+    monkeypatch.setattr(ET, 'fromstring', unexpected_parse)
+    monkeypatch.setattr(service, '_ancestor_scope', observe_scope)
+    monkeypatch.setattr(service, '_sum_matches', observe_arithmetic)
+    result = service._review_fee_settlement(xml_text=text, quality=data['quality'], root=root)
+    assert result == expected and ET.tostring(root) == before
+    assert result['report_sha256'] == hashlib.sha256(text.encode('utf-8')).hexdigest()
+    if change in {'included', 'separate', 'zero', 'arithmetic'}:
+        assert counts['scope'] > 0 and counts['arithmetic'] > 0
+        status = 'conflict' if change == 'arithmetic' else 'sufficient'
+        assert result['records'][0]['status'] == status
+    else:
+        assert not any(item['status'] == 'sufficient' for item in result['records'])

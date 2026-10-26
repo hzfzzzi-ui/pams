@@ -253,6 +253,12 @@ def review_fee_settlement(*, xml_text: str, quality: Mapping[str, Any]) -> dict[
     Append this result to fee_review without replacing its unit/fact/lineage checks.
     Sufficient means evidence in the stated scope, not a full account/NAV approval.
     """
+    return _review_fee_settlement(xml_text=xml_text, quality=quality)
+
+
+def _review_fee_settlement(*, xml_text: str, quality: Mapping[str, Any],
+                           root: ET.Element | None = None) -> dict[str, Any]:
+    """Reuse an unmodified request-local tree, but validate all evidence independently."""
     result: dict[str, Any] = {
         'status': 'unverified', 'read_only': True, 'executable': False,
         'additional_deduction_proposed': False, 'financial_values_changed': False,
@@ -265,7 +271,8 @@ def review_fee_settlement(*, xml_text: str, quality: Mapping[str, Any]) -> dict[
                                   'issue_count': 0, 'reason_counts': {}, 'issues': [], 'truncated': False},
     }
     try:
-        root = ET.fromstring(xml_text)
+        if root is None:
+            root = ET.fromstring(xml_text)
         statements = [node for node in root.iter() if node.tag.rsplit('}', 1)[-1] == 'FlexStatement']
         if not statements:
             return {**result, 'reason': 'missing_statements'}

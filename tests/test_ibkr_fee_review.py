@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import date
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 import psycopg2.extras
 from psycopg2.extensions import connection, ISOLATION_LEVEL_REPEATABLE_READ
@@ -285,11 +286,11 @@ def test_real_postgres_additive_api_preserves_checks_and_never_writes(sync_case,
               'jobs': rows(database, 'pams_data_job_run')}
     files = sorted(str(path) for path in tmp_path.rglob('*.xml'))
     seen = []
-    real_review = audit.review_fees
+    real_review = audit._review_fees_with_report
     def observe(**kwargs):
         seen.append(deepcopy(kwargs))
         return real_review(**kwargs)
-    monkeypatch.setattr(audit, 'review_fees', observe)
+    monkeypatch.setattr(audit, '_review_fees_with_report', observe)
     first = client.get('/api/ibkr/reconciliation').json()
     second = client.get('/api/ibkr/reconciliation').json()
     assert first == second and first['fee_review']['summary']['reviewed_rows'] == 1
@@ -298,7 +299,7 @@ def test_real_postgres_additive_api_preserves_checks_and_never_writes(sync_case,
     assert first['fee_review']['records'][0]['unit_review']['status'] == 'source_unit_verified'
     assert first['read_only'] and first['fee_review']['existing_fee_and_lineage_blockers_preserved']
     original = {key: value for key, value in first.items() if key != 'fee_review'}
-    monkeypatch.setattr(audit, 'review_fees', lambda **kwargs: {})
+    monkeypatch.setattr(audit, '_review_fees_with_report', lambda **kwargs: {})
     no_fee = client.get('/api/ibkr/reconciliation').json()
     no_fee.pop('fee_review')
     assert original == no_fee and seen and statements
@@ -306,7 +307,7 @@ def test_real_postgres_additive_api_preserves_checks_and_never_writes(sync_case,
     def fail(**kwargs):
         raise RuntimeError('secret diagnostic error')
     monkeypatch.setattr(fee_audit, '_review_fees', fail)
-    monkeypatch.setattr(audit, 'review_fees', real_review)
+    monkeypatch.setattr(audit, '_review_fees_with_report', real_review)
     failed_child = client.get('/api/ibkr/reconciliation').json()
     assert failed_child.pop('fee_review')['status'] == 'unavailable'
     assert failed_child == original and 'secret' not in str(failed_child)
@@ -390,8 +391,98 @@ def test_settlement_is_additive_and_failure_cannot_replace_existing_fee_checks(m
     assert case == before
     def fail(**kwargs):
         raise ValueError('private-error-must-not-leak')
-    monkeypatch.setattr(service, 'review_fee_settlement', fail)
+    monkeypatch.setattr(service, '_review_fee_settlement', fail)
     failed = service.review_fees(**case)
     child = failed.pop('settlement_evidence')
     assert failed == expected and child['status'] == 'unavailable'
     assert 'private-error' not in str(child) and case == before
+
+
+def test_standalone_fee_review_parses_once_and_shares_its_tree_with_settlement(monkeypatch):
+    from services import ibkr_fee_review as service
+
+    case = complete_fee_case()
+    expected = review_fees(**case)
+    real_parse, real_xml = service.parse_flex_report, ET.fromstring
+    counts = {'parsed': 0, 'xml': 0}
+
+    def parse(text):
+        counts['parsed'] += 1
+        return real_parse(text)
+
+    def root(text):
+        counts['xml'] += 1
+        return real_xml(text)
+
+    monkeypatch.setattr(service, 'parse_flex_report', parse)
+    monkeypatch.setattr(ET, 'fromstring', root)
+    assert review_fees(**case) == expected
+    assert counts == {'parsed': 1, 'xml': 2}
+
+
+@pytest.mark.parametrize('change', ['none', 'fee', 'scope', 'source_hash', 'daily_cash', 'stale', 'missing_currency'])
+def test_preparsed_fee_review_deeply_matches_and_does_not_mutate_inputs(monkeypatch, change):
+    from services import ibkr_fee_review as service
+
+    case = complete_fee_case()
+    if change == 'fee':
+        case['facts'][0]['fee_amount'] = 9
+    elif change == 'scope':
+        case['facts'][0]['currency'] = 'HKD'
+    elif change == 'source_hash':
+        case['facts'][0]['source_hash'] = 'wrong'
+    elif change == 'daily_cash':
+        case['xml_text'] = XML.replace('commissions="-3"', 'commissions="-99"')
+    elif change == 'stale':
+        case['quality']['status'] = 'stale'
+    elif change == 'missing_currency':
+        case['xml_text'] = XML.replace('ibCommissionCurrency="USD"', '', 1)
+    expected = review_fees(**case)
+    parsed, root = parse_flex_report(case['xml_text']), ET.fromstring(case['xml_text'])
+    before, parsed_before, tree_before = deepcopy(case), deepcopy(parsed), ET.tostring(root)
+
+    def unexpected_parse(*args, **kwargs):
+        pytest.fail('A supplied request-local parse must not be repeated')
+
+    monkeypatch.setattr(service, 'parse_flex_report', unexpected_parse)
+    monkeypatch.setattr(ET, 'fromstring', unexpected_parse)
+    result = service._review_fees_with_report(**case, parsed=parsed, root=root)
+    assert result == expected and case == before
+    assert parsed == parsed_before and ET.tostring(root) == tree_before
+
+
+def test_collector_parse_failure_does_not_suppress_independent_zero_fee_evidence(monkeypatch):
+    from services import ibkr_fee_review as service
+
+    xml = XML.replace('toDate="20261022">', 'fromDate="20261022" toDate="20261022">', 1)
+    xml = xml.replace('<Trade accountId=', '<Trade levelOfDetail="EXECUTION" accountId=')
+    xml = xml.replace('ibCommission="-2"', 'ibCommission="0"')
+    case = make_case(xml)
+    expected = review_fees(**case)['settlement_evidence']
+
+    def fail(text):
+        raise RuntimeError('private collector failure')
+
+    monkeypatch.setattr(service, 'parse_flex_report', fail)
+    result = review_fees(**case)
+    assert result['status'] == 'unavailable' and result['error_type'] == 'RuntimeError'
+    assert result['settlement_evidence'] == expected
+    assert expected['records'][0]['classification'] == 'explicit_zero'
+    assert 'private collector failure' not in str(result)
+
+
+def test_settlement_uses_raw_tree_not_normalized_trade_values():
+    from services import ibkr_fee_review as service
+    from services.ibkr_fee_settlement import review_fee_settlement
+
+    xml = XML.replace('toDate="20261022">', 'fromDate="20261022" toDate="20261022">', 1)
+    xml = xml.replace('<Trade accountId=', '<Trade levelOfDetail="EXECUTION" accountId=')
+    case = make_case(xml)
+    parsed, root = parse_flex_report(xml), ET.fromstring(xml)
+    expected = review_fee_settlement(xml_text=xml, quality=case['quality'])
+    for trade in parsed.trades:
+        trade.update(commission=0, net_cash=0, source_account_id='WRONG_ACCOUNT')
+        trade['raw'].update(ibCommission='0', ibCommissionCurrency='USD')
+    result = service._review_fees_with_report(**case, parsed=parsed, root=root)
+    assert result['settlement_evidence'] == expected
+    assert all(item['status'] == 'unverified' for item in expected['records'])

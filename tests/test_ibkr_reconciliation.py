@@ -1,9 +1,11 @@
 """Read-only evidence must never become another asset or performance source."""
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date
 import hashlib
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 import psycopg2.extras
@@ -262,3 +264,161 @@ def test_missing_table_is_not_created_at_runtime(sync_case, database):
         cur.execute("SELECT to_regclass('public.pams_investment_trade_fact')")
         assert cur.fetchone()[0] is None
     conn.close()
+
+
+@pytest.fixture
+def read_case(case, monkeypatch):
+    from services import ibkr_report_state as state
+
+    expected_day = case['report'].as_of
+    monkeypatch.setattr(state, 'expected_statement_date', lambda: expected_day)
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def execute(self, query, args=None):
+            assert query.lstrip().upper().startswith(('SELECT', 'SET LOCAL'))
+            self.query = query
+
+        def fetchone(self):
+            return {'exists': True, 'present': True}
+
+        def fetchall(self):
+            if 'FROM pams_data_sync_runs' in self.query:
+                report = case['report']
+                return [{'id': report.run_id, 'status': 'success', 'summary_json': {
+                    'raw_file': str(report.path), 'statement_as_of': str(report.as_of),
+                    'publication': {'state': 'published', 'version': 1, 'account_code': 'ibkr',
+                                    'sha256': report.sha256, 'report_date': str(report.as_of)}}}]
+            table = self.query.split('FROM ', 1)[1].split()[0]
+            key = {'pams_ibkr_trades': 'trades', 'pams_investment_trade_fact': 'facts',
+                   'pams_ibkr_position_history': 'history', 'pams_holdings_snapshot': 'snapshots'}[table]
+            return deepcopy(case[key])
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def set_session(self, **kwargs):
+            assert kwargs == {'readonly': True, 'isolation_level': 'REPEATABLE READ'}
+
+        def cursor(self, **kwargs):
+            return Cursor()
+
+        def close(self):
+            pass
+
+    def read():
+        content = case['xml_text'].encode('utf-8')
+        case['report'].path.write_bytes(content)
+        case['report'] = replace(case['report'], sha256=hashlib.sha256(content).hexdigest())
+        return read_ibkr_reconciliation(connection_factory=Connection, raw_dir=case['report'].path.parent)
+
+    return read
+
+
+def test_request_reuses_parse_and_tree_without_cross_request_cache(case, read_case, monkeypatch):
+    from collectors import ibkr_flex as collector
+    from services import ibkr_fee_review as fees, ibkr_reconciliation as audit
+
+    inputs = {**case, 'quality': read_case()['report']['quality']}
+    expected = reconcile_report(**inputs)
+    expected['fee_review'] = fees.review_fees(**{key: inputs[key] for key in ('xml_text', 'quality', 'trades', 'facts')})
+    counts = {'parsed': 0, 'xml': 0}
+    real_parse, real_xml = collector.parse_flex_report, ET.fromstring
+
+    def parse(text):
+        counts['parsed'] += 1
+        return real_parse(text)
+
+    def root(text):
+        counts['xml'] += 1
+        return real_xml(text)
+
+    monkeypatch.setattr(audit, 'parse_flex_report', parse)
+    monkeypatch.setattr(fees, 'parse_flex_report', parse)
+    monkeypatch.setattr(ET, 'fromstring', root)
+    for request in range(1, 3):
+        assert read_case() == expected
+        # One selector inspection, one collector parse, one shared ordinary tree.
+        assert counts == {'parsed': request, 'xml': 3 * request}
+
+
+@pytest.mark.parametrize('change', ['none', 'cross_currency', 'missing_fee', 'amount',
+                                  'scope', 'source_link', 'duplicate', 'snapshot_date', 'stale'])
+def test_shared_request_dto_deeply_matches_standalone_calls(case, read_case, change):
+    from services.ibkr_fee_review import review_fees
+
+    if change == 'cross_currency':
+        case['xml_text'] = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="HKD"')
+    elif change == 'missing_fee':
+        case['xml_text'] = XML.replace('ibCommission="-1.25"', '')
+    elif change == 'amount':
+        case['facts'][0]['net_cash'] = 99
+    elif change == 'scope':
+        case['trades'][0]['currency'] = 'HKD'
+    elif change == 'source_link':
+        case['facts'][0]['source_id'] = '999'
+    elif change == 'duplicate':
+        case['facts'].append(deepcopy(case['facts'][0]))
+    elif change == 'snapshot_date':
+        case['snapshots'][0]['as_of'] = date(2026, 10, 23)
+    elif change == 'stale':
+        case['xml_text'] = XML.replace('20261022', '20261021')
+        case['report'] = replace(case['report'], as_of=date(2026, 10, 21))
+    result = read_case()
+    # Use the exact quality emitted by the selector, including its warning fields.
+    inputs = {**case, 'quality': result['report']['quality']}
+    expected = reconcile_report(**inputs)
+    expected['fee_review'] = review_fees(**{key: inputs[key] for key in ('xml_text', 'quality', 'trades', 'facts')})
+    assert result == expected
+
+
+@pytest.mark.parametrize('child', ['_review_fees', '_review_fee_settlement'])
+def test_shared_request_child_failure_preserves_other_diagnostics(case, read_case, monkeypatch, child):
+    from services import ibkr_fee_review as fees
+
+    expected = read_case()
+
+    def fail(**kwargs):
+        raise RuntimeError('private diagnostic text')
+
+    monkeypatch.setattr(fees, child, fail)
+    result = read_case()
+    actual_fees, expected_fees = result.pop('fee_review'), expected.pop('fee_review')
+    assert result == expected and 'private diagnostic text' not in str(actual_fees)
+    if child == '_review_fees':
+        assert actual_fees['status'] == 'unavailable' and actual_fees['error_type'] == 'RuntimeError'
+        assert actual_fees['settlement_evidence'] == expected_fees['settlement_evidence']
+    else:
+        unavailable = actual_fees.pop('settlement_evidence')
+        expected_fees.pop('settlement_evidence')
+        assert actual_fees == expected_fees
+        assert unavailable['status'] == 'unavailable' and unavailable['error_type'] == 'RuntimeError'
+
+
+def test_shared_request_rechecks_original_bytes_before_parsing(case, read_case, monkeypatch):
+    from services import ibkr_reconciliation as audit
+
+    select = audit.select_report
+
+    def changed_report(conn, raw_dir):
+        report, latest = select(conn, raw_dir)
+        report.path.write_bytes(report.path.read_bytes() + b' ')
+        return report, latest
+
+    def unexpected_parse(text):
+        pytest.fail('Changed report bytes must be rejected before the collector parse')
+
+    monkeypatch.setattr(audit, 'select_report', changed_report)
+    monkeypatch.setattr(audit, 'parse_flex_report', unexpected_parse)
+    result = read_case()
+    assert result['status'] == 'error' and 'fee_review' not in result
+    assert check(result, 'source')['issues'][0]['error_type'] == 'ValueError'
