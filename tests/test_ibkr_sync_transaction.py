@@ -385,7 +385,7 @@ def test_failed_audit_cannot_mask_original_error(sync_case, database, monkeypatc
 
 
 @pytest.mark.parametrize("options,expected", [
-    ({"as_of": "2026-10-20"}, "2026-10-20"),
+    ({"as_of": "2026-10-22"}, "2026-10-22"),
     ({"align_to_latest_snapshot": True}, "2026-10-22"),
 ])
 def test_date_options_keep_existing_selection(sync_case, options, expected):
@@ -394,3 +394,21 @@ def test_date_options_keep_existing_selection(sync_case, options, expected):
     assert response.status_code == 200
     assert response.json()["as_of"] == expected
     assert response.json()["statement_as_of"] == "2026-10-22"
+
+
+@pytest.mark.parametrize("target", ["2026-10-20", "2026-10-24"])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_misdated_sync_rolls_back_all_business_rows(sync_case, database, monkeypatch, target, explicit):
+    client, _, _ = sync_case
+    before = business_state(database)
+    if explicit:
+        options = {"as_of": target}
+    else:
+        from datetime import date
+
+        monkeypatch.setattr(collector, "_latest_portfolio_as_of", lambda conn: date.fromisoformat(target))
+        options = {"align_to_latest_snapshot": True}
+    response = client.post("/api/ibkr/flex/sync", json=options)
+    assert response.status_code == 502
+    assert "does not match IBKR report date" in response.json()["detail"]
+    assert business_state(database) == before

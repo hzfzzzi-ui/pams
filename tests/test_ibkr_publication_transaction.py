@@ -70,10 +70,9 @@ def test_explicit_date_override_does_not_publish_a_fake_current_report(sync_case
     client, conn, _ = sync_case
     active, _ = state.select_report(conn, tmp_path / "raw/ibkr")
     conn.rollback()
-    result = client.post("/api/ibkr/flex/sync", json={"as_of": "2026-10-20"}).json()
-    assert result["as_of"] == "2026-10-20"
-    assert result["statement_as_of"] == "2026-10-22"
-    assert result["sync_run"]["publication"]["state"] == "historical"
+    response = client.post("/api/ibkr/flex/sync", json={"as_of": "2026-10-20"})
+    assert response.status_code == 502
+    assert "does not match IBKR report date" in response.json()["detail"]
     selected, _ = state.select_report(conn, tmp_path / "raw/ibkr")
     assert selected == active
 

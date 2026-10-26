@@ -473,7 +473,7 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
 
     row_dates = [r["as_of"] for r in history_rows if isinstance(r.get("as_of"), date)]
     statement_as_of = max(row_dates)
-    rows = [row for row in history_rows if row.get("as_of") == statement_as_of]
+    rows = [dict(row) for row in history_rows if row.get("as_of") == statement_as_of]
     if not rows:
         raise IBKRFlexError(f"No current rows were parsed for latest IBKR statement date {statement_as_of}")
 
@@ -650,12 +650,18 @@ def _target_as_of(
         parsed = requested_as_of if isinstance(requested_as_of, date) else _parse_ib_date(requested_as_of)
         if not parsed:
             raise IBKRFlexError(f"Invalid as_of override: {requested_as_of}")
-        return parsed
-    if align_to_latest_snapshot:
+        target = parsed
+    elif align_to_latest_snapshot:
         current = _latest_portfolio_as_of(conn)
-        if current:
-            return current
-    return statement_as_of
+        target = current or statement_as_of
+    else:
+        target = statement_as_of
+    if target != statement_as_of:
+        raise IBKRFlexError(
+            f"Snapshot date {target} does not match IBKR report date {statement_as_of}; "
+            "report values cannot be relabelled as another business date"
+        )
+    return target
 
 
 def _ensure_reference_data(conn, account_code: str) -> None:
@@ -683,13 +689,14 @@ def _ensure_reference_data(conn, account_code: str) -> None:
 
 
 def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_of: date) -> int:
+    if any(row.get("as_of") != as_of for row in rows):
+        raise IBKRFlexError("Holdings row date does not match the report snapshot date")
+    rows = [dict(row) for row in rows]
     _ensure_reference_data(conn, account_code)
     can_backfill_asset_id = (
         _column_exists(conn, "pams_holdings_snapshot", "asset_id")
         and _table_exists(conn, "pams_asset_master")
     )
-    for row in rows:
-        row["as_of"] = as_of
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM pams_holdings_snapshot WHERE account_code = %s AND as_of = %s",
