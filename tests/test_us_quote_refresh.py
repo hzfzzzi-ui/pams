@@ -138,8 +138,8 @@ def test_scheduled_close_never_stamps_prior_close_as_today(monkeypatch):
     monkeypatch.setattr(prices, "_latest_stored_yfinance_prices", lambda *a, **k: {"QQQ": 100})
     monkeypatch.setattr(prices, "_YFINANCE_CLOSE_CACHE", {"QQQ": [(date(2026, 10, 23), 100)]})
     saved = []
-    monkeypatch.setattr(prices, "_upsert_price_snapshots", lambda rows, marks, day: saved.append(dict(marks)) or len(marks))
-    monkeypatch.setattr(prices, "_upsert_daily_return_quote_snapshots", lambda rows, marks, day, **kw: len(marks))
+    monkeypatch.setattr(prices, "_upsert_price_snapshots", lambda *a: pytest.fail("quote job must not change positions"))
+    monkeypatch.setattr(prices, "_upsert_scheduled_us_quotes", lambda rows, marks, day, basis: saved.append(dict(marks)) or len(marks))
     result = prices._refresh_category("美股", lambda _: {"QQQ": 100}, require_current_close=True)
     assert saved == [{}]
     assert result["updated"] == 0 and result["errors"]

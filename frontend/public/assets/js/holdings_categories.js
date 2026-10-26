@@ -412,9 +412,10 @@ function mobileHeroMetaItem(label, value, tone = '') {
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   const value = safeNum(profile.value);
   const dailyPending = profile.dailyStatus === 'pending';
+  const dailyPartial = profile.dailyStatus === 'partial';
   const dailyPnl = Number.isFinite(Number(profile.dailyPnl)) ? safeNum(profile.dailyPnl) : 0;
   const dailyTone = dailyPending ? '' : dailyPnl >= 0 ? 'up' : 'down';
-  const dailyStatusLabel = { pending: '待更新', estimated: '预估收益', confirmed: '今日收益已确认' }[profile.dailyStatus] || '';
+  const dailyStatusLabel = { pending: '待更新', partial: '仅含已更新标的，仍有持仓待更新', estimated: '预估收益', confirmed: '今日收益已确认' }[profile.dailyStatus] || '';
   const dailyBase = Math.max(value - dailyPnl, 1);
   const dailyRate = Number.isFinite(Number(profile.dailyRate)) ? safeNum(profile.dailyRate) : pctFromAmount(dailyPnl, dailyBase);
   const totalPnl = Number.isFinite(Number(profile.totalPnl)) ? safeNum(profile.totalPnl) : 0;
@@ -445,9 +446,9 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <strong class="mobileHeroValue ${value < 0 ? 'down' : ''}">${valueDisplay}</strong>
       </div>
       <div class="mobileHeroPrimaryMetric">
-        <span${dailyStatusLabel ? ` title="${esc(dailyStatusLabel)}"` : ''}>${esc(profile.dailyLabel || '今日盈亏')}</span>
+        <span${dailyStatusLabel ? ` title="${esc(dailyStatusLabel)}"` : ''}>${esc(dailyPartial ? '今日盈亏（部分）' : profile.dailyLabel || '今日盈亏')}</span>
         <strong class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatOptionalMoney(dailyPnl, 'CNY', { signed: true })}</strong>
-        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : signedPctText(dailyRate)}</em>
+        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending || dailyPartial ? '--' : signedPctText(dailyRate)}</em>
       </div>
       <div class="mobileHeroPrimaryMetric">
         <span>${esc(profile.totalLabel || '总盈亏')}</span>
@@ -542,7 +543,8 @@ function makeMobileHeroProfiles({
   const usDailyStatuses = usRows.filter(row => !row.is_closed
     && ![row.major_category, row.minor_category, row.type].some(category => ['现金', '现金/活期'].includes(category)))
     .map(row => row.daily_pnl_stale === true ? 'pending' : String(row.daily_return_status || row.daily_pnl_status || '').toLowerCase());
-  const usDailyStatus = usDailyStatuses.includes('pending') ? 'pending'
+  const usDailyStatus = usDailyStatuses.includes('pending')
+    ? (usDailyStatuses.some(status => ['estimated', 'confirmed'].includes(status)) ? 'partial' : 'pending')
     : usDailyStatuses.includes('estimated') ? 'estimated'
       : usDailyStatuses.length && usDailyStatuses.every(status => status === 'confirmed') ? 'confirmed' : '';
   const ibkrTotalPnl = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalPnl))

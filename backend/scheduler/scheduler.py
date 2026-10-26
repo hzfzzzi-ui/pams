@@ -281,7 +281,7 @@ def refresh_post_close_investments(target_date=None):
         ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=True)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=estimate", "Hong Kong estimate")),
-        ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=estimate", "US overnight estimate")),
+        ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=estimate&scheduled=true", "US overnight estimate")),
         ("metal", lambda: _call("prices/refresh/precious-metal", "Precious metals")),
     ], ("a_stock", "a_fund", "us_stock", "precious_metal", "total"))
 
@@ -295,7 +295,7 @@ def refresh_north_america_post_close_investments(target_date=None):
         ("flex", run_flex_confirmation),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),
-        ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close", "US confirmed close")),
+        ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close&scheduled=true", "US confirmed close")),
     ], ("a_fund", "us_stock", "precious_metal", "total"))
 
 

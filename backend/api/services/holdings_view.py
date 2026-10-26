@@ -10,6 +10,7 @@ from datetime import timedelta
 from decimal import Decimal
 from collections.abc import Mapping
 from typing import Any
+from services.quote_valuation import quote_valuation_cte
 
 from services.daily_return_state import (
     RETURN_STATUS_CONFIRMED,
@@ -670,12 +671,13 @@ def build_holdings_by_category_payload(
     daily_pnl_start_as_of: Any | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /holdings/by-category/{category} payload."""
-    cur.execute("SELECT MAX(as_of) AS as_of FROM pams_holdings_snapshot")
+    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('pams_market_quote_snapshot') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
     row = cur.fetchone()
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
 
+    quote_overlay = quote_valuation_cte(bool(row.get("quote_available")))
     if category == "其他":
         cur.execute(
             f"""
@@ -690,7 +692,7 @@ def build_holdings_by_category_payload(
                  AND cas.as_of = hs.as_of
                 WHERE hs.as_of <= %s
                 GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
-            ), h AS (
+            ), source_holdings AS (
                 SELECT hs.*
                 FROM pams_holdings_snapshot hs
                 JOIN latest_account la
@@ -700,7 +702,7 @@ def build_holdings_by_category_payload(
                   ON lp.account_code = hs.account_code
                  AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
                  AND lp.as_of = hs.as_of
-            ), fx AS (
+            ), {quote_overlay}, fx AS (
                 SELECT DISTINCT ON (quote_currency) quote_currency, rate
                 FROM pams_fx_rates_daily
                 WHERE base_currency = 'CNY'
@@ -800,7 +802,7 @@ def build_holdings_by_category_payload(
                  AND cas.as_of = hs.as_of
                 WHERE hs.as_of <= %s
                 GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
-            ), h AS (
+            ), source_holdings AS (
                 SELECT hs.*
                 FROM pams_holdings_snapshot hs
                 JOIN latest_account la
@@ -810,7 +812,7 @@ def build_holdings_by_category_payload(
                   ON lp.account_code = hs.account_code
                  AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
                  AND lp.as_of = hs.as_of
-            ), fx AS (
+            ), {quote_overlay}, fx AS (
                 SELECT DISTINCT ON (quote_currency) quote_currency, rate
                 FROM pams_fx_rates_daily
                 WHERE base_currency = 'CNY'
@@ -1458,8 +1460,9 @@ def build_holdings_latest_payload(
     daily_pnl_start_as_of: Any | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /holdings/latest payload for the investments page."""
-    cur.execute("SELECT MAX(as_of) AS as_of FROM pams_holdings_snapshot")
+    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('pams_market_quote_snapshot') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
     row = cur.fetchone()
+    quote_overlay = quote_valuation_cte(bool(row and row.get("quote_available")))
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
@@ -1477,7 +1480,7 @@ def build_holdings_latest_payload(
              AND cas.as_of = hs.as_of
             WHERE hs.as_of <= %s
             GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
-        ), h AS (
+        ), source_holdings AS (
             SELECT hs.*
             FROM pams_holdings_snapshot hs
             JOIN latest_account la
@@ -1487,7 +1490,7 @@ def build_holdings_latest_payload(
               ON lp.account_code = hs.account_code
              AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
              AND lp.as_of = hs.as_of
-        ), fx AS (
+        ), {quote_overlay}, fx AS (
             SELECT DISTINCT ON (quote_currency) quote_currency, rate
             FROM pams_fx_rates_daily
             WHERE base_currency = 'CNY'

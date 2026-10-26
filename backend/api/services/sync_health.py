@@ -40,7 +40,7 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
                h.asset_liability, h.major_category, h.minor_category,
                am.market, am.asset_type, am.listing_region,
                q.quote_date, q.price AS quote_price, q.return_status,
-               q.source, q.quote_session, q.confidence, q.quote_market, q.quote_time, q.close_evidence
+               q.source, q.quote_session, q.confidence, q.quote_market, q.quote_time, q.close_evidence, q.projection_only
         FROM ranked h
         JOIN current_members cm ON cm.account_code = h.account_code AND cm.currency = h.currency
           AND cm.position_key = COALESCE(NULLIF(h.symbol, ''), h.name)
@@ -59,6 +59,7 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
                         COALESCE(raw_json->>'as_of_utc', price_time::text) AS quote_time,
                         (quote_session = 'close' AND return_status = 'confirmed'
                          AND source LIKE '%%close%%' AND source NOT LIKE '%%estimate%%') AS close_evidence,
+                        (raw_json->>'valuation_projection_only' = 'true') AS projection_only,
                         updated_at, 0 AS priority
                  FROM pams_market_quote_snapshot s
                  WHERE s.currency = h.currency
@@ -67,14 +68,14 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
                 UNION ALL
                 (SELECT as_of, COALESCE(estimated_unit_nav, close_price, unit_nav),
                         NULL, source, raw_json->>'session', confidence, market, raw_json->>'as_of_utc',
-                        (source LIKE '%%close%%' AND source NOT LIKE '%%estimate%%'), updated_at, 1
+                        (source LIKE '%%close%%' AND source NOT LIKE '%%estimate%%'), FALSE, updated_at, 1
                  FROM pams_asset_market_daily d
                  WHERE d.currency = h.currency
                    AND (d.asset_id = h.asset_id OR d.symbol = h.symbol)
                  ORDER BY as_of DESC, updated_at DESC, source, source_key LIMIT 1)
                 UNION ALL
                 (SELECT trade_date, close, 'confirmed', 'yahoo_close', 'close',
-                        NULL, 'YF', NULL, TRUE, NULL::timestamptz, 2
+                        NULL, 'YF', NULL, TRUE, FALSE, NULL::timestamptz, 2
                  FROM pams_ohlcv_daily o
                  WHERE o.symbol = h.symbol AND o.market = 'YF'
                  ORDER BY trade_date DESC LIMIT 1)
@@ -164,6 +165,7 @@ def overseas_quote_health(rows: list[dict[str, Any]], now: datetime) -> dict[str
         due = due_dates[due_key]
         snapshot_date = _health_date(row.get("as_of"))
         quote_date = _health_date(row.get("quote_date"))
+        valuation_date = max(snapshot_date, quote_date) if row.get("projection_only") and snapshot_date and quote_date else snapshot_date
         return_status = normalize_return_status(
             row.get("return_status"), source=row.get("source"),
             quote_session=row.get("quote_session"), market=row.get("quote_market"),
@@ -176,7 +178,7 @@ def overseas_quote_health(rows: list[dict[str, Any]], now: datetime) -> dict[str
         today = now.astimezone(ZoneInfo("Asia/Shanghai")).date()
         if any(day and day > today for day in (snapshot_date, quote_date)):
             issues.append("future_date")
-        if due and (not snapshot_date or snapshot_date < due or not quote_date or quote_date < due):
+        if due and (not valuation_date or valuation_date < due or not quote_date or quote_date < due):
             issues.append("stale")
         if due and quote_date and quote_date > due:
             issues.append("date_mismatch")
@@ -207,6 +209,7 @@ def overseas_quote_health(rows: list[dict[str, Any]], now: datetime) -> dict[str
             "account_code": row.get("account_code"), "symbol": row.get("symbol"),
             "name": row.get("name"), "market": resolve_market(row), "calendar": key, "currency": row.get("currency"),
             "snapshot_date": snapshot_date.isoformat() if snapshot_date else None,
+            "valuation_date": valuation_date.isoformat() if valuation_date else None,
             "quote_date": quote_date.isoformat() if quote_date else None,
             "expected_date": due.isoformat() if due else None,
             "return_status": return_status, "source": row.get("source"),

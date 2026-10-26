@@ -706,6 +706,36 @@ def _upsert_daily_return_quote_snapshots(
     return written
 
 
+def _upsert_scheduled_us_quotes(rows: List[dict], prices: Dict[str, float], as_of, basis: str) -> int:
+    if not prices:
+        return 0
+    written = 0
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            for row in rows:
+                symbol = str(row.get("symbol") or "")
+                if symbol not in prices:
+                    continue
+                meta = _US_ESTIMATE_QUOTE_CACHE.get(symbol.upper(), {}) if basis == "estimate" else {}
+                price = Decimal(str(prices[symbol]))
+                if not price.is_finite() or price <= 0:
+                    continue
+                source = meta.get("source") or "yahoo_close"
+                quote = quote_snapshot_from_market_daily({
+                    "as_of": as_of, "asset_id": row.get("asset_id"), "symbol": symbol,
+                    "name": row.get("name"), "currency": row.get("currency") or "USD", "market": "US",
+                    "source": source, "provider": meta.get("provider") or "yahoo",
+                    "source_key": f"{source}:{symbol}:{as_of}", "close_price": price,
+                    "return_status": "estimated" if basis == "estimate" else "confirmed",
+                    "price_time": meta.get("as_of_utc"),
+                    "raw_json": {**meta, "valuation_projection_only": True},
+                })
+                upsert_quote_snapshot(cur, quote)
+                written += 1
+        conn.commit()
+    return written
+
+
 def _upsert_yfinance_closes(rows: List[dict]) -> int:
     """Store recent Yahoo Finance close rows for overseas daily PnL."""
     payload = []
@@ -2379,7 +2409,8 @@ def _refresh_category(
         new_mv = round(qty * new_price, 2)
         updates.append((new_price, new_mv, h["id"]))
 
-    updated = _upsert_price_snapshots(holdings, prices, target_as_of)
+    # Quote-only jobs must not turn a market subset into a complete account snapshot.
+    updated = sum(row.get("symbol") in prices for row in holdings) if require_current_close else _upsert_price_snapshots(holdings, prices, target_as_of)
     daily_quote_rows = 0
     if category == "A股":
         close_rows = _upsert_cn_a_closes(holdings, prices, target_as_of)
@@ -2390,10 +2421,9 @@ def _refresh_category(
             source="tencent_a_stock_close",
             market="CN_A",
         )
-    elif category == _OVERSEAS_MAJOR_CATEGORY and require_current_close and price_basis == "close":
-        daily_quote_rows = _upsert_daily_return_quote_snapshots(
-            holdings, prices, target_as_of, source="yahoo_close", market="US", currency="USD",
-        )
+    elif category == _OVERSEAS_MAJOR_CATEGORY and require_current_close:
+        daily_quote_rows = _upsert_scheduled_us_quotes(holdings, prices, target_as_of, price_basis)
+        updated = daily_quote_rows
 
     return {
         "category": category,
@@ -2409,6 +2439,7 @@ def _refresh_category(
         "market_buckets": list(market_buckets),
         "price_basis": price_basis,
         "daily_quote_rows": daily_quote_rows,
+        **({"valuation_projection_only": True} if require_current_close else {}),
         "errors": errors,
     }
 

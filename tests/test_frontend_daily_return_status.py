@@ -161,10 +161,12 @@ def test_valid_zero_estimates_and_confirmations_keep_amounts_and_backend_status(
 def test_confirmed_amount_does_not_hide_another_pending_position():
     data = render([holding(daily_return_status="confirmed", daily_pnl_cny=42,
                            daily_total_pnl_cny=42), holding(daily_return_status="pending")], daily=42)
-    assert data["profile"]["dailyStatus"] == "pending"
+    assert data["profile"]["dailyStatus"] == "partial"
     assert data["profile"]["dailyPnl"] == 42
     assert data["allProfile"]["dailyPnl"] == 42
-    assert '<strong class="" style="color:var(--muted)">\u5f85\u66f4\u65b0</strong>' in data["html"]
+    assert '\u4eca\u65e5\u76c8\u4e8f\uff08\u90e8\u5206\uff09' in data["html"]
+    assert '+\u00a542.00' in data["html"]
+    assert '>--</em>' in data["html"]
 
 
 @pytest.mark.parametrize("cash_fields", [

@@ -1641,12 +1641,12 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     hero = hero_js.split("function MobilePortfolioHero(", 1)[1].split("function categoryByLabel", 1)[0]
     assert "profile.dailyStatus === 'pending'" in hero
     assert "dailyPending ? '待更新' : formatOptionalMoney(dailyPnl" in hero
-    assert "dailyPending ? '--' : signedPctText(dailyRate)" in hero
+    assert "dailyPending || dailyPartial ? '--' : signedPctText(dailyRate)" in hero
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
     assert "holdings.js?v=20261026-startup-order-v1-daily-status-v2" in html
-    assert "holdings_categories.js?v=20261026-startup-order-v1-ibkr-ready-v1-daily-status-v2" in html
+    assert "holdings_categories.js?v=20261026-startup-order-v1-ibkr-ready-v1-daily-status-v3" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
