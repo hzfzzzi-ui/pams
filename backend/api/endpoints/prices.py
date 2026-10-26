@@ -2394,8 +2394,9 @@ def _refresh_category(
             prices = _latest_stored_yfinance_prices(symbols, as_of=target_as_of, fallback=prices)
             if require_current_close:
                 # Do not stamp Friday's last close as Monday's confirmed quote.
-                prices = {sym: close for sym in symbols for trade_date, close in _YFINANCE_CLOSE_CACHE.get(str(sym), [])
-                          if trade_date == target_as_of}
+                current_symbols = {sym for sym in symbols for trade_date, _ in _YFINANCE_CLOSE_CACHE.get(str(sym), [])
+                                   if trade_date == target_as_of}
+                prices = {sym: value for sym, value in prices.items() if sym in current_symbols}
 
     updates = []
     errors = []

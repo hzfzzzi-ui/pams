@@ -123,7 +123,7 @@ def pg_projection(monkeypatch):
             """)
             cur.execute("""
                 CREATE TEMP TABLE pams_ohlcv_daily (
-                    symbol TEXT, market TEXT, trade_date DATE, close NUMERIC(28,10),
+                    symbol TEXT, market TEXT, trade_date DATE, close NUMERIC(12,4),
                     UNIQUE (symbol, market, trade_date)
                 )
             """)
@@ -176,6 +176,28 @@ def _quote_rows(conn):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("SELECT * FROM pams_market_quote_snapshot ORDER BY quote_id")
         return [dict(row) for row in cur.fetchall()]
+
+
+def test_pg16_float_close_uses_persisted_precision_and_previous_trading_close(pg_projection, monkeypatch):
+    conn = pg_projection
+    symbol = US_SYMBOLS[0]
+    def network(symbols):
+        prices._YFINANCE_CLOSE_CACHE.update({
+            s: [(BASE_DAY, 704.4), (QUOTE_DAY, 712.2000122070312)] for s in symbols
+        })
+        return {s: 712.2 for s in symbols}
+    result = prices._refresh_category(OVERSEAS, network, market_buckets=("us",),
+                                     price_basis="close", require_current_close=True)
+    assert result["updated"] == 8
+    projected = _project(conn)
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT close FROM pams_ohlcv_daily WHERE symbol=%s AND trade_date=%s", (symbol, QUOTE_DAY))
+        closing = cur.fetchone()["close"]
+        cur.execute("SELECT close FROM pams_ohlcv_daily WHERE symbol=%s AND trade_date=%s", (symbol, BASE_DAY))
+        previous = cur.fetchone()["close"]
+    assert projected[symbol]["current_price"] == closing == Decimal("712.2000")
+    native_return = (projected[symbol]["current_price"] - previous) * projected[symbol]["quantity"]
+    assert native_return == Decimal("7.8") * projected[symbol]["quantity"]
 
 
 def _business_rows(rows):
