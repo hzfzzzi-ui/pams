@@ -132,6 +132,23 @@ def test_report_is_atomic_history_is_preserved(tmp_path):
     assert json.loads((tmp_path / 'latest.json').read_text(encoding='utf-8'))['identity_status'] == 'unknown'
 
 
+def test_identical_clock_ticks_never_overwrite_history(tmp_path, monkeypatch):
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+    manifest, _, runner = inputs()
+    report = release.verify(manifest, runner=runner, health=lambda _: True, now=NOW)
+    monkeypatch.setattr(release, 'datetime', FixedClock)
+    release.save_report(tmp_path, report)
+    changed = {**report, 'identity_status': 'unknown'}
+    release.save_report(tmp_path, changed)
+    history = [path for path in tmp_path.glob('*.json') if path.name != 'latest.json']
+    assert len(history) == 2
+    assert {json.loads(path.read_text(encoding='utf-8'))['identity_status'] for path in history} == {'matched', 'unknown'}
+    assert json.loads((tmp_path / 'latest.json').read_text(encoding='utf-8')) == changed
+
+
 @pytest.mark.parametrize('existing', [False, True])
 def test_github_record_is_idempotent_and_uses_only_own_marker(existing, tmp_path, monkeypatch):
     manifest, _, runner = inputs()

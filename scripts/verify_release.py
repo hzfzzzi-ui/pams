@@ -16,6 +16,7 @@ import time
 from typing import Any, Callable
 from urllib.parse import urlsplit
 from urllib.request import build_opener, HTTPRedirectHandler
+from uuid import uuid4
 
 
 Runner = Callable[[list[str]], str]
@@ -312,9 +313,10 @@ def save_report(directory: Path, report: dict) -> None:
 
 def _save_report_locked(directory: Path, report: dict) -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ') + '.json'
+    name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ') + '-' + uuid4().hex + '.json'
     payload = json.dumps(report, ensure_ascii=False, indent=2)
-    (directory / name).write_text(payload, encoding='utf-8')
+    with (directory / name).open('x', encoding='utf-8') as history:
+        history.write(payload)
     latest = directory / 'latest.json'
     if latest.exists():
         try:
