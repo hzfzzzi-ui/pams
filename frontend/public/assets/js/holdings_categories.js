@@ -449,7 +449,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       <div class="mobileHeroPrimaryMetric">
         <span>${esc(profile.totalLabel || '总盈亏')}</span>
         <strong class="${totalPnl >= 0 ? 'up' : 'down'}">${formatOptionalMoney(totalPnl, 'CNY', { signed: true })}</strong>
-        <em class="${totalPnl >= 0 ? 'up' : 'down'}">${signedPctText(totalRate)}</em>
+        <em class="${totalPnl >= 0 ? 'up' : 'down'}"${profile.totalRateTitle ? ` title="${esc(profile.totalRateTitle)}"` : ''}>${profile.totalRateUndefined === true ? '--' : signedPctText(totalRate)}</em>
       </div>
     </div>
     <div class="mobileHeroMiniGrid ${miniMetrics ? '' : 'mobileHeroMiniGrid-empty'}">${miniMetrics}</div>
@@ -545,6 +545,12 @@ function makeMobileHeroProfiles({
   const ibkrGrossHoldingRate = Number.isFinite(Number(usProfileCategory.grossHoldingReturnRate))
     ? safeNum(usProfileCategory.grossHoldingReturnRate)
     : safeNum(usProfileCategory.holdingReturnRate);
+  const ibkrRateAsOf = isoDateKey(usProfileCategory.accountReturnRateAsOf);
+  const ibkrRateEvidenceAsOf = isoDateKey(usProfileCategory.accountReturnRateEvidenceAsOf);
+  const ibkrPositionAsOf = isoDateKey(ibkrSummary?.positionAsOf);
+  const ibkrRateTitle = usProfileCategory.accountReturnRateUndefined === true
+    ? `账户收益率暂无同日口径${ibkrPositionAsOf ? `（当前估值 ${ibkrPositionAsOf}）` : ''}；${ibkrRateEvidenceAsOf ? `可验证官方日结 ${ibkrRateEvidenceAsOf}，无当前可绑定收益率` : '缺少可验证日结证据'}`
+    : (ibkrRateAsOf ? `账户收益率对应官方日结 ${ibkrRateAsOf}` : '');
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
@@ -617,6 +623,8 @@ function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: ibkrTotalPnl,
       totalRate: ibkrTotalRate,
+      totalRateUndefined: usProfileCategory.accountReturnRateUndefined === true,
+      totalRateTitle: ibkrRateTitle,
       share: ibkrNlv / portfolioValue,
       miniMetrics: [
         { label: '总市值', value: formatOptionalMoney(ibkrMarket) },
@@ -2543,7 +2551,9 @@ function categoryMetric(label, base, sectionPayload) {
     ? safeNum(base.totalReturnRate)
     : null;
   const holdingReturnRate = holdingReturnRateFromSummary(base);
-  const displayReturnRate = Number.isFinite(Number(base.displayReturnRate))
+  const displayReturnRate = base.accountReturnRateUndefined === true
+    ? null
+    : Number.isFinite(Number(base.displayReturnRate))
     ? safeNum(base.displayReturnRate)
     : holdingReturnRate;
   // IBKR return-series reconstructs long-term return from trades and position
@@ -2568,7 +2578,10 @@ function categoryMetric(label, base, sectionPayload) {
       : (explicitTotalReturnRate ?? (totalCost > 0 ? totalPnl / totalCost : 0)),
     holdingReturnRate,
     displayReturnRate,
-    accountReturnRate: Number.isFinite(Number(base.accountReturnRate)) ? safeNum(base.accountReturnRate) : null,
+    accountReturnRate: base.accountReturnRate != null && Number.isFinite(Number(base.accountReturnRate)) ? safeNum(base.accountReturnRate) : null,
+    accountReturnRateUndefined: base.accountReturnRateUndefined === true,
+    accountReturnRateAsOf: base.accountReturnRateAsOf || null,
+    accountReturnRateEvidenceAsOf: base.accountReturnRateEvidenceAsOf || null,
     grossHoldingReturnRate: Number.isFinite(Number(base.grossHoldingReturnRate)) ? safeNum(base.grossHoldingReturnRate) : holdingReturnRate,
     annualizedReturnRate: override ? override.annualizedReturnRate : null,
   };
@@ -3303,11 +3316,14 @@ async function main(){
         : safeNum(ibkrSummary?.totalPnl))
       : safeNum(usSummary.totalPnl);
     const usGrossHoldingReturnRate = holdingReturnRateFromSummary(usSummary);
+    const ibkrRateEvidence = confirmedIbkrAccountSummary(ibkrPerf);
     const ibkrAccountReturnRate = confirmedIbkrSummary
       ? confirmedIbkrSummary.totalReturnRate
       : useIbkrAccountTotals && ibkrNetDeposit > 0
       ? ibkrDerivedTotalPnl / ibkrNetDeposit
-      : (Number.isFinite(Number(ibkrSummary?.totalReturnRate)) ? safeNum(ibkrSummary.totalReturnRate) : usGrossHoldingReturnRate);
+      : (useIbkrAccountTotals && ibkrSummary?.totalReturnRate != null && Number.isFinite(Number(ibkrSummary.totalReturnRate))
+        ? safeNum(ibkrSummary.totalReturnRate)
+        : null);
     const usCategorySummary = (ibkrSummary || ibkrUsesNetLiquidation)
       ? {
         ...usSummary,
@@ -3318,7 +3334,9 @@ async function main(){
         holdingReturnRate: usGrossHoldingReturnRate,
         displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
         accountReturnRate: ibkrAccountReturnRate,
-        accountReturnRateUndefined: Boolean(confirmedIbkrSummary && confirmedIbkrSummary.totalReturnRate == null),
+        accountReturnRateUndefined: Boolean(ibkrUsesNetLiquidation && ibkrAccountReturnRate == null),
+        accountReturnRateAsOf: confirmedIbkrSummary?.asOf || null,
+        accountReturnRateEvidenceAsOf: ibkrRateEvidence?.asOf || null,
         grossHoldingReturnRate: usGrossHoldingReturnRate,
         returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率',
         activeHoldingPnl: usSummary.activeHoldingPnl,
