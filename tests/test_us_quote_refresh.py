@@ -135,7 +135,8 @@ def test_scheduled_close_never_stamps_prior_close_as_today(monkeypatch):
     monkeypatch.setattr(prices, "_get_holdings_with_symbol", lambda *a, **k: holdings)
     monkeypatch.setattr(prices, "_price_refresh_as_of", lambda *_: date(2026, 10, 26))
     monkeypatch.setattr(prices, "_upsert_yfinance_closes", lambda *_: 1)
-    monkeypatch.setattr(prices, "_latest_stored_yfinance_prices", lambda *a, **k: {"QQQ": 100})
+    stored = {"QQQ": 100}
+    monkeypatch.setattr(prices, "_latest_stored_yfinance_prices", lambda *a, **k: dict(stored))
     monkeypatch.setattr(prices, "_YFINANCE_CLOSE_CACHE", {"QQQ": [(date(2026, 10, 23), 100)]})
     saved = []
     monkeypatch.setattr(prices, "_upsert_price_snapshots", lambda *a: pytest.fail("quote job must not change positions"))
@@ -143,7 +144,8 @@ def test_scheduled_close_never_stamps_prior_close_as_today(monkeypatch):
     result = prices._refresh_category("美股", lambda _: {"QQQ": 100}, require_current_close=True)
     assert saved == [{}]
     assert result["updated"] == 0 and result["errors"]
-    prices._YFINANCE_CLOSE_CACHE["QQQ"].append((date(2026, 10, 26), 101))
+    prices._YFINANCE_CLOSE_CACHE["QQQ"].append((date(2026, 10, 26), 101.000012207))
+    stored["QQQ"] = 101
     result = prices._refresh_category("美股", lambda _: {"QQQ": 101}, require_current_close=True)
     assert saved[-1] == {"QQQ": 101}
     assert result["updated"] == result["daily_quote_rows"] == 1
