@@ -9,7 +9,7 @@ import hashlib
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
@@ -19,6 +19,19 @@ MAX_XML_BYTES = 32 * 1024 * 1024  # Resource bound, not an evidence-coverage thr
 SCOPE = {"ownership_basis": "full_account", "valuation_basis": "ibkr_statement_close"}
 FLOW_FIELDS = ("depositsWithdrawals", "internalCashTransfers", "assetTransfers",
                "linkingAdjustments", "debitCardActivity", "billPay")
+DAILY_UNSUPPORTED_FLOWS = ("paxosTransfers", "excessFundSweep", "grantActivity", "donations", "carbonCredits")
+# Named ChangeInNAV P&L categories are not external capital. Unrecognized
+# columns cannot silently become P&L, even when their supplied value is zero.
+DAILY_PNL_FIELDS = {
+    "advisorFees", "billableSalesTax", "brokerFees", "changeInBrokerFeeAccruals",
+    "changeInCGTWithholdingAccruals", "changeInDividendAccruals", "changeInIncentiveCouponAccruals",
+    "changeInInterestAccruals", "changeInLiteSurchargeAccruals", "changeInUnrealized", "clientFees",
+    "commissionCreditsRedemption", "commissionReceivables", "commissions", "commissionsAtPaxos",
+    "corporateActionProceeds", "costAdjustments", "dividends", "feesReceivables", "forexCommissions",
+    "fxTranslation", "interest", "mtm", "mtmAtPaxos", "netFxTrading", "other", "otherFees", "otherIncome",
+    "realized", "referralFee", "salesTax", "softDollars", "taxReceivables", "transactionTax",
+    "transferredPnlAdjustments", "twr", "withholding871m", "withholdingTax", "withholdingTaxCollected",
+}
 
 
 def _currency(value: Any) -> bool:
@@ -368,10 +381,138 @@ def _nav(check: dict[str, Any], statement: ET.Element, as_of: date, base: str) -
     return value
 
 
+def _daily_period_scope(check: dict[str, Any], parents: Mapping[ET.Element, ET.Element],
+                        row: ET.Element, statement: ET.Element, account: str, base: str,
+                        day: date, *, comparison: bool = False) -> None:
+    if row.get("accountId") != account or row.get("currency") != base:
+        _issue(check, "daily_period_account_or_base_mismatch")
+    node: ET.Element | None = row
+    while node is not None:
+        if (node.get("accountId") not in (None, "", account) or node.get("model")
+                or node.get("currency") not in (None, "", base)
+                or node.get("baseCurrency") not in (None, "", base)):
+            _issue(check, "daily_period_ancestor_scope_mismatch")
+        if node.get("reportDate") is not None and _day(node.get("reportDate")) != day:
+            _issue(check, "daily_period_ancestor_date_mismatch")
+        if node.get("fromDate") is not None or node.get("toDate") is not None:
+            first, last = _day(node.get("fromDate")), _day(node.get("toDate"))
+            if first is None or last is None or first > last:
+                _issue(check, "daily_period_invalid_scope_range")
+            # Only the containing statement may supply a prior-period NAV
+            # comparison outside its current-day reporting interval.
+            elif not (comparison and node is statement) and not first <= day <= last:
+                _issue(check, "daily_period_ancestor_date_mismatch")
+        node = parents.get(node)
+
+
+def _complete_daily_period(check: dict[str, Any], root: ET.Element, start: date, end: date,
+                           account: str, base: str, closing_nav: Decimal | None
+                           ) -> tuple[dict[str, Decimal | None], int]:
+    empty: dict[str, Decimal | None] = {"opening_nav_base": None, "net_external_flow_base": None,
+                                      "closing_nav_base": None, "pnl_base": None}
+    parents = {child: parent for parent in root.iter() for child in parent}
+    statements = _elements(root, "FlexStatement")
+    by_day: dict[date, list[ET.Element]] = {}
+    bound_bridges = {r for s in statements for r in _elements(s, "ChangeInNAV")}
+    for row in _elements(root, "ChangeInNAV"):
+        if row not in bound_bridges and row.get("accountId") in (None, "", account):
+            first, last = _day(row.get("fromDate")), _day(row.get("toDate"))
+            if first is None or last is None or first <= end and last >= start:
+                _issue(check, "unbound_daily_period_evidence")
+    for statement in statements:
+        bridges = _elements(statement, "ChangeInNAV")
+        if statement.get("accountId") != account and not any(r.get("accountId") == account for r in bridges):
+            continue
+        first, last = _day(statement.get("fromDate")), _day(statement.get("toDate"))
+        if first is None or last is None or first > last:
+            _issue(check, "daily_period_invalid_statement_date")
+            continue
+        if last < start or first > end:
+            continue
+        if first != last or not start <= first <= end:
+            _issue(check, "partial_daily_period")
+            continue
+        by_day.setdefault(first, []).append(statement)
+    day = start
+    while day <= end:
+        if day.weekday() < 5 and day not in by_day:
+            _issue(check, "missing_daily_period_weekday", date=day.isoformat())
+        if day == end:
+            break
+        day += timedelta(days=1)
+    if end not in by_day:
+        _issue(check, "missing_daily_period_close")
+    if check["issue_count"] or not by_day or min(by_day) == date.min:
+        if not check["issue_count"]:
+            _issue(check, "invalid_daily_period")
+        return empty, len(by_day)
+    opening: Decimal | None = None
+    previous: Decimal | None = None
+    net_flow = Decimal(0)
+    for day, candidates in sorted(by_day.items()):
+        daily_statement = _one(check, candidates, "daily_period_statement:" + day.isoformat())
+        if daily_statement is None:
+            continue
+        info = _one(check, _elements(daily_statement, "AccountInformation"), "daily_period_account")
+        if info is not None:
+            _daily_period_scope(check, parents, info, daily_statement, account, base, day)
+        nav_rows = _elements(daily_statement, "EquitySummaryByReportDateInBase")
+        if any(_day(row.get("reportDate")) is None for row in nav_rows):
+            _issue(check, "daily_period_invalid_nav_date")
+        current = _one(check, [r for r in nav_rows if _day(r.get("reportDate")) == day], "daily_period_current_nav")
+        prior_day = day - timedelta(days=1)
+        earliest = prior_day
+        while earliest.weekday() >= 5:
+            earliest -= timedelta(days=1)
+        prior_rows = [r for r in nav_rows if (d := _day(r.get("reportDate"))) is not None
+                      and earliest <= d <= prior_day]
+        prior = _one(check, prior_rows, "daily_period_independent_prior_nav")
+        bridge = _one(check, _elements(daily_statement, "ChangeInNAV"), "daily_period_bridge")
+        if info is None or current is None or prior is None or bridge is None:
+            continue
+        _daily_period_scope(check, parents, current, daily_statement, account, base, day)
+        observed_prior = _day(prior.get("reportDate"))
+        assert observed_prior is not None
+        _daily_period_scope(check, parents, prior, daily_statement, account, base, observed_prior, comparison=True)
+        _daily_period_scope(check, parents, bridge, daily_statement, account, base, day)
+        if _day(bridge.get("fromDate")) != day or _day(bridge.get("toDate")) != day:
+            _issue(check, "partial_daily_period")
+        known = {*FLOW_FIELDS, *DAILY_UNSUPPORTED_FLOWS, *DAILY_PNL_FIELDS,
+                 "accountId", "acctAlias", "model", "currency", "baseCurrency", "reportDate",
+                 "fromDate", "toDate", "startingValue", "endingValue"}
+        if set(bridge.attrib) - known or len(bridge):
+            _issue(check, "unsupported_period_flow_fields")
+        for field in DAILY_UNSUPPORTED_FLOWS:
+            value = _required(check, bridge.attrib, field)
+            if value is not None and value != 0:
+                _issue(check, "unsupported_period_flow_fields", field=field)
+        before, after = _required(check, prior.attrib, "total"), _required(check, current.attrib, "total")
+        begin, finish = _required(check, bridge.attrib, "startingValue"), _required(check, bridge.attrib, "endingValue")
+        flows = [_required(check, bridge.attrib, field) for field in FLOW_FIELDS]
+        if before is None or after is None or begin is None or finish is None or any(v is None for v in flows):
+            continue
+        if abs(before - begin) > TOLERANCE or abs(after - finish) > TOLERANCE:
+            _issue(check, "daily_period_nav_bridge_conflict")
+        if previous is not None and abs(previous - before) > TOLERANCE:
+            _issue(check, "daily_period_nav_chain_conflict")
+        if opening is None:
+            opening = before
+        previous = after
+        net_flow += sum((v for v in flows if v is not None), Decimal(0))
+    if closing_nav is None or previous is None or abs(previous - closing_nav) > TOLERANCE:
+        _issue(check, "official_closing_nav_conflict")
+    if check["issue_count"] or opening is None or previous is None:
+        return empty, len(by_day)
+    return {"opening_nav_base": opening, "net_external_flow_base": net_flow,
+            "closing_nav_base": previous, "pnl_base": previous - opening - net_flow}, len(by_day)
+
+
 def _period(check: dict[str, Any], statement: ET.Element, start: date | None,
-            end: date, base: str, closing_nav: Decimal | None) -> dict[str, Decimal | None]:
+            end: date, base: str, closing_nav: Decimal | None, *, root: ET.Element | None = None,
+            account_id: str | None = None) -> dict[str, Decimal | None]:
     values: dict[str, Decimal | None] = {"opening_nav_base": None, "net_external_flow_base": None,
                                        "closing_nav_base": None, "pnl_base": None}
+    daily_count = None
     if start is None:
         _issue(check, "period_not_requested")
     elif start > end:
@@ -379,7 +520,11 @@ def _period(check: dict[str, Any], statement: ET.Element, start: date | None,
     else:
         rows = [r for r in _elements(statement, "ChangeInNAV")
                 if _day(r.get("fromDate")) == start and _day(r.get("toDate")) == end]
-        row = _one(check, rows, "ChangeInNAV_exact_period")
+        if not rows and root is not None and account_id is not None:
+            values, daily_count = _complete_daily_period(check, root, start, end, account_id, base, closing_nav)
+            row = None
+        else:
+            row = _one(check, rows, "ChangeInNAV_exact_period")
         if row is not None:
             if row.get("currency") not in (None, "", "BASE_SUMMARY", base):
                 _issue(check, "semantic_mismatch", field="currency")
@@ -403,6 +548,8 @@ def _period(check: dict[str, Any], statement: ET.Element, start: date | None,
                          "from_date": start.isoformat() if start else None, "to_date": end.isoformat(),
                          "basis": "nav_change_less_external_flows", "return_ratio": None,
                          "return_ratio_verified": False, "twr_mwr_verified": False}
+    if daily_count is not None:
+        check["evidence"].update(evidence_basis="complete_daily", bridge_count=daily_count)
     return values
 
 
@@ -500,7 +647,8 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
         positions, position_rates, position_rows, position_conflicts = _positions(
             checks["positions"], checks["fx"], statement, as_of, base_currency)
         nav = _nav(checks["nav"], statement, as_of, base_currency)
-        period = _period(checks["period_return"], statement, period_start, as_of, base_currency, nav)
+        period = _period(checks["period_return"], statement, period_start, as_of, base_currency, nav,
+                         root=root, account_id=account_id)
         rates = dict(cash_rates)
         conflicts = set(position_conflicts)
         for currency, rate in position_rates.items():

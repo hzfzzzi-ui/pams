@@ -28,8 +28,12 @@ function accountPrimaryBalanceCny(accountOverview, accountCode, fxRates = {}) {
   if (!balance || balance.amount == null || balance.amount === '') return null;
   const amount = Number(balance.amount);
   if (!Number.isFinite(amount)) return null;
+  const boundCny = balance.amount_cny;
+  const hasBoundCny = account.daily_close?.status === 'ok' &&
+    (typeof boundCny === 'number' || (typeof boundCny === 'string' && boundCny.trim() !== '')) &&
+    Number.isFinite(Number(boundCny));
   return {
-    amountCny: amount * fxRateForCurrency(balance.currency || account.base_currency || 'CNY', fxRates),
+    amountCny: hasBoundCny ? Number(boundCny) : amount * fxRateForCurrency(balance.currency || account.base_currency || 'CNY', fxRates),
     currency: String(balance.currency || account.base_currency || 'CNY').toUpperCase(),
     asOf: balance.as_of || account.as_of || null,
     source: balance.source || account.truth_source || 'account_overview',
@@ -1221,6 +1225,29 @@ function renderIbkrPerformance(perf, positionAsOf = null) {
   return summary;
 }
 
+function confirmedIbkrAccountSummary(perf, positionAsOf = null) {
+  if (perf?.status !== 'ok' || perf.daily_close?.status !== 'ok' || perf.daily_close.fx_status !== 'available') return null;
+  if (!isoDateKey(perf.as_of) || (positionAsOf && !isSameOrAfterDate(perf.as_of, positionAsOf))) return null;
+  const account = perf.portfolio_account;
+  if (account?.status !== 'ok' || account.account_code !== 'ibkr' || account.ownership_basis !== 'owner_adjusted' || account.currency !== 'CNY') return null;
+  if (typeof perf.daily_close.source_account_id !== 'string' || !perf.daily_close.source_account_id || !/^[0-9a-f]{64}$/.test(perf.daily_close.source_sha256 || '') || account.source_account_id !== perf.daily_close.source_account_id || account.as_of !== perf.as_of || account.source_sha256 !== perf.daily_close.source_sha256) return null;
+  const ratio = account.owner_ratio;
+  if (!(typeof ratio === 'number' || (typeof ratio === 'string' && ratio.trim() !== '')) || !Number.isFinite(Number(ratio)) || Number(ratio) < 0) return null;
+  const fields = ['net_liquidation_cny', 'total_pnl_cny', 'return_capital_cny', 'cash_cny', 'position_value_cny'];
+  if (!fields.every(key => typeof account[key] === 'number' && Number.isFinite(account[key]))) return null;
+  const rate = account.return_ratio == null ? null : account.return_ratio;
+  if (rate != null && (typeof rate !== 'number' || !Number.isFinite(rate))) return null;
+  return {
+    totalValue: account.net_liquidation_cny,
+    totalPnl: account.total_pnl_cny,
+    totalCost: account.return_capital_cny,
+    cashValue: account.cash_cny,
+    positionValue: account.position_value_cny,
+    totalReturnRate: rate,
+    asOf: perf.as_of,
+  };
+}
+
 function renderAStockOwnerPerformance(perf) {
   if (!perf || perf.status !== 'ok') return null;
 
@@ -1414,6 +1441,11 @@ function writeSectionFinancials(summary, totalValueId, totalPnlId, dailyPnlId, h
   if (holdingPnlId) {
     setKpiLabel(holdingPnlId, summary.returnRateLabel || '持仓收益率');
     const hpElem = document.getElementById(holdingPnlId);
+    if (summary.accountReturnRateUndefined === true) {
+      hpElem.textContent = '--';
+      hpElem.style.color = 'var(--muted)';
+      return;
+    }
     const explicitRate = Number(summary.displayReturnRate ?? summary.holdingReturnRate ?? summary.totalReturnRate);
     const sectionCost = safeNum(summary.activeTotalCost) > 0 ? safeNum(summary.activeTotalCost) : totalCost;
     const sectionPnl = summary.activeHoldingPnl != null ? safeNum(summary.activeHoldingPnl) : totalPnl;
@@ -3149,6 +3181,7 @@ async function main(){
       activeTotalCost: usHoldingRateSummary.activeTotalCost,
     };
     const ibkrSummary = renderIbkrPerformance(ibkrPerf, usStock.as_of);
+    const confirmedIbkrSummary = confirmedIbkrAccountSummary(ibkrPerf, usStock.as_of);
     const preciousRows = preciousMetal.rows || [];
     const preciousDisplaySummary = renderSection(preciousRows, renderRowFundLike, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates);
     const preciousHoldingRateSummary = summarizeRows(preciousRows.filter((row) => !row.is_closed));
@@ -3196,19 +3229,26 @@ async function main(){
     const useIbkrAccountTotals = Boolean(
       ibkrSummary &&
       ibkrFlexCoversPositionDate &&
-      (ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit)
+      (ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit) &&
+      (!ibkrPerf?.daily_close || Boolean(confirmedIbkrSummary))
     );
     const ibkrUsesNetLiquidation = Boolean(
       useIbkrAccountTotals || ibkrHoldingsCoversPositionDate || ibkrOverviewCoversPositionDate
     );
     const ibkrHasFlexCashValue = useIbkrAccountTotals && Number.isFinite(Number(ibkrSummary?.cashValue));
-    const ibkrPositionValue = ibkrHoldingsCoversPositionDate
+    const ibkrPositionValue = confirmedIbkrSummary
+      ? confirmedIbkrSummary.positionValue
+      : ibkrHoldingsCoversPositionDate
       ? safeNum(ibkrHoldingsNet.grossAssets)
       : safeNum(usSummary.totalValue);
-    const ibkrCashValue = ibkrHasFlexCashValue
+    const ibkrCashValue = confirmedIbkrSummary
+      ? confirmedIbkrSummary.cashValue
+      : ibkrHasFlexCashValue
       ? safeNum(ibkrSummary.cashValue)
       : (ibkrHoldingsCoversPositionDate ? safeNum(ibkrHoldingsNet.liabilities) : 0);
-    const ibkrAccountValue = useIbkrAccountTotals
+    const ibkrAccountValue = confirmedIbkrSummary
+      ? confirmedIbkrSummary.totalValue
+      : useIbkrAccountTotals
       ? (ibkrHasFlexCashValue ? ibkrPositionValue + ibkrCashValue : safeNum(ibkrSummary?.totalValue))
       : (ibkrHoldingsCoversPositionDate
         ? safeNum(ibkrHoldingsNet.netValue)
@@ -3216,34 +3256,39 @@ async function main(){
     const ibkrNetDeposit = useIbkrAccountTotals && ibkrHasAccountNetDeposit
       ? safeNum(ibkrSummary?.totalCost)
       : safeNum(usSummary.totalCost);
-    const ibkrDerivedTotalPnl = useIbkrAccountTotals
+    const ibkrDerivedTotalPnl = confirmedIbkrSummary
+      ? confirmedIbkrSummary.totalPnl
+      : useIbkrAccountTotals
       ? (ibkrHasAccountNetDeposit && ibkrNetDeposit > 0
         ? ibkrAccountValue - ibkrNetDeposit
         : safeNum(ibkrSummary?.totalPnl))
       : safeNum(usSummary.totalPnl);
     const usGrossHoldingReturnRate = holdingReturnRateFromSummary(usSummary);
-    const ibkrAccountReturnRate = useIbkrAccountTotals && ibkrNetDeposit > 0
+    const ibkrAccountReturnRate = confirmedIbkrSummary
+      ? confirmedIbkrSummary.totalReturnRate
+      : useIbkrAccountTotals && ibkrNetDeposit > 0
       ? ibkrDerivedTotalPnl / ibkrNetDeposit
       : (Number.isFinite(Number(ibkrSummary?.totalReturnRate)) ? safeNum(ibkrSummary.totalReturnRate) : usGrossHoldingReturnRate);
     const usCategorySummary = (ibkrSummary || ibkrUsesNetLiquidation)
       ? {
         ...usSummary,
         totalValue: ibkrUsesNetLiquidation ? ibkrAccountValue : usSummary.totalValue,
-        totalCost: ibkrUsesNetLiquidation ? (ibkrNetDeposit || usSummary.totalCost) : usSummary.totalCost,
+        totalCost: confirmedIbkrSummary ? confirmedIbkrSummary.totalCost : (ibkrUsesNetLiquidation ? (ibkrNetDeposit || usSummary.totalCost) : usSummary.totalCost),
         totalPnl: ibkrUsesNetLiquidation ? ibkrDerivedTotalPnl : usSummary.totalPnl,
         totalReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
         holdingReturnRate: usGrossHoldingReturnRate,
         displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
         accountReturnRate: ibkrAccountReturnRate,
+        accountReturnRateUndefined: Boolean(confirmedIbkrSummary && confirmedIbkrSummary.totalReturnRate == null),
         grossHoldingReturnRate: usGrossHoldingReturnRate,
         returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率',
         activeHoldingPnl: usSummary.activeHoldingPnl,
         activeTotalCost: usSummary.activeTotalCost,
         positionValue: ibkrPositionValue,
         cashValue: ibkrCashValue,
-        accountAsOf: ibkrHoldingsNet?.asOf || ibkrSummary?.asOf,
-        accountValueAsOf: ibkrHoldingsNet?.asOf || ibkrOverviewBalance?.asOf || ibkrSummary?.asOf,
-        accountValueSource: ibkrHoldingsCoversPositionDate
+        accountAsOf: confirmedIbkrSummary?.asOf || ibkrHoldingsNet?.asOf || ibkrSummary?.asOf,
+        accountValueAsOf: confirmedIbkrSummary?.asOf || ibkrHoldingsNet?.asOf || ibkrOverviewBalance?.asOf || ibkrSummary?.asOf,
+        accountValueSource: confirmedIbkrSummary ? 'ibkr_flex' : ibkrHoldingsCoversPositionDate
           ? 'holdings_snapshot_net_liquidation'
           : (ibkrOverviewCoversPositionDate ? ibkrOverviewBalance.source : 'holdings_position_value'),
         positionAsOf: usStock.as_of,

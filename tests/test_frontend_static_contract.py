@@ -785,7 +785,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         assert template.count("<strong>收益状态</strong>") == 1
         assert f"holdingDailyStatusBadge({row_name}) || '<span class=\"muted\">—</span>'" in template
         assert template.index("<strong>今日盈亏</strong>") < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261020-phone-restore-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261026-ibkr-close-binding-v1" in html
     assert "assets/js/lookthrough.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_risk.js?v=20260622-data-state-a11y-v1" in html
     assert "assets/js/portfolio_config.js?v=20260622-data-state-a11y-v1" in html
@@ -853,7 +853,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "holdingReturnRateFromSummary" in holdings_js
     assert "displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate" in holdings_js
     assert "returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率'" in holdings_js
-    assert "const ibkrAccountReturnRate = useIbkrAccountTotals && ibkrNetDeposit > 0" in holdings_js
+    assert "const ibkrAccountReturnRate = confirmedIbkrSummary" in holdings_js
+    assert "? confirmedIbkrSummary.totalReturnRate" in holdings_js
+    assert ": useIbkrAccountTotals && ibkrNetDeposit > 0" in holdings_js
     assert "const ibkrGrossHoldingRate" in holdings_js
     assert "accountTotalPnl" in holdings_js
     assert "totalPnl: safeNum(aStockSummary.totalPnl)" in holdings_js

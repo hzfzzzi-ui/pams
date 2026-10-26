@@ -54,11 +54,17 @@ jobs:
             mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_fee_settlement.py
             ruff check --select E9,F backend/api/services/ibkr_account_audit.py backend/api/services/ibkr_account_audit_read.py tests/test_ibkr_account_audit.py tests/test_ibkr_account_audit_read.py tests/test_ibkr_performance_service.py
             mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_account_audit.py backend/api/services/ibkr_account_audit_read.py
+            ruff check --select E9,F backend/api/services/ibkr_daily_close.py backend/api/services/ibkr_daily_close_read.py scripts/ibkr_daily_close.py tests/test_ibkr_daily_close.py tests/test_ibkr_daily_close_read.py tests/test_ibkr_daily_close_consumers.py tests/test_ibkr_daily_close_projection.py backend/api/services/ibkr_performance.py backend/api/services/portfolio_summary.py backend/api/services/portfolio_valuation_state.py backend/api/services/portfolio_state.py backend/api/services/valuation_nav.py tests/test_ibkr_account_audit_daily_period.py tests/test_ibkr_daily_close_frontend.py
+            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_daily_close.py backend/api/services/ibkr_daily_close_read.py scripts/ibkr_daily_close.py backend/api/services/ibkr_performance.py backend/api/services/portfolio_summary.py backend/api/services/portfolio_valuation_state.py backend/api/services/portfolio_state.py backend/api/services/valuation_nav.py
+            ruff check --select E9,F backend/api/endpoints/accounts.py tests/test_ibkr_daily_close_accounts.py
+            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/endpoints/accounts.py
+            ruff check --select E9,F backend/api/services/ibkr_portfolio_binding.py tests/test_ibkr_portfolio_binding.py
+            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/services/ibkr_portfolio_binding.py
           fi
       - name: 构建API镜像并验证导入
         run: |
           docker build -f backend/api/Dockerfile -t pams-api-ci .
-          docker run --rm --network host -e PGHOST=127.0.0.1 -e PGUSER=pams -e PGPASSWORD=pams_ci -e PGDATABASE=pams --entrypoint python pams-api-ci -c "import main; assert main.health().status_code == 200; assert '/api/sync/center' in main.app.openapi()['paths']; print('API and database smoke OK')"
+          docker run --rm --network host -e PGHOST=127.0.0.1 -e PGUSER=pams -e PGPASSWORD=pams_ci -e PGDATABASE=pams --entrypoint python pams-api-ci -c "import main; from services import ibkr_daily_close, ibkr_daily_close_read, ibkr_portfolio_binding; assert not ibkr_daily_close_read.configured(); assert main.health().status_code == 200; assert '/api/sync/center' in main.app.openapi()['paths']; print('API and database smoke OK')"
       - name: 构建前端镜像并验证代理配置
         run: |
           docker build -t pams-web-ci frontend

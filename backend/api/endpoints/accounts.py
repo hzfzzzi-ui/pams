@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 from collections import defaultdict
-from datetime import datetime
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -136,7 +139,7 @@ def _load_bank_config() -> dict[str, Any]:
 
 def _excluded_accounts(account_cfg: dict[str, Any]) -> set[str]:
     defaults = account_cfg.get("defaults") or {}
-    values = []
+    values: list[Any] = []
     values.extend(account_cfg.get("excluded_accounts") or [])
     values.extend(defaults.get("excluded_accounts") or [])
     return {str(v).strip() for v in values if str(v).strip()}
@@ -188,7 +191,76 @@ def _review_fingerprint(account: dict[str, Any]) -> str:
         str(_norm(balance.get("as_of")) or ""),
         str(balance.get("source") or ""),
     ]
+    if "daily_close" in account:
+        evidence = {"daily_close": account["daily_close"], "owner_ratio": account.get("owner_ratio"),
+                    "amount_cny": balance.get("amount_cny")}
+        parts.append(hashlib.sha256(json.dumps(_norm(evidence), sort_keys=True,
+                                              separators=(",", ":")).encode("utf-8")).hexdigest())
     return "|".join(parts)
+
+
+def _daily_close_amount(value: Any) -> Decimal:
+    if value is None or isinstance(value, bool):
+        raise ValueError("missing_or_invalid_amount")
+    amount = Decimal(str(value))
+    if not amount.is_finite():
+        raise ValueError("missing_or_invalid_amount")
+    return amount
+
+
+def _bind_daily_close_primary(account: dict[str, Any], canonical: dict[str, Any], *,
+                              selected_platform: bool) -> None:
+    """Bind shared proven amounts without valuing, converting, or owning them again."""
+    raw_proof = canonical.get("daily_close")
+    proof = raw_proof if isinstance(raw_proof, dict) else {}
+    primary = account.get("primary_balance") or {}
+    try:
+        if not selected_platform:
+            raise ValueError("non_platform_primary_preserved")
+        if proof.get("status") != "ok":
+            raise ValueError("unproven_canonical_balance")
+        if (canonical.get("account_code") != "ibkr" or canonical.get("truth_source") != "ibkr_flex"
+                or canonical.get("review_status") != "ready_for_review"):
+            raise ValueError("canonical_account_scope_mismatch")
+        day = _norm(primary.get("as_of"))
+        if not isinstance(day, str) or date.fromisoformat(day).isoformat() != day:
+            raise ValueError("invalid_primary_date")
+        if (any(_norm(value) != day for value in (canonical.get("as_of"), proof.get("as_of"),
+                                                 proof.get("requested_as_of")))
+                or proof.get("carried") is not False):
+            raise ValueError("canonical_date_mismatch")
+        base = proof.get("source_base_currency")
+        if (base != account.get("base_currency") or base != primary.get("currency")
+                or base != canonical.get("base_currency")
+                or canonical.get("currency") != "CNY" or proof.get("valuation_currency") != "CNY"):
+            raise ValueError("canonical_currency_mismatch")
+        if not isinstance(proof.get("source_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", proof["source_sha256"]):
+            raise ValueError("missing_source_sha256")
+        identity = proof.get("identity_evidence") or {}
+        if (not isinstance(identity, dict) or identity.get("status") != "ok" or identity.get("as_of") != day
+                or not isinstance(proof.get("source_account_id"), str) or not proof["source_account_id"].strip()):
+            raise ValueError("unproven_account_identity")
+        fx = proof.get("fx_evidence") or {}
+        if (not isinstance(fx, dict) or fx.get("status") != "ok" or fx.get("as_of") != day or fx.get("requested_as_of") != day
+                or fx.get("currency") != base or fx.get("base_currency") != "CNY"
+                or not isinstance(fx.get("source"), str) or not fx["source"].strip()
+                or _daily_close_amount(fx.get("rate")) <= 0
+                or _daily_close_amount(fx.get("rate")) != _daily_close_amount(proof.get("fx_rate"))):
+            raise ValueError("unproven_historical_fx")
+        if (_daily_close_amount(proof.get("owner_ratio")) != account["owner_ratio"]
+                or account["owner_ratio"] < 0):
+            raise ValueError("owner_scope_mismatch")
+        amount = _daily_close_amount(proof.get("owned_nav_base"))
+        amount_cny = _daily_close_amount(canonical.get("amount_cny"))
+    except (ValueError, TypeError, InvalidOperation) as exc:
+        raw_reasons = proof.get("reasons")
+        reasons = raw_reasons if isinstance(raw_reasons, list) else []
+        account["daily_close"] = {**proof, "status": "unconfirmed",
+                                 "reasons": [*reasons, str(exc) or "invalid_canonical_balance"]}
+        return
+    account["primary_balance"] = {"amount": amount, "currency": base, "as_of": day,
+                                  "source": "ibkr_flex", "amount_cny": amount_cny}
+    account["daily_close"] = dict(proof)
 
 
 def _ensure_review_table(cur) -> None:
@@ -598,6 +670,7 @@ def _build_accounts_overview(
     transfer_rollups: dict[str, dict[str, list[dict[str, Any]]]],
     latest_reviews: dict[str, dict[str, Any]],
     fx_rates_by_base: dict[str, dict[str, Decimal]],
+    canonical_balances: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     defaults = account_cfg.get("defaults") or {}
     accounts = account_cfg.get("accounts") or {}
@@ -694,6 +767,9 @@ def _build_accounts_overview(
                 "transfer_out": transfer_rollups.get(code, {}).get("out", []),
                 "active": bool(db.get("active", True)),
             }
+        if canonical_balances is not None and code == "ibkr" and truth_source == "ibkr_flex":
+            _bind_daily_close_primary(account, canonical_balances.get(code) or {},
+                                     selected_platform=primary_balance is not None and primary_balance is platform_balance)
         result.append(_apply_review(account, latest_reviews.get(code)))
 
     status_order = {
@@ -719,8 +795,11 @@ def _build_accounts_overview(
 
 
 def _overview_payload() -> dict[str, Any]:
+    from services import ibkr_daily_close_read, portfolio_state
+
     account_cfg = _load_accounts_config()
     bank_cfg = _load_bank_config()
+    canonical_balances = None
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             db_accounts = _fetch_db_accounts(cur)
@@ -729,6 +808,15 @@ def _overview_payload() -> dict[str, Any]:
             fx_rates_by_base = _fetch_latest_fx_rates_by_base(cur)
             transfer_rollups = _fetch_transfer_rollups(cur)
             latest_reviews = _fetch_latest_reviews(cur)
+            if ibkr_daily_close_read.configured():
+                canonical_balances = {}
+                for row in portfolio_state.load_account_balances(cur, "CNY", account_cfg):
+                    code = row["account_code"]
+                    if code in canonical_balances:
+                        canonical_balances[code] = {"daily_close": {"status": "unconfirmed",
+                                                                  "reasons": ["duplicate_canonical_account"]}}
+                    else:
+                        canonical_balances[code] = row
 
     accounts = _build_accounts_overview(
         account_cfg,
@@ -739,6 +827,7 @@ def _overview_payload() -> dict[str, Any]:
         transfer_rollups,
         latest_reviews,
         fx_rates_by_base,
+        canonical_balances=canonical_balances,
     )
     summary = {
         "total_accounts": len(accounts),

@@ -90,6 +90,7 @@ from services.portfolio_valuation_state import (
     is_published_valuation_fresh_for_date as _is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state as _latest_published_portfolio_valuation_state,
     published_nav_bucket_from_row as _published_nav_bucket_from_row,
+    published_daily_close_compatible as _published_daily_close_compatible,
 )
 from services.research_view import (
     build_policy_ips_payload as _build_policy_ips_payload,
@@ -670,7 +671,8 @@ def _build_summary2_latest_payload_for_request(cur) -> dict[str, Any]:
         cur,
         base_currency=base_currency,
     )
-    return _apply_published_valuation_state_to_summary(summary_payload, valuation_state)
+    return _apply_published_valuation_state_to_summary(summary_payload, valuation_state,
+                                                     account_balances=account_balances)
 
 
 @app.get("/summary2/latest")
@@ -930,6 +932,9 @@ def nav_weekly(
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
+            from services.ibkr_daily_close_read import configured as daily_close_configured
+            account_cfg = _load_portfolio_accounts_config() if latest and daily_close_configured() else None
+            account_balances = _load_account_balances(cur, baseCurrency, account_cfg) if account_cfg is not None else None
             published_state = (
                 _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
                 if latest
@@ -938,6 +943,7 @@ def nav_weekly(
             published_state_fresh = bool(
                 published_state
                 and _is_published_valuation_fresh_for_date(published_state, current_view_as_of)
+                and _published_daily_close_compatible(published_state, account_balances=account_balances)
             )
             terminal_date = (
                 published_state["valuation_date"]
@@ -949,8 +955,9 @@ def nav_weekly(
             if published_state_fresh and published_state:
                 terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
             elif latest:
-                account_cfg = _load_portfolio_accounts_config()
-                account_balances = _load_account_balances(cur, baseCurrency, account_cfg)
+                account_cfg = account_cfg if account_cfg is not None else _load_portfolio_accounts_config()
+                account_balances = (account_balances if account_balances is not None
+                                    else _load_account_balances(cur, baseCurrency, account_cfg))
                 investment_positions = _load_investment_positions(
                     cur,
                     baseCurrency,

@@ -7,8 +7,9 @@ response shape until the frontend has explicitly migrated.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from datetime import date as Date, timedelta
-from decimal import Decimal
+from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from services.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE, latest_complete_snapshot_date
@@ -190,6 +191,95 @@ def add_nav_amount(bucket: dict[str, Decimal], amount_cny: Decimal) -> None:
     bucket["net_worth"] += amount_cny
 
 
+def daily_close_nav_bucket(
+    close: dict[str, Any], *, rate: Decimal | None, owner_ratio: Decimal,
+) -> dict[str, Decimal] | None:
+    """Convert only a proven gross long/short close, never split net NAV by sign."""
+    if close.get("status") != "ok" or rate is None:
+        return None
+    try:
+        proof = close["component_proof"]
+        gross = proof["subcomponent_checks"]["total_long_short"]
+        nav, long, short = (Decimal(str(value)) for value in (close["nav_base"], gross["long"], gross["short"]))
+        tolerance = Decimal(str(proof["tolerance"]))
+        if not all(v.is_finite() for v in (nav, long, short, rate, owner_ratio, tolerance)):
+            return None
+        with localcontext() as context:
+            context.prec = 160
+            if (rate <= 0 or owner_ratio < 0 or tolerance < 0 or long < 0 or short > 0
+                    or abs(long + short - nav) > tolerance):
+                return None
+            factor = rate * owner_ratio
+            return {"assets": long * factor, "liabilities": -short * factor, "net_worth": nav * factor}
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        return None
+
+
+def daily_close_account_identity(cur, *, source_account_id: str, as_of: Date) -> dict[str, Any]:
+    """Bind supplemental account identity to the exact native historical snapshot."""
+    cur.execute("SELECT to_regclass('public.pams_ibkr_position_history') IS NOT NULL AS exists")
+    row = cur.fetchone()
+    if not row or not row["exists"]:
+        return {"status": "unconfirmed", "reasons": ["missing_native_account_identity"]}
+    cur.execute("""SELECT DISTINCT source_account_id FROM pams_ibkr_position_history
+        WHERE account_code = %s AND as_of = %s""", ("ibkr", as_of))
+    identities = [row["source_account_id"] for row in cur.fetchall()]
+    if not identities or any(not isinstance(value, str) or not value.strip() for value in identities):
+        return {"status": "unconfirmed", "reasons": ["missing_native_account_identity"]}
+    if len(identities) != 1:
+        return {"status": "unconfirmed", "reasons": ["ambiguous_native_account_identity"]}
+    if identities[0] != source_account_id:
+        return {"status": "unconfirmed", "reasons": ["native_account_identity_mismatch"]}
+    return {"status": "ok", "basis": "exact_date_native_position_history_account", "as_of": as_of.isoformat()}
+
+
+def daily_close_value_metadata(
+    close: dict[str, Any], *, rate: Decimal, owner_ratio: Decimal, legacy_value: Decimal,
+    fx_evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Keep the native-FX bridge separate from the accrual/other NAV adjustment."""
+    with localcontext() as context:
+        context.prec = 160
+        factor = rate * owner_ratio
+        cash_positions = (close["cash_base"] + close["position_value_base"]) * factor
+        components = (close["interest_accrual_base"] + close["dividend_accrual_base"]
+                      + close["other_nav_components_base"]) * factor
+        corrected = close["nav_base"] * factor
+        result: dict[str, Any] = {"status": "ok", "as_of": close["as_of"], "source_sha256": close["source_sha256"],
+                "source_account_id": close["account_id"],
+                "requested_as_of": close["as_of"], "carried": False,
+                "nav_basis": "official_base_nav_at_internal_historical_fx",
+                "source_base_currency": close["base_currency"], "fx_rate": str(rate),
+                "owned_nav_base": str(close["nav_base"] * owner_ratio),
+                "owner_ratio": str(owner_ratio), "legacy_native_value_cny": str(legacy_value),
+                "cash_and_positions_at_base_fx_cny": str(cash_positions),
+                "native_fx_vs_base_fx_bridge_cny": str(legacy_value - cash_positions),
+                "bridge_basis": "legacy_native_valuation_minus_official_cash_positions_includes_any_universe_difference",
+                "accrual_and_other_components_cny": str(components),
+                "nav_adjustment_cny": str(corrected - legacy_value)}
+        if fx_evidence is not None:
+            result["fx_evidence"] = {k: str(v) if isinstance(v, Decimal) else v for k, v in fx_evidence.items()}
+        return result
+
+
+def current_daily_close_accounts(
+    account_balances: list[dict[str, Any]], investment_positions: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result = {}
+    for row in account_balances:
+        metadata = row.get("daily_close") or {}
+        code = str(row.get("account_code") or "")
+        day = metadata.get("as_of")
+        if (code != "ibkr" or metadata.get("status") != "ok" or not day
+                or str(row.get("as_of"))[:10] != day or not row.get("include_in_nav", True)):
+            continue
+        if any(str(position.get("as_of"))[:10] != day for position in investment_positions
+               if str(position.get("account_code") or "") == code):
+            continue
+        result[code] = row
+    return result
+
+
 def signed_account_native_value(account: dict[str, Any], value: Decimal) -> Decimal:
     """Normalize statement balances to NAV sign conventions."""
     if str(account.get("account_type") or "") == "liability":
@@ -203,7 +293,7 @@ def build_weekly_nav_rows(
     bank_series: dict[Date, dict[str, Decimal]],
     snapshot_series: dict[Date, Decimal],
     a_share_series: dict[Date, Decimal],
-    ibkr_values: dict[Date, dict[str, Decimal]],
+    ibkr_values: dict[Date, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Combine account, investment, and broker NAV components into dated rows."""
     rows: list[dict[str, Any]] = []
@@ -222,7 +312,10 @@ def build_weekly_nav_rows(
         bucket["assets"] += ibkr_bucket.get("assets", Decimal("0"))
         bucket["liabilities"] += ibkr_bucket.get("liabilities", Decimal("0"))
         bucket["net_worth"] += ibkr_bucket.get("net_worth", Decimal("0"))
-        rows.append({"date": sample_date, **bucket})
+        row: dict[str, Any] = {"date": sample_date, **bucket}
+        if "daily_close" in ibkr_bucket:
+            row["ibkr_daily_close"] = ibkr_bucket["daily_close"]
+        rows.append(row)
     return rows
 
 
@@ -230,18 +323,28 @@ def current_nav_bucket_from_parts(
     *,
     account_balances: list[dict[str, Any]],
     investment_positions: list[dict[str, Any]],
-) -> dict[str, Decimal]:
+) -> dict[str, Any]:
     """Build the current NAV bucket from the canonical PortfolioState parts."""
     represented_accounts = {
         str(row.get("account_code") or "")
         for row in investment_positions
         if row.get("account_code")
     }
-    bucket = {"assets": Decimal("0"), "liabilities": Decimal("0"), "net_worth": Decimal("0")}
+    bucket: dict[str, Any] = {"assets": Decimal("0"), "liabilities": Decimal("0"), "net_worth": Decimal("0")}
+    official = current_daily_close_accounts(account_balances, investment_positions)
     for row in investment_positions:
+        if str(row.get("account_code") or "") in official:
+            continue
         add_nav_amount(bucket, _dec(row.get("market_value_cny")))
     for row in account_balances:
         account_code = str(row.get("account_code") or "")
+        if account_code in official:
+            proof = official.pop(account_code)["daily_close"]
+            bucket["assets"] += _dec(proof["assets_cny"])
+            bucket["liabilities"] += _dec(proof["liabilities_cny"])
+            bucket["net_worth"] += _dec(row["amount_cny"])
+            bucket["ibkr_daily_close"] = {**proof, "net_worth_cny": str(_dec(row["amount_cny"]))}
+            continue
         if not row.get("include_in_nav", True) or account_code in represented_accounts:
             continue
         add_nav_amount(bucket, _dec(row.get("amount_cny")))
@@ -260,13 +363,19 @@ def current_nav_account_values_from_parts(
         if row.get("account_code")
     }
     values: dict[str, Decimal] = {}
+    official = current_daily_close_accounts(account_balances, investment_positions)
     for row in investment_positions:
         account_code = str(row.get("account_code") or "")
         if not account_code:
             continue
+        if account_code in official:
+            continue
         values[account_code] = values.get(account_code, Decimal("0")) + _dec(row.get("market_value_cny"))
     for row in account_balances:
         account_code = str(row.get("account_code") or "")
+        if account_code in official:
+            values[account_code] = _dec(official.pop(account_code)["amount_cny"])
+            continue
         if not account_code or not row.get("include_in_nav", True) or account_code in represented_accounts:
             continue
         values[account_code] = values.get(account_code, Decimal("0")) + _dec(row.get("amount_cny"))
@@ -275,13 +384,16 @@ def current_nav_account_values_from_parts(
 
 def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize internal NAV keys without changing the legacy API field names."""
-    return {
+    result: dict[str, Any] = {
         "date": _norm(row.get("date")),
         "asOfDate": _norm(row.get("date")),
         "assets": _norm(row.get("assets", Decimal("0"))),
         "liabilities": _norm(row.get("liabilities", Decimal("0"))),
         "netWorth": _norm(row.get("net_worth", Decimal("0"))),
     }
+    if "ibkr_daily_close" in row:
+        result["ibkr_daily_close"] = row["ibkr_daily_close"]
+    return result
 
 
 def format_weekly_nav_payload(
@@ -847,13 +959,75 @@ def _tonghuashun_series(cur, *, dates: list[Date], base_currency: str, account_o
     )
 
 
-def _ibkr_nav_series(cur, *, dates: list[Date], base_currency: str, owner_ratio_case_sql) -> dict[Date, dict[str, Decimal]]:
+def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account_owner_ratio) -> dict:
+    from services import ibkr_daily_close_read as daily_close
+
+    if not daily_close.configured():
+        return values
+    evidence = daily_close.read_series()
+    closes = evidence.get("daily_closes", {})
+    proven_days = sorted(day for day, close in closes.items() if close.get("status") == "ok")
+    result = {}
+    identities: dict[Date, dict[str, Any]] = {}
+    rates: dict[Date, dict[str, Any]] = {}
+    for day, legacy in values.items():
+        requested = day.isoformat()
+        index = bisect_right(proven_days, requested) - 1
+        close = closes[proven_days[index]] if index >= 0 else {}
+        metadata: dict[str, Any] = {"status": "unconfirmed", "as_of": day.isoformat(),
+                                   "requested_as_of": requested, "carried": False,
+                                   "reasons": (closes.get(requested) or {}).get("reasons")
+                                   or evidence.get("reasons") or ["missing_closing_date"]}
+        bucket = None
+        if close.get("status") == "ok":
+            source_day = Date.fromisoformat(close["as_of"])
+            if source_day not in identities:
+                identities[source_day] = daily_close_account_identity(cur, source_account_id=close["account_id"], as_of=source_day)
+            identity = identities[source_day]
+            if identity["status"] != "ok":
+                result[day] = {**legacy, "daily_close": {**metadata, "reasons": identity["reasons"],
+                                                         "identity_evidence": identity}}
+                continue
+            if account_owner_ratio is None:
+                metadata["reasons"] = ["missing_owner_ratio"]
+            else:
+                try:
+                    ratio = Decimal(str(account_owner_ratio("ibkr")))
+                except (ValueError, TypeError, InvalidOperation):
+                    result[day] = {**legacy, "daily_close": {**metadata, "reasons": ["invalid_owner_ratio"]}}
+                    continue
+                if source_day not in rates:
+                    rates[source_day] = daily_close.historical_fx(cur, currency=close["base_currency"],
+                                                                 base_currency=base_currency, as_of=source_day)
+                fx = rates[source_day]
+                rate = fx.get("rate") if fx.get("status") == "ok" else None
+                bucket = daily_close_nav_bucket(close, rate=rate, owner_ratio=ratio)
+                if bucket is not None and rate is not None:
+                    metadata = daily_close_value_metadata(close, rate=rate, owner_ratio=ratio,
+                                                          legacy_value=_dec(legacy["net_worth"]), fx_evidence=fx)
+                    metadata["valuation_currency"] = base_currency
+                    metadata["identity_evidence"] = identity
+                    metadata.update(requested_as_of=requested, carried=source_day != day,
+                                    age_days=(day - source_day).days)
+                    if source_day != day:
+                        metadata.update(status="last_valid", reasons=(closes.get(requested) or {}).get("reasons")
+                                        or ["missing_closing_date"])
+                else:
+                    metadata["reasons"] = fx.get("reasons") if rate is None else ["missing_gross_nav_proof"]
+                    metadata["fx_evidence"] = {k: str(v) if isinstance(v, Decimal) else v for k, v in fx.items()}
+        result[day] = {**(bucket if bucket is not None else legacy), "daily_close": metadata}
+    return result
+
+
+def _ibkr_nav_series(cur, *, dates: list[Date], base_currency: str, owner_ratio_case_sql,
+                     account_owner_ratio=None) -> dict[Date, dict[str, Any]]:
     """Return IBKR gross assets, margin liabilities, and net account value."""
     values = {d: {"assets": Decimal("0"), "liabilities": Decimal("0"), "net_worth": Decimal("0")} for d in dates}
     owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("ph")
     cur.execute("SELECT to_regclass('public.pams_ibkr_position_history') IS NOT NULL AS exists")
     if not bool(cur.fetchone()["exists"]):
-        return values
+        return _overlay_ibkr_daily_closes(cur, values=values, base_currency=base_currency,
+                                         account_owner_ratio=account_owner_ratio)
     cur.execute(
         f"""
         WITH series_dates AS (
@@ -910,7 +1084,57 @@ def _ibkr_nav_series(cur, *, dates: list[Date], base_currency: str, owner_ratio_
             "liabilities": _dec(row["liabilities"]),
             "net_worth": _dec(row["net_worth"]),
         }
-    return values
+    return _overlay_ibkr_daily_closes(cur, values=values, base_currency=base_currency,
+                                     account_owner_ratio=account_owner_ratio)
+
+
+def _terminal_daily_close_compatible(
+    terminal: dict[str, Any], assembled: dict[str, Any], ibkr_bucket: dict[str, Any],
+    account_values: dict[str, Any], *, base_currency: str,
+) -> bool:
+    """A terminal aggregate must prove it includes the same IBKR valuation."""
+    proposed = terminal.get("ibkr_daily_close")
+    if not isinstance(proposed, dict) or proposed.get("status") not in {"ok", "last_valid"}:
+        return False
+    for field in ("source_sha256", "source_account_id", "as_of", "nav_basis", "source_base_currency",
+                  "valuation_currency", "fx_evidence"):
+        if field not in proposed or field not in assembled or proposed[field] != assembled[field]:
+            return False
+        if field != "fx_evidence" and (not isinstance(proposed[field], str) or not proposed[field]):
+            return False
+    fx = proposed["fx_evidence"]
+    if (proposed["valuation_currency"] != base_currency
+            or proposed["nav_basis"] != "official_base_nav_at_internal_historical_fx"
+            or not isinstance(fx, dict) or fx.get("status") != "ok" or not fx.get("source")
+            or fx.get("as_of") != proposed["as_of"] or fx.get("currency") != proposed["source_base_currency"]
+            or fx.get("base_currency") != base_currency):
+        return False
+    try:
+        with localcontext(Context(prec=160, Emax=512, Emin=-512)):
+            for field in ("owner_ratio", "fx_rate"):
+                left, right = Decimal(str(proposed[field])), Decimal(str(assembled[field]))
+                if (not left.is_finite() or not right.is_finite() or left != right
+                        or left < 0 or (field == "fx_rate" and left == 0)):
+                    return False
+            for field, key in (("assets_cny", "assets"), ("liabilities_cny", "liabilities"),
+                               ("net_worth_cny", "net_worth")):
+                left, right = Decimal(str(proposed[field])), Decimal(str(ibkr_bucket[key]))
+                if not left.is_finite() or not right.is_finite() or left != right:
+                    return False
+            if "ibkr" in account_values:
+                account_value = Decimal(str(account_values["ibkr"]))
+                if not account_value.is_finite() or account_value != Decimal(str(ibkr_bucket["net_worth"])):
+                    return False
+            assets, liabilities, net = (Decimal(str(terminal[key])) for key in ("assets", "liabilities", "net_worth"))
+            if not all(value.is_finite() for value in (assets, liabilities, net)):
+                return False
+            tolerance = Decimal("0.00000001")
+            return (assets >= 0 and liabilities >= 0
+                    and assets + tolerance >= Decimal(str(ibkr_bucket["assets"]))
+                    and liabilities + tolerance >= Decimal(str(ibkr_bucket["liabilities"]))
+                    and abs(assets - liabilities - net) <= tolerance)
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        return False
 
 
 def build_nav_weekly_payload(
@@ -967,6 +1191,7 @@ def build_nav_weekly_payload(
         account_owner_ratio=account_owner_ratio,
     )
     terminal_account_values = terminal_account_values_cny or {}
+    tonghuashun_anchor_cny: Decimal | None
     if "tonghuashun" in terminal_account_values:
         tonghuashun_anchor_cny = _dec(terminal_account_values["tonghuashun"])
     else:
@@ -986,6 +1211,7 @@ def build_nav_weekly_payload(
         dates=dates,
         base_currency=base_currency,
         owner_ratio_case_sql=owner_ratio_case_sql,
+        account_owner_ratio=account_owner_ratio,
     )
     rows = build_weekly_nav_rows(
         dates=dates,
@@ -997,6 +1223,14 @@ def build_nav_weekly_payload(
     if terminal_nav_bucket:
         for row in rows:
             if row.get("date") == terminal_date:
+                close_proof = row.get("ibkr_daily_close") or {}
+                if close_proof.get("status") in {"ok", "last_valid"} and not _terminal_daily_close_compatible(
+                    terminal_nav_bucket, close_proof, ibkr_values[terminal_date], terminal_account_values,
+                    base_currency=base_currency,
+                ):
+                    # A portfolio-wide terminal total cannot erase one proven
+                    # account component while retaining that component's label.
+                    break
                 row["assets"] = _dec(terminal_nav_bucket.get("assets"))
                 row["liabilities"] = _dec(terminal_nav_bucket.get("liabilities"))
                 row["net_worth"] = _dec(terminal_nav_bucket.get("net_worth"))
