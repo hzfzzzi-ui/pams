@@ -1657,4 +1657,4 @@ def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
     fx = rows_js.split("function dailyFxText(row)", 1)[1].split("function dailyNativeText", 1)[0]
     assert "if (!native) return '';" in native
     assert "`-- ${String(row.currency).trim().toUpperCase()}`" in native
-    assert fx.index("if (Math.abs(fx) <= 0.005) return '';") < fx.index("if (holdingDailyPnlPending(row)) return '汇率 --';")
+    assert fx.index("if (Math.abs(fx) <= 0.005) return '';") < fx.index("if (holdingDailyPnlPending(row)) return '证券汇兑 --';")

@@ -233,7 +233,7 @@ function DailyReturnBreakdown(items = []) {
       <span class="dailyReturnChip ${value >= 0 ? 'good' : 'bad'}" title="${esc(item.label)} 今日收益">
         <span>${esc(item.label)}</span>
         <strong>${formatCompactCurrency(value, 'CNY', { signed: true })}</strong>
-        ${Math.abs(fx) > 0.005 ? `<em>价格 ${formatCompactCurrency(price, 'CNY', { signed: true })} · 汇率 ${formatCompactCurrency(fx, 'CNY', { signed: true })}</em>` : ''}
+        ${Math.abs(fx) > 0.005 ? `<em>价格 ${formatCompactCurrency(price, 'CNY', { signed: true })} · 证券汇兑估算 ${formatCompactCurrency(fx, 'CNY', { signed: true })}</em>` : ''}
       </span>
     `;
   }).join('');
@@ -2417,7 +2417,7 @@ function setKpiFxNote(valueId, fxDailyPnl) {
     parent.appendChild(note);
   }
   const fx = safeNum(fxDailyPnl);
-  note.textContent = Math.abs(fx) > 0.005 ? `汇率影响 ${fmtSignedCny(fx)}` : '';
+  note.textContent = Math.abs(fx) > 0.005 ? `证券汇兑估算 ${fmtSignedCny(fx)}` : '';
   note.style.color = fx >= 0 ? 'var(--good)' : 'var(--bad)';
 }
 

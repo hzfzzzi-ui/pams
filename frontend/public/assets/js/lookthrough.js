@@ -1054,8 +1054,9 @@ function returnAttributionRowHtml(row, index, maxAbsPnl) {
   const daily = activeReturnAttributionDimension === 'holding'
     ? returnAttributionLookupHoldingDaily(row)
     : n(row.daily_pnl_cny);
-  const dailyPrice = activeReturnAttributionDimension === 'holding' ? daily : n(row.daily_price_pnl_cny);
-  const dailyFx = activeReturnAttributionDimension === 'holding' ? 0 : n(row.daily_fx_pnl_cny);
+  const dailyPrice = row.daily_price_pnl_cny;
+  const priceAsOf = calibratedReturnAttributionData()?.as_of || '待核准';
+  const fx = returnAttributionFxDisplay(row);
   const width = maxAbsPnl > 0 ? Math.max(Math.abs(pnl) / maxAbsPnl * 100, 2) : 0;
   const isClosed = isClosedAttributionRow(row);
   const sourceLine = (row.top_sources || row.source_details || [])
@@ -1078,7 +1079,7 @@ function returnAttributionRowHtml(row, index, maxAbsPnl) {
       <div class="returnAttributionPnlBar"><i style="width:${width}%"></i></div>
       <div class="returnAttributionRowMeta">
         <span>${esc(meta)}</span>
-        <em>今日 ${fmtSignedMoney(daily)} · 价格 ${fmtSignedMoney(dailyPrice)} · 汇率 ${fmtSignedMoney(dailyFx)}</em>
+        <em title="价格收益归因日期：${esc(priceAsOf)}">今日 ${fmtSignedMoney(daily)} · 价格收益（折人民币） ${dailyFxValueText(dailyPrice)}${fx ? ` · ${esc(fx.label)} ${dailyFxValueText(fx.value)}（日期未独立核验）` : ''}</em>
       </div>
     </button>
   `;
@@ -1115,18 +1116,88 @@ function renderReturnAttribution() {
   renderReturnAttributionList();
 }
 
+function dailyFxValueText(value, status = 'confirmed') {
+  if (value == null || !['number', 'string'].includes(typeof value)
+    || String(value).trim() === '' || !Number.isFinite(Number(value))) return '待核准';
+  const suffix = status === 'confirmed' ? '' : status === 'partial' ? '（部分，待核准）' : '（待核准）';
+  return `${fmtSignedMoney(value)}${suffix}`;
+}
+
+function returnAttributionFxDisplay(row) {
+  const display = row?.fx_display;
+  if (display?.show === false || (!display && row?.currency === 'CNY')) return null;
+  return {
+    label: display?.label || '证券汇兑估算（人民币）',
+    value: display?.show === true && display.status === 'estimated'
+      && display.scope === 'instrument_only_not_account_net_fx'
+      && display.date_status === 'not_independently_verified' ? display.value_cny : null,
+  };
+}
+
+function dailyFxAccountBridgeHtml(row) {
+  const sources = [row, ...(Array.isArray(row?.source_details) ? row.source_details : [])];
+  if (!sources.some(source => String(source?.account || source?.account_code || '').trim().toLowerCase() === 'ibkr')) return '';
+  const bridge = calibratedReturnAttributionData()?.daily_fx_attribution;
+  if (!bridge || bridge.read_only !== true || bridge.affects_nav !== false
+    || bridge.scope !== 'positions_and_signed_cash') return '';
+  const status = bridge.status;
+  const label = status === 'confirmed' ? (bridge.status_label || '已确认')
+    : status === 'partial' ? '部分，待核准' : '待核准';
+  const ownershipLabel = bridge.ownership_basis === 'owner_adjusted' ? '本人归属'
+    : bridge.ownership_basis === 'full_account' ? '全账户' : '归属待核准';
+  const summary = bridge.summary || {};
+  const metrics = [
+    ['账户净汇兑（证券及现金）', bridge.net_fx_pnl_cny, 'net_fx_pnl_cny'],
+    ['证券汇兑', summary.position_fx_pnl_cny, 'position_fx_pnl_cny'],
+    ['现金汇兑（含融资负现金）', summary.cash_fx_pnl_cny, 'cash_fx_pnl_cny'],
+    ['价格收益（折人民币）', summary.price_pnl_cny, 'price_pnl_cny'],
+    ['现金收益', summary.income_pnl_cny, 'income_pnl_cny'],
+    ['费用', summary.expense_pnl_cny, 'expense_pnl_cny'],
+    ['应计及其他 NAV 变化', bridge.accrual_other_change_cny, 'accrual_other_change_cny'],
+    ['官方账户总收益', bridge.official_total_pnl_cny, 'official_total_pnl_cny'],
+    ['未解释现金', summary.unexplained_cash_cny, 'unexplained_cash_cny'],
+    ['剩余差额（官方收益桥接）', summary.official_residual_cny, 'official_residual_cny'],
+  ];
+  return `
+    <div class="sheetSection" data-daily-fx-account-bridge>
+      <h4>账户净汇兑（证券及现金）</h4>
+      <p>${esc(bridge.opening_as_of || '期初日期待核准')} → ${esc(bridge.as_of || '期末日期待核准')} · IBKR ${ownershipLabel} · ${esc(label)} · ${status === 'confirmed' ? '独立日终证据' : '日终证据待核准'} · 只读，不影响 NAV</p>
+      <div class="sheetSourceList">
+        ${metrics.map(([name, value, key]) => `<div class="sheetSourceRow" data-daily-fx-field="${key}"><div><strong>${esc(name)}</strong></div><div><b>${dailyFxValueText(value, status)}</b>${['official_residual_cny', 'unexplained_cash_cny'].includes(key) && value != null ? `<small>${esc(value)} CNY</small>` : ''}</div></div>`).join('')}
+        ${(Array.isArray(bridge.currencies) ? bridge.currencies : []).slice(0, 32).map(item => {
+          const rowStatus = status === 'confirmed' ? item.status : status;
+          return `<div class="sheetSourceRow" data-daily-fx-currency="${esc(item.currency)}">
+            <div>
+              <strong>${esc(item.currency)}</strong>
+              <small>期初证券 ${esc(item.opening_positions ?? '待核准')} · 现金 ${esc(item.opening_cash ?? '待核准')}</small>
+              <small>期初汇率 ${esc(item.opening_fx?.as_of || '日期待核准')} · ${esc(item.opening_fx?.rate ?? '待核准')} · ${esc(item.opening_fx?.source_label || '来源待核准')}</small>
+              <small>期末汇率 ${esc(item.closing_fx?.as_of || '日期待核准')} · ${esc(item.closing_fx?.rate ?? '待核准')} · ${esc(item.closing_fx?.source_label || '来源待核准')}</small>
+            </div>
+            <div>
+              <b>证券 ${dailyFxValueText(item.position_fx_pnl_cny, rowStatus)}</b>
+              <span>现金 ${dailyFxValueText(item.cash_fx_pnl_cny, rowStatus)}</span>
+              <span>净额 ${dailyFxValueText(item.net_fx_pnl_cny, rowStatus)}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function returnAttributionDetailHtml(row, options = {}) {
   const details = row.source_details || [];
   const useHoldingDaily = options.useHoldingDaily === true || activeReturnAttributionDimension === 'holding';
   const dailyPnl = useHoldingDaily ? returnAttributionLookupHoldingDaily(row) : n(row.daily_pnl_cny);
-  const dailyPricePnl = useHoldingDaily ? dailyPnl : n(row.daily_price_pnl_cny);
-  const dailyFxPnl = useHoldingDaily ? 0 : n(row.daily_fx_pnl_cny);
+  const dailyPricePnl = row.daily_price_pnl_cny;
+  const priceAsOf = calibratedReturnAttributionData()?.as_of || '待核准';
+  const fx = returnAttributionFxDisplay(row);
   return `
     <div class="sheetGrid">
       <div class="sheetMetric"><span>持仓盈亏</span><strong>${fmtSignedMoney(row.pnl_cny ?? row.value_cny)}</strong></div>
       <div class="sheetMetric"><span>今日盈亏</span><strong>${fmtSignedMoney(dailyPnl)}</strong></div>
-      <div class="sheetMetric"><span>价格收益</span><strong>${fmtSignedMoney(dailyPricePnl)}</strong></div>
-      <div class="sheetMetric"><span>汇率收益</span><strong>${fmtSignedMoney(dailyFxPnl)}</strong></div>
+      <div class="sheetMetric"><span title="价格收益归因日期：${esc(priceAsOf)}">价格收益（折人民币）</span><strong>${dailyFxValueText(dailyPricePnl)}</strong></div>
+      ${fx ? `<div class="sheetMetric" data-instrument-fx><span>${esc(fx.label)}<small>日期未独立核验 · 仅证券，不含现金</small></span><strong>${dailyFxValueText(fx.value)}</strong></div>` : ''}
       <div class="sheetMetric"><span>敞口金额</span><strong>${fmtMoney(row.market_value_cny)}</strong></div>
       <div class="sheetMetric"><span>敞口占比</span><strong>${fmtPct(row.exposure_weight ?? row.weight)}</strong></div>
     </div>
@@ -1148,6 +1219,7 @@ function returnAttributionDetailHtml(row, options = {}) {
         `).join('') : '<p>暂无来源明细</p>'}
       </div>
     </div>
+    ${dailyFxAccountBridgeHtml(row)}
   `;
 }
 

@@ -1139,6 +1139,7 @@ def _source_detail(unit: AttributionUnit, scale: float = 1.0) -> dict[str, Any]:
         "underlying_name": unit.get("underlying_name") or "",
         "underlying_symbol": unit.get("underlying_symbol") or "",
         "account": unit.get("account") or "",
+        "currency": unit.get("currency"),
         "source": unit.get("source_label") or unit.get("source"),
         "lookthrough_type": unit.get("lookthrough_type"),
         "pnl_cny": _num(unit.get("pnl_cny")) * scale,
@@ -1366,6 +1367,22 @@ def build_return_attribution_from_positions(
             total_market_value=total_market_value,
         ),
     }
+    for rows in dimensions.values():
+        for row in rows:
+            sources = row.get("source_details") or []
+            cny_only = bool(sources) and all(source.get("currency") == "CNY" for source in sources)
+            value = row.get("daily_fx_pnl_cny")
+            identity_zero = cny_only and value == 0
+            # Legacy instrument metrics remain unchanged. They do not prove a
+            # complete, dated account FX bridge; a missing split is not zero.
+            row["fx_display"] = {
+                "show": not identity_zero,
+                "status": "identity" if identity_zero else "estimated" if value else "pending",
+                "value_cny": 0 if identity_zero else value if value and not cny_only else None,
+                "label": "证券汇兑估算（人民币）",
+                "date_status": "not_independently_verified",
+                "scope": "instrument_only_not_account_net_fx",
+            }
 
     quality = dict(lookthrough.get("quality") or {})
     if reconciliation_meta.get("sections") or reconciliation_warnings:
@@ -1377,7 +1394,7 @@ def build_return_attribution_from_positions(
     notes = [
         "行业、地区、市场、底层归因使用穿透后的 exposure units；资产类型和币种按实际持有工具归因。",
         "主题归因按 theme_score 加权，主题可重叠，合计不要求等于组合总收益。",
-        "日收益、价格收益、汇率收益字段已预留；当前后端持仓快照缺少拆分时显示为 0。",
+        "证券汇兑估算不等于账户净汇兑；账户核对包含正负现金，日期与缺失证据单独标注。",
     ]
     if lookthrough.get("quality", {}).get("uncovered_value_cny"):
         notes.append("未穿透残差会承接基金收益，但不进入主题主图。")
@@ -1448,7 +1465,7 @@ def build_return_attribution_payload(
         Decimal("0"),
     )
     industry_l1_by_symbol = _load_sw_l1_lookup(cur)
-    return build_return_attribution_from_positions(
+    result = build_return_attribution_from_positions(
         positions,
         as_of=holdings.get("as_of") or view_as_of,
         industry_l1_by_symbol=industry_l1_by_symbol,
@@ -1459,3 +1476,8 @@ def build_return_attribution_payload(
         base_currency=base_currency,
         portfolio_nav_cny=portfolio_nav_cny,
     )
+    from services.ibkr_daily_fx import build_ibkr_daily_fx
+    if "ibkr" in (account_cfg.get("accounts") or {}) and "ibkr" not in _excluded_accounts(account_cfg):
+        result["daily_fx_attribution"] = build_ibkr_daily_fx(
+            cur, owner_ratio=_owner_ratio(account_cfg, "ibkr"), requested_as_of=view_as_of)
+    return result

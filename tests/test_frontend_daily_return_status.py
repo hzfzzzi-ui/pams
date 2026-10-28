@@ -178,7 +178,7 @@ def test_pending_or_stale_is_not_a_green_zero_in_any_renderer(fields):
     assert 'mono " style="color:var(--muted)">--</small>' in row["mobile"]
     assert 'class="mono muted"' not in row["mobile"]
     assert "-- USD" in row["mobile"] and "-- USD" in row["sheet"]
-    assert ("\u6c47\u7387\u5f71\u54cd" in row["sheet"]) == (fields.get("daily_fx_pnl_cny", 0) != 0)
+    assert ("\u8bc1\u5238\u6c47\u5151\u4f30\u7b97" in row["sheet"]) == (fields.get("daily_fx_pnl_cny", 0) != 0)
     for template in ("detail", "sheet"):
         assert '<strong>\u6536\u76ca\u72b6\u6001</strong><span>\u5f85\u66f4\u65b0</span>' in row[template]
     assert data["profile"]["dailyStatus"] == "pending"
@@ -271,11 +271,11 @@ def test_pending_keeps_native_and_fx_placeholders_only_where_lines_already_exist
     valid = render([holding(**fields, daily_return_status="confirmed")])["renders"][0]
     pending = render([holding(**fields, daily_return_status="pending")])["renders"][0]
     assert bool(valid["native"]) == bool(pending["native"]) == (currency != "CNY")
-    assert bool(valid["fx"]) == bool(pending["fx"]) == (abs(fx) > 0.005)
+    assert bool(valid["fx"]) == bool(pending["fx"]) == (currency != "CNY" and abs(fx) > 0.005)
     if pending["native"]:
         assert pending["native"] == f"-- {currency}"
     if pending["fx"]:
-        assert pending["fx"] == "\u6c47\u7387 --"
+        assert pending["fx"] == "\u8bc1\u5238\u6c47\u5151 --"
     for label in ["\u672c\u5e01\u4eca\u65e5", "\u6c47\u7387\u5f71\u54cd"]:
         assert (label in valid["sheet"]) == (label in pending["sheet"])
     assert valid["mobile"].count('class="mobileHoldingFxImpact"') == pending["mobile"].count('class="mobileHoldingFxImpact"')

@@ -71,10 +71,13 @@ function formatNativeDaily(value, currency) {
 }
 
 function dailyFxText(row) {
-  const fx = safeNum(cnyValue(row, 'daily_fx_pnl'));
+  if (String(row?.currency || '').trim().toUpperCase() === 'CNY') return '';
+  const value = row?.daily_fx_pnl_cny ?? row?.daily_fx_pnl;
+  if (value == null || !Number.isFinite(Number(value))) return '证券汇兑 待核准';
+  const fx = safeNum(value);
   if (Math.abs(fx) <= 0.005) return '';
-  if (holdingDailyPnlPending(row)) return '汇率 --';
-  return `汇率 ${formatSignedCurrency(fx)}`;
+  if (holdingDailyPnlPending(row)) return '证券汇兑 --';
+  return `证券汇兑 ${formatSignedCurrency(fx)}`;
 }
 
 function dailyNativeText(row) {
@@ -668,7 +671,7 @@ function renderMobileHoldingRows(rows, options = {}) {
           <div><strong>收益状态</strong><span>${dailyPending ? '待更新' : holdingDailyStatusBadge(row) || '<span class="muted">—</span>'}</span></div>
           ${hasDailyTotalPnl(row) ? `<div><strong>价格影响</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(priceDailyPnl)}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : formatSignedCurrency(priceDailyPnl)}</span></div>` : ''}
           ${detailNativeDaily ? `<div><strong>${row.__dailyReturnDate ? `本币${esc(row.__dailyReturnDate.slice(5).replace('-', '/'))}` : '本币今日'}</strong><span class="mono">${esc(detailNativeDaily)}</span></div>` : ''}
-          ${detailFxDaily ? `<div><strong>汇率影响</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${esc(detailFxDaily.replace(/^汇率\s*/, ''))}</span></div>` : ''}
+          ${detailFxDaily ? `<div><strong>证券汇兑估算</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${esc(detailFxDaily.replace(/^证券汇兑\s*/, ''))}</span></div>` : ''}
           <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(row))}</span></div>
           <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(row))}</span></div>
           <div><strong>摊薄成本</strong><span class="mono">${esc(dilutedAveragePriceText(row))}</span></div>
