@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -413,6 +413,65 @@ def refresh_us_quotes(now=None):
         return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
+def _refresh_overseas_market_quotes(market, current):
+    """Each local market has its own durable lock, polling limit and outcome."""
+    key = f"{market}_quotes"
+    try:
+        with job_lock(STATE_PATH, key):
+            previous = read_state(STATE_PATH)["jobs"].get(key, {})
+            checked = previous.get("last_checked_at")
+            if checked and current - datetime.fromisoformat(checked) < timedelta(minutes=5):
+                return {"status": "deferred", "reason": "quote_poll_not_due"}
+            job = {**previous, "status": "running", "last_checked_at": current.isoformat(),
+                   "covered": None, "unchanged": False}
+            store_job(STATE_PATH, key, job)
+            try:
+                result = _call(f"prices/refresh/us-stock?market={market}&scheduled=true", f"{market.upper()} close quotes")
+                if (isinstance(result, dict) and result.get("status") == "skipped"
+                        and result.get("reason") == "no_completed_overseas_session"):
+                    job.update(status="idle", reason=result["reason"], issues=[])
+                elif isinstance(result, dict) and result.get("found") == 0 and not result_issues(result):
+                    job.update(status="idle", reason="no_overseas_holdings", issues=[])
+                else:
+                    issues = result_issues(result)
+                    if not isinstance(result, dict) or "found" not in result or not result.get("as_of"):
+                        issues.append("missing_quote_coverage")
+                    elif result.get("as_of"):
+                        target = date.fromisoformat(result["as_of"]).isoformat()
+                        job.update(target_date=target, found=result["found"], updated=result.get("updated"), covered=result.get("covered"),
+                                   quote_sources=result.get("quote_sources", {}))
+                    if isinstance(result, dict) and result.get("unchanged") is True:
+                        found, covered, updated = result.get("found"), result.get("covered"), result.get("updated")
+                        valid_coverage = (type(found) is int and found > 0 and type(covered) is int
+                                          and covered == found and type(updated) is int and updated == 0)
+                        if valid_coverage and issues == ["partial_update"]:
+                            issues = []
+                        elif not valid_coverage:
+                            issues.append("invalid_unchanged_coverage")
+                        job.update(covered=covered, unchanged=True)
+                    job.update(status="blocked" if issues else "success", issues=issues,
+                               reason="quote_refresh_incomplete" if issues else "quotes_refreshed")
+                    if not issues:
+                        job["last_success_date"] = job["target_date"]
+            except Exception as exc:  # noqa: BLE001
+                job.update(status="error", issues=[type(exc).__name__], reason="quote_refresh_failed")
+            job["finished_at"] = datetime.now(UTC).isoformat()
+            store_job(STATE_PATH, key, job)
+            logger.info("[%s close quotes] status=%s reason=%s", market.upper(), job["status"], job["reason"])
+            return job
+    except BlockingIOError:
+        return {"status": "deferred", "reason": "job_busy"}
+    except (OSError, ValueError, TypeError):
+        logger.exception("%s quote checkpoint unavailable", market.upper())
+        return {"status": "error", "reason": "checkpoint_unavailable"}
+
+
+def refresh_overseas_quotes(now=None):
+    """Quote-only polling does not depend on Flex, funds or all-market publishing."""
+    current = now or datetime.now(UTC)
+    return {market: _refresh_overseas_market_quotes(market, current) for market in ("kr", "hk", "se", "ch")}
+
+
 def refresh_trend_state():
     """Refresh legacy macro trend state only when legacy jobs are enabled."""
     return _call_legacy_strategy("strategy/state/refresh", "Macro trend")
@@ -509,6 +568,7 @@ def main():
     )
     schedule.every(30).minutes.do(refresh_crypto)
     schedule.every(5).minutes.do(refresh_us_quotes)
+    schedule.every(5).minutes.do(refresh_overseas_quotes)
     schedule.every().day.at("07:25").do(refresh_trend_state)
     schedule.every().day.at("07:30").do(strategy_eod_scan)
     schedule.every().day.at("07:32").do(watchlist_daily_exit_check)
@@ -522,6 +582,7 @@ def main():
     logger.info("Waiting for API readiness (10 seconds)...")
     time.sleep(10)
     refresh_us_quotes()
+    refresh_overseas_quotes()
     refresh_crypto()
     run_flex_confirmation()
     run_daily_close_confirmation()

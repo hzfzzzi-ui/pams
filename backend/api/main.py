@@ -47,13 +47,14 @@ from services.accounts_view import (
 from services.cashflow_view import build_cashflow_series_payload as _build_cashflow_series_payload
 from services.fx_rates import build_latest_fx_rates_payload as _build_latest_fx_rates_payload
 from services.holdings_view import (
+    advance_overseas_view_date as _advance_overseas_view_date,
     build_api_holdings_latest_payload as _build_api_holdings_latest_payload,
     build_holdings_by_category_payload as _build_holdings_by_category_payload,
     build_holdings_history_payload as _build_holdings_history_payload,
     build_holdings_latest_payload as _build_holdings_latest_payload,
     latest_complete_snapshot_date as _latest_complete_snapshot_date,
 )
-from services.holding_return_display import attach_recent_us_returns
+from services.holding_return_display import attach_recent_market_returns
 from services.holding_return_snapshot import (
     build_investment_return_series_payload_from_snapshot as _build_investment_return_series_payload_from_snapshot,
     build_section_return_series_payload_from_snapshot as _build_section_return_series_payload_from_snapshot,
@@ -255,7 +256,7 @@ def _holdings_market_view_as_of(cur) -> Date:
         latest = latest.date()
     elif latest is not None and not isinstance(latest, Date) and hasattr(latest, "date"):
         latest = latest.date()
-    return _clamp_to_latest_data_date(candidate, latest)
+    return _advance_overseas_view_date(cur, _clamp_to_latest_data_date(candidate, latest))
 
 
 def _investment_return_view_as_of(cur) -> Date:
@@ -703,7 +704,7 @@ def holdings_latest_compat(
                     daily_pnl_start_as_of=daily_date,
                 )
             active_date = _daily_pnl_view_as_of()
-            return json(attach_recent_us_returns(
+            return json(attach_recent_market_returns(
                 cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
                 load_date=lambda day: load(day, day),
             ))
@@ -734,7 +735,7 @@ def holdings_by_category(
                     daily_pnl_start_as_of=daily_date,
                 )
             active_date = _daily_pnl_view_as_of()
-            return json(attach_recent_us_returns(
+            return json(attach_recent_market_returns(
                 cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
                 load_date=lambda day: load(day, day),
             ))
