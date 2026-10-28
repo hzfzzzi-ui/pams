@@ -36,11 +36,11 @@ vm.runInContext(`mobileHeroContext = {asOf:'2026-10-28', profiles: {
 }}; updateMobilePortfolioHero();`, ctx);
 const late = hero.innerHTML;
 choice = '\u5168\u90e8'; ctx.updateMobilePortfolioHero();
-console.log(JSON.stringify({rendered, late, all: hero.innerHTML, unchanged: before === JSON.stringify(input)}));
+console.log(JSON.stringify({rendered, late, all: hero.innerHTML, quantity: rows.holdingQuantityText(input.row), unchanged: before === JSON.stringify(input)}));
 """
 
 
-def run(row):
+def run(row, field="rendered"):
     node = shutil.which("node")
     if not node:
         pytest.skip("Node is required for real JS execution")
@@ -54,13 +54,13 @@ def run(row):
     assert "IBKR" in output["late"]
     assert "ALL" in output["all"]
     assert "mobileHeroMetaTop" not in output["late"]
-    return output["rendered"]
+    return output[field]
 
 
 @pytest.mark.parametrize("stamp", [None, "", "2026-10-28", "2026-10-28T20:30:00", "invalid", "2026-13-28T20:30:00Z"])
 def test_unknown_is_not_replaced_by_valuation_date_or_browser_time(stamp):
     html = run({"valuation_updated_at": stamp, "as_of": "2026-10-28", "updated_at": "2026-10-29T00:00:00Z"})
-    assert "\u540c\u6b65\u65f6\u95f4\u672a\u77e5" in html
+    assert "\u65f6\u95f4\u672a\u77e5" in html
     assert "<time" not in html
 
 
@@ -69,9 +69,15 @@ def test_explicit_zones_render_in_beijing(stamp):
     html = run({"valuation_updated_at": stamp})
     assert "10-29 04:30" in html
     assert "\u5317\u4eac\u65f6\u95f4" in html
+    assert ">\u540c\u6b65 " not in html
 
 
 def test_merged_fund_uses_oldest_account_and_never_hides_missing_provenance():
     rows = [{"valuation_updated_at": "2026-10-28T20:30:00Z"}, {"valuation_updated_at": "2026-10-28T17:10:00Z"}]
     assert "10-29 01:10" in run({"__accountRows": rows})
     assert "<time" not in run({"__accountRows": rows + [{}]})
+
+
+@pytest.mark.parametrize("quantity,expected", [(10, "10"), ("20.000000", "20"), ("20.010", "20.01"), ("75.010", "75.01"), (20.1, "20.1"), ("32665.908748", "32,665.909"), ("0.001", "0.001"), (None, "--"), (0, "--"), ("invalid", "--")])
+def test_quantity_trims_only_padding_zeros_at_existing_precision(quantity, expected):
+    assert run({"quantity": quantity}, "quantity") == expected

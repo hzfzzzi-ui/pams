@@ -112,6 +112,18 @@ def recent_return():
                        "daily_total_pnl_cny": "41", "price_change_pct": "0.06", "previous_price": "10"}}
 
 
+def test_mobile_metadata_is_below_name_and_quantity_padding_is_removed():
+    data = render([holding(quantity="75.010", daily_return_status="confirmed",
+                           valuation_updated_at="2026-10-28T20:30:00Z")])
+    html = data["renders"][0]["mobile"]
+    name, metadata = html.split('<span class="mobileHoldingMeta">', 1)
+    assert "miniBadge" not in name
+    assert "今日收益已确认" in metadata
+    assert "mobileHoldingQuote" in metadata and "mobileHoldingSync" in metadata
+    assert "75.01</strong>" in metadata and "75.010" not in metadata
+    assert ">同步 " not in metadata
+
+
 def test_last_confirmed_display_does_not_replace_today_or_recalculate_account_amount():
     recent = {"as_of": "2026-10-27", "label": "10/27收益", "amount_cny": "777.77", "partial": True,
               "title": "美股 2026-10-27 已确认；2026-10-28 预估待更新"}
