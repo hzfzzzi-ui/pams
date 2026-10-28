@@ -260,15 +260,9 @@ def _use_latest_account_snapshot_bucket(category: str, exclude_minor_categories:
 
 def _overseas_market_bucket(row: dict) -> str:
     """Classify overseas holdings for targeted refresh scheduling."""
-    symbol = str(row.get("symbol") or "").strip().upper()
-    currency = str(row.get("currency") or "").strip().upper()
-    if currency == "KRW" or symbol.endswith(".KS") or symbol.endswith(".KQ"):
-        return "kr"
-    if currency == "HKD" or symbol.endswith(".HK") or (symbol.isdigit() and 1 <= len(symbol) <= 5):
-        return "hk"
-    if currency == "USD":
-        return "us"
-    return "other"
+    from services.overseas_return_calendar import market_bucket
+
+    return market_bucket(row) or "other"
 
 
 def _overseas_market_bucket_case(alias: str = "") -> str:
@@ -277,9 +271,15 @@ def _overseas_market_bucket_case(alias: str = "") -> str:
     currency = f"UPPER(COALESCE({prefix}currency, ''))"
     return f"""
         CASE
-            WHEN {currency} = 'KRW' OR {symbol} LIKE '%%.KS' OR {symbol} LIKE '%%.KQ' THEN 'kr'
-            WHEN {currency} = 'HKD' OR {symbol} LIKE '%%.HK'
-              OR ({symbol} ~ '^[0-9]{{1,5}}$') THEN 'hk'
+            WHEN {symbol} LIKE '%%.ST' THEN 'se'
+            WHEN {symbol} LIKE '%%.SW' THEN 'ch'
+            WHEN {symbol} LIKE '%%.KS' OR {symbol} LIKE '%%.KQ' THEN 'kr'
+            WHEN {symbol} LIKE '%%.HK' THEN 'hk'
+            WHEN {symbol} ~ '^[0-9]{{1,5}}$' THEN 'hk'
+            WHEN {currency} = 'KRW' THEN 'kr'
+            WHEN {currency} = 'HKD' THEN 'hk'
+            WHEN {currency} = 'SEK' THEN 'se'
+            WHEN {currency} = 'CHF' THEN 'ch'
             WHEN {currency} = 'USD' THEN 'us'
             ELSE 'other'
         END
@@ -299,6 +299,12 @@ def _normalize_overseas_market_filter(market: Optional[str]) -> Tuple[str, ...]:
         "hong_kong": "hk",
         "hongkong": "hk",
         "hk_stock": "hk",
+        "se": "se",
+        "sweden": "se",
+        "se_stock": "se",
+        "ch": "ch",
+        "switzerland": "ch",
+        "ch_stock": "ch",
         "us": "us",
         "usa": "us",
         "us_stock": "us",
@@ -736,6 +742,155 @@ def _upsert_scheduled_us_quotes(rows: List[dict], prices: Dict[str, float], as_o
     return written
 
 
+def _overseas_currency_mismatches(rows: list[dict], bucket: str) -> list[dict]:
+    from services.overseas_return_calendar import MARKET_CURRENCIES
+
+    expected = MARKET_CURRENCIES[bucket]
+    return [{"reason": "currency_mismatch", "symbol": row.get("symbol"),
+             "account_code": row.get("account_code"), "currency": row.get("currency"),
+             "expected_currency": expected, "market": bucket}
+            for row in rows if row.get("currency") != expected]
+
+
+def _upsert_scheduled_overseas_quotes(
+    rows: list[dict], bucket: str, as_of: date, history: dict[str, list[tuple[date, float]]],
+) -> tuple[int, int, set[str]]:
+    """Persist dated closes and quote marks atomically, using DB-rounded prices."""
+    from services.overseas_return_calendar import market_calendar
+
+    if _overseas_currency_mismatches(rows, bucket):
+        raise ValueError("currency_mismatch: needs_review")
+    payload = {}
+    eligible = set()
+    previous_session = None
+    for row in rows:
+        symbol = str(row.get("symbol") or "")
+        closes = {}
+        for trade_date, close in history.get(symbol, []):
+            try:
+                value = Decimal(str(close))
+            except (ArithmeticError, TypeError, ValueError):
+                continue
+            if trade_date <= as_of and value.is_finite() and value > 0:
+                closes[trade_date] = value
+        if as_of not in closes:
+            continue
+        if previous_session is None:
+            previous_session = market_calendar(bucket).previous_session(as_of.isoformat()).date()
+        eligible.add(symbol)
+        for trade_date in (previous_session, as_of):
+            if trade_date in closes:
+                payload[(symbol, "YF", trade_date)] = closes[trade_date]
+    if not payload:
+        return 0, 0, set()
+
+    written = 0
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            missing_previous = sorted(symbol for symbol in eligible if (symbol, "YF", previous_session) not in payload)
+            if missing_previous:
+                cur.execute("""
+                    SELECT symbol, close FROM pams_ohlcv_daily
+                    WHERE market = 'YF' AND symbol = ANY(%s::text[]) AND trade_date = %s
+                      AND close > 0 AND close::text NOT IN ('NaN', 'Infinity', '-Infinity')
+                """, (missing_previous, previous_session))
+                available_previous = {str(row["symbol"]) for row in cur.fetchall()}
+                eligible.difference_update(set(missing_previous) - available_previous)
+            payload = {key: value for key, value in payload.items() if key[0] in eligible}
+            if not payload:
+                return 0, 0, set()
+            cur.executemany("""
+                INSERT INTO pams_ohlcv_daily (symbol, market, trade_date, close)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (symbol, market, trade_date)
+                DO UPDATE SET close = EXCLUDED.close
+            """, [(*key, value) for key, value in payload.items()])
+            # Never replace NUMERIC(12,4) with the original Yahoo float tail.
+            cur.execute("""
+                SELECT symbol, trade_date, close FROM pams_ohlcv_daily
+                WHERE market = 'YF' AND symbol = ANY(%s::text[]) AND trade_date = ANY(%s::date[])
+                  AND close > 0 AND close::text NOT IN ('NaN', 'Infinity', '-Infinity')
+            """, (sorted(eligible), [previous_session, as_of]))
+            stored_closes = {(str(row["symbol"]), row["trade_date"]): row["close"] for row in cur.fetchall()}
+            stored = {symbol: stored_closes[(symbol, as_of)] for symbol in eligible
+                      if (symbol, as_of) in stored_closes and (symbol, previous_session) in stored_closes}
+            for row in rows:
+                symbol = str(row.get("symbol") or "")
+                if symbol not in stored:
+                    continue
+                quote = quote_snapshot_from_market_daily({
+                    "as_of": as_of, "asset_id": row.get("asset_id"), "symbol": symbol,
+                    "name": row.get("name"), "currency": row.get("currency"), "market": bucket.upper(),
+                    "source": "yahoo_close", "provider": "yahoo",
+                    "source_key": f"yahoo_close:{bucket}:{symbol}:{as_of}", "close_price": stored[symbol],
+                    "return_status": "confirmed", "raw_json": {"valuation_projection_only": True},
+                })
+                upsert_quote_snapshot(cur, quote)
+                written += 1
+        conn.commit()
+    return len(payload), written, set(stored)
+
+
+def _has_completed_overseas_quotes(rows: list[dict], bucket: str, as_of: date) -> bool:
+    """Only complete, matching close evidence can suppress a provider refresh."""
+    from services.overseas_return_calendar import market_calendar
+
+    required = {(str(row.get("symbol") or ""), str(row.get("currency") or "")) for row in rows}
+    if (not required or any(not symbol or not currency for symbol, currency in required)
+            or _overseas_currency_mismatches(rows, bucket)):
+        return False
+    previous_session = market_calendar(bucket).previous_session(as_of.isoformat()).date()
+    with _get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT DISTINCT q.symbol, q.currency FROM pams_market_quote_snapshot q
+            JOIN pams_ohlcv_daily current_close ON current_close.symbol = q.symbol
+              AND current_close.market = 'YF' AND current_close.trade_date = q.quote_date
+            JOIN pams_ohlcv_daily previous_close ON previous_close.symbol = q.symbol
+              AND previous_close.market = 'YF' AND previous_close.trade_date = %s
+            WHERE q.quote_date = %s AND q.market = %s AND q.symbol = ANY(%s::text[])
+              AND q.provider = 'yahoo' AND q.source = 'yahoo_close'
+              AND q.return_status = 'confirmed' AND q.quote_session = 'close'
+              AND q.price > 0 AND q.price::text NOT IN ('NaN', 'Infinity', '-Infinity')
+              AND q.price = current_close.close
+              AND previous_close.close > 0 AND previous_close.close::text NOT IN ('NaN', 'Infinity', '-Infinity')
+              AND q.raw_json @> '{"valuation_projection_only":true}'::jsonb
+        """, (previous_session, as_of, bucket.upper(), sorted({symbol for symbol, _ in required})))
+        covered = {(str(row["symbol"]), str(row["currency"])) for row in cur.fetchall()}
+    return required <= covered
+
+
+def _refresh_scheduled_overseas_quotes(bucket: str, as_of: date) -> dict:
+    """Refresh one completed local session without writing account snapshots."""
+    holdings = _get_holdings_with_symbol(_OVERSEAS_MAJOR_CATEGORY, market_buckets=(bucket,))
+    result = {
+        "category": _OVERSEAS_MAJOR_CATEGORY,
+        "source_as_of": str(holdings[0]["as_of"]) if holdings else None,
+        "as_of": as_of.isoformat(), "found": len(holdings), "price_basis": "close",
+        "market_buckets": [bucket], "valuation_projection_only": True,
+    }
+    mismatches = _overseas_currency_mismatches(holdings, bucket)
+    if mismatches:
+        return {**result, "status": "needs_review", "reason": "currency_mismatch",
+                "manual_review_items": mismatches, "updated": 0, "covered": 0,
+                "close_rows": 0, "daily_quote_rows": 0, "quote_sources": {}, "errors": ["currency_mismatch"]}
+    if _has_completed_overseas_quotes(holdings, bucket, as_of):
+        return {**result, "status": "ok", "unchanged": True, "updated": 0, "covered": len(holdings),
+                "close_rows": 0, "daily_quote_rows": 0, "quote_sources": {}, "errors": []}
+    symbols = {str(row["symbol"]): _yfinance_quote_symbol(str(row["symbol"]), bucket) for row in holdings}
+    _YFINANCE_CLOSE_CACHE.clear()
+    if symbols:
+        _fetch_us_stock_prices_yf(list(dict.fromkeys(symbols.values())))
+    history = {symbol: list(_YFINANCE_CLOSE_CACHE.get(provider_symbol, []))
+               for symbol, provider_symbol in symbols.items()}
+    close_rows, written, stored = _upsert_scheduled_overseas_quotes(holdings, bucket, as_of, history)
+    return {
+        **result, "updated": written, "covered": written, "close_rows": close_rows, "daily_quote_rows": written,
+        "quote_sources": {"yahoo_close": written} if written else {},
+        "errors": [f"{row['symbol']}: missing target or previous-session close" for row in holdings
+                   if str(row["symbol"]) not in stored],
+    }
+
+
 def _upsert_yfinance_closes(rows: List[dict]) -> int:
     """Store recent Yahoo Finance close rows for overseas daily PnL."""
     payload = []
@@ -1149,9 +1304,12 @@ def _fetch_a_stock_prices(symbols: List[str]) -> Dict[str, float]:
 
 # ---------- 美股价格获取 (yfinance) ----------
 
-def _yfinance_quote_symbol(symbol: str) -> str:
+def _yfinance_quote_symbol(symbol: str, market: str | None = None) -> str:
     """Return a yfinance-compatible symbol for overseas holdings."""
     raw = (symbol or "").strip()
+    suffix = {"se": ".ST", "ch": ".SW", "kr": ".KS"}.get(str(market or "").lower())
+    if suffix and "." not in raw:
+        return raw + suffix
     if raw.isdigit() and 1 <= len(raw) <= 5:
         return f"{raw.zfill(4)}.HK"
     return raw
@@ -1169,7 +1327,7 @@ def _looks_like_us_stock_symbol(symbol: str) -> bool:
     raw = str(symbol or "").strip().upper()
     if not raw or raw.startswith("CASH_"):
         return False
-    if raw.endswith((".HK", ".KS", ".KQ")):
+    if raw.endswith((".HK", ".KS", ".KQ", ".ST", ".SW")):
         return False
     if raw.isdigit():
         return False
@@ -2585,7 +2743,16 @@ def refresh_us_stock(
         price_basis = "close"
     if price_basis not in {"close", "estimate"}:
         price_basis = "close"
+    market_buckets = _normalize_overseas_market_filter(market)
     if scheduled is True:
+        if len(market_buckets) == 1 and market_buckets[0] in {"hk", "kr", "se", "ch"}:
+            from services.overseas_return_calendar import latest_completed_session
+
+            bucket = market_buckets[0]
+            completed = latest_completed_session(bucket)
+            if completed is None:
+                return _json({"status": "skipped", "reason": "no_completed_overseas_session", "market": bucket})
+            return _json(_refresh_scheduled_overseas_quotes(bucket, completed))
         now = datetime.now(ZoneInfo("America/New_York"))
         target = _price_refresh_as_of(_OVERSEAS_MAJOR_CATEGORY)
         session_date = now.date() + timedelta(days=now.hour >= 20)
@@ -2593,7 +2760,6 @@ def refresh_us_stock(
             return _json({"status": "skipped", "reason": "outside_us_quote_session", "as_of": str(target)})
         # Official statements may arrive later; quote refresh never waits for Flex.
         price_basis = "close" if target == now.date() and (now.hour, now.minute) >= (16, 30) else "estimate"
-    market_buckets = _normalize_overseas_market_filter(market)
     fetch_fn = _fetch_us_stock_estimate_prices if price_basis == "estimate" else _fetch_us_stock_prices
     scheduled_options: dict[str, Any] = {"require_current_close": True} if scheduled is True else {}
     result = _refresh_category(

@@ -28,9 +28,23 @@ def quote_valuation_cte(enabled: bool) -> str:
             SELECT q.price, q.quote_date, q.updated_at
             FROM pams_market_quote_snapshot q
             WHERE q.currency = s.currency AND q.symbol = s.symbol
-              AND q.market = 'US' AND q.currency = 'USD'
+              AND (q.market, q.currency) IN (
+                  ('US', 'USD'), ('HK', 'HKD'), ('KR', 'KRW'), ('SE', 'SEK'), ('CH', 'CHF')
+              )
+              AND q.market = CASE
+                  WHEN UPPER(s.symbol) LIKE '%%.ST' THEN 'SE'
+                  WHEN UPPER(s.symbol) LIKE '%%.SW' THEN 'CH'
+                  WHEN UPPER(s.symbol) LIKE '%%.KS' OR UPPER(s.symbol) LIKE '%%.KQ' THEN 'KR'
+                  WHEN UPPER(s.symbol) LIKE '%%.HK' THEN 'HK'
+                  WHEN s.symbol ~ '^[0-9]{1,5}$' THEN 'HK'
+                  WHEN s.currency = 'KRW' THEN 'KR'
+                  WHEN s.currency = 'HKD' THEN 'HK'
+                  WHEN s.currency = 'SEK' THEN 'SE'
+                  WHEN s.currency = 'CHF' THEN 'CH'
+                  WHEN s.currency = 'USD' THEN 'US'
+              END
               AND q.quote_date > s.as_of
-              AND q.quote_date <= (SELECT MAX(as_of) FROM account_snapshot_stats)
+              AND q.quote_date <= (SELECT as_of FROM snapshot_view_cutoff)
               AND q.price > 0 AND q.price::text NOT IN ('NaN', 'Infinity', '-Infinity')
               AND q.return_status IN ('estimated', 'confirmed')
               AND q.raw_json @> '{"valuation_projection_only":true}'::jsonb

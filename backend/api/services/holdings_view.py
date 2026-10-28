@@ -6,11 +6,13 @@ moving display-read logic out of ``main.py``.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from collections.abc import Mapping
 from typing import Any
+from zoneinfo import ZoneInfo
 from services.quote_valuation import quote_price_as_of, quote_valuation_cte
+from services.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session
 
 from services.daily_return_state import (
     RETURN_STATUS_CONFIRMED,
@@ -35,10 +37,11 @@ from services.holdings_positions import (
 
 
 COMPLETE_ACCOUNT_SNAPSHOT_CTE = """
+snapshot_view_cutoff AS (SELECT %s::date AS as_of),
 account_snapshot_stats AS (
     SELECT account_code, as_of, COUNT(*) AS row_count
     FROM pams_holdings_snapshot
-    WHERE as_of <= %s
+    WHERE as_of <= (SELECT as_of FROM snapshot_view_cutoff)
     GROUP BY account_code, as_of
 ), complete_account_snapshot AS (
     SELECT s.account_code, s.as_of, s.row_count
@@ -58,6 +61,45 @@ account_snapshot_stats AS (
     GROUP BY account_code
 )
 """
+
+
+def advance_overseas_view_date(cur, candidate, *, now: datetime | None = None):
+    """A completed local-market mark need not wait for China's 15:05 refresh.
+
+    Evidence must belong to a current complete-account member. The source date
+    advances only the read cutoff, never the account's persisted membership.
+    """
+    current = now or datetime.now(timezone.utc)
+    today = current.astimezone(ZoneInfo("Asia/Shanghai")).date()
+    if candidate >= today:
+        return candidate
+    cur.execute("SELECT to_regclass('public.pams_market_quote_snapshot') IS NOT NULL AS exists")
+    if not (cur.fetchone() or {}).get("exists"):
+        return candidate
+    cur.execute(f"""
+        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
+        SELECT DISTINCT q.market, q.currency, q.quote_date
+        FROM pams_market_quote_snapshot q
+        JOIN pams_holdings_snapshot h ON h.symbol = q.symbol AND h.currency = q.currency
+        JOIN latest_account la ON la.account_code = h.account_code AND la.account_as_of = h.as_of
+        WHERE h.major_category = '美股' AND h.asset_liability = '资产' AND h.quantity > 0
+          AND q.quote_date > %s AND q.quote_date <= %s
+          AND q.market IN ('HK', 'KR', 'SE', 'CH')
+          AND q.quote_session = 'close' AND q.return_status = 'confirmed'
+          AND q.raw_json @> '{{"valuation_projection_only":true}}'::jsonb
+          AND q.price > 0 AND q.price::text NOT IN ('NaN', 'Infinity', '-Infinity')
+    """, (today, candidate, today))
+    cutoffs = {}
+    for row in cur.fetchall():
+        bucket = str(row["market"]).lower()
+        if row["currency"] != MARKET_CURRENCIES[bucket]:
+            continue
+        if bucket not in cutoffs:
+            cutoffs[bucket] = latest_completed_session(bucket, current)
+        day = row["quote_date"]
+        if cutoffs[bucket] and day <= cutoffs[bucket]:
+            candidate = max(candidate, day)
+    return candidate
 
 FUND_NAV_STATUS_COLUMNS = """
                    COALESCE(fund_nav_status.daily_pnl_status, market_daily_status.daily_pnl_status) AS daily_pnl_status,
