@@ -784,7 +784,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     for template, row_name in [(desktop_details, "r"), (mobile_details, "row")]:
         assert template.count("<strong>收益状态</strong>") == 1
         assert f"holdingDailyStatusBadge({row_name}) || '<span class=\"muted\">—</span>'" in template
-        assert template.index("<strong>今日盈亏</strong>") < template.index("<strong>收益状态</strong>")
+        daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
+                       else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
+        assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
     assert "assets/js/holdings_categories.js?v=20261026-startup-order-v1" in html
     assert "assets/js/lookthrough.js?v=20261026-startup-order-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261026-startup-order-v1" in html
@@ -1641,7 +1643,7 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     hero = hero_js.split("function MobilePortfolioHero(", 1)[1].split("function categoryByLabel", 1)[0]
     assert "profile.dailyStatus === 'pending'" in hero
     assert "dailyPending ? '待更新' : formatOptionalMoney(dailyPnl" in hero
-    assert "dailyPending || dailyPartial ? '--' : signedPctText(dailyRate)" in hero
+    assert "dailyPending || dailyPartial || dailyHistorical ? '--' : signedPctText(dailyRate)" in hero
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero

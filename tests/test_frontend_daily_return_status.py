@@ -62,6 +62,7 @@ const profileInput = {
   summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1},
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
+  recentUsReturn: input.recent,
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
   aStockRowsSummary: {}, aStockSummary: {}, fundDisplaySummary: {},
@@ -90,18 +91,66 @@ def holding(**fields):
     }
 
 
-def render(rows, *, daily=0, aggregate_rows=()):
+def render(rows, *, daily=0, aggregate_rows=(), recent=None):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
-        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows}),
+        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["unchanged"], "Display rendering must not change input amounts or status fields"
     return data
+
+
+def recent_return():
+    return {"as_of": "2026-10-27", "status": "confirmed", "label": "10/27收益",
+            "status_label": "10/27已确认", "current_label": "10/28预估待更新",
+            "fields": {"daily_pnl_native": "6", "daily_pnl_cny": "42.6", "daily_fx_pnl_cny": "-1.6",
+                       "daily_total_pnl_cny": "41", "price_change_pct": "0.06", "previous_price": "10"}}
+
+
+def test_last_confirmed_display_does_not_replace_today_or_recalculate_account_amount():
+    recent = {"as_of": "2026-10-27", "label": "10/27收益", "amount_cny": "777.77", "partial": True,
+              "title": "美股 2026-10-27 已确认；2026-10-28 预估待更新"}
+    data = render([holding(daily_return_status="pending", daily_pnl_stale=True,
+                           recent_confirmed_return=recent_return())], recent=recent)
+    row = data["renders"][0]
+    assert row["pending"] is True  # Canonical current status and old table remain pending.
+    for html in (row["mobile"], row["sheet"]):
+        assert "10/27收益" in html and "10/27已确认" in html
+        assert "+¥41.00" in html and "10/28预估待更新" in html
+        assert "今日收益已确认" not in html
+    assert data["profile"]["dailyStatus"] == "historical"
+    assert data["profile"]["dailyPnl"] == 777.77
+    assert "10/27收益（部分）" in data["html"] and "+¥777.77" in data["html"]
+    assert '>--</em>' in data["html"]
+    assert data["allProfile"]["dailyPnl"] == 0  # No historical amount in today's portfolio summary.
+    assert "待更新" in row["table"] and "+¥41.00" not in row["table"]
+
+
+def test_current_estimate_or_partial_current_account_takes_precedence_over_old_close():
+    data = render([holding(daily_return_status="estimated", daily_pnl_cny=23, daily_total_pnl_cny=23,
+                           recent_confirmed_return=recent_return())], daily=23,
+                  recent={"amount_cny": "999", "label": "10/27收益"})
+    assert data["profile"]["dailyStatus"] == "estimated"
+    assert data["profile"]["dailyPnl"] == 23
+    assert "10/27收益" not in data["renders"][0]["mobile"]
+    data = render([holding(daily_return_status="confirmed", daily_total_pnl_cny=23),
+                   holding(daily_return_status="pending", recent_confirmed_return=recent_return())], daily=23,
+                  recent={"amount_cny": "999", "label": "10/27收益"})
+    assert data["profile"]["dailyStatus"] == "partial" and data["profile"]["dailyPnl"] == 23
+
+
+def test_multiple_account_aggregate_never_uses_only_first_accounts_prior_return():
+    data = render([holding(daily_return_status="pending")], aggregate_rows=[
+        holding(account="a", major_category="A股", minor_category="A股基金", daily_return_status="pending", recent_confirmed_return=recent_return()),
+        holding(account="b", major_category="A股", minor_category="A股基金", daily_return_status="pending", recent_confirmed_return=recent_return()),
+    ])
+    aggregate = data["aggregate"][0]
+    assert aggregate["__isAggregated"] is True and aggregate["daily_total_pnl_cny"] == 0
 
 
 @pytest.mark.parametrize("fields", [

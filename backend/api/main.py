@@ -53,6 +53,7 @@ from services.holdings_view import (
     build_holdings_latest_payload as _build_holdings_latest_payload,
     latest_complete_snapshot_date as _latest_complete_snapshot_date,
 )
+from services.holding_return_display import attach_recent_us_returns
 from services.holding_return_snapshot import (
     build_investment_return_series_payload_from_snapshot as _build_investment_return_series_payload_from_snapshot,
     build_section_return_series_payload_from_snapshot as _build_section_return_series_payload_from_snapshot,
@@ -690,18 +691,22 @@ def holdings_latest_compat(
     """持仓页（前端兼容格式：account, type, name, currency, market_value, holding_pnl, daily_pnl）"""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(
-                _build_holdings_latest_payload(
+            def load(view_date, daily_date):
+                return _build_holdings_latest_payload(
                     cur,
                     limit=limit,
                     include_closed=include_closed,
-                    view_as_of=_holdings_market_view_as_of(cur),
+                    view_as_of=view_date,
                     excluded_accounts=_excluded_holding_accounts(),
                     owner_ratios=_account_owner_ratios(),
                     default_owner_ratio=_default_owner_ratio(),
-                    daily_pnl_start_as_of=_daily_pnl_view_as_of(),
+                    daily_pnl_start_as_of=daily_date,
                 )
-            )
+            active_date = _daily_pnl_view_as_of()
+            return json(attach_recent_us_returns(
+                cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
+                load_date=lambda day: load(day, day),
+            ))
 
 
 @app.get("/holdings/by-category/{category}")
@@ -715,20 +720,24 @@ def holdings_by_category(
     """Return holdings by major category."""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(
-                _build_holdings_by_category_payload(
+            def load(view_date, daily_date):
+                return _build_holdings_by_category_payload(
                     cur,
                     category=category,
                     limit=limit,
                     minor_category=minor_category,
                     include_closed=include_closed if include_closed_legacy is None else include_closed_legacy,
-                    view_as_of=_holdings_market_view_as_of(cur),
+                    view_as_of=view_date,
                     excluded_accounts=_excluded_holding_accounts(),
                     owner_ratios=_account_owner_ratios(),
                     default_owner_ratio=_default_owner_ratio(),
-                    daily_pnl_start_as_of=_daily_pnl_view_as_of(),
+                    daily_pnl_start_as_of=daily_date,
                 )
-            )
+            active_date = _daily_pnl_view_as_of()
+            return json(attach_recent_us_returns(
+                cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
+                load_date=lambda day: load(day, day),
+            ))
 
 @app.get("/api/account-performance/{account_code}")
 def account_performance(account_code: str):

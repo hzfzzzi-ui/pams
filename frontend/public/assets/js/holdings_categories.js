@@ -413,9 +413,10 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   const value = safeNum(profile.value);
   const dailyPending = profile.dailyStatus === 'pending';
   const dailyPartial = profile.dailyStatus === 'partial';
+  const dailyHistorical = profile.dailyStatus === 'historical';
   const dailyPnl = Number.isFinite(Number(profile.dailyPnl)) ? safeNum(profile.dailyPnl) : 0;
   const dailyTone = dailyPending ? '' : dailyPnl >= 0 ? 'up' : 'down';
-  const dailyStatusLabel = { pending: '待更新', partial: '仅含已更新标的，仍有持仓待更新', estimated: '预估收益', confirmed: '今日收益已确认' }[profile.dailyStatus] || '';
+  const dailyStatusLabel = { pending: '待更新', partial: '仅含已更新标的，仍有持仓待更新', estimated: '预估收益', confirmed: '今日收益已确认', historical: profile.dailyStatusTitle }[profile.dailyStatus] || '';
   const dailyBase = Math.max(value - dailyPnl, 1);
   const dailyRate = Number.isFinite(Number(profile.dailyRate)) ? safeNum(profile.dailyRate) : pctFromAmount(dailyPnl, dailyBase);
   const totalPnl = Number.isFinite(Number(profile.totalPnl)) ? safeNum(profile.totalPnl) : 0;
@@ -448,7 +449,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       <div class="mobileHeroPrimaryMetric">
         <span${dailyStatusLabel ? ` title="${esc(dailyStatusLabel)}"` : ''}>${esc(dailyPartial ? '今日盈亏（部分）' : profile.dailyLabel || '今日盈亏')}</span>
         <strong class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatOptionalMoney(dailyPnl, 'CNY', { signed: true })}</strong>
-        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending || dailyPartial ? '--' : signedPctText(dailyRate)}</em>
+        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending || dailyPartial || dailyHistorical ? '--' : signedPctText(dailyRate)}</em>
       </div>
       <div class="mobileHeroPrimaryMetric">
         <span>${esc(profile.totalLabel || '总盈亏')}</span>
@@ -510,6 +511,7 @@ function makeMobileHeroProfiles({
   fundSummary,
   usSummary,
   usRows = [],
+  recentUsReturn = null,
   ibkrSummary,
   preciousSummary,
   esopSummary,
@@ -547,6 +549,8 @@ function makeMobileHeroProfiles({
     ? (usDailyStatuses.some(status => ['estimated', 'confirmed'].includes(status)) ? 'partial' : 'pending')
     : usDailyStatuses.includes('estimated') ? 'estimated'
       : usDailyStatuses.length && usDailyStatuses.every(status => status === 'confirmed') ? 'confirmed' : '';
+  const showRecentUsReturn = usDailyStatus === 'pending' && recentUsReturn?.amount_cny != null
+    && Number.isFinite(Number(recentUsReturn.amount_cny));
   const ibkrTotalPnl = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalPnl))
     ? safeNum(ibkrSummary.totalPnl)
     : safeNum(usProfileCategory.totalPnl);
@@ -632,9 +636,10 @@ function makeMobileHeroProfiles({
       icon: '🇺🇸🇰🇷🇭🇰',
       identity: 'USD · IBKR',
       value: ibkrNlv,
-      dailyLabel: '今日盈亏',
-      dailyPnl: categoryByLabel(categories, '美股/海外').dailyPnl,
-      dailyStatus: usDailyStatus,
+      dailyLabel: showRecentUsReturn ? `${recentUsReturn.label}${recentUsReturn.partial ? '（部分）' : ''}` : '今日盈亏',
+      dailyPnl: showRecentUsReturn ? Number(recentUsReturn.amount_cny) : categoryByLabel(categories, '美股/海外').dailyPnl,
+      dailyStatus: showRecentUsReturn ? 'historical' : usDailyStatus,
+      dailyStatusTitle: showRecentUsReturn ? recentUsReturn.title : '',
       totalLabel: '总盈亏',
       totalPnl: ibkrTotalPnl,
       totalRate: ibkrTotalRate,
@@ -3544,6 +3549,7 @@ async function main(){
       usSummary,
       usRows,
       ibkrSummary: usCategorySummary,
+      recentUsReturn: usStock.recent_confirmed_returns?.by_account?.ibkr || null,
       preciousSummary: { ...preciousSummary, totalReturnRate: categoryByLabel(dashboardCategories, '贵金属').totalReturnRate },
       esopSummary: { ...esopSummary, totalReturnRate: categoryByLabel(dashboardCategories, '内部股份/分红').totalReturnRate },
     });
