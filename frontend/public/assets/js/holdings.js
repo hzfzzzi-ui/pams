@@ -382,7 +382,7 @@ function holdingPriceText(row) {
 function holdingQuantityText(row) {
   const quantity = Number(row.quantity);
   if (!Number.isFinite(quantity) || Math.abs(quantity) <= 0) return '--';
-  return formatNumber(quantity, 3);
+  return formatNumber(quantity, 3).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 }
 
 function holdingAveragePrice(row) {
@@ -578,7 +578,7 @@ function holdingSyncTime(row) {
     return Number.isNaN(date.getTime()) ? null : date;
   });
   if (!dates.length || dates.some(date => !date)) {
-    return '<span class="mobileHoldingSync">同步时间未知</span>';
+    return '<span class="mobileHoldingSync">时间未知</span>';
   }
   // A merged fund must not look fresher than its oldest account record.
   const date = new Date(Math.min(...dates.map(item => item.getTime())));
@@ -588,7 +588,7 @@ function holdingSyncTime(row) {
   }).formatToParts(date).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
   const short = `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
   const full = `${parts.year}-${short} 北京时间；估值记录同步时间，不代表收益确认日期${rows.length > 1 ? '；多账户取最早同步时间' : ''}`;
-  return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">同步 ${short}</time></span>`;
+  return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">${short}</time></span>`;
 }
 
 function renderMobileHoldingRows(rows, options = {}) {
@@ -628,11 +628,14 @@ function renderMobileHoldingRows(rows, options = {}) {
       <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${esc(r.name || name)}">
         <span class="mobileHoldingMain">
           <span class="mobileHoldingText">
-            <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${holdingDailyStatusBadge(r)}${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
+            <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
             <small>${esc(holdingGroupLabel(r))}</small>
           </span>
-          ${holdingSyncTime(r)}
+        </span>
+        <span class="mobileHoldingMeta">
+          ${holdingDailyStatusBadge(r)}
           <span class="mobileHoldingQuote">${quoteLine}</span>
+          ${holdingSyncTime(r)}
         </span>
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
