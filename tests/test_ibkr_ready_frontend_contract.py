@@ -98,7 +98,7 @@ writeSectionFinancials(usCategorySummary, 'value', 'pnl', 'daily', 'rate');
 console.log(JSON.stringify({confirmed:confirmedIbkrSummary,summary:usCategorySummary,
     category,profile,html,section:Object.fromEntries(['value','pnl','daily','rate'].map(id=>[id,elements[id].textContent]))}));
 """
-    result = subprocess.run([node, "-e", script], check=False, capture_output=True, text=True, encoding="utf-8", timeout=20)
+    result = subprocess.run([node, "-"], input=script, check=False, capture_output=True, text=True, encoding="utf-8", timeout=20)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
