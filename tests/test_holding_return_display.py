@@ -87,6 +87,7 @@ def test_no_replay_when_current_estimate_or_close_is_available():
 @pytest.mark.parametrize("changes", [
     {"currency": "KRW"}, {"major_category": "A股"}, {"is_closed": True},
     {"symbol": "CASH_USD"}, {"quantity": "0"}, {"quantity": None}, {"quantity": "NaN"},
+    {"symbol": None}, {"account": None},
 ])
 def test_other_markets_cash_closed_or_invalid_holdings_are_not_relabelled(changes):
     _, cur, calls = attach(rows=[holding(**changes)])
@@ -145,3 +146,12 @@ def test_confirmed_zero_is_not_missing():
     row.update({field: "0" for field in ("daily_pnl", "daily_pnl_native", "daily_pnl_cny", "daily_fx_pnl_cny", "daily_total_pnl_cny")})
     result, _, _ = attach(historical=[row])
     assert Decimal(result["rows"][0]["recent_confirmed_return"]["fields"]["daily_total_pnl_cny"]) == 0
+
+
+def test_optional_history_failure_keeps_current_holdings_and_does_not_log_raw_details(caplog):
+    payload = {"rows": [holding()]}
+    def unavailable(_):
+        raise RuntimeError("private-details-must-not-be-logged")
+    result = attach_recent_us_returns(Cursor(), payload, active_date=ACTIVE, load_date=unavailable)
+    assert result is payload
+    assert "RuntimeError" in caplog.text and "private-details" not in caplog.text

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import logging
 from typing import Any, Callable
 
 
@@ -11,6 +12,7 @@ RETURN_FIELDS = (
     "daily_pnl", "daily_pnl_native", "daily_pnl_cny", "daily_fx_pnl_cny",
     "daily_total_pnl_cny", "price_change_pct", "price_change_amount", "previous_price",
 )
+logger = logging.getLogger(__name__)
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -26,7 +28,8 @@ def _key(row: dict) -> tuple[str, str]:
 
 
 def _us_position(row: dict) -> bool:
-    return (row.get("major_category") == "美股" and row.get("currency") == "USD"
+    return (bool(_key(row)[0]) and bool(row.get("symbol"))
+            and row.get("major_category") == "美股" and row.get("currency") == "USD"
             and not row.get("is_closed") and not str(row.get("symbol") or "").startswith("CASH_")
             and (_decimal(row.get("quantity")) or Decimal(0)) > 0)
 
@@ -61,7 +64,12 @@ def attach_recent_us_returns(
     close_date = date.fromisoformat(str(raw_date)[:10])
     if close_date >= active_date:
         return payload
-    historical = {_key(r): r for r in load_date(close_date).get("rows", []) if _us_position(r)}
+    try:
+        historical = {_key(r): r for r in load_date(close_date).get("rows", []) if _us_position(r)}
+    except Exception as exc:
+        # Optional historical display must not take the current holdings offline.
+        logger.warning("Recent US close replay unavailable (%s)", type(exc).__name__)
+        return payload
     attached: dict[tuple[str, str], dict] = {}
     short = close_date.strftime("%m/%d")
     for current in pending:
