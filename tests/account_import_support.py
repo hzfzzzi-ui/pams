@@ -42,6 +42,15 @@ def scratch_database():
                 CREATE TABLE pams_asset_alias(asset_id text,alias_value text);
             """)
             cur.execute((ROOT / "database/postgres/schema/072_account_import.sql").read_text(encoding="utf-8"))
+            cur.execute((ROOT / "database/postgres/schema/024_cashflow_and_trade_fact.sql").read_text(encoding="utf-8"))
+            cur.execute("""CREATE TABLE pams_holdings_snapshot(
+                id bigserial PRIMARY KEY,account_code varchar(50),symbol text,name text,currency text,
+                asset_liability text,major_category text,minor_category text,as_of date,
+                market_value numeric(20,4),cost numeric(20,4),
+                holding_pnl numeric(20,4) GENERATED ALWAYS AS (market_value-cost) STORED,
+                quantity numeric(20,6),buy_price numeric(20,6),current_price numeric(20,6),asset_id text,
+                created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now(),
+                UNIQUE(account_code,name,as_of));""")
         yield target
     finally:
         assert name.startswith("pams_import_test_") and len(name) == len("pams_import_test_") + 32
