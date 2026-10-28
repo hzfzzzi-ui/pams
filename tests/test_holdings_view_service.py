@@ -82,6 +82,7 @@ def test_build_holdings_latest_payload_preserves_legacy_shape_and_owner_ratio():
                     "holding_pnl": Decimal("100.00"),
                     "holding_pnl_native": Decimal("100.00"),
                     "holding_pnl_cny": Decimal("100.00"),
+                    "valuation_updated_at": "2026-10-28T20:30:00+00:00",
                     "daily_pnl": Decimal("0"),
                     "daily_pnl_cny": Decimal("0"),
                     "major_category": "A股",
@@ -131,6 +132,8 @@ def test_build_holdings_latest_payload_preserves_legacy_shape_and_owner_ratio():
     assert row["asset_id"] == "A_601899"
     assert row["is_closed"] is False
     assert row["owner_ratio"] == "0.625"
+    assert row["valuation_updated_at"] == "2026-10-28T20:30:00+00:00"
+    assert any("h.updated_at AS valuation_updated_at" in sql for sql, _ in cur.executed)
     assert Decimal(row["market_value_cny"]) == Decimal("625.00000")
     assert Decimal(row["market_value_gross_cny"]) == Decimal("1000.00")
 

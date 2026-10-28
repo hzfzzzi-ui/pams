@@ -569,6 +569,28 @@ function aggregateMobileHoldingRows(rows) {
   });
 }
 
+function holdingSyncTime(row) {
+  const rows = row.__accountRows || [row];
+  const dates = rows.map(item => {
+    const raw = String(item.valuation_updated_at || '');
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(raw)) return null;
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  });
+  if (!dates.length || dates.some(date => !date)) {
+    return '<span class="mobileHoldingSync">同步时间未知</span>';
+  }
+  // A merged fund must not look fresher than its oldest account record.
+  const date = new Date(Math.min(...dates.map(item => item.getTime())));
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  const short = `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+  const full = `${parts.year}-${short} 北京时间；估值记录同步时间，不代表收益确认日期${rows.length > 1 ? '；多账户取最早同步时间' : ''}`;
+  return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">同步 ${short}</time></span>`;
+}
+
 function renderMobileHoldingRows(rows, options = {}) {
   const el = document.getElementById('mobileHoldingList');
   if (!el) return;
@@ -609,6 +631,7 @@ function renderMobileHoldingRows(rows, options = {}) {
             <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${holdingDailyStatusBadge(r)}${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
             <small>${esc(holdingGroupLabel(r))}</small>
           </span>
+          ${holdingSyncTime(r)}
           <span class="mobileHoldingQuote">${quoteLine}</span>
         </span>
         <span class="mobileHoldingMetrics">

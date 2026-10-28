@@ -102,6 +102,7 @@ def advance_overseas_view_date(cur, candidate, *, now: datetime | None = None):
     return candidate
 
 FUND_NAV_STATUS_COLUMNS = """
+                   h.updated_at AS valuation_updated_at,
                    COALESCE(fund_nav_status.daily_pnl_status, market_daily_status.daily_pnl_status) AS daily_pnl_status,
                    COALESCE(fund_nav_status.daily_pnl_status_label, market_daily_status.daily_pnl_status_label) AS daily_pnl_status_label,
                    fund_nav_status.fund_nav_confirmed_date,

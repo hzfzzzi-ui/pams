@@ -315,7 +315,7 @@ function normalizeMobileHeroGroup(group) {
 }
 
 function currentMobileHeroGroup() {
-  return '全部';
+  return document.getElementById('holdingGroupFilter')?.value || '全部';
 }
 
 function shareTone(share) {
@@ -422,7 +422,6 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   const totalPnl = Number.isFinite(Number(profile.totalPnl)) ? safeNum(profile.totalPnl) : 0;
   const totalRate = Number.isFinite(Number(profile.totalRate)) ? safeNum(profile.totalRate) : 0;
   const valueDisplay = formatOptionalMoney(value, 'CNY', { signed: Boolean(profile.valueSigned) });
-  const freshness = formatSyncTimestamp(syncAt, asOf);
   const rawShare = safeNum(profile.share);
   const shareWidth = Math.abs(rawShare);
   const tone = shareTone(rawShare);
@@ -438,9 +437,6 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <i><b style="width:${Math.max(2, Math.min(100, shareWidth * 100))}%"></b></i>
       </div>
     </div>`}
-    <div class="mobileHeroMeta mobileHeroMetaTop">
-      <span>${`更新 ${esc(freshness)}`}</span>
-    </div>
     <div class="mobileHeroPrimaryGrid">
       <div class="mobileHeroPrimaryMetric main">
         <span>${esc(profile.valueLabel || '净清算价值')}</span>

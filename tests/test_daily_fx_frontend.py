@@ -323,5 +323,5 @@ def test_sidecar_has_no_financial_formulas_or_global_amount_writes():
     assert "activeReturnAttributionDimension === 'holding' ? 0" not in source
     assert "dailyFxAccountBridgeHtml(" not in source.split("function renderReturnAttributionSummary()", 1)[1].split("function returnAttributionRowHtml", 1)[0]
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
-    bumped = re.findall(r'<script[^>]+src="assets/js/([^"?]+)\?v=[^"]*daily-fx-v[12]"', html)
+    bumped = re.findall(r'<script[^>]+src="assets/js/([^"?]+)\?v=[^"]*daily-fx-v[12][^"]*"', html)
     assert sorted(bumped) == ["holdings.js", "holdings_categories.js", "lookthrough.js"]
