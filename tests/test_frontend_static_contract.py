@@ -820,7 +820,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "join('<i aria-hidden=\"true\">·</i>')" in holding_rows_js
     assert "<em>份数</em>" in holding_rows_js
     assert "<em>${isCash ? '本币' : '现价'}</em>" in holding_rows_js
-    assert "mobileHeroMetaTop" in holdings_js
+    assert "mobileHeroMetaTop" not in holdings_js
+    assert "${holdingSyncTime(r)}" in holding_rows_js
     assert "returnChartHeader" in html
     assert "returnWindowSegment" in html
     assert "returnSeriesRail" in html
