@@ -409,9 +409,19 @@ def preview(cur, batch: dict) -> dict:
         warnings.append("资产底表待补充/核准：" + "、".join(sorted(unresolved)) + "；按标的统一处理，不要求逐笔修改交易。")
     if any(any(i["code"] == "counter_required" for i in row["issues"]) and row["status"] == "pending" for row in rows):
         warnings.append("已识别的券商入出金缺少银行对手账户证据，统一保留待关联，不猜测或补造银行腿。")
+    grouped: dict = {}
+    for row in rows:
+        if row["status"] not in {"blocked", "pending"}:
+            continue
+        for problem in row["issues"]:
+            key = (problem["code"], problem.get("field"))
+            group = grouped.setdefault(key, {"code": problem["code"], "message": problem["message"], "row_ids": []})
+            if row["row_id"] not in group["row_ids"]:
+                group["row_ids"].append(row["row_id"])
     return {"batch_id": batch["batch_id"], "revision": batch["revision"], "preview_token": token,
             "can_publish": can_publish, "counts": counts, "rows": public_rows, "_prepared": rows,
             "write_plan": json_ready(plan), "source_row_count": len(rows), "write_count": len(plan),
+            "issue_groups": [{**group, "count": len(group["row_ids"])} for group in grouped.values()],
             "impact": {"nav_change": None, "nav_estimate_status": "unavailable",
                        "message": "仅发布有证据的记录；交易流水不自动补造完整持仓或现金，NAV影响无法完整预估"},
             "warnings": warnings}
