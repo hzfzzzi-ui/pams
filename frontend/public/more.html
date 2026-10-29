@@ -10,118 +10,39 @@
   <title>PAMS · 更多</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css?v=20260623-nav-growth-overflow-v1" />
-  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
+  <link rel="stylesheet" href="assets/css/style-phone.css?v=20261020-phone-restore-v1" />
+  <link rel="stylesheet" href="assets/css/design-system-phone.css?v=20261020-phone-restore-v1" />
+  <link rel="stylesheet" href="assets/css/more.css?v=20261029-hub-v1" />
 </head>
 <body class="page-more app-shell app-low-frequency" data-page-role="low-frequency">
-  <div class="statusbar">
-    <div class="status-left">
-      <span class="brand">PAMS</span>
-      <div class="status-item"><span class="status-dot"></span> LIVE</div>
-      <span class="status-item" id="asof">--</span>
-    </div>
-    <div class="status-right">
-      <span class="pill">APP</span>
-    </div>
-  </div>
-
   <div class="wrap">
-    <div class="nav">
+    <nav class="nav" aria-label="主导航">
       <a data-nav href="investments.html">投资</a>
       <a data-nav href="ledger.html">收支</a>
       <a data-nav href="more.html">更多</a>
-    </div>
-
-    <main class="moreHub lowFrequencyStack" aria-label="更多工具">
-      <section class="moreGroup">
-        <div class="moreGroupTitle">数据与导入</div>
-        <a class="moreRow accent-data" href="data_sources.html#dataQuality">
-          <span>
-            <strong>数据源健康</strong>
-            <small>缺口、最近日期、数据质量和修复提示。</small>
-          </span>
-          <em>›</em>
-        </a>
-        <a class="moreRow accent-data" href="accounts.html#sources">
-          <span>
-            <strong>账单导入</strong>
-            <small>模板、预览、暂存导入和格式校验。</small>
-          </span>
-          <em>›</em>
-        </a>
-        <a class="moreRow accent-data" href="account_import.html">
-          <span><strong>投资账户导入</strong></span>
-          <em>›</em>
-        </a>
-      </section>
-
-      <section class="moreGroup">
-        <div class="moreGroupTitle">基础配置</div>
-        <a class="moreRow accent-account" href="accounts.html#overview">
-          <span>
-            <strong>账户设置</strong>
-            <small>账户、子账户、余额来源和导入状态。</small>
-          </span>
-          <em>›</em>
-        </a>
-        <a class="moreRow accent-invest" href="investments.html#asset-master-panel">
-          <span>
-            <strong>资产底表与映射</strong>
-            <small>资产主数据、行业/主题映射和基金底层覆盖。</small>
-          </span>
-          <em>›</em>
-        </a>
-        <a class="moreRow accent-risk" href="investments.html#portfolio-risk-disclosure">
-          <span>
-            <strong>风险指标</strong>
-            <small>股票暴露、单票暴露、行业暴露和压力损失阈值。</small>
-          </span>
-          <em>›</em>
-        </a>
-      </section>
-
-      <section class="moreGroup">
-        <div class="moreGroupTitle">总账审计</div>
-        <details id="moreNavGrowthDetails" class="card moreNavGrowthDetails">
-          <summary>
-            <span>
-              <strong>NAV增值解释</strong>
-              <small>年初至今总账闭合、外部现金流和投资估值影响。</small>
-            </span>
-          </summary>
-          <div id="moreNavGrowthExplanationPanel" class="returnInsightCard navGrowthExplanationPanel">
-            <div class="muted">展开后加载NAV增值解释...</div>
-          </div>
+    </nav>
+    <main class="moreHub lowFrequencyStack" aria-label="更多">
+      <h1>更多</h1>
+      <a id="moreIssues" class="moreRow moreIssue" href="data_sources.html#dataQuality" hidden>
+        <span><strong>待处理</strong><small id="moreIssueText" aria-live="polite"></small></span><span aria-hidden="true">›</span>
+      </a>
+      <div class="morePrimary">
+        <a class="moreRow" href="account_import.html"><strong>导入资料</strong><span aria-hidden="true">›</span></a>
+        <a class="moreRow" href="accounts.html#overview"><strong>账户管理</strong><span aria-hidden="true">›</span></a>
+        <a class="moreRow" href="research.html"><strong>研究</strong><span aria-hidden="true">›</span></a>
+      </div>
+      <details id="moreAdvanced" class="moreAdvanced">
+        <summary>高级工具</summary>
+        <a class="moreRow" href="data_sources.html"><strong>数据诊断</strong><span aria-hidden="true">›</span></a>
+        <details id="moreNavGrowthDetails" class="moreNavGrowthDetails">
+          <summary>账目审计 · NAV增值解释</summary>
+          <div id="moreNavGrowthExplanationPanel" class="returnInsightCard navGrowthExplanationPanel"></div>
         </details>
-      </section>
-
-      <section class="moreGroup">
-        <div class="moreGroupTitle">研究与记录</div>
-        <a class="moreRow accent-research" href="research.html">
-          <span>
-            <strong>研究看板</strong>
-            <small>观察池、IPS、策略状态和决策日志。</small>
-          </span>
-          <em>›</em>
-        </a>
-      </section>
-
-      <section class="moreGroup">
-        <div class="moreGroupTitle">系统</div>
-        <div class="moreRow accent-system" role="group" aria-label="系统信息">
-          <span>
-            <strong>系统信息</strong>
-            <small>PAMS 本地移动端；数据只读展示，配置变更通过对应数据页完成。</small>
-          </span>
-          <em>·</em>
-        </div>
-      </section>
+        <a class="moreRow" href="investments.html#asset-master-panel"><strong>资产底表与映射</strong><span aria-hidden="true">›</span></a>
+        <details class="moreSystem"><summary>系统信息</summary><dl><dt>应用</dt><dd>PAMS</dd><dt>访问地址</dt><dd id="moreOrigin"></dd></dl></details>
+      </details>
     </main>
   </div>
-
-  <script type="module" src="assets/js/more.js?v=20260624-nav-quality-v1"></script>
+  <script type="module" src="assets/js/more.js?v=20261029-hub-v1"></script>
 </body>
 </html>

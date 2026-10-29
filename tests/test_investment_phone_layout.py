@@ -45,11 +45,13 @@ def test_original_phone_baseline_is_retained_and_build_is_deterministic():
         assert not [r for r in tinycss2.parse_stylesheet(result) if r.type == "error"]
 
 
-def test_phone_mode_only_changes_investment_document():
+def test_phone_mode_is_limited_to_investment_and_approved_more_hub():
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     assert "investment-phone-layout" in html
     assert "style-phone.css?v=20261020-phone-restore-v1" in html
-    for name in ("ledger", "more", "accounts", "data_sources", "research"):
+    more = (ROOT / "frontend/public/more.html").read_text(encoding="utf-8")
+    assert "style-phone.css?v=20261020-phone-restore-v1" in more
+    for name in ("ledger", "accounts", "data_sources", "research"):
         assert "-phone.css" not in (ROOT / f"frontend/public/{name}.html").read_text(encoding="utf-8")
 
 

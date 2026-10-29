@@ -239,8 +239,8 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     for page in _formal_html_pages():
         html = _read_public(page)
         parsed = _parse_html(html)
-        style_name = "style-phone" if page == "investments.html" else "style"
-        design_name = "design-system-phone" if page == "investments.html" else "design-system"
+        style_name = "style-phone" if page in {"investments.html", "more.html"} else "style"
+        design_name = "design-system-phone" if page in {"investments.html", "more.html"} else "design-system"
         style_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith(f"assets/css/{style_name}.css"))
         design_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith(f"assets/css/{design_name}.css"))
         design_href = parsed.stylesheets[design_index]
@@ -248,8 +248,8 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert style_index < design_index
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
-        style_version = "20261020-phone-restore-v1" if page == "investments.html" else "20260623-nav-growth-overflow-v1"
-        design_version = "20261020-phone-restore-v1" if page == "investments.html" else "20260620-visual-cohesion-v1"
+        style_version = "20261020-phone-restore-v1" if page in {"investments.html", "more.html"} else "20260623-nav-growth-overflow-v1"
+        design_version = "20261020-phone-restore-v1" if page in {"investments.html", "more.html"} else "20260620-visual-cohesion-v1"
         assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
         assert design_href == f"assets/css/{design_name}.css?v={design_version}"
         assert "app-shell" in parsed.body_classes
@@ -1430,10 +1430,8 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
 
     for href in [
         "data_sources.html#dataQuality",
-        "accounts.html#sources",
         "accounts.html#overview",
         "investments.html#asset-master-panel",
-        "investments.html#portfolio-risk-disclosure",
         "research.html",
     ]:
         assert html.count(f'href="{href}"') == 1
@@ -1443,7 +1441,11 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20260624-nav-quality-v1" in html
+    assert "assets/js/more.js?v=20261029-hub-v1" in html
+    assert 'id="moreAdvanced"' in html and 'id="moreAdvanced" open' not in html
+    assert 'class="statusbar"' not in html and 'LIVE' not in html
+    assert 'href="accounts.html#sources"' not in html
+    assert 'href="investments.html#portfolio-risk-disclosure"' not in html
     assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
     assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
     assert "assets/js/data_sources.js?v=20261023-ibkr-publication-v1" in data_sources_html
