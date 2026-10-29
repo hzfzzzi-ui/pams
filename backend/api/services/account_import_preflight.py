@@ -13,6 +13,9 @@ from services.investment_trade_fact import build_investment_trade_fact
 from services.portfolio_state import _is_cash_like_holding
 from services.account_import_types import asset_type
 from services import account_import_ths as ths
+from services import account_import_statement as statement
+from services.account_import_plan import entries as write_entries
+from services.account_import_review import image_reviewed
 
 
 def fingerprint(value) -> str:
@@ -169,13 +172,21 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
     except ValueError:
         errors.append(issue("business_date", "invalid_date", "请填写原始资料中的有效业务日期，不能使用上传时间"))
         day = None
-    if row.get("source", {}).get("origin") == "ocr" and not row.get("acknowledged"):
+    if row.get("source", {}).get("origin") == "ocr" and not (
+            row.get("acknowledged") and image_reviewed(batch, row.get("source", {}).get("file_id"))):
         errors.append(issue(None, "ocr_review_required", "请核对截图中的代码、日期与金额"))
     if fields.get("status") == "pending":
         result["status"] = "pending"
         errors.append(issue("status", "pending_confirmation", "申请中资料仅保存草稿，不生成确认持仓或交易"))
     kind = batch["kind"]
+    if kind == "cash" and batch["account_code"] in state.get("_statement_sources", {}) and fields.get("action") != "balance":
+        if row.get("source", {}).get("origin") != "ocr":
+            errors.extend(i for i in row.get("issues", []) if i.get("severity") == "error")
+        return statement.prepare(result, batch, state, decimal, issue)
     cash_balance = kind == "cash" and fields.get("action") == "balance" or kind == "holding" and fields.get("asset_type") == "cash"
+    if cash_balance and any(p.get("account_kind") == "credit_card" or (p.get("pams_target") or {}).get("is_asset") is False
+                            for p in state.get("_statement_sources", {}).get(batch["account_code"], [])):
+        errors.append(issue("net_cash", "liability_balance_unsupported", "此余额属于负债账户，不能按普通现金资产快照写入；本轮保留对账证据"))
     cash_event = native and fields.get("asset_type") == "cash" and fields.get("action") in ths.CASH_ACTIONS
     asset = _asset(fields, state, errors, infer_type=native) if kind != "cash" and not cash_balance and not cash_event else None
     if asset:
@@ -307,13 +318,23 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
 
 def preview(cur, batch: dict) -> dict:
     state = current_state(cur, batch["account_code"])
+    state["_statement_config"] = statement.config()
+    state["_statement_sources"] = statement.profiles(state["_statement_config"])
     rows = [prepare_row(cur, batch, row, state) for row in batch["rows"]]
     seen_keys: dict = {}
     seen_economic: list = []
+    seen_cashflows: list = []
     for row, original in zip(rows, batch["rows"]):
         if row["status"] != "ready":
             continue
         fact = row.get("fact")
+        cashflow = row.get("cashflow")
+        if cashflow:
+            if any(statement.same_cashflow(old, cashflow, economic=True) for old in seen_cashflows) and not (
+                    original.get("acknowledged") and row["fields"].get("duplicate_decision") == "distinct"):
+                row["status"] = "blocked"
+                row["issues"].append(issue("duplicate_decision", "possible_duplicate", "本批存在同日同额同类账单，请核准或排除"))
+            seen_cashflows.append(cashflow)
         if row.get("snapshot") and same_snapshot(row["before"], row["after"]):
             row["status"] = "duplicate"
             continue
@@ -375,7 +396,8 @@ def preview(cur, batch: dict) -> dict:
     counts = {name: sum(r["status"] == status for r in rows) for name, status in
               (("new", "ready"), ("duplicates", "duplicate"), ("blocked", "blocked"), ("pending", "pending"), ("excluded", "excluded"))}
     can_publish = bool(rows) and counts["blocked"] == counts["pending"] == 0 and counts["new"] + counts["duplicates"] > 0
-    token = fingerprint([batch["batch_id"], batch["revision"], batch["rows"], batch["completeness"], state["version"]])
+    plan = write_entries(batch, rows)
+    token = fingerprint([batch["batch_id"], batch["revision"], batch["rows"], batch["completeness"], state["version"], plan])
     public_rows = [{k: v for k, v in row.items() if k not in {"fact", "snapshot", "key"}} for row in rows]
     unresolved: dict[str, int] = {}
     for row in rows:
@@ -387,8 +409,19 @@ def preview(cur, batch: dict) -> dict:
         warnings.append("资产底表待补充/核准：" + "、".join(sorted(unresolved)) + "；按标的统一处理，不要求逐笔修改交易。")
     if any(any(i["code"] == "counter_required" for i in row["issues"]) and row["status"] == "pending" for row in rows):
         warnings.append("已识别的券商入出金缺少银行对手账户证据，统一保留待关联，不猜测或补造银行腿。")
+    grouped: dict = {}
+    for row in rows:
+        if row["status"] not in {"blocked", "pending"}:
+            continue
+        for problem in row["issues"]:
+            key = (problem["code"], problem.get("field"))
+            group = grouped.setdefault(key, {"code": problem["code"], "message": problem["message"], "row_ids": []})
+            if row["row_id"] not in group["row_ids"]:
+                group["row_ids"].append(row["row_id"])
     return {"batch_id": batch["batch_id"], "revision": batch["revision"], "preview_token": token,
             "can_publish": can_publish, "counts": counts, "rows": public_rows, "_prepared": rows,
+            "write_plan": json_ready(plan), "source_row_count": len(rows), "write_count": len(plan),
+            "issue_groups": [{**group, "count": len(group["row_ids"])} for group in grouped.values()],
             "impact": {"nav_change": None, "nav_estimate_status": "unavailable",
                        "message": "仅发布有证据的记录；交易流水不自动补造完整持仓或现金，NAV影响无法完整预估"},
             "warnings": warnings}

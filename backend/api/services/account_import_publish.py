@@ -9,7 +9,8 @@ from psycopg2.extras import Json
 
 from services import account_import_store as store
 from services import account_import_preflight as preflight
-from services.cashflow_fact import _cashflow_flags, insert_cashflow_facts, make_source_hash
+from services.cashflow_fact import insert_cashflow_facts
+from services.account_import_plan import bank_leg
 from services.investment_trade_fact import insert_investment_trade_facts
 
 
@@ -30,18 +31,8 @@ def preview(cur, batch_id, revision):
 
 
 def _bank_leg(cur, batch, row, fact):
-    identity = row["key"] + ":bank"
-    typ = "investment_funding" if fact["side"] == "deposit" else "investment_withdrawal"
-    value = {"event_date": fact["trade_date"], "posting_date": None,
-        "account_code": row["fields"]["counter_account_code"], "counter_account_code": batch["account_code"],
-        "amount": -fact["net_cash"], "currency": "CNY", "fx_rate_to_cny": 1, "amount_cny": -fact["net_cash"],
-        "cashflow_type": typ, "category": "投资", "subcategory": "入金" if fact["side"] == "deposit" else "出金",
-        "counterparty": batch["account_code"], "summary": row["fields"].get("note"), "description": "用户核对的账户导入",
-        **_cashflow_flags(typ), "transfer_group_id": row["key"],
-        "source_table": "pams_account_import_batch", "source_id": identity, "source_uid": identity,
-        "source_hash": make_source_hash("pams_account_import_batch", {"source_id": identity}),
-        "raw_json": {"batch_id": batch["batch_id"], "row_id": row["row_id"], "source": row["source"], "fields": row["fields"]},
-        "classification_source": "user_confirmed_import", "confidence": 1, "review_status": "confirmed"}
+    value = bank_leg(batch, row, fact)
+    identity = value["source_id"]
     if insert_cashflow_facts(cur, [value]) != 1:
         raise store.ImportProblem("cashflow_conflict", "对方现金流水发生冲突，整批未发布", 409)
     cur.execute("SELECT cashflow_id FROM pams_cashflow_fact WHERE source_table=%s AND source_id=%s",
@@ -87,10 +78,19 @@ def publish(cur, batch_id, revision, preview_token):
             continue
         if row.get("snapshot"):
             identifier, table = _snapshot(cur, row), "pams_holdings_snapshot"
+        elif row.get("cashflow"):
+            value = row["cashflow"]
+            if insert_cashflow_facts(cur, [value]) != 1:
+                raise store.ImportProblem("cashflow_conflict", "账单来源冲突，整批未发布", 409)
+            cur.execute("SELECT cashflow_id FROM pams_cashflow_fact WHERE source_table=%s AND source_id=%s",
+                        (value["source_table"], value["source_id"]))
+            identifier, table = cur.fetchone()["cashflow_id"], "pams_cashflow_fact"
         else:
             fact = row["fact"]
             if fact["side"] in {"deposit", "withdraw"}:
                 fact["cashflow_id"] = _bank_leg(cur, batch, row, fact)
+                published.append({"row_id": row["row_id"], "table": "pams_cashflow_fact", "id": fact["cashflow_id"],
+                    "role": "bank_leg", "before": None, "after": store.norm(bank_leg(batch, row, fact)), "source": row["source"]})
             if insert_investment_trade_facts(cur, [fact], strict_source=True) != 1:
                 raise store.ImportProblem("trade_conflict", "交易来源发生冲突，整批未发布", 409)
             cur.execute("SELECT trade_id FROM pams_investment_trade_fact WHERE source_table=%s AND source_id=%s",

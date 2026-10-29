@@ -11,6 +11,9 @@ from typing import Any
 import psycopg2
 from psycopg2.extras import Json
 from services.account_import_types import asset_type
+from services.account_import_parse import FIELDS as PARSE_FIELDS
+from services import account_import_statement as statement
+from services.account_import_review import DECISIONS, editable_fields, image_fingerprint
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_BYTES = 30 * 1024 * 1024
@@ -22,12 +25,7 @@ PROFILES: dict[str, dict[str, Any]] = {
     "tencent_licaitong": {"label": "腾讯理财通", "default_asset_type": "fund", "currency": "CNY",
         "trade_actions": {"fund": ["subscribe", "redeem", "dividend", "fee"]}},
 }
-FIELDS = {
-    "kind", "business_date", "trade_time", "confirmed_date", "asset_type", "symbol", "name",
-    "currency", "action", "status", "quantity", "price", "gross_amount", "fee_amount",
-    "tax_amount", "net_cash", "market_value", "cost", "cost_basis_type", "counter_account_code",
-    "source_ref", "duplicate_decision", "note", "asset_id", "fee_scope",
-}
+FIELDS = set(PARSE_FIELDS)
 
 
 class ImportProblem(ValueError):
@@ -61,6 +59,8 @@ def norm(value):
 
 
 def parse(content, filename, profile, kind, mapping=None):
+    if statement.is_statement(profile):
+        return statement.parse(content, filename, profile, kind, mapping)
     if filename.rsplit(".", 1)[-1].lower() in {"png", "jpg", "jpeg"}:
         from services.account_import_ocr import parse_image
         return parse_image(content, profile, kind)
@@ -76,9 +76,11 @@ def audit(cur, batch_id: str, event: str, details: dict):
 def context(cur) -> dict:
     cur.execute("SELECT account_code,display_name,base_currency FROM pams_accounts WHERE active ORDER BY account_code")
     all_accounts = [dict(r) for r in cur.fetchall()]
-    accounts = [{**PROFILES[r["account_code"]], "account_code": r["account_code"],
-                 "profile": r["account_code"], "currency": r["base_currency"]}
-                for r in all_accounts if r["account_code"] in PROFILES]
+    sources = {**{key: statement.public_profile(key) for key in statement.profiles()},
+               **{key: {**value, "profile": key, "kinds": ["trade", "holding"]} for key, value in PROFILES.items()}}
+    accounts = [{**sources[r["account_code"]], "account_code": r["account_code"],
+                 "label": r["display_name"], "currency": r["base_currency"]}
+                for r in all_accounts if r["account_code"] in sources]
     return {"accounts": accounts, "counter_accounts": norm(all_accounts),
             "profiles": [{"profile": key, **value} for key, value in PROFILES.items()]}
 
@@ -102,6 +104,8 @@ def batch(cur, batch_id: str, *, lock: bool = False, files: bool = True) -> dict
         raise ImportProblem("batch_missing", "找不到导入批次", 404)
     result = dict(row)
     result["rows"] = result.pop("rows_json")
+    for item in result["rows"]:
+        item["can_edit_fields"] = editable_fields(item)
     result.pop("preview_token", None)
     if files:
         cur.execute("SELECT file_id,filename,content_type,sha256,metadata FROM pams_account_import_file "
@@ -118,7 +122,7 @@ def editable(result: dict, revision: int | None = None):
 
 
 def create(cur, account_code: str, mode: str, kind: str, completeness: str) -> dict:
-    if account_code not in PROFILES:
+    if account_code not in PROFILES and not (kind == "cash" and statement.is_statement(account_code)):
         raise ImportProblem("unsupported_account", "该账户不在本轮投资导入范围")
     cur.execute("SELECT 1 FROM pams_accounts WHERE account_code=%s AND active", (account_code,))
     if not cur.fetchone():
@@ -153,13 +157,25 @@ def save(cur, batch_id: str, revision: int, rows: list[dict], completeness: str)
             raise ImportProblem("duplicate_row_id", "同一候选记录不能重复提交")
         seen.add(row_id)
         old = previous.get(row_id, {})
+        source = old.get("source", {"origin": "manual"})
+        if not old and row.get("image_file_id"):
+            image_id = str(UUID(str(row["image_file_id"])))
+            image = get_file(cur, batch_id, image_id)
+            if not image["content_type"].startswith("image/"):
+                raise ImportProblem("not_image", "只能为本批截图补充核对记录")
+            source = {"origin": "ocr", "file_id": image_id, "file_sha256": image["sha256"], "human_added": True}
+        if old and not editable_fields(old):
+            if any(fields.get(k) != old["fields"].get(k) for k in (set(fields) | set(old["fields"])) - DECISIONS):
+                raise ImportProblem("file_row_readonly", "文件记录不能逐行修改；请调整列映射后重新解析")
         for flag in ("acknowledged", "excluded"):
             if flag in row and not isinstance(row[flag], bool):
                 raise ImportProblem("invalid_flag", "核对状态必须为布尔值")
         clean.append({"row_id": row_id, "fields": fields,
-                      "source": old.get("source", {"origin": "manual"}),
+                      "source": source,
                       "issues": old.get("issues", []),
                       "acknowledged": row.get("acknowledged", False), "excluded": row.get("excluded", False)})
+    if any(r.get("source", {}).get("file_id") and r["row_id"] not in seen for r in existing["rows"]):
+        raise ImportProblem("file_row_readonly", "来源记录不能删除；请明确排除并保留原件")
     cur.execute("""UPDATE pams_account_import_batch SET rows_json=%s,completeness=%s,
         revision=revision+1,preview_json=NULL,preview_token=NULL,updated_at=now() WHERE batch_id=%s""",
                 (Json(clean), completeness, batch_id))
@@ -168,6 +184,25 @@ def save(cur, batch_id: str, revision: int, rows: list[dict], completeness: str)
     changes += [{"row_id": key, "before": value, "after": None}
                 for key, value in previous.items() if key not in seen]
     audit(cur, batch_id, "draft_saved", {"from_revision": revision, "rows": len(clean), "changes": changes})
+    return batch(cur, batch_id)
+
+
+def review_image(cur, batch_id: str, file_id: str, revision: int):
+    result = batch(cur, batch_id, lock=True)
+    editable(result, revision)
+    file = get_file(cur, batch_id, file_id)
+    if not file["content_type"].startswith("image/"):
+        raise ImportProblem("not_image", "只有截图使用逐图核对")
+    members = [r for r in result["rows"] if r.get("source", {}).get("file_id") == file_id]
+    if not members:
+        raise ImportProblem("empty_image", "截图尚未识别出记录，不能标记为已核对")
+    for row in members:
+        row["acknowledged"] = True
+    metadata = {**file["metadata"], "review_fingerprint": image_fingerprint(result, file_id)}
+    cur.execute("UPDATE pams_account_import_file SET metadata=%s WHERE file_id=%s", (Json(metadata), file_id))
+    cur.execute("UPDATE pams_account_import_batch SET rows_json=%s,revision=revision+1,preview_json=NULL,preview_token=NULL,updated_at=now() WHERE batch_id=%s",
+                (Json(result["rows"]), batch_id))
+    audit(cur, batch_id, "image_reviewed", {"file_id": file_id, "rows": len(members), "fingerprint": metadata["review_fingerprint"]})
     return batch(cur, batch_id)
 
 
@@ -192,7 +227,7 @@ def _append_parsed(cur, result: dict, file_id: str, sha256: str, parsed: dict):
         rows.append({"row_id": str(uuid4()), "fields": row["fields"],
                      "source": {**row.get("source", {}), "file_id": file_id, "file_sha256": sha256,
                                 "origin": parsed.get("origin", "file")},
-                     "issues": row.get("issues", []), "acknowledged": False, "excluded": False})
+                     "issues": row.get("issues", []), "acknowledged": False, "excluded": bool(row.get("excluded", False))})
     if len(rows) > MAX_ROWS:
         raise ImportProblem("too_many_rows", "每批最多2000条记录")
     cur.execute("""UPDATE pams_account_import_batch SET rows_json=%s,revision=revision+1,
@@ -222,9 +257,9 @@ def upload(cur, batch_id: str, filename: str, content: bytes, content_type: str)
                             template["mapping"] if template else None)
     suffix = filename.rsplit(".", 1)[-1].lower()
     safe_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "csv": "text/plain",
-                 "tsv": "text/plain", "xls": "text/plain", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(suffix)
+                 "tsv": "text/plain", "xls": "text/plain", "pdf": "application/pdf", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(suffix)
     if not safe_type:
-        raise ImportProblem("file_type", "仅支持CSV、TSV、同花顺文本XLS、XLSX、PNG和JPEG")
+        raise ImportProblem("file_type", "仅支持CSV、TSV、同花顺文本XLS、XLSX、PNG、JPEG及账单PDF")
     key = str(uuid4())
     metadata = {k: v for k, v in parsed.items() if k != "rows"}
     cur.execute("""INSERT INTO pams_account_import_file(file_id,batch_id,filename,content_type,sha256,content,metadata)

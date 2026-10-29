@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
-from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -18,6 +16,10 @@ from pydantic import BaseModel
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
 from services.cashflow_fact import backfill_cashflow_facts
+from services.bank_statement_rules import (
+    _classify as _classify, _classify_by_amount as _classify_by_amount,
+    _classify_statement_row, _row_transfer_amount, _amount_close,
+)
 
 router = APIRouter()
 
@@ -183,24 +185,6 @@ def _row_text(row: dict[str, Any]) -> str:
     ) + " " + raw_text
 
 
-def _row_transfer_amount(row: dict[str, Any]) -> Decimal:
-    """Return the absolute amount used for transfer matching.
-
-    Some platform rows are exported by WeChat as neutral records with amount=0,
-    while the actual transaction value is stored in original_amount/raw amount.
-    """
-    amount = Decimal(str(row.get("amount") or "0")).copy_abs()
-    if amount != 0:
-        return amount
-    original_amount = row.get("original_amount")
-    if original_amount is not None:
-        return Decimal(str(original_amount)).copy_abs()
-    raw = row.get("raw_json") or row.get("raw") or {}
-    if isinstance(raw, dict) and raw.get("amount") not in (None, ""):
-        return Decimal(str(raw.get("amount"))).copy_abs()
-    return Decimal("0")
-
-
 def _row_cny_transfer_amount(row: dict[str, Any]) -> Decimal:
     """Return the CNY-side amount when a statement row has foreign-currency settlement.
 
@@ -220,11 +204,6 @@ def _row_cny_transfer_amount(row: dict[str, Any]) -> Decimal:
             return Decimal(str(raw.get("original_amount"))).copy_abs()
 
     return _row_transfer_amount(row)
-
-
-def _amount_close(left: Decimal, right: Decimal, tolerance: Decimal = Decimal("0.01")) -> bool:
-    """Return whether two currency amounts are close enough to be the same transfer."""
-    return (left - right).copy_abs() <= tolerance
 
 
 def _date_delta_days(left: date, right: date) -> int:
@@ -278,53 +257,6 @@ def _profile(config: dict[str, Any], code: str) -> dict[str, Any]:
     data = dict(profiles[code] or {})
     data["profile_code"] = code
     return data
-
-
-def _classify(row: dict[str, Any], rules: list[dict[str, Any]]) -> tuple[str, str | None, bool]:
-    text = " ".join(
-        str(row.get(k) or "") for k in ("summary", "description", "counterparty")
-    )
-    for rule in rules:
-        pattern = rule.get("pattern")
-        if pattern and re.search(pattern, text, re.IGNORECASE):
-            return str(rule.get("category") or "未分类"), rule.get("subcategory"), True
-    return "未分类", None, False
-
-
-def _classify_by_amount(
-    row: dict[str, Any],
-    rules: list[dict[str, Any]],
-    current_category: str,
-) -> tuple[str, str | None, bool] | None:
-    """Classify rows with amount-only rules when the current category is overridable."""
-    amount = _row_transfer_amount(row)
-    for rule in rules:
-        override_categories = rule.get("override_categories") or ["未分类"]
-        if current_category not in override_categories:
-            continue
-
-        max_abs_exclusive = rule.get("max_abs_exclusive")
-        if max_abs_exclusive not in (None, "") and amount < Decimal(str(max_abs_exclusive)):
-            return str(rule.get("category") or "未分类"), rule.get("subcategory"), True
-
-        exact_values = rule.get("exact_abs_amounts") or []
-        for value in exact_values:
-            if _amount_close(amount, Decimal(str(value))):
-                return str(rule.get("category") or "未分类"), rule.get("subcategory"), True
-    return None
-
-
-def _classify_statement_row(
-    row: dict[str, Any],
-    rules: list[dict[str, Any]],
-    amount_rules: list[dict[str, Any]],
-) -> tuple[str, str | None, bool]:
-    """Classify one bank statement row using text rules first, then amount rules."""
-    category, subcategory, auto_classified = _classify(row, rules)
-    amount_match = _classify_by_amount(row, amount_rules, category)
-    if amount_match:
-        return amount_match
-    return category, subcategory, auto_classified
 
 
 def _statement_to_dict(
