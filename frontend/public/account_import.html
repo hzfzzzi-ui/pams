@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#05070a" />
+  <title>PAMS · 投资账户导入</title>
+  <link rel="stylesheet" href="assets/css/style.css?v=20260623-nav-growth-overflow-v1" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261029-mapping-v2" />
+</head>
+<body class="page-account-import app-shell">
+  <div class="wrap import-shell">
+    <header class="import-head"><a href="more.html" aria-label="返回更多">‹</a><h1>投资账户导入</h1></header>
+    <ol class="import-steps" aria-label="导入步骤">
+      <li id="step-one" aria-current="step"><span>01</span> 填写 / 识别</li>
+      <li id="step-two"><span>02</span> 核对发布</li>
+    </ol>
+    <p id="notice" role="status" aria-live="polite">正在检查访问权限…</p>
+    <p id="capability-note" class="import-warning" hidden>发布尚未启用；当前仅可保存草稿、配置字段和核对预览。</p>
+    <div id="conflict" role="alert" hidden>草稿已在其他会话更新。本地修改尚未覆盖服务器。<button id="reload" type="button">重新载入服务器版本</button></div>
+    <section id="gate" aria-label="访问权限">
+      <form id="unlock-form" hidden>
+        <label for="token">访问口令</label>
+        <input id="token" type="password" autocomplete="off" required />
+        <button type="submit" class="primary">解锁</button>
+      </form>
+      <button id="retry" type="button">重新检查</button>
+    </section>
+    <main id="workspace" hidden>
+      <section id="intake" aria-label="填写或识别">
+        <label for="account">投资账户</label><select id="account" required></select>
+        <div class="import-modes" role="group" aria-label="录入方式">
+          <button id="mode-upload" type="button" aria-pressed="true">上传文件</button>
+          <button id="mode-manual" type="button" aria-pressed="false">手动填写</button>
+        </div>
+        <div class="import-grid">
+          <label>记录类型<select id="kind"><option value="trade">交易</option><option value="holding">持仓快照</option><option value="cash">现金</option></select></label>
+          <label>快照范围<select id="completeness"><option value="partial">部分记录</option><option value="complete">完整快照</option></select></label>
+        </div>
+        <p id="complete-warning" class="import-warning" hidden>完整快照可能影响账户未列出的持仓；请核对服务端预览。</p>
+        <div id="upload-area">
+          <label class="import-file-label" for="files">选择文件</label>
+          <input id="files" type="file" multiple accept=".csv,.tsv,.xlsx,.png,.jpg,.jpeg" aria-describedby="file-formats file-limits" />
+          <p id="file-formats" class="import-meta">CSV / TSV / XLSX / PNG / JPG / JPEG</p>
+          <p id="file-limits" class="import-meta"></p>
+        </div>
+        <div class="import-section-head"><h2>暂存记录</h2><button id="add-row" type="button">＋ 新增记录</button></div>
+        <p id="batch-meta" class="import-meta"></p>
+        <div id="rows"></div>
+        <section id="originals" aria-label="原始凭证"><h2>原始凭证</h2><div id="file-list"></div></section>
+        <label id="ack-label" class="import-check" hidden><input id="ack-all" type="checkbox" />已核对截图中的代码、日期与金额</label>
+        <details id="history"><summary>最近批次</summary><div id="batch-list"></div><button id="refresh-history" type="button">刷新批次</button></details>
+        <button id="new-batch" type="button">新建批次</button>
+      </section>
+      <section id="review" aria-label="核对发布" hidden>
+        <h2>发布核对</h2><p id="review-meta" class="import-meta"></p>
+        <dl id="counts" class="import-counts"></dl>
+        <p id="impact"></p><div id="warnings"></div><div id="preview-rows"></div>
+      </section>
+    </main>
+    <footer id="actions" class="import-actions" hidden>
+      <button id="save-draft" type="button">保存草稿</button><button id="next" type="button" class="primary">核对发布 →</button>
+      <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认发布</button>
+    </footer>
+    <nav class="nav" aria-label="主导航">
+      <a data-nav data-mobile-nav="primary" data-mobile-tab="invest" href="investments.html">投资</a>
+      <a data-nav data-mobile-nav="primary" data-mobile-tab="ledger" href="ledger.html">收支</a>
+      <a data-nav data-mobile-nav="primary" data-mobile-tab="more" class="active" aria-current="page" href="more.html">更多</a>
+    </nav>
+  </div>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <form id="record-form" novalidate>
+      <header class="import-sheet-head"><h2 id="editor-title">编辑记录</h2><button id="close-editor" type="button" aria-label="关闭记录编辑器" title="关闭">×</button></header>
+      <div class="import-sheet-body">
+        <section class="import-fields"><h3>账户与日期</h3><p id="editor-account" class="import-meta"></p>
+          <div id="identity-fields" class="import-grid"></div>
+        </section>
+        <section class="import-fields"><h3>标的与方向</h3>
+          <div id="asset-lookup"><label for="asset-search">查找标的</label><input id="asset-search" type="search" placeholder="代码或名称" autocomplete="off" aria-controls="asset-results" />
+            <div id="asset-results" role="group" aria-label="标的搜索结果" aria-live="polite"></div></div>
+          <div id="asset-fields" class="import-grid"></div>
+        </section>
+        <section class="import-fields"><h3>数量与金额</h3><div id="value-fields" class="import-grid"></div></section>
+        <section class="import-fields"><h3>来源与核对</h3><div id="source-fields"></div><div id="row-evidence"></div>
+          <label class="import-check"><input id="row-excluded" type="checkbox" />不发布此条记录</label>
+        </section>
+        <p id="editor-error" role="alert"></p>
+      </div>
+      <footer class="import-sheet-actions"><button id="keep-edit" type="button">暂存输入并返回</button><button type="submit" class="primary">核对并保存草稿</button></footer>
+    </form>
+  </dialog>
+  <script type="module" src="assets/js/account_import.js?v=20261029-auth-kind-v7"></script>
+</body>
+</html>
