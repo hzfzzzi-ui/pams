@@ -1,8 +1,6 @@
 """Account import transport. Drafts never call a financial writer."""
 from __future__ import annotations
 
-import hmac
-import os
 from typing import Any, Literal
 from uuid import UUID
 
@@ -27,10 +25,6 @@ router = APIRouter(prefix="/account-import", tags=["account-import"], dependenci
 
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class Unlock(StrictRequest):
-    token: str = Field(max_length=300)
 
 
 class Create(StrictRequest):
@@ -60,7 +54,6 @@ class Publish(Revision):
 
 
 def execute(request: Request, fn, *, write=False, serializable=False):
-    access.require_access(request)
     if write:
         access.same_origin(request)
     try:
@@ -86,33 +79,21 @@ def execute(request: Request, fn, *, write=False, serializable=False):
 
 
 @router.get("/capabilities")
-def capabilities(request: Request):
+def capabilities():
     ready = False
-    if access.authenticated(request):
-        try:
-            with store.get_conn() as conn:
-                conn.set_session(readonly=True)
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    ready = store.schema_ready(cur)
-        except psycopg2.Error:
-            pass
-    return {"configured": access.configured(), "authenticated": access.authenticated(request),
+    try:
+        with store.get_conn() as conn:
+            conn.set_session(readonly=True)
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                ready = store.schema_ready(cur)
+    except psycopg2.Error:
+        pass
+    # Legacy capability keys mean access is available, not a verified user session.
+    return {"configured": True, "authenticated": True, "authentication_required": False,
             "schema_ready": ready, "publish_enabled": ready and publisher.enabled(),
             "ocr_available": ready and ocr_available(),
             "limits": {"file_bytes": store.MAX_FILE_BYTES, "batch_bytes": store.MAX_BATCH_BYTES,
                        "files": store.MAX_FILES, "rows": store.MAX_ROWS}}
-
-
-@router.post("/unlock")
-def unlock(body: Unlock, request: Request, response: Response):
-    access.same_origin(request)
-    expected = os.environ.get("PAMS_IMPORT_ACCESS_TOKEN", "")
-    if not access.configured() or not hmac.compare_digest(body.token.encode(), expected.encode()):
-        raise HTTPException(401, detail={"code": "unlock_failed", "message": "导入口令无效或尚未配置"})
-    response.set_cookie(access.COOKIE, access.signed_session(), httponly=True, samesite="strict",
-                        secure=request.url.scheme == "https", max_age=access.TTL, path="/api/account-import")
-    response.headers["Cache-Control"] = "no-store"
-    return {"authenticated": True}
 
 
 @router.get("/context")
@@ -147,7 +128,6 @@ def save(batch_id: UUID, body: Save, request: Request):
 
 @router.post("/batches/{batch_id}/files")
 async def upload(batch_id: UUID, request: Request, filename: str = Query(..., max_length=180)):
-    access.require_access(request)
     access.same_origin(request)
     content = bytearray()
     async for part in request.stream():

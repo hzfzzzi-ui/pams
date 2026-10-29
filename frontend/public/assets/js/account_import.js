@@ -23,9 +23,7 @@ export function previewFields(object) {
     .map(([key, label]) => ({ key, label, value: object[key] }));
 }
 export function accessState(caps) {
-  if (caps?.configured !== true) return 'unavailable';
-  if (caps.authenticated !== true) return 'locked';
-  return caps.schema_ready === true ? 'ready' : 'unavailable';
+  return caps?.schema_ready === true ? 'ready' : 'unavailable';
 }
 export function displayAssetType(type) {
   return ['fund', 'etf', 'mutual_fund'].includes(type) ? 'fund' : ['stock', 'equity', 'listed_equity'].includes(type) ? 'stock' : type;
@@ -76,10 +74,6 @@ if (typeof document !== 'undefined') {
       if (error.status === 403 && error.code === 'publish_disabled') {
         state.caps = { ...state.caps, publish_enabled: false }; renderAccess();
       }
-      if (error.status === 401) {
-        state.caps = { ...state.caps, authenticated: false }; renderAccess();
-        if ($('editor').open) { rememberEditor(); $('editor').close(); }
-      }
       message(error.message);
       if ($('editor').open) $('editor-error').textContent = error.message;
     } finally { state.busy = false; renderControls(); }
@@ -87,9 +81,7 @@ if (typeof document !== 'undefined') {
   function renderAccess() {
     const access = accessState(state.caps);
     $('gate').hidden = access === 'ready'; $('workspace').hidden = access !== 'ready'; $('actions').hidden = access !== 'ready';
-    const canUnlock = state.caps?.configured === true && state.caps.authenticated !== true;
-    $('unlock-form').hidden = !canUnlock;
-    message(access === 'unavailable' ? (canUnlock ? '请先解锁；暂存结构尚未核验，当前不可用。' : '账户导入暂不可用：配置或暂存表尚未就绪。') : access === 'locked' ? '请解锁投资账户导入。' : '');
+    message(access === 'unavailable' ? '账户导入暂不可用：暂存表尚未就绪或服务暂时无法连接。' : '');
     $('capability-note').hidden = access !== 'ready' || state.caps.publish_enabled === true;
   }
   async function start() {
@@ -117,7 +109,6 @@ if (typeof document !== 'undefined') {
     const locked = state.busy || state.conflict || !editable() || !state.accounts.length;
     $('workspace').inert = state.busy;
     $('record-form').inert = state.busy;
-    $('unlock-form').querySelector('button').disabled = state.busy;
     $('retry').disabled = state.busy;
     $('account').disabled = !!state.batch || state.busy;
     $('kind').disabled = !!state.batch || state.busy;
@@ -485,10 +476,6 @@ if (typeof document !== 'undefined') {
     }
     render();
   }
-  $('unlock-form').addEventListener('submit', event => {
-    event.preventDefault(); const token = $('token').value; $('token').value = '';
-    run(async () => { await api('/unlock', 'POST', { token }); await start(); });
-  });
   $('retry').addEventListener('click', () => run(start));
   for (const mode of ['upload', 'ocr', 'manual']) $(`mode-${mode}`).addEventListener('click', () => {
     if (state.batch?.rows?.length && mode !== state.mode) { message('请先保留当前草稿并新建批次，再选择另一种输入方式。'); return; }

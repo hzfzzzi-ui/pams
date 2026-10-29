@@ -25,10 +25,10 @@
 ## 接入与隐私
 
 - schema仅通过`database/postgres/schema/072_account_import.sql`进入单独迁移审批，无运行时DDL。
-- `PAMS_IMPORT_ACCESS_TOKEN`至少24字符，建议使用密码管理器生成的高熵随机值；不是IBKR Token。
-- 默认未配置即关闭。解锁发HttpOnly、SameSite=Strict、30分钟的签名会话Cookie，不在JS/URL保存口令。
-- 所有修改要求同源Origin；反向代理须保留Host和正确scheme。通过HTTPS访问时Cookie带Secure。
-- 原件以BYTEA保存在私有暂存表，只有已解锁会话能读取，不暴露服务器文件路径或静态下载地址。
+- 导入与其他PAMS页面共用应用访问边界，不再设置独立口令、解锁接口或会话Cookie；旧`PAMS_IMPORT_ACCESS_TOKEN`不再读取。能访问PAMS的用户也能查看导入原件和草稿，仅应部署在可信局域网或Tailscale内，不因此开放公网访问。
+- 所有修改仍要求同源Origin；反向代理须保留Host和正确scheme。取消口令不取消来源校验、容量限制、预检、二次确认或独立发布开关。
+- 原件以BYTEA保存在私有暂存表，仍经API返回，不暴露服务器文件路径或静态下载地址；响应不缓存。
+- capabilities中的`configured`、`authenticated`保留为true兼容旧调用方，仅表达访问可用，不证明身份已核验；`authentication_required=false`明确无需独立认证，`schema_ready`与`publish_enabled`继续独立判定。
 - 单文件10MB、单批30MB/10文件/2000候选；XLSX限制解压总量、压缩比、工作表/单元格数量。
 - 不执行公式、宏或外部链接。PNG/JPEG只允许受限单帧图片，本地OCR有超时；不调用云OCR。
 - 支持CSV、TSV、XLSX、PNG、JPEG，以及同花顺原始文本型XLS交易导出；账单另支持已配置来源的PDF解析，不把任意二进制XLS、HTML、PDF或WebP当成通用安全表格。OCR最多20MP/20秒、单帧，缺引擎/超时/不明确列保留原件及警告，不制造数字。

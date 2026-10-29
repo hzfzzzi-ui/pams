@@ -16,21 +16,19 @@ from endpoints.account_import import router
 from services import account_import_store as store
 from services import account_import_publish as publisher
 
-TOKEN = "isolated-import-test-key-very-long-20261029"
 DAY = (date.today() - timedelta(days=2)).isoformat()
 
 
 @pytest.fixture
 def client(monkeypatch):
     with scratch_database() as params:
-        monkeypatch.setenv("PAMS_IMPORT_ACCESS_TOKEN", TOKEN)
+        monkeypatch.delenv("PAMS_IMPORT_ACCESS_TOKEN", raising=False)
         monkeypatch.setenv("PAMS_IMPORT_PUBLISH_ENABLED", "true")
         monkeypatch.setattr(store, "get_conn", lambda: psycopg2.connect(**params))
         app = FastAPI()
         app.include_router(router, prefix="/api")
         with TestClient(app) as value:
             value.headers["Origin"] = "http://testserver"
-            assert value.post("/api/account-import/unlock", json={"token": TOKEN}).status_code == 200
             yield value, params
 
 

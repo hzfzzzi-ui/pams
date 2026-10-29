@@ -2,6 +2,7 @@
 from io import BytesIO
 from pathlib import Path
 import sys
+from unittest.mock import MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,17 +12,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend/api"))
 from endpoints import account_import as api  # noqa: E402
-from services import account_import_access as access  # noqa: E402
 from services import account_import_store as store  # noqa: E402
 from account_import_support import scratch_database  # noqa: E402
 
-TOKEN = "isolated-test-only-import-access-token"
 BASE = "/api/account-import"
 
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("PAMS_IMPORT_ACCESS_TOKEN", TOKEN)
+    monkeypatch.delenv("PAMS_IMPORT_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PAMS_IMPORT_PUBLISH_ENABLED", "false")
     app = FastAPI()
     app.include_router(api.router, prefix="/api")
     with TestClient(app, headers={"Origin": "http://testserver"}) as value:
@@ -32,40 +32,78 @@ def client(monkeypatch):
 def db_client(client, monkeypatch):
     with scratch_database() as params:
         monkeypatch.setattr(store, "get_conn", lambda: psycopg2.connect(**params))
-        assert client.post(BASE + "/unlock", json={"token": TOKEN}).status_code == 200
         yield client, params
 
 
-def test_default_capabilities_do_not_connect_or_create_schema(client, monkeypatch):
-    monkeypatch.delenv("PAMS_IMPORT_ACCESS_TOKEN")
-    monkeypatch.setattr(store, "get_conn", lambda: pytest.fail("Unconfigured import must not touch DB"))
+def test_missing_schema_stays_unavailable_without_a_passphrase(client, monkeypatch):
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr(store, "get_conn", lambda: conn)
+    monkeypatch.setattr(store, "schema_ready", lambda cur: False)
     result = client.get(BASE + "/capabilities")
     assert result.status_code == 200
     assert result.headers["cache-control"] == "no-store"
-    assert result.json()["configured"] is False
+    assert result.json()["authentication_required"] is False
+    assert result.json()["schema_ready"] is False
     assert result.json()["publish_enabled"] is False
-    assert client.get(BASE + "/context").status_code == 401
+    assert client.get(BASE + "/context").status_code == 503
+    conn.set_session.assert_called_with(readonly=True)
 
 
-def test_unlock_is_same_origin_cookie_private_and_never_reveals_token(client):
-    assert client.post(BASE + "/unlock", json={"token": TOKEN}, headers={"Origin": "http://attacker.invalid"}).status_code == 403
-    assert client.post(BASE + "/unlock", json={"token": "wrong"}).status_code == 401
-    result = client.post(BASE + "/unlock", json={"token": TOKEN})
-    assert result.status_code == 200
-    assert "HttpOnly" in result.headers["set-cookie"]
-    assert "SameSite=strict" in result.headers["set-cookie"]
-    assert TOKEN not in result.text and TOKEN not in result.headers["set-cookie"]
-    assert access.COOKIE in client.cookies
+def test_database_failure_is_unavailable_not_an_unlock_prompt(client, monkeypatch):
+    def unavailable():
+        raise psycopg2.OperationalError("private connection details")
+    monkeypatch.setattr(store, "get_conn", unavailable)
+    caps = client.get(BASE + "/capabilities")
+    assert caps.json()["schema_ready"] is False
+    assert caps.json()["publish_enabled"] is False
+    result = client.get(BASE + "/context")
+    assert result.status_code == 503
+    assert "private connection details" not in result.text
 
 
-def test_tampered_and_expired_sessions_are_rejected(client, monkeypatch):
-    client.cookies.set(access.COOKIE, "0.bad.signature")
-    assert client.get(BASE + "/context").status_code == 401
-    monkeypatch.setattr(access.time, "time", lambda: 100)
-    token = access.signed_session()
-    client.cookies.set(access.COOKIE, token)
-    monkeypatch.setattr(access.time, "time", lambda: 2000)
-    assert client.get(BASE + "/context").status_code == 401
+@pytest.mark.parametrize("legacy_token", [None, "short", "unused-legacy-token-at-least-24-characters"])
+def test_no_cookie_or_legacy_secret_is_required(client, monkeypatch, legacy_token):
+    if legacy_token is not None:
+        monkeypatch.setenv("PAMS_IMPORT_ACCESS_TOKEN", legacy_token)
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr(store, "get_conn", lambda: conn)
+    monkeypatch.setattr(store, "schema_ready", lambda cur: True)
+    monkeypatch.setattr(store, "context", lambda cur: {"accounts": []})
+    for cookies in [{}, {"pams_import_session": "0.bad.signature"}]:
+        client.cookies.clear()
+        client.cookies.update(cookies)
+        caps = client.get(BASE + "/capabilities")
+        assert caps.json()["authentication_required"] is False
+        assert caps.json()["configured"] and caps.json()["authenticated"]
+        assert caps.json()["schema_ready"] and not caps.json()["publish_enabled"]
+        result = client.get(BASE + "/context")
+        assert result.status_code == 200 and result.json() == {"accounts": []}
+        assert result.headers["cache-control"] == "no-store"
+        assert "set-cookie" not in result.headers and "set-cookie" not in caps.headers
+        assert legacy_token is None or legacy_token not in result.text + caps.text
+    assert client.post(BASE + "/unlock", json={"token": "unused"}).status_code == 404
+
+
+@pytest.mark.parametrize("origin", [None, "http://attacker.invalid"])
+@pytest.mark.parametrize("method,path,body", [
+    ("POST", "/batches", {"account_code": "tonghuashun", "kind": "trade", "mode": "manual"}),
+    ("PUT", "/batches/{id}", {"revision": 1, "rows": []}),
+    ("POST", "/batches/{id}/files?filename=test.csv", None),
+    ("POST", "/batches/{id}/files/{id}/parse", {"mapping": {}}),
+    ("POST", "/batches/{id}/files/{id}/review", {"revision": 1}),
+    ("POST", "/batches/{id}/preview", {"revision": 1}),
+    ("POST", "/batches/{id}/publish", {"revision": 1, "preview_token": "a" * 64}),
+])
+def test_all_mutations_still_require_same_origin_before_database_access(client, monkeypatch, origin, method, path, body):
+    monkeypatch.setattr(store, "get_conn", lambda: pytest.fail("Rejected origin must not touch DB"))
+    client.headers.pop("Origin", None)
+    headers = {"Origin": origin} if origin is not None else {}
+    result = client.request(method, BASE + path.format(id="00000000-0000-0000-0000-000000000000"),
+                            json=body, headers=headers)
+    assert result.status_code == 403
+    assert result.json()["detail"]["code"] == "same_origin_required"
 
 
 def create(client, kind="holding"):
