@@ -157,6 +157,13 @@ def save(cur, batch_id: str, revision: int, rows: list[dict], completeness: str)
             raise ImportProblem("duplicate_row_id", "同一候选记录不能重复提交")
         seen.add(row_id)
         old = previous.get(row_id, {})
+        source = old.get("source", {"origin": "manual"})
+        if not old and row.get("image_file_id"):
+            image_id = str(UUID(str(row["image_file_id"])))
+            image = get_file(cur, batch_id, image_id)
+            if not image["content_type"].startswith("image/"):
+                raise ImportProblem("not_image", "只能为本批截图补充核对记录")
+            source = {"origin": "ocr", "file_id": image_id, "file_sha256": image["sha256"], "human_added": True}
         if old and not editable_fields(old):
             if any(fields.get(k) != old["fields"].get(k) for k in (set(fields) | set(old["fields"])) - DECISIONS):
                 raise ImportProblem("file_row_readonly", "文件记录不能逐行修改；请调整列映射后重新解析")
@@ -164,7 +171,7 @@ def save(cur, batch_id: str, revision: int, rows: list[dict], completeness: str)
             if flag in row and not isinstance(row[flag], bool):
                 raise ImportProblem("invalid_flag", "核对状态必须为布尔值")
         clean.append({"row_id": row_id, "fields": fields,
-                      "source": old.get("source", {"origin": "manual"}),
+                      "source": source,
                       "issues": old.get("issues", []),
                       "acknowledged": row.get("acknowledged", False), "excluded": row.get("excluded", False)})
     if any(r.get("source", {}).get("file_id") and r["row_id"] not in seen for r in existing["rows"]):

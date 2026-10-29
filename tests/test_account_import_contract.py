@@ -111,3 +111,19 @@ def test_statement_config_is_loaded_once_per_preflight(bill_client, monkeypatch)
     monkeypatch.setattr(statement,"config",load)
     assert preview(web,batch)['can_publish']
     assert len(calls)==1
+
+
+def test_missing_ocr_rows_can_be_added_only_under_owned_image(client, monkeypatch):
+    web, params=client
+    monkeypatch.setattr(store,'parse',lambda *args:{'origin':'ocr','rows':[]})
+    batch=web.post('/api/account-import/batches',json={'account_code':'tonghuashun','mode':'upload','kind':'trade'}).json()
+    path=f"/api/account-import/batches/{batch['batch_id']}"
+    batch=web.post(path+'/files?filename=missing.png',content=b'image').json()
+    file_id=batch['files'][0]['file_id']
+    assert web.post(path+f'/files/{file_id}/review',json={'revision':batch['revision']}).status_code==400
+    batch=web.put(path,json={'revision':batch['revision'],'rows':[{'fields':trade(),'image_file_id':file_id}]}).json()
+    assert batch['rows'][0]['source']['origin']=='ocr' and batch['rows'][0]['source']['human_added']
+    assert not preview(web,batch)['can_publish']
+    batch=web.post(path+f'/files/{file_id}/review',json={'revision':batch['revision']}).json()
+    assert preview(web,batch)['can_publish']
+    assert not sql(params,'SELECT * FROM pams_investment_trade_fact')
