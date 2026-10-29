@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#05070a" />
-  <title>PAMS · 投资账户导入</title>
+  <title>PAMS · 导入资料</title>
   <link rel="stylesheet" href="assets/css/style.css?v=20260623-nav-growth-overflow-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261029-mapping-v2" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261029-mobile-flow-v1" />
 </head>
 <body class="page-account-import app-shell">
   <div class="wrap import-shell">
-    <header class="import-head"><a href="more.html" aria-label="返回更多">‹</a><h1>投资账户导入</h1></header>
+    <header class="import-head"><button id="flow-back" type="button" aria-label="返回上一层" title="返回">‹</button><h1>导入资料</h1></header>
     <ol class="import-steps" aria-label="导入步骤">
       <li id="step-one" aria-current="step"><span>01</span> 填写 / 识别</li>
       <li id="step-two"><span>02</span> 核对发布</li>
@@ -29,45 +29,46 @@
     </section>
     <main id="workspace" hidden>
       <section id="intake" aria-label="填写或识别">
-        <label for="account">投资账户</label><select id="account" required></select>
+        <label for="kind">资料类别</label><select id="kind"><option value="trade">交易</option><option value="holding">持仓快照</option><option value="cash">账单</option></select>
+        <label for="account">账户</label><select id="account" required></select>
         <div class="import-modes" role="group" aria-label="录入方式">
           <button id="mode-upload" type="button" aria-pressed="true">上传文件</button>
+          <button id="mode-ocr" type="button" aria-pressed="false">截图识别</button>
           <button id="mode-manual" type="button" aria-pressed="false">手动填写</button>
         </div>
         <div class="import-grid">
-          <label>记录类型<select id="kind"><option value="trade">交易</option><option value="holding">持仓快照</option><option value="cash">现金</option></select></label>
-          <label>快照范围<select id="completeness"><option value="partial">部分记录</option><option value="complete">完整快照</option></select></label>
+          <label id="completeness-label">快照范围<select id="completeness"><option value="partial">部分记录</option><option value="complete">完整快照</option></select></label>
         </div>
-        <p id="complete-warning" class="import-warning" hidden>完整快照可能影响账户未列出的持仓；请核对服务端预览。</p>
+        <p id="complete-warning" class="import-warning" hidden>完整快照须通过成员覆盖校验，缺失不会自动清仓。</p>
         <div id="upload-area">
           <label class="import-file-label" for="files">选择文件</label>
-          <input id="files" type="file" multiple accept=".csv,.tsv,.xls,.xlsx,.png,.jpg,.jpeg" aria-describedby="file-formats file-limits" />
-          <p id="file-formats" class="import-meta">CSV / TSV / 同花顺 XLS / XLSX / PNG / JPG / JPEG</p>
+          <input id="files" type="file" multiple accept=".csv,.tsv,.xls,.xlsx,.pdf" aria-describedby="file-formats file-limits" />
+          <p id="file-formats" class="import-meta">CSV / TSV / 同花顺 XLS / XLSX · 账单 PDF</p>
           <p id="file-limits" class="import-meta"></p>
         </div>
-        <div class="import-section-head"><h2>暂存记录</h2><button id="add-row" type="button">＋ 新增记录</button></div>
+        <div id="screenshot-area" hidden><label for="images">选择截图</label><input id="images" type="file" multiple accept="image/png,image/jpeg" /><p id="ocr-status" class="import-meta"></p></div>
+        <div id="manual-records-head" class="import-section-head"><h2>暂存记录</h2><button id="add-row" type="button">＋ 新增记录</button></div>
         <p id="batch-meta" class="import-meta"></p>
         <div id="rows"></div>
         <section id="originals" aria-label="原始凭证"><h2>原始凭证</h2><div id="file-list"></div></section>
-        <label id="ack-label" class="import-check" hidden><input id="ack-all" type="checkbox" />已核对截图中的代码、日期与金额</label>
         <details id="history"><summary>最近批次</summary><div id="batch-list"></div><button id="refresh-history" type="button">刷新批次</button></details>
         <button id="new-batch" type="button">新建批次</button>
       </section>
+      <section id="image-review" hidden aria-label="逐图核对">
+        <h2 id="image-review-title">截图核对</h2><div id="image-original"></div><div id="image-records"></div>
+      </section>
       <section id="review" aria-label="核对发布" hidden>
-        <h2>发布核对</h2><p id="review-meta" class="import-meta"></p>
+        <h2>配置与确认</h2><p id="review-meta" class="import-meta"></p>
         <dl id="counts" class="import-counts"></dl>
-        <p id="impact"></p><div id="warnings"></div><div id="preview-rows"></div>
+        <p id="impact"></p><div id="warnings"></div><div id="issue-groups"></div>
+        <label for="preview-filter">具体条目<select id="preview-filter"><option value="all">全部</option><option value="issues">异常</option><option value="excluded">已排除</option></select></label><div id="preview-rows"></div>
       </section>
     </main>
     <footer id="actions" class="import-actions" hidden>
-      <button id="save-draft" type="button">保存草稿</button><button id="next" type="button" class="primary">核对发布 →</button>
-      <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认发布</button>
+      <button id="save-draft" type="button">保存草稿</button><button id="next" type="button" class="primary">继续 →</button>
+      <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认入库</button>
+      <button id="previous-image" type="button" hidden>← 上一张</button><button id="confirm-image" type="button" class="primary" hidden>确认本图并继续</button>
     </footer>
-    <nav class="nav" aria-label="主导航">
-      <a data-nav data-mobile-nav="primary" data-mobile-tab="invest" href="investments.html">投资</a>
-      <a data-nav data-mobile-nav="primary" data-mobile-tab="ledger" href="ledger.html">收支</a>
-      <a data-nav data-mobile-nav="primary" data-mobile-tab="more" class="active" aria-current="page" href="more.html">更多</a>
-    </nav>
   </div>
   <dialog id="editor" aria-labelledby="editor-title">
     <form id="record-form" novalidate>
@@ -90,6 +91,7 @@
       <footer class="import-sheet-actions"><button id="keep-edit" type="button">暂存输入并返回</button><button type="submit" class="primary">核对并保存草稿</button></footer>
     </form>
   </dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261029-native-ths-v8"></script>
+  <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
+  <script type="module" src="assets/js/account_import.js?v=20261029-mobile-flow-v1"></script>
 </body>
 </html>
