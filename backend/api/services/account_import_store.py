@@ -5,17 +5,22 @@ import hashlib
 import os
 import json
 from uuid import UUID, uuid4
+from decimal import Decimal
+from typing import Any
 
 import psycopg2
 from psycopg2.extras import Json
+from services.account_import_types import asset_type
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_BYTES = 30 * 1024 * 1024
 MAX_FILES = 10
 MAX_ROWS = 2000
-PROFILES = {
-    "tonghuashun": {"label": "同花顺", "default_asset_type": "stock", "currency": "CNY"},
-    "tencent_licaitong": {"label": "腾讯理财通", "default_asset_type": "fund", "currency": "CNY"},
+PROFILES: dict[str, dict[str, Any]] = {
+    "tonghuashun": {"label": "同花顺", "default_asset_type": "stock", "currency": "CNY",
+        "trade_actions": {"stock": ["buy", "sell", "dividend", "fee"], "fund": ["buy", "sell", "dividend", "fee"]}},
+    "tencent_licaitong": {"label": "腾讯理财通", "default_asset_type": "fund", "currency": "CNY",
+        "trade_actions": {"fund": ["subscribe", "redeem", "dividend", "fee"]}},
 }
 FIELDS = {
     "kind", "business_date", "trade_time", "confirmed_date", "asset_type", "symbol", "name",
@@ -52,7 +57,15 @@ def norm(value):
         return {k: norm(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [norm(v) for v in value]
-    return value.isoformat() if hasattr(value, "isoformat") else str(value) if isinstance(value, UUID) else value
+    return value.isoformat() if hasattr(value, "isoformat") else str(value) if isinstance(value, (UUID, Decimal)) else value
+
+
+def parse(content, filename, profile, kind, mapping=None):
+    if filename.rsplit(".", 1)[-1].lower() in {"png", "jpg", "jpeg"}:
+        from services.account_import_ocr import parse_image
+        return parse_image(content, profile, kind)
+    from services.account_import_parse import parse_document
+    return parse_document(content, filename, profile, kind, mapping)
 
 
 def audit(cur, batch_id: str, event: str, details: dict):
@@ -78,7 +91,8 @@ def assets(cur, query: str) -> dict:
         FROM pams_asset_master WHERE status='active' AND currency='CNY'
           AND (primary_symbol ILIKE %s OR canonical_name ILIKE %s)
         ORDER BY (primary_symbol=%s) DESC,canonical_name LIMIT 25""", ("%" + query + "%", "%" + query + "%", query))
-    return {"rows": norm([dict(r) for r in cur.fetchall()])}
+    rows = [{**dict(r), "source_asset_type": r["asset_type"], "asset_type": asset_type(r["asset_type"])} for r in cur.fetchall()]
+    return {"rows": norm(rows)}
 
 
 def batch(cur, batch_id: str, *, lock: bool = False, files: bool = True) -> dict:
@@ -186,7 +200,6 @@ def _append_parsed(cur, result: dict, file_id: str, sha256: str, parsed: dict):
 
 
 def upload(cur, batch_id: str, filename: str, content: bytes, content_type: str) -> dict:
-    from services.account_import_parse import parse_document
     result = batch(cur, batch_id, lock=True)
     editable(result)
     if not filename or len(filename) > 180 or any(c in filename for c in ("/", "\\", "\x00", "\r", "\n")):
@@ -205,7 +218,7 @@ def upload(cur, batch_id: str, filename: str, content: bytes, content_type: str)
     cur.execute("SELECT mapping FROM pams_account_import_template WHERE account_code=%s AND kind=%s",
                 (result["account_code"], result["kind"]))
     template = cur.fetchone()
-    parsed = parse_document(content, filename, result["account_code"], result["kind"],
+    parsed = parse(content, filename, result["account_code"], result["kind"],
                             template["mapping"] if template else None)
     suffix = filename.rsplit(".", 1)[-1].lower()
     safe_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "csv": "text/plain",
@@ -222,13 +235,12 @@ def upload(cur, batch_id: str, filename: str, content: bytes, content_type: str)
 
 
 def reparse(cur, batch_id: str, file_id: str, mapping: dict, kind: str | None = None) -> dict:
-    from services.account_import_parse import parse_document
     result = batch(cur, batch_id, lock=True)
     editable(result)
     if kind is not None and kind != result["kind"]:
         raise ImportProblem("kind_mismatch", "重新解析不能改变批次资料类型")
     file = get_file(cur, batch_id, file_id)
-    parsed = parse_document(bytes(file["content"]), file["filename"], result["account_code"], result["kind"], mapping)
+    parsed = parse(bytes(file["content"]), file["filename"], result["account_code"], result["kind"], mapping)
     _append_parsed(cur, result, file_id, file["sha256"], parsed)
     cur.execute("UPDATE pams_account_import_file SET metadata=%s WHERE file_id=%s", (Json({k: v for k, v in parsed.items() if k != "rows"}), file_id))
     cur.execute("""INSERT INTO pams_account_import_template(account_code,kind,mapping) VALUES (%s,%s,%s)

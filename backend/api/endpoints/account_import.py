@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from services import account_import_access as access
 from services import account_import_store as store
+from services import account_import_publish as publisher
+from services.account_import_ocr import ocr_available
 
 def private_response(response: Response):
     response.headers["Cache-Control"] = "no-store"
@@ -53,12 +55,18 @@ class Revision(StrictRequest):
     revision: int = Field(strict=True, gt=0)
 
 
-def execute(request: Request, fn, *, write=False):
+class Publish(Revision):
+    preview_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
+
+
+def execute(request: Request, fn, *, write=False, serializable=False):
     access.require_access(request)
     if write:
         access.same_origin(request)
     try:
         with store.get_conn() as conn:
+            if serializable:
+                conn.set_session(isolation_level="SERIALIZABLE")
             if not write:
                 conn.set_session(readonly=True)
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -69,6 +77,10 @@ def execute(request: Request, fn, *, write=False):
                 return fn(cur)
     except store.ImportProblem as error:
         raise HTTPException(error.status, detail={"code": error.code, "message": str(error)}) from error
+    except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected) as error:
+        raise HTTPException(409, detail={"code": "source_changed", "message": "资料并发更新，整批未发布；请重新读取和预检"}) from error
+    except psycopg2.Error as error:
+        raise HTTPException(503, detail={"code": "import_unavailable", "message": "导入服务暂不可用，未完成的事务已回滚"}) from error
     except (ValueError, UnicodeError) as error:
         raise HTTPException(400, detail={"code": "invalid_document", "message": str(error)[:250]}) from error
 
@@ -85,7 +97,8 @@ def capabilities(request: Request):
         except psycopg2.Error:
             pass
     return {"configured": access.configured(), "authenticated": access.authenticated(request),
-            "schema_ready": ready, "publish_enabled": False, "ocr_available": False,
+            "schema_ready": ready, "publish_enabled": ready and publisher.enabled(),
+            "ocr_available": ready and ocr_available(),
             "limits": {"file_bytes": store.MAX_FILE_BYTES, "batch_bytes": store.MAX_BATCH_BYTES,
                        "files": store.MAX_FILES, "rows": store.MAX_ROWS}}
 
@@ -160,11 +173,10 @@ def reparse(batch_id: UUID, file_id: UUID, body: Mapping, request: Request):
 
 @router.post("/batches/{batch_id}/preview")
 def preview(batch_id: UUID, body: Revision, request: Request):
-    def build(cur):
-        value = store.batch(cur, str(batch_id))
-        store.editable(value, body.revision)
-        return {"batch_id": str(batch_id), "revision": body.revision, "can_publish": False,
-                "rows": value["rows"], "counts": {"new": len(value["rows"]), "blocked": 0, "duplicates": 0, "pending": 0},
-                "warnings": ["此阶段仅保存资料，尚未开放资产发布"],
-                "impact": {"nav_change": None, "nav_estimate_status": "unavailable", "message": "预览未写入资产账目"}}
-    return execute(request, build)
+    return execute(request, lambda cur: publisher.preview(cur, str(batch_id), body.revision), write=True)
+
+
+@router.post("/batches/{batch_id}/publish")
+def publish(batch_id: UUID, body: Publish, request: Request):
+    return execute(request, lambda cur: publisher.publish(cur, str(batch_id), body.revision, body.preview_token),
+                   write=True, serializable=True)
