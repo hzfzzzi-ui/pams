@@ -176,6 +176,11 @@ def preview(batch_id: UUID, body: Revision, request: Request):
     return execute(request, lambda cur: publisher.preview(cur, str(batch_id), body.revision), write=True)
 
 
+@router.post("/batches/{batch_id}/files/{file_id}/review")
+def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request):
+    return execute(request, lambda cur: store.review_image(cur, str(batch_id), str(file_id), body.revision), write=True)
+
+
 @router.post("/batches/{batch_id}/publish")
 def publish(batch_id: UUID, body: Publish, request: Request):
     return execute(request, lambda cur: publisher.publish(cur, str(batch_id), body.revision, body.preview_token),

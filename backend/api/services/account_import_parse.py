@@ -44,7 +44,7 @@ ENUMS = {
     "action": {"buy": "买入 证券买入", "sell": "卖出 证券卖出", "subscribe": "申购 认购 基金申购 基金买入",
                "redeem": "赎回 基金赎回 基金卖出", "dividend": "分红 红利 现金分红", "fee": "费用 手续费",
                "deposit": "入金 存入 银证转入", "withdraw": "出金 取出 银证转出", "balance": "余额",
-               "transfer": "转账 转入 转出 划转"},
+               "transfer": "转账 转入 转出 划转", "income": "收入 收入到账", "expense": "支出 消费付款"},
     "status": {"confirmed": "已确认 确认成功 成交 已成交 全部成交 交易成功", "pending": "待确认 确认中 处理中 待成交"},
     "cost_basis_type": {"holding_cost": "持仓成本", "diluted_cost": "摊薄成本 摊薄成本价", "unknown": "未知 报表成本"},
     "currency": {"CNY": "人民币 RMB ￥ ¥"},
