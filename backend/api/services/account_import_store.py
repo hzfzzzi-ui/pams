@@ -1,0 +1,239 @@
+"""Private import drafts and evidence. No financial writes or runtime DDL."""
+from __future__ import annotations
+
+import hashlib
+import os
+import json
+from uuid import UUID, uuid4
+
+import psycopg2
+from psycopg2.extras import Json
+
+MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_BATCH_BYTES = 30 * 1024 * 1024
+MAX_FILES = 10
+MAX_ROWS = 2000
+PROFILES = {
+    "tonghuashun": {"label": "同花顺", "default_asset_type": "stock", "currency": "CNY"},
+    "tencent_licaitong": {"label": "腾讯理财通", "default_asset_type": "fund", "currency": "CNY"},
+}
+FIELDS = {
+    "kind", "business_date", "trade_time", "confirmed_date", "asset_type", "symbol", "name",
+    "currency", "action", "status", "quantity", "price", "gross_amount", "fee_amount",
+    "tax_amount", "net_cash", "market_value", "cost", "cost_basis_type", "counter_account_code",
+    "source_ref", "duplicate_decision", "note", "asset_id", "fee_scope",
+}
+
+
+class ImportProblem(ValueError):
+    def __init__(self, code: str, message: str, status: int = 400):
+        super().__init__(message)
+        self.code, self.status = code, status
+
+
+def get_conn():
+    return psycopg2.connect(host=os.environ.get("PGHOST", "pams-postgres"),
+                            port=int(os.environ.get("PGPORT", "5432")),
+                            dbname=os.environ.get("PGDATABASE", "pams"),
+                            user=os.environ.get("PGUSER", "pams"), password=os.environ.get("PGPASSWORD", ""),
+                            connect_timeout=5)
+
+
+def schema_ready(cur) -> bool:
+    cur.execute("SELECT to_regclass('pams_account_import_batch') IS NOT NULL AND "
+                "to_regclass('pams_account_import_file') IS NOT NULL AND "
+                "to_regclass('pams_account_import_template') IS NOT NULL AND "
+                "to_regclass('pams_account_import_audit') IS NOT NULL AS ready")
+    return bool(cur.fetchone()["ready"])
+
+
+def norm(value):
+    if isinstance(value, dict):
+        return {k: norm(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [norm(v) for v in value]
+    return value.isoformat() if hasattr(value, "isoformat") else str(value) if isinstance(value, UUID) else value
+
+
+def audit(cur, batch_id: str, event: str, details: dict):
+    cur.execute("INSERT INTO pams_account_import_audit(audit_id,batch_id,event,details) VALUES (%s,%s,%s,%s)",
+                (str(uuid4()), batch_id, event, Json(details)))
+
+
+def context(cur) -> dict:
+    cur.execute("SELECT account_code,display_name,base_currency FROM pams_accounts WHERE active ORDER BY account_code")
+    all_accounts = [dict(r) for r in cur.fetchall()]
+    accounts = [{**PROFILES[r["account_code"]], "account_code": r["account_code"],
+                 "profile": r["account_code"], "currency": r["base_currency"]}
+                for r in all_accounts if r["account_code"] in PROFILES]
+    return {"accounts": accounts, "counter_accounts": norm(all_accounts),
+            "profiles": [{"profile": key, **value} for key, value in PROFILES.items()]}
+
+
+def assets(cur, query: str) -> dict:
+    query = query.strip()[:80]
+    if len(query) < 2:
+        return {"rows": []}
+    cur.execute("""SELECT asset_id,primary_symbol AS symbol,canonical_name AS name,asset_type,currency
+        FROM pams_asset_master WHERE status='active' AND currency='CNY'
+          AND (primary_symbol ILIKE %s OR canonical_name ILIKE %s)
+        ORDER BY (primary_symbol=%s) DESC,canonical_name LIMIT 25""", ("%" + query + "%", "%" + query + "%", query))
+    return {"rows": norm([dict(r) for r in cur.fetchall()])}
+
+
+def batch(cur, batch_id: str, *, lock: bool = False, files: bool = True) -> dict:
+    cur.execute("SELECT * FROM pams_account_import_batch WHERE batch_id=%s" + (" FOR UPDATE" if lock else ""), (batch_id,))
+    row = cur.fetchone()
+    if not row:
+        raise ImportProblem("batch_missing", "找不到导入批次", 404)
+    result = dict(row)
+    result["rows"] = result.pop("rows_json")
+    result.pop("preview_token", None)
+    if files:
+        cur.execute("SELECT file_id,filename,content_type,sha256,metadata FROM pams_account_import_file "
+                    "WHERE batch_id=%s ORDER BY created_at,file_id", (batch_id,))
+        result["files"] = [dict(r) for r in cur.fetchall()]
+    return norm(result)
+
+
+def editable(result: dict, revision: int | None = None):
+    if result["status"] != "draft":
+        raise ImportProblem("not_draft", "此批次不可修改；更正请新建批次并重新核对", 409)
+    if revision is not None and result["revision"] != revision:
+        raise ImportProblem("revision_conflict", "批次已更新，请重新读取后再编辑", 409)
+
+
+def create(cur, account_code: str, mode: str, kind: str, completeness: str) -> dict:
+    if account_code not in PROFILES:
+        raise ImportProblem("unsupported_account", "该账户不在本轮投资导入范围")
+    cur.execute("SELECT 1 FROM pams_accounts WHERE account_code=%s AND active", (account_code,))
+    if not cur.fetchone():
+        raise ImportProblem("account_missing", "账户不存在或已停用")
+    key = str(uuid4())
+    cur.execute("""INSERT INTO pams_account_import_batch(batch_id,account_code,mode,kind,completeness)
+        VALUES (%s,%s,%s,%s,%s)""", (key, account_code, mode, kind, completeness))
+    audit(cur, key, "created", {"mode": mode, "kind": kind})
+    return batch(cur, key)
+
+
+def save(cur, batch_id: str, revision: int, rows: list[dict], completeness: str) -> dict:
+    existing = batch(cur, batch_id, lock=True)
+    editable(existing, revision)
+    if len(rows) > MAX_ROWS:
+        raise ImportProblem("too_many_rows", "每批最多2000条记录")
+    if len(json.dumps(rows, ensure_ascii=False).encode()) > 4 * 1024 * 1024:
+        raise ImportProblem("draft_size", "候选记录超过4MB", 413)
+    previous = {row["row_id"]: row for row in existing["rows"]}
+    clean, seen = [], set()
+    for row in rows:
+        fields = row.get("fields")
+        if not isinstance(fields, dict) or set(fields) - FIELDS:
+            raise ImportProblem("invalid_fields", "记录包含未知字段")
+        if any(v is not None and (not isinstance(v, str) or len(v) > 500) for v in fields.values()):
+            raise ImportProblem("invalid_value", "字段必须为文本或空值；金额不能经过浮点转换")
+        row_id = row.get("row_id")
+        if row_id and row_id not in previous:
+            raise ImportProblem("unknown_row", "候选记录不属于此批次")
+        row_id = row_id or str(uuid4())
+        if row_id in seen:
+            raise ImportProblem("duplicate_row_id", "同一候选记录不能重复提交")
+        seen.add(row_id)
+        old = previous.get(row_id, {})
+        for flag in ("acknowledged", "excluded"):
+            if flag in row and not isinstance(row[flag], bool):
+                raise ImportProblem("invalid_flag", "核对状态必须为布尔值")
+        clean.append({"row_id": row_id, "fields": fields,
+                      "source": old.get("source", {"origin": "manual"}),
+                      "issues": old.get("issues", []),
+                      "acknowledged": row.get("acknowledged", False), "excluded": row.get("excluded", False)})
+    cur.execute("""UPDATE pams_account_import_batch SET rows_json=%s,completeness=%s,
+        revision=revision+1,preview_json=NULL,preview_token=NULL,updated_at=now() WHERE batch_id=%s""",
+                (Json(clean), completeness, batch_id))
+    changes = [{"row_id": row["row_id"], "before": previous.get(row["row_id"]), "after": row}
+               for row in clean if previous.get(row["row_id"]) != row]
+    changes += [{"row_id": key, "before": value, "after": None}
+                for key, value in previous.items() if key not in seen]
+    audit(cur, batch_id, "draft_saved", {"from_revision": revision, "rows": len(clean), "changes": changes})
+    return batch(cur, batch_id)
+
+
+def list_batches(cur, limit: int) -> dict:
+    cur.execute("""SELECT batch_id,account_code,mode,kind,completeness,status,revision,
+        jsonb_array_length(rows_json) AS row_count,created_at,updated_at
+        FROM pams_account_import_batch ORDER BY created_at DESC LIMIT %s""", (limit,))
+    return {"rows": norm([dict(r) for r in cur.fetchall()])}
+
+
+def get_file(cur, batch_id: str, file_id: str) -> dict:
+    cur.execute("SELECT * FROM pams_account_import_file WHERE batch_id=%s AND file_id=%s", (batch_id, file_id))
+    row = cur.fetchone()
+    if not row:
+        raise ImportProblem("file_missing", "找不到本批次原始资料", 404)
+    return dict(row)
+
+
+def _append_parsed(cur, result: dict, file_id: str, sha256: str, parsed: dict):
+    rows = [r for r in result["rows"] if r.get("source", {}).get("file_id") != file_id]
+    for row in parsed["rows"]:
+        rows.append({"row_id": str(uuid4()), "fields": row["fields"],
+                     "source": {**row.get("source", {}), "file_id": file_id, "file_sha256": sha256,
+                                "origin": parsed.get("origin", "file")},
+                     "issues": row.get("issues", []), "acknowledged": False, "excluded": False})
+    if len(rows) > MAX_ROWS:
+        raise ImportProblem("too_many_rows", "每批最多2000条记录")
+    cur.execute("""UPDATE pams_account_import_batch SET rows_json=%s,revision=revision+1,
+        preview_json=NULL,preview_token=NULL,updated_at=now() WHERE batch_id=%s""", (Json(rows), result["batch_id"]))
+
+
+def upload(cur, batch_id: str, filename: str, content: bytes, content_type: str) -> dict:
+    from services.account_import_parse import parse_document
+    result = batch(cur, batch_id, lock=True)
+    editable(result)
+    if not filename or len(filename) > 180 or any(c in filename for c in ("/", "\\", "\x00", "\r", "\n")):
+        raise ImportProblem("invalid_filename", "文件名无效")
+    if not 0 < len(content) <= MAX_FILE_BYTES:
+        raise ImportProblem("file_size", "文件为空或超过10MB", 413)
+    digest = hashlib.sha256(content).hexdigest()
+    cur.execute("SELECT file_id FROM pams_account_import_file WHERE batch_id=%s AND sha256=%s", (batch_id, digest))
+    if cur.fetchone():
+        return result
+    cur.execute("SELECT count(*) AS count,COALESCE(sum(octet_length(content)),0) AS size "
+                "FROM pams_account_import_file WHERE batch_id=%s", (batch_id,))
+    limits = cur.fetchone()
+    if limits["count"] >= MAX_FILES or limits["size"] + len(content) > MAX_BATCH_BYTES:
+        raise ImportProblem("batch_size", "每批最多10个文件、合计30MB", 413)
+    cur.execute("SELECT mapping FROM pams_account_import_template WHERE account_code=%s AND kind=%s",
+                (result["account_code"], result["kind"]))
+    template = cur.fetchone()
+    parsed = parse_document(content, filename, result["account_code"], result["kind"],
+                            template["mapping"] if template else None)
+    suffix = filename.rsplit(".", 1)[-1].lower()
+    safe_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "csv": "text/plain",
+                 "tsv": "text/plain", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(suffix)
+    if not safe_type:
+        raise ImportProblem("file_type", "仅支持CSV、TSV、XLSX、PNG和JPEG")
+    key = str(uuid4())
+    metadata = {k: v for k, v in parsed.items() if k != "rows"}
+    cur.execute("""INSERT INTO pams_account_import_file(file_id,batch_id,filename,content_type,sha256,content,metadata)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)""", (key, batch_id, filename, safe_type, digest, content, Json(metadata)))
+    _append_parsed(cur, result, key, digest, parsed)
+    audit(cur, batch_id, "file_parsed", {"file_id": key, "sha256": digest, "rows": len(parsed["rows"])})
+    return batch(cur, batch_id)
+
+
+def reparse(cur, batch_id: str, file_id: str, mapping: dict, kind: str | None = None) -> dict:
+    from services.account_import_parse import parse_document
+    result = batch(cur, batch_id, lock=True)
+    editable(result)
+    if kind is not None and kind != result["kind"]:
+        raise ImportProblem("kind_mismatch", "重新解析不能改变批次资料类型")
+    file = get_file(cur, batch_id, file_id)
+    parsed = parse_document(bytes(file["content"]), file["filename"], result["account_code"], result["kind"], mapping)
+    _append_parsed(cur, result, file_id, file["sha256"], parsed)
+    cur.execute("UPDATE pams_account_import_file SET metadata=%s WHERE file_id=%s", (Json({k: v for k, v in parsed.items() if k != "rows"}), file_id))
+    cur.execute("""INSERT INTO pams_account_import_template(account_code,kind,mapping) VALUES (%s,%s,%s)
+        ON CONFLICT(account_code,kind) DO UPDATE SET mapping=EXCLUDED.mapping,updated_at=now()""",
+                (result["account_code"], result["kind"], Json(mapping)))
+    audit(cur, batch_id, "mapping_applied", {"file_id": file_id, "mapping": mapping,
+          "replaced_rows": [r for r in result["rows"] if r.get("source", {}).get("file_id") == file_id]})
+    return batch(cur, batch_id)

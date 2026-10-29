@@ -37,6 +37,7 @@ from endpoints import accounts as accounts_endpoint
 from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import sync_center
 from endpoints import analysis
+from endpoints import account_import
 from strategy.router import router as strategy_router
 from backtest.router import router as backtest_router
 from datahub.router import router as datahub_router
@@ -139,6 +140,7 @@ app.include_router(accounts_endpoint.router, prefix="/api")
 app.include_router(portfolio_state_endpoint.router, prefix="/api")
 app.include_router(sync_center.router, prefix="/api")
 app.include_router(analysis.router, prefix="/api")
+app.include_router(account_import.router, prefix="/api")
 app.include_router(backtest_v2.router)
 app.include_router(strategy_router, prefix="/api")
 app.include_router(backtest_router, prefix="/api")
