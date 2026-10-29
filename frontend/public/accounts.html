@@ -425,10 +425,9 @@
 
         <div class="card">
           <div class="sectionTitle">
-            <h3>账单导入</h3>
+            <h3>导入资料</h3>
             <div class="right">
-              <button id="btnPreview" class="btn">预览</button>
-              <button id="btnImport" class="btn primary">导入暂存</button>
+              <a id="btnImport" class="btn primary" href="account_import.html?kind=cash">导入资料</a>
             </div>
           </div>
           <div class="kpiGrid" style="margin-top: 12px;">
@@ -440,10 +439,6 @@
               <label class="formLabel">当前模板</label>
               <input id="profileCode" class="formInput" type="text" readonly />
             </div>
-          </div>
-          <div style="margin-top: 12px;">
-            <label class="formLabel">账单文件路径（一行一个）</label>
-            <textarea id="filePaths" class="formInput fileBox"></textarea>
           </div>
           <div id="opMsg" class="muted" style="margin-top: 10px;"></div>
         </div>
@@ -495,6 +490,6 @@
     </section>
   </div>
 
-  <script type="module" src="assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1"></script>
+  <script type="module" src="assets/js/bank_reconcile.js?v=20261029-import-unify-v1"></script>
 </body>
 </html>

@@ -253,11 +253,11 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
         assert design_href == f"assets/css/{design_name}.css?v={design_version}"
         assert "app-shell" in parsed.body_classes
-        assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == [
+        assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == ([] if page == "account_import.html" else [
             ("investments.html", "投资"),
             ("ledger.html", "收支"),
             ("more.html", "更多"),
-        ]
+        ])
         assert "appPageHero" not in html
         assert "page-risk" not in parsed.body_classes
         assert "page-dashboard" not in parsed.body_classes
@@ -928,7 +928,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20260622-data-state-a11y-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20261026-startup-order-v1" in investments_html
+    assert "assets/js/transactions.js?v=20261026-startup-order-v1-import-unify-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1384,7 +1384,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20261026-startup-order-v1" in html
+    assert "assets/js/transactions.js?v=20261026-startup-order-v1-import-unify-v1" in html
     assert "assets/css/style-phone.css?v=20261020-phone-restore-v1" in html
 
 
@@ -1447,7 +1447,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert 'href="accounts.html#sources"' not in html
     assert 'href="investments.html#portfolio-risk-disclosure"' not in html
     assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
-    assert "assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1" in accounts_html
+    assert "assets/js/bank_reconcile.js?v=20261029-import-unify-v1" in accounts_html
     assert "assets/js/data_sources.js?v=20261023-ibkr-publication-v1" in data_sources_html
     assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
     assert "./sync_center.js?v=20261023-ibkr-publication-v1" in data_sources_js

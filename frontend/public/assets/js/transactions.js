@@ -437,15 +437,6 @@ function fillTradeNameOptions(rows) {
     .join('');
 }
 
-function resolveManualAsset(name) {
-  const needle = String(name || '').trim().toLowerCase();
-  if (!needle) return {};
-  return state.rows.find((r) => {
-    return String(r?.name || '').trim().toLowerCase() === needle
-      || String(r?.symbol || '').trim().toLowerCase() === needle;
-  }) || {};
-}
-
 function setDefaultFilters() {
   state.filters = defaultFilterState();
   $('tradeDate').value = todayIso();
@@ -2881,42 +2872,7 @@ async function loadCampaignSummary() {
 }
 
 async function createTrade() {
-  clearError();
-  $('formMsg').textContent = '';
-  const selectedAsset = resolveManualAsset($('tradeName').value);
-  const amount = readOptionalNumber('tradeAmount');
-  const quantity = readOptionalNumber('tradeQuantity');
-  const payload = {
-    trade_date: $('tradeDate').value,
-    account_code: $('tradeAccount').value,
-    major_category: selectedAsset.major_category || null,
-    minor_category: selectedAsset.minor_category || null,
-    symbol: selectedAsset.symbol || null,
-    name: $('tradeName').value.trim(),
-    side: $('tradeSide').value,
-    quantity,
-    price: amount != null && quantity ? amount / quantity : null,
-    gross_amount: amount,
-    fees: readOptionalNumber('tradeFees') || 0,
-    currency: $('tradeCurrency').value,
-    status: 'recorded',
-    notes: null,
-  };
-  if (!payload.trade_date || !payload.account_code || !payload.name) {
-    $('formMsg').textContent = '平台、交易日期、标的名称为必填';
-    return;
-  }
-  if (payload.gross_amount == null) {
-    $('formMsg').textContent = '需要填写金额';
-    return;
-  }
-  await jpost('/api/investment-transactions', payload);
-  $('formMsg').textContent = '已保存';
-  state.showAll = false;
-  ['tradeName', 'tradeQuantity', 'tradeAmount', 'tradeFees'].forEach((id) => {
-    $(id).value = id === 'tradeFees' ? '0' : '';
-  });
-  await loadLedger();
+  window.location.assign('account_import.html?kind=trade&mode=manual');
 }
 
 function closeTradeReviewAssetFloat(panel) {
@@ -3072,11 +3028,7 @@ function bindEvents() {
       return;
     }
     if (event.target?.id === 'btnOpenTradeForm') {
-      const panel = $('manualTradeEntry');
-      panel.hidden = !panel.hidden;
-      if (panel.hidden) return;
-      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => $('tradeName')?.focus(), 250);
+      createTrade();
       return;
     }
     if (event.target?.id === 'btnCloseTradeForm') {

@@ -7,7 +7,6 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
-from uuid import uuid4
 
 import psycopg2
 import psycopg2.extras
@@ -15,7 +14,6 @@ import yaml
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from services.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
 from services.portfolio_state import _load_accounts_config, _owner_ratio
 from services.trade_campaigns import build_position_campaigns_payload, today_local
 from services.trade_attribution import (
@@ -343,7 +341,7 @@ def _validate_enum(value: str | None, allowed: set[str], field_name: str) -> str
 
 
 def _field_was_provided(model: BaseModel, field_name: str) -> bool:
-    fields = getattr(model, "model_fields_set", None)
+    fields: Any = getattr(model, "model_fields_set", None)
     if fields is None:
         fields = getattr(model, "__fields_set__", set())
     return field_name in fields
@@ -1135,68 +1133,9 @@ def list_investment_transactions(
 
 @router.post("/investment-transactions")
 def create_investment_transaction(tx: InvestmentTransactionCreate):
-    """Create one manually recorded investment transaction."""
-    amount = tx.gross_amount
-    if amount is None and tx.quantity is not None and tx.price is not None:
-        amount = float(tx.quantity) * float(tx.price)
-    if amount is None:
-        raise HTTPException(status_code=400, detail="gross_amount or quantity*price is required")
-
-    source_id = uuid4().hex
-    source_key = f"manual-{source_id}"
-    trade_id = None
-    fact_inserted = 0
-    with get_conn() as conn:
-        ensure_ledger_table(conn)
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT account_code FROM pams_accounts WHERE account_code = %s", (tx.account_code,))
-            if not cur.fetchone():
-                raise HTTPException(status_code=400, detail=f"unknown account_code: {tx.account_code}")
-
-            if _table_exists(cur, "pams_investment_trade_fact"):
-                source_row = {
-                    "source_table": "manual_investment_trade",
-                    "source_id": source_id,
-                    "source_key": f"manual:{source_key}",
-                    "trade_date": tx.trade_date,
-                    "trade_time": tx.trade_time,
-                    "settle_date": None,
-                    "account_code": tx.account_code,
-                    "broker": "manual",
-                    "portfolio_code": None,
-                    "asset_id": None,
-                    "symbol": tx.symbol,
-                    "name": tx.name,
-                    "market": tx.minor_category or tx.major_category,
-                    "currency": tx.currency,
-                    "side": tx.side,
-                    "quantity": tx.quantity,
-                    "price": tx.price,
-                    "gross_amount": amount,
-                    "fee_amount": tx.fees or 0,
-                    "tax_amount": 0,
-                    "net_cash": None,
-                    "fx_rate_to_cny": _latest_fx_rate_to_cny(cur, tx.currency),
-                    "realized_pnl": None,
-                    "raw_json": tx.model_dump(mode="json") if hasattr(tx, "model_dump") else tx.dict(),
-                }
-                fact = build_investment_trade_fact(source_row)
-                fact["review_status"] = "auto"
-                fact_inserted = insert_investment_trade_facts(cur, [fact])
-                cur.execute(
-                    "SELECT trade_id FROM pams_investment_trade_fact WHERE source_hash = %s",
-                    (fact["source_hash"],),
-                )
-                row = cur.fetchone()
-                trade_id = row["trade_id"] if row else None
-        conn.commit()
-
-    return {
-        "id": trade_id or source_id,
-        "source_key": source_key,
-        "fact_inserted": fact_inserted,
-        "message": "investment transaction recorded",
-    }
+    """Legacy entry: all new imports require the shared draft/preview approval."""
+    raise HTTPException(409, detail={"code": "import_review_required",
+        "message": "请通过导入资料统一核对后入库", "destination": "account_import.html?kind=trade&mode=manual"})
 
 
 @router.get("/investment-transactions/attribution/summary")

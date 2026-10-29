@@ -2,8 +2,6 @@ import { jget, jpost, fmtMoneyFixed2, fmtSignedMoneyFixed2 } from "./api.js?v=20
 import { openBottomSheet, setActiveNav } from "./ui.js?v=20260622-data-state-a11y-v1";
 
 let config = null;
-let selectedProfile = null;
-let latestPreview = null;
 let accountOverview = null;
 const collapsedAccountGroups = new Set();
 
@@ -610,11 +608,10 @@ function initAccountReviewActions() {
 }
 
 function selectProfile(code) {
-  selectedProfile = code;
   const p = config.profiles[code] || {};
   document.getElementById("profileCode").value = code;
   document.getElementById("since").value = p.since || config?.defaults?.since || "2026-01-01";
-  document.getElementById("filePaths").value = (p.default_files || []).join("\n");
+  document.getElementById("btnImport").href = `account_import.html?kind=cash&account=${encodeURIComponent(p.pams_target?.account_code || p.account_code || '')}`;
   document.querySelectorAll(".profileItem").forEach((el) => {
     el.classList.toggle("active", el.dataset.profile === code);
   });
@@ -635,19 +632,6 @@ function renderProfiles() {
   });
   const first = Object.keys(profiles)[0];
   if (first) selectProfile(first);
-}
-
-function buildRequest() {
-  const files = document.getElementById("filePaths").value
-    .split(/\r?\n/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-  return {
-    profile_code: selectedProfile,
-    files,
-    since: document.getElementById("since").value || "2026-01-01",
-    include_rows: true,
-  };
 }
 
 function renderSummary(summary) {
@@ -795,25 +779,6 @@ function renderRows(statements) {
   }).join("") || '<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">暂无流水</td></tr>';
 }
 
-async function preview() {
-  clearError();
-  setMsg("解析 PDF 中...");
-  latestPreview = await jpost("/api/bank-reconcile/preview", buildRequest());
-  renderSummary(latestPreview.summary);
-  renderRows(latestPreview.statements);
-  setMsg("预览完成。当前未写入 PAMS 主收支/持仓。");
-}
-
-async function doImport() {
-  clearError();
-  setMsg("导入暂存台账中...");
-  const resp = await jpost("/api/bank-reconcile/import", buildRequest());
-  renderSummary(resp.summary);
-  await loadImports();
-  await loadAccountOverview();
-  setMsg(`导入完成：新增 ${resp.inserted_rows || 0} 条流水。`);
-}
-
 async function loadTransferMatches() {
   const resp = await jget("/api/bank-reconcile/transfer-matches");
   renderTransferMatches(resp);
@@ -849,7 +814,7 @@ async function loadImports() {
       <td class="num">${r.statement_balance == null ? "—" : money(r.statement_balance, profileCurrency(r.profile_code))}</td>
     </tr>
   `).join("") || '<tr><td colspan="6" class="muted" style="text-align:center;padding:20px">暂无导入记录</td></tr>';
-  if (!latestPreview) renderSummary(resp.summary || []);
+  renderSummary(resp.summary || []);
 }
 
 async function main() {
@@ -865,8 +830,6 @@ async function main() {
     await loadTransferMatches();
     await loadUnmatchedRows();
     await loadImports();
-    document.getElementById("btnPreview").addEventListener("click", () => preview().catch((e) => showError(e.message || String(e))));
-    document.getElementById("btnImport").addEventListener("click", () => doImport().catch((e) => showError(e.message || String(e))));
     document.getElementById("btnMatchTransfers").addEventListener("click", () => runTransferMatching().catch((e) => showError(e.message || String(e))));
   } catch (e) {
     showError(e.message || String(e));

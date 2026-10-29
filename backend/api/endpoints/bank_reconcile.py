@@ -635,6 +635,7 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
             and Decimal(str(r.get("amount") or "0")) < 0
             and (not to_keywords or _has_any(_row_text(r), to_keywords))
         ]
+        target_row: dict[str, Any] | None
         for target_row in target_candidates:
             source_row, delta = _best_amount_date_match(
                 target_row,
@@ -1264,105 +1265,9 @@ def preview_bank_reconcile(req: PreviewRequest):
 
 @router.post("/bank-reconcile/import")
 def import_bank_reconcile(req: ImportRequest):
-    """Import parsed bank statement rows into a separate staging ledger."""
-    results = _collect_preview(req)
-    config = _load_config()
-    rules = config.get("rules", []) or []
-    amount_rules = config.get("amount_rules", []) or []
-    import_ids: list[int] = []
-    inserted_rows = 0
-    synced_snapshots: list[dict[str, Any]] = []
-    transfer_match_count = 0
-    cashflow_backfill: dict[str, int] = {"source_count": 0, "inserted_count": 0, "skipped_count": 0}
-
-    with get_conn() as conn:
-        ensure_tables(conn)
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            for result in results:
-                profile = _profile(config, result["profile_code"])
-                cur.execute(
-                    """
-                    INSERT INTO pams_bank_statement_imports (
-                        profile_code, bank, account_code, account_kind, source_file,
-                        statement_start, statement_end, statement_balance, row_count
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (
-                        result["profile_code"],
-                        result["bank"],
-                        result["account_code"],
-                        result["account_kind"],
-                        result["source_file"],
-                        result["statement_start"],
-                        result["statement_end"],
-                        result["statement_balance"],
-                        result["row_count"],
-                    ),
-                )
-                import_id = cur.fetchone()["id"]
-                import_ids.append(import_id)
-                for row in result["rows"]:
-                    category, subcategory, auto_classified = _classify_statement_row(row, rules, amount_rules)
-                    cur.execute(
-                        """
-                        INSERT INTO pams_bank_statement_rows (
-                            import_id, source_uid, profile_code, bank, account_code, account_kind,
-                            transaction_date, posting_date, amount, currency, balance,
-                            original_amount, original_currency, category, subcategory,
-                            auto_classified, summary, description, counterparty, raw_json
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s
-                        )
-                        ON CONFLICT (source_uid) DO NOTHING
-                        """,
-                        (
-                            import_id,
-                            row["source_uid"],
-                            result["profile_code"],
-                            result["bank"],
-                            result["account_code"],
-                            result["account_kind"],
-                            row["transaction_date"],
-                            row.get("posting_date"),
-                            row["amount"],
-                            row["currency"],
-                            row.get("balance"),
-                            row.get("original_amount"),
-                            row.get("original_currency"),
-                            category,
-                            subcategory,
-                            auto_classified,
-                            row.get("summary"),
-                            row.get("description"),
-                            row.get("counterparty"),
-                            psycopg2.extras.Json(_norm(row.get("raw") or {})),
-                        ),
-                    )
-                    inserted_rows += cur.rowcount
-                snapshot = _sync_holding_snapshot_from_statement(cur, result, profile)
-                if snapshot is not None:
-                    synced_snapshots.append(snapshot)
-            staged_rows = _load_staged_rows(cur)
-            matches = _build_transfer_matches(staged_rows, config)
-            transfer_match_count = _write_transfer_matches(cur, matches)
-            cashflow_backfill = backfill_cashflow_facts(cur)
-            conn.commit()
-
-    return _norm(
-        {
-            "status": "ok",
-            "import_ids": import_ids,
-            "inserted_rows": inserted_rows,
-            "transfer_match_count": transfer_match_count,
-            "cashflow_backfill": cashflow_backfill,
-            "synced_snapshots": synced_snapshots,
-            "summary": _summarize(results),
-        }
-    )
+    """Legacy entry: all new imports require the shared draft/preview approval."""
+    raise HTTPException(409, detail={"code": "import_review_required",
+        "message": "请通过导入资料统一核对后入库", "destination": "account_import.html?kind=cash"})
 
 
 @router.get("/bank-reconcile/relationships")
