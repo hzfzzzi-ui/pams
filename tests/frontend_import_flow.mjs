@@ -8,7 +8,7 @@ const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRON
 const root=path.resolve('frontend/public'), output=process.env.PAMS_FRONTEND_ARTIFACT_DIR;
 if(output) await mkdir(output,{recursive:true});
 let batch,caps,publishes,calls,failPreview,uploads;
-const defaults={configured:true,authenticated:true,schema_ready:true,publish_enabled:false,ocr_available:true,limits:{files:10,file_bytes:10485760}};
+const defaults={authentication_required:false,schema_ready:true,publish_enabled:false,ocr_available:true,limits:{files:10,file_bytes:10485760}};
 const fields=(kind='trade')=>({kind,business_date:'2026-10-20',asset_type:'stock',symbol:'600001',name:'合成标的',currency:'CNY',action:'buy',status:'confirmed',quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_scope:'separate',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'});
 const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;};
 const accounts=[{account_code:'ths',profile:'tonghuashun',label:'同花顺',currency:'CNY',default_asset_type:'stock',kinds:['trade','holding'],trade_actions:{stock:['buy','sell','dividend','fee'],fund:['buy','sell','dividend','fee']}},
@@ -25,7 +25,6 @@ await context.route('**/*',async route=>{
  if(p.startsWith('/api/')) {
   assert.ok(p.startsWith('/api/account-import/')); calls.push([req.method(),p]);
   if(p.endsWith('/capabilities')) return send(caps);
-  if(p.endsWith('/unlock')) {caps.authenticated=true;caps.schema_ready=true;return send({authenticated:true});}
   if(p.endsWith('/context')) return send({accounts,counter_accounts:[{account_code:'bank',display_name:'银行账户'}]});
   if(p.endsWith('/assets')) return send({rows:[{asset_id:'a',symbol:'600001',name:'合成标的',asset_type:'stock',currency:'CNY'}]});
   if(p.endsWith('/batches') && req.method()==='GET') return send({rows:batch?[batch]:[]});
@@ -71,8 +70,9 @@ const open=async()=>{await page.goto('http://import.invalid/account_import.html'
 const save=async()=>{await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});await ready();};
 const capture=async name=>{await page.evaluate(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);const head=await page.locator('.import-head').boundingBox();assert.ok(head.y>=0&&head.y<100,JSON.stringify({name,head,metrics:await page.evaluate(()=>({scroll:scrollY,height:innerHeight,doc:document.documentElement.scrollHeight,body:document.body.getBoundingClientRect().toJSON(),active:document.activeElement.id}))}));if(output)await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});};
 try {
- reset();caps.configured=false;await page.goto('http://import.invalid/account_import.html');await page.getByText('账户导入暂不可用',{exact:false}).waitFor();assert.equal(calls.length,1);
- reset();caps.authenticated=false;await page.goto('http://import.invalid/account_import.html');await page.locator('#unlock-form').waitFor();await page.locator('#token').fill('test-token');await page.locator('#unlock-form button').click();await page.locator('#workspace').waitFor();assert.equal(await page.locator('#token').inputValue(),'');
+ reset();caps.schema_ready=false;await page.goto('http://import.invalid/account_import.html');await page.getByText('账户导入暂不可用',{exact:false}).waitFor();assert.equal(calls.length,1);
+ caps.schema_ready=true;await page.locator('#retry').click();await page.locator('#workspace').waitFor();await ready();
+ assert.equal(await page.locator('#unlock-form, input[type=password]').count(),0);assert.equal(calls.some(([,p])=>p.endsWith('/unlock')),false);
  for(const width of [320,390,1280]) {
   await page.setViewportSize({width,height:844});reset();await open();
   assert.equal(await page.locator('nav').count(),0);

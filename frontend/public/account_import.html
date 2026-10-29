@@ -16,15 +16,10 @@
       <li id="step-one" aria-current="step"><span>01</span> 填写 / 识别</li>
       <li id="step-two"><span>02</span> 核对发布</li>
     </ol>
-    <p id="notice" role="status" aria-live="polite">正在检查访问权限…</p>
+    <p id="notice" role="status" aria-live="polite">正在载入导入资料…</p>
     <p id="capability-note" class="import-warning" hidden>发布尚未启用；当前仅可保存草稿、配置字段和核对预览。</p>
     <div id="conflict" role="alert" hidden>草稿已在其他会话更新。本地修改尚未覆盖服务器。<button id="reload" type="button">重新载入服务器版本</button></div>
-    <section id="gate" aria-label="访问权限">
-      <form id="unlock-form" hidden>
-        <label for="token">访问口令</label>
-        <input id="token" type="password" autocomplete="off" required />
-        <button type="submit" class="primary">解锁</button>
-      </form>
+    <section id="gate" aria-label="服务状态">
       <button id="retry" type="button">重新检查</button>
     </section>
     <main id="workspace" hidden>
@@ -92,6 +87,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261029-mobile-flow-v1"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261030-no-passphrase-v1"></script>
 </body>
 </html>

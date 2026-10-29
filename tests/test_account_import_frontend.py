@@ -59,13 +59,15 @@ def test_isolated_two_step_shell_and_existing_bank_link() -> None:
 
 @pytest.mark.parametrize("caps, expected", [
     (None, "unavailable"), ({}, "unavailable"),
-    ({"configured": False, "authenticated": True, "schema_ready": True}, "unavailable"),
-    ({"configured": True, "authenticated": False, "schema_ready": False}, "locked"),
+    ({"schema_ready": False}, "unavailable"),
+    ({"schema_ready": True, "authentication_required": False}, "ready"),
+    ({"configured": False, "authenticated": False, "schema_ready": True}, "ready"),
+    ({"configured": True, "authenticated": False, "schema_ready": False}, "unavailable"),
     ({"configured": True, "authenticated": True, "schema_ready": False}, "unavailable"),
-    ({"configured": True, "authenticated": False, "schema_ready": True}, "locked"),
+    ({"configured": True, "authenticated": False, "schema_ready": True}, "ready"),
     ({"configured": True, "authenticated": True, "schema_ready": True}, "ready"),
 ])
-def test_missing_configuration_schema_and_authentication(caps: dict | None, expected: str) -> None:
+def test_schema_alone_controls_availability_without_unlock(caps: dict | None, expected: str) -> None:
     module_test(f"assert.equal(m.accessState({json.dumps(caps)}), {json.dumps(expected)});")
 
 
@@ -155,9 +157,10 @@ def test_trade_actions_are_account_context_driven_not_symbol_rules() -> None:
     assert "source_asset_type" not in JS
 
 
-def test_only_401_resets_auth_and_record_kind_is_fixed_to_batch() -> None:
-    assert "if (error.status === 401)" in JS
-    assert "error.status === 401 || error.status === 403" not in JS
+def test_unlock_ui_is_removed_and_record_kind_is_fixed_to_batch() -> None:
+    for removed in ['unlock-form', 'id="token"', 'type="password"', '访问口令', '解锁']:
+        assert removed not in HTML
+    assert "/unlock" not in JS and "authenticated" not in JS
     assert "error.status === 403 && error.code === 'publish_disabled'" in JS
     assert "state.caps = { ...state.caps, publish_enabled: false }" in JS
     assert "field('identity-fields', 'kind', [state.batch.kind]).disabled = true" in JS
@@ -188,7 +191,7 @@ def test_only_private_same_origin_import_requests_and_raw_file_uploads() -> None
       const client=m.createImportClient(async (...args) => {
         calls.push(args); return {ok:true,json:async()=>({revision:1})};
       });
-      await client('/unlock','POST',{token:'secret'});
+      await client('/batches','POST',{account_code:'ths',kind:'trade',mode:'manual'});
       const file = new Blob(['raw,csv'], {type:'text/csv'});
       await client('/batches/b/files?filename=a%20b.csv','POST',file,true);
       assert.equal(calls[1][1].body,file);
@@ -199,7 +202,7 @@ def test_only_private_same_origin_import_requests_and_raw_file_uploads() -> None
         assert.equal(options.redirect,'error');
         assert.equal(options.headers.Authorization,undefined);
       }
-      assert.equal(calls[0][1].body, JSON.stringify({token:'secret'}));
+      assert.equal(calls[0][1].body, JSON.stringify({account_code:'ths',kind:'trade',mode:'manual'}));
       for (const path of ['https://other.invalid', '//other.invalid', '/../facts'])
         await assert.rejects(client(path));
       const stale=m.createImportClient(async()=>({ok:false,status:409,json:async()=>({detail:'conflict'})}));
