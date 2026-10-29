@@ -89,7 +89,7 @@ def publish(cur, batch_id, revision, preview_token):
             identifier, table = _snapshot(cur, row), "pams_holdings_snapshot"
         else:
             fact = row["fact"]
-            if batch["kind"] == "cash":
+            if fact["side"] in {"deposit", "withdraw"}:
                 fact["cashflow_id"] = _bank_leg(cur, batch, row, fact)
             if insert_investment_trade_facts(cur, [fact], strict_source=True) != 1:
                 raise store.ImportProblem("trade_conflict", "交易来源发生冲突，整批未发布", 409)

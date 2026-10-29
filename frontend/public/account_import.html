@@ -41,8 +41,8 @@
         <p id="complete-warning" class="import-warning" hidden>完整快照可能影响账户未列出的持仓；请核对服务端预览。</p>
         <div id="upload-area">
           <label class="import-file-label" for="files">选择文件</label>
-          <input id="files" type="file" multiple accept=".csv,.tsv,.xlsx,.png,.jpg,.jpeg" aria-describedby="file-formats file-limits" />
-          <p id="file-formats" class="import-meta">CSV / TSV / XLSX / PNG / JPG / JPEG</p>
+          <input id="files" type="file" multiple accept=".csv,.tsv,.xls,.xlsx,.png,.jpg,.jpeg" aria-describedby="file-formats file-limits" />
+          <p id="file-formats" class="import-meta">CSV / TSV / 同花顺 XLS / XLSX / PNG / JPG / JPEG</p>
           <p id="file-limits" class="import-meta"></p>
         </div>
         <div class="import-section-head"><h2>暂存记录</h2><button id="add-row" type="button">＋ 新增记录</button></div>
@@ -90,6 +90,6 @@
       <footer class="import-sheet-actions"><button id="keep-edit" type="button">暂存输入并返回</button><button type="submit" class="primary">核对并保存草稿</button></footer>
     </form>
   </dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261029-auth-kind-v7"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261029-native-ths-v8"></script>
 </body>
 </html>
