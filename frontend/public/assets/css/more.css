@@ -1,0 +1,25 @@
+body.page-more { background: #07090c; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+body.page-more [hidden] { display: none !important; }
+body.page-more .wrap { width: 100%; max-width: 672px; margin: 0 auto; padding: 20px 18px calc(104px + env(safe-area-inset-bottom)) !important; }
+body.page-more .moreHub { display: block; }
+body.page-more h1 { margin: 8px 0 28px; font-size: 22px; font-weight: 700; line-height: 1.3; }
+body.page-more .moreRow { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 58px !important; padding: 14px 0 !important; margin: 0; border: 0 !important; border-bottom: 1px solid var(--line) !important; border-radius: 0 !important; background: transparent !important; color: var(--text); text-decoration: none; box-shadow: none; }
+body.page-more .moreRow strong { font-size: 16px; font-weight: 600; line-height: 1.4; }
+body.page-more .moreRow > span:first-child { min-width: 0; }
+body.page-more .moreRow small { display: block; max-width: none; margin-top: 5px; font-size: 12px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+body.page-more .moreRow > span:last-child { color: var(--muted); flex: 0 0 auto; }
+body.page-more .moreIssue { margin-bottom: 20px; }
+body.page-more .moreIssue small { color: var(--warn, #d29922); }
+body.page-more .moreAdvanced { margin-top: 26px; }
+body.page-more summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 54px; padding: 14px 0; color: var(--muted); list-style: none; cursor: pointer; font-size: 14px; }
+body.page-more summary::-webkit-details-marker { display: none; }
+body.page-more summary::after { content: "⌄"; flex: 0 0 auto; }
+body.page-more details[open] > summary::after { content: "⌃"; }
+body.page-more .moreAdvanced > .moreRow strong { font-size: 14px; }
+body.page-more .moreAdvanced > details { border-bottom: 1px solid var(--line); }
+body.page-more .moreAdvanced > details > summary { color: var(--text); }
+body.page-more .moreSystem dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding-bottom: 14px; font-size: 12px; }
+body.page-more .moreSystem :is(dt,dd) { margin: 0; overflow-wrap: anywhere; }
+body.page-more .moreSystem dt { color: var(--muted); }
+body.page-more :is(a,summary):focus-visible { outline: 2px solid var(--info); outline-offset: 4px; }
+body.page-more .nav { width: min(672px, 100%) !important; }
