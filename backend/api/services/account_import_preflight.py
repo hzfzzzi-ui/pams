@@ -12,6 +12,7 @@ from services.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from services.investment_trade_fact import build_investment_trade_fact
 from services.portfolio_state import _is_cash_like_holding
 from services.account_import_types import asset_type
+from services import account_import_ths as ths
 
 
 def fingerprint(value) -> str:
@@ -88,6 +89,8 @@ def current_state(cur, account: str) -> dict:
 
 def source_key(batch: dict, row: dict) -> str:
     fields, source = row["fields"], row.get("source", {})
+    if ths.native_row(batch, row) and source.get("identity"):
+        return fingerprint([ths.PROFILE, batch["account_code"], batch["kind"], source["identity"]])
     reference = fields.get("source_ref")
     if reference:
         identity = ["reference", batch["account_code"], batch["kind"], reference]
@@ -122,7 +125,7 @@ def same_snapshot(before, after):
                 else str(before.get(k)) == str(v)) for k, v in after.items())
 
 
-def _asset(fields: dict, state: dict, errors: list):
+def _asset(fields: dict, state: dict, errors: list, *, infer_type=False):
     symbol, identifier = fields.get("symbol"), fields.get("asset_id")
     aliases = {a["asset_id"] for a in state["aliases"] if symbol and a["alias_value"] == symbol}
     matches = [a for a in state["assets"] if (a["asset_id"] == identifier if identifier else
@@ -131,6 +134,8 @@ def _asset(fields: dict, state: dict, errors: list):
         errors.append(issue("symbol", "asset_unresolved", "标的未唯一匹配，请先核对代码或完成资产底表映射"))
         return None
     asset = matches[0]
+    if infer_type and not fields.get("asset_type") and asset_type(asset["asset_type"]) in {"stock", "fund"}:
+        fields["asset_type"] = asset_type(asset["asset_type"])
     if symbol and identifier and asset["primary_symbol"] != symbol and asset["asset_id"] not in aliases:
         errors.append(issue("symbol", "asset_mismatch", "代码与所选标的不一致"))
     if asset_type(asset["asset_type"]) not in {"stock", "fund"} or asset_type(fields.get("asset_type")) != asset_type(asset["asset_type"]):
@@ -141,6 +146,11 @@ def _asset(fields: dict, state: dict, errors: list):
 def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
     fields = dict(row["fields"])
     errors: list = []
+    native = ths.native_row(batch, row)
+    if native:
+        source_errors = {"broker_mapping_conflict", "missing_fee_component", "invalid_fee_component", "negative_fee_component",
+                         "standalone_tax_components", "unsupported_broker_action", "invalid_value", "scope_conflict", "row_shape"}
+        errors.extend(i for i in row.get("issues", []) if i.get("code") in source_errors)
     result = {"row_id": row["row_id"], "fields": fields, "source": row.get("source", {}), "issues": errors,
               "status": "ready", "before": None, "after": fields, "key": source_key(batch, row)}
     if row.get("excluded") or fields.get("duplicate_decision") == "skip":
@@ -166,10 +176,12 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
         errors.append(issue("status", "pending_confirmation", "申请中资料仅保存草稿，不生成确认持仓或交易"))
     kind = batch["kind"]
     cash_balance = kind == "cash" and fields.get("action") == "balance" or kind == "holding" and fields.get("asset_type") == "cash"
-    asset = _asset(fields, state, errors) if kind != "cash" and not cash_balance else None
+    cash_event = native and fields.get("asset_type") == "cash" and fields.get("action") in ths.CASH_ACTIONS
+    asset = _asset(fields, state, errors, infer_type=native) if kind != "cash" and not cash_balance and not cash_event else None
     if asset:
         fields.update(asset_id=asset["asset_id"], symbol=asset["primary_symbol"], name=asset["canonical_name"])
-        if asset_type(asset["asset_type"]) not in store.PROFILES[batch["account_code"]]["trade_actions"]:
+        profile_actions = ths.TRADE_ACTIONS if native else store.PROFILES[batch["account_code"]]["trade_actions"]
+        if asset_type(asset["asset_type"]) not in profile_actions:
             errors.append(issue("asset_type", "profile_asset_type", "资产类型不属于所选账户支持的资料范围"))
     price: Decimal | None
     if kind == "holding" or kind == "cash" and fields.get("action") == "balance":
@@ -214,11 +226,13 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
     else:
         action = fields.get("action")
         allowed = {"deposit", "withdraw", "transfer"} if kind == "cash" else {"buy", "sell", "subscribe", "redeem", "dividend", "fee"}
+        if native:
+            allowed |= {"deposit", "withdraw", "interest", "tax"}
         if action not in allowed:
             errors.append(issue("action", "invalid_action", "方向不在此资料类型的范围内"))
         if kind == "trade" and fields.get("status") != "confirmed":
             errors.append(issue("status", "confirmation_required", "请核对成交或基金确认状态"))
-        if asset and action not in store.PROFILES[batch["account_code"]]["trade_actions"].get(asset_type(fields.get("asset_type")), []):
+        if asset and action not in profile_actions.get(asset_type(fields.get("asset_type")), []):
             errors.append(issue("action", "action_type", "方向与账户交易场所不一致：场内买卖和场外申赎不能混用"))
         fees = decimal(fields.get("fee_amount"), "fee_amount", errors) if kind == "trade" else Decimal(0)
         taxes = decimal(fields.get("tax_amount"), "tax_amount", errors) if kind == "trade" and fields.get("fee_scope") == "separate" else Decimal(0)
@@ -229,6 +243,7 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
         quantity = decimal(fields.get("quantity"), "quantity", errors) if action in {"buy", "sell", "subscribe", "redeem"} else None
         price = decimal(fields.get("price"), "price", errors) if quantity is not None else None
         gross: Decimal | None
+        funding = kind == "cash" or native and action in {"deposit", "withdraw"}
         if kind == "cash":
             cash = decimal(fields.get("net_cash"), "net_cash", errors)
             gross = abs(cash) if cash is not None else None
@@ -249,10 +264,14 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
                 errors.append(issue("confirmed_date", "invalid_confirmation_date", "基金须提供有效确认日期，且不早于申请日期"))
                 confirmed = None
         counter = fields.get("counter_account_code")
-        if kind == "cash":
+        if funding:
             counterpart = next((a for a in state["accounts"] if a["account_code"] == counter and a["active"]), None)
             if not counterpart or counter == batch["account_code"] or counterpart["base_currency"] != "CNY":
-                errors.append(issue("counter_account_code", "counter_required", "资金划转须关联不同的真实对方账户"))
+                if native and not counter:
+                    result["status"] = "pending"
+                    errors.append({**issue("counter_account_code", "counter_required", "券商入出金已识别；原报表未证明银行对手账户，保留待关联，不自动补银行腿"), "severity": "warning"})
+                else:
+                    errors.append(issue("counter_account_code", "counter_required", "资金划转须关联不同的真实对方账户"))
             if counter in store.PROFILES:
                 errors.append(issue("counter_account_code", "investment_counter", "投资账户间划转需要双账户资料，本轮不自动补另一投资账户流水"))
             if net is not None and (net == 0 or action == "deposit" and net < 0 or action == "withdraw" and net > 0):
@@ -280,6 +299,8 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
             fact["raw_json"]["source_row"]["reported_net_cash"] = str(net)
             result["fact"] = fact
     if errors and result["status"] != "pending":
+        result["status"] = "blocked"
+    if native and result["status"] == "pending" and any(i["severity"] == "error" and i["code"] != "pending_confirmation" for i in errors):
         result["status"] = "blocked"
     return result
 
@@ -317,7 +338,7 @@ def preview(cur, batch: dict) -> dict:
                 row["status"] = "blocked"
                 row["issues"].append(issue("duplicate_decision", "possible_duplicate", "存在相同日期/代码/金额记录，请核对为不同交易或跳过"))
             seen_economic.append(fact)
-            if batch["kind"] == "cash" and any(str(f["event_date"]) == str(fact["trade_date"]) and
+            if fact["side"] in {"deposit", "withdraw"} and any(str(f["event_date"]) == str(fact["trade_date"]) and
                     f["account_code"] == row["fields"].get("counter_account_code") and f["currency"] == "CNY" and
                     f["amount"] == -fact["net_cash"] for f in state["cashflows"]):
                 row["status"] = "blocked"
@@ -356,8 +377,18 @@ def preview(cur, batch: dict) -> dict:
     can_publish = bool(rows) and counts["blocked"] == counts["pending"] == 0 and counts["new"] + counts["duplicates"] > 0
     token = fingerprint([batch["batch_id"], batch["revision"], batch["rows"], batch["completeness"], state["version"]])
     public_rows = [{k: v for k, v in row.items() if k not in {"fact", "snapshot", "key"}} for row in rows]
+    unresolved: dict[str, int] = {}
+    for row in rows:
+        if any(i["code"] == "asset_unresolved" for i in row["issues"]):
+            symbol = row["fields"].get("symbol") or row["fields"].get("name") or "未知标的"
+            unresolved[symbol] = unresolved.get(symbol, 0) + 1
+    warnings = ["持仓、交易、现金独立核对；未上传部分不视为零。"]
+    if unresolved:
+        warnings.append("资产底表待补充/核准：" + "、".join(sorted(unresolved)) + "；按标的统一处理，不要求逐笔修改交易。")
+    if any(any(i["code"] == "counter_required" for i in row["issues"]) and row["status"] == "pending" for row in rows):
+        warnings.append("已识别的券商入出金缺少银行对手账户证据，统一保留待关联，不猜测或补造银行腿。")
     return {"batch_id": batch["batch_id"], "revision": batch["revision"], "preview_token": token,
             "can_publish": can_publish, "counts": counts, "rows": public_rows, "_prepared": rows,
             "impact": {"nav_change": None, "nav_estimate_status": "unavailable",
                        "message": "仅发布有证据的记录；交易流水不自动补造完整持仓或现金，NAV影响无法完整预估"},
-            "warnings": ["持仓、交易、现金独立核对；未上传部分不视为零。"]}
+            "warnings": warnings}

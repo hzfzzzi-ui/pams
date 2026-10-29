@@ -83,16 +83,23 @@ def test_decimal_values_remain_exact_strings_and_unknowns_stay_empty() -> None:
 
 
 def test_upload_formats_match_parser_and_include_tsv() -> None:
-    assert re.search(r'id="files"[^>]*accept="([^"]+)"', HTML).group(1) == ".csv,.tsv,.xlsx,.png,.jpg,.jpeg"
-    assert "CSV / TSV / XLSX / PNG / JPG / JPEG" in HTML
+    assert re.search(r'id="files"[^>]*accept="([^"]+)"', HTML).group(1) == ".csv,.tsv,.xls,.xlsx,.png,.jpg,.jpeg"
+    assert "CSV / TSV / 同花顺 XLS / XLSX / PNG / JPG / JPEG" in HTML
     module_test("""
-      for (const ext of ['csv','tsv','xlsx','png','jpg','jpeg']) {
+      for (const ext of ['csv','tsv','xls','xlsx','png','jpg','jpeg']) {
         assert.equal(m.fileFormat('报表.'+ext),ext);
         assert.equal(m.fileFormat('报表.'+ext.toUpperCase()),ext);
       }
-      for (const name of ['报表.xls','报表.pdf','报表.webp','无扩展名','报表.csv.exe','报表.tsv '])
-        assert.throws(()=>m.fileFormat(name), /仅支持 CSV、TSV、XLSX、PNG、JPG、JPEG/);
+      for (const name of ['报表.pdf','报表.webp','无扩展名','报表.csv.exe','报表.tsv '])
+        assert.throws(()=>m.fileFormat(name), /仅支持 CSV、TSV、同花顺 XLS、XLSX、PNG、JPG、JPEG/);
     """)
+
+
+def test_missing_import_type_uses_matching_server_preview_not_symbol_prefixes() -> None:
+    assert "state.preview?.batch_id === state.batch.batch_id" in JS
+    assert "state.preview?.revision === state.batch.revision" in JS
+    assert "!state.buffer.asset_type && checked?.fields?.asset_type" in JS
+    assert "state.buffer.asset_type = checked.fields.asset_type" in JS
 
 
 def test_preview_business_fields_are_translated_without_financial_conversion() -> None:
@@ -137,7 +144,8 @@ def test_master_asset_types_are_only_grouped_for_display() -> None:
 
 
 def test_trade_actions_are_account_context_driven_not_symbol_rules() -> None:
-    assert "account()?.trade_actions?.[displayAssetType(f.asset_type)]" in JS
+    assert "row?.source?.trade_actions || account()?.trade_actions" in JS
+    assert "tradeActions?.[displayAssetType(f.asset_type)]" in JS
     assert "serverActions ??" in JS
     assert "option.disabled = key === 'action'" in JS
     assert "source_asset_type" not in JS
@@ -276,7 +284,7 @@ await context.route('**/*',async route=>{
       uploads.push(url.searchParams.get('filename'));
       const file_id='f'+uploads.length;
       batch.files.push({file_id,filename:uploads.at(-1),content_type:request.headers()['content-type'],metadata:{headers:['  日期  ','代码','流水号','金额<img src=x onerror=alert(1)>'],suggested_mapping:{business_date:'  日期  ',symbol:'代码',source_ref:'流水号',note:'不在表头中'}}});
-      batch.rows.push({row_id:'ocr'+uploads.length,fields:{kind:'trade',business_date:'2026-10-22',symbol:'600001',name:'截图交易',currency:'CNY',asset_type:'stock',action:'buy',gross_amount:'10.00'},source:{file_id,raw_text:'<script>unsafe</script>',bbox:[1,2,3,4]},issues:[{code:'low_confidence',message:'请核对原图'}],acknowledged:false});
+      batch.rows.push({row_id:'ocr'+uploads.length,fields:{kind:'trade',business_date:'2026-10-22',symbol:'600001',name:'截图交易',currency:'CNY',asset_type:uploads.at(-1).endsWith('.xls')?null:'stock',action:'buy',gross_amount:'10.00'},source:{file_id,raw_text:'<script>unsafe</script>',bbox:[1,2,3,4]},issues:[{code:'low_confidence',message:'请核对原图'}],acknowledged:false});
       batch.revision++; return send(batch);
     }
     if(p.endsWith('/parse')) {
@@ -293,7 +301,7 @@ await context.route('**/*',async route=>{
       assert.equal(JSON.parse(body).revision,batch.revision);
       return send({batch_id:'b',revision:batch.revision,preview_token:'pt',can_publish:!blocked&&!pending,
         counts:{new:1,duplicates:0,blocked:blocked?1:0,pending:pending?1:0},
-        rows:batch.rows.map(row=>({row_id:row.row_id,status:blocked?'blocked':pending?'pending':'ready',issues:previewMode==='duplicate'?[{code:'possible_duplicate',message:'疑似重复'}]:pending?[{code:'pending_confirmation',message:'原始资料尚待确认，缺失金额需核对'}]:[],
+        rows:batch.rows.map(row=>({row_id:row.row_id,fields:{...row.fields,asset_type:row.fields.asset_type||'stock'},status:blocked?'blocked':pending?'pending':'ready',issues:previewMode==='duplicate'?[{code:'possible_duplicate',message:'疑似重复'}]:pending?[{code:'pending_confirmation',message:'原始资料尚待确认，缺失金额需核对'}]:[],
           before:batch.kind==='holding'?{id:7,account_code:'ths',as_of:'2026-10-19',symbol:'CASH_CNY',name:'Cash CNY',currency:'CNY',quantity:'-50.0100',market_value:'-50.0100',cost:'-50.0100',current_price:'1.0000',buy_price:'1.000000',asset_liability:'负债',major_category:'现金',minor_category:'现金/活期',created_at:'private timestamp',updated_at:'private timestamp',pnl:'12.3000',raw_note:'<img src=x onerror=alert(1)>'}:null,
           after:batch.kind==='holding'?{account_code:'ths',as_of:'2026-10-20',symbol:'CASH_CNY',name:'Cash CNY',currency:'CNY',quantity:'0',market_value:'0',cost:'0',current_price:'1',buy_price:'0',asset_liability:'资产',major_category:'现金',minor_category:'现金/活期'}:{market_value:null,cost:null,counter_account_code:'',...row.fields}})),
         impact:{nav_change:null,nav_estimate_status:'unavailable',message:'交易入账不代替持仓或现金快照'},warnings:[]});
@@ -541,7 +549,7 @@ try {
     await raw.locator('summary').click(); await capture(width+'-snapshot-preview');
   }
   reset(); caps.ocr_available=false; await open();
-  for(const ext of ['xls','pdf','webp']) {
+  for(const ext of ['pdf','webp']) {
     await page.locator('#files').setInputFiles({name:'不支持.'+ext,mimeType:'application/octet-stream',buffer:Buffer.from('unsupported')});
     await page.waitForFunction(()=>document.getElementById('notice').textContent.includes('仅支持 CSV'));
     await ready(); assert.equal(batch,null); assert.equal(uploads.length,0);
@@ -552,6 +560,14 @@ try {
   await page.locator('#files').setInputFiles({name:'报表.TSV',mimeType:'text/tab-separated-values',buffer:Buffer.from('code\tamount\n600001\t10.00')});
   await page.waitForFunction(()=>document.getElementById('file-list').querySelectorAll('a').length===1&&!document.getElementById('workspace').inert);
   assert.deepEqual(uploads,['报表.TSV']); assert.equal(publishes,0);
+  await page.locator('#files').setInputFiles({name:'原始导出.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from('native broker table')});
+  await page.waitForFunction(()=>document.getElementById('file-list').querySelectorAll('a').length===2&&!document.getElementById('workspace').inert);
+  assert.deepEqual(uploads,['报表.TSV','原始导出.xls']); assert.equal(publishes,0);
+  await page.locator('#next').click(); await page.locator('#review').waitFor({state:'visible'});
+  await page.locator('#preview-rows button').filter({hasText:'编辑 / 重复判定'}).nth(1).click();
+  assert.equal(await page.locator('#field-asset_type').inputValue(),'stock');
+  assert.equal(batch.rows[1].fields.asset_type,null);
+  await save(); assert.equal(batch.rows[1].fields.asset_type,'stock'); assert.equal(publishes,0);
   reset(); await open();
   await page.locator('#account').selectOption('licai'); await page.locator('#mode-manual').click(); await page.locator('#add-row').click();
   await page.locator('#field-business_date').fill('2026-10-20');

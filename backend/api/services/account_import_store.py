@@ -222,9 +222,9 @@ def upload(cur, batch_id: str, filename: str, content: bytes, content_type: str)
                             template["mapping"] if template else None)
     suffix = filename.rsplit(".", 1)[-1].lower()
     safe_type = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "csv": "text/plain",
-                 "tsv": "text/plain", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(suffix)
+                 "tsv": "text/plain", "xls": "text/plain", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(suffix)
     if not safe_type:
-        raise ImportProblem("file_type", "仅支持CSV、TSV、XLSX、PNG和JPEG")
+        raise ImportProblem("file_type", "仅支持CSV、TSV、同花顺文本XLS、XLSX、PNG和JPEG")
     key = str(uuid4())
     metadata = {k: v for k, v in parsed.items() if k != "rows"}
     cur.execute("""INSERT INTO pams_account_import_file(file_id,batch_id,filename,content_type,sha256,content,metadata)

@@ -2,7 +2,7 @@ const ROOT = '/api/account-import';
 const DECIMALS = ['quantity', 'price', 'gross_amount', 'fee_amount', 'tax_amount', 'net_cash', 'market_value', 'cost'];
 const LABELS = { kind: '类型', business_date: '业务日期', trade_time: '成交时间', confirmed_date: '确认日期', asset_type: '标的类型', symbol: '代码', name: '名称', currency: '币种', action: '方向', status: '状态', quantity: '数量 / 份数', price: '价格', gross_amount: '发生金额', fee_scope: '费用范围', fee_amount: '费用金额', tax_amount: '税款', net_cash: '现金金额 / 余额', market_value: '市值', cost: '成本', cost_basis_type: '成本口径', counter_account_code: '对手账户', source_ref: '成交/流水号', note: '业务备注', duplicate_decision: '重复判定', asset_id: '标的 ID' };
 const PREVIEW_LABELS = { account_code: '账户', as_of: '快照日期', ...LABELS, current_price: '现价', buy_price: '成本均价', major_category: '资产大类', minor_category: '资产子类', asset_liability: '资产/负债' };
-const TEXT = { trade: '交易', holding: '持仓快照', cash: '现金', stock: '股票', fund: '基金', buy: '买入', sell: '卖出', subscribe: '申购', redeem: '赎回', dividend: '分红', fee: '费用', balance: '余额', deposit: '入金', withdraw: '出金', transfer: '划转', pending: '待确认', confirmed: '已确认', ready: '可发布', duplicate: '重复，跳过', blocked: '阻断', draft: '草稿', published: '已发布', voided: '已作废', partial: '部分记录', complete: '完整快照', holding_cost: '持仓成本', diluted_cost: '摊薄成本', unknown: '未知', total_charges: '税费合计', separate: '手续费与税分列', distinct: '核对为不同交易', skip: '跳过此条' };
+const TEXT = { trade: '交易', holding: '持仓快照', cash: '现金', stock: '股票', fund: '基金', buy: '买入', sell: '卖出', subscribe: '申购', redeem: '赎回', dividend: '分红', fee: '费用', tax: '税款', interest: '利息', balance: '余额', deposit: '入金', withdraw: '出金', transfer: '划转', pending: '待确认', confirmed: '已确认', ready: '可发布', duplicate: '重复，跳过', blocked: '阻断', draft: '草稿', published: '已发布', voided: '已作废', partial: '部分记录', complete: '完整快照', holding_cost: '持仓成本', diluted_cost: '摊薄成本', unknown: '未知', total_charges: '税费合计', separate: '手续费与税分列', distinct: '核对为不同交易', skip: '跳过此条' };
 
 export function decimalString(value) {
   const text = String(value ?? '').trim();
@@ -11,7 +11,7 @@ export function decimalString(value) {
 }
 export function fileFormat(name) {
   const format = String(name).match(/\.([^.]+)$/)?.[1]?.toLowerCase();
-  if (!['csv', 'tsv', 'xlsx', 'png', 'jpg', 'jpeg'].includes(format)) throw new Error('仅支持 CSV、TSV、XLSX、PNG、JPG、JPEG 文件。');
+  if (!['csv', 'tsv', 'xls', 'xlsx', 'png', 'jpg', 'jpeg'].includes(format)) throw new Error('仅支持 CSV、TSV、同花顺 XLS、XLSX、PNG、JPG、JPEG 文件。');
   return format;
 }
 export function previewFields(object) {
@@ -314,6 +314,8 @@ if (typeof document !== 'undefined') {
     const row = state.batch.rows[index];
     state.step = 1;
     state.buffer = { ...(saved?.fields || row?.fields || { kind: $('kind').value, asset_type: account()?.default_asset_type || '', currency: account()?.currency || '', status: 'confirmed' }) };
+    const checked = state.preview?.batch_id === state.batch.batch_id && state.preview?.revision === state.batch.revision ? state.preview.rows?.find(item => item.row_id === row?.row_id) : null;
+    if (!saved && row && !state.buffer.asset_type && checked?.fields?.asset_type) state.buffer.asset_type = checked.fields.asset_type;
     $('editor-account').textContent = account()?.label || state.batch.account_code;
     $('row-excluded').checked = !!(saved || row)?.excluded;
     $('row-excluded').disabled = !editable(); $('editor-error').textContent = '';
@@ -329,26 +331,26 @@ if (typeof document !== 'undefined') {
     state.buffer.kind = state.batch.kind;
     field('identity-fields', 'kind', [state.batch.kind]).disabled = true; field('identity-fields', 'business_date', null, 'date');
     const f = state.buffer, holding = f.kind === 'holding', cash = f.kind === 'cash' || (holding && f.asset_type === 'cash');
+    const row = state.batch.rows[state.edit], tradeActions = row?.source?.trade_actions || account()?.trade_actions;
     if (!holding && !cash) { field('identity-fields', 'trade_time'); field('identity-fields', 'status', ['pending', 'confirmed']); }
     if (displayAssetType(f.asset_type) === 'fund' && !holding && !cash) field('identity-fields', 'confirmed_date', null, 'date');
-    if (f.kind !== 'cash') field('asset-fields', 'asset_type', holding ? ['stock', 'fund', 'cash'] : ['stock', 'fund']);
+    if (f.kind !== 'cash') field('asset-fields', 'asset_type', holding ? ['stock', 'fund', 'cash'] : Object.keys(tradeActions || { stock: [], fund: [] }).filter(type => type !== 'cash' || f.asset_type === 'cash'));
     if (!cash) {
       field('asset-fields', 'symbol'); field('asset-fields', 'name', null, 'text', true);
     }
     field('asset-fields', 'currency');
     if (!holding) {
-      const serverActions = account()?.trade_actions?.[displayAssetType(f.asset_type)];
+      const serverActions = tradeActions?.[displayAssetType(f.asset_type)];
       const actions = cash ? ['balance', 'deposit', 'withdraw', 'transfer'] : serverActions ?? (displayAssetType(f.asset_type) === 'fund' ? ['subscribe', 'redeem', 'dividend', 'fee'] : ['buy', 'sell', 'dividend', 'fee']);
       field('asset-fields', 'action', actions);
     }
-    const keys = cash ? ['net_cash'] : holding ? ['quantity', 'price', 'market_value', 'cost'] : f.action === 'fee' ? ['fee_amount', 'tax_amount', 'net_cash'] : f.action === 'dividend' ? ['gross_amount', 'fee_amount', 'tax_amount', 'net_cash'] : ['quantity', 'price', 'gross_amount', 'fee_amount', 'tax_amount', 'net_cash'];
+    const keys = cash ? ['net_cash'] : holding ? ['quantity', 'price', 'market_value', 'cost'] : f.action === 'fee' ? ['fee_amount', 'tax_amount', 'net_cash'] : ['dividend', 'tax', 'interest', 'deposit', 'withdraw'].includes(f.action) ? ['gross_amount', 'fee_amount', 'tax_amount', 'net_cash'] : ['quantity', 'price', 'gross_amount', 'fee_amount', 'tax_amount', 'net_cash'];
     if (!holding && !cash) field('value-fields', 'fee_scope', ['total_charges', 'separate']);
     keys.filter(key => key !== 'tax_amount' || f.fee_scope === 'separate').forEach(key => field('value-fields', key));
     if (holding && !cash) field('value-fields', 'cost_basis_type', ['holding_cost', 'diluted_cost', 'unknown']);
-    if (f.kind === 'cash' && ['deposit', 'withdraw', 'transfer'].includes(f.action)) field('value-fields', 'counter_account_code', state.counterAccounts.filter(a => a.account_code !== state.batch.account_code).map(a => a.account_code));
+    if (['deposit', 'withdraw', 'transfer'].includes(f.action)) field('value-fields', 'counter_account_code', state.counterAccounts.filter(a => a.account_code !== state.batch.account_code).map(a => a.account_code));
     field('source-fields', 'source_ref', null, 'text', true);
     field('source-fields', 'note', null, 'text', true);
-    const row = state.batch.rows[state.edit];
     const rowIssues = [...(row?.issues || []), ...(state.preview?.rows?.find(item => item.row_id === row?.row_id)?.issues || [])];
     if (f.duplicate_decision || rowIssues.some(issue => issue.code === 'possible_duplicate' || issue === 'possible_duplicate')) field('source-fields', 'duplicate_decision', ['distinct', 'skip']);
     $('asset-search').disabled = cash || !editable();

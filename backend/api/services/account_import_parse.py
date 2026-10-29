@@ -11,6 +11,7 @@ from pathlib import PurePath
 from typing import Any
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
+from services import account_import_ths as ths
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import column_index_from_string
@@ -223,8 +224,10 @@ def parse_document(content: bytes, filename: str, profile: str, kind: str, mappi
     if suffix in {".png", ".jpg", ".jpeg"}:
         result["warnings"].append(_issue(None, "ocr_pending", "Image parsing awaits OCR; no values inferred", "warning"))
         return result
-    if suffix not in {".csv", ".tsv", ".xlsx"}:
+    if suffix not in {".csv", ".tsv", ".xlsx", ".xls"}:
         raise ValueError("Unsupported file type")
+    if suffix == ".xls" and (profile != "tonghuashun" or kind != "trade" or content.lstrip().startswith((b"\xd0\xcf\x11\xe0", b"PK", b"<"))):
+        raise ValueError("仅支持同花顺原始文本型.xls交易报表；二进制Excel或其他资料请使用XLSX")
     first_headers = None
     for sheet, table in (_xlsx(content) if suffix == ".xlsx" else _csv(content)):
         if not any(any(_text(v) for v in row) for row in table):
@@ -232,20 +235,24 @@ def parse_document(content: bytes, filename: str, profile: str, kind: str, mappi
         score = lambda row: sum(_text(v) in HEADER_FIELDS or _text(v) in mapping.values() for v in row)
         header_index = max(range(min(HEADER_SCAN, len(table))), key=lambda i: score(table[i]))
         headers = [_text(v) for v in table[header_index]]
+        native = profile == "tonghuashun" and kind == "trade" and ths.matches(headers)
+        if suffix == ".xls" and not native:
+            raise ValueError("未识别为同花顺交易报表，不按.xls后缀信任文件内容")
+        effective_mapping = {**{k: v for k, v in ths.MAPPING.items() if v in headers}, **mapping} if native else mapping
         if len([h for h in headers if h]) != len({h for h in headers if h}):
             raise ValueError("Duplicate column headers")
         if not score(headers):
             raise ValueError("No recognizable column headers")
         changed = first_headers is not None and headers != first_headers
         first_headers = headers if first_headers is None else first_headers
-        unknown = [h for h in headers if h and h not in HEADER_FIELDS and h not in mapping.values()]
+        unknown = [h for h in headers if h and h not in HEADER_FIELDS and h not in effective_mapping.values() and not (native and h in ths.EXTRA_HEADERS)]
         if changed or unknown or any(h not in headers for h in mapping.values()):
             result["warnings"].append(_issue(None, "headers_changed", f"Review headers in {sheet or filename}: {headers}", "warning"))
         result["headers"].extend(h for h in headers if h and h not in result["headers"])
-        declared = set(mapping) | {HEADER_FIELDS[h] for h in headers if h in HEADER_FIELDS}
+        declared = set(effective_mapping) | {HEADER_FIELDS[h] for h in headers if h in HEADER_FIELDS}
         columns = {}
         for field in FIELDS:
-            matches = [i for i, h in enumerate(headers) if h and (h == mapping[field] if field in mapping else HEADER_FIELDS.get(h) == field and h not in mapping.values())]
+            matches = [i for i, h in enumerate(headers) if h and (h == effective_mapping[field] if field in effective_mapping else HEADER_FIELDS.get(h) == field and h not in effective_mapping.values())]
             if len(matches) == 1:
                 columns[field] = matches[0]
                 result["suggested_mapping"].setdefault(field, headers[matches[0]])
@@ -306,13 +313,20 @@ def parse_document(content: bytes, filename: str, profile: str, kind: str, mappi
                 issues.append(_issue("cost_basis_type", "diluted_cost", "Diluted cost is not holding cost", "warning"))
             if fields["cost_basis_type"] == "unknown":
                 issues.append(_issue("cost_basis_type", "unknown_cost_basis", "Report cost basis is not established", "warning"))
+            source = {"sheet": sheet, "row": index, "raw_text": "\t".join(row)}
+            if native:
+                raw_row = {h: row[i] if i < len(row) else None for i, h in enumerate(headers) if h}
+                native_source, native_issues = ths.normalize(fields, raw_row, _value, mapping)
+                source.update(native_source)
+                issues = [i for i in issues if not (i["field"] == "action" and fields.get("action") is not None)]
+                issues.extend(native_issues)
             required = ["business_date"] + (["action", "status"] if kind == "trade" else ["quantity"] if kind == "holding" else ["action"])
             for field in required:
                 if fields[field] is None:
                     issues.append(_issue(field, "missing", f"Missing {field}"))
             if kind != "cash" and not (fields["symbol"] or fields["name"]):
                 issues.append(_issue("symbol", "missing", "Missing both symbol and name"))
-            if kind != "cash" and fields["asset_type"] is None:
+            if kind != "cash" and fields["asset_type"] is None and not native:
                 issues.append(_issue("asset_type", "missing", "Asset type needs explicit evidence"))
-            result["rows"].append({"fields": fields, "source": {"sheet": sheet, "row": index, "raw_text": "\t".join(row)}, "issues": issues})
+            result["rows"].append({"fields": fields, "source": source, "issues": issues})
     return result

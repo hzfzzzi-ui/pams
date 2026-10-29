@@ -89,6 +89,86 @@ def test_publish_default_off_preview_readonly(client, monkeypatch):
     assert sql(params, "SELECT count(*) n FROM pams_investment_trade_fact")[0]["n"] == 0
 
 
+def native_batch(web):
+    from test_account_import_ths import event, export
+    rows = [event(), event("证券卖出", **{"成交均价": "11", "成交金额": "1100", "发生金额": "1096.350", "印花税": "0.550", "定位串": "20251020!line2"}),
+            event("红利入账", **{"成交金额": "30.000", "发生金额": "30.000", "定位串": "20251020!line3"}),
+            event("红利税补扣", **{"发生金额": "-2.100", "定位串": "20251020!line4"}),
+            event("利息归本", **{"发生金额": "2.200", "定位串": "20251020!line5"}),
+            event("银行转证券", **{"发生金额": "500.000", "定位串": "20251020!line6"}),
+            event("证券转银行", **{"发生金额": "-100.000", "定位串": "20251020!line7"})]
+    batch = web.post("/api/account-import/batches", json={"account_code": "tonghuashun", "mode": "upload", "kind": "trade", "completeness": "partial"}).json()
+    content = export(*rows)
+    response = web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=table.xls", content=content, headers={"Content-Type": "application/vnd.ms-excel"})
+    assert response.status_code == 200, response.text
+    batch = response.json()
+    assert len(batch["rows"]) == 7 and batch["files"][0]["content_type"] == "text/plain"
+    return batch, content
+
+
+def test_native_mixed_file_preview_never_writes_financial_facts(client, monkeypatch):
+    web, params = client
+    monkeypatch.delenv("PAMS_IMPORT_PUBLISH_ENABLED")
+    batch, content = native_batch(web)
+    assert batch["rows"][0]["source"]["trade_actions"]["cash"] == ["deposit", "withdraw", "interest"]
+    context = web.get("/api/account-import/context").json()
+    ordinary = next(a for a in context["accounts"] if a["account_code"] == "tonghuashun")["trade_actions"]
+    assert "cash" not in ordinary and "tax" not in ordinary["stock"]
+    check = preview(web, batch)
+    assert check["counts"] == {"new": 5, "duplicates": 0, "blocked": 0, "pending": 2, "excluded": 0}, check["rows"]
+    assert check["rows"][0]["fields"]["asset_type"] == "stock"
+    assert check["rows"][3]["fields"]["action"] == "tax"
+    assert not check["can_publish"] and publish(web, batch, check).status_code == 403
+    assert sql(params, "SELECT content FROM pams_account_import_file")[0]["content"].tobytes() == content
+    for table in ("pams_investment_trade_fact", "pams_cashflow_fact", "pams_holdings_snapshot"):
+        assert not sql(params, "SELECT * FROM " + table)
+
+
+def test_native_funding_bank_links_idempotence_and_financial_flags_in_isolation(client):
+    web, params = client
+    batch, _ = native_batch(web)
+    for row in batch["rows"]:
+        if row["fields"]["action"] in {"deposit", "withdraw"}:
+            row["fields"]["counter_account_code"] = "bank_test"
+    batch = web.put(f"/api/account-import/batches/{batch['batch_id']}", json={"revision": batch["revision"], "rows": batch["rows"]}).json()
+    check = preview(web, batch)
+    assert check["can_publish"], check["rows"]
+    response = publish(web, batch, check)
+    assert response.status_code == 200, response.text
+    assert publish(web, batch, check).json()["replayed"]
+    facts = sql(params, "SELECT * FROM pams_investment_trade_fact ORDER BY trade_id")
+    assert len(facts) == 7 and len(sql(params, "SELECT * FROM pams_cashflow_fact")) == 2
+    by_side = {f["side"]: f for f in facts}
+    assert by_side["buy"]["fee_amount"] == Decimal("3.100")
+    assert by_side["sell"]["net_cash"] == Decimal("1096.350")
+    assert by_side["tax"]["net_cash"] == Decimal("-2.100") and by_side["interest"]["net_cash"] == Decimal("2.200")
+    for action in ("deposit", "withdraw", "interest", "tax", "dividend"):
+        assert not by_side[action]["affects_position"] and not by_side[action]["affects_cost_basis"]
+    for action in ("deposit", "withdraw"):
+        assert by_side[action]["cashflow_id"] is not None and not by_side[action]["affects_realized_pnl"]
+    assert not sql(params, "SELECT * FROM pams_holdings_snapshot")
+    again, _ = native_batch(web)
+    for row in again["rows"]:
+        if row["fields"]["action"] in {"deposit", "withdraw"}:
+            row["fields"]["counter_account_code"] = "bank_test"
+    again = web.put(f"/api/account-import/batches/{again['batch_id']}", json={"revision": again["revision"], "rows": again["rows"]}).json()
+    repeated = preview(web, again)
+    assert repeated["counts"]["duplicates"] == 7 and repeated["counts"]["new"] == 0
+    assert publish(web, again, repeated).status_code == 200
+    assert len(sql(params, "SELECT * FROM pams_investment_trade_fact")) == 7
+    assert len(sql(params, "SELECT * FROM pams_cashflow_fact")) == 2
+
+
+def test_native_type_resolution_is_asset_master_based_not_code_prefix(client):
+    web, params = client
+    sql(params, "UPDATE pams_asset_master SET asset_type='ETF / 基金' WHERE primary_symbol='000001'")
+    batch, _ = native_batch(web)
+    check = preview(web, batch)
+    assert check["counts"]["blocked"] == 0
+    assert all(row["fields"]["asset_type"] == "fund" for row in check["rows"][:4])
+    assert all(row["fields"]["asset_type"] == "cash" for row in check["rows"][4:])
+
+
 def test_trade_canonical_amount_source_idempotence(client):
     web, params = client
     batch = draft(web, [trade(source_ref="official-001")])
