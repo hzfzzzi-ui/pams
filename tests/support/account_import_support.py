@@ -39,7 +39,7 @@ def scratch_database():
                 INSERT INTO pams_asset_master VALUES
                     ('TEST_STOCK','000001','Test stock','stock','CNY','active'),
                     ('TEST_FUND','011613','Test fund C','fund','CNY','active');
-                CREATE TABLE pams_asset_alias(asset_id text,alias_value text);
+                CREATE TABLE pams_asset_alias(asset_id text,alias_value text,alias_type text NOT NULL DEFAULT 'alias');
             """)
             cur.execute((ROOT / "database/postgres/schema/072_account_import.sql").read_text(encoding="utf-8"))
             cur.execute((ROOT / "database/postgres/schema/024_cashflow_and_trade_fact.sql").read_text(encoding="utf-8"))

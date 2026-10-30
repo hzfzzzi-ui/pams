@@ -16,6 +16,7 @@ from typing import Any
 
 import psycopg2.extras
 
+from domain.assets.alias_policy import identity_alias_sql
 from domain.assets.exposure_engine import (
     AI_SUB_THEME_DEFINITIONS,
     ASSET_TYPES,
@@ -884,7 +885,7 @@ def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, An
     assets = [{k: _jsonable(v) for k, v in row.items()} for row in cur.fetchall()]
     by_id = {row["asset_id"]: {**row, "aliases": [], "industry": None, "themes": []} for row in assets}
 
-    cur.execute("SELECT asset_id, alias_type, alias_value, source, priority FROM pams_asset_alias ORDER BY priority ASC")
+    cur.execute(f"SELECT asset_id, alias_type, alias_value, source, priority FROM pams_asset_alias al WHERE {identity_alias_sql('al')} ORDER BY priority ASC")
     alias_to_id: dict[str, str] = {}
     for row in cur.fetchall():
         asset = by_id.get(row["asset_id"])

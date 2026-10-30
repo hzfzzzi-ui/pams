@@ -11,6 +11,7 @@ from datetime import date as Date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from domain.assets.alias_policy import identity_alias_sql
 from domain.market.price_history import _query_ohlcv_rows, normalize_price_instrument
 
 
@@ -244,11 +245,12 @@ def _asset_name_lookup(cur, symbols: set[str]) -> dict[str, str]:
 
     if _table_exists(cur, "pams_asset_alias") and _table_exists(cur, "pams_asset_master"):
         cur.execute(
-            """
+            f"""
             SELECT al.alias_value AS symbol, COALESCE(NULLIF(am.display_name, ''), am.canonical_name) AS name
             FROM pams_asset_alias al
             JOIN pams_asset_master am ON am.asset_id = al.asset_id
-            WHERE COALESCE(al.alias_value, '') <> ''
+            WHERE {identity_alias_sql('al')}
+              AND COALESCE(al.alias_value, '') <> ''
               AND COALESCE(COALESCE(NULLIF(am.display_name, ''), am.canonical_name), '') <> ''
               AND (
                 LOWER(al.alias_value) = ANY(%s::text[])
@@ -377,7 +379,7 @@ def _asset_identity_lookup(cur, rows: list[dict[str, Any]]) -> dict[str, dict[st
 
     if _table_exists(cur, "pams_asset_alias"):
         cur.execute(
-            """
+            f"""
             SELECT
                 am.asset_id,
                 am.primary_symbol,
@@ -389,7 +391,7 @@ def _asset_identity_lookup(cur, rows: list[dict[str, Any]]) -> dict[str, dict[st
                 al.alias_value
             FROM pams_asset_alias al
             JOIN pams_asset_master am ON am.asset_id = al.asset_id
-            WHERE LOWER(al.alias_value) = ANY(%s::text[])
+            WHERE {identity_alias_sql('al')} AND LOWER(al.alias_value) = ANY(%s::text[])
             ORDER BY al.priority ASC NULLS LAST, al.created_at DESC NULLS LAST
             """,
             (keys,),

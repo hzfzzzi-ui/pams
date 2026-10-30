@@ -22,6 +22,7 @@ from typing import Any
 import psycopg2.extras
 from psycopg2.extras import Json
 import requests
+from domain.assets.alias_policy import identity_alias_sql
 from domain.brokers.ibkr import ibkr_report_state as report_state
 from domain.brokers.ibkr import ibkr_cash_events
 
@@ -769,12 +770,13 @@ def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_o
             )
             if _table_exists(conn, "pams_asset_alias"):
                 cur.execute(
-                    """
+                    f"""
                     WITH alias_match AS (
                         SELECT DISTINCT ON (h.id) h.id, aa.asset_id
                         FROM pams_holdings_snapshot h
                         JOIN pams_asset_alias aa
                           ON LOWER(aa.alias_value) = LOWER(COALESCE(NULLIF(h.symbol, ''), h.name))
+                         AND {identity_alias_sql('aa')}
                         JOIN pams_asset_master am
                           ON am.asset_id = aa.asset_id
                          AND am.status = 'active'

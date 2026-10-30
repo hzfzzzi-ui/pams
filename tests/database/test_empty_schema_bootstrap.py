@@ -389,3 +389,82 @@ def test_bootstrap_manifest_uses_schema_files_without_historical_backfills():
             "033a_benchmark_asset_seed.sql"} <= names
     assert not {"028_account_dimension_backfill.sql", "029_holding_asset_identity_backfill.sql",
                 "033_benchmark_assets_and_gold_proxy.sql"} & names
+
+
+def test_legacy_qdii_alias_is_not_used_by_pams_consumers(bootstrap_database):
+    """Keep incorrect rows intact while rejecting their use as QQQ identities."""
+    from datetime import date
+    from domain.assets.alias_policy import QQQ_FEEDER_NAMES, identity_alias_sql, is_identity_alias
+    from domain.assets.asset_master import _find_asset, load_asset_master_lookup
+    from domain.imports import account_import_preflight
+    from domain.investments import trade_attribution
+    from domain.risk import portfolio_config
+    from endpoints import investment_transactions
+    from collectors import ibkr_flex
+    from scripts.bootstrap_empty_database import initialize_empty_database
+
+    with psycopg2.connect(**bootstrap_database) as conn:
+        initialize_empty_database(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cases = [
+                ('ETF_QQQ', 'alias', QQQ_FEEDER_NAMES[0], False),
+                ('ETF_QQQ', 'name', QQQ_FEEDER_NAMES[0], True),
+                ('FUND_REAL', 'alias', QQQ_FEEDER_NAMES[0], True),
+                ('ETF_QQQ', 'alias', 'GOOD_QQQ_ALIAS', True),
+                (None, 'alias', QQQ_FEEDER_NAMES[0], True),
+                ('ETF_QQQ', None, QQQ_FEEDER_NAMES[0], True),
+                ('ETF_QQQ', 'alias', None, True),
+                (None, None, None, True),
+            ]
+            for asset_id, alias_type, alias_value, expected in cases:
+                cur.execute(f"SELECT {identity_alias_sql('al')} AS allowed FROM (VALUES (%s, %s, %s)) al(asset_id, alias_type, alias_value)", (asset_id, alias_type, alias_value))
+                assert cur.fetchone()['allowed'] is expected
+                assert is_identity_alias(asset_id, alias_type, alias_value) is expected
+            # Older schemas may not enforce NOT NULL; unknowns must not disappear.
+            cur.execute("CREATE TEMP TABLE legacy_alias (asset_id text, alias_type text, alias_value text)")
+            cur.executemany("INSERT INTO legacy_alias VALUES (%s, %s, %s)", [row[:3] for row in cases])
+            cur.execute(f"SELECT asset_id, alias_type, alias_value FROM legacy_alias al WHERE {identity_alias_sql('al')}")
+            assert {tuple(row.values()) for row in cur.fetchall()} == {row[:3] for row in cases if row[3]}
+            cur.execute("""INSERT INTO public.pams_asset_master
+                (asset_id,canonical_name,display_name,primary_symbol,asset_type,currency,status)
+                VALUES ('ETF_QQQ','QQQ trust','QQQ trust','QQQ','ETF / 基金','CNY','active'),
+                       ('FUND_REAL','Real fund','Real fund','123456','ETF / 基金','CNY','active')""")
+            for name in QQQ_FEEDER_NAMES:
+                cur.execute("INSERT INTO public.pams_asset_alias(asset_id,alias_type,alias_value) VALUES ('ETF_QQQ','alias',%s)", (name,))
+            cur.execute("INSERT INTO public.pams_asset_alias(asset_id,alias_type,alias_value) VALUES ('ETF_QQQ','alias','GOOD_QQQ_ALIAS')")
+            cur.execute("INSERT INTO public.pams_asset_alias(asset_id,alias_type,alias_value) VALUES ('FUND_REAL','alias',%s)", (QQQ_FEEDER_NAMES[3],))
+            lookup = load_asset_master_lookup(cur, ensure_schema=False)
+            for name in QQQ_FEEDER_NAMES[:3]:
+                assert _find_asset({'name': name}, lookup) is None
+            assert _find_asset({'name': QQQ_FEEDER_NAMES[3]}, lookup)['asset_id'] == 'FUND_REAL'
+            assert _find_asset({'symbol': 'GOOD_QQQ_ALIAS'}, lookup)['asset_id'] == 'ETF_QQQ'
+            for name in QQQ_FEEDER_NAMES[:3]:
+                assert name.casefold() not in trade_attribution._asset_identity_lookup(cur, [{'name': name}])
+                assert name.casefold() not in trade_attribution._asset_name_lookup(cur, {name})
+                assert name.casefold() not in investment_transactions._asset_name_lookup(cur, {name})
+                assert name.casefold() not in portfolio_config._asset_label_lookup(cur, {name})
+            valid = trade_attribution._asset_identity_lookup(cur, [{'name': QQQ_FEEDER_NAMES[3]}])
+            assert valid[QQQ_FEEDER_NAMES[3].casefold()]['asset_id'] == 'FUND_REAL'
+            assert trade_attribution._asset_identity_lookup(cur, [{'symbol': 'GOOD_QQQ_ALIAS'}])['good_qqq_alias']['asset_id'] == 'ETF_QQQ'
+            state = account_import_preflight.current_state(cur, 'ibkr')
+            assert not any(row['asset_id'] == 'ETF_QQQ' and row['alias_value'] in QQQ_FEEDER_NAMES for row in state['aliases'])
+            assert any(row['asset_id'] == 'FUND_REAL' and row['alias_value'] == QQQ_FEEDER_NAMES[3] for row in state['aliases'])
+            errors = []
+            assert account_import_preflight._asset({'symbol': QQQ_FEEDER_NAMES[0], 'asset_type': 'fund'}, state, errors) is None
+            assert errors[0]['code'] == 'asset_unresolved'
+
+        as_of = date(2026, 1, 2)
+        names = [*QQQ_FEEDER_NAMES, 'GOOD_QQQ_ALIAS']
+        rows = [dict(symbol=name, name=name, asset_liability='资产', currency='CNY', account_code='ibkr',
+                     major_category='测试', minor_category='测试', market_value=10, cost=10, quantity=1,
+                     buy_price=10, current_price=10, as_of=as_of) for name in names]
+        assert ibkr_flex._write_holdings(conn, rows, account_code='ibkr', as_of=as_of) == len(rows)
+        with conn.cursor() as cur:
+            cur.execute("SELECT name,asset_id FROM public.pams_holdings_snapshot WHERE account_code='ibkr' AND as_of=%s", (as_of,))
+            identities = dict(cur.fetchall())
+            assert all(identities[name] is None for name in QQQ_FEEDER_NAMES[:3])
+            assert identities[QQQ_FEEDER_NAMES[3]] == 'FUND_REAL'
+            assert identities['GOOD_QQQ_ALIAS'] == 'ETF_QQQ'
+            cur.execute("SELECT count(*) FROM public.pams_asset_alias WHERE asset_id='ETF_QQQ' AND alias_type='alias' AND alias_value=ANY(%s)", (list(QQQ_FEEDER_NAMES),))
+            assert cur.fetchone()[0] == 4
+        conn.rollback()

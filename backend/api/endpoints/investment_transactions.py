@@ -14,6 +14,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from domain.assets.alias_policy import identity_alias_sql
 from domain.investments.portfolio_state import _load_accounts_config, _owner_ratio
 from domain.investments.trade_campaigns import build_position_campaigns_payload, today_local
 from domain.investments.trade_attribution import (
@@ -552,11 +553,12 @@ def _asset_name_lookup(cur, symbols: set[str]) -> dict[str, str]:
 
     if _table_exists(cur, "pams_asset_alias") and _table_exists(cur, "pams_asset_master"):
         cur.execute(
-            """
+            f"""
             SELECT al.alias_value AS symbol, COALESCE(NULLIF(am.display_name, ''), am.canonical_name) AS name
             FROM pams_asset_alias al
             JOIN pams_asset_master am ON am.asset_id = al.asset_id
-            WHERE COALESCE(al.alias_value, '') <> ''
+            WHERE {identity_alias_sql('al')}
+              AND COALESCE(al.alias_value, '') <> ''
               AND COALESCE(COALESCE(NULLIF(am.display_name, ''), am.canonical_name), '') <> ''
               AND (
                 LOWER(al.alias_value) = ANY(%s::text[])
