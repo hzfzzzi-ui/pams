@@ -475,6 +475,10 @@ FROM public.pams_fund_underlying_position p
 WHERE to_regclass('public.pams_fund_underlying_position') IS NOT NULL
 ON CONFLICT DO NOTHING;
 
+DO $optional$
+BEGIN
+    IF to_regclass('public.pams_cn_etf_daily') IS NOT NULL THEN
+        EXECUTE $statement$
 INSERT INTO public.pams_asset_market_daily (
     as_of, source, source_key, symbol, market, currency,
     open_price, high_price, low_price, close_price, volume, turnover, raw_json
@@ -496,7 +500,15 @@ SELECT
 FROM public.pams_cn_etf_daily d
 WHERE to_regclass('public.pams_cn_etf_daily') IS NOT NULL
 ON CONFLICT DO NOTHING;
+$statement$;
+    END IF;
+END
+$optional$;
 
+DO $optional$
+BEGIN
+    IF to_regclass('public.pams_fund_nav_estimates') IS NOT NULL THEN
+        EXECUTE $statement$
 INSERT INTO public.pams_asset_market_daily (
     as_of, source, source_key, symbol, name, market, currency,
     unit_nav, estimated_unit_nav, estimated_market_value, confidence, raw_json
@@ -517,6 +529,10 @@ SELECT
 FROM public.pams_fund_nav_estimates e
 WHERE to_regclass('public.pams_fund_nav_estimates') IS NOT NULL
 ON CONFLICT DO NOTHING;
+$statement$;
+    END IF;
+END
+$optional$;
 
 INSERT INTO public.pams_source_row (
     source_system, source_table, source_id, source_uid, account_code, event_date,
@@ -712,6 +728,10 @@ FROM public.pams_data_sync_runs r
 WHERE to_regclass('public.pams_data_sync_runs') IS NOT NULL
 ON CONFLICT DO NOTHING;
 
+DO $optional$
+BEGIN
+    IF to_regclass('public.pams_data_version') IS NOT NULL THEN
+        EXECUTE $statement$
 INSERT INTO public.pams_data_job_run (
     job_key, job_type, source_table, source_id, data_as_of, target_date,
     status, rows_affected, checksum, summary_json, created_at
@@ -737,6 +757,10 @@ SELECT
 FROM public.pams_data_version v
 WHERE to_regclass('public.pams_data_version') IS NOT NULL
 ON CONFLICT DO NOTHING;
+$statement$;
+    END IF;
+END
+$optional$;
 
 -- ---------------------------------------------------------------------------
 -- Schema isolation with compatibility views
@@ -799,8 +823,6 @@ FROM (
         ('pams_nav_daily'),
         ('pams_raw_rows'),
         ('pams_tradingview_transactions'),
-        ('pams_transaction_lifecycle'),
-        ('pams_transaction_sync_log'),
         ('pams_transactions')
 ) AS t(name);
 

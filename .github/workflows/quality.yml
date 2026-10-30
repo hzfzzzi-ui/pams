@@ -37,6 +37,7 @@ jobs:
       - name: 测试
         env:
           PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
+          PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
         run: python -m pytest tests -q
       - name: Python与前端语法
         run: |
