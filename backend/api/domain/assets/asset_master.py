@@ -468,8 +468,16 @@ def _upsert_asset(cur, raw: dict[str, Any], *, source: str = "system") -> str:
                 WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.confidence
                 ELSE EXCLUDED.confidence
             END,
-            raw_json = pams_asset_master.raw_json || EXCLUDED.raw_json,
-            last_verified_at = NOW(),
+            raw_json = CASE
+                WHEN pams_asset_master.source = 'manual' AND EXCLUDED.source <> 'manual'
+                    THEN EXCLUDED.raw_json || pams_asset_master.raw_json
+                ELSE pams_asset_master.raw_json || EXCLUDED.raw_json
+            END,
+            last_verified_at = CASE
+                WHEN pams_asset_master.source = 'manual' AND EXCLUDED.source IS DISTINCT FROM 'manual'
+                    THEN pams_asset_master.last_verified_at
+                ELSE NOW()
+            END,
             updated_at = NOW()
         """,
         {**asset, "raw_json": psycopg2.extras.Json(asset["raw_json"])},
@@ -520,6 +528,7 @@ def _upsert_industry(cur, asset_id: str, raw: dict[str, Any], asset: dict[str, A
             evidence = EXCLUDED.evidence,
             as_of = EXCLUDED.as_of,
             updated_at = NOW()
+        WHERE pams_asset_industry_map.source IS DISTINCT FROM 'manual' OR EXCLUDED.source = 'manual'
         """,
         (
             asset_id,
@@ -890,7 +899,7 @@ def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, An
         SELECT DISTINCT ON (asset_id) *
         FROM pams_asset_industry_map
         WHERE is_primary = TRUE
-        ORDER BY asset_id, updated_at DESC
+        ORDER BY asset_id, (source = 'manual') DESC NULLS LAST, updated_at DESC
         """
     )
     for row in cur.fetchall():
