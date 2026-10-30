@@ -9,7 +9,8 @@ those already-normalized dimensions.
 from __future__ import annotations
 
 import os
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 from datetime import date as Date
 from decimal import Decimal
 from pathlib import Path
@@ -1160,17 +1161,22 @@ def _aggregate_dimension(
     total_market_value: float,
     score_fn: Callable[[AttributionUnit], float] | None = None,
     extra_fn: Callable[[AttributionUnit], dict[str, Any]] | None = None,
+    group_key_fn: Callable[[AttributionUnit], tuple[str, ...] | None] | None = None,
 ) -> list[dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-    for unit in units:
+    grouped: dict[Any, dict[str, Any]] = {}
+    for index, unit in enumerate(units):
         label = label_fn(unit)
         if not label:
             continue
+        group_key = group_key_fn(unit) if group_key_fn else label
+        if group_key is None:
+            # A missing security identity cannot prove that two names denote the same asset.
+            group_key = ("unidentified", str(index))
         score = score_fn(unit) if score_fn else 1.0
         if score <= 0:
             continue
         item = grouped.setdefault(
-            label,
+            group_key,
             {
                 "name": label,
                 "display_name": label,
@@ -1182,6 +1188,9 @@ def _aggregate_dimension(
                 "source_details": [],
             },
         )
+        if group_key_fn and (label.casefold(), label) < (item["name"].casefold(), item["name"]):
+            item["name"] = label
+            item["display_name"] = label
         item["pnl_cny"] += _num(unit.get("pnl_cny")) * score
         item["daily_pnl_cny"] += _num(unit.get("daily_pnl_cny")) * score
         item["daily_price_pnl_cny"] += _num(unit.get("daily_price_pnl_cny")) * score
@@ -1189,7 +1198,11 @@ def _aggregate_dimension(
         item["market_value_cny"] += _num(unit.get("market_value_cny")) * score
         item["source_details"].append(_source_detail(unit, score))
         if extra_fn:
-            item.update({k: v for k, v in extra_fn(unit).items() if v not in (None, "")})
+            extras = {k: v for k, v in extra_fn(unit).items() if v not in (None, "")}
+            if group_key_fn and item.get("symbol") and extras.get("symbol"):
+                symbols = (_text(item["symbol"]), _text(extras["symbol"]))
+                extras["symbol"] = min(symbols, key=lambda value: (len(value), value.casefold(), value))
+            item.update(extras)
 
     rows: list[dict[str, Any]] = []
     for item in grouped.values():
@@ -1237,6 +1250,28 @@ def _theme_rows(units: list[AttributionUnit], *, total_pnl: float, total_daily_p
     return rows
 
 
+def _attribution_instrument_key(unit: AttributionUnit) -> tuple[str, ...] | None:
+    symbol = _text(unit.get("symbol")).upper()
+    market = _text(unit.get("market"))
+    if symbol and market and market.casefold() not in {"其他", "unknown", "未分类"}:
+        if market == "港股":
+            hk = re.fullmatch(r"(\d{1,5})(?:\.HK)?", symbol)
+            if hk:
+                symbol = (hk.group(1).lstrip("0") or "0") + ".HK"
+        elif market == "A股":
+            qualified = re.fullmatch(r"(\d{6})\.(SH|SZ|SS)", symbol)
+            prefixed = re.fullmatch(r"(SH|SZ)(\d{6})", symbol)
+            if qualified:
+                symbol = qualified.group(1) + "." + ("SH" if qualified.group(2) == "SS" else qualified.group(2))
+            elif prefixed:
+                symbol = prefixed.group(2) + "." + prefixed.group(1)
+        return ("security", market.casefold(), symbol.casefold())
+    if _text(unit.get("name")) == "未穿透残差":
+        # This is an intentional residual bucket, not an inferred security identity.
+        return ("residual",)
+    return None
+
+
 def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_daily_pnl: float, total_market_value: float) -> list[dict[str, Any]]:
     rows = _aggregate_dimension(
         units,
@@ -1244,6 +1279,7 @@ def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_da
         total_pnl=total_pnl,
         total_daily_pnl=total_daily_pnl,
         total_market_value=total_market_value,
+        group_key_fn=_attribution_instrument_key,
         extra_fn=lambda u: {
             "symbol": u.get("symbol"),
             "asset_type": u.get("asset_type"),
@@ -1255,6 +1291,11 @@ def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_da
             "source": u.get("source_label"),
         },
     )
+    duplicate_names = Counter(row["name"] for row in rows)
+    for row in rows:
+        if duplicate_names[row["name"]] > 1 and row.get("symbol"):
+            identity = " ".join(_text(value) for value in (row.get("market"), row.get("symbol")) if _text(value))
+            row["display_name"] = f"{row['name']} ({identity})"
     return rows[:200]
 
 
