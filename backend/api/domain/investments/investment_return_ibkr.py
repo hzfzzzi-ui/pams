@@ -16,7 +16,10 @@ from domain.investments.investment_return_math import dec, ibkr_return_effective
 from domain.investments.valuation_nav import fx_rate_at
 
 
-_YFINANCE_CLOSE_CACHE: dict[tuple[tuple[str, ...], str, str], dict[str, dict[Date, Decimal]]] = {}
+_YFINANCE_CLOSE_CACHE: dict[
+    tuple[tuple[str, ...], str, str],
+    tuple[dict[str, dict[Date, Decimal]], tuple[str, ...]],
+] = {}
 _ASSET_CATEGORY = "\u8d44\u4ea7"
 _US_STOCK_CATEGORY = "\u7f8e\u80a1"
 
@@ -48,7 +51,8 @@ def _fetch_yfinance_closes(
         return {}, []
     cache_key = (tuple(tickers), start_date.isoformat(), end_date.isoformat())
     if cache_key in _YFINANCE_CLOSE_CACHE:
-        return _YFINANCE_CLOSE_CACHE[cache_key], []
+        cached_closes, cached_warnings = _YFINANCE_CLOSE_CACHE[cache_key]
+        return cached_closes, list(cached_warnings)
     try:
         import pandas as pd
         import yfinance as yf
@@ -116,8 +120,9 @@ def _fetch_yfinance_closes(
             closes[ticker] = rows
         else:
             missing.append(ticker)
-    _YFINANCE_CLOSE_CACHE[cache_key] = closes
-    return closes, [f"missing Yahoo close: {', '.join(missing)}"] if missing else []
+    warnings = [f"missing Yahoo close: {', '.join(missing)}"] if missing else []
+    _YFINANCE_CLOSE_CACHE[cache_key] = (closes, tuple(warnings))
+    return closes, warnings
 
 
 def _close_on_or_before(series: dict[Date, Decimal], day: Date) -> Decimal | None:
