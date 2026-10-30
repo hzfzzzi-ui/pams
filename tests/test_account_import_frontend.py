@@ -241,7 +241,19 @@ def test_mapping_is_explicit_private_and_uses_batch_kind_and_exact_headers() -> 
     assert "{ kind: state.batch.kind, mapping: draft.values }" in mapping
     assert "useBatch(await api(batchPath))" in mapping
     assert "/publish" not in mapping and "/templates" not in mapping
-    assert "发布尚未启用" in HTML and "暂存表尚未就绪" in JS
+    assert "仅预览" in HTML and "暂存表尚未就绪" in JS
+
+
+def test_review_hides_requested_summaries_but_keeps_actionable_states():
+    assert 'id="impact" hidden' in HTML
+    assert "$('impact').hidden = !knownImpact" in JS
+    assert "NAV 影响暂不可用" not in JS
+    assert "发布尚未启用" not in HTML and "发布尚未启用；草稿可保留" not in JS
+    for prefix in ['持仓、交易、现金独立核对', '资产底表待补充/核准', '已识别的券商入出金缺少银行对手账户证据']:
+        assert prefix in JS
+    assert "groupLabels[group.code] || group.message" in JS
+    assert "row.issues?.length" in JS and "publishable(state.caps" in JS
+    assert "--import-yellow: var(--pams-action)" in CSS
 
 
 def test_holding_cash_uses_balance_without_security_fields_or_local_totals() -> None:
