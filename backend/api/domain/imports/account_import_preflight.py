@@ -7,6 +7,7 @@ import hashlib
 import json
 from zoneinfo import ZoneInfo
 
+from domain.assets.alias_policy import is_identity_alias
 from domain.imports import account_import_store as store
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.investment_trade_fact import build_investment_trade_fact
@@ -75,8 +76,11 @@ def current_state(cur, account: str) -> dict:
         raise store.ImportProblem("history_limit", "账户历史超过本轮预检容量，不能截断后发布")
     cur.execute("SELECT asset_id,primary_symbol,canonical_name,asset_type,currency FROM pams_asset_master WHERE status='active' AND currency='CNY' ORDER BY asset_id")
     assets = [dict(r) for r in cur.fetchall()]
-    cur.execute("SELECT asset_id,alias_value FROM pams_asset_alias ORDER BY asset_id,alias_value")
-    aliases = [dict(r) for r in cur.fetchall()]
+    cur.execute("SELECT asset_id,alias_type,alias_value FROM pams_asset_alias ORDER BY asset_id,alias_value")
+    alias_rows = [dict(r) for r in cur.fetchall()]
+    aliases_for_fingerprint = [{"asset_id": r["asset_id"], "alias_value": r["alias_value"]} for r in alias_rows]
+    aliases = [{"asset_id": r["asset_id"], "alias_value": r["alias_value"]} for r in alias_rows
+               if is_identity_alias(r["asset_id"], r["alias_type"], r["alias_value"])]
     cur.execute("SELECT account_code,base_currency,active FROM pams_accounts ORDER BY account_code")
     accounts = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT * FROM pams_cashflow_fact WHERE account_code=%s OR counter_account_code=%s ORDER BY cashflow_id LIMIT 10001", (account, account))
@@ -85,7 +89,7 @@ def current_state(cur, account: str) -> dict:
         raise store.ImportProblem("history_limit", "账户资金历史超过预检容量，不能截断后发布")
     # Poll timestamps are metadata; quantities/cost/price and the complete fact set are not.
     version = fingerprint({"holdings": [{k: v for k, v in r.items() if k not in {"updated_at", "created_at"}} for r in holdings],
-                           "latest_rows": latest_rows, "members": members, "facts": facts, "assets": assets, "aliases": aliases, "accounts": accounts, "cashflows": cashflows})
+                           "latest_rows": latest_rows, "members": members, "facts": facts, "assets": assets, "aliases": aliases_for_fingerprint, "accounts": accounts, "cashflows": cashflows})
     return {"holdings": holdings, "facts": facts, "assets": assets, "aliases": aliases,
             "latest_rows": latest_rows, "members": members, "accounts": accounts, "cashflows": cashflows, "version": version}
 

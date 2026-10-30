@@ -6,6 +6,7 @@ from typing import Any
 
 import psycopg2.extras
 
+from domain.assets.alias_policy import identity_alias_sql
 from domain.assets.lookthrough_state import build_lookthrough_payload
 from domain.risk.portfolio_risk_disclosure import build_portfolio_config_input_summary
 from domain.investments.portfolio_state import get_conn
@@ -437,7 +438,7 @@ def _asset_label_lookup(cur, keys: set[str]) -> dict[str, dict[str, str]]:
             _put_asset_label(lookup, key, symbol=row.get("primary_symbol"), display_name=row.get("display_name"))
 
     cur.execute(
-        """
+        f"""
         SELECT
             al.alias_value,
             am.asset_id,
@@ -445,7 +446,7 @@ def _asset_label_lookup(cur, keys: set[str]) -> dict[str, dict[str, str]]:
             COALESCE(NULLIF(am.display_name, ''), NULLIF(am.canonical_name, ''), am.primary_symbol) AS display_name
         FROM pams_asset_alias al
         JOIN pams_asset_master am ON am.asset_id = al.asset_id
-        WHERE lower(al.alias_value) = ANY(%s::text[])
+        WHERE {identity_alias_sql('al')} AND lower(al.alias_value) = ANY(%s::text[])
         """,
         (lower_keys,),
     )
