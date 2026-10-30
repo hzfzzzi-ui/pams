@@ -126,7 +126,7 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                     ON CONFLICT(symbol,market,trade_date) DO UPDATE SET close=excluded.close, circ_mv=excluded.circ_mv""")
                 cur.execute("SELECT close,circ_mv FROM pams_external_market.pams_ohlcv_daily WHERE symbol='SHARED'")
                 assert cur.fetchone() == (8, 9)
-                cur.execute("INSERT INTO public.pams_fx_rates_daily(as_of,base_currency,quote_currency,rate) VALUES ('2026-01-01','USD','CNY',7.2)")
+                cur.execute("INSERT INTO public.pams_fx_rates_daily(as_of,base_currency,quote_currency,rate) VALUES ('2026-01-01','CNY','USD',7.2)")
                 cur.execute("INSERT INTO public.pams_transactions(date,amount,currency,category,account,account_code) VALUES ('2026-01-01',10,'USD','测试','Santander','santander')")
                 cur.execute("SELECT amount_cny FROM public.v_transactions_cny")
                 assert cur.fetchone()[0] == 72
