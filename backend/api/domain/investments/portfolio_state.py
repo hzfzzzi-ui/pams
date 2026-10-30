@@ -756,7 +756,6 @@ def load_investment_positions(
                 "symbol": symbol,
                 "asset_name": item.get("name") or symbol or account_code,
                 "asset_type": _asset_type(item),
-                "minor_category": item.get("minor_category"),
                 "quantity": item.get("quantity"),
                 "market_value": market_value,
                 "currency": currency,
