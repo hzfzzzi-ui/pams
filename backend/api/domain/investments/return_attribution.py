@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from datetime import date as Date
 from decimal import Decimal
 from pathlib import Path
@@ -1162,6 +1162,7 @@ def _aggregate_dimension(
     score_fn: Callable[[AttributionUnit], float] | None = None,
     extra_fn: Callable[[AttributionUnit], dict[str, Any]] | None = None,
     group_key_fn: Callable[[AttributionUnit], tuple[str, ...] | None] | None = None,
+    include_group_key: bool = False,
 ) -> list[dict[str, Any]]:
     grouped: dict[Any, dict[str, Any]] = {}
     for index, unit in enumerate(units):
@@ -1188,6 +1189,8 @@ def _aggregate_dimension(
                 "source_details": [],
             },
         )
+        if include_group_key:
+            item["_group_key"] = group_key
         if group_key_fn and (label.casefold(), label) < (item["name"].casefold(), item["name"]):
             item["name"] = label
             item["display_name"] = label
@@ -1272,7 +1275,58 @@ def _attribution_instrument_key(unit: AttributionUnit) -> tuple[str, ...] | None
     return None
 
 
-def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_daily_pnl: float, total_market_value: float) -> list[dict[str, Any]]:
+def _select_underlying_rows(units: list[AttributionUnit], rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Keep pre-split top names and current top rows together, within a hard bound."""
+    base_limit, hard_limit = 200, 500
+    names_to_keys: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+    keys_to_names: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    name_totals: dict[str, float] = defaultdict(float)
+    for index, unit in enumerate(units):
+        name = _text(unit.get("name") or "未命名底层")
+        key = _attribution_instrument_key(unit) or ("unidentified", str(index))
+        name_totals[name] += _num(unit.get("pnl_cny"))
+        names_to_keys[name].add(key)
+        keys_to_names[key].add(name)
+
+    # Recreate the old name-level ranking, including names whose individual
+    # securities both fell below today's 200-row identity-level cutoff.
+    legacy_top = sorted(name_totals, key=lambda name: -abs(name_totals[name]))[:base_limit]
+    required_keys = {row["_group_key"] for row in rows[:base_limit]}
+    pending = deque(legacy_top)
+    for key in required_keys:
+        pending.extend(keys_to_names[key])
+    required_names: set[str] = set()
+    while pending:
+        name = pending.popleft()
+        if name in required_names:
+            continue
+        required_names.add(name)
+        for key in names_to_keys[name]:
+            if key not in required_keys:
+                required_keys.add(key)
+                pending.extend(keys_to_names[key])
+
+    selected = [row for row in rows if row["_group_key"] in required_keys]
+    returned = selected[:hard_limit]
+    returned_keys = {row["_group_key"] for row in returned}
+    required_omitted = len(selected) - len(returned)
+    incomplete_names = sum(bool(names_to_keys[name] - returned_keys) for name in required_names)
+    meta = {
+        "returned_count": len(returned),
+        "total_count": len(rows),
+        "base_limit": base_limit,
+        "hard_limit": hard_limit,
+        "truncated": len(returned) < len(rows),
+        "required_omitted_count": required_omitted,
+        "incomplete_name_count": incomplete_names,
+    }
+    for row in returned:
+        row.pop("_group_key", None)
+    return returned, meta
+
+
+def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_daily_pnl: float, total_market_value: float,
+                     preserve_names: bool = False, selection_meta: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     rows = _aggregate_dimension(
         units,
         lambda u: _text(u.get("name") or "未命名底层"),
@@ -1280,6 +1334,7 @@ def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_da
         total_daily_pnl=total_daily_pnl,
         total_market_value=total_market_value,
         group_key_fn=_attribution_instrument_key,
+        include_group_key=preserve_names,
         extra_fn=lambda u: {
             "symbol": u.get("symbol"),
             "asset_type": u.get("asset_type"),
@@ -1296,7 +1351,12 @@ def _underlying_rows(units: list[AttributionUnit], *, total_pnl: float, total_da
         if duplicate_names[row["name"]] > 1 and row.get("symbol"):
             identity = " ".join(_text(value) for value in (row.get("market"), row.get("symbol")) if _text(value))
             row["display_name"] = f"{row['name']} ({identity})"
-    return rows[:200]
+    if not preserve_names:
+        return rows[:200]
+    selected, meta = _select_underlying_rows(units, rows)
+    if selection_meta is not None:
+        selection_meta.update(meta)
+    return selected
 
 
 def build_return_attribution_from_positions(
@@ -1353,6 +1413,7 @@ def build_return_attribution_from_positions(
     canonical_daily_pnl = total_daily_pnl + _metric_sum(reconciliation_units, "daily_pnl_cny")
     nav_value = _num(portfolio_nav_cny) if portfolio_nav_cny is not None else _num(lookthrough.get("portfolio_nav_cny"))
 
+    underlying_selection: dict[str, Any] = {}
     dimensions = {
         "holding": _underlying_rows(
             instrument_units,
@@ -1406,6 +1467,8 @@ def build_return_attribution_from_positions(
             total_pnl=total_pnl,
             total_daily_pnl=total_daily_pnl,
             total_market_value=total_market_value,
+            preserve_names=True,
+            selection_meta=underlying_selection,
         ),
     }
     for rows in dimensions.values():
@@ -1426,6 +1489,7 @@ def build_return_attribution_from_positions(
             }
 
     quality = dict(lookthrough.get("quality") or {})
+    quality["underlying_selection"] = underlying_selection
     if reconciliation_meta.get("sections") or reconciliation_warnings:
         quality["return_reconciliation"] = {
             **reconciliation_meta,
