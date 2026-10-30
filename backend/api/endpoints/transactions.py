@@ -1,8 +1,8 @@
 """
-交易记录API V2 - 支持收支同步到holdings现金持仓
+历史收支交易与预算接口；Telegram 记账入口已停用。
 """
 from typing import Optional
-from datetime import date as Date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 import psycopg2
@@ -63,81 +63,13 @@ class BudgetCreate(BaseModel):
     currency: str = "CNY"
     alert_threshold: float = 0.8
 
-# ==================== 同步逻辑 ====================
-
-def sync_transaction_to_holdings(
-    conn,
-    transaction_id: int,
-    account_code: str,
-    amount: float,
-    currency: str,
-    tx_date: Date,
-    description: str
-):
-    """
-    同步交易到holdings表的现金持仓
-    - 收入：增加现金持仓
-    - 支出：减少现金持仓
-    """
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # 检查该账户是否有现金持仓记录
-        cur.execute("""
-            SELECT id, market_value
-            FROM pams_holdings_snapshot
-            WHERE account_code = %s
-              AND minor_category = '现金/活期'
-              AND as_of = %s
-            FOR UPDATE
-        """, (account_code, tx_date))
-
-        holding = cur.fetchone()
-
-        if holding:
-            # 更新现有持仓
-            new_value = float(holding['market_value']) + amount
-            cur.execute("""
-                UPDATE pams_holdings_snapshot
-                SET market_value = %s,
-                    cost = market_value,  -- 现金成本=市值
-                    updated_at = NOW()
-                WHERE id = %s
-            """, (new_value, holding['id']))
-
-            holding_id = holding['id']
-        else:
-            # 创建新的现金持仓记录
-            # 获取账户显示名称
-            cur.execute("SELECT display_name FROM pams_accounts WHERE account_code = %s", (account_code,))
-            acc_row = cur.fetchone()
-            display_name = acc_row['display_name'] if acc_row else account_code
-
-            cash_name = f"{display_name}现金"
-
-            cur.execute("""
-                INSERT INTO pams_holdings_snapshot (
-                    symbol, name, asset_liability, currency, account_code,
-                    major_category, minor_category, market_value, cost, as_of
-                ) VALUES (
-                    NULL, %s, '资产', %s, %s, '现金', '现金/活期', %s, %s, %s
-                )
-                RETURNING id
-            """, (cash_name, currency, account_code, amount, amount, tx_date))
-
-            holding_id = cur.fetchone()['id']
-
-        # 记录同步日志（调试用）
-        sync_type = 'income' if amount > 0 else 'expense'
-        cur.execute("""
-            INSERT INTO pams_transaction_sync_log (
-                transaction_id, holding_id, sync_type, amount
-            ) VALUES (%s, %s, %s, %s)
-        """, (transaction_id, holding_id, sync_type, abs(amount)))
-
 # ==================== API端点 ====================
 
 @router.post("/transactions")
 def create_transaction(tx: TransactionCreate):
-    """创建交易记录并同步到holdings"""
+    """创建非 Telegram 来源的旧交易记录。"""
+    if tx.source == "telegram":
+        raise HTTPException(status_code=410, detail="Telegram 记账入口已停用，请使用 PAMS 资料导入。")
     # 自动推断币种
     if not tx.currency:
         tx.currency = get_account_currency(tx.account_code)
@@ -195,21 +127,12 @@ def create_transaction(tx: TransactionCreate):
 
             transaction_id = cur.fetchone()['id']
 
-        # 同步到holdings（仅Telegram来源的收支）
-        if tx.source == "telegram":
-            sync_transaction_to_holdings(
-                conn, transaction_id, tx.account_code,
-                tx.amount, tx.currency, tx_date, tx.description or ""
-            )
-
-        # Keep the transaction, classification update and any cash/log sync
-        # together: a failed sync must not leave an already committed transaction.
         conn.commit()
 
     return {
         "success": True,
         "transaction_id": transaction_id,
-        "message": f"交易记录已创建{'并同步到持仓' if tx.source == 'telegram' else ''}"
+        "message": "交易记录已创建"
     }
 
 @router.get("/transactions/recent")
