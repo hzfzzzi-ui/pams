@@ -32,11 +32,11 @@ import psycopg2.extras
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from services.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
-from services.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
-from services.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
-from services.ibkr_report_state import expected_statement_date
-from services.price_history import (
+from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
+from domain.market.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
+from domain.investments.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
+from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+from domain.market.price_history import (
     build_price_series_payload,
     ensure_price_history,
     normalize_price_instrument,
@@ -260,7 +260,7 @@ def _use_latest_account_snapshot_bucket(category: str, exclude_minor_categories:
 
 def _overseas_market_bucket(row: dict) -> str:
     """Classify overseas holdings for targeted refresh scheduling."""
-    from services.overseas_return_calendar import market_bucket
+    from domain.market.overseas_return_calendar import market_bucket
 
     return market_bucket(row) or "other"
 
@@ -743,7 +743,7 @@ def _upsert_scheduled_us_quotes(rows: List[dict], prices: Dict[str, float], as_o
 
 
 def _overseas_currency_mismatches(rows: list[dict], bucket: str) -> list[dict]:
-    from services.overseas_return_calendar import MARKET_CURRENCIES
+    from domain.market.overseas_return_calendar import MARKET_CURRENCIES
 
     expected = MARKET_CURRENCIES[bucket]
     return [{"reason": "currency_mismatch", "symbol": row.get("symbol"),
@@ -756,7 +756,7 @@ def _upsert_scheduled_overseas_quotes(
     rows: list[dict], bucket: str, as_of: date, history: dict[str, list[tuple[date, float]]],
 ) -> tuple[int, int, set[str]]:
     """Persist dated closes and quote marks atomically, using DB-rounded prices."""
-    from services.overseas_return_calendar import market_calendar
+    from domain.market.overseas_return_calendar import market_calendar
 
     if _overseas_currency_mismatches(rows, bucket):
         raise ValueError("currency_mismatch: needs_review")
@@ -833,7 +833,7 @@ def _upsert_scheduled_overseas_quotes(
 
 def _has_completed_overseas_quotes(rows: list[dict], bucket: str, as_of: date) -> bool:
     """Only complete, matching close evidence can suppress a provider refresh."""
-    from services.overseas_return_calendar import market_calendar
+    from domain.market.overseas_return_calendar import market_calendar
 
     required = {(str(row.get("symbol") or ""), str(row.get("currency") or "")) for row in rows}
     if (not required or any(not symbol or not currency for symbol, currency in required)
@@ -2746,7 +2746,7 @@ def refresh_us_stock(
     market_buckets = _normalize_overseas_market_filter(market)
     if scheduled is True:
         if len(market_buckets) == 1 and market_buckets[0] in {"hk", "kr", "se", "ch"}:
-            from services.overseas_return_calendar import latest_completed_session
+            from domain.market.overseas_return_calendar import latest_completed_session
 
             bucket = market_buckets[0]
             completed = latest_completed_session(bucket)

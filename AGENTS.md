@@ -160,7 +160,7 @@ GitHub 同步规则：
 
 相关回归测试优先看：
 
-- `tests/test_frontend_static_contract.py`
+- `tests/frontend/test_frontend_static_contract.py`
 - `frontend/public/investments.html`
 - `frontend/public/assets/js/transactions.js`
 - `frontend/public/assets/js/ui.js`
@@ -182,8 +182,8 @@ GitHub 同步规则：
 
 ```powershell
 node --check frontend\public\assets\js\transactions.js
-python -m pytest tests/test_frontend_static_contract.py -q
-python -m pytest tests/test_cashflow_fact_service.py tests/test_investment_trade_fact_service.py -q
+python -m pytest tests/frontend/test_frontend_static_contract.py -q
+python -m pytest tests/ledger/test_cashflow_fact_service.py tests/investments/test_investment_trade_fact_service.py -q
 docker ps --filter "name=pams-web" --filter "name=pams-api"
 ```
 
@@ -309,17 +309,17 @@ $env:PGCLIENTENCODING='UTF8'
 - 分类规则集中在服务层或资产底表，不散落在前端。
 - 新增字段必须向后兼容。
 - 不在 endpoint 里写运行时 DDL；表结构变更应走 `database/postgres/schema`。
-- API read adapter 尽量放在 `backend/api/services/`，endpoint 只做参数和响应封装。
+- API read adapter 尽量放在 `backend/api/domain/`，endpoint 只做参数和响应封装。
 
 优先测试：
 
-- `tests/test_asset_master_contract.py`
-- `tests/test_exposure_engine.py`
-- `tests/test_lookthrough_state.py`
-- `tests/test_return_attribution.py`
-- `tests/test_risk_state_service.py`
-- `tests/test_cashflow_fact_service.py`
-- `tests/test_investment_trade_fact_service.py`
+- `tests/assets/test_asset_master_contract.py`
+- `tests/assets/test_exposure_engine.py`
+- `tests/assets/test_lookthrough_state.py`
+- `tests/investments/test_return_attribution.py`
+- `tests/risk/test_risk_state_service.py`
+- `tests/ledger/test_cashflow_fact_service.py`
+- `tests/investments/test_investment_trade_fact_service.py`
 
 ## 10. 页面验证方法
 
@@ -339,9 +339,9 @@ $env:PGCLIENTENCODING='UTF8'
 先按第 0.2 节选择必跑、抽样和可复用证据。纯文档只做静态核对；以下是相关模块命令示例，不要求每轮逐条执行，也不代替最终 PR CI：
 
 ```powershell
-python -m pytest tests/test_frontend_static_contract.py -q
-python -m pytest tests/test_cashflow_fact_service.py tests/test_investment_trade_fact_service.py -q
-python -m pytest tests/test_asset_master_contract.py tests/test_exposure_engine.py -q
+python -m pytest tests/frontend/test_frontend_static_contract.py -q
+python -m pytest tests/ledger/test_cashflow_fact_service.py tests/investments/test_investment_trade_fact_service.py -q
+python -m pytest tests/assets/test_asset_master_contract.py tests/assets/test_exposure_engine.py -q
 node --check frontend\public\assets\js\transactions.js
 ```
 

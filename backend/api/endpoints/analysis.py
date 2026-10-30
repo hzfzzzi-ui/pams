@@ -8,9 +8,9 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter, Query
 
-from services.lookthrough_state import build_lookthrough_payload
-from services.portfolio_state import get_conn
-from services.return_attribution import build_return_attribution_payload
+from domain.assets.lookthrough_state import build_lookthrough_payload
+from domain.investments.portfolio_state import get_conn
+from domain.investments.return_attribution import build_return_attribution_payload
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])

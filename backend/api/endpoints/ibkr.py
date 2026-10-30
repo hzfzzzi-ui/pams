@@ -16,7 +16,7 @@ from collectors.ibkr_flex import (
     latest_sync_status,
     sync_ibkr_flex_to_db,
 )
-from services.ibkr_performance import (
+from domain.brokers.ibkr.ibkr_performance import (
     read_published_performance,
     published_report_status,
     get_conn,
@@ -27,13 +27,13 @@ from services.ibkr_performance import (
     _latest_usd_cny_rate as _latest_usd_cny_rate,
     _parse_flex_performance as _parse_flex_performance,
 )
-from services.investment_trade_fact import backfill_investment_trade_facts
-from services.ibkr_reconciliation import read_ibkr_reconciliation
-from services.ibkr_lineage_preflight import read_lineage_preflight
-from services.ibkr_account_audit_read import read_ibkr_account_audit
-from services.ibkr_daily_close_sync import daily_close_status, sync_daily_close
-from services import ibkr_cash_event_sync
-from services.ibkr_cash_events import configured_cutoff
+from domain.investments.investment_trade_fact import backfill_investment_trade_facts
+from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
+from domain.brokers.ibkr.ibkr_lineage_preflight import read_lineage_preflight
+from domain.brokers.ibkr.ibkr_account_audit_read import read_ibkr_account_audit
+from domain.brokers.ibkr.ibkr_daily_close_sync import daily_close_status, sync_daily_close
+from domain.brokers.ibkr import ibkr_cash_event_sync
+from domain.brokers.ibkr.ibkr_cash_events import configured_cutoff
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
 

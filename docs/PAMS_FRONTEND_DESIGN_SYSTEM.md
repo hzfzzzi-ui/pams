@@ -91,7 +91,7 @@ design-system.css
 涉及前端设计系统的改动至少运行：
 
 ```powershell
-python -m pytest tests/test_frontend_static_contract.py -q
+python -m pytest tests/frontend/test_frontend_static_contract.py -q
 ```
 
 若改动 CSS 或 HTML，运行态需要重建：

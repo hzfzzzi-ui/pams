@@ -40,7 +40,7 @@
 使用专用 `PAMS_TEST_POSTGRES_DSN`；真实事务测试会新建随机测试库，不读取应用 PG* 凭据。禁止将其指向生产。
 
 ```powershell
-python -m pytest tests/test_ibkr_report_state.py tests/test_ibkr_publication_transaction.py tests/test_ibkr_sync_transaction.py tests/test_ibkr_performance_service.py tests/test_refresh_reliability.py -q
+python -m pytest tests/brokers/ibkr/test_ibkr_report_state.py tests/brokers/ibkr/test_ibkr_publication_transaction.py tests/brokers/ibkr/test_ibkr_sync_transaction.py tests/brokers/ibkr/test_ibkr_performance_service.py tests/scheduler/test_refresh_reliability.py -q
 python -m pytest tests -q
 node --check frontend/public/assets/js/sync_center.js
 ```

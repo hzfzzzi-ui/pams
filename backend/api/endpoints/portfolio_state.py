@@ -7,11 +7,11 @@ from datetime import date as Date
 from fastapi import APIRouter, Query
 
 from endpoints import accounts as accounts_endpoint
-from services.portfolio_config import build_portfolio_config_payload
-from services.portfolio_equity_bridge import build_equity_bridge_payload
-from services.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload
-from services.portfolio_state import build_portfolio_data_quality, build_portfolio_state
-from services.portfolio_valuation_state import (
+from domain.risk.portfolio_config import build_portfolio_config_payload
+from domain.investments.portfolio_equity_bridge import build_equity_bridge_payload
+from domain.risk.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload
+from domain.investments.portfolio_state import build_portfolio_data_quality, build_portfolio_state
+from domain.investments.portfolio_valuation_state import (
     build_portfolio_valuation_state_payload,
     publish_portfolio_valuation_state_payload,
 )
