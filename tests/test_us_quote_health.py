@@ -238,6 +238,7 @@ def test_center_changes_only_overseas_row_and_derived_health_counts(monkeypatch)
     before = sync_center.sync_center()
     monkeypatch.setattr(sync_center, "read_overseas_quote_health", lambda *_: partial)
     after = sync_center.sync_center()
+    assert not any(row["id"] == "datahub-cn-a" or row.get("href") == "research.html" for row in after["rows"])
     assert [r for r in before["rows"] if r["id"] != "market-us-stock"] == [
         r for r in after["rows"] if r["id"] != "market-us-stock"
     ]

@@ -38,7 +38,6 @@ APP_BASE = os.environ.get("PAMS_APP_BASE") or (
     API_BASE[: -len("/api")] if API_BASE.rstrip("/").endswith("/api") else API_BASE
 )
 REQUEST_TIMEOUT = 60
-LEGACY_STRATEGY_JOBS_ENV = "PAMS_LEGACY_STRATEGY_JOBS_ENABLED"
 ASIA_PACIFIC_REFRESH_TIME = os.environ.get("PAMS_ASIA_PACIFIC_REFRESH_TIME", "15:05")
 ASIA_PACIFIC_REFRESH_TZ = os.environ.get("PAMS_ASIA_PACIFIC_REFRESH_TZ", "Asia/Shanghai")
 NORTH_AMERICA_REFRESH_TIME = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TIME", "16:30")
@@ -54,9 +53,6 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def legacy_strategy_jobs_enabled() -> bool:
-    """Production default is false: live advice must come from package ingestion."""
-    return _env_bool(LEGACY_STRATEGY_JOBS_ENV, False)
 
 
 def _call(endpoint: str, label: str):
@@ -121,11 +117,6 @@ def _post_root(endpoint: str, label: str):
     return _request_json("post", url, label)
 
 
-def _call_legacy_strategy(endpoint: str, label: str):
-    if not legacy_strategy_jobs_enabled():
-        logger.warning("[%s] skipped: %s=false", label, LEGACY_STRATEGY_JOBS_ENV)
-        return {"skipped": True, "reason": "legacy_strategy_jobs_disabled", "endpoint": endpoint}
-    return _call(endpoint, label)
 
 
 def sync_ibkr_flex(expected_reference=None):
@@ -472,50 +463,18 @@ def refresh_overseas_quotes(now=None):
     return {market: _refresh_overseas_market_quotes(market, current) for market in ("kr", "hk", "se", "ch")}
 
 
-def refresh_trend_state():
-    """Refresh legacy macro trend state only when legacy jobs are enabled."""
-    return _call_legacy_strategy("strategy/state/refresh", "Macro trend")
 
 
-def sentiment_refresh():
-    """Refresh legacy market sentiment only when legacy jobs are enabled."""
-    return _call_legacy_strategy("strategy/sentiment/refresh", "Sentiment")
 
 
-def intraday_refresh():
-    """Refresh legacy intraday candidates only when legacy jobs are enabled."""
-    return _call_legacy_strategy("strategy/intraday/refresh", "Intraday")
 
 
-def cooldowns_expire():
-    """Expire legacy cooldowns only when legacy jobs are enabled."""
-    return _call_legacy_strategy("strategy/cooldowns/expire", "Cooldowns")
 
 
-def watchlist_daily_exit_check():
-    """Run legacy watchlist exit check only when legacy jobs are enabled."""
-    return _call_legacy_strategy("strategy/watchlist/exit-check", "Watchlist exit")
 
 
-def watchlist_weekly_scan():
-    """Run legacy weekly watchlist scan only when legacy jobs are enabled."""
-    logger.info("=== Legacy watchlist weekly scan started ===")
-    result = _call_legacy_strategy("strategy/watchlist/scan", "Watchlist scan")
-    _call_legacy_strategy("strategy/watchlist/exit-check", "Watchlist exit")
-    logger.info("=== Legacy watchlist weekly scan finished ===")
-    return result
 
 
-def strategy_eod_scan():
-    """Run legacy A-share EOD strategy pipeline only when explicitly enabled."""
-    logger.info("=== Legacy A-share EOD pipeline started ===")
-    _call_legacy_strategy("strategy/risk-snapshot/refresh", "Risk snapshot")
-    _call_legacy_strategy("strategy/sentiment/refresh", "Sentiment")
-    _call_legacy_strategy("strategy/cooldowns/expire", "Cooldowns")
-    result = _call_legacy_strategy("strategy/scan/eod", "A-share EOD scan")
-    _call_legacy_strategy("strategy/orders/expire", "Order expiry")
-    logger.info("=== Legacy A-share EOD pipeline finished ===")
-    return result
 
 
 def _should_catch_up_local(
@@ -569,15 +528,7 @@ def main():
     schedule.every(30).minutes.do(refresh_crypto)
     schedule.every(5).minutes.do(refresh_us_quotes)
     schedule.every(5).minutes.do(refresh_overseas_quotes)
-    schedule.every().day.at("07:25").do(refresh_trend_state)
-    schedule.every().day.at("07:30").do(strategy_eod_scan)
-    schedule.every().day.at("07:32").do(watchlist_daily_exit_check)
-    schedule.every().friday.at("07:35").do(watchlist_weekly_scan)
 
-    for refresh_time in ["01:45", "02:00", "02:15", "02:30", "02:45", "03:00", "03:15"]:
-        schedule.every().day.at(refresh_time).do(intraday_refresh)
-    for refresh_time in ["05:15", "05:30", "05:45", "06:00", "06:15", "06:30", "06:45"]:
-        schedule.every().day.at(refresh_time).do(intraday_refresh)
 
     logger.info("Waiting for API readiness (10 seconds)...")
     time.sleep(10)

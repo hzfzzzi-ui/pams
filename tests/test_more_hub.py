@@ -47,7 +47,8 @@ def test_more_uses_investment_tokens_without_new_font_or_financial_code():
     html = (PUBLIC / "more.html").read_text(encoding="utf-8")
     assert "more.css?v=20261029-investment-language-v1" in html
     assert "more.js?v=20261029-hub-v1" in html
-    assert html.count('class="moreRow" href=') == 5
+    assert html.count('class="moreRow" href=') == 4
+    assert 'href="research.html"' not in html
 
 
 def test_optional_more_typography_and_interactions_in_real_browser(tmp_path):

@@ -30,40 +30,8 @@ def _load_scheduler(monkeypatch):
     return module
 
 
-def test_legacy_strategy_scheduler_default_disabled(monkeypatch) -> None:
-    monkeypatch.delenv("PAMS_LEGACY_STRATEGY_JOBS_ENABLED", raising=False)
-    module = _load_scheduler(monkeypatch)
-    calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)))
-
-    result = module.refresh_trend_state()
-    module.strategy_eod_scan()
-    module.watchlist_weekly_scan()
-    module.intraday_refresh()
-
-    assert result == {
-        "skipped": True,
-        "reason": "legacy_strategy_jobs_disabled",
-        "endpoint": "strategy/state/refresh",
-    }
-    assert calls == []
 
 
-def test_legacy_strategy_scheduler_requires_explicit_enable(monkeypatch) -> None:
-    monkeypatch.setenv("PAMS_LEGACY_STRATEGY_JOBS_ENABLED", "true")
-    module = _load_scheduler(monkeypatch)
-    calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)))
-
-    module.strategy_eod_scan()
-
-    assert [endpoint for endpoint, _label in calls] == [
-        "strategy/risk-snapshot/refresh",
-        "strategy/sentiment/refresh",
-        "strategy/cooldowns/expire",
-        "strategy/scan/eod",
-        "strategy/orders/expire",
-    ]
 
 
 def test_post_close_investment_scheduler_job_calls_price_endpoints(monkeypatch) -> None:
@@ -133,13 +101,3 @@ def test_north_america_startup_catch_up_uses_new_york_cutoff(monkeypatch) -> Non
     assert module.should_catch_up_north_america_investments(datetime(2026, 6, 1, 20, 30, tzinfo=timezone.utc)) is True
     assert module.should_catch_up_north_america_investments(datetime(2026, 12, 1, 21, 29, tzinfo=timezone.utc)) is False
     assert module.should_catch_up_north_america_investments(datetime(2026, 12, 1, 21, 30, tzinfo=timezone.utc)) is True
-
-
-def test_legacy_entrypoint_inventory_mentions_scheduler_and_tables() -> None:
-    doc = (REPO_ROOT / "docs" / "LEGACY_RESEARCH_ENTRYPOINTS.md").read_text(encoding="utf-8")
-
-    assert "PAMS_LEGACY_STRATEGY_JOBS_ENABLED=false" in doc
-    assert "strategy_eod_scan" in doc
-    assert "pams_strategy_candidates" in doc
-    assert "pams_order_drafts" in doc
-    assert "/api/live-signals/*" in doc

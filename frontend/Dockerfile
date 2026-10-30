@@ -57,7 +57,7 @@ RUN printf '%s\n' \
 '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
 '    proxy_set_header X-Forwarded-Proto $scheme;' \
 '  }' \
-'  location ~ ^/(summary2|nav|risk|cashflow|policy|watchlist)(/|$) {' \
+'  location ~ ^/(summary2|nav|risk|cashflow)(/|$) {' \
 '    proxy_pass http://pams-api:8000;' \
 '    proxy_http_version 1.1;' \
 '    proxy_connect_timeout 30s;' \
@@ -71,6 +71,8 @@ RUN printf '%s\n' \
 '  }' \
 '  root /usr/share/nginx/html;' \
 '  index investments.html;' \
+'  location ~ ^/(policy|watchlist)(/|$) { return 404; }' \
+'  location = /research.html { return 404; }' \
 '  location = /backtest.html { return 404; }' \
 '  location = /backtest_v2.html { return 404; }' \
 '  location = /bank_reconcile.html { return 404; }' \
