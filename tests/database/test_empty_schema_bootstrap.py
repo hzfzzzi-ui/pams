@@ -69,9 +69,15 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                         cur.execute(sql.SQL("SELECT payload FROM public.{} WHERE id=1").format(sql.Identifier(table)))
                         assert cur.fetchone()[0] == "existing"
                 for table in ("pams_ohlcv_daily", "pams_fx_rates_daily",
-                              "pams_holdings_snapshot", "pams_asset_market_daily"):
+                              "pams_holdings_snapshot", "pams_asset_market_daily",
+                              "pams_data_version"):
                     cur.execute("SELECT to_regclass(%s)", ("public." + table,))
                     assert cur.fetchone()[0], table
+                # The shared version tracker stays a physical table for external upsert/index consumers.
+                cur.execute("SELECT relkind FROM pg_class WHERE oid = 'public.pams_data_version'::regclass")
+                assert cur.fetchone()[0] == 'r'
+                cur.execute("INSERT INTO public.pams_data_version (as_of_date, rows_ohlcv) VALUES ('2026-01-01', 1) ON CONFLICT (as_of_date) DO UPDATE SET rows_ohlcv = EXCLUDED.rows_ohlcv")
+                cur.execute("CREATE INDEX idx_test_shared_data_version ON public.pams_data_version (checksum)")
                 # 026 moves the physical table and leaves a compatibility view.
                 cur.execute("INSERT INTO public.pams_ohlcv_daily (symbol, trade_date, close) VALUES ('TEST', '2026-01-01', 123.45)")
                 for filename in ("010_market_ohlcv.sql", "013a_alter_ohlcv.sql"):
@@ -256,10 +262,10 @@ def test_guarded_bootstrap_commits_empty_database_and_refuses_repeat(bootstrap_d
             assert all(cur.fetchone())
             cur.execute("SELECT (SELECT count(*) FROM pams_holdings_snapshot), (SELECT count(*) FROM pams_cashflow_fact), (SELECT count(*) FROM pams_investment_trade_fact)")
             assert cur.fetchone() == (0, 0, 0)
-            for table in ("pams_policy", "pams_strategy_candidates", "pams_watchlist", "pams_live_signal_packages", "pams_sim_accounts", "pams_data_version"):
+            for table in ("pams_policy", "pams_strategy_candidates", "pams_watchlist", "pams_live_signal_packages", "pams_sim_accounts"):
                 cur.execute("SELECT to_regclass(%s)", ("public." + table,))
                 assert cur.fetchone()[0] is None, table
-            for table in ("pams_sentiment_state", "pit_trade_cal", "pit_st_history", "pams_fundamental_snapshot"):
+            for table in ("pams_sentiment_state", "pit_trade_cal", "pit_st_history", "pams_fundamental_snapshot", "pams_data_version"):
                 cur.execute("SELECT to_regclass(%s)", ("public." + table,))
                 assert cur.fetchone()[0] is not None, table
         conn.commit()

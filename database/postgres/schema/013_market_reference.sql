@@ -1,7 +1,6 @@
--- Shared reference tables required by asset services and independent backtest.
 -- =====================================================
 -- PIT (Point-in-Time) 数据表
--- 用于消除回测中的幸存者偏差和时光旅行
+-- 共享证券、行情、行业和数据版本参考
 -- =====================================================
 
 -- ① 证券主表 (上市/退市/交易所/名称)
@@ -78,3 +77,17 @@ CREATE TABLE IF NOT EXISTS pit_industry_history (
 );
 CREATE INDEX IF NOT EXISTS idx_pit_ind_ts
     ON pit_industry_history(ts_code, standard);
+
+-- ⑥ 数据版本追踪
+CREATE TABLE IF NOT EXISTS pams_data_version (
+    id              SERIAL PRIMARY KEY,
+    as_of_date      DATE NOT NULL UNIQUE,
+    rows_ohlcv      BIGINT DEFAULT 0,
+    rows_index      BIGINT DEFAULT 0,
+    rows_security   INT DEFAULT 0,
+    max_trade_date  DATE,
+    checksum        VARCHAR(64),                   -- SHA256 of key counts
+    ingest_seconds  NUMERIC(10,2),
+    notes           TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
