@@ -15,10 +15,9 @@ http://pams.local {
     }
   }
 
-  # Preserve existing non-/api dashboard routes. Legacy policy/watchlist
-  # forwarding does not restore their removed backends; review separately.
+  # Preserve existing non-/api dashboard routes.
   @legacy_api {
-    path /summary2/* /nav/* /risk/* /holdings/* /cashflow/* /investment/* /policy/* /watchlist /health
+    path /summary2/* /nav/* /risk/* /holdings/* /cashflow/* /investment/* /health
   }
   handle @legacy_api {
     reverse_proxy pams-api:8000 {
@@ -26,6 +25,14 @@ http://pams.local {
         response_header_timeout 3600s
       }
     }
+  }
+
+  # Retired endpoints must not fall back to the frontend application.
+  @retired_strategy {
+    path /policy /policy/* /watchlist /watchlist/*
+  }
+  handle @retired_strategy {
+    respond 404
   }
 
   # Frontend static files -> Nginx
@@ -56,7 +63,7 @@ http://adguard.pams.local {
   }
 
   @legacy_api {
-    path /summary2/* /nav/* /risk/* /holdings/* /cashflow/* /investment/* /policy/* /watchlist /health
+    path /summary2/* /nav/* /risk/* /holdings/* /cashflow/* /investment/* /health
   }
   handle @legacy_api {
     reverse_proxy pams-api:8000 {
@@ -64,6 +71,14 @@ http://adguard.pams.local {
         response_header_timeout 3600s
       }
     }
+  }
+
+  # Retired endpoints must not fall back to the frontend application.
+  @retired_strategy {
+    path /policy /policy/* /watchlist /watchlist/*
+  }
+  handle @retired_strategy {
+    respond 404
   }
 
   # Frontend static files -> Nginx
