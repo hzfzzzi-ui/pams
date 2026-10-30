@@ -813,7 +813,6 @@ FROM (
         ('pams_category_rules'),
         ('pams_cn_etf_daily'),
         ('pams_data_sync_runs'),
-        ('pams_data_version'),
         ('pams_fund_nav_estimates'),
         ('pams_fund_underlying_position'),
         ('pams_ibkr_position_history'),
