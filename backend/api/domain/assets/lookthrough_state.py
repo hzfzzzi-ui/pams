@@ -586,6 +586,10 @@ def _is_direct_asset(position: dict[str, Any], mapping: dict[str, Any] | None) -
     if not mapping:
         return False
     asset_class = _key(mapping.get("asset_class") or position.get("asset_type"))
+    # The upstream us_stock category includes overseas funds as well as stocks.
+    # Require the original holding category before treating it as direct equity.
+    if asset_class == "us_stock":
+        return _norm_text(position.get("minor_category")) in {"美股个股", "欧股个股", "海外个股"}
     return asset_class in {
         "a_share_stock",
         "a_stock",
