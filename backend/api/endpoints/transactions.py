@@ -87,6 +87,7 @@ def sync_transaction_to_holdings(
             WHERE account_code = %s
               AND minor_category = '现金/活期'
               AND as_of = %s
+            FOR UPDATE
         """, (account_code, tx_date))
 
         holding = cur.fetchone()
@@ -131,8 +132,6 @@ def sync_transaction_to_holdings(
                 transaction_id, holding_id, sync_type, amount
             ) VALUES (%s, %s, %s, %s)
         """, (transaction_id, holding_id, sync_type, abs(amount)))
-
-        conn.commit()
 
 # ==================== API端点 ====================
 
@@ -195,7 +194,6 @@ def create_transaction(tx: TransactionCreate):
             ))
 
             transaction_id = cur.fetchone()['id']
-            conn.commit()
 
         # 同步到holdings（仅Telegram来源的收支）
         if tx.source == "telegram":
@@ -203,6 +201,10 @@ def create_transaction(tx: TransactionCreate):
                 conn, transaction_id, tx.account_code,
                 tx.amount, tx.currency, tx_date, tx.description or ""
             )
+
+        # Keep the transaction, classification update and any cash/log sync
+        # together: a failed sync must not leave an already committed transaction.
+        conn.commit()
 
     return {
         "success": True,
