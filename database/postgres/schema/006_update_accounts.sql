@@ -40,19 +40,19 @@ SELECT
   t.*,
   CASE
     WHEN t.currency = 'CNY' THEN t.amount
-    WHEN t.currency = 'MXN' THEN t.amount * COALESCE((
+    WHEN t.currency = 'MXN' THEN t.amount * (
       SELECT rate FROM pams_fx_rates_daily
-      WHERE pair = 'MXN/CNY'
+      WHERE base_currency = 'MXN' AND quote_currency = 'CNY'
       AND as_of <= t.date
       ORDER BY as_of DESC LIMIT 1
-    ), 0.35)  -- 默认汇率 1 MXN = 0.35 CNY
-    WHEN t.currency = 'USD' THEN t.amount * COALESCE((
+    )
+    WHEN t.currency = 'USD' THEN t.amount * (
       SELECT rate FROM pams_fx_rates_daily
-      WHERE pair = 'USD/CNY'
+      WHERE base_currency = 'USD' AND quote_currency = 'CNY'
       AND as_of <= t.date
       ORDER BY as_of DESC LIMIT 1
-    ), 7.2)  -- 默认汇率 1 USD = 7.2 CNY
-    ELSE t.amount
+    )
+    ELSE NULL
   END AS amount_cny
 FROM pams_transactions t;
 
