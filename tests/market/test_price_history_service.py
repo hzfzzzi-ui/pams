@@ -82,6 +82,48 @@ class FakeCursor:
         self.executed_payload = payload
 
 
+def test_index_history_fills_missing_dates_without_overwriting_pit():
+    class Cursor:
+        def __init__(self):
+            self.rows = iter([
+                [{"trade_date": date(2026, 6, 1), "close": Decimal("100")}],
+                [{"trade_date": date(2026, 6, 1), "close": Decimal("99")},
+                 {"trade_date": date(2026, 6, 2), "close": Decimal("101")}],
+            ])
+
+        def execute(self, _query, _params):
+            pass
+
+        def fetchall(self):
+            return next(self.rows)
+
+    instrument = price_history.normalize_price_instrument("000001.SH", benchmark=True)
+    rows = price_history._query_ohlcv_rows(Cursor(), instrument, date(2026, 6, 1), date(2026, 6, 2))
+    assert [(row["trade_date"], row["close"]) for row in rows] == [
+        (date(2026, 6, 1), Decimal("100")),
+        (date(2026, 6, 2), Decimal("101")),
+    ]
+
+
+def test_index_history_retains_single_available_source():
+    class Cursor:
+        def __init__(self, values):
+            self.values = iter(values)
+
+        def execute(self, _query, _params):
+            pass
+
+        def fetchall(self):
+            return next(self.values)
+
+    instrument = price_history.normalize_price_instrument("000001.SH", benchmark=True)
+    row = {"trade_date": date(2026, 6, 1), "close": Decimal("100")}
+    for inputs in ([[], [row]], [[row], []]):
+        assert price_history._query_ohlcv_rows(
+            Cursor(inputs), instrument, date(2026, 6, 1), date(2026, 6, 2)
+        ) == [row]
+
+
 def test_upsert_yfinance_history_persists_to_ohlcv(monkeypatch):
     def fake_fetch(symbols, *, start, end):
         assert symbols == ["NVDA"]
