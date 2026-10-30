@@ -58,14 +58,16 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                         cur.execute("""CREATE TABLE public.pams_transaction_sync_log
                             (id text PRIMARY KEY)""")
                         cur.execute("INSERT INTO public.pams_transaction_lifecycle VALUES ('existing', 'before')")
-                        for table in ("pams_task_queue", "pams_notifications"):
+                        for table in ("pams_task_queue", "pams_notifications", "pams_strategy_state", "pams_watchlist", "pams_sim_accounts", "pams_policy"):
                             cur.execute(sql.SQL("CREATE TABLE public.{} (id integer PRIMARY KEY, payload text)").format(sql.Identifier(table)))
                             cur.execute(sql.SQL("INSERT INTO public.{} VALUES (1, 'existing')").format(sql.Identifier(table)))
                     cur.execute(path.read_text(encoding="utf-8"))
-                for table in ("pams_task_queue", "pams_notifications"):
+                for table in ("pams_task_queue", "pams_notifications", "pams_strategy_state", "pams_watchlist", "pams_sim_accounts", "pams_policy"):
                     cur.execute("SELECT to_regclass(%s)", ("public." + table,))
                     assert (cur.fetchone()[0] is not None) == optional_etf_source
                     if optional_etf_source:
+                        cur.execute("SELECT relkind FROM pg_class WHERE oid = %s::regclass", ("public." + table,))
+                        assert cur.fetchone()[0] == "r"
                         cur.execute(sql.SQL("SELECT payload FROM public.{} WHERE id=1").format(sql.Identifier(table)))
                         assert cur.fetchone()[0] == "existing"
                 for table in ("pams_ohlcv_daily", "pams_fx_rates_daily",

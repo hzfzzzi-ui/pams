@@ -791,7 +791,7 @@ BEGIN
     END IF;
 
     IF to_regclass(format('%I.%I', target_schema, table_name)) IS NOT NULL THEN
-        EXECUTE format('DROP VIEW IF EXISTS public.%I CASCADE', table_name);
+        EXECUTE format('DROP VIEW IF EXISTS public.%I', table_name);
         EXECUTE format('CREATE VIEW public.%I AS SELECT * FROM %I.%I', table_name, target_schema, table_name);
     END IF;
 END;
@@ -835,24 +835,9 @@ FROM (
         ('pams_event_monitor'),
         ('pams_fundamental_snapshot'),
         ('pams_news_items'),
-        ('pams_notifications'),
-        ('pams_order_drafts'),
-        ('pams_policy'),
-        ('pams_position_cooldown'),
         ('pams_risk_events'),
         ('pams_risk_snapshot'),
-        ('pams_sentiment_state'),
-        ('pams_sim_accounts'),
-        ('pams_sim_cash_ledger'),
-        ('pams_sim_holdings_snapshots'),
-        ('pams_sim_reconcile_summaries'),
-        ('pams_sim_sync_logs'),
-        ('pams_strategy_blacklist'),
-        ('pams_strategy_candidates'),
-        ('pams_strategy_state'),
-        ('pams_task_queue'),
-        ('pams_watchlist'),
-        ('pams_watchlist_log')
+        ('pams_sentiment_state')
 ) AS t(name);
 
 -- External OHLCV system: exclude from PAMS audit while preserving public views.
