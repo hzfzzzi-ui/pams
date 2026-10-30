@@ -42,13 +42,13 @@ SELECT
     WHEN t.currency = 'CNY' THEN t.amount
     WHEN t.currency = 'MXN' THEN t.amount * (
       SELECT rate FROM pams_fx_rates_daily
-      WHERE base_currency = 'MXN' AND quote_currency = 'CNY'
+      WHERE base_currency = 'CNY' AND quote_currency = 'MXN'
       AND as_of <= t.date
       ORDER BY as_of DESC LIMIT 1
     )
     WHEN t.currency = 'USD' THEN t.amount * (
       SELECT rate FROM pams_fx_rates_daily
-      WHERE base_currency = 'USD' AND quote_currency = 'CNY'
+      WHERE base_currency = 'CNY' AND quote_currency = 'USD'
       AND as_of <= t.date
       ORDER BY as_of DESC LIMIT 1
     )

@@ -43,8 +43,8 @@ def isolated_cursor():
 def test_view_uses_latest_non_future_direct_fx(isolated_cursor):
     cur = isolated_cursor
     cur.execute("""INSERT INTO pams_fx_rates_daily VALUES
-        ('2026-01-01','USD','CNY',7.1), ('2026-01-02','USD','CNY',7.2),
-        ('2026-01-05','USD','CNY',7.9), ('2026-01-02','CNY','USD',0.1)""")
+        ('2026-01-01','CNY','USD',7.1), ('2026-01-02','CNY','USD',7.2),
+        ('2026-01-05','CNY','USD',7.9), ('2026-01-02','USD','CNY',0.1)""")
     cur.execute("""INSERT INTO pams_transactions VALUES
         ('2026-01-03',10,'USD','Santander'), ('2026-01-03',10,'CNY','Santander')""")
     cur.execute("SELECT currency, amount_cny FROM v_transactions_cny ORDER BY currency")
@@ -53,7 +53,7 @@ def test_view_uses_latest_non_future_direct_fx(isolated_cursor):
 
 def test_view_does_not_guess_missing_or_future_rates(isolated_cursor):
     cur = isolated_cursor
-    cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('2026-01-05','USD','CNY',7.9)")
+    cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('2026-01-05','CNY','USD',7.9)")
     cur.execute("""INSERT INTO pams_transactions VALUES
         ('2026-01-03',10,'USD','Santander'), ('2026-01-03',10,'MXN','Santander'),
         ('2026-01-03',10,NULL,'Santander')""")
