@@ -454,7 +454,8 @@ def load_lookthrough_config(raw: dict[str, Any] | None = None) -> dict[str, Any]
     mapping_by_key: dict[str, dict[str, Any]] = {}
     for mapping in mappings:
         aliases = mapping.get("aliases") or []
-        keys = _lookup_keys(mapping.get("symbol"), mapping.get("asset_name"), *aliases)
+        lookthrough_aliases = mapping.get("lookthrough_aliases") or []
+        keys = _lookup_keys(mapping.get("symbol"), mapping.get("asset_name"), *aliases, *lookthrough_aliases)
         for key in keys:
             mapping_by_key[key] = mapping
 
