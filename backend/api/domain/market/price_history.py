@@ -39,6 +39,7 @@ MARKET_ALIASES = {
     "ASHARE": "CN_A",
     "CN": "CN_A",
     "CN_A": "CN_A",
+    "CN_ETF": "CN_A",
     "CN_INDEX": "CN_INDEX",
     "INDEX": "CN_INDEX",
     "BENCHMARK": "CN_INDEX",
@@ -182,12 +183,16 @@ def normalize_price_instrument(
         normalized_market = (
             "CN_INDEX"
             if ts_candidate in CN_INDEX_SYMBOLS or ts_candidate.startswith(("000", "399"))
+            else "CN_A"
+            if len(ts_candidate) == 9 and ts_candidate[:6].isdigit() and ts_candidate[6:] in {".SH", ".SZ"}
             else "YF"
         )
     if not normalized_market:
         if ts_candidate in CN_INDEX_SYMBOLS:
             normalized_market = "CN_INDEX"
         elif requested.isdigit() and len(requested) == 6:
+            normalized_market = "CN_A"
+        elif len(ts_candidate) == 9 and ts_candidate[:6].isdigit() and ts_candidate[6:] in {".SH", ".SZ"}:
             normalized_market = "CN_A"
         else:
             normalized_market = "YF"

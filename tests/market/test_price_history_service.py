@@ -32,6 +32,17 @@ def test_normalize_price_instruments_for_analysis_and_trade_review():
     assert benchmark_short.symbol == "sh000905"
     assert benchmark_short.query_symbol == "000905.SH"
 
+    gold_etf = price_history.normalize_price_instrument("518880.SH")
+    assert (gold_etf.market, gold_etf.symbol) == ("CN_A", "sh518880")
+    benchmark_etf = price_history.normalize_price_instrument("518880.SH", benchmark=True)
+    assert (benchmark_etf.market, benchmark_etf.symbol) == ("CN_A", "sh518880")
+    explicit_etf = price_history.normalize_price_instrument("159919.SZ", market="CN_ETF")
+    assert (explicit_etf.market, explicit_etf.symbol) == ("CN_A", "sz159919")
+    sh_index = price_history.normalize_price_instrument("000001.SH")
+    assert (sh_index.market, sh_index.symbol) == ("CN_INDEX", "sh000001")
+    explicit_yf = price_history.normalize_price_instrument("518880.SH", market="YF")
+    assert (explicit_yf.market, explicit_yf.symbol) == ("YF", "518880.SH")
+
     us_stock = price_history.normalize_price_instrument("NVDA")
     assert us_stock.market == "YF"
     assert us_stock.symbol == "NVDA"
