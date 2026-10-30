@@ -122,6 +122,7 @@ def test_derive_lookthrough_payload_reads_asset_master_without_syncing_by_defaul
 
     assert payload["master_data"]["status"] == "ok"
     assert any("FROM pams_asset_master" in sql for sql in cur.executed)
+    assert len(cur.executed) == 4
     _assert_read_only_sql(cur.executed)
 
 

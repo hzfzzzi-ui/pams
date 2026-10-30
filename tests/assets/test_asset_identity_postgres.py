@@ -13,6 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend" / "api"))
 from domain.assets import asset_master as master  # noqa: E402
+from domain.assets import lookthrough_state  # noqa: E402
 
 
 @pytest.fixture
@@ -47,6 +48,23 @@ def _business_snapshot(cur):
         cur.execute(sql.SQL("SELECT {} FROM {}").format(sql.SQL(fields), sql.Identifier(table)))
         rows[table] = sorted((dict(row) for row in cur.fetchall()), key=repr)
     return rows
+
+
+def test_manual_security_projection_preserves_all_master_tables(scratch_cursor):
+    cur = scratch_cursor
+    cur.execute("""INSERT INTO pams_asset_master
+        (asset_id, canonical_name, primary_symbol, asset_type, currency, source, status)
+        VALUES ('MANUAL_TEST', 'Example', 'TEST', '欧股个股', 'SEK', 'manual', 'active')""")
+    before = _business_snapshot(cur)
+    payload = lookthrough_state.derive_lookthrough_payload(
+        [{"asset_id": "TEST", "symbol": "TEST", "asset_name": "Example", "asset_type": "us_stock",
+          "currency": "SEK", "holding_snapshot_currency": "SEK", "holding_snapshot_asset_id": "MANUAL_TEST",
+          "market_value_cny": 70, "as_of": "2026-01-01"}],
+        {"asset_mapping": [], "asset_lookthrough": []}, asset_master_cur=cur,
+    )
+    assert payload["quality"]["items"][0]["lookthrough_type"] == "DIRECT"
+    assert payload["total_market_value_cny"] == 70
+    assert _business_snapshot(cur) == before
 
 
 def test_sync_is_business_idempotent_and_ambiguous_names_do_not_match(scratch_cursor):
