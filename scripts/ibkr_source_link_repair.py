@@ -18,8 +18,8 @@ from psycopg2.extensions import TRANSACTION_STATUS_IDLE, parse_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'backend/api'))
-from services.ibkr_lineage_rehearsal import fingerprint, plan_rehearsal  # noqa: E402
-from services.ibkr_report_state import report_quality, select_report  # noqa: E402
+from domain.brokers.ibkr.ibkr_lineage_rehearsal import fingerprint, plan_rehearsal  # noqa: E402
+from domain.brokers.ibkr.ibkr_report_state import report_quality, select_report  # noqa: E402
 
 PURPOSE = 'isolated_source_link_rehearsal'
 JOURNAL = 'public.pams_ibkr_source_link_repair_audit'

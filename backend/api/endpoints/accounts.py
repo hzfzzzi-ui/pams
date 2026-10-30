@@ -19,7 +19,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 
 router = APIRouter()
 
@@ -795,7 +795,8 @@ def _build_accounts_overview(
 
 
 def _overview_payload() -> dict[str, Any]:
-    from services import ibkr_daily_close_read, portfolio_state
+    from domain.brokers.ibkr import ibkr_daily_close_read
+    from domain.investments import portfolio_state
 
     account_cfg = _load_accounts_config()
     bank_cfg = _load_bank_config()

@@ -11,9 +11,9 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend" / "api"))
-from services.ibkr_daily_close import MAX_XML_BYTES, parse_daily_close_evidence  # noqa: E402
-from services.ibkr_daily_close_read import read_bounded  # noqa: E402
-from services.ibkr_daily_close_publish import publish, publication_lock as _publication_lock  # noqa: E402
+from domain.brokers.ibkr.ibkr_daily_close import MAX_XML_BYTES, parse_daily_close_evidence  # noqa: E402
+from domain.brokers.ibkr.ibkr_daily_close_read import read_bounded  # noqa: E402
+from domain.brokers.ibkr.ibkr_daily_close_publish import publish, publication_lock as _publication_lock  # noqa: E402
 
 LOCK_WAIT_SECONDS = 10
 

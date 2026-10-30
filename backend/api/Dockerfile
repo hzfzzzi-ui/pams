@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/api/*.py ./
 COPY backend/api/endpoints/ ./endpoints/
 COPY backend/api/collectors/ ./collectors/
-COPY backend/api/services/ ./services/
+COPY backend/api/domain/ ./domain/
 COPY config/ /app/config/
 COPY src/ /app/src/
 

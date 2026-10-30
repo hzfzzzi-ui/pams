@@ -10,8 +10,8 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from services.cashflow_fact import _cashflow_flags as cashflow_flags_for_type
-from services.ledger_view import build_ledger_workbench_payload
+from domain.ledger.cashflow_fact import _cashflow_flags as cashflow_flags_for_type
+from domain.ledger.ledger_view import build_ledger_workbench_payload
 
 
 router = APIRouter()

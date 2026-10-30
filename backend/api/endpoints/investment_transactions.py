@@ -14,9 +14,9 @@ import yaml
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from services.portfolio_state import _load_accounts_config, _owner_ratio
-from services.trade_campaigns import build_position_campaigns_payload, today_local
-from services.trade_attribution import (
+from domain.investments.portfolio_state import _load_accounts_config, _owner_ratio
+from domain.investments.trade_campaigns import build_position_campaigns_payload, today_local
+from domain.investments.trade_attribution import (
     apply_auto_trade_annotations,
     build_trade_auto_review_queue_payload,
     build_trade_attribution_payload,
