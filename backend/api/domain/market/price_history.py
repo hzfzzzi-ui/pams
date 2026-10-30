@@ -300,9 +300,7 @@ def _query_ohlcv_rows(cur, instrument: PriceInstrument, start: Date, end: Date) 
             """,
             (instrument.query_symbol, start, end),
         )
-        rows = _fetch_dict_rows(cur)
-        if rows:
-            return rows
+        pit_rows = _fetch_dict_rows(cur)
 
     if instrument.market == "CN_INDEX":
         cur.execute(
@@ -330,7 +328,13 @@ def _query_ohlcv_rows(cur, instrument: PriceInstrument, start: Date, end: Date) 
             """,
             (instrument.symbol, instrument.market, start, end),
         )
-    return _fetch_dict_rows(cur)
+    rows = _fetch_dict_rows(cur)
+    if instrument.market == "CN_INDEX":
+        # Preserve the index source for duplicate dates; fill only its gaps.
+        by_day = {row["trade_date"]: row for row in rows}
+        by_day.update({row["trade_date"]: row for row in pit_rows})
+        return [by_day[day] for day in sorted(by_day)]
+    return rows
 
 
 def build_price_series_payload(
