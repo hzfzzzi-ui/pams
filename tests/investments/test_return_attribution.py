@@ -730,3 +730,32 @@ def test_duplicate_symbol_positions_preserve_source_accounts() -> None:
     assert accounts == {"tencent_licaitong", "ccb_yhs300_fund"}
     assert row["market_value_cny"] == pytest.approx(19450.73)
     assert row["pnl_cny"] == pytest.approx(-549.27)
+
+
+def test_ambiguous_fund_identity_does_not_borrow_another_fund_return_attribution() -> None:
+    config = {
+        "asset_mapping": [
+            {"symbol": "sh600000", "asset_name": "Shared Fund", "asset_class": "fund", "currency": "CNY"},
+            {"symbol": "sz600000", "asset_name": "Shared Fund", "asset_class": "fund", "currency": "CNY"},
+        ],
+        "asset_lookthrough": [
+            {"parent_symbol": "sh600000", "parent_asset_name": "Shared Fund", "lookthrough_type": "TOP10",
+             "holdings": [{"underlying_symbol": "NVDA", "underlying_name": "NVIDIA", "underlying_weight": 0.6,
+                           "underlying_industry": "半导体", "underlying_currency": "USD"}]},
+            {"parent_symbol": "sz600000", "parent_asset_name": "Shared Fund", "lookthrough_type": "TOP10",
+             "holdings": [{"underlying_symbol": "JPM", "underlying_name": "JPMorgan", "underlying_weight": 0.8,
+                           "underlying_industry": "银行", "underlying_currency": "USD"}]},
+        ],
+    }
+    positions = [
+        {"symbol": "sh600000", "asset_name": "Shared Fund", "asset_type": "fund", "currency": "CNY",
+         "account_code": "account-a", "market_value_cny": 100.0, "holding_pnl_cny": 10.0},
+        {"symbol": "600000", "asset_name": "Shared Fund", "asset_type": "fund", "currency": "CNY",
+         "account_code": "account-b", "market_value_cny": 50.0, "holding_pnl_cny": 5.0},
+    ]
+    payload = build_return_attribution_from_positions(positions, config, as_of="2026-06-02")
+    assert payload["total_pnl_cny"] == pytest.approx(15.0)
+    underlying = payload["dimensions"]["underlying"]
+    assert _row(underlying, "NVIDIA")["pnl_cny"] == pytest.approx(6.0)
+    assert not any(row["name"] == "JPMorgan" for row in underlying)
+    assert sum(row["pnl_cny"] for row in payload["dimensions"]["holding"]) == pytest.approx(15.0)

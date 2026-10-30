@@ -8,7 +8,7 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 
-from domain.assets.asset_master import AssetMasterSchemaUnavailable
+from domain.assets.asset_master import AmbiguousAssetIdentityError, AssetMasterSchemaUnavailable
 from domain.assets.lookthrough_state import build_lookthrough_payload
 from domain.investments.portfolio_state import get_conn
 from domain.investments.return_attribution import build_return_attribution_payload
@@ -45,6 +45,11 @@ def sync_asset_master_from_current_portfolio(baseCurrency: str = Query("CNY")) -
                     sync_asset_master=True,
                 )
             conn.commit()
+    except AmbiguousAssetIdentityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ambiguous_asset_identity", "message": "资产身份存在歧义，同步未执行"},
+        ) from exc
     except AssetMasterSchemaUnavailable as exc:
         raise HTTPException(
             status_code=503,

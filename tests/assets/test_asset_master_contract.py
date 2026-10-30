@@ -422,3 +422,71 @@ def test_asset_schema_unavailable_returns_sanitized_503(monkeypatch) -> None:
     assert "pams_asset_master" not in str(exc.value.detail)
     assert connection.__exit__.call_args.args[0] is AssetMasterSchemaUnavailable
     connection.commit.assert_not_called()
+
+
+def test_market_qualified_collision_does_not_match_existing_other_exchange() -> None:
+    lookup = {
+        "assets": {"A_600000": {"asset_id": "A_600000", "primary_symbol": "600000.SZ", "asset_type": "A股个股"}},
+        "alias_to_id": {},
+    }
+    assert _find_asset({"symbol": "600000.SH", "asset_type": "stock_cn"}, lookup) is None
+    assert _find_asset({"symbol": "600000", "asset_type": "stock_cn"}, lookup) is None
+    assert _find_asset({"asset_master_id": "A_600000", "symbol": "600000.SH"}, lookup) is None
+    assert _find_asset({"symbol": "600000.SZ", "asset_type": "stock_cn"}, lookup)["asset_id"] == "A_600000"
+
+
+def test_asset_master_sync_conflict_returns_sanitized_409(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+    from fastapi import HTTPException
+    from endpoints import analysis
+    from domain.assets.asset_master import AmbiguousAssetIdentityError
+
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    monkeypatch.setattr(analysis, "get_conn", lambda: connection)
+    def fail(*args, **kwargs):
+        raise AmbiguousAssetIdentityError("sensitive asset_id 600000.SH")
+    monkeypatch.setattr(analysis, "build_lookthrough_payload", fail)
+    with pytest.raises(HTTPException) as exc:
+        analysis.sync_asset_master_from_current_portfolio("CNY")
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"code": "ambiguous_asset_identity", "message": "资产身份存在歧义，同步未执行"}
+    assert "600000" not in str(exc.value.detail)
+    assert connection.__exit__.call_args.args[0] is AmbiguousAssetIdentityError
+    connection.commit.assert_not_called()
+
+
+def test_conflicting_equal_priority_aliases_are_not_assigned() -> None:
+    cur = ReadOnlyLookupCursor()
+    cur._results = [
+        [{"asset_id": "A"}, {"asset_id": "B"}],
+        [{"asset_id": "A", "alias_type": "name", "alias_value": "Shared", "source": "test", "priority": 1},
+         {"asset_id": "B", "alias_type": "name", "alias_value": "Shared", "source": "test", "priority": 1}],
+        [], [],
+    ]
+    lookup = load_asset_master_lookup(cur, ensure_schema=False)
+    assert "shared" not in lookup["alias_to_id"]
+    assert _find_asset({"asset_name": "Shared"}, lookup) is None
+    assert _find_asset({"asset_master_id": "A", "asset_name": "Shared"}, lookup)["asset_id"] == "A"
+
+
+def test_conflicting_distinct_aliases_do_not_depend_on_set_order() -> None:
+    lookup = {"assets": {"A": {"asset_id": "A"}, "B": {"asset_id": "B"}},
+              "alias_to_id": {"symbol-a": "A", "shared": "B"}}
+    assert _find_asset({"symbol": "SYMBOL-A", "asset_name": "Shared"}, lookup) is None
+
+
+def test_unique_exact_symbol_takes_precedence_over_ambiguous_name() -> None:
+    lookup = {"assets": {
+                  "HK": {"asset_id": "HK", "primary_symbol": "00001.HK", "asset_type": "港股个股"},
+                  "CN": {"asset_id": "CN", "primary_symbol": "600001.SH", "asset_type": "A股个股"}},
+              "alias_to_id": {"00001.hk": "HK"}, "ambiguous_aliases": {"shared"}}
+    assert _find_asset({"symbol": "00001.HK", "asset_name": "Shared"}, lookup)["asset_id"] == "HK"
+    assert _find_asset({"symbol": "UNKNOWN", "asset_name": "Shared"}, lookup) is None
+
+
+def test_duplicate_exact_symbols_remain_unresolved() -> None:
+    lookup = {"assets": {"A": {"asset_id": "A", "primary_symbol": "DUP"},
+                         "B": {"asset_id": "B", "primary_symbol": "DUP"}},
+              "alias_to_id": {}}
+    assert _find_asset({"symbol": "DUP"}, lookup) is None

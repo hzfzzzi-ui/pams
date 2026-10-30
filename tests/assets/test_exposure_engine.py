@@ -29,6 +29,39 @@ def _by_symbol(holdings: list[dict]) -> dict[str, dict]:
     return {item["symbol"]: item for item in holdings}
 
 
+def test_conflicting_unit_aliases_do_not_assign_another_assets_industry() -> None:
+    units = [
+        {"holding_symbol": "AAA", "holding_name": "Shared", "lookthrough_type": "DIRECT",
+         "underlying_industry": "银行", "holding_asset_class": "stock_cn"},
+        {"holding_symbol": "BBB", "holding_name": "Shared", "lookthrough_type": "DIRECT",
+         "underlying_industry": "半导体", "holding_asset_class": "stock_cn"},
+    ]
+    def holding(symbol):
+        result = build_exposure_analysis_payload(
+            positions=[{"symbol": symbol, "asset_name": "Shared", "asset_type": "stock_cn",
+                        "market_value_cny": 100.0, "currency": "CNY"}],
+            units=units, quality={}, total_value=100.0,
+        )
+        return result["normalized_holdings"][0]
+    assert holding("AAA")["industryBucket"] == "金融地产"
+    assert holding("UNKNOWN")["industryBucket"] not in {"金融地产", "科技TMT"}
+
+
+def test_conflicting_fund_alias_does_not_turn_stock_into_a_fund() -> None:
+    units = [
+        {"holding_symbol": "FUND_A", "holding_name": "Shared", "lookthrough_type": "FUND_HOLDING",
+         "holding_asset_class": "fund"},
+        {"holding_symbol": "FUND_B", "holding_name": "Shared", "lookthrough_type": "FUND_HOLDING",
+         "holding_asset_class": "fund"},
+    ]
+    result = build_exposure_analysis_payload(
+        positions=[{"symbol": "STOCK_X", "asset_name": "Shared", "asset_type": "stock_cn",
+                    "market_value_cny": 100.0, "currency": "CNY"}],
+        units=units, quality={}, total_value=100.0,
+    )
+    assert result["normalized_holdings"][0]["assetType"] == "A股个股"
+
+
 @pytest.mark.parametrize(
     ("leaf", "expected"),
     [

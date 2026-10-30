@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 import re
+import os
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -33,6 +35,53 @@ def _assert_read_only_sql(statements: list[str]) -> None:
     joined = "\n".join(statements).upper()
     forbidden = ("INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "PG_ADVISORY")
     assert not any(re.search(rf"(?:^|[^A-Z0-9_]){token}(?:$|[^A-Z0-9_])", joined) for token in forbidden)
+
+
+def test_conflicting_generated_aliases_do_not_choose_an_asset() -> None:
+    cfg = lookthrough_state.load_lookthrough_config({
+        "asset_mapping": [
+            {"symbol": "sh600000", "asset_name": "Shanghai asset", "industry": "银行"},
+            {"symbol": "sz600000", "asset_name": "Shenzhen asset", "industry": "半导体"},
+        ],
+        "asset_lookthrough": [
+            {"parent_symbol": "sh600000", "underlying_name": "Bank"},
+            {"parent_symbol": "sz600000", "underlying_name": "Chip"},
+        ],
+    })
+    assert lookthrough_state._find_mapping({"symbol": "sh600000"}, cfg)["industry"] == "银行"
+    assert lookthrough_state._find_mapping({"symbol": "600000"}, cfg) is None
+    assert lookthrough_state._find_lookthrough({"symbol": "600000"}, cfg) == []
+    assert lookthrough_state._find_lookthrough({"symbol": "sh600000"}, cfg)[0]["underlying_name"] == "Bank"
+
+
+def test_conflicting_alias_classification_is_stable_across_hash_seeds() -> None:
+    script = r'''
+import json
+from domain.assets import lookthrough_state as lt
+from domain.assets.exposure_engine import build_exposure_analysis_payload
+from domain.assets.asset_master import _find_asset
+cfg = lt.load_lookthrough_config({"asset_mapping": [
+    {"symbol": "sh600000", "asset_name": "Shanghai", "industry": "银行"},
+    {"symbol": "sz600000", "asset_name": "Shenzhen", "industry": "半导体"},
+], "asset_lookthrough": [
+    {"parent_symbol": "sh600000", "underlying_name": "Bank"},
+    {"parent_symbol": "sz600000", "underlying_name": "Chip"},
+]})
+units = [
+    {"holding_symbol": "AAA", "holding_name": "Shared", "lookthrough_type": "DIRECT", "underlying_industry": "银行", "holding_asset_class": "stock_cn"},
+    {"holding_symbol": "BBB", "holding_name": "Shared", "lookthrough_type": "DIRECT", "underlying_industry": "半导体", "holding_asset_class": "stock_cn"},
+]
+result = build_exposure_analysis_payload(positions=[{"symbol": "UNKNOWN", "asset_name": "Shared", "asset_type": "stock_cn", "market_value_cny": 100, "currency": "CNY"}], units=units, quality={}, total_value=100)
+master = {"assets": {"A": {"asset_id": "A"}, "B": {"asset_id": "B"}}, "alias_to_id": {"symbol-a": "A", "shared": "B"}}
+print(json.dumps({"keys": lt._lookup_keys("600000.SH"), "ambiguous_mapping": lt._find_mapping({"symbol": "600000"}, cfg), "ambiguous_lookthrough": lt._find_lookthrough({"symbol": "600000"}, cfg), "industry": result["normalized_holdings"][0]["industryBucket"], "asset_master": _find_asset({"symbol": "SYMBOL-A", "asset_name": "Shared"}, master)}, ensure_ascii=False, sort_keys=True))
+'''
+    outputs = []
+    for seed in ("0", "1", "7", "42"):
+        env = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(API_ROOT)}
+        result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True,
+                                text=True, encoding="utf-8", check=True)
+        outputs.append(result.stdout)
+    assert len(set(outputs)) == 1
 
 
 def test_unmapped_asset_master_bucket_can_be_remapped_from_leaf_label() -> None:
