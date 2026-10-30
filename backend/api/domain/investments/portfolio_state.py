@@ -753,6 +753,8 @@ def load_investment_positions(
             {
                 "account_code": account_code,
                 "asset_id": symbol or item.get("name") or account_code,
+                "holding_snapshot_asset_id": item.get("asset_id"),
+                "holding_snapshot_currency": item.get("currency"),
                 "symbol": symbol,
                 "asset_name": item.get("name") or symbol or account_code,
                 "asset_type": _asset_type(item),

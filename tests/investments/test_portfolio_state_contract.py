@@ -348,6 +348,7 @@ def test_load_investment_positions_adds_synthetic_broker_cash_from_net_liquidati
                     "major_category": "A股",
                     "minor_category": "A股",
                     "symbol": "601899",
+                    "asset_id": "manual-security-id",
                     "name": "Zijin",
                     "currency": "CNY",
                     "market_value": Decimal("331903"),
@@ -378,12 +379,27 @@ def test_load_investment_positions_adds_synthetic_broker_cash_from_net_liquidati
 
     rows = load_investment_positions(cur, "CNY", account_cfg)
 
+    security = next(row for row in rows if row["symbol"] == "601899")
+    assert security["asset_id"] == "601899"
+    assert security["holding_snapshot_asset_id"] == "manual-security-id"
+    assert security["holding_snapshot_currency"] == "CNY"
     cash = next(row for row in rows if row["source_type"] == "synthetic_broker_cash")
     assert cash["account_code"] == "tonghuashun"
     assert cash["asset_type"] == "cash"
     assert cash["symbol"] == "CASH_CNY"
     assert cash["market_value_cny"] == Decimal("33522.85000")
     assert any("complete_account_snapshot" in sql for sql, _ in cur.executed)
+
+
+def test_non_investment_account_does_not_enter_holding_projection():
+    cur = FakeCursor([
+        {"table_name": "pams_holdings_snapshot"}, {"table_name": None},
+        [{"account_code": "cash_account", "asset_liability": "资产", "major_category": "美股",
+          "minor_category": "美股基金", "asset_id": "MANUAL_TEST", "symbol": "TEST",
+          "name": "Example", "currency": "CNY", "market_value": Decimal("70"),
+          "cost": Decimal("60"), "holding_pnl": Decimal("10"), "as_of": date(2026, 6, 4)}], []])
+    config = {"accounts": {"cash_account": {"account_type": "funding", "include_in_investments": False}}}
+    assert load_investment_positions(cur, "CNY", config) == []
 
 
 def test_load_investment_positions_adds_synthetic_broker_cash_from_account_balance():

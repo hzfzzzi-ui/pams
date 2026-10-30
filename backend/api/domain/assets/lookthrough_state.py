@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date as Date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -586,6 +586,8 @@ def _is_direct_asset(position: dict[str, Any], mapping: dict[str, Any] | None) -
     if not mapping:
         return False
     asset_class = _key(mapping.get("asset_class") or position.get("asset_type"))
+    if asset_class == "us_stock" and position.get("_manual_direct_security") is True:
+        return True
     return asset_class in {
         "a_share_stock",
         "a_stock",
@@ -606,6 +608,25 @@ def _is_direct_asset(position: dict[str, Any], mapping: dict[str, Any] | None) -
         "short_duration_usd",
         "gold",
     }
+
+
+def _manual_direct_security(position: dict[str, Any], lookup: dict[str, Any], symbol_counts: Counter) -> bool:
+    """Require a linked, unambiguous manual security identity; never infer from legacy categories."""
+    asset_id = _norm_text(position.get("holding_snapshot_asset_id"))
+    symbol = _key(position.get("symbol"))
+    currency = _norm_text(position.get("holding_snapshot_currency")).upper()
+    assets = lookup.get("assets") or {}
+    asset = assets.get(asset_id)
+    if not asset or not symbol or not currency:
+        return False
+    if _key(asset.get("source")) != "manual" or _key(asset.get("status")) != "active":
+        return False
+    if _norm_text(asset.get("asset_type")) not in {"美股个股", "欧股个股", "港股个股", "韩股个股", "A股个股"}:
+        return False
+    if _key(asset.get("primary_symbol")) != symbol or _norm_text(asset.get("currency")).upper() != currency:
+        return False
+    # Even an explicitly linked row is insufficient if the symbol identifies multiple assets.
+    return symbol_counts[symbol] == 1
 
 
 def _mapped_unit(
@@ -1277,15 +1298,29 @@ def derive_lookthrough_payload(
     """Derive lookthrough exposures from normalized investment positions."""
     cfg = load_lookthrough_config(config)
     portfolio_as_of = as_of or max((_date_str(p.get("as_of")) for p in positions if p.get("as_of")), default=None)
-    positive_positions = [p for p in positions if _float(p.get("market_value_cny")) > 0]
+    # Never trust the internal classification marker from input. Only this call's
+    # read-only master verification may attach it to a copied position.
+    positive_positions = [{k: v for k, v in p.items() if k != "_manual_direct_security"}
+                          for p in positions if _float(p.get("market_value_cny")) > 0]
     total_value = sum(_float(p.get("market_value_cny")) for p in positive_positions)
     nav_value = _float(portfolio_nav_cny) if portfolio_nav_cny is not None else total_value
     units: list[dict[str, Any]] = []
     quality_items: list[dict[str, Any]] = []
     warnings: list[str] = []
+    # Read the same master snapshot once, before classification; the explicit sync path
+    # remains unchanged and does not use this read-only projection.
+    master_lookup = None
+    master_symbol_counts: Counter = Counter()
+    if asset_master_cur is not None and not sync_asset_master:
+        master_lookup = load_asset_master_lookup(asset_master_cur, ensure_schema=False)
+        master_symbol_counts = Counter(_key(asset.get("primary_symbol")) for asset in (master_lookup.get("assets") or {}).values())
 
-    for position in positive_positions:
+    for index, position in enumerate(positive_positions):
         mapping = _find_mapping(position, cfg)
+        if (master_lookup is not None and mapping and _key(mapping.get("asset_class")) == "us_stock"
+                and _manual_direct_security(position, master_lookup, master_symbol_counts)):
+            position = {**position, "_manual_direct_security": True}
+            positive_positions[index] = position
         if mapping and mapping.get("asset_class"):
             position["raw_asset_type"] = position.get("asset_type")
             position["asset_type"] = mapping.get("asset_class")
@@ -1312,7 +1347,7 @@ def derive_lookthrough_payload(
                 config=cfg,
             )
         else:
-            master_lookup = load_asset_master_lookup(asset_master_cur, ensure_schema=False)
+            assert master_lookup is not None
         positive_positions = enrich_positions_with_asset_master(positive_positions, master_lookup)
         units = enrich_units_with_asset_master(units, master_lookup)
         master_payload = build_asset_master_payload(
