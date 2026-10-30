@@ -500,19 +500,21 @@ def _canonical_symbol(symbol: Any, name: Any = "") -> str:
     return name_text
 
 
-def _identity_keys(*values: Any) -> set[str]:
-    keys: set[str] = set()
+def _ordered_identity_keys(*values: Any) -> list[str]:
+    keys: list[str] = []
     for value in values:
         text = _text(value)
         if not text:
             continue
-        keys.add(text.casefold())
-        keys.add(text.upper())
         canonical = _canonical_symbol(text, text)
-        if canonical:
-            keys.add(canonical.casefold())
-            keys.add(canonical.upper())
-    return {key for key in keys if key}
+        for key in (text.casefold(), text.upper(), canonical.casefold(), canonical.upper()):
+            if key and key not in keys:
+                keys.append(key)
+    return keys
+
+
+def _identity_keys(*values: Any) -> set[str]:
+    return set(_ordered_identity_keys(*values))
 
 
 def _position_identity_keys(position: dict[str, Any]) -> set[str]:
@@ -1842,17 +1844,15 @@ def build_exposure_analysis_payload(
     total_value: float,
 ) -> dict[str, Any]:
     enriched_positions: list[dict[str, Any]] = []
-    lookthrough_parent_keys: set[str] = set()
-    lookthrough_parent_unit_by_key: dict[str, dict[str, Any]] = {}
+    lookthrough_parent_unit_by_key: dict[str, list[dict[str, Any]]] = {}
     for unit in units:
         if not _is_real_lookthrough_type(unit.get("lookthrough_type")):
             continue
         unit_keys = _unit_parent_identity_keys(unit)
-        lookthrough_parent_keys.update(unit_keys)
         for key in unit_keys:
-            lookthrough_parent_unit_by_key.setdefault(key, unit)
+            lookthrough_parent_unit_by_key.setdefault(key, []).append(unit)
 
-    direct_units_by_key: dict[str, dict[str, Any]] = {}
+    direct_units_by_key: dict[str, list[dict[str, Any]]] = {}
     for unit in units:
         if _is_real_lookthrough_type(unit.get("lookthrough_type")):
             continue
@@ -1864,18 +1864,36 @@ def build_exposure_analysis_payload(
         )
         for key in keys:
             if key:
-                direct_units_by_key.setdefault(key, unit)
+                direct_units_by_key.setdefault(key, []).append(unit)
+
+    def unique_unit(index: dict[str, list[dict[str, Any]]], keys: list[str], symbol: str,
+                    fields: tuple[str, ...]) -> dict[str, Any] | None:
+        candidates: list[dict[str, Any]] = []
+        for key in keys:
+            for unit in index.get(key, []):
+                if unit not in candidates:
+                    candidates.append(unit)
+        exact = [unit for unit in candidates if symbol and _key(unit.get("holding_symbol")) == _key(symbol)]
+        if exact:
+            candidates = exact
+        identities = {_key(unit.get("holding_symbol") or unit.get("holding_name")) for unit in candidates}
+        signatures = {tuple(_text(unit.get(field)) for field in fields) for unit in candidates}
+        if len(identities) == 1 and len(signatures) == 1:
+            return candidates[0]
+        return None
     for position in positions:
         symbol = _text(position.get("symbol") or position.get("asset_id") or position.get("asset_name"))
         name = _text(position.get("asset_name") or position.get("name") or symbol)
         item = dict(position)
-        position_keys = _position_identity_keys(position)
-        item["has_lookthrough"] = bool(position_keys & lookthrough_parent_keys)
-        lookthrough_parent_unit = None
-        for key in position_keys:
-            lookthrough_parent_unit = lookthrough_parent_unit_by_key.get(key)
-            if lookthrough_parent_unit:
-                break
+        position_ordered_keys = _ordered_identity_keys(
+            position.get("id"), position.get("asset_id"), position.get("symbol"),
+            position.get("asset_name"), position.get("name"),
+        )
+        item["has_lookthrough"] = bool(unique_unit(
+            lookthrough_parent_unit_by_key, position_ordered_keys, symbol, ("holding_asset_class",),
+        ))
+        lookthrough_parent_unit = unique_unit(lookthrough_parent_unit_by_key, position_ordered_keys,
+                                              symbol, ("holding_asset_class", "account"))
         if lookthrough_parent_unit:
             if lookthrough_parent_unit.get("holding_asset_class"):
                 item["asset_type"] = lookthrough_parent_unit.get("holding_asset_class")
@@ -1884,11 +1902,9 @@ def build_exposure_analysis_payload(
                 item.get("account") or item.get("account_code") or item.get("account_name")
             ):
                 item["account"] = lookthrough_parent_unit.get("account")
-        direct_unit = None
-        for key in _identity_keys(symbol, name):
-            direct_unit = direct_units_by_key.get(key)
-            if direct_unit:
-                break
+        direct_unit = unique_unit(direct_units_by_key, _ordered_identity_keys(symbol, name), symbol,
+            ("holding_asset_class", "account", "sw_l1", "industry_bucket_source",
+             "underlying_industry", "underlying_theme", "underlying_asset_class"))
         if direct_unit:
             if direct_unit.get("holding_asset_class"):
                 item["asset_type"] = direct_unit.get("holding_asset_class")

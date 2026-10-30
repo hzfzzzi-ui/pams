@@ -29,6 +29,7 @@ from domain.assets.exposure_engine import (
     _canonical_symbol,
     _currency,
     _identity_keys,
+    _ordered_identity_keys,
     _num,
     _role,
     _text,
@@ -749,6 +750,81 @@ def _coverage_type(value: Any) -> str:
     }.get(key, "manual")
 
 
+class AmbiguousAssetIdentityError(ValueError):
+    """An existing identity cannot safely distinguish two market-qualified symbols."""
+
+
+def _qualified_cn_symbol(symbol: Any) -> tuple[str, str | None] | None:
+    text = _text(symbol).upper().strip()
+    suffix = re.fullmatch(r"(\d{6})\.(SH|SZ|SS|OF)", text)
+    if suffix:
+        venue = "SH" if suffix.group(2) == "SS" else suffix.group(2)
+        return suffix.group(1), venue
+    prefix = re.fullmatch(r"(SH|SZ)(\d{6})", text)
+    if prefix:
+        return prefix.group(2), prefix.group(1)
+    if re.fullmatch(r"\d{6}", text):
+        return text, None
+    return None
+
+
+def _cn_symbol_conflicts(requested: Any, existing: Any) -> bool:
+    requested_identity = _qualified_cn_symbol(requested)
+    if requested_identity is None:
+        return False
+    existing_identity = _qualified_cn_symbol(existing)
+    if existing_identity is None:
+        return requested_identity[1] is not None
+    if requested_identity[0] != existing_identity[0]:
+        return True
+    return requested_identity[1] != existing_identity[1]
+
+
+def _assert_unambiguous_cn_identities(cur, raw_assets: list[dict[str, Any]]) -> None:
+    """Refuse colliding existing IDs instead of changing historical asset identifiers."""
+    by_asset_id: dict[str, set[tuple[str, str | None]]] = {}
+    for raw in raw_assets:
+        symbol = raw.get("symbol") or raw.get("underlying_symbol") or raw.get("asset_id")
+        identity = _qualified_cn_symbol(symbol)
+        if identity is None:
+            continue
+        asset = _asset_record_from_raw(raw, source="system")
+        by_asset_id.setdefault(asset["asset_id"], set()).add(identity)
+
+    def check(asset_id: str, identities: set[tuple[str, str | None]]) -> None:
+        venues = {venue for _, venue in identities}
+        if len(venues) > 1:
+            raise AmbiguousAssetIdentityError(
+                f"ambiguous asset identity for {asset_id}: conflicting or unqualified exchange; sync refused"
+            )
+
+    for asset_id, identities in by_asset_id.items():
+        check(asset_id, identities)
+    if not by_asset_id:
+        return
+    # Every sync through this service takes the same transaction locks before
+    # reading existing identities, so concurrent requests cannot both seed a
+    # previously absent ID with conflicting exchange-qualified symbols.
+    for asset_id in sorted(by_asset_id):
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"pams:asset-identity:{asset_id}",),
+        )
+    cur.execute(
+        "SELECT asset_id, primary_symbol FROM pams_asset_master WHERE asset_id = ANY(%s)",
+        (list(by_asset_id),),
+    )
+    for row in cur.fetchall():
+        asset_id = row["asset_id"]
+        existing = _qualified_cn_symbol(row.get("primary_symbol"))
+        if existing is not None:
+            check(asset_id, by_asset_id[asset_id] | {existing})
+        elif any(venue is not None for _, venue in by_asset_id[asset_id]):
+            raise AmbiguousAssetIdentityError(
+                f"ambiguous asset identity for {asset_id}: existing exchange is unknown; sync refused"
+            )
+
+
 def _sync_asset_master_seed(
     cur,
     *,
@@ -759,6 +835,13 @@ def _sync_asset_master_seed(
 ) -> dict[str, Any]:
     ensure_asset_master_schema(cur)
     cfg = config or {}
+    identity_inputs = [_raw_from_mapping(mapping) for mapping in (cfg.get("asset_mapping") or [])]
+    identity_inputs.extend(_raw_from_position(position) for position in positions)
+    for unit in units:
+        identity_inputs.append(_raw_from_unit_parent(unit))
+        if _text(unit.get("lookthrough_type")).upper() not in {"", "DIRECT", "PRODUCT_TAG", "MISSING"}:
+            identity_inputs.append(_raw_from_unit_underlying(unit))
+    _assert_unambiguous_cn_identities(cur, identity_inputs)
     seeded_assets: set[str] = set()
     for mapping in cfg.get("asset_mapping") or []:
         seeded_assets.add(_upsert_asset(cur, _raw_from_mapping(mapping), source="config"))
@@ -887,13 +970,21 @@ def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, An
 
     cur.execute(f"SELECT asset_id, alias_type, alias_value, source, priority FROM pams_asset_alias al WHERE {identity_alias_sql('al')} ORDER BY priority ASC")
     alias_to_id: dict[str, str] = {}
+    alias_priority: dict[str, Any] = {}
+    ambiguous_aliases: set[str] = set()
     for row in cur.fetchall():
         asset = by_id.get(row["asset_id"])
         if not asset:
             continue
         alias = {k: _jsonable(v) for k, v in row.items()}
         asset["aliases"].append(alias)
-        alias_to_id.setdefault(_norm_key(row["alias_value"]), row["asset_id"])
+        key = _norm_key(row["alias_value"])
+        if key not in alias_priority:
+            alias_priority[key] = row["priority"]
+            alias_to_id[key] = row["asset_id"]
+        elif row["priority"] == alias_priority[key] and alias_to_id.get(key) != row["asset_id"]:
+            ambiguous_aliases.add(key)
+            alias_to_id.pop(key, None)
 
     cur.execute(
         """
@@ -914,11 +1005,22 @@ def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, An
         if asset:
             asset["themes"].append({k: _jsonable(v) for k, v in row.items()})
 
-    return {"assets": by_id, "alias_to_id": alias_to_id}
+    result = {"assets": by_id, "alias_to_id": alias_to_id}
+    if ambiguous_aliases:
+        result["ambiguous_aliases"] = ambiguous_aliases
+    return result
 
 
 def _find_asset(raw: dict[str, Any], lookup: dict[str, Any]) -> dict[str, Any] | None:
     assets = lookup.get("assets", {}) or {}
+    explicit_id = raw.get("asset_master_id")
+    if explicit_id in assets:
+        requested = raw.get("symbol") or raw.get("underlying_symbol") or raw.get("holding_symbol")
+        existing = assets[explicit_id].get("primary_symbol")
+        if _qualified_cn_symbol(requested) is not None and _qualified_cn_symbol(existing) is not None:
+            if _cn_symbol_conflicts(requested, existing):
+                return None
+        return assets[explicit_id]
     symbol = raw.get("symbol") or raw.get("underlying_symbol") or raw.get("holding_symbol") or raw.get("asset_id")
     name = raw.get("asset_name") or raw.get("name") or raw.get("underlying_name") or raw.get("holding_name")
     asset_type_hint = (
@@ -932,10 +1034,25 @@ def _find_asset(raw: dict[str, Any], lookup: dict[str, Any]) -> dict[str, Any] |
     if asset_type_hint:
         expected_asset_id = asset_id_for(symbol, name, resolveAssetType({"asset_type": asset_type_hint, "symbol": symbol, "asset_name": name}))
         if expected_asset_id in assets:
+            if _cn_symbol_conflicts(symbol, assets[expected_asset_id].get("primary_symbol")):
+                return None
             return assets[expected_asset_id]
 
+    # A unique exact primary symbol is stronger evidence than a name alias.
+    # Names are often shared across different securities and markets.
+    symbol_key = _norm_key(symbol)
+    if symbol_key:
+        exact_symbol_assets = [asset for asset in assets.values()
+                               if _norm_key(asset.get("primary_symbol")) == symbol_key]
+        if len(exact_symbol_assets) == 1:
+            return exact_symbol_assets[0]
+        if len(exact_symbol_assets) > 1:
+            return None
+
     alias_to_id = lookup.get("alias_to_id") or {}
-    for key in _identity_keys(
+    ambiguous_aliases = lookup.get("ambiguous_aliases") or set()
+    matches: set[str] = set()
+    for key in _ordered_identity_keys(
         raw.get("asset_master_id"),
         raw.get("asset_id"),
         raw.get("symbol"),
@@ -944,9 +1061,13 @@ def _find_asset(raw: dict[str, Any], lookup: dict[str, Any]) -> dict[str, Any] |
         raw.get("name"),
         raw.get("underlying_name"),
     ):
+        if _norm_key(key) in ambiguous_aliases:
+            return None
         asset_id = alias_to_id.get(_norm_key(key)) or (key if key in assets else None)
         if asset_id and asset_id in assets:
-            return assets[asset_id]
+            matches.add(asset_id)
+    if len(matches) == 1:
+        return assets[next(iter(matches))]
     return None
 
 

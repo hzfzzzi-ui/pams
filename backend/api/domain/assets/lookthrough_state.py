@@ -299,13 +299,15 @@ def _lookup_keys(*values: Any) -> list[str]:
         raw = _norm_text(value)
         if not raw:
             continue
-        variants = {raw, raw.upper(), raw.lower()}
+        # The original identifier must win over derived aliases.  A set here
+        # makes first-match lookups depend on PYTHONHASHSEED.
+        variants = [raw, raw.upper(), raw.lower()]
         match = re.search(r"(\d{6})", raw)
         if match:
             digits = match.group(1)
-            variants.update({digits, f"sh{digits}", f"sz{digits}", f"{digits}.SH", f"{digits}.SZ"})
+            variants.extend([digits, f"sh{digits}", f"sz{digits}", f"{digits}.SH", f"{digits}.SZ"])
         if raw.endswith(".KS"):
-            variants.add(raw.replace(".KS", ""))
+            variants.append(raw.replace(".KS", ""))
         for variant in variants:
             normalized = _key(variant)
             if normalized and normalized not in keys:
@@ -452,12 +454,15 @@ def load_lookthrough_config(raw: dict[str, Any] | None = None) -> dict[str, Any]
 
     mappings = [_normalize_mapping(r or {}) for r in (data.get("asset_mapping") or [])]
     mapping_by_key: dict[str, dict[str, Any]] = {}
+    mapping_candidates_by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for mapping in mappings:
         aliases = mapping.get("aliases") or []
         lookthrough_aliases = mapping.get("lookthrough_aliases") or []
         keys = _lookup_keys(mapping.get("symbol"), mapping.get("asset_name"), *aliases, *lookthrough_aliases)
         for key in keys:
             mapping_by_key[key] = mapping
+            if mapping not in mapping_candidates_by_key[key]:
+                mapping_candidates_by_key[key].append(mapping)
 
     lookthrough_rows: list[dict[str, Any]] = []
     for parent in data.get("asset_lookthrough") or []:
@@ -479,24 +484,47 @@ def load_lookthrough_config(raw: dict[str, Any] | None = None) -> dict[str, Any]
         "asset_lookthrough": lookthrough_rows,
         "risk_buckets": risk_buckets,
         "mapping_by_key": mapping_by_key,
+        "mapping_candidates_by_key": mapping_candidates_by_key,
         "lookthrough_by_key": lookthrough_by_key,
     }
 
 
 def _find_mapping(position: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any] | None:
+    # A literal symbol match is stronger evidence than a generated alias.
+    symbol = _key(position.get("symbol"))
+    exact = [m for m in cfg.get("asset_mapping", []) if symbol and _key(m.get("symbol")) == symbol]
+    distinct_exact = [m for i, m in enumerate(exact) if m not in exact[:i]]
+    if len(distinct_exact) == 1:
+        return distinct_exact[0]
+    if len(distinct_exact) > 1:
+        return None
+    candidates: list[dict[str, Any]] = []
+    index = cfg.get("mapping_candidates_by_key", {})
     for key in _lookup_keys(position.get("symbol"), position.get("asset_id"), position.get("asset_name")):
-        found = cfg["mapping_by_key"].get(key)
-        if found:
-            return found
+        for mapping in index.get(key, []):
+            if mapping not in candidates:
+                candidates.append(mapping)
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        return None
     return _fallback_mapping(position)
 
 
 def _find_lookthrough(position: dict[str, Any], cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    symbol = _key(position.get("symbol"))
+    exact = [row for row in cfg.get("asset_lookthrough", []) if symbol and _key(row.get("parent_symbol")) == symbol]
+    if exact:
+        return exact
+    candidates: list[dict[str, Any]] = []
+    seen_rows: set[int] = set()
     for key in _lookup_keys(position.get("symbol"), position.get("asset_id"), position.get("asset_name")):
-        rows = cfg["lookthrough_by_key"].get(key)
-        if rows:
-            return rows
-    return []
+        for row in cfg["lookthrough_by_key"].get(key, []):
+            if id(row) not in seen_rows:
+                seen_rows.add(id(row))
+                candidates.append(row)
+    parents = {_key(row.get("parent_symbol") or row.get("parent_asset_name")) for row in candidates}
+    return candidates if len(parents) <= 1 else []
 
 
 def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
