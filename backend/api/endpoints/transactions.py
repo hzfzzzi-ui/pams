@@ -10,6 +10,11 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from domain.ledger.legacy_transaction_filters import (
+    INTERNAL_TRANSFER_CATEGORY, normalize_account_code, _requested_filters,
+    _filtered_monthly, _filtered_daily, _filtered_categories,
+)
+
 router = APIRouter()
 
 # 账户币种映射
@@ -19,6 +24,7 @@ ACCOUNT_CURRENCY_MAP = {
     'binance': 'USD',
     # 其他账户默认CNY
 }
+
 
 def get_conn():
     import os
@@ -33,7 +39,6 @@ def get_conn():
 def _norm(v):
     if hasattr(v, "isoformat"):
         return v.isoformat()
-    from decimal import Decimal
     if isinstance(v, Decimal):
         return str(v)
     return v
@@ -70,6 +75,7 @@ def create_transaction(tx: TransactionCreate):
     """创建非 Telegram 来源的旧交易记录。"""
     if tx.source == "telegram":
         raise HTTPException(status_code=410, detail="Telegram 记账入口已停用，请使用 PAMS 资料导入。")
+    currency_supplied = bool(tx.currency)
     # 自动推断币种
     if not tx.currency:
         tx.currency = get_account_currency(tx.account_code)
@@ -85,7 +91,16 @@ def create_transaction(tx: TransactionCreate):
             # 验证账户存在
             cur.execute("SELECT account_code FROM pams_accounts WHERE account_code = %s", (tx.account_code,))
             if not cur.fetchone():
-                raise HTTPException(status_code=404, detail=f"账户 {tx.account_code} 不存在")
+                original_code = tx.account_code
+                mapped_code = normalize_account_code(original_code)
+                if mapped_code == original_code:
+                    raise HTTPException(status_code=404, detail=f"账户 {original_code} 不存在")
+                cur.execute("SELECT account_code FROM pams_accounts WHERE account_code = %s", (mapped_code,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail=f"账户 {original_code} 不存在")
+                tx.account_code = mapped_code
+                if not currency_supplied:
+                    tx.currency = get_account_currency(mapped_code)
 
             # 自动分类（如果未提供category）
             if not tx.category and tx.description:
@@ -155,7 +170,7 @@ def _require_cny_amounts(cur, start_date: str, end_date: str) -> None:
 
 
 @router.get("/transactions/recent")
-def get_recent_transactions(limit: int = Query(50, ge=1, le=200)):
+def get_recent_transactions(limit: int = Query(50, ge=1, le=200), include_transfers: bool = True):
     """获取最近交易（含CNY换算金额）"""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -174,16 +189,21 @@ def get_recent_transactions(limit: int = Query(50, ge=1, le=200)):
               AND as_of <= t.date
             ORDER BY as_of DESC LIMIT 1
         ) fx ON TRUE
+                WHERE (%s OR COALESCE(t.category, '') <> %s)
                 ORDER BY t.date DESC, t.created_at DESC
                 LIMIT %s
-            """, (limit,))
+            """, (include_transfers, INTERNAL_TRANSFER_CATEGORY, limit))
             rows = cur.fetchall()
 
     return {"transactions": [{k: _norm(v) for k, v in dict(r).items()} for r in rows]}
 
+
 @router.get("/transactions/monthly/{month}")
-def get_monthly_stats(month: str):
+def get_monthly_stats(month: str, view: Optional[str] = None, include_large: Optional[bool] = None, large_threshold: Optional[float] = None):
     """获取月度统计（YYYY-MM）"""
+    filters = _requested_filters(view, include_large, large_threshold)
+    if filters is not None:
+        return _filtered_monthly(month, filters, get_conn)
     try:
         year, mon = month.split('-')
         start_date = f"{year}-{mon}-01"
@@ -242,8 +262,11 @@ def get_monthly_stats(month: str):
     }
 
 @router.get("/transactions/daily/{month}")
-def get_daily_stats(month: str):
+def get_daily_stats(month: str, view: Optional[str] = None, include_large: Optional[bool] = None, large_threshold: Optional[float] = None):
     """获取每日统计"""
+    filters = _requested_filters(view, include_large, large_threshold)
+    if filters is not None:
+        return _filtered_daily(month, filters, get_conn)
     try:
         year, mon = month.split('-')
         start_date = f"{year}-{mon}-01"
@@ -278,8 +301,11 @@ def get_daily_stats(month: str):
     return [{k: _norm(v) for k, v in dict(r).items()} for r in rows]
 
 @router.get("/transactions/categories-by-range")
-def get_categories_by_range(start: str, end: str):
+def get_categories_by_range(start: str, end: str, view: Optional[str] = None, include_large: Optional[bool] = None, large_threshold: Optional[float] = None):
     """获取时间段内的分类占比（用于图表联动，含汇率换算）"""
+    filters = _requested_filters(view, include_large, large_threshold)
+    if filters is not None:
+        return _filtered_categories(start, end, filters, get_conn)
     with get_conn() as conn:
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

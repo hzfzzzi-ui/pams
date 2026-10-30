@@ -135,3 +135,96 @@ def test_http_api_serializes_missing_and_blocks_incomplete_totals(isolated_db):
     assert client.get("/api/transactions/monthly/2026-01", params=params).status_code == 422
     assert client.get("/api/transactions/daily/2026-01", params=params).status_code == 422
     assert client.get("/api/transactions/categories-by-range", params={**params, "start": "2026-01-01", "end": "2026-01-31"}).status_code == 422
+
+
+def test_original_account_aliases_are_preserved_without_guessing_unknown():
+    assert transactions.normalize_account_code("Santander") == "santander"
+    assert transactions.normalize_account_code("ccb") == "ccb_cny"
+    assert transactions.normalize_account_code("  user-custom  ") == "user-custom"
+
+
+def test_opt_in_filter_excludes_transfer_before_requiring_fx(isolated_db):
+    summary = transactions.get_monthly_stats("2026-01", view="operating", include_large=True)
+    assert Decimal(summary["total_income"]) == 10
+    assert Decimal(summary["total_expense"]) == 72
+    assert isinstance(summary["by_category"][0]["amount"], float)
+    assert summary["filters"]["excluded_transfer_count"] == 2
+    daily = transactions.get_daily_stats("2026-01", view="operating", include_large=True)
+    assert len(daily) == 1 and Decimal(daily[0]["expense"]) == 72
+    assert isinstance(daily[0]["expense"], float)
+    categories = transactions.get_categories_by_range("2026-01-01", "2026-01-31", view="operating", include_large=True)
+    assert sum(Decimal(row["amount"]) for row in categories) == 72
+    assert isinstance(categories[0]["amount"], float)
+    with pytest.raises(HTTPException) as exc:
+        transactions.get_monthly_stats("2026-01", view="all", include_large=True)
+    assert exc.value.status_code == 422
+
+
+def test_large_filter_is_optional_and_uses_cny_threshold(isolated_db):
+    with isolated_db.cursor() as cur:
+        cur.execute("DELETE FROM pams_transactions WHERE id = 3")
+    default = transactions.get_monthly_stats("2026-01")
+    assert "filters" not in default
+    assert Decimal(default["total_expense"]) == Decimal("72.70")
+    filtered = transactions.get_monthly_stats("2026-01", view="all", include_large=False, large_threshold=50)
+    assert Decimal(filtered["total_expense"]) == Decimal("0.70")
+    assert filtered["filters"]["excluded_large_count"] == 1
+    assert filtered["filters"]["excluded_large_amount_cny"] == 72
+
+
+def test_filter_http_validation_and_default_contract(isolated_db):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI()
+    app.include_router(transactions.router, prefix="/api")
+    client = TestClient(app)
+    for invalid in ("bad", "", "ALL"):
+        assert client.get("/api/transactions/monthly/2026-01", params={"view": invalid}).status_code == 422
+    for invalid_month in ("0000-01", "10000-01", "2026-00", "2026-13"):
+        assert client.get("/api/transactions/monthly/" + invalid_month, params={"view": "all"}).status_code == 400
+    assert client.get("/api/transactions/monthly/2026-01", params={"large_threshold": -1}).status_code == 422
+    result = client.get("/api/transactions/monthly/2026-01", params={"view": "operating", "include_large": "true"})
+    assert result.status_code == 200
+    assert Decimal(result.json()["total_expense"]) == 72
+    assert client.get("/api/transactions/monthly/2026-01").status_code == 422
+
+
+def test_recent_opt_in_excludes_transfers_before_limit(isolated_db):
+    records = transactions.get_recent_transactions(limit=10, include_transfers=False)["transactions"]
+    assert {row["id"] for row in records} == {1, 2}
+    assert len(transactions.get_recent_transactions(limit=10)["transactions"]) == 4
+
+
+def test_account_mapping_is_fallback_and_keeps_exact_main_account(isolated_db):
+    with isolated_db.cursor() as cur:
+        cur.execute("CREATE SEQUENCE test_ids START 100")
+        cur.execute("ALTER TABLE pams_transactions ALTER COLUMN id SET DEFAULT nextval('test_ids')")
+        cur.execute("INSERT INTO pams_accounts VALUES ('Santander','Exact'), ('santander','Mapped')")
+    def create():
+        return transactions.create_transaction(transactions.TransactionCreate(
+            date="2026-01-03", amount=1, account_code="Santander", category="test", source="manual"))
+    first=create()
+    with isolated_db.cursor() as cur:
+        cur.execute("SELECT account_code,currency FROM pams_transactions WHERE id=%s",(first["transaction_id"],))
+        assert cur.fetchone()==("Santander","CNY")
+        cur.execute("DELETE FROM pams_accounts WHERE account_code='Santander'")
+    second=create()
+    with isolated_db.cursor() as cur:
+        cur.execute("SELECT account_code,currency FROM pams_transactions WHERE id=%s",(second["transaction_id"],))
+        assert cur.fetchone()==("santander","MXN")
+
+
+def test_high_precision_default_and_explicit_filter(isolated_db):
+    with isolated_db.cursor() as cur:
+        cur.execute("DELETE FROM pams_transactions")
+        cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('2026-01-03','CNY','USD',7.19999999)")
+        cur.execute("INSERT INTO pams_transactions VALUES (80, '2026-01-03', 9999999999999.99, 'USD', 'precision', NULL, 'a', NULL, NULL, false, 'test', now()), (81, '2026-01-03', -0.01, 'USD', 'precision', NULL, 'a', NULL, NULL, false, 'test', now())")
+    expected = Decimal("9999999999999.99") * Decimal("7.19999999")
+    expense = Decimal("0.01") * Decimal("7.19999999")
+    default = transactions.get_monthly_stats("2026-01")
+    assert Decimal(default["total_income"]) == expected
+    assert Decimal(default["total_expense"]) == expense
+    assert Decimal(default["net"]) == expected - expense
+    filtered = transactions.get_monthly_stats("2026-01", view="all", include_large=False, large_threshold=100000000000000)
+    assert filtered["total_income"] == str(round(float(expected), 4))
+    assert filtered["total_expense"] == str(round(float(expense), 4))
