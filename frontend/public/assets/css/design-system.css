@@ -694,8 +694,7 @@ body.app-shell.app-low-frequency .lowFrequencyStack,
 body.app-shell.app-low-frequency .moreHub,
 body.app-shell.app-low-frequency .profileList,
 body.app-shell.app-low-frequency .actionChecklist,
-body.app-shell.app-low-frequency .qualityList,
-body.app-shell.app-low-frequency .researchMobileList {
+body.app-shell.app-low-frequency .qualityList{
   display: grid;
   gap: var(--pams-list-gap);
 }
@@ -1051,9 +1050,7 @@ body.app-shell .moreRow.accent-risk {
   border-left-color: color-mix(in srgb, var(--pams-bad) 58%, transparent);
 }
 
-body.app-shell .moreRow.accent-research {
-  border-left-color: color-mix(in srgb, var(--pams-warn) 58%, transparent);
-}
+
 
 body.app-shell .moreRow.accent-system {
   border-left-color: var(--pams-border-strong);

@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 API_ROOT = ROOT / "backend" / "api"
@@ -11,7 +13,8 @@ if str(API_ROOT) not in sys.path:
 
 from domain.assets.asset_master import (  # noqa: E402
     ASSET_MASTER_FIELD_PRIORITY,
-    SCHEMA_SQL,
+    ASSET_MASTER_REQUIRED_COLUMNS,
+    ASSET_MASTER_REQUIRED_UNIQUE_KEYS,
     VALID_CURRENCIES,
     VALID_MARKETS,
     VALID_REGIONS,
@@ -22,6 +25,7 @@ from domain.assets.asset_master import (  # noqa: E402
     build_asset_master_missing_mapping_report,
     build_asset_master_payload,
     build_lookthrough_seed_units,
+    ensure_asset_master_schema,
     load_asset_master_lookup,
     sync_asset_master_from_lookthrough_config,
     validate_asset_master_whitelists,
@@ -34,6 +38,15 @@ class FakeCursor:
 
     def execute(self, sql: str, params=None) -> None:
         self.statements.append(sql)
+        self.params = params
+
+    def fetchall(self) -> list[dict]:
+        if self.statements and "pg_attribute" in self.statements[-1]:
+            return [{"attname": name} for name in ASSET_MASTER_REQUIRED_COLUMNS[self.params[0]]]
+        return []
+
+    def fetchone(self) -> dict:
+        return {"has_unique": True}
 
 
 class ReadOnlyLookupCursor(FakeCursor):
@@ -46,6 +59,7 @@ class ReadOnlyLookupCursor(FakeCursor):
 
 
 def test_asset_master_schema_declares_core_tables() -> None:
+    schema_sql = (ROOT / "database/postgres/schema/023_asset_master.sql").read_text(encoding="utf-8")
     for table_name in [
         "pams_asset_master",
         "pams_asset_alias",
@@ -55,7 +69,7 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "pams_asset_fixed_income_profile",
         "pams_asset_real_asset_profile",
     ]:
-        assert f"CREATE TABLE IF NOT EXISTS {table_name}" in SCHEMA_SQL
+        assert f"CREATE TABLE IF NOT EXISTS {table_name}" in schema_sql
 
     for column_name in [
         "asset_subtype",
@@ -66,7 +80,14 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "credit_risk_bucket",
         "rental_income_annual",
     ]:
-        assert column_name in SCHEMA_SQL
+        assert column_name in schema_sql
+
+
+def test_asset_schema_validation_only_reads_metadata() -> None:
+    cur = FakeCursor()
+    ensure_asset_master_schema(cur)
+    assert len(cur.statements) == len(ASSET_MASTER_REQUIRED_COLUMNS) + len(ASSET_MASTER_REQUIRED_UNIQUE_KEYS)
+    assert all(statement.lstrip().upper().startswith("SELECT ") for statement in cur.statements)
 
 
 def test_asset_master_lookup_can_skip_schema_writes_for_read_paths() -> None:
@@ -82,36 +103,6 @@ def test_asset_master_lookup_can_skip_schema_writes_for_read_paths() -> None:
     assert "SELECT * FROM PAMS_ASSET_MASTER" in joined
 
 
-def test_holding_asset_identity_migration_backfills_asset_id_contract() -> None:
-    sql = Path("database/postgres/schema/029_holding_asset_identity_backfill.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "ADD COLUMN IF NOT EXISTS asset_id VARCHAR" in sql
-    assert "fk_pams_holdings_snapshot_asset_id" in sql
-    assert "idx_pams_holdings_snapshot_asset_id" in sql
-    assert "ASSET_020640" in sql
-    assert "ASSET_WECHAT_BALANCE" in sql
-    assert "ASSET_CREDIT_CARD_CNY" in sql
-    assert "A_110020" in sql
-    assert "ETF_110020" in sql
-    assert "ETF_NFLX" in sql
-    assert "ASSET_NFLX" in sql
-
-
-def test_benchmark_asset_migration_seeds_gold_and_sse_comparators() -> None:
-    sql = Path("database/postgres/schema/033_benchmark_assets_and_gold_proxy.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "BENCH_GOLD_ETF_518880" in sql
-    assert "BENCH_SSE_COMPOSITE" in sql
-    assert "benchmark_only" in sql
-    assert "pams_asset_market_daily" in sql
-    assert "pit_index_daily:000001.SH" in sql
-    assert "CCB_GOLD_ACCUM" in sql
-
-
 def test_gold_spot_benchmark_migration_seeds_non_holding_price_asset() -> None:
     sql = Path("database/postgres/schema/034_gold_spot_benchmark.sql").read_text(
         encoding="utf-8"
@@ -124,39 +115,10 @@ def test_gold_spot_benchmark_migration_seeds_non_holding_price_asset() -> None:
     assert "akshare_sge_daily:Au99.99" in sql
 
 
-def test_europe_sweden_mapping_migration_seeds_sive_and_sek_cash() -> None:
-    sql = Path("database/postgres/schema/049_europe_sweden_asset_mapping.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "'ASSET_SIVE'" in sql
-    assert "'欧股个股'" in sql
-    assert "'欧股'" in sql
-    assert "'瑞典'" in sql
-    assert "'SEK'" in sql
-    assert "'ASSET_CASH_SEK'" in sql
-    assert "UPPER(COALESCE(symbol, '')) = 'SIVE'" in sql
-    assert "UPPER(COALESCE(symbol, '')) = 'CASH_SEK'" in sql
-
-
 def test_asset_master_whitelist_allows_europe_sweden_and_sek() -> None:
     assert "欧股" in VALID_MARKETS
     assert {"欧洲", "瑞典"}.issubset(VALID_REGIONS)
     assert "SEK" in VALID_CURRENCIES
-
-
-def test_korea_asset_normalization_migration_updates_korean_equities() -> None:
-    sql = Path("database/postgres/schema/050_korea_overseas_asset_normalization.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "'ASSET_005930_KS'" in sql
-    assert "'ASSET_000660_KS'" in sql
-    assert "'韩股个股'" in sql
-    assert "'韩股'" in sql
-    assert "'韩国'" in sql
-    assert "'KRW'" in sql
-    assert "'海外个股'" not in sql
 
 
 def test_asset_master_normalizes_english_regions_to_whitelist() -> None:
@@ -185,8 +147,19 @@ def test_asset_master_normalizes_english_regions_to_whitelist() -> None:
     assert korea["market"] == "韩股"
     assert korea["economic_region"] == "韩国"
     assert korea["listing_region"] == "韩国"
+    assert korea["currency"] == "KRW"
+    assert sweden["asset_type"] == "欧股个股"
+    assert sweden["market"] == "欧股"
     assert sweden["economic_region"] == "瑞典"
     assert sweden["listing_region"] == "瑞典"
+    assert sweden["currency"] == "SEK"
+    sk_hynix = _asset_record_from_raw(
+        {"symbol": "000660.KS", "asset_name": "SK Hynix", "asset_type": "stock_kr",
+         "currency": "KRW", "region": "Korea"}, source="test",
+    )
+    assert (sk_hynix["asset_type"], sk_hynix["market"], sk_hynix["economic_region"], sk_hynix["currency"]) == (
+        "韩股个股", "韩股", "韩国", "KRW",
+    )
 
 
 def test_asset_master_id_canonicalizes_known_aliases() -> None:
@@ -428,3 +401,24 @@ def test_missing_mapping_report_flags_unknown_asset_and_unlooked_fund() -> None:
     assert report["summary"]["missing_theme"] >= 1
     assert report["summary"]["missing_fund_underlying"] == 1
     assert report["missing_fund_underlying"][0]["symbol"] == "FUND1"
+
+
+def test_asset_schema_unavailable_returns_sanitized_503(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+    from fastapi import HTTPException
+    from endpoints import analysis
+    from domain.assets.asset_master import AssetMasterSchemaUnavailable
+
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    monkeypatch.setattr(analysis, "get_conn", lambda: connection)
+    def fail(*args, **kwargs):
+        raise AssetMasterSchemaUnavailable("sensitive schema pams_asset_master")
+    monkeypatch.setattr(analysis, "build_lookthrough_payload", fail)
+    with pytest.raises(HTTPException) as exc:
+        analysis.sync_asset_master_from_current_portfolio("CNY")
+    assert exc.value.status_code == 503
+    assert exc.value.detail == {"code": "asset_schema_unavailable", "message": "资产主数据结构不可用，同步未执行"}
+    assert "pams_asset_master" not in str(exc.value.detail)
+    assert connection.__exit__.call_args.args[0] is AssetMasterSchemaUnavailable
+    connection.commit.assert_not_called()

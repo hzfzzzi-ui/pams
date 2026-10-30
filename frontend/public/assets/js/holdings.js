@@ -1,5 +1,5 @@
 import { jget, typeLabel, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20261026-startup-order-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20261030-cleanup-v2';
 import { pnlPct } from './utils.js?v=20260622-fund-pnl-v1';
 import { makeAccountCashHoldingRows } from './account_cash.js?v=20260606-cash-active-v1';
 

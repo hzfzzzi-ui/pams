@@ -6,8 +6,9 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
+from domain.assets.asset_master import AssetMasterSchemaUnavailable
 from domain.assets.lookthrough_state import build_lookthrough_payload
 from domain.investments.portfolio_state import get_conn
 from domain.investments.return_attribution import build_return_attribution_payload
@@ -35,14 +36,20 @@ def return_attribution_summary(baseCurrency: str = Query("CNY")) -> dict[str, An
 @router.post("/asset-master/sync")
 def sync_asset_master_from_current_portfolio(baseCurrency: str = Query("CNY")) -> dict[str, Any]:
     """Explicitly sync asset master from current lookthrough analysis."""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            payload = build_lookthrough_payload(
-                cur,
-                base_currency=baseCurrency,
-                sync_asset_master=True,
-            )
-        conn.commit()
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                payload = build_lookthrough_payload(
+                    cur,
+                    base_currency=baseCurrency,
+                    sync_asset_master=True,
+                )
+            conn.commit()
+    except AssetMasterSchemaUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "asset_schema_unavailable", "message": "资产主数据结构不可用，同步未执行"},
+        ) from exc
     return {
         "status": "ok",
         "as_of": payload.get("as_of"),
