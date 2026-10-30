@@ -194,7 +194,7 @@ flowchart TD
 - 页面不直接写业务分类规则。
 - 前端不重复计算行业、主题、地区、币种和资产类型。
 - endpoint 只做参数和响应封装。
-- 复杂口径放在 `backend/api/services/`。
+- 复杂口径放在 `backend/api/domain/`。
 - 表结构变更放在 `database/postgres/schema/`。
 - 临时 YAML 和旧页面接口不能成为新的事实来源。
 
@@ -316,7 +316,7 @@ sequenceDiagram
 ```text
 backend/api/main.py                         FastAPI 主入口
 backend/api/endpoints/                      API 路由层
-backend/api/services/                       业务服务层
+backend/api/domain/                       业务服务层
 backend/api/collectors/                     外部数据采集器
 database/postgres/schema/                   PostgreSQL 表结构和迁移脚本
 frontend/public/                            前端静态页面
@@ -364,7 +364,7 @@ docker compose up -d --build pams-api pams-web
 核心回归：
 
 ```powershell
-python -m pytest tests/test_valuation_nav_service.py tests/test_return_attribution.py tests/test_risk_state_service.py tests/test_portfolio_state_contract.py tests/test_portfolio_valuation_state.py tests/test_portfolio_valuation_linkage.py tests/test_holding_return_snapshot.py tests/test_investment_returns_service.py tests/test_holdings_view_service.py tests/test_portfolio_summary_service.py tests/test_frontend_static_contract.py tests/test_cashflow_fact_service.py tests/test_investment_trade_fact_service.py -q
+python -m pytest tests/investments/test_valuation_nav_service.py tests/investments/test_return_attribution.py tests/risk/test_risk_state_service.py tests/investments/test_portfolio_state_contract.py tests/investments/test_portfolio_valuation_state.py tests/investments/test_portfolio_valuation_linkage.py tests/investments/test_holding_return_snapshot.py tests/investments/test_investment_returns_service.py tests/investments/test_holdings_view_service.py tests/investments/test_portfolio_summary_service.py tests/frontend/test_frontend_static_contract.py tests/ledger/test_cashflow_fact_service.py tests/investments/test_investment_trade_fact_service.py -q
 ```
 
 前端语法检查：

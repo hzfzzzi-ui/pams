@@ -3,13 +3,13 @@
 ## Scope And Handoff
 
 L-level additive diagnostic, locally self-tested, not user acceptance. Only
-`backend/api/services/ibkr_fee_settlement.py`, its native pytest file, and this
+`backend/api/services/ibkr_fee_settlement.py` (original location; now `backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py`), its native pytest file, and this
 document belong to this change. Integration, state/nightly records, final CI,
 PR, merge and release belong to LEAD. No endpoint, schema, sync, production DB,
 frontend, configuration, accounting formula or persisted financial value changes.
 
 ```python
-from services.ibkr_fee_settlement import review_fee_settlement
+from domain.brokers.ibkr.ibkr_fee_settlement import review_fee_settlement
 
 # xml_text and quality must come from the existing selected-report read transaction.
 fee_review['settlement_evidence'] = review_fee_settlement(

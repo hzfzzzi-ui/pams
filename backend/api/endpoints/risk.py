@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.risk_state import build_risk_state, run_pretrade_check
+from domain.risk.risk_state import build_risk_state, run_pretrade_check
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 

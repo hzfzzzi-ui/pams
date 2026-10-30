@@ -15,8 +15,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
-from services.cashflow_fact import backfill_cashflow_facts
-from services.bank_statement_rules import (
+from domain.ledger.cashflow_fact import backfill_cashflow_facts
+from domain.ledger.bank_statement_rules import (
     _classify as _classify, _classify_by_amount as _classify_by_amount,
     _classify_statement_row, _row_transfer_amount, _amount_close,
 )

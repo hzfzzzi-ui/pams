@@ -36,13 +36,13 @@ from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import sync_center
 from endpoints import analysis
 from endpoints import account_import
-from services.accounts_view import (
+from domain.accounts.accounts_view import (
     build_account_detail_payload as _build_account_detail_payload,
     build_accounts_payload as _build_accounts_payload,
 )
-from services.cashflow_view import build_cashflow_series_payload as _build_cashflow_series_payload
-from services.fx_rates import build_latest_fx_rates_payload as _build_latest_fx_rates_payload
-from services.holdings_view import (
+from domain.ledger.cashflow_view import build_cashflow_series_payload as _build_cashflow_series_payload
+from domain.market.fx_rates import build_latest_fx_rates_payload as _build_latest_fx_rates_payload
+from domain.investments.holdings_view import (
     advance_overseas_view_date as _advance_overseas_view_date,
     build_api_holdings_latest_payload as _build_api_holdings_latest_payload,
     build_holdings_by_category_payload as _build_holdings_by_category_payload,
@@ -50,38 +50,38 @@ from services.holdings_view import (
     build_holdings_latest_payload as _build_holdings_latest_payload,
     latest_complete_snapshot_date as _latest_complete_snapshot_date,
 )
-from services.holding_return_display import attach_recent_market_returns
-from services.holding_return_snapshot import (
+from domain.investments.holding_return_display import attach_recent_market_returns
+from domain.investments.holding_return_snapshot import (
     build_investment_return_series_payload_from_snapshot as _build_investment_return_series_payload_from_snapshot,
     build_section_return_series_payload_from_snapshot as _build_section_return_series_payload_from_snapshot,
     upsert_investment_return_series_snapshot as _upsert_investment_return_series_snapshot,
 )
-from services.investment_returns import (
+from domain.investments.investment_returns import (
     apply_reported_display_anchor as _apply_reported_display_anchor,
     build_account_performance_payload as _build_account_performance_payload,
     build_investment_return_series_payload as _build_investment_return_series_payload,
     build_section_return_series_payload as _build_section_return_series_payload,
     section_return_summary as _section_return_summary,
 )
-from services.investment_view_date import (
+from domain.investments.investment_view_date import (
     clamp_to_latest_data_date as _clamp_to_latest_data_date,
     daily_pnl_window_date as _daily_pnl_window_date,
     market_data_candidate_date as _market_data_candidate_date,
 )
-from services.portfolio_summary import (
+from domain.investments.portfolio_summary import (
     apply_return_attribution_pnl_to_summary as _apply_return_attribution_pnl_to_summary,
     apply_published_valuation_state_to_summary as _apply_published_valuation_state_to_summary,
     build_holdings_by_account_payload as _build_holdings_by_account_payload,
     build_holdings_summary_payload as _build_holdings_summary_payload,
     build_summary2_from_holdings_latest_payload as _build_summary2_from_holdings_latest_payload,
 )
-from services.return_attribution import build_return_attribution_payload as _build_return_attribution_payload
-from services.portfolio_state import (
+from domain.investments.return_attribution import build_return_attribution_payload as _build_return_attribution_payload
+from domain.investments.portfolio_state import (
     _load_accounts_config as _load_portfolio_accounts_config,
     load_account_balances as _load_account_balances,
     load_investment_positions as _load_investment_positions,
 )
-from services.portfolio_valuation_state import (
+from domain.investments.portfolio_valuation_state import (
     apply_holdings_category_pnl_to_section_return_series_payload as _apply_holdings_category_pnl_to_section_return_series_payload,
     apply_summary_pnl_to_return_series_payload as _apply_summary_pnl_to_return_series_payload,
     apply_published_valuation_state_to_return_series_payload as _apply_published_valuation_state_to_return_series_payload,
@@ -90,9 +90,9 @@ from services.portfolio_valuation_state import (
     published_nav_bucket_from_row as _published_nav_bucket_from_row,
     published_daily_close_compatible as _published_daily_close_compatible,
 )
-from services.reference_data import build_categories_payload as _build_categories_payload
-from services.risk_state import build_risk_latest_payload as _build_risk_latest_payload
-from services.valuation_nav import (
+from domain.assets.reference_data import build_categories_payload as _build_categories_payload
+from domain.risk.risk_state import build_risk_latest_payload as _build_risk_latest_payload
+from domain.investments.valuation_nav import (
     ANCHOR_NAV_DATE,
     account_anchor_amount as _account_anchor_amount,
     account_anchor_value_cny as _account_anchor_value_cny,
@@ -929,7 +929,7 @@ def nav_weekly(
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
-            from services.ibkr_daily_close_read import configured as daily_close_configured
+            from domain.brokers.ibkr.ibkr_daily_close_read import configured as daily_close_configured
             account_cfg = _load_portfolio_accounts_config() if latest and daily_close_configured() else None
             account_balances = _load_account_balances(cur, baseCurrency, account_cfg) if account_cfg is not None else None
             published_state = (

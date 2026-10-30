@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
-from services import account_import_access as access
-from services import account_import_store as store
-from services import account_import_publish as publisher
-from services.account_import_ocr import ocr_available
+from domain.imports import account_import_access as access
+from domain.imports import account_import_store as store
+from domain.imports import account_import_publish as publisher
+from domain.imports.account_import_ocr import ocr_available
 
 def private_response(response: Response):
     response.headers["Cache-Control"] = "no-store"

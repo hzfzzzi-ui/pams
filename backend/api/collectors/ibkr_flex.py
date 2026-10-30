@@ -22,8 +22,8 @@ from typing import Any
 import psycopg2.extras
 from psycopg2.extras import Json
 import requests
-from services import ibkr_report_state as report_state
-from services import ibkr_cash_events
+from domain.brokers.ibkr import ibkr_report_state as report_state
+from domain.brokers.ibkr import ibkr_cash_events
 
 FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 SYNC_SOURCE = "ibkr_flex"
