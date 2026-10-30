@@ -12,7 +12,6 @@ PAMS 前端是本地个人资产系统的移动端 Web UI，由 nginx 提供静�
 
 - `accounts.html`：账户核准、余额矩阵、内部转账匹配和账单导入。
 - `data_sources.html`：同步中心、数据质量、数据源状态和修复提示。
-- `research.html`：观察池、IPS 状态、策略候选和决策记录。
 
 ## 已收敛入口
 

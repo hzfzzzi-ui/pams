@@ -1394,14 +1394,13 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     nav_growth_js = _read_public("assets/js/nav_growth_explanation.js")
     accounts_html = _read_public("accounts.html")
     data_sources_html = _read_public("data_sources.html")
-    research_html = _read_public("research.html")
     data_sources_js = _read_public("assets/js/data_sources.js")
     sync_center_js = _read_public("assets/js/sync_center.js")
     ui_js = _read_public("assets/js/ui.js")
     portfolio_config_js = _read_public("assets/js/portfolio_config.js")
     portfolio_risk_js = _read_public("assets/js/portfolio_risk.js")
 
-    for low_frequency_html in [html, accounts_html, data_sources_html, research_html]:
+    for low_frequency_html in [html, accounts_html, data_sources_html]:
         assert "app-low-frequency" in low_frequency_html
         assert 'data-page-role="low-frequency"' in low_frequency_html
 
@@ -1432,7 +1431,6 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
         "data_sources.html?view=issues#dataQuality",
         "accounts.html#overview",
         "investments.html#asset-master-panel",
-        "research.html",
     ]:
         assert html.count(f'href="{href}"') == 1
     for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", "同步中心", "投资交易记录", "内部转账匹配"]:
@@ -1449,7 +1447,6 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
     assert "assets/js/bank_reconcile.js?v=20261029-import-unify-v1" in accounts_html
     assert "assets/js/data_sources.js?v=20261030-pending-issues-v1" in data_sources_html
-    assert "assets/js/research.js?v=20260622-data-state-a11y-v1" in research_html
     assert "./sync_center.js?v=20261023-ibkr-publication-v1" in data_sources_js
     assert "./ui.js?v=20260622-data-state-a11y-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
@@ -1525,7 +1522,8 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
 
     assert "gzip on;" in dockerfile
     assert "location /holdings/" in dockerfile
-    assert "summary2|nav|risk|cashflow|policy|watchlist" in dockerfile
+    assert "summary2|nav|risk|cashflow" in dockerfile
+    assert "location = /research.html { return 404; }" in dockerfile
     assert "proxy_pass http://pams-api:8000;" in dockerfile
     assert 'location /assets/' in dockerfile
     assert 'public, max-age=300, stale-while-revalidate=1800' in dockerfile

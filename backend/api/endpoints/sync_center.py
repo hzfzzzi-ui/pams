@@ -200,7 +200,6 @@ def sync_center() -> dict[str, Any]:
         ibkr_quality = published_report_status(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             ibkr_run = _latest_sync_run(cur, "ibkr_flex", "ibkr")
-            cn_run = _latest_sync_run(cur, "cn_a_ohlcv_daily", "cn_a_equity")
             a_stock = _holding_summary(cur, major_category="A股", minor_category="A股")
             a_fund = _holding_summary(cur, major_category="A股", minor_category="A股基金")
             us_stock = read_overseas_quote_health(cur, now)
@@ -269,11 +268,6 @@ def sync_center() -> dict[str, Any]:
     fund_status, fund_label = _fresh_status(
         fund_review.get("as_of") or a_fund.get("as_of"),
         needs_review=fund_needs_review,
-    )
-    cn_failed = bool(cn_run and cn_run.get("status") not in {"success", "ok"})
-    cn_status, cn_label = _fresh_status(
-        cn_run.get("latest_trade_date_after") if cn_run else None,
-        failed=cn_failed,
     )
 
     rows = [
@@ -409,19 +403,6 @@ def sync_center() -> dict[str, Any]:
             href="data_sources.html#syncMatrix",
             details="所有非 CNY 资产按最新汇率折算到 CNY，总览和风控依赖该口径。",
         ),
-        _row(
-            id="datahub-cn-a",
-            source="A股研究数据",
-            sync_type="数据健康",
-            latest_date=cn_run.get("latest_trade_date_after") if cn_run else None,
-            latest_time=cn_run.get("finished_at") if cn_run else None,
-            rows=cn_run.get("rows_upserted") if cn_run else 0,
-            status=cn_status,
-            status_label=cn_label,
-            action="修复 DataHub 入库任务",
-            href="research.html",
-            details=cn_run.get("error_text") if cn_run else "研究数据入库状态缺失。",
-        ),
     ]
 
     next(row for row in rows if row["id"] == "market-us-stock")["coverage"] = _norm(us_stock["coverage"])
@@ -456,7 +437,7 @@ def sync_center() -> dict[str, Any]:
         {"label": "行情刷新", "description": "只更新价格、市值、今日盈亏。"},
         {"label": "交易确认", "description": "更新买卖、申购确认、份额、成本、手续费和在途资金。"},
         {"label": "账户核准", "description": "用银行/钱包/券商真值核准现金、负债、入出金和内部转账。"},
-        {"label": "数据健康", "description": "检查研究数据、接口失败、缺失字段和过期数据。"},
+        {"label": "数据健康", "description": "检查行情和资产数据的接口失败、缺失字段和过期情况。"},
     ]
     return {
         "as_of": now.date().isoformat(),

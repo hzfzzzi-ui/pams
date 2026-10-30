@@ -26,8 +26,6 @@ from endpoints import tasks
 from endpoints import prices
 from endpoints import holdings_trade
 from endpoints import notifications
-from endpoints import backtest_v2
-from endpoints import live_signals
 from endpoints import risk
 from endpoints import ibkr
 from endpoints import investment_transactions
@@ -38,9 +36,6 @@ from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import sync_center
 from endpoints import analysis
 from endpoints import account_import
-from strategy.router import router as strategy_router
-from backtest.router import router as backtest_router
-from datahub.router import router as datahub_router
 from services.accounts_view import (
     build_account_detail_payload as _build_account_detail_payload,
     build_accounts_payload as _build_accounts_payload,
@@ -95,10 +90,6 @@ from services.portfolio_valuation_state import (
     published_nav_bucket_from_row as _published_nav_bucket_from_row,
     published_daily_close_compatible as _published_daily_close_compatible,
 )
-from services.research_view import (
-    build_policy_ips_payload as _build_policy_ips_payload,
-    build_watchlist_payload as _build_watchlist_payload,
-)
 from services.reference_data import build_categories_payload as _build_categories_payload
 from services.risk_state import build_risk_latest_payload as _build_risk_latest_payload
 from services.valuation_nav import (
@@ -130,7 +121,6 @@ app.include_router(tasks.router, prefix="/api")
 app.include_router(prices.router, prefix="/api")
 app.include_router(holdings_trade.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
-app.include_router(live_signals.router, prefix="/api")
 app.include_router(risk.router, prefix="/api")
 app.include_router(ibkr.router, prefix="/api")
 app.include_router(investment_transactions.router, prefix="/api")
@@ -141,10 +131,6 @@ app.include_router(portfolio_state_endpoint.router, prefix="/api")
 app.include_router(sync_center.router, prefix="/api")
 app.include_router(analysis.router, prefix="/api")
 app.include_router(account_import.router, prefix="/api")
-app.include_router(backtest_v2.router)
-app.include_router(strategy_router, prefix="/api")
-app.include_router(backtest_router, prefix="/api")
-app.include_router(datahub_router, prefix="/api")
 
 def _allowed_web_origins() -> list[str]:
     raw = os.environ.get("PAMS_ALLOWED_ORIGINS", "")
@@ -1146,20 +1132,8 @@ def risk_latest(limit: int = Query(100, ge=1, le=1000)):
             return json(_build_risk_latest_payload(cur, limit=limit))
 
 
-@app.get("/policy/ips")
-def policy_ips():
-    """投资策略"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_policy_ips_payload(cur))
 
 
-@app.get("/watchlist")
-def watchlist(limit: int = Query(200, ge=1, le=2000)):
-    """Return research watchlist rows."""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_watchlist_payload(cur, limit=limit))
 
 
 # ==================== 健康检查 ====================
