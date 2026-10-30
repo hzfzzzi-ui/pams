@@ -22,11 +22,11 @@ database/postgres/schema/024_cashflow_and_trade_fact.sql
 database/postgres/schema/025_holding_return_snapshot.sql
 database/postgres/schema/025a_asset_snapshots.sql
 database/postgres/schema/026_core_architecture_refactor.sql
-database/postgres/bootstrap/028_account_references.sql
-database/postgres/bootstrap/029_holding_asset_reference.sql
+database/postgres/schema/028a_account_reference_constraints.sql
+database/postgres/schema/029a_holding_asset_reference_constraints.sql
 database/postgres/schema/031_trade_fact_cash_trade_types.sql
 database/postgres/schema/032_trade_fact_fx_conversion_type.sql
-database/postgres/bootstrap/033_benchmark_assets.sql
+database/postgres/schema/033a_benchmark_asset_seed.sql
 database/postgres/schema/034_gold_spot_benchmark.sql
 database/postgres/schema/035_trade_review_fields.sql
 database/postgres/schema/036_trade_position_identity.sql

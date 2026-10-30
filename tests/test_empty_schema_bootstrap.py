@@ -316,3 +316,15 @@ def test_stale_market_view_fails_without_partial_column_changes(bootstrap_databa
             assert cur.fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_bootstrap_manifest_uses_schema_files_without_historical_backfills():
+    from scripts.bootstrap_empty_database import bootstrap_paths
+
+    paths = bootstrap_paths()
+    assert all(path.parent == ROOT / "database/postgres/schema" for path in paths)
+    names = {path.name for path in paths}
+    assert {"028a_account_reference_constraints.sql", "029a_holding_asset_reference_constraints.sql",
+            "033a_benchmark_asset_seed.sql"} <= names
+    assert not {"028_account_dimension_backfill.sql", "029_holding_asset_identity_backfill.sql",
+                "033_benchmark_assets_and_gold_proxy.sql"} & names

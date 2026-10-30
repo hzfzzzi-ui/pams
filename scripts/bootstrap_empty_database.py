@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "database/postgres/bootstrap/manifest.txt"
 MARKER = "pams-empty-bootstrap"
 _WRAPPED = {
-    "028_account_references.sql", "029_holding_asset_reference.sql",
+    "028a_account_reference_constraints.sql", "029a_holding_asset_reference_constraints.sql",
     "067_fund_nav_estimates.sql", "069_daily_return_state.sql",
 }
 _CONTROL = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK)\s*;\s*(?:--.*)?$", re.IGNORECASE)
