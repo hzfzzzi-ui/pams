@@ -185,6 +185,58 @@ def bootstrap_database():
         admin.close()
 
 
+def test_empty_bootstrap_supports_shared_reference_consumers(bootstrap_database):
+    """Exercise the independent backtest app's shared reference-table SQL contracts."""
+    from scripts.bootstrap_empty_database import initialize_empty_database
+
+    with psycopg2.connect(**bootstrap_database) as conn:
+        initialize_empty_database(conn)
+        with conn.cursor() as cur:
+            # Shape and ON CONFLICT key follow the backtest security-master writer.
+            security_upsert = """INSERT INTO public.pit_security_master
+                (ts_code,symbol,name,exchange,list_date,delist_date,industry,market_type,created_at,updated_at)
+                VALUES ('600000.SH','sh600000',%s,'SSE','2000-01-01',NULL,'金融','CN_A',NOW(),NOW())
+                ON CONFLICT (ts_code) DO UPDATE SET name=excluded.name, updated_at=NOW()"""
+            cur.execute(security_upsert, ('first',))
+            cur.execute(security_upsert, ('updated',))
+            cur.execute("SELECT symbol,name,industry FROM public.pit_security_master WHERE ts_code='600000.SH'")
+            assert cur.fetchone() == ('sh600000', 'updated', '金融')
+
+            # The independent index updater uses this key and these columns.
+            index_upsert = """INSERT INTO public.pit_index_daily
+                (index_code,trade_date,open,high,low,close,volume,turnover,created_at)
+                VALUES ('000001.SH','2026-01-02',1,2,1,%s,100,200,NOW())
+                ON CONFLICT (index_code,trade_date) DO UPDATE SET close=excluded.close"""
+            cur.execute(index_upsert, (1,))
+            cur.execute(index_upsert, (2,))
+            cur.execute("SELECT close,volume,turnover FROM public.pit_index_daily WHERE index_code='000001.SH'")
+            assert cur.fetchone() == (2, 100, 200)
+
+            cur.execute("""INSERT INTO public.pit_industry_history
+                (ts_code,start_date,end_date,standard,industry_l1,industry_l2,created_at)
+                VALUES ('600000.SH','2020-01-01',NULL,'SW','金融','银行',NOW())""")
+            cur.execute("""SELECT industry_l1 FROM public.pit_industry_history
+                WHERE ts_code='600000.SH' AND start_date <= '2026-01-02'
+                AND (end_date IS NULL OR end_date >= '2026-01-02')""")
+            assert cur.fetchone()[0] == '金融'
+            cur.execute("""INSERT INTO public.pit_st_history (ts_code,start_date,end_date,st_type)
+                VALUES ('600000.SH','2025-01-01',NULL,'ST')""")
+            cur.execute("SELECT st_type FROM public.pit_st_history WHERE ts_code='600000.SH' AND end_date IS NULL")
+            assert cur.fetchone()[0] == 'ST'
+            cur.execute("INSERT INTO public.pit_trade_cal (exchange,cal_date,is_open) VALUES ('SSE','2026-01-02',true)")
+            cur.execute("SELECT is_open FROM public.pit_trade_cal WHERE exchange='SSE' AND cal_date='2026-01-02'")
+            assert cur.fetchone()[0] is True
+            cur.execute("""INSERT INTO public.pams_sentiment_state
+                (as_of,sent_state,sent_score,advancers,decliners,limit_up,limit_down)
+                VALUES ('2026-01-02','neutral',50,10,20,3,4)""")
+            cur.execute("""SELECT sent_state,sent_score,advancers,decliners,limit_up,limit_down,created_at
+                FROM public.pams_sentiment_state WHERE as_of <= '2026-01-02' ORDER BY as_of DESC LIMIT 400""")
+            state, score, up, down, limit_up, limit_down, created = cur.fetchone()
+            assert (state, score, up, down, limit_up, limit_down) == ('neutral', 50, 10, 20, 3, 4)
+            assert created is not None
+        conn.rollback()
+
+
 def test_guarded_bootstrap_commits_empty_database_and_refuses_repeat(bootstrap_database):
     from scripts.bootstrap_empty_database import BootstrapError, initialize_empty_database
 
