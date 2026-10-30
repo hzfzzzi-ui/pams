@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from uuid import uuid4
 
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extensions import parse_dsn
 from psycopg2.extras import RealDictCursor
+from tests.support.asset_pg_safety import resolve_asset_test_target, validate_asset_test_database
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,23 +17,15 @@ from domain.assets import asset_master as master  # noqa: E402
 
 @pytest.fixture
 def scratch_cursor():
-    dsn = os.environ.get("PAMS_ASSET_ISOLATED_TEST_DSN", "")
-    if not dsn:
-        pytest.skip("explicit marked isolated Unix-socket test database required")
-    params = parse_dsn(dsn)
-    socket = params.get("host", "")
-    name = params.get("dbname", "")
-    if not socket.startswith("/tmp/pams-asset-test-") or not name.startswith("pams_asset_test_"):
-        raise AssertionError("refusing non-isolated asset test DSN")
+    target = resolve_asset_test_target()
+    if target is None:
+        pytest.skip("explicit marked isolated asset test database required")
+    dsn, mode, name = target
     conn = psycopg2.connect(dsn, connect_timeout=2)
     schema = "asset_test_" + uuid4().hex
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT current_database() AS name, inet_server_addr() AS host, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = current_database()")
-            identity = cur.fetchone()
-            assert identity["name"] == name and identity["host"] is None
-            assert identity["marker"] == "pams-isolated-asset-identity"
-            assert conn.server_version // 10000 == 16
+            validate_asset_test_database(conn, mode, name)
             cur.execute(sql.SQL("CREATE SCHEMA {} ").format(sql.Identifier(schema)))
             cur.execute(sql.SQL("SET search_path TO {}, pg_catalog").format(sql.Identifier(schema)))
             yield cur

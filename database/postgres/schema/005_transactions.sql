@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS pams_transactions (
 -- 索引优化
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON pams_transactions(date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_category ON pams_transactions(category);
-CREATE INDEX IF NOT EXISTS idx_transactions_month ON pams_transactions(DATE_TRUNC('month', date));
+CREATE INDEX IF NOT EXISTS idx_transactions_month ON pams_transactions(DATE_TRUNC('month', date::timestamp));
 CREATE INDEX IF NOT EXISTS idx_transactions_account ON pams_transactions(account);
 CREATE INDEX IF NOT EXISTS idx_transactions_source ON pams_transactions(source);
 
