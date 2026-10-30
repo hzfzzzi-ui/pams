@@ -25,11 +25,13 @@
 | PostgreSQL | PGHOST、PGPORT、PGDATABASE、PGUSER、PGPASSWORD |
 | 数据来源 | TUSHARE_TOKEN、IBKR_FLEX_*、PAMS_DATABENTO_API_KEY、券商连接参数 |
 | 导入 | PAMS_IMPORT_PUBLISH_ENABLED；访问边界、schema、预览和发布分别核对；旧的独立口令变量不再读取 |
-| 调度 | PAMS_API_BASE、PAMS_REFRESH_STATE_PATH、日结和现金事件开关 |
+| 调度 | PAMS_API_BASE、PAMS_REFRESH_STATE_PATH、日结和现金事件开关、PAMS_SCHEDULER_SKIP_STARTUP_REFRESH |
 | 隔离验证 | PAMS_TEST_POSTGRES_DSN；必须显式指向测试环境，不回退生产 PG* |
 | 来源修复 | PAMS_REPAIR_DSN；与应用连接及隔离测试连接分开 |
 
 根 .env 是 Compose 输入之一；还须核对实际启动时的 --env-file、进程环境及部署文件。config/.env 没有应用自动加载约定。秘密值不进入源码、文档、日志或 PR。
+
+`PAMS_SCHEDULER_SKIP_STARTUP_REFRESH` 默认关闭；设为 `true` 时，仅跳过该进程启动时的即时行情、IBKR 和收盘补跑，正常定时任务仍按原计划运行，可能在启动后不久到期。该环境值在容器每次重启时仍会生效；如仅用于一次发布，应在下一次计划重建时移除，不能把它当作暂停定时任务或阻止财务写入的开关。
 
 ## 部署与挂载来源
 
