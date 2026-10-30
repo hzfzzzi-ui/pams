@@ -788,7 +788,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
     assert "assets/js/holdings_categories.js?v=20261030-cleanup-v2" in html
-    assert "assets/js/lookthrough.js?v=20261030-cleanup-v2" in html
+    assert "assets/js/lookthrough.js?v=20261030-underlying-limit-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261030-cleanup-v2" in html
     assert "assets/js/portfolio_config.js?v=20261030-cleanup-v2" in html
     assert "style-phone.css?v=20261029-scope-style-v1" in html

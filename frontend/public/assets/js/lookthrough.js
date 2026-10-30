@@ -1097,6 +1097,15 @@ function renderReturnAttributionList() {
   const visibleEntries = (returnAttributionShowAll ? rows : rows.slice(0, RETURN_ATTRIBUTION_DEFAULT_LIMIT))
     .map((row, index) => ({ row, index }));
   const hiddenCount = Math.max(rows.length - RETURN_ATTRIBUTION_DEFAULT_LIMIT, 0);
+  const selection = calibratedReturnAttributionData()?.quality?.underlying_selection;
+  let selectionNotice = '';
+  if (activeReturnAttributionDimension === 'underlying' && selection?.truncated) {
+    const returned = Math.max(0, n(selection.returned_count));
+    const total = Math.max(returned, n(selection.total_count));
+    const requiredOmitted = Math.max(0, n(selection.required_omitted_count));
+    const incomplete = requiredOmitted > 0 ? `；其中 ${requiredOmitted} 项关联标的因上限未返回，同名证券可能不完整` : '';
+    selectionNotice = `<div class="lookthroughRuleText" role="status">底层数据返回 ${esc(returned)} / ${esc(total)} 项${esc(incomplete)}。</div>`;
+  }
   const moreButton = hiddenCount > 0 ? `
     <button type="button" class="returnAttributionMoreBtn" data-return-attr-more>
       ${returnAttributionShowAll ? '收起' : `更多 ${hiddenCount} 项`}
@@ -1104,6 +1113,7 @@ function renderReturnAttributionList() {
   ` : '';
   el.innerHTML = `
     ${returnAttributionIntro()}
+    ${selectionNotice}
     ${visibleEntries.length ? visibleEntries.map(({ row, index }) => returnAttributionRowHtml(row, index, maxAbsPnl)).join('') : '<div class="lookthroughEmpty">暂无归因数据</div>'}
     ${moreButton}
   `;
