@@ -909,53 +909,6 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
   gap: var(--sp-3);
 }
 
-/* ---- Analysis Visualization ---- */
-
-/* Funnel */
-.funnel { display: flex; flex-direction: column; gap: var(--sp-2) }
-.funnel-row { display: flex; align-items: center; gap: var(--sp-3) }
-.funnel-label { width: 80px; font-size: var(--fs-sm); color: var(--muted); text-align: right; flex-shrink: 0 }
-.funnel-bar-wrap { flex: 1; background: rgba(255,255,255,.03); border-radius: var(--radius-sm); overflow: hidden; height: 24px }
-.funnel-bar { height: 100%; border-radius: var(--radius-sm); transition: width .5s ease-out; min-width: 2px }
-.funnel-count { font-size: var(--fs-sm); font-weight: 700; font-family: 'JetBrains Mono', monospace; min-width: 36px; text-align: right; flex-shrink: 0 }
-
-/* Expandable candidate rows */
-.candidate-row { cursor: pointer; transition: background .1s }
-.candidate-row:hover { background: rgba(88,166,255,.06) !important }
-.candidate-row td:first-child::before { content: '\25B6'; font-size: 8px; margin-right: 6px; color: var(--muted); transition: transform .15s; display: inline-block }
-.candidate-row.expanded td:first-child::before { transform: rotate(90deg) }
-.candidate-detail { display: none }
-.candidate-detail.open { display: table-row }
-.candidate-detail td { padding: var(--sp-4); background: var(--bg-surface); border-bottom: 2px solid var(--line) }
-
-/* Decision trail timeline */
-.trail { display: flex; flex-direction: column; gap: 0; padding: var(--sp-2) 0 }
-.trail-step { display: flex; align-items: flex-start; gap: var(--sp-3); padding: 3px 0; position: relative; padding-left: 18px }
-.trail-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; position: absolute; left: 0; top: 6px }
-.trail-line { position: absolute; left: 4px; top: 18px; bottom: -4px; width: 2px; background: var(--line) }
-.trail-step:last-child .trail-line { display: none }
-.trail-text { font-size: var(--fs-sm); line-height: 1.5 }
-.trail-code { font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: var(--fs-xs); color: var(--text-secondary); margin-left: var(--sp-2) }
-
-/* Trail dot colors */
-.dot-pass { background: var(--good) }
-.dot-fail { background: var(--bad) }
-.dot-warn { background: var(--warn) }
-.dot-info { background: var(--info) }
-.dot-neutral { background: var(--muted) }
-
-/* Detail panel sections */
-.detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--sp-4) }
-.detail-section h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--muted); text-transform: uppercase; letter-spacing: .8px; font-weight: 700 }
-.detail-item { display: flex; justify-content: space-between; padding: 2px 0; font-size: var(--fs-md); border-bottom: 1px solid var(--line) }
-.detail-item:last-child { border-bottom: none }
-.detail-item .dl { color: var(--text-secondary) }
-.detail-item .dv { font-weight: 600; font-family: 'JetBrains Mono', monospace }
-
-@media (max-width: 1000px) {
-  .detail-grid { grid-template-columns: 1fr }
-}
-
 /* ---- Charts ---- */
 .chartWrap { height: 260px; width: 100%; position: relative }
 .chartWrapSm { height: 200px; width: 100%; position: relative }

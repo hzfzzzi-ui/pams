@@ -1,6 +1,6 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
 import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20260624-nav-quality-v1';
-import { setActiveNav } from './ui.js?v=20261030-cleanup-v2';
+import { setActiveNav } from './ui.js?v=20261031-legacy-css-v1';
 
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
