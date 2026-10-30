@@ -624,13 +624,12 @@ def refresh_fx_rates():
 # ==================== 前端兼容端点 ====================
 
 def _get_base_currency(cur) -> str:
-    """获取基准币种"""
+    """Use the asset application's configured base currency."""
     try:
-        cur.execute("SELECT value->>'base_currency' AS base_currency FROM pams_policy WHERE key='ips_v1'")
-        r = cur.fetchone()
-        return (r.get('base_currency') if r else None) or 'CNY'
+        return str(load_risk_limits().get("base_currency") or "CNY")
     except Exception:
-        return 'CNY'
+        # Match the existing application's CNY fallback when its source fails.
+        return "CNY"
 
 
 def _build_summary2_latest_payload_for_request(cur) -> dict[str, Any]:
