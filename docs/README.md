@@ -22,4 +22,4 @@
 | [页面与接口边界](PAMS_PAGE_BOUNDARY.md) | 页面、导航、主要 API 与展示职责 |
 | [前端设计规则](PAMS_FRONTEND_DESIGN_SYSTEM.md) | 移动端布局、视觉保护及构建样式 |
 
-本文说明所在源码检出；合并、部署和用户验收需分别核对。业务实现位于 `backend/api/domain/`，测试位于 `tests/` 对应目录。策略与回测由其他应用承担，PAMS 源码已移除研究页面、扫描任务和信号接收；运行服务可能仍是旧版本。空库初始化与隔离清理方案以 [PR #90](https://github.com/hzfzzzi-ui/pams/pull/90) 及其合并状态为准，不代表生产库已变更。
+本文说明所在源码检出；合并、部署和用户验收需分别核对。业务实现位于 `backend/api/domain/`，测试位于 `tests/` 对应目录。策略与回测由其他应用承担，PAMS 源码已移除研究页面、扫描任务和信号接收；运行服务可能仍是旧版本。空库初始化方案以 [PR #90](https://github.com/hzfzzzi-ui/pams/pull/90) 及其合并状态为准，不代表生产库已变更。
