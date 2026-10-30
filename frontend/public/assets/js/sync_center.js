@@ -1,5 +1,5 @@
 import { jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { dataStateHtml, openBottomSheet } from './ui.js?v=20260622-data-state-a11y-v1';
+import { dataStateHtml, openBottomSheet } from './ui.js?v=20261030-cleanup-v2';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
