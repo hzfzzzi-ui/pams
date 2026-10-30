@@ -6,9 +6,26 @@
 # Main entry - PAMS Dashboard
 http://pams.local {
   # API routes -> FastAPI backend (port 8000 inside container)
-  # Strip /api prefix before forwarding
-  handle_path /api/* {
-    reverse_proxy pams-api:8000
+  # API routers expect the /api prefix.
+  handle /api/* {
+    reverse_proxy pams-api:8000 {
+      transport http {
+        response_header_timeout 3600s
+      }
+    }
+  }
+
+  # Preserve existing non-/api dashboard routes. Legacy policy/watchlist
+  # forwarding does not restore their removed backends; review separately.
+  @legacy_api {
+    path /summary2/* /nav/* /risk/* /holdings/* /cashflow/* /investment/* /policy/* /watchlist /health
+  }
+  handle @legacy_api {
+    reverse_proxy pams-api:8000 {
+      transport http {
+        response_header_timeout 3600s
+      }
+    }
   }
 
   # Frontend static files -> Nginx
@@ -30,8 +47,23 @@ http://adguard.pams.local {
 # Default site for IP access (192.168.0.143)
 :80 {
   # API routes -> FastAPI backend
-  handle_path /api/* {
-    reverse_proxy pams-api:8000
+  handle /api/* {
+    reverse_proxy pams-api:8000 {
+      transport http {
+        response_header_timeout 3600s
+      }
+    }
+  }
+
+  @legacy_api {
+    path /summary2/* /nav/* /risk/* /holdings/* /cashflow/* /investment/* /policy/* /watchlist /health
+  }
+  handle @legacy_api {
+    reverse_proxy pams-api:8000 {
+      transport http {
+        response_header_timeout 3600s
+      }
+    }
   }
 
   # Frontend static files -> Nginx
