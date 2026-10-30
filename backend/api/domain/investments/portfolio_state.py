@@ -1,7 +1,7 @@
 """Unified read-only portfolio state assembly.
 
 This service is the first executable version of the PortfolioState contract in
-``docs/PAMS_DATA_CONTRACT.md``.  It intentionally reads existing tables and
+``docs/DATA_AND_RETURNS.md``.  It intentionally reads existing tables and
 configuration without changing current valuation logic, so old endpoints can be
 migrated one by one while keeping their response fields stable.
 """

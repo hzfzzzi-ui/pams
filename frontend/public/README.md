@@ -1,27 +1,11 @@
 # pams-web
 
-PAMS 前端是本地个人资产系统的移动端 Web UI，由 nginx 提供静态页面，并通过 `/api/` 代理访问 FastAPI。
+PAMS 使用 nginx 提供静态页面，页面通过 API 获取业务结果。
 
-## 主入口
+- [页面与接口边界](../../docs/PAMS_PAGE_BOUNDARY.md)：主页面、子入口、兼容跳转及模块职责。
+- [前端设计规则](../../docs/PAMS_FRONTEND_DESIGN_SYSTEM.md)：导航、布局保留、源样式与生成样式。
+- [数据契约](../../docs/DATA_AND_RETURNS.md)：事实来源、中文展示和分类边界。
+- [开发工作流程](../../docs/DEVELOPMENT_WORKFLOW.md)：候选验证及发布要求。
+- [GitHub PR](https://github.com/hzfzzzi-ui/pams/pulls)：开发及验收记录；[配置来源](../../docs/CONFIGURATION.md)说明发布记录与机器观察入口。
 
-- `investments.html`：默认首页。承载投资持仓、收益分析、交易流水、风险子页和目标配置。
-- `ledger.html`：现金流与收支账本。承载收入支出、资金流转、待确认流水和账户异常摘要。
-- `more.html`：低频入口聚合。承载数据源健康、账户核准、账单导入、资产底表入口、研究看板和系统信息。
-
-## 更多页子入口
-
-- `accounts.html`：账户核准、余额矩阵、内部转账匹配和账单导入。
-- `data_sources.html`：同步中心、数据质量、数据源状态和修复提示。
-
-## 已收敛入口
-
-- `index.html` 已删除，运行态重定向到 `investments.html`。
-- `risk.html` 已删除，完整风险内容收敛到 `investments.html#portfolio-risk-disclosure`。
-- 旧入口和已下线页面通过 nginx 返回 404 或跳转到新的主入口，避免形成隐藏页面。
-
-## 边界
-
-- 前端只做展示和交互。
-- 财务口径、估值、风险、核准状态应来自 API。
-- 投资页风险子页是风险展示主入口；不要再新增独立风险页。
-- 新页面改动前先检查 `docs/PAMS_PAGE_BOUNDARY.md` 和 `AGENTS.md`。
+默认首页为 investments.html，主导航为投资、收支、更多。新页面或模块应先核对上述边界及根目录 AGENTS.md。

@@ -579,7 +579,7 @@ def audit_ibkr_account(*, xml_text: str, account_id: str, as_of: date, base_curr
     """Audit one full broker account/date/base currency, never personal ownership.
 
     Internal state must explicitly provide account_id/as_of/base_currency and
-    SCOPE. Metric basis tags are documented in docs/IBKR_ACCOUNT_AUDIT.md.
+    SCOPE. Metric basis tags are documented in docs/BROKER_SYNC_AND_RECONCILIATION.md.
     period_start is inclusive: ChangeInNAV.startingValue is the value immediately
     before that statement period. P&L evidence is not a percentage return audit.
     History remains unverified; this function does not certify a historical series.
