@@ -22,9 +22,9 @@
 
 ## 策略与模拟对象的边界
 
-策略和模拟账户不属于 PAMS 目标能力，独立回测应用也正在移除模拟账户。源代码、已部署镜像和数据库各自可能处于不同阶段；不能依据代码删除推断线上消费者已切换或生产表已删除。
+策略和模拟账户不属于 PAMS 目标能力。独立回测应用及其数据由该应用管理；源代码、已部署镜像和数据库各自可能处于不同阶段，不能依据代码删除推断线上消费者已切换或生产表已删除。
 
-资产风控的行业兜底读取 `pams_fundamental_snapshot`。当前源码的基准币种来自 `risk_limits.yaml`，旧运行版本可能仍引用 `pams_policy`，以实际镜像核对为准。独立回测市场快照读取 `pams_sentiment_state`，并引用 `pit_trade_cal`、`pit_st_history`、`pit_industry_history`、`pit_security_master`、`pams_ohlcv_daily` 和 `pit_index_daily`；共享部署须保留这些依赖。PAMS 兼容交易代码仍引用 `pams_transaction_sync_log`，独立回测还使用 `pams_transaction_lifecycle`，均不属于模拟账户删除范围。
+资产风控的行业兜底读取 `pams_fundamental_snapshot`。当前源码的基准币种来自 `risk_limits.yaml`，旧运行版本可能仍引用 `pams_policy`，以实际镜像核对为准。独立回测市场快照读取 `pams_sentiment_state`，并引用 `pit_trade_cal`、`pit_st_history`、`pit_industry_history`、`pit_security_master`、`pams_ohlcv_daily` 和 `pit_index_daily`；共享部署须保留这些依赖。旧检出可能仍引用 `pams_transaction_sync_log`；当前主线已移除 Telegram 专属同步代码。独立回测使用的交易生命周期对象须按该应用实际运行状态核对，不因 PAMS 清理而删除。
 
 对生产库删表或迁移需要单独授权，并在所有实际消费者切换后重新核查动态 SQL、跨应用依赖和现场结构；需要执行时须重新设计隔离验证和回退方案。
 
