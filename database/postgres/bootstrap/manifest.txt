@@ -2,8 +2,6 @@
 database/postgres/schema/004_fx_rates.sql
 database/postgres/schema/005_transactions.sql
 database/postgres/schema/006_update_accounts.sql
-database/postgres/schema/008_task_queue.sql
-database/postgres/schema/009_notifications.sql
 database/postgres/schema/010_market_ohlcv.sql
 database/postgres/schema/011_industry_fallback.sql
 database/postgres/schema/011_shared_sentiment.sql
