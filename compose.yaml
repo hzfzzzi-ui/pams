@@ -156,33 +156,6 @@ services:
     ports:
       - "8090:8000"
 
-  # Telegram Bot for transaction recording
-  pams-telegram-bot:
-    build:
-      context: ./telegram-bot
-    container_name: pams-telegram-bot
-    restart: unless-stopped
-    depends_on:
-      - pams-api
-    environment:
-      PAMS_API_BASE: http://pams-api:8000/api
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      OWNER_CHAT_ID: ${OWNER_CHAT_ID}
-
-  # Telegram Assistant Bot (Claude Code Bridge)
-  pams-assistant-bot:
-    build:
-      context: ./telegram-bot-assistant
-    container_name: pams-assistant-bot
-    restart: unless-stopped
-    depends_on:
-      - pams-api
-    environment:
-      PAMS_API_BASE: http://pams-api:8000/api
-      ASSISTANT_BOT_TOKEN: ${ASSISTANT_BOT_TOKEN}
-      OWNER_CHAT_ID: ${OWNER_CHAT_ID}
-      SITE_URL: http://pams.local
-
   # 定时调度器 (汇率+股价+加密价格)
   pams-scheduler:
     build:
