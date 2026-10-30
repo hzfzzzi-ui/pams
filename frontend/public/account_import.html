@@ -7,7 +7,7 @@
   <title>PAMS · 导入资料</title>
   <link rel="stylesheet" href="assets/css/style.css?v=20260623-nav-growth-overflow-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261029-mobile-flow-v1" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261030-review-cleanup-v1" />
 </head>
 <body class="page-account-import app-shell">
   <div class="wrap import-shell">
@@ -17,7 +17,7 @@
       <li id="step-two"><span>02</span> 核对发布</li>
     </ol>
     <p id="notice" role="status" aria-live="polite">正在载入导入资料…</p>
-    <p id="capability-note" class="import-warning" hidden>发布尚未启用；当前仅可保存草稿、配置字段和核对预览。</p>
+    <p id="capability-note" class="import-meta" hidden>仅预览</p>
     <div id="conflict" role="alert" hidden>草稿已在其他会话更新。本地修改尚未覆盖服务器。<button id="reload" type="button">重新载入服务器版本</button></div>
     <section id="gate" aria-label="服务状态">
       <button id="retry" type="button">重新检查</button>
@@ -55,7 +55,7 @@
       <section id="review" aria-label="核对发布" hidden>
         <h2>配置与确认</h2><p id="review-meta" class="import-meta"></p>
         <dl id="counts" class="import-counts"></dl>
-        <p id="impact"></p><div id="warnings"></div><div id="issue-groups"></div>
+        <p id="impact" hidden></p><div id="warnings"></div><div id="issue-groups"></div>
         <label for="preview-filter">具体条目<select id="preview-filter"><option value="all">全部</option><option value="issues">异常</option><option value="excluded">已排除</option></select></label><div id="preview-rows"></div>
       </section>
     </main>
@@ -87,6 +87,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261030-no-passphrase-v1"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261030-review-cleanup-v1"></script>
 </body>
 </html>

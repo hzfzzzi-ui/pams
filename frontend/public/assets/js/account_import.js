@@ -436,10 +436,13 @@ if (typeof document !== 'undefined') {
       const node = el('div'); node.append(el('dt', { new: '新增', duplicates: '重复', blocked: '阻断', pending: '待确认' }[key]), el('dd', p.counts?.[key] ?? '未知')); return node;
     }));
     const impact = p.impact || {};
-    $('impact').textContent = impact.nav_estimate_status === 'known' && impact.nav_change != null ? `NAV 影响 ${impact.nav_change} · ${impact.message || ''}` : `NAV 影响暂不可用${impact.message ? ` · ${impact.message}` : ''}`;
-    $('warnings').replaceChildren(...(p.warnings || []).map(warning => el('p', issues([warning]))));
-    if (!state.caps.publish_enabled) $('warnings').append(el('p', '发布尚未启用；草稿可保留。'));
-    $('issue-groups').replaceChildren(...(p.issue_groups || []).map(group => el('p',`${group.message} · ${group.count} 条`,'import-warning')));
+    const knownImpact = impact.nav_estimate_status === 'known' && impact.nav_change != null;
+    $('impact').hidden = !knownImpact;
+    $('impact').textContent = knownImpact ? `NAV 影响 ${impact.nav_change} · ${impact.message || ''}` : '';
+    const hiddenSummaries = ['持仓、交易、现金独立核对', '资产底表待补充/核准', '已识别的券商入出金缺少银行对手账户证据'];
+    $('warnings').replaceChildren(...(p.warnings || []).filter(warning => !hiddenSummaries.some(prefix => typeof warning === 'string' && warning.startsWith(prefix))).map(warning => el('p', issues([warning]), 'import-warning')));
+    const groupLabels = {counter_required:'资金待关联', possible_duplicate:'疑似重复', asset_unresolved:'标的未匹配', gross_mismatch:'金额校验异常'};
+    $('issue-groups').replaceChildren(...(p.issue_groups || []).map(group => el('p',`${groupLabels[group.code] || group.message} · ${group.count} 条`,'import-warning')));
     const filter = $('preview-filter').value;
     $('preview-rows').replaceChildren(...(p.rows || []).filter(row => filter === 'all' || (filter === 'excluded' ? row.status === 'excluded' : ['blocked','pending'].includes(row.status))).map(row => {
       const node = el('article', undefined, 'import-row'); node.dataset.status = row.status;

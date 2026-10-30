@@ -57,7 +57,9 @@ await context.route('**/*',async route=>{
    return send({batch_id:'b',revision:batch.revision,preview_token:'p'.repeat(64),can_publish:!blocked,
     counts:{new:batch.rows.filter(r=>!r.excluded).length,duplicates:0,blocked:blocked?1:0,pending:0},rows,
     write_count:rows.filter(r=>r.status==='ready').length,write_plan:rows.filter(r=>r.status==='ready').map(r=>({row_id:r.row_id,table:batch.kind==='cash'?'pams_cashflow_fact':'pams_investment_trade_fact',operation:'insert',before:null,after:r.fields})),
-    impact:{nav_estimate_status:'unavailable',nav_change:null},warnings:[],issue_groups:[]});
+    impact:{nav_estimate_status:'unavailable',nav_change:null,message:'测试不应展示'},
+    warnings:['持仓、交易、现金独立核对；未上传部分不视为零。','资产底表待补充/核准：000001','已识别的券商入出金缺少银行对手账户证据','其他来源异常'],
+    issue_groups:[{code:'counter_required',message:'券商入出金缺少银行对手账户证据',count:1}]});
   }
   if(p.endsWith('/publish')) {assert.equal(caps.publish_enabled,true);publishes++;batch.status='published';return send({batch});}
   throw new Error('Unexpected API '+req.method()+' '+p);
@@ -83,7 +85,9 @@ try {
   for(const [key,value] of Object.entries({quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'})) await page.locator('#field-'+key).fill(value);
   await save();assert.equal(batch.rows[0].fields.net_cash,'-10.0100');assert.equal(batch.rows[0].fields.fee_amount,'0');
   await page.locator('#rows button').click();await page.locator('#field-note').fill('未保存输入');await page.locator('#close-editor').click();await page.locator('#save-draft').click();assert.equal(await page.locator('#field-note').inputValue(),'未保存输入');await save();
-  await page.locator('#next').click();await page.locator('#review').waitFor();await ready();assert.equal(await page.locator('#publish').isDisabled(),true);assert.equal(publishes,0);await capture(width+'-manual-review');
+  await page.locator('#next').click();await page.locator('#review').waitFor();await ready();assert.equal(await page.locator('#publish').isDisabled(),true);assert.equal(publishes,0);
+  await page.getByText('仅预览',{exact:true}).waitFor();await page.getByText('资金待关联 · 1 条',{exact:true}).waitFor();await page.getByText('其他来源异常',{exact:true}).waitFor();
+  assert.equal(await page.getByText('资产底表待补充',{exact:false}).count(),0);assert.equal(await page.getByText('NAV 影响暂不可用',{exact:false}).count(),0);await capture(width+'-manual-review');
   await page.evaluate(()=>{const target=document.querySelector('.import-head h1');for(const [type,x] of [['touchstart',4],['touchmove',100],['touchend',110]]) {const touch=new Touch({identifier:1,target,clientX:x,clientY:70});target.dispatchEvent(new TouchEvent(type,{bubbles:true,cancelable:true,touches:type==='touchend'?[]:[touch],changedTouches:[touch]}));}});await page.locator('#intake').waitFor();assert.equal(batch.rows.length,1);
   failPreview=true;await page.locator('#next').click();await page.locator('#conflict').waitFor();assert.equal(batch.rows[0].fields.note,'未保存输入');
   reset();await open();await page.locator('#mode-ocr').click();await page.locator('#images').setInputFiles([{name:'一.png',mimeType:'image/png',buffer:Buffer.from('png1')},{name:'二.png',mimeType:'image/png',buffer:Buffer.from('png2')}]);

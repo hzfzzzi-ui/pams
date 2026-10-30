@@ -1,4 +1,4 @@
-.page-account-import { --import-yellow: #f0b90b; --import-keyboard: 0px; margin: 0; height: auto !important; overflow-y: auto !important; }
+.page-account-import { --import-yellow: var(--pams-action); --import-keyboard: 0px; margin: 0; height: auto !important; overflow-y: auto !important; }
 .page-account-import [hidden] { display: none !important; }
 body.page-account-import .import-shell { max-width: 430px; height: auto !important; max-height: none !important; overflow: visible !important; padding: 16px 16px calc(100px + env(safe-area-inset-bottom)) !important; }
 .page-account-import :is(h1,h2,h3,p) { margin: 0 0 12px; overflow-wrap: anywhere; letter-spacing: 0; }
@@ -21,7 +21,8 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-steps span { font-family: var(--pams-font-number); margin-right: 4px; }
 .page-account-import .import-steps [aria-current] { color: var(--import-yellow); border-bottom: 2px solid var(--import-yellow); }
 .page-account-import #notice { font-size: 14px; line-height: 1.6; min-height: 24px; }
-.page-account-import :is(#conflict,#editor-error,.import-warning) { color: var(--pams-warning); font-size: 14px; line-height: 1.6; }
+.page-account-import :is(#conflict,#editor-error,.import-warning) { color: var(--pams-text-secondary); font-size: 14px; line-height: 1.6; }
+.page-account-import :is(#conflict,#editor-error) { color: var(--pams-loss); }
 .page-account-import #conflict button { margin-block: 12px; }
 .page-account-import #unlock-form { display: grid; gap: 12px; padding-block: 12px; }
 .page-account-import #unlock-form label { margin: 0; }
@@ -73,8 +74,6 @@ body.page-account-import .nav a { font-size: 13px !important; }
 .page-account-import #asset-results button { display: block; width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; border: 0; border-bottom: 1px solid var(--pams-line-subtle); border-radius: 0; }
 .page-account-import #asset-results { margin-bottom: 12px; max-height: 240px; overflow: auto; }
 .page-account-import #asset-search:disabled { opacity: .45; }
-.page-account-import #review #impact { font-size: 14px; line-height: 1.6; color: var(--pams-text-secondary); }
-.page-account-import #warnings { color: var(--pams-warning); }
 .page-account-import .import-mapping { padding-block: 8px; }
 .page-account-import .import-mapping h3 { margin-block: 16px; }
 .page-account-import .import-mapping-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
