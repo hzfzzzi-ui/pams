@@ -55,12 +55,14 @@ def resolve_asset_test_target(env: Mapping[str, str] | None = None) -> tuple[str
 
 def validate_asset_test_database(conn, mode: str, name: str) -> None:
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT current_database() AS name, inet_server_addr() AS host, inet_server_port() AS port, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = current_database()")
+        cur.execute("SELECT current_database() AS name, current_user AS role, inet_server_addr() AS host, inet_server_port() AS port, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = current_database()")
         identity = cur.fetchone()
     if not identity or identity["name"] != name or identity["marker"] != MARKER or conn.server_version // 10000 != 16:
         raise ValueError("refusing unmarked or incompatible asset test database")
     if mode == "unix" and identity["host"] is None:
         return
-    if mode == "github-ci" and str(identity["host"]) == "127.0.0.1" and identity["port"] == 5432:
+    # Docker's published port can reach a service container at its private IP.
+    # The client DSN is already restricted to 127.0.0.1 by resolve_asset_test_target.
+    if mode == "github-ci" and identity["host"] is not None and identity["port"] == 5432 and identity["role"] == "pams":
         return
     raise ValueError("asset test database transport does not match the isolated target")

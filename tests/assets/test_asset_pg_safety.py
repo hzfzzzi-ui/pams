@@ -50,9 +50,11 @@ def test_rejects_unsafe_ci_targets(env):
 
 
 @pytest.mark.parametrize("identity,version", [
-    ({"name": "pams_asset_test_ci", "marker": "wrong", "host": "127.0.0.1", "port": 5432}, 160000),
-    ({"name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity", "host": "192.0.2.1", "port": 5432}, 160000),
-    ({"name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity", "host": "127.0.0.1", "port": 5432}, 150000),
+    ({"name": "pams_asset_test_ci", "marker": "wrong", "host": "127.0.0.1", "port": 5432, "role": "pams"}, 160000),
+    ({"name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity", "host": None, "port": None, "role": "pams"}, 160000),
+    ({"name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity", "host": "172.19.0.2", "port": 5433, "role": "pams"}, 160000),
+    ({"name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity", "host": "172.19.0.2", "port": 5432, "role": "other"}, 160000),
+    ({"name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity", "host": "127.0.0.1", "port": 5432, "role": "pams"}, 150000),
 ])
 def test_identity_rejection_only_reads_metadata(identity, version):
     conn = MagicMock(server_version=version)
@@ -62,3 +64,12 @@ def test_identity_rejection_only_reads_metadata(identity, version):
         validate_asset_test_database(conn, "github-ci", "pams_asset_test_ci")
     assert cur.execute.call_count == 1
     assert cur.execute.call_args.args[0].startswith("SELECT ")
+
+
+def test_ci_accepts_service_container_address():
+    conn = MagicMock(server_version=160000)
+    conn.cursor.return_value.__enter__.return_value.fetchone.return_value = {
+        "name": "pams_asset_test_ci", "marker": "pams-isolated-asset-identity",
+        "host": "172.19.0.2", "port": 5432, "role": "pams",
+    }
+    validate_asset_test_database(conn, "github-ci", "pams_asset_test_ci")
