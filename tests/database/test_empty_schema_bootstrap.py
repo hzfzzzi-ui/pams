@@ -80,6 +80,15 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                     WHERE conrelid = 'public.pams_holdings_snapshot'::regclass
                     AND confrelid = 'public.pams_asset_master'::regclass AND contype = 'f'""")
                 assert cur.fetchone()[0] == 1
+                cur.execute("SELECT to_regclass('public.idx_pams_holdings_snapshot_asset_id')")
+                assert cur.fetchone()[0] is not None
+                cur.execute("""SELECT asset_id, raw_json->>'is_holding', raw_json->>'price_source'
+                    FROM public.pams_asset_master
+                    WHERE asset_id IN ('BENCH_GOLD_ETF_518880', 'BENCH_SSE_COMPOSITE')""")
+                assert {asset: (is_holding, source) for asset, is_holding, source in cur.fetchall()} == {
+                    'BENCH_GOLD_ETF_518880': ('false', 'pams_asset_market_daily:518880.SH'),
+                    'BENCH_SSE_COMPOSITE': ('false', 'pit_index_daily:000001.SH'),
+                }
                 cur.execute("""SELECT COUNT(*) FROM information_schema.columns
                     WHERE table_schema='pams_external_market' AND table_name='pams_ohlcv_daily'
                     AND column_name IN ('adj_factor','limit_up','limit_down','is_suspended','turnover_rate','turnover_rate_f','volume_ratio','float_share','free_share','circ_mv')""")

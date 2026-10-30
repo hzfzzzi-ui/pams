@@ -103,36 +103,6 @@ def test_asset_master_lookup_can_skip_schema_writes_for_read_paths() -> None:
     assert "SELECT * FROM PAMS_ASSET_MASTER" in joined
 
 
-def test_holding_asset_identity_migration_backfills_asset_id_contract() -> None:
-    sql = Path("database/postgres/schema/029_holding_asset_identity_backfill.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "ADD COLUMN IF NOT EXISTS asset_id VARCHAR" in sql
-    assert "fk_pams_holdings_snapshot_asset_id" in sql
-    assert "idx_pams_holdings_snapshot_asset_id" in sql
-    assert "ASSET_020640" in sql
-    assert "ASSET_WECHAT_BALANCE" in sql
-    assert "ASSET_CREDIT_CARD_CNY" in sql
-    assert "A_110020" in sql
-    assert "ETF_110020" in sql
-    assert "ETF_NFLX" in sql
-    assert "ASSET_NFLX" in sql
-
-
-def test_benchmark_asset_migration_seeds_gold_and_sse_comparators() -> None:
-    sql = Path("database/postgres/schema/033_benchmark_assets_and_gold_proxy.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "BENCH_GOLD_ETF_518880" in sql
-    assert "BENCH_SSE_COMPOSITE" in sql
-    assert "benchmark_only" in sql
-    assert "pams_asset_market_daily" in sql
-    assert "pit_index_daily:000001.SH" in sql
-    assert "CCB_GOLD_ACCUM" in sql
-
-
 def test_gold_spot_benchmark_migration_seeds_non_holding_price_asset() -> None:
     sql = Path("database/postgres/schema/034_gold_spot_benchmark.sql").read_text(
         encoding="utf-8"
@@ -145,39 +115,10 @@ def test_gold_spot_benchmark_migration_seeds_non_holding_price_asset() -> None:
     assert "akshare_sge_daily:Au99.99" in sql
 
 
-def test_europe_sweden_mapping_migration_seeds_sive_and_sek_cash() -> None:
-    sql = Path("database/postgres/schema/049_europe_sweden_asset_mapping.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "'ASSET_SIVE'" in sql
-    assert "'欧股个股'" in sql
-    assert "'欧股'" in sql
-    assert "'瑞典'" in sql
-    assert "'SEK'" in sql
-    assert "'ASSET_CASH_SEK'" in sql
-    assert "UPPER(COALESCE(symbol, '')) = 'SIVE'" in sql
-    assert "UPPER(COALESCE(symbol, '')) = 'CASH_SEK'" in sql
-
-
 def test_asset_master_whitelist_allows_europe_sweden_and_sek() -> None:
     assert "欧股" in VALID_MARKETS
     assert {"欧洲", "瑞典"}.issubset(VALID_REGIONS)
     assert "SEK" in VALID_CURRENCIES
-
-
-def test_korea_asset_normalization_migration_updates_korean_equities() -> None:
-    sql = Path("database/postgres/schema/050_korea_overseas_asset_normalization.sql").read_text(
-        encoding="utf-8"
-    )
-
-    assert "'ASSET_005930_KS'" in sql
-    assert "'ASSET_000660_KS'" in sql
-    assert "'韩股个股'" in sql
-    assert "'韩股'" in sql
-    assert "'韩国'" in sql
-    assert "'KRW'" in sql
-    assert "'海外个股'" not in sql
 
 
 def test_asset_master_normalizes_english_regions_to_whitelist() -> None:
@@ -206,8 +147,19 @@ def test_asset_master_normalizes_english_regions_to_whitelist() -> None:
     assert korea["market"] == "韩股"
     assert korea["economic_region"] == "韩国"
     assert korea["listing_region"] == "韩国"
+    assert korea["currency"] == "KRW"
+    assert sweden["asset_type"] == "欧股个股"
+    assert sweden["market"] == "欧股"
     assert sweden["economic_region"] == "瑞典"
     assert sweden["listing_region"] == "瑞典"
+    assert sweden["currency"] == "SEK"
+    sk_hynix = _asset_record_from_raw(
+        {"symbol": "000660.KS", "asset_name": "SK Hynix", "asset_type": "stock_kr",
+         "currency": "KRW", "region": "Korea"}, source="test",
+    )
+    assert (sk_hynix["asset_type"], sk_hynix["market"], sk_hynix["economic_region"], sk_hynix["currency"]) == (
+        "韩股个股", "韩股", "韩国", "KRW",
+    )
 
 
 def test_asset_master_id_canonicalizes_known_aliases() -> None:
