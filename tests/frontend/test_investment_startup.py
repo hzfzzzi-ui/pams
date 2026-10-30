@@ -36,10 +36,10 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
 def test_investment_entries_share_one_startup_and_ui_module_version():
     html = (PUBLIC / "investments.html").read_text(encoding="utf-8")
     for name in ("holdings", "holdings_categories", "lookthrough", "transactions", "portfolio_risk", "portfolio_config"):
-        version = "20261030-underlying-limit-v1" if name == "lookthrough" else "20261030-cleanup-v2"
+        version = "20261031-legacy-css-v1"
         assert f"assets/js/{name}.js?v={version}" in html
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
-        assert "./ui.js?v=20261030-cleanup-v2" in text
+        assert "./ui.js?v=20261031-legacy-css-v1" in text
     for name in ("ui", "holdings_categories", "lookthrough", "portfolio_risk", "portfolio_config"):
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
         assert re.findall(r"investment_startup\.js\?v=([^'\"]+)", text) == ["20261026-startup-order-v1"]

@@ -34,7 +34,7 @@ def test_viewport_lengths_use_phone_width_without_rewriting_strings():
 
 def test_original_phone_baseline_is_retained_and_build_is_deterministic():
     baselines = {
-        "style": "bbaab305886ff806cb5fbbbbb1e99a14b3a2c2790bb193791e4226eb9f351a96",
+        "style": "aef39b73d3746bebbede94daa04c559de14d3991ca2e4e579e4f2c09a84387a7",
         "design-system": "7a19043760523616103d4d363e3fba01d74fa49398ad7f88efc658d86e501b3d",
     }
     for name, fingerprint in baselines.items():
@@ -48,9 +48,9 @@ def test_original_phone_baseline_is_retained_and_build_is_deterministic():
 def test_phone_mode_is_limited_to_investment_and_approved_more_hub():
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     assert "investment-phone-layout" in html
-    assert "style-phone.css?v=20261029-scope-style-v1" in html
+    assert "style-phone.css?v=20261031-legacy-css-v1" in html
     more = (ROOT / "frontend/public/more.html").read_text(encoding="utf-8")
-    assert "style-phone.css?v=20261029-scope-style-v1" in more
+    assert "style-phone.css?v=20261031-legacy-css-v1" in more
     for name in ("ledger", "accounts", "data_sources"):
         assert "-phone.css" not in (ROOT / f"frontend/public/{name}.html").read_text(encoding="utf-8")
 

@@ -248,7 +248,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert style_index < design_index
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
-        style_version = "20261029-scope-style-v1" if page in {"investments.html", "more.html"} else "20261029-scope-style-v1"
+        style_version = "20261031-legacy-css-v1"
         design_version = "20261029-scope-style-v1" if page in {"investments.html", "more.html"} else "20261029-scope-style-v1"
         assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
         assert design_href == f"assets/css/{design_name}.css?v={design_version}"
@@ -462,7 +462,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20261030-cleanup-v2" in html
+    assert "assets/js/ledger_cashflow.js?v=20261031-legacy-css-v1" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -775,7 +775,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261030-cleanup-v2" in html
+    assert "assets/js/holdings.js?v=20261031-legacy-css-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
@@ -787,11 +787,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261030-cleanup-v2" in html
-    assert "assets/js/lookthrough.js?v=20261030-underlying-limit-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20261030-cleanup-v2" in html
-    assert "assets/js/portfolio_config.js?v=20261030-cleanup-v2" in html
-    assert "style-phone.css?v=20261029-scope-style-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261031-legacy-css-v1" in html
+    assert "assets/js/lookthrough.js?v=20261031-legacy-css-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20261031-legacy-css-v1" in html
+    assert "assets/js/portfolio_config.js?v=20261031-legacy-css-v1" in html
+    assert "style-phone.css?v=20261031-legacy-css-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -927,8 +927,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20261030-cleanup-v2" in ledger_html
-    assert "assets/js/transactions.js?v=20261030-cleanup-v2" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20261031-legacy-css-v1" in ledger_html
+    assert "assets/js/transactions.js?v=20261031-legacy-css-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1384,8 +1384,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20261030-cleanup-v2" in html
-    assert "assets/css/style-phone.css?v=20261029-scope-style-v1" in html
+    assert "assets/js/transactions.js?v=20261031-legacy-css-v1" in html
+    assert "assets/css/style-phone.css?v=20261031-legacy-css-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -1439,16 +1439,16 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20261030-cleanup-v2" in html
+    assert "assets/js/more.js?v=20261031-legacy-css-v1" in html
     assert 'id="moreAdvanced"' in html and 'id="moreAdvanced" open' not in html
     assert 'class="statusbar"' not in html and 'LIVE' not in html
     assert 'href="accounts.html#sources"' not in html
     assert 'href="investments.html#portfolio-risk-disclosure"' not in html
     assert "./nav_growth_explanation.js?v=20260624-nav-quality-v1" in more_js
-    assert "assets/js/bank_reconcile.js?v=20261030-cleanup-v2" in accounts_html
-    assert "assets/js/data_sources.js?v=20261030-cleanup-v2" in data_sources_html
-    assert "./sync_center.js?v=20261030-cleanup-v2" in data_sources_js
-    assert "./ui.js?v=20261030-cleanup-v2" in sync_center_js
+    assert "assets/js/bank_reconcile.js?v=20261031-legacy-css-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20261031-legacy-css-v1" in data_sources_html
+    assert "./sync_center.js?v=20261031-legacy-css-v1" in data_sources_js
+    assert "./ui.js?v=20261031-legacy-css-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
     assert "function dataStateHtml" in ui_js
     assert "function renderDataState" in ui_js
@@ -1506,17 +1506,17 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/css/style.css?v=20261029-scope-style-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/css/style.css?v=20261031-legacy-css-v1" in ui_js
     assert "assets/css/design-system.css?v=20261029-scope-style-v1" in ui_js
-    assert "assets/js/ui.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/holdings.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/holdings_categories.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/lookthrough.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/transactions.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/portfolio_config.js?v=20261030-cleanup-v2" in ui_js
-    assert "assets/js/more.js?v=20261030-cleanup-v2" in ui_js
+    assert "assets/js/ui.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/holdings.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/transactions.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20261031-legacy-css-v1" in ui_js
+    assert "assets/js/more.js?v=20261031-legacy-css-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" in api_js + ui_js
 
@@ -1607,8 +1607,8 @@ def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
     assert "result?.success === false" in js
     assert "['blocked', 'failed', 'error'].includes(result?.status)" in js
     assert "throw new Error(result.reason || result.error" in js
-    assert "sync_center.js?v=20261030-cleanup-v2" in _read_public("assets/js/data_sources.js")
-    assert "data_sources.js?v=20261030-cleanup-v2" in _read_public("data_sources.html")
+    assert "sync_center.js?v=20261031-legacy-css-v1" in _read_public("assets/js/data_sources.js")
+    assert "data_sources.js?v=20261031-legacy-css-v1" in _read_public("data_sources.html")
 
 
 def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
@@ -1648,8 +1648,8 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
-    assert "holdings.js?v=20261030-cleanup-v2" in html
-    assert "holdings_categories.js?v=20261030-cleanup-v2" in html
+    assert "holdings.js?v=20261031-legacy-css-v1" in html
+    assert "holdings_categories.js?v=20261031-legacy-css-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:

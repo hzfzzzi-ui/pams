@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet } from './ui.js?v=20261030-cleanup-v2';
+import { openBottomSheet } from './ui.js?v=20261031-legacy-css-v1';
 import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261026-nav-independent-v1';
 import { afterInvestmentNav } from './investment_startup.js?v=20261026-startup-order-v1';
 

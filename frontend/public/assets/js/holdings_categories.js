@@ -1,5 +1,5 @@
 import { jget, fmt2, accountLabel } from './api.js?v=20260619-investment-hardening-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20261030-cleanup-v2';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-legacy-css-v1';
 import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261026-nav-independent-v1';
 import { afterInvestmentNav, trackInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261026-startup-order-v1';
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20260622-fund-pnl-v1';
