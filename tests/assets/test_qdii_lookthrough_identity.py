@@ -68,6 +68,7 @@ def test_config_sync_does_not_seed_feeder_names_as_qqq_aliases():
             name = "qdii_alias_test_" + uuid4().hex
             cur.execute(sql.SQL("CREATE SCHEMA {} ").format(sql.Identifier(name)))
             cur.execute(sql.SQL("SET LOCAL search_path TO {} ").format(sql.Identifier(name)))
+            cur.execute((ROOT / "database/postgres/schema/023_asset_master.sql").read_text(encoding="utf-8"))
             for _ in range(2):
                 sync_asset_master_from_lookthrough_config(cur, config=config, load_lookup=False)
             cur.execute("SELECT asset_id FROM pams_asset_master WHERE primary_symbol = %s", ("QQQ",))
