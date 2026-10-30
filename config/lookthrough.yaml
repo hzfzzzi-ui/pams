@@ -149,6 +149,8 @@ asset_mapping:
   - INVESCO QQQ TRUST SERIES 1
   - 纳斯达克100ETF
   - Nasdaq 100
+  # These names identify distinct feeder funds; use them only for exposure mapping.
+  lookthrough_aliases:
   - 华泰柏瑞纳斯达克100ETF发起式联接(QDII)I
   - 广发纳斯达克100ETF联接人民币(QDII)A
   - 建信纳斯达克100指数(QDII)A人民币
