@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 API_ROOT = ROOT / "backend" / "api"
@@ -11,7 +13,8 @@ if str(API_ROOT) not in sys.path:
 
 from domain.assets.asset_master import (  # noqa: E402
     ASSET_MASTER_FIELD_PRIORITY,
-    SCHEMA_SQL,
+    ASSET_MASTER_REQUIRED_COLUMNS,
+    ASSET_MASTER_REQUIRED_UNIQUE_KEYS,
     VALID_CURRENCIES,
     VALID_MARKETS,
     VALID_REGIONS,
@@ -22,6 +25,7 @@ from domain.assets.asset_master import (  # noqa: E402
     build_asset_master_missing_mapping_report,
     build_asset_master_payload,
     build_lookthrough_seed_units,
+    ensure_asset_master_schema,
     load_asset_master_lookup,
     sync_asset_master_from_lookthrough_config,
     validate_asset_master_whitelists,
@@ -34,6 +38,15 @@ class FakeCursor:
 
     def execute(self, sql: str, params=None) -> None:
         self.statements.append(sql)
+        self.params = params
+
+    def fetchall(self) -> list[dict]:
+        if self.statements and "pg_attribute" in self.statements[-1]:
+            return [{"attname": name} for name in ASSET_MASTER_REQUIRED_COLUMNS[self.params[0]]]
+        return []
+
+    def fetchone(self) -> dict:
+        return {"has_unique": True}
 
 
 class ReadOnlyLookupCursor(FakeCursor):
@@ -46,6 +59,7 @@ class ReadOnlyLookupCursor(FakeCursor):
 
 
 def test_asset_master_schema_declares_core_tables() -> None:
+    schema_sql = (ROOT / "database/postgres/schema/023_asset_master.sql").read_text(encoding="utf-8")
     for table_name in [
         "pams_asset_master",
         "pams_asset_alias",
@@ -55,7 +69,7 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "pams_asset_fixed_income_profile",
         "pams_asset_real_asset_profile",
     ]:
-        assert f"CREATE TABLE IF NOT EXISTS {table_name}" in SCHEMA_SQL
+        assert f"CREATE TABLE IF NOT EXISTS {table_name}" in schema_sql
 
     for column_name in [
         "asset_subtype",
@@ -66,7 +80,14 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "credit_risk_bucket",
         "rental_income_annual",
     ]:
-        assert column_name in SCHEMA_SQL
+        assert column_name in schema_sql
+
+
+def test_asset_schema_validation_only_reads_metadata() -> None:
+    cur = FakeCursor()
+    ensure_asset_master_schema(cur)
+    assert len(cur.statements) == len(ASSET_MASTER_REQUIRED_COLUMNS) + len(ASSET_MASTER_REQUIRED_UNIQUE_KEYS)
+    assert all(statement.lstrip().upper().startswith("SELECT ") for statement in cur.statements)
 
 
 def test_asset_master_lookup_can_skip_schema_writes_for_read_paths() -> None:
@@ -428,3 +449,24 @@ def test_missing_mapping_report_flags_unknown_asset_and_unlooked_fund() -> None:
     assert report["summary"]["missing_theme"] >= 1
     assert report["summary"]["missing_fund_underlying"] == 1
     assert report["missing_fund_underlying"][0]["symbol"] == "FUND1"
+
+
+def test_asset_schema_unavailable_returns_sanitized_503(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+    from fastapi import HTTPException
+    from endpoints import analysis
+    from domain.assets.asset_master import AssetMasterSchemaUnavailable
+
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    monkeypatch.setattr(analysis, "get_conn", lambda: connection)
+    def fail(*args, **kwargs):
+        raise AssetMasterSchemaUnavailable("sensitive schema pams_asset_master")
+    monkeypatch.setattr(analysis, "build_lookthrough_payload", fail)
+    with pytest.raises(HTTPException) as exc:
+        analysis.sync_asset_master_from_current_portfolio("CNY")
+    assert exc.value.status_code == 503
+    assert exc.value.detail == {"code": "asset_schema_unavailable", "message": "资产主数据结构不可用，同步未执行"}
+    assert "pams_asset_master" not in str(exc.value.detail)
+    assert connection.__exit__.call_args.args[0] is AssetMasterSchemaUnavailable
+    connection.commit.assert_not_called()

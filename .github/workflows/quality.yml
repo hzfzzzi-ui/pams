@@ -34,10 +34,12 @@ jobs:
       - name: 标记 CI 临时数据库
         run: |
           python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; c.cursor().execute(\"COMMENT ON DATABASE pams IS 'pams-disposable-schema-test'\"); c.close()"
+          python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; q=c.cursor(); q.execute('CREATE DATABASE pams_asset_test_ci'); q.execute(\"COMMENT ON DATABASE pams_asset_test_ci IS 'pams-isolated-asset-identity'\"); c.close()"
       - name: 测试
         env:
           PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
+          PAMS_ASSET_CI_TEST_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams_asset_test_ci
         run: python -m pytest tests -q
       - name: Python与前端语法
         run: |
