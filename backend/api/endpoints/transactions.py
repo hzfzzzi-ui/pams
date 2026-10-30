@@ -135,27 +135,45 @@ def create_transaction(tx: TransactionCreate):
         "message": "交易记录已创建"
     }
 
+def _require_cny_amounts(cur, start_date: str, end_date: str) -> None:
+    """Reject incomplete legacy aggregates instead of inventing CNY amounts."""
+    cur.execute("""
+        SELECT COUNT(*) AS missing_count
+        FROM pams_transactions t
+        LEFT JOIN LATERAL (
+            SELECT rate FROM pams_fx_rates_daily
+            WHERE base_currency = 'CNY' AND quote_currency = t.currency
+              AND as_of <= t.date
+            ORDER BY as_of DESC LIMIT 1
+        ) fx ON TRUE
+        WHERE t.date >= %s::date AND t.date <= %s::date
+          AND (t.amount IS NULL OR t.currency IS NULL OR t.currency = ''
+               OR (UPPER(t.currency) <> 'CNY' AND (fx.rate IS NULL OR fx.rate <= 0)))
+    """, (start_date, end_date))
+    if cur.fetchone()["missing_count"]:
+        raise HTTPException(status_code=422, detail="Missing exchange rate or transaction amount; cannot calculate CNY totals")
+
+
 @router.get("/transactions/recent")
 def get_recent_transactions(limit: int = Query(50, ge=1, le=200)):
     """获取最近交易（含CNY换算金额）"""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                WITH latest_fx AS (
-                    SELECT quote_currency, rate
-                    FROM pams_fx_rates_daily
-                    WHERE base_currency = 'CNY'
-                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
-                )
                 SELECT
                     t.id, t.date, t.amount, t.currency, t.category, t.subcategory,
                     t.account_code, t.description, t.location, t.auto_classified,
                     t.source, t.created_at,
                     a.display_name as account_name,
-                    ROUND((t.amount * COALESCE(fx.rate, 1))::numeric, 2) as amount_cny
+                    ROUND((t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END))::numeric, 2) as amount_cny
                 FROM pams_transactions t
                 LEFT JOIN pams_accounts a ON a.account_code = t.account_code
-                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                LEFT JOIN LATERAL (
+            SELECT rate FROM pams_fx_rates_daily
+            WHERE base_currency = 'CNY' AND quote_currency = t.currency
+              AND as_of <= t.date
+            ORDER BY as_of DESC LIMIT 1
+        ) fx ON TRUE
                 ORDER BY t.date DESC, t.created_at DESC
                 LIMIT %s
             """, (limit,))
@@ -177,38 +195,38 @@ def get_monthly_stats(month: str):
         raise HTTPException(status_code=400, detail="月份格式错误，应为YYYY-MM")
 
     with get_conn() as conn:
+        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            _require_cny_amounts(cur, start_date, end_date)
             # 总收入/支出（含汇率换算到CNY）
             cur.execute("""
-                WITH latest_fx AS (
-                    SELECT quote_currency, rate
-                    FROM pams_fx_rates_daily
-                    WHERE base_currency = 'CNY'
-                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
-                )
                 SELECT
-                    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount * COALESCE(fx.rate, 1) ELSE 0 END), 0) as total_income,
-                    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount * COALESCE(fx.rate, 1)) ELSE 0 END), 0) as total_expense,
-                    COALESCE(SUM(t.amount * COALESCE(fx.rate, 1)), 0) as net
+                    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END) ELSE 0 END), 0) as total_income,
+                    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END)) ELSE 0 END), 0) as total_expense,
+                    COALESCE(SUM(t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END)), 0) as net
                 FROM pams_transactions t
-                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                LEFT JOIN LATERAL (
+            SELECT rate FROM pams_fx_rates_daily
+            WHERE base_currency = 'CNY' AND quote_currency = t.currency
+              AND as_of <= t.date
+            ORDER BY as_of DESC LIMIT 1
+        ) fx ON TRUE
                 WHERE t.date >= %s::date AND t.date <= %s::date
             """, (start_date, end_date))
             totals = cur.fetchone()
 
             # 按分类统计支出（含汇率换算）
             cur.execute("""
-                WITH latest_fx AS (
-                    SELECT quote_currency, rate
-                    FROM pams_fx_rates_daily
-                    WHERE base_currency = 'CNY'
-                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
-                )
                 SELECT category,
-                       ROUND(SUM(ABS(t.amount * COALESCE(fx.rate, 1)))::numeric, 2) as amount,
+                       ROUND(SUM(ABS(t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END)))::numeric, 2) as amount,
                        COUNT(*) as count
                 FROM pams_transactions t
-                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                LEFT JOIN LATERAL (
+            SELECT rate FROM pams_fx_rates_daily
+            WHERE base_currency = 'CNY' AND quote_currency = t.currency
+              AND as_of <= t.date
+            ORDER BY as_of DESC LIMIT 1
+        ) fx ON TRUE
                 WHERE t.date >= %s::date AND t.date <= %s::date AND t.amount < 0
                 GROUP BY category
                 ORDER BY amount DESC
@@ -236,20 +254,21 @@ def get_daily_stats(month: str):
         raise HTTPException(status_code=400, detail="月份格式错误")
 
     with get_conn() as conn:
+        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            _require_cny_amounts(cur, start_date, end_date)
             cur.execute("""
-                WITH latest_fx AS (
-                    SELECT quote_currency, rate
-                    FROM pams_fx_rates_daily
-                    WHERE base_currency = 'CNY'
-                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
-                )
                 SELECT
                     DATE_PART('day', t.date)::int as day,
-                    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount * COALESCE(fx.rate, 1) ELSE 0 END), 0) as income,
-                    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount * COALESCE(fx.rate, 1)) ELSE 0 END), 0) as expense
+                    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END) ELSE 0 END), 0) as income,
+                    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END)) ELSE 0 END), 0) as expense
                 FROM pams_transactions t
-                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                LEFT JOIN LATERAL (
+            SELECT rate FROM pams_fx_rates_daily
+            WHERE base_currency = 'CNY' AND quote_currency = t.currency
+              AND as_of <= t.date
+            ORDER BY as_of DESC LIMIT 1
+        ) fx ON TRUE
                 WHERE t.date >= %s::date AND t.date <= %s::date
                 GROUP BY DATE_PART('day', t.date)
                 ORDER BY day
@@ -262,19 +281,20 @@ def get_daily_stats(month: str):
 def get_categories_by_range(start: str, end: str):
     """获取时间段内的分类占比（用于图表联动，含汇率换算）"""
     with get_conn() as conn:
+        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            _require_cny_amounts(cur, start, end)
             cur.execute("""
-                WITH latest_fx AS (
-                    SELECT quote_currency, rate
-                    FROM pams_fx_rates_daily
-                    WHERE base_currency = 'CNY'
-                      AND as_of = (SELECT MAX(as_of) FROM pams_fx_rates_daily WHERE base_currency = 'CNY')
-                )
                 SELECT category,
-                       ROUND(SUM(ABS(t.amount * COALESCE(fx.rate, 1)))::numeric, 2) as amount,
+                       ROUND(SUM(ABS(t.amount * (CASE WHEN UPPER(t.currency) = 'CNY' THEN 1 WHEN fx.rate > 0 THEN fx.rate END)))::numeric, 2) as amount,
                        COUNT(*) as count
                 FROM pams_transactions t
-                LEFT JOIN latest_fx fx ON fx.quote_currency = t.currency
+                LEFT JOIN LATERAL (
+            SELECT rate FROM pams_fx_rates_daily
+            WHERE base_currency = 'CNY' AND quote_currency = t.currency
+              AND as_of <= t.date
+            ORDER BY as_of DESC LIMIT 1
+        ) fx ON TRUE
                 WHERE t.date >= %s::date AND t.date <= %s::date AND t.amount < 0
                 GROUP BY category
                 ORDER BY amount DESC
