@@ -20,6 +20,35 @@ function statusTag(text, ok) {
   return `<span class="tag ${ok ? 'data' : 'warn'}">${esc(text)}</span>`;
 }
 
+export function issuesHtml(quality, accounts = []) {
+  const summary = quality?.summary;
+  if (!quality || !Array.isArray(quality.checks) || !summary || !['ok', 'warning', 'error'].includes(summary.status) ||
+      !Number.isInteger(summary.warning_count) || !Number.isInteger(summary.error_count) ||
+      summary.warning_count < 0 || summary.error_count < 0 || quality.checks.some(check => !check || !check.status)) return '<p>数据状态暂不可用，请稍后重试。</p>';
+  const checks = quality.checks.filter(check => check.status !== 'ok');
+  if (!checks.length) return summary.status === 'ok' && summary.warning_count === 0 && summary.error_count === 0 ? '<p>当前没有待处理问题。</p>' : '<p>数据状态暂不可用，请稍后重试。</p>';
+  const names = new Map((Array.isArray(accounts) ? accounts : []).map(account => [account.account_code, account.display_name || account.account_code]));
+  return checks.map(check => {
+    let title = check.message || check.id || '数据状态异常';
+    let description = '打开数据诊断，核对原因后处理。';
+    let href = 'data_sources.html';
+    let action = '查看数据诊断';
+    if (check.id === 'account_balance_coverage') {
+      title = '部分账户缺少余额确认';
+      const missing = Array.isArray(check.details?.missing_accounts) ? check.details.missing_accounts : [];
+      const accounts = missing.map(code => names.get(code) || code);
+      description = `${accounts.length ? accounts.join('、') + '。' : ''}核对最新余额和日期，然后在账户管理中确认。`;
+      href = 'accounts.html#overview'; action = '核对账户';
+    } else if (check.id === 'valuation_series_freshness') {
+      title = '估值曲线日期落后';
+      const detail = check.details || {};
+      description = `估值序列最新 ${detail.valuation_series_latest_as_of || '未知'}，持仓最新 ${detail.investment_positions_latest_as_of || '未知'}。先核对数据来源和日期，确认缺口后再处理。`;
+      href = 'data_sources.html#dataQuality'; action = '检查估值数据';
+    }
+    return `<section class="issueRow"><h2>${esc(title)}</h2><p>${esc(description)}</p><a href="${esc(href)}">${esc(action)} ›</a></section>`;
+  }).join('');
+}
+
 export function renderQuality(portfolio) {
   const el = document.getElementById('dataQuality');
   if (!el) return;
@@ -117,7 +146,7 @@ export function renderQuality(portfolio) {
 }
 
 function showError(err) {
-  const el = document.getElementById('err');
+  const el = document.body.classList.contains('issues-only') ? document.getElementById('issuesContent') : document.getElementById('err');
   if (!el) return;
   el.style.display = 'block';
   el.textContent = String(err?.message || err);
@@ -125,6 +154,16 @@ function showError(err) {
 
 async function boot() {
   setActiveNav();
+  if (new URLSearchParams(window.location.search).get('view') === 'issues') {
+    document.body.classList.add('issues-only');
+    document.getElementById('issuesView').hidden = false;
+    const [portfolio, overview] = await Promise.all([
+      jget('/api/portfolio/data-quality?baseCurrency=CNY').catch(() => null),
+      jget('/api/accounts/overview').catch(() => null),
+    ]);
+    document.getElementById('issuesContent').innerHTML = issuesHtml(portfolio?.data_quality, overview?.accounts);
+    return;
+  }
   const statusLine = document.getElementById('statusLine');
   if (statusLine) statusLine.classList.add('syncSummaryStrip');
   const [portfolio] = await Promise.all([
@@ -141,4 +180,4 @@ async function boot() {
   renderQuality(portfolio);
 }
 
-boot().catch(showError);
+if (typeof window !== 'undefined') boot().catch(showError);

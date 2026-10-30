@@ -91,6 +91,15 @@
       color: var(--muted);
       overflow-wrap: anywhere;
     }
+    body.issues-only .statusbar { display: none; }
+    body.issues-only .wrap { max-width: 430px; }
+    body.issues-only .wrap > :not(.nav):not(#issuesView) { display: none; }
+    #issuesView h1 { font-size: 22px; margin: 16px 0 24px; }
+    #issuesView .issueRow { display: block; padding: 16px 0; border-bottom: 1px solid var(--line); }
+    #issuesView .issueRow h2 { font-size: 16px; margin: 0 0 8px; }
+    #issuesView .issueRow p { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 8px; overflow-wrap: anywhere; }
+    #issuesView a { color: var(--info); text-decoration: none; font-size: 14px; }
+    #issuesView .issueDiagnostics { display: inline-block; margin-top: 24px; }
     @media (max-width: 980px) {
       .statusLine, .qualityGrid, .pipeline { grid-template-columns: 1fr; }
     }
@@ -115,6 +124,11 @@
       <a data-nav href="ledger.html">收支</a>
       <a data-nav href="more.html">更多</a>
     </div>
+    <main id="issuesView" hidden>
+      <h1>待处理</h1>
+      <div id="issuesContent" aria-live="polite">正在读取...</div>
+      <a class="issueDiagnostics" href="data_sources.html">数据诊断 ›</a>
+    </main>
 
     <div class="pageHeader">
       <div>
@@ -181,6 +195,6 @@
     </details>
   </div>
 
-  <script type="module" src="assets/js/data_sources.js?v=20261023-ibkr-publication-v1"></script>
+  <script type="module" src="assets/js/data_sources.js?v=20261030-pending-issues-v1"></script>
 </body>
 </html>
