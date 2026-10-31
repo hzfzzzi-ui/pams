@@ -1,5 +1,5 @@
-import { accountLabel, fmt2, jget, jpost } from './api.js?v=20261031-risk-summary-retired-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
+import { accountLabel, fmt2, jget, jpost } from './api.js?v=20261031-gray-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
 import {
   byId as $,
   escapeHtml,
@@ -11,7 +11,7 @@ import {
   readOptionalNumber,
   showError,
   toFiniteNumber as num,
-} from './utils.js?v=20261031-risk-summary-retired-v1';
+} from './utils.js?v=20261031-gray-v1';
 
 const state = {
   accounts: [],

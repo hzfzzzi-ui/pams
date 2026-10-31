@@ -22,7 +22,7 @@ def test_nav_starts_before_holdings_barrier_and_only_for_analysis():
 
 def test_summary_consumers_use_the_same_versioned_module():
     root = Path(__file__).resolve().parents[2] / "frontend/public/assets/js"
-    specifier = "import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-risk-summary-retired-v1';"
+    specifier = "import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-gray-v1';"
     for name in ("holdings_categories.js", "lookthrough.js"):
         source = (root / name).read_text(encoding="utf-8")
         assert specifier in source

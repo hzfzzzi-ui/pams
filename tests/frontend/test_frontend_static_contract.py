@@ -126,6 +126,9 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
 
     legacy_css = _read_public("assets/css/style.css")
     design_css = _read_public("assets/css/design-system.css")
+    tokens_css = _read_public("assets/css/tokens.css")
+    shell_css = _read_public("assets/css/app-shell.css")
+    page_shell_css = _read_public("assets/css/page-shell.css")
     design_doc = (REPO_ROOT / "docs" / "PAMS_FRONTEND_DESIGN_SYSTEM.md").read_text(encoding="utf-8")
 
     for token in [
@@ -161,7 +164,6 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "PAMS Mobile Polish v1",
         "@media (max-width: 430px)",
         "--pams-mobile-gutter",
-        "body.app-shell .nav a[data-mobile-nav=\"primary\"]",
         "body.app-shell .appBottomSheetPanel",
         "body.app-shell .appWorkHeader",
         "body.app-shell .appShortcutGrid",
@@ -189,18 +191,22 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     assert "appHeroTop" not in legacy_css
     assert "appHeroLinks" not in legacy_css
     for canonical_token in [
-        "--pams-bg-canvas: #05070a",
-        "--pams-bg-panel: #0f141b",
-        "--pams-text-primary: #f3f6fb",
+        "--pams-bg-canvas: #000000",
+        "--pams-bg-panel: #1c1c1e",
+        "--pams-text-primary: #f5f5f7",
         "--pams-profit: #23c26b",
         "--pams-loss: #ff5b5b",
-        "--pams-action: #58a6ff",
+        "--pams-action: var(--pams-text-primary)",
         "--bg: var(--pams-bg-canvas)",
         "--card: var(--pams-bg-panel)",
         "--good: var(--pams-profit)",
         "--bad: var(--pams-loss)",
     ]:
-        assert canonical_token in legacy_css
+        assert canonical_token in tokens_css
+    assert ":root" not in legacy_css and ":root" not in design_css
+    assert ".nav " not in legacy_css and ".nav " not in design_css
+    assert ".pams-primary-nav" in shell_css
+    assert ".investAnchorNav, .ledgerAnchorNav" in page_shell_css
     assert "appShortcutGrid" not in legacy_css
     for migrated_selector in [
         ".emptyState {\n",
@@ -242,7 +248,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         html = _read_public(page)
         parsed = _parse_html(html)
         if page == "app.html":
-            assert parsed.stylesheets == ["assets/css/app-shell.css?v=20261031-shell-v1"]
+            assert parsed.stylesheets == ["assets/css/tokens.css?v=20261031-gray-v1", "assets/css/app-shell.css?v=20261031-gray-v1"]
             assert html.count('aria-label="主导航"') == 1
             assert 'id="page-content"' in html
             continue
@@ -252,11 +258,12 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         design_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith(f"assets/css/{design_name}.css"))
         design_href = parsed.stylesheets[design_index]
 
-        assert style_index < design_index
+        assert parsed.stylesheets[0] == "assets/css/tokens.css?v=20261031-gray-v1"
+        assert 0 < style_index < design_index
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
-        style_version = "20261031-legacy-css-v1"
-        design_version = "20261029-scope-style-v1" if page in {"investments.html", "more.html"} else "20261029-scope-style-v1"
+        style_version = "20261031-gray-v1"
+        design_version = "20261031-gray-v1" if page in {"investments.html", "more.html"} else "20261031-gray-v1"
         assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
         assert design_href == f"assets/css/{design_name}.css?v={design_version}"
         assert "app-shell" in parsed.body_classes
@@ -274,7 +281,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
 
     assert "PAMS Mobile Density v1" in legacy_css
     assert "--mobile-density-gutter" in legacy_css
-    assert "body.app-shell .nav a[data-mobile-nav=\"primary\"]" in legacy_css
+    assert "body.app-shell .nav a[data-mobile-nav=\"primary\"]" not in legacy_css
 
 
 def test_mobile_holdings_primary_amount_uses_cost_basis() -> None:
@@ -372,13 +379,16 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     css = _read_public("assets/css/style.css")
 
     assert 'class="ledgerAnchorNav"' in html
-    assert ".ledgerAnchorNav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr))" in html
-    assert ".page-ledger .cashflowBodyGrid {" in html
-    assert "display:grid !important;" in html
-    assert "grid-template-columns:minmax(0, 7fr) minmax(280px, 3fr) !important;" in html
-    assert ".page-ledger .cashflowBodyGrid > div:first-child { order:2 }" in html
-    assert "body.page-ledger.app-shell .ledgerTop > .sectionTitle" in html
-    assert "body.page-ledger.app-shell .ledgerTop .ledgerToolbar" not in html
+    page_css = _read_public("assets/css/pages/ledger.css")
+    navigation_css = _read_public("assets/css/page-shell.css")
+    assert '<style>' not in html
+    assert 'assets/css/pages/ledger.css?v=20261031-gray-v1' in html
+    assert '.ledgerAnchorNav' in navigation_css and 'grid-auto-columns: minmax(0, 1fr)' in navigation_css
+    assert '.page-ledger .cashflowBodyGrid {' in page_css
+    assert 'grid-template-columns:minmax(0, 1fr)' in page_css
+    assert '.page-ledger .cashflowBodyGrid > div:first-child { order:2 }' not in page_css
+    assert 'body.page-ledger.app-shell .ledgerTop > .sectionTitle' in page_css
+    assert 'body.page-ledger.app-shell .ledgerTop .ledgerToolbar' not in page_css
     for href in [
         "#cashflow-workbench",
         "#recent-flow-section",
@@ -416,12 +426,12 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'data-overview-flow="expense"' in html
     assert "categoryInsightGrid" in html
     assert "categoryPieWrap" in html
-    assert "categoryPieFallback" in html
+    assert "categoryPieFallback" in page_css and "categoryPieFallback" in js
     assert "消费排行" not in html
     assert "消费 Top 5" not in html
     assert "reviewEntryHeader" not in html
     assert "reviewEntryStatus" not in html
-    assert "accountPendingBadge" in html
+    assert "accountPendingBadge" in page_css and "accountPendingBadgeHtml" in js
     assert "ledgerRowsTable" not in html
     assert "mobileReviewRows" not in html
     assert 'id="accountIssueStrip"' not in html
@@ -465,7 +475,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20261031-risk-summary-retired-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20261031-gray-v1" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -539,7 +549,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "function updateLedgerSubcategoryOptions(form, preferredValue)" in js
     assert "工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认']" in js
     assert "内部划转: ['换汇转账', '转账退回', '投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认']" in js
-    assert "ledgerInlineEditBtn" in html
+    assert "ledgerInlineEditBtn" in page_css
     assert "ledgerInlineEditBtn" in js
     assert "${transferRouteHtml(row)}\n      ${editButton}" in js
     assert "保存并确认" in js
@@ -548,40 +558,40 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "data-ledger-confirm" not in js
     assert "确认这笔消费" not in js
     assert "data-ledger-edit" in js
-    assert "ledgerEditGrid" in html
+    assert "ledgerEditGrid" in page_css
     assert 'class="ledgerListAccount"' in js
     assert 'class="ledgerListDate"' in js
     assert "[row.summary, row.description, row.counterparty].filter(Boolean).join(' / ')" not in js
-    assert ".transferRoute" in html
-    assert ".ledgerListSide b.transfer" in html
-    assert "ledgerOriginalAmount" in html
+    assert ".transferRoute" in page_css
+    assert ".ledgerListSide b.transfer" in page_css
+    assert "ledgerOriginalAmount" in page_css
     assert "jget(`/api/ledger/workbench?${params.toString()}`, { cache: false })" in js
     assert "ACCOUNT_GROUPS" in js
     assert "buildAccountFlowGroups" in js
     assert "accountPrimaryBalance" in js
     assert "accountBalanceSummary" in js
-    assert "accountBalanceValue" in html
-    assert "accountFlowHeader" in html
-    assert "accountFlowFooter" in html
-    assert "accountFlowNetBadge" in html
+    assert "accountBalanceValue" in page_css
+    assert "accountFlowHeader" in page_css
+    assert "accountFlowFooter" in page_css
+    assert "accountFlowNetBadge" in page_css
     assert "accountInvestmentBalanceEntries" in js
     assert "investmentAccountStatsEntries" in js
-    assert "accountInvestmentChip" in html
+    assert "accountInvestmentChip" in page_css
     assert "融资负债" in js
     assert "净入金" in js
     assert "个人入金" in js
     assert "funding_scope === 'personal_capital'" in js
-    assert ".accountFlowFooterMeta" in html
-    assert "white-space:nowrap" in html
+    assert ".accountFlowFooterMeta" in page_css
+    assert "white-space:nowrap" in page_css
     assert "年初净流入" in js
     assert "账户余额优先展示；现金流变化统一按年初至今计算。" in html
     assert "return data.account_summary_ytd || data.account_summary || [];" in js
     assert "{ code: 'icbc_6689', label: '工商银行', children: ['icbc_6689_cny', 'icbc_6689_usd'], forceChildren: true }" in js
     assert "icbc_6689_cny: '6689 人民币'" in js
     assert "icbc_6689_usd: '6689 美元'" in js
-    assert "accountGroupRow" in html
-    assert "accountSubRow" in html
-    assert "accountSyncBadge" in html
+    assert "accountGroupRow" in page_css
+    assert "accountSubRow" in page_css
+    assert "accountSyncBadge" in page_css
     assert "syncBadgeHtml" in js
     assert "latest_sync_at" in js
     assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
@@ -778,7 +788,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261031-risk-summary-retired-v1" in html
+    assert "assets/js/holdings.js?v=20261031-gray-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
@@ -790,11 +800,11 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261031-risk-summary-retired-v1" in html
-    assert "assets/js/lookthrough.js?v=20261031-risk-summary-retired-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20261031-risk-summary-retired-v1" in html
-    assert "assets/js/portfolio_config.js?v=20261031-risk-summary-retired-v1" in html
-    assert "style-phone.css?v=20261031-legacy-css-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261031-gray-v1" in html
+    assert "assets/js/lookthrough.js?v=20261031-gray-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20261031-gray-v1" in html
+    assert "assets/js/portfolio_config.js?v=20261031-gray-v1" in html
+    assert "style-phone.css?v=20261031-gray-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -906,7 +916,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert helper in utils_js
 
     for js in [ledger_js, tx_js]:
-        assert "from './utils.js?v=20261031-risk-summary-retired-v1'" in js
+        assert "from './utils.js?v=20261031-gray-v1'" in js
         assert "function escapeHtml" not in js
         assert "function num(" not in js
         assert "function showError(" not in js
@@ -930,8 +940,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20261031-risk-summary-retired-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20261031-risk-summary-retired-v1" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20261031-gray-v1" in ledger_html
+    assert "assets/js/transactions.js?v=20261031-gray-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1389,8 +1399,8 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20261031-risk-summary-retired-v1" in html
-    assert "assets/css/style-phone.css?v=20261031-legacy-css-v1" in html
+    assert "assets/js/transactions.js?v=20261031-gray-v1" in html
+    assert "assets/css/style-phone.css?v=20261031-gray-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
@@ -1444,16 +1454,16 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20261031-risk-summary-retired-v1" in html
+    assert "assets/js/more.js?v=20261031-gray-v1" in html
     assert 'id="moreAdvanced"' in html and 'id="moreAdvanced" open' not in html
     assert 'class="statusbar"' not in html and 'LIVE' not in html
     assert 'href="accounts.html#sources"' not in html
     assert 'href="investments.html#portfolio-risk-disclosure"' not in html
-    assert "./nav_growth_explanation.js?v=20261031-risk-summary-retired-v1" in more_js
-    assert "assets/js/bank_reconcile.js?v=20261031-risk-summary-retired-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20261031-risk-summary-retired-v1" in data_sources_html
-    assert "./sync_center.js?v=20261031-risk-summary-retired-v1" in data_sources_js
-    assert "./ui.js?v=20261031-risk-summary-retired-v1" in sync_center_js
+    assert "./nav_growth_explanation.js?v=20261031-gray-v1" in more_js
+    assert "assets/js/bank_reconcile.js?v=20261031-gray-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20261031-gray-v1" in data_sources_html
+    assert "./sync_center.js?v=20261031-gray-v1" in data_sources_js
+    assert "./ui.js?v=20261031-gray-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
     assert "function dataStateHtml" in ui_js
     assert "function renderDataState" in ui_js
@@ -1511,17 +1521,17 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/css/style.css?v=20261031-legacy-css-v1" in ui_js
-    assert "assets/css/design-system.css?v=20261029-scope-style-v1" in ui_js
-    assert "assets/js/ui.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/holdings.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/transactions.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20261031-risk-summary-retired-v1" in ui_js
-    assert "assets/js/more.js?v=20261031-risk-summary-retired-v1" in ui_js
+    assert "assets/js/ledger_cashflow.js?v=20261031-gray-v1" in ui_js
+    assert "assets/css/style.css?v=20261031-gray-v1" in ui_js
+    assert "assets/css/design-system.css?v=20261031-gray-v1" in ui_js
+    assert "assets/js/ui.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/holdings.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/holdings_categories.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/lookthrough.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/transactions.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/portfolio_risk.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/portfolio_config.js?v=20261031-gray-v1" in ui_js
+    assert "assets/js/more.js?v=20261031-gray-v1" in ui_js
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" not in api_js + ui_js
 
@@ -1615,8 +1625,8 @@ def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
     assert "result?.success === false" in js
     assert "['blocked', 'failed', 'error'].includes(result?.status)" in js
     assert "throw new Error(result.reason || result.error" in js
-    assert "sync_center.js?v=20261031-risk-summary-retired-v1" in _read_public("assets/js/data_sources.js")
-    assert "data_sources.js?v=20261031-risk-summary-retired-v1" in _read_public("data_sources.html")
+    assert "sync_center.js?v=20261031-gray-v1" in _read_public("assets/js/data_sources.js")
+    assert "data_sources.js?v=20261031-gray-v1" in _read_public("data_sources.html")
 
 
 def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
@@ -1656,8 +1666,8 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
-    assert "holdings.js?v=20261031-risk-summary-retired-v1" in html
-    assert "holdings_categories.js?v=20261031-risk-summary-retired-v1" in html
+    assert "holdings.js?v=20261031-gray-v1" in html
+    assert "holdings_categories.js?v=20261031-gray-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:

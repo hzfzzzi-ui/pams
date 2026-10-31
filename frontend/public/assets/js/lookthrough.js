@@ -1,7 +1,8 @@
-import { jget } from './api.js?v=20261031-risk-summary-retired-v1';
-import { openBottomSheet } from './ui.js?v=20261031-risk-summary-retired-v1';
-import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-risk-summary-retired-v1';
-import { afterInvestmentNav } from './investment_startup.js?v=20261026-startup-order-v1';
+import { SERIES_COLORS } from './shared/chart_theme.js?v=20261031-gray-v1';
+import { jget } from './api.js?v=20261031-gray-v1';
+import { openBottomSheet } from './ui.js?v=20261031-gray-v1';
+import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-gray-v1';
+import { afterInvestmentNav } from './investment_startup.js?v=20261031-gray-v1';
 
 const DIMENSIONS = [
   ['asset_type', '资产类型'],
@@ -66,16 +67,7 @@ const TYPE_LABELS = {
   fund_lookthrough: '基金穿透',
 };
 
-const EXPOSURE_COLORS = [
-  '#4c8dff',
-  '#2ebd85',
-  '#f0b90b',
-  '#a371f7',
-  '#f6465d',
-  '#14b8a6',
-  '#8b949e',
-  '#ec4899',
-];
+const EXPOSURE_COLORS = SERIES_COLORS;
 
 function safeStorageGet(key) {
   try {

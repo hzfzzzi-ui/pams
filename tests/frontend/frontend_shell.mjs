@@ -50,6 +50,13 @@ try {
       assert.equal(await frame.locator('.nav').count(),0);
       const after = await page.locator('.pams-primary-nav').boundingBox();
       assert.deepEqual(after,before);
+      const navStyle = await page.locator(`[data-page="${key}.html"]`).evaluate(node => {
+        const css = getComputedStyle(node);
+        return {color:css.color, weight:css.fontWeight, background:getComputedStyle(document.body).backgroundColor};
+      });
+      assert.deepEqual(navStyle, {color:'rgb(245, 245, 247)',weight:'600',background:'rgb(0, 0, 0)'});
+      const contentFrame = page.frames().find(f => f.parentFrame() === page.mainFrame());
+      assert.equal(await contentFrame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.equal(after.width,Math.min(width,430));
       assert.ok(Math.abs(after.x-(width-after.width)/2)<1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);

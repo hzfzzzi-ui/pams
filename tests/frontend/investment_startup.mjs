@@ -130,6 +130,7 @@ for (const directTrade of [true, false]) {
     export function selectTradePanel() { activeAnalysisPanel = 'trade_attribution'; return loadActiveAnalysisPanel(); }
   `, { context });
   await module.link(specifier => {
+    if (specifier.includes('chart_theme.js')) return new vm.SourceTextModule(readFileSync(new URL('../../frontend/public/assets/js/shared/chart_theme.js', import.meta.url), 'utf8'), { context });
     const exports = specifier.includes('investment_startup.js') ? {
       afterInvestmentNav: task => { queued.push(task); return Promise.resolve(); },
     } : specifier.includes('investment_requests.js') ? { loadInvestmentSummaryFresh() {} }

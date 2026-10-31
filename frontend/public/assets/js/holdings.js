@@ -1,7 +1,7 @@
-import { jget, typeLabel, accountLabel } from './api.js?v=20261031-risk-summary-retired-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
-import { pnlPct } from './utils.js?v=20261031-risk-summary-retired-v1';
-import { makeAccountCashHoldingRows } from './account_cash.js?v=20260606-cash-active-v1';
+import { jget, typeLabel, accountLabel } from './api.js?v=20261031-gray-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
+import { pnlPct } from './utils.js?v=20261031-gray-v1';
+import { makeAccountCashHoldingRows } from './account_cash.js?v=20261031-gray-v1';
 
 function esc(value) {
   return String(value ?? '')

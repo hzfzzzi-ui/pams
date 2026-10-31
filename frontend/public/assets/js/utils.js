@@ -1,4 +1,5 @@
-import { fmt2, fmtMoneyFixed2, fmtSignedMoneyFixed2, jget } from './api.js?v=20261031-risk-summary-retired-v1';
+import { CHART_THEME } from './shared/chart_theme.js?v=20261031-gray-v1';
+import { fmt2, fmtMoneyFixed2, fmtSignedMoneyFixed2, jget } from './api.js?v=20261031-gray-v1';
 
 export const byId = (id) => document.getElementById(id);
 
@@ -132,16 +133,16 @@ export function createLineChart(canvasId, apiPath, color, label, interval = 'dai
           plugins: { legend: { display: false } },
           scales: {
             x: {
-              ticks: { color: '#6e7681', maxRotation: 0, autoSkip: true },
-              grid: { color: 'rgba(110,118,129,.12)' }
+              ticks: { color: CHART_THEME.text, maxRotation: 0, autoSkip: true },
+              grid: { color: CHART_THEME.grid }
             },
             y: {
               beginAtZero: false,
               ticks: {
-                color: '#6e7681',
+                color: CHART_THEME.text,
                 callback: (value) => '¥' + value.toLocaleString()
               },
-              grid: { color: 'rgba(110,118,129,.12)' }
+              grid: { color: CHART_THEME.grid }
             }
           }
         }
@@ -205,16 +206,16 @@ export function createReturnRateChart(canvasId, apiPath, color, label, interval 
           },
           scales: {
             x: {
-              ticks: { color: '#6e7681', maxRotation: 0, autoSkip: true },
-              grid: { color: 'rgba(110,118,129,.12)' }
+              ticks: { color: CHART_THEME.text, maxRotation: 0, autoSkip: true },
+              grid: { color: CHART_THEME.grid }
             },
             y: {
               beginAtZero: false,
               ticks: {
-                color: '#6e7681',
+                color: CHART_THEME.text,
                 callback: (value) => `${safeNum(value).toFixed(1)}%`
               },
-              grid: { color: 'rgba(110,118,129,.12)' }
+              grid: { color: CHART_THEME.grid }
             }
           }
         }

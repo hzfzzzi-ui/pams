@@ -38,6 +38,9 @@ async function chartModule(fallback = false) {
       applyInvestmentReturnWindow, normalizeInvestmentNavRows, buildInvestmentNavChartData, filterReturnWindowRows };
   `, { context });
   await module.link(specifier => {
+    if (specifier.includes('chart_theme.js')) {
+      return new vm.SourceTextModule(readFileSync(new URL('shared/chart_theme.js', root), 'utf8'), { context });
+    }
     const values = specifier.includes('api.js') ? { jget, fmt2: String, accountLabel: String }
       : specifier.includes('utils.js') ? { safeNum: value => Number.isFinite(Number(value)) ? Number(value) : 0,
         pnlPct: () => 0, createReturnRateChart() {} }

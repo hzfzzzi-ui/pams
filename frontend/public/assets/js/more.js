@@ -1,6 +1,6 @@
-import { jget } from './api.js?v=20261031-risk-summary-retired-v1';
-import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20261031-risk-summary-retired-v1';
-import { setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
+import { jget } from './api.js?v=20261031-gray-v1';
+import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20261031-gray-v1';
+import { setActiveNav } from './ui.js?v=20261031-gray-v1';
 
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
