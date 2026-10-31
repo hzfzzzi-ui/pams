@@ -58,6 +58,9 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                         cur.execute("""CREATE TABLE public.pams_transaction_sync_log
                             (id text PRIMARY KEY)""")
                         cur.execute("INSERT INTO public.pams_transaction_lifecycle VALUES ('existing', 'before')")
+                        for table in ("pams_ohlcv_daily_v2", "pams_ohlcv_daily_v2_audit_daily", "pams_ohlcv_daily_v2_exceptions"):
+                            cur.execute(sql.SQL("CREATE TABLE public.{} (id integer PRIMARY KEY, payload text)").format(sql.Identifier(table)))
+                            cur.execute(sql.SQL("INSERT INTO public.{} VALUES (1, 'market-data')").format(sql.Identifier(table)))
                         for table in ("pams_task_queue", "pams_notifications", "pams_strategy_state", "pams_watchlist", "pams_sim_accounts", "pams_policy"):
                             cur.execute(sql.SQL("CREATE TABLE public.{} (id integer PRIMARY KEY, payload text)").format(sql.Identifier(table)))
                             cur.execute(sql.SQL("INSERT INTO public.{} VALUES (1, 'existing')").format(sql.Identifier(table)))
@@ -155,6 +158,13 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                     cur.execute("SELECT payload FROM public.pams_transaction_lifecycle WHERE id='existing'")
                     assert cur.fetchone()[0] == 'after'
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_shared_lifecycle_payload ON public.pams_transaction_lifecycle (payload)")
+                    for shared_market_table in ("pams_ohlcv_daily_v2", "pams_ohlcv_daily_v2_audit_daily", "pams_ohlcv_daily_v2_exceptions"):
+                        cur.execute("SELECT relkind FROM pg_class WHERE oid = %s::regclass", ("public." + shared_market_table,))
+                        assert cur.fetchone()[0] == 'r'
+                        cur.execute(sql.SQL("SELECT payload FROM public.{} WHERE id = 1").format(sql.Identifier(shared_market_table)))
+                        assert cur.fetchone()[0] == 'market-data'
+                        cur.execute(sql.SQL("CREATE INDEX {} ON public.{} (payload)").format(
+                            sql.Identifier("idx_test_" + shared_market_table), sql.Identifier(shared_market_table)))
                 # Both independently executable market scripts must refuse ambiguous ownership.
                 cur.execute("DROP VIEW public.pams_ohlcv_daily")
                 cur.execute("CREATE TABLE public.pams_ohlcv_daily (symbol text, trade_date date, close numeric)")
