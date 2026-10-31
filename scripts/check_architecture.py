@@ -58,13 +58,16 @@ PRIVATE_PREFIXES = (
     '.pytest_cache/', '.mypy_cache/', '.playwright-cli/', 'htmlcov/',
     'database/backups/', 'database/postgres/backups/',
 )
-ROOT_BACKUP_EXTENSIONS = ('.dump', '.backup', '.sqlite', '.sqlite3', '.db', '.zip', '.tar', '.tar.gz', '.bak', '.log')
+PRIVATE_FILES = frozenset({'config/bank_reconcile.yaml'})
+ROOT_BACKUP_EXTENSIONS = ('.dump', '.backup', '.sqlite', '.sqlite3', '.db', '.zip', '.tar', '.tar.gz', '.bak', '.log', '.xls', '.xlsx')
 DDL_STATEMENT = re.compile(r'(?:^|;|\n)\s*(?:CREATE(?:\s+(?:TEMP|TEMPORARY|UNLOGGED))?|ALTER|DROP)\s+TABLE\b', re.I)
 SQL_LITERAL_OR_COMMENT = re.compile(r"'(?:''|[^'])*'|--[^\n]*|/\*[\s\S]*?\*/")
 
 
 def _private_path(path: str) -> bool:
     folded = path.casefold()
+    if folded in PRIVATE_FILES:
+        return True
     if folded.startswith(tuple(prefix.casefold() for prefix in PRIVATE_PREFIXES)):
         return True
     pure = PurePosixPath(folded)

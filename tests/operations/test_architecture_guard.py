@@ -94,11 +94,12 @@ def test_domain_symlink_is_rejected_without_reading_it(tmp_path, monkeypatch):
 
 def test_tracked_secrets_data_and_runtime_outputs_are_rejected_but_examples_and_fixtures_allowed(tmp_path):
     files = fixture_repo(tmp_path)
-    sensitive = ['.env', 'config/.env.production', 'data/ledger.csv', '账户台账/source.pdf',
+    sensitive = ['.env', 'config/.env.production', 'config/bank_reconcile.yaml',
+                 'private.xls', 'private.xlsx', 'data/ledger.csv', '账户台账/source.pdf',
                  'import_templates/private.xlsx', 'templates/private.csv', '.tmp_state.json',
                  'outputs/report.csv', 'test-results/a.png',
                  'database/postgres/backups/db.dump', 'snapshot.tar.gz']
-    safe = ['.env.example', 'config/.env.production.example',
+    safe = ['.env.example', 'config/.env.production.example', 'config/accounts.yaml',
             'tests/fixtures/data/synthetic.csv', 'tests/fixtures/templates/synthetic.csv',
             'tests/fixtures/example.xlsx']
     errors = check_architecture(tmp_path, files + sensitive + safe)
@@ -147,6 +148,11 @@ def test_worktree_mode_uses_existing_index_and_unignored_source_additions(tmp_pa
     template.write_bytes(b'\xffprivate')
     root_state = tmp_path / '.tmp_state.json'
     root_state.write_bytes(b'\xffprivate')
+    root_workbook = tmp_path / 'private.xlsx'
+    root_workbook.write_bytes(b'\xffprivate')
+    private_config = tmp_path / 'config/bank_reconcile.yaml'
+    private_config.parent.mkdir()
+    private_config.write_bytes(b'\xffprivate')
     env = tmp_path / 'frontend/public/.env.local'
     env.parent.mkdir(parents=True)
     env.write_bytes(b'\xffprivate')
@@ -155,7 +161,8 @@ def test_worktree_mode_uses_existing_index_and_unignored_source_additions(tmp_pa
     (retired / 'private-content.txt').write_bytes(b'\xffprivate')
     original_read = Path.read_text
     def guarded_read(path, *args, **kwargs):
-        assert path not in {private, template, root_state, env, retired / 'private-content.txt'}
+        assert path not in {private, template, root_state, root_workbook, private_config,
+                            env, retired / 'private-content.txt'}
         return original_read(path, *args, **kwargs)
     monkeypatch.setattr(Path, 'read_text', guarded_read)
     index = tracked_files(tmp_path)
@@ -165,6 +172,7 @@ def test_worktree_mode_uses_existing_index_and_unignored_source_additions(tmp_pa
     assert 'tests/test_new.py' in local and 'backend/api/domain/assets/new.py' in local
     assert 'data/private-secret.txt' not in local
     assert 'templates/private.csv' not in local and '.tmp_state.json' not in local
+    assert 'private.xlsx' not in local and 'config/bank_reconcile.yaml' not in local
     assert 'frontend/public/.env.local' not in local
     assert 'strategy/__retired_directory__' in local and 'strategy/private-content.txt' not in local
     errors = check_architecture(tmp_path, local)
