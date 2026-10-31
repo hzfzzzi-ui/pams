@@ -108,7 +108,8 @@ from domain.investments.valuation_nav import (
     select_weekly_nav_accounts as _select_weekly_nav_accounts,
     series_dates as _series_dates,
 )
-from src.core.config import load_risk_limits
+from domain.risk.core.config import load_risk_limits
+from domain.configuration import load_base_currency
 
 app = FastAPI(title="pams-api-v2", version="2.0.0")
 
@@ -489,7 +490,7 @@ app.include_router(_core_router)
 def _get_base_currency(cur) -> str:
     """Use the asset application's configured base currency."""
     try:
-        return str(load_risk_limits().get("base_currency") or "CNY")
+        return load_base_currency()
     except Exception:
         # Match the existing application's CNY fallback when its source fails.
         return "CNY"

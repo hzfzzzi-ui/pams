@@ -13,6 +13,8 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 import main
+from domain.configuration import load_base_currency
+from domain.risk.core.config import load_risk_limits
 
 
 class NoQueries:
@@ -20,19 +22,36 @@ class NoQueries:
         pytest.fail("Base currency must not query the removed strategy policy")
 
 
+def test_currency_moves_to_application_config_with_legacy_fallback(tmp_path):
+    risk = tmp_path / "risk_limits.yaml"
+    risk.write_text("base_currency: USD\nlimits: {}\n", encoding="utf-8")
+    assert load_base_currency(tmp_path) == "USD"
+    assert load_risk_limits(risk)["base_currency"] == "USD"
+
+    app = tmp_path / "application.yaml"
+    app.write_text("base_currency: HKD\n", encoding="utf-8")
+    assert load_base_currency(tmp_path) == "HKD"
+    assert load_risk_limits(risk)["base_currency"] == "HKD"
+
+    app.write_text("{}\n", encoding="utf-8")
+    assert load_base_currency(tmp_path) == "USD"
+    risk.write_text("limits: {}\n", encoding="utf-8")
+    assert load_base_currency(tmp_path) == "CNY"
+
+
 @pytest.mark.parametrize("config, expected", [({"base_currency": "CNY"}, "CNY"),
                                              ({"base_currency": "USD"}, "USD"),
                                              ({}, "CNY"),
                                              (["CNY"], "CNY")])
 def test_configuration_without_query(monkeypatch, config, expected):
-    monkeypatch.setattr(main, "load_risk_limits", lambda: config)
+    monkeypatch.setattr(main, "load_base_currency", lambda: str(config.get("base_currency") or "CNY"))
     assert main._get_base_currency(NoQueries()) == expected
 
 
 def test_missing_configuration_falls_back(monkeypatch):
     def missing():
         raise FileNotFoundError
-    monkeypatch.setattr(main, "load_risk_limits", missing)
+    monkeypatch.setattr(main, "load_base_currency", missing)
     assert main._get_base_currency(NoQueries()) == "CNY"
 
 
@@ -55,7 +74,7 @@ def isolated_connection():
 
 
 def test_missing_policy_keeps_transaction_usable(isolated_connection, monkeypatch):
-    monkeypatch.setattr(main, "load_risk_limits", lambda: {"base_currency": "CNY"})
+    monkeypatch.setattr(main, "load_base_currency", lambda: "CNY")
     with isolated_connection.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("SELECT to_regclass('public.pams_policy') AS rel")
         assert cur.fetchone()["rel"] is None
@@ -66,7 +85,7 @@ def test_missing_policy_keeps_transaction_usable(isolated_connection, monkeypatc
 
 @pytest.mark.parametrize("currency", ["CNY", "USD"])
 def test_matching_existing_policy_returns_same_value(isolated_connection, monkeypatch, currency):
-    monkeypatch.setattr(main, "load_risk_limits", lambda: {"base_currency": currency})
+    monkeypatch.setattr(main, "load_base_currency", lambda: currency)
     with isolated_connection.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("CREATE TEMP TABLE pams_policy (key text, value jsonb)")
         cur.execute("INSERT INTO pams_policy VALUES ('ips_v1', jsonb_build_object('base_currency', %s::text))", (currency,))
@@ -78,7 +97,7 @@ def test_matching_existing_policy_returns_same_value(isolated_connection, monkey
 
 
 def test_configuration_wins_if_existing_policy_differs(isolated_connection, monkeypatch):
-    monkeypatch.setattr(main, "load_risk_limits", lambda: {"base_currency": "CNY"})
+    monkeypatch.setattr(main, "load_base_currency", lambda: "CNY")
     with isolated_connection.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("CREATE TEMP TABLE pams_policy (key text, value jsonb)")
         cur.execute("INSERT INTO pams_policy VALUES ('ips_v1', '{\"base_currency\":\"USD\"}')")
@@ -88,7 +107,7 @@ def test_configuration_wins_if_existing_policy_differs(isolated_connection, monk
 
 
 def test_existing_policy_without_currency_matches_cny_configuration(isolated_connection, monkeypatch):
-    monkeypatch.setattr(main, "load_risk_limits", lambda: {"base_currency": "CNY"})
+    monkeypatch.setattr(main, "load_base_currency", lambda: "CNY")
     with isolated_connection.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("CREATE TEMP TABLE pams_policy (key text, value jsonb)")
         cur.execute("INSERT INTO pams_policy VALUES ('ips_v1', '{}'::jsonb)")

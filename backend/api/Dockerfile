@@ -13,7 +13,6 @@ COPY backend/api/endpoints/ ./endpoints/
 COPY backend/api/collectors/ ./collectors/
 COPY backend/api/domain/ ./domain/
 COPY config/ /app/config/
-COPY src/ /app/src/
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app:/app/backend/api

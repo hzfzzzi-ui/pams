@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.core.factors import factor_exposure_rows, factors_for_position
+from domain.risk.core.factors import factor_exposure_rows, factors_for_position
 
 
 LEVEL_ORDER = {"green": 0, "yellow": 1, "red": 2}
@@ -347,140 +347,6 @@ def risk_alerts(
         alerts.append(_alert("stress_loss", "green", 0.0, stress_limit.get("yellow"), "Stress losses are within limits"))
 
     return sorted(alerts, key=lambda x: LEVEL_ORDER.get(x["level"], 0), reverse=True)
-
-
-def _subtract_cash_for_buy(df: pd.DataFrame, account_code: str, amount_cny: float) -> pd.DataFrame:
-    out = df.copy()
-    remaining = amount_cny
-    cash_idx = out.index[out["is_cash"] & (out["market_value_cny"] > 0) & (out["account_code"].astype(str) == account_code)].tolist()
-    cash_idx += out.index[out["is_cash"] & (out["market_value_cny"] > 0) & ~out.index.isin(cash_idx)].tolist()
-
-    for idx in cash_idx:
-        available = float(out.at[idx, "market_value_cny"])
-        use = min(available, remaining)
-        out.at[idx, "market_value_cny"] = available - use
-        remaining -= use
-        if remaining <= 1e-9:
-            break
-
-    if remaining > 1e-9:
-        out = pd.concat(
-            [
-                out,
-                pd.DataFrame(
-                    [
-                        {
-                            "as_of": "",
-                            "source_type": "pretrade",
-                            "account_code": account_code,
-                            "account_name": account_code,
-                            "owner_ratio": 1.0,
-                            "symbol": "CASH_CNY",
-                            "asset_id": "CASH_CNY",
-                            "asset_name": "Pre-trade negative cash",
-                            "asset_type": "cash",
-                            "currency": "CNY",
-                            "quantity": 1.0,
-                            "price": -remaining,
-                            "market_value": -remaining,
-                            "cost": -remaining,
-                            "fx_rate_to_cny": 1.0,
-                            "market_value_cny": -remaining,
-                            "cost_cny": -remaining,
-                            "is_cash": True,
-                        }
-                    ]
-                ),
-            ],
-            ignore_index=True,
-        )
-    return out
-
-
-def simulate_buy(
-    positions: pd.DataFrame,
-    buy: dict[str, Any],
-    risk_limits: dict[str, Any],
-) -> pd.DataFrame:
-    """Simulate a cash-funded buy using CNY risk amount, preserving total NAV."""
-    df = ensure_positions(positions, risk_limits)
-    amount_cny = max(0.0, float(buy.get("amount_cny", 0.0) or 0.0))
-    account_code = str(buy.get("account_code") or "manual")
-    asset_id = str(buy.get("asset_id") or buy.get("symbol") or "NEW_ASSET")
-    asset_type = str(buy.get("asset_type") or "manual_asset")
-    asset_name = str(buy.get("asset_name") or asset_id)
-
-    funded = _subtract_cash_for_buy(df, account_code, amount_cny)
-    new_position = pd.DataFrame(
-        [
-            {
-                "as_of": "",
-                "source_type": "pretrade",
-                "account_code": account_code,
-                "account_name": account_code,
-                "owner_ratio": 1.0,
-                "symbol": asset_id,
-                "asset_id": asset_id,
-                "asset_name": asset_name,
-                "asset_type": asset_type,
-                "currency": "CNY",
-                "quantity": 1.0,
-                "price": amount_cny,
-                "market_value": amount_cny,
-                "cost": amount_cny,
-                "fx_rate_to_cny": 1.0,
-                "market_value_cny": amount_cny,
-                "cost_cny": amount_cny,
-                "is_cash": False,
-            }
-        ]
-    )
-    return pd.concat([funded, new_position], ignore_index=True)
-
-
-def max_buy_amount(
-    positions: pd.DataFrame,
-    buy: dict[str, Any],
-    risk_limits: dict[str, Any],
-    factor_map: dict[str, Any],
-    iterations: int = 32,
-) -> dict[str, Any]:
-    """Check a proposed buy and estimate the largest amount allowed before red limits."""
-    blocking_level = str((risk_limits.get("limits", {}) or {}).get("blocking_level", "red"))
-    blocking_rank = LEVEL_ORDER.get(blocking_level, 2)
-
-    proposed_amount = max(0.0, float(buy.get("amount_cny", 0.0) or 0.0))
-
-    def blocking_alerts(amount: float) -> list[dict[str, Any]]:
-        simulated = simulate_buy(positions, {**buy, "amount_cny": amount}, risk_limits)
-        return [
-            alert
-            for alert in risk_alerts(simulated, risk_limits, factor_map)
-            if LEVEL_ORDER.get(alert["level"], 0) >= blocking_rank
-        ]
-
-    proposed_alerts = blocking_alerts(proposed_amount)
-    if blocking_alerts(0.0):
-        max_allowed = 0.0
-    else:
-        nav = total_nav(positions, risk_limits)
-        hi = max(proposed_amount, nav * 2, 1.0)
-        lo = 0.0
-        for _ in range(iterations):
-            mid = (lo + hi) / 2
-            if blocking_alerts(mid):
-                hi = mid
-            else:
-                lo = mid
-        max_allowed = lo
-
-    return {
-        "proposed_amount_cny": proposed_amount,
-        "allowed": not proposed_alerts,
-        "max_buy_amount_cny": round(max_allowed, 2),
-        "blocking_alerts": proposed_alerts,
-        "post_buy_alerts": risk_alerts(simulate_buy(positions, buy, risk_limits), risk_limits, factor_map),
-    }
 
 
 def rebalance_suggestions(

@@ -1,5 +1,3 @@
-base_currency: CNY
-
 data:
   default_owner_ratio: 1.0
   # 非本人全额持有账户在这里配置个人占比；同花顺 A 股个股账户当前为 25万 / 40万 = 62.5%。

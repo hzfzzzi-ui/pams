@@ -1,11 +1,14 @@
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend" / "api"))
+
 import pandas as pd
 
-from src.core.risk_engine import (
+from domain.risk.core.risk_engine import (
     account_weight,
     factor_exposure,
     gross_exposure,
-    max_buy_amount,
-    negative_cash_ratio,
     position_weight,
     risk_alerts,
     stress_loss,
@@ -126,15 +129,3 @@ def test_risk_alerts_include_red_position_and_factor():
     red_rules = {a["rule"] for a in alerts if a["level"] == "red"}
     assert "position_weight:AAPL" in red_rules
     assert "factor_exposure:US_EQUITY" in red_rules
-
-
-def test_negative_cash_ratio_after_large_buy_blocks():
-    result = max_buy_amount(
-        sample_positions(),
-        {"account_code": "manual", "asset_id": "MSFT", "asset_name": "Microsoft", "asset_type": "us_stock", "amount_cny": 5000},
-        sample_limits(),
-        sample_factor_map(),
-    )
-    assert result["allowed"] is False
-    assert result["max_buy_amount_cny"] >= 0
-    assert any(a["level"] == "red" for a in result["blocking_alerts"])

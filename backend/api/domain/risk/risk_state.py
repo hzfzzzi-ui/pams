@@ -7,20 +7,14 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import psycopg2
 import psycopg2.extras
-
-ROOT = Path(__file__).resolve().parents[4]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from domain.investments.portfolio_state import build_portfolio_state  # noqa: E402
 from domain.investments.holdings_view import latest_complete_snapshot_date  # noqa: E402
@@ -30,19 +24,18 @@ from domain.investments.portfolio_valuation_state import (  # noqa: E402
     published_valuation_state_meta,
     published_valuation_stale_meta,
 )
-from src.core.concentration import (  # noqa: E402
+from domain.risk.core.concentration import (  # noqa: E402
     concentration_exposure,
     load_concentration_map,
     normalize_symbol,
 )
-from src.core.config import load_factor_map, load_risk_limits  # noqa: E402
-from src.core.factors import factors_for_position  # noqa: E402
-from src.core.risk_engine import (  # noqa: E402
+from domain.risk.core.config import load_factor_map, load_risk_limits  # noqa: E402
+from domain.risk.core.factors import factors_for_position  # noqa: E402
+from domain.risk.core.risk_engine import (  # noqa: E402
     account_weight,
     ensure_positions,
     factor_exposure,
     gross_exposure,
-    max_buy_amount,
     negative_cash_ratio,
     position_weight,
     rebalance_suggestions,
@@ -1952,13 +1945,3 @@ def build_risk_state() -> dict[str, Any]:
             "data_checks": risk_tasks["data_check"],
         },
     }
-
-
-def run_pretrade_check(payload: dict[str, Any]) -> dict[str, Any]:
-    """Run the legacy pre-trade check against the current risk state."""
-    positions = load_latest_positions()
-    if positions.empty:
-        raise ValueError("No positions snapshot is available")
-    limits = load_risk_limits()
-    factor_map = load_factor_map()
-    return max_buy_amount(positions, payload, limits, factor_map)
