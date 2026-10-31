@@ -1,6 +1,7 @@
 """Account import transport. Drafts never call a financial writer."""
 from __future__ import annotations
 
+import os
 from typing import Any, Literal
 from uuid import UUID
 
@@ -51,6 +52,17 @@ class Revision(StrictRequest):
 
 class Publish(Revision):
     preview_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
+
+
+def _native(cur):
+    return publisher._isolated_source_enabled(cur) and os.environ.get('PAMS_SOURCE_LEGACY_BRIDGE', '').lower() != 'true'
+
+
+def _choose(cur, native_call, legacy_call):
+    if _native(cur):
+        from domain.imports import native_source_http
+        return native_call(native_source_http)
+    return legacy_call()
 
 
 def _write_draft(cur, fn, *, action, batch_id=None):
@@ -122,22 +134,24 @@ def assets(request: Request, q: str = Query("", max_length=80)):
 
 @router.get("/batches")
 def list_batches(request: Request, limit: int = Query(20, ge=1, le=50)):
-    return execute(request, lambda cur: store.list_batches(cur, limit))
+    return execute(request, lambda cur: _choose(cur, lambda n: n.list_batches(cur, limit), lambda: store.list_batches(cur, limit)))
 
 
 @router.post("/batches")
 def create(body: Create, request: Request):
-    return execute(request, lambda cur: _write_draft(cur, lambda: store.create(cur, **body.model_dump()), action='create'), write=True)
+    return execute(request, lambda cur: _choose(cur, lambda n: n.create(cur, **body.model_dump()),
+                   lambda: _write_draft(cur, lambda: store.create(cur, **body.model_dump()), action='create')), write=True)
 
 
 @router.get("/batches/{batch_id}")
 def get_batch(batch_id: UUID, request: Request):
-    return execute(request, lambda cur: store.batch(cur, str(batch_id)))
+    return execute(request, lambda cur: _choose(cur, lambda n: n.batch(cur, batch_id), lambda: store.batch(cur, str(batch_id))))
 
 
 @router.put("/batches/{batch_id}")
 def save(batch_id: UUID, body: Save, request: Request):
-    return execute(request, lambda cur: _write_draft(cur, lambda: store.save(cur, str(batch_id), **body.model_dump()), action='save', batch_id=batch_id), write=True)
+    return execute(request, lambda cur: _choose(cur, lambda n: n.save(cur, batch_id, **body.model_dump()),
+                   lambda: _write_draft(cur, lambda: store.save(cur, str(batch_id), **body.model_dump()), action='save', batch_id=batch_id)), write=True)
 
 
 @router.post("/batches/{batch_id}/files")
@@ -148,13 +162,16 @@ async def upload(batch_id: UUID, request: Request, filename: str = Query(..., ma
         content.extend(part)
         if len(content) > store.MAX_FILE_BYTES:
             raise HTTPException(413, detail={"code": "file_size", "message": "文件超过10MB"})
-    return await run_in_threadpool(execute, request, lambda cur: _write_draft(cur, lambda: store.upload(
-        cur, str(batch_id), filename, bytes(content), request.headers.get("content-type", "")), action='upload', batch_id=batch_id), write=True)
+    return await run_in_threadpool(execute, request, lambda cur: _choose(cur,
+        lambda n: n.upload(cur, batch_id, filename, bytes(content), request.headers.get('content-type', '')),
+        lambda: _write_draft(cur, lambda: store.upload(cur, str(batch_id), filename, bytes(content),
+            request.headers.get('content-type', '')), action='upload', batch_id=batch_id)), write=True)
 
 
 @router.get("/batches/{batch_id}/files/{file_id}")
 def evidence(batch_id: UUID, file_id: UUID, request: Request):
-    file = execute(request, lambda cur: store.get_file(cur, str(batch_id), str(file_id)))
+    file = execute(request, lambda cur: _choose(cur, lambda n: n.get_file(cur, batch_id, file_id),
+                                               lambda: store.get_file(cur, str(batch_id), str(file_id))))
     return Response(bytes(file["content"]), media_type=file["content_type"],
                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                              "Content-Disposition": "inline"})
@@ -162,20 +179,24 @@ def evidence(batch_id: UUID, file_id: UUID, request: Request):
 
 @router.post("/batches/{batch_id}/files/{file_id}/parse")
 def reparse(batch_id: UUID, file_id: UUID, body: Mapping, request: Request):
-    return execute(request, lambda cur: _write_draft(cur, lambda: store.reparse(cur, str(batch_id), str(file_id), body.mapping, body.kind), action='reparse', batch_id=batch_id), write=True)
+    return execute(request, lambda cur: _choose(cur, lambda n: n.reparse(cur, batch_id, file_id, body.mapping, body.kind),
+                   lambda: _write_draft(cur, lambda: store.reparse(cur, str(batch_id), str(file_id), body.mapping, body.kind), action='reparse', batch_id=batch_id)), write=True)
 
 
 @router.post("/batches/{batch_id}/preview")
 def preview(batch_id: UUID, body: Revision, request: Request):
-    return execute(request, lambda cur: publisher.preview(cur, str(batch_id), body.revision), write=True)
+    return execute(request, lambda cur: _choose(cur, lambda n: n.preview(cur, batch_id, body.revision),
+                   lambda: publisher.preview(cur, str(batch_id), body.revision)), write=True)
 
 
 @router.post("/batches/{batch_id}/files/{file_id}/review")
 def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request):
-    return execute(request, lambda cur: _write_draft(cur, lambda: store.review_image(cur, str(batch_id), str(file_id), body.revision), action='review_image', batch_id=batch_id), write=True)
+    return execute(request, lambda cur: _choose(cur, lambda n: n.review_image(cur, batch_id, file_id, body.revision),
+                   lambda: _write_draft(cur, lambda: store.review_image(cur, str(batch_id), str(file_id), body.revision), action='review_image', batch_id=batch_id)), write=True)
 
 
 @router.post("/batches/{batch_id}/publish")
 def publish(batch_id: UUID, body: Publish, request: Request):
-    return execute(request, lambda cur: publisher.publish(cur, str(batch_id), body.revision, body.preview_token),
+    return execute(request, lambda cur: _choose(cur, lambda n: n.publish(cur, batch_id, body.revision, body.preview_token),
+                   lambda: publisher.publish(cur, str(batch_id), body.revision, body.preview_token)),
                    write=True, serializable=True)
