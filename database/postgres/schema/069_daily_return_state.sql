@@ -92,27 +92,4 @@ CREATE INDEX IF NOT EXISTS idx_pams_asset_daily_pnl_symbol_date
 CREATE INDEX IF NOT EXISTS idx_pams_asset_daily_pnl_status
     ON public.pams_asset_daily_pnl (trade_date DESC, return_status);
 
-CREATE TABLE IF NOT EXISTS public.pams_sync_run_log (
-    run_id BIGSERIAL PRIMARY KEY,
-    sync_type TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    finished_at TIMESTAMPTZ,
-    status VARCHAR(20) NOT NULL DEFAULT 'running',
-    assets_requested INTEGER NOT NULL DEFAULT 0,
-    assets_success INTEGER NOT NULL DEFAULT 0,
-    assets_failed INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
-    source_hash VARCHAR(64),
-    raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT ck_pams_sync_run_log_status CHECK (
-        status IN ('running', 'success', 'partial', 'failed', 'skipped')
-    )
-);
-
-CREATE INDEX IF NOT EXISTS idx_pams_sync_run_log_provider_started
-    ON public.pams_sync_run_log (provider, started_at DESC);
-
 COMMIT;

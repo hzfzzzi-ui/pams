@@ -199,6 +199,34 @@ def bootstrap_database():
         admin.close()
 
 
+def test_retired_sync_log_upgrade_preserves_business_tables_and_rejects_dependencies(bootstrap_database):
+    from scripts.bootstrap_empty_database import initialize_empty_database
+
+    migration = (ROOT / "database/postgres/schema/073_retire_unused_sync_run_log.sql").read_text(encoding="utf-8")
+    with psycopg2.connect(**bootstrap_database) as conn:
+        initialize_empty_database(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.pams_sync_run_log')")
+            assert cur.fetchone()[0] is None
+            cur.execute("CREATE TABLE public.pams_sync_run_log (run_id bigint PRIMARY KEY)")
+            cur.execute("INSERT INTO public.pams_sync_run_log VALUES (1)")
+            cur.execute("CREATE VIEW public.sync_log_consumer AS SELECT run_id FROM public.pams_sync_run_log")
+            conn.commit()
+            with pytest.raises(psycopg2.errors.DependentObjectsStillExist):
+                cur.execute(migration)
+            conn.rollback()
+            cur.execute("SELECT run_id FROM public.sync_log_consumer")
+            assert cur.fetchone()[0] == 1
+            cur.execute("DROP VIEW public.sync_log_consumer")
+            cur.execute(migration)
+            cur.execute(migration)
+            for table in ("pams_market_quote_snapshot", "pams_asset_daily_pnl", "pams_data_job_run"):
+                cur.execute("SELECT to_regclass(%s)", ("public." + table,))
+                assert cur.fetchone()[0] is not None
+            cur.execute("SELECT to_regclass('public.pams_sync_run_log')")
+            assert cur.fetchone()[0] is None
+
+
 def test_empty_bootstrap_supports_shared_reference_consumers(bootstrap_database):
     """Exercise the independent backtest app's shared reference-table SQL contracts."""
     from scripts.bootstrap_empty_database import initialize_empty_database

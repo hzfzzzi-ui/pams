@@ -30,7 +30,7 @@ def test_daily_return_state_schema_contract() -> None:
 
     assert "CREATE TABLE IF NOT EXISTS public.pams_market_quote_snapshot" in sql
     assert "CREATE TABLE IF NOT EXISTS public.pams_asset_daily_pnl" in sql
-    assert "CREATE TABLE IF NOT EXISTS public.pams_sync_run_log" in sql
+    assert "CREATE TABLE IF NOT EXISTS public.pams_sync_run_log" not in sql
     assert "return_status IN ('pending', 'estimated', 'confirmed')" in sql
     assert "quote_session IN ('open', 'close', 'premarket', 'intraday', 'afterhours', 'overnight', 'nav', 'unknown')" in sql
     assert "trade_date, account_code, asset_key, base_currency" in sql
