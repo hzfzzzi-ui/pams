@@ -40,21 +40,26 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
     bootstrap = (PUBLIC / "assets/js/app/page_bootstrap.js").read_text(encoding="utf-8")
     assert "afterStartup(() => {" in bootstrap
     assert "if (!disposed) return callback();" in bootstrap
-    assert "afterInvestmentNav(() => {" in (PUBLIC / "assets/js/lookthrough.js").read_text(encoding="utf-8")
+    assert "afterNav(() => {" in (PUBLIC / "assets/js/features/analysis/controller.js").read_text(encoding="utf-8")
 
 
 def test_investment_entries_share_one_startup_and_ui_module_version():
     html = (PUBLIC / "investments.html").read_text(encoding="utf-8")
     for name in ("holdings", "holdings_categories", "lookthrough", "transactions", "portfolio_risk", "portfolio_config"):
         version = ("20261031-panels-v1" if name in ("portfolio_risk", "portfolio_config")
-                   else "20261031-investment-charts-v1" if name == "holdings_categories" else "20261031-ui-v1")
+                   else "20261031-investment-charts-v1" if name == "holdings_categories" else "20261031-analysis-modules-v1" if name == "lookthrough" else "20261031-ui-v1")
         assert f"assets/js/{name}.js?v={version}" in html
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
-        if name != "portfolio_risk":
+        if name == "lookthrough":
+            controller = (PUBLIC / "assets/js/features/analysis/controller.js").read_text(encoding="utf-8")
+            assert "../../components/bottom_sheet.js?v=20261031-ui-v1" in controller
+        elif name != "portfolio_risk":
             assert "./ui.js?v=20261031-ui-v1" in text
         else:
             view = (PUBLIC / "assets/js/features/portfolio/risk_view.js").read_text(encoding="utf-8")
             assert "../../components/data_state.js?v=20261031-ui-v1" in view
     for name in ("ui", "holdings_categories", "lookthrough", "portfolio_risk", "portfolio_config"):
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
+        if name == "lookthrough":
+            text = (PUBLIC / "assets/js/features/analysis/controller.js").read_text(encoding="utf-8")
         assert re.findall(r"investment_startup\.js\?v=([^'\"]+)", text) == ["20261031-gray-v1"]
