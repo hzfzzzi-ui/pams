@@ -68,6 +68,18 @@ def test_fund_nav_upsert_preserves_old_value_and_marks_quote_unknown(isolated):
     assert _current(params, row['id'])['status'] == 'unknown'
 
 
+def test_multiple_fund_updates_in_same_transaction_remain_valid(isolated):
+    web, params = isolated
+    publish_holding(web, symbol='011613', asset_type='fund')
+    row = sql(params, 'SELECT * FROM pams_holdings_snapshot')[0]
+    with psycopg2.connect(**params) as conn, conn.cursor() as cur:
+        assert insert_or_update_generated_snapshot(cur, holding=row, as_of=date.fromisoformat(DAY),
+            market_value=Decimal(1100), units=Decimal(100), unit_nav=Decimal(11), update_existing=True)
+        assert insert_or_update_generated_snapshot(cur, holding=row, as_of=date.fromisoformat(DAY),
+            market_value=Decimal(1200), units=Decimal(100), unit_nav=Decimal(12), update_existing=True)
+    assert sql(params, 'SELECT market_value FROM pams_holdings_snapshot')[0]['market_value'] == 1200
+
+
 def test_bank_balance_upsert_preserves_original_source(isolated, monkeypatch):
     web, params = isolated
     monkeypatch.setattr(statement, 'config', lambda: {'profiles': {'test': {'account_code': 'bank_test',

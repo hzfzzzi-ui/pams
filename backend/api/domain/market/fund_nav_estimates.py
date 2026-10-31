@@ -562,10 +562,13 @@ def insert_or_update_generated_snapshot(
         keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price')
         if not holding.get('id'):
             raise ValueError('fund source holding identity missing')
-        cur.execute('SELECT ' + ','.join(keys) + ' FROM pams_holdings_snapshot WHERE id=%s FOR UPDATE', (holding['id'],))
+        cur.execute('SELECT ' + ','.join(keys) + ',xmin::text=pg_current_xact_id()::text AS own_write '
+                    'FROM pams_holdings_snapshot WHERE id=%s FOR UPDATE', (holding['id'],))
         stored = cur.fetchone()
+        own_write = (stored['own_write'] if isinstance(stored, dict) else stored[len(keys)]) if stored else False
+        compared = keys[:7] if own_write else keys
         if not stored or any((stored[key] if isinstance(stored, dict) else stored[index]) != holding.get(key)
-                             for index,key in enumerate(keys)):
+                             for index,key in enumerate(compared)):
             raise ValueError('fund source holding changed; refresh the input')
         cur.execute('SELECT id,quantity,cost FROM pams_holdings_snapshot WHERE account_code=%s AND name=%s AND as_of=%s FOR UPDATE',
                     (holding['account_code'], holding['name'], as_of))
@@ -711,6 +714,8 @@ def refresh_fund_nav_estimates(
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         ensure_fund_nav_estimate_table(cur)
         holdings = load_latest_active_fund_holdings(cur)
+        # Writers retain transaction locks until commit; use one account order.
+        holdings.sort(key=lambda row: (str(row.get('account_code') or ''), str(row.get('name') or ''), str(row.get('id') or '')))
         for holding in holdings:
             symbol = str(holding["symbol"]).zfill(6)
             market_value = dec(holding.get("market_value"), MONEY)
