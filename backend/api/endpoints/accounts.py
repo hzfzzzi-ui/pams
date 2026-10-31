@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.imports.source_row_read import source_row_relation
 
 router = APIRouter()
 
@@ -394,8 +395,9 @@ def _fetch_db_accounts(cur) -> dict[str, dict[str, Any]]:
 
 
 def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
+    source_rows = source_row_relation(cur)
     cur.execute(
-        """
+        f"""
         SELECT
             account_code AS profile_code,
             COALESCE(NULLIF(source_system, ''), source_table) AS bank,
@@ -407,8 +409,8 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
             MAX(imported_at) AS imported_at,
             MAX(event_date) AS latest_balance_date,
             NULL::numeric AS latest_balance
-        FROM pams_source_row
-        WHERE source_table = 'pams_bank_statement_rows'
+        FROM {source_rows} AS source_rows
+        WHERE is_bank_statement
           AND account_code IS NOT NULL
         GROUP BY account_code, COALESCE(NULLIF(source_system, ''), source_table)
         ORDER BY account_code

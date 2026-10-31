@@ -17,6 +17,7 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
 from domain.operations.sync_health import read_overseas_quote_health, scheduler_health
+from domain.imports.source_row_read import source_row_relation
 from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -247,10 +248,10 @@ def sync_center() -> dict[str, Any]:
             )
             bank_rows = _count_query(
                 cur,
-                """
+                f"""
                 SELECT MAX(event_date) AS as_of, MAX(created_at) AS updated_at, COUNT(*) AS rows
-                FROM pams_source_row
-                WHERE source_table = 'pams_bank_statement_rows'
+                FROM {source_row_relation(cur)} AS source_rows
+                WHERE is_bank_statement
                 """,
             )
             cash_tx = _count_query(
