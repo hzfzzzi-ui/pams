@@ -53,6 +53,20 @@ class Publish(Revision):
     preview_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
 
 
+def _write_draft(cur, fn, *, action, batch_id=None):
+    isolated = publisher._isolated_source_enabled(cur)
+    if not isolated and batch_id is not None:
+        publisher._assert_no_source_batch(cur, batch_id)
+    if isolated and batch_id is not None:
+        from domain.imports.source_import_adapter import ensure_legacy_staged
+        ensure_legacy_staged(cur, str(batch_id))
+    result = fn()
+    if isolated:
+        from domain.imports.source_import_adapter import sync_legacy_draft
+        sync_legacy_draft(cur, result, action=action)
+    return result
+
+
 def execute(request: Request, fn, *, write=False, serializable=False):
     if write:
         access.same_origin(request)
@@ -113,7 +127,7 @@ def list_batches(request: Request, limit: int = Query(20, ge=1, le=50)):
 
 @router.post("/batches")
 def create(body: Create, request: Request):
-    return execute(request, lambda cur: store.create(cur, **body.model_dump()), write=True)
+    return execute(request, lambda cur: _write_draft(cur, lambda: store.create(cur, **body.model_dump()), action='create'), write=True)
 
 
 @router.get("/batches/{batch_id}")
@@ -123,7 +137,7 @@ def get_batch(batch_id: UUID, request: Request):
 
 @router.put("/batches/{batch_id}")
 def save(batch_id: UUID, body: Save, request: Request):
-    return execute(request, lambda cur: store.save(cur, str(batch_id), **body.model_dump()), write=True)
+    return execute(request, lambda cur: _write_draft(cur, lambda: store.save(cur, str(batch_id), **body.model_dump()), action='save', batch_id=batch_id), write=True)
 
 
 @router.post("/batches/{batch_id}/files")
@@ -134,8 +148,8 @@ async def upload(batch_id: UUID, request: Request, filename: str = Query(..., ma
         content.extend(part)
         if len(content) > store.MAX_FILE_BYTES:
             raise HTTPException(413, detail={"code": "file_size", "message": "文件超过10MB"})
-    return await run_in_threadpool(execute, request, lambda cur: store.upload(
-        cur, str(batch_id), filename, bytes(content), request.headers.get("content-type", "")), write=True)
+    return await run_in_threadpool(execute, request, lambda cur: _write_draft(cur, lambda: store.upload(
+        cur, str(batch_id), filename, bytes(content), request.headers.get("content-type", "")), action='upload', batch_id=batch_id), write=True)
 
 
 @router.get("/batches/{batch_id}/files/{file_id}")
@@ -148,7 +162,7 @@ def evidence(batch_id: UUID, file_id: UUID, request: Request):
 
 @router.post("/batches/{batch_id}/files/{file_id}/parse")
 def reparse(batch_id: UUID, file_id: UUID, body: Mapping, request: Request):
-    return execute(request, lambda cur: store.reparse(cur, str(batch_id), str(file_id), body.mapping, body.kind), write=True)
+    return execute(request, lambda cur: _write_draft(cur, lambda: store.reparse(cur, str(batch_id), str(file_id), body.mapping, body.kind), action='reparse', batch_id=batch_id), write=True)
 
 
 @router.post("/batches/{batch_id}/preview")
@@ -158,7 +172,7 @@ def preview(batch_id: UUID, body: Revision, request: Request):
 
 @router.post("/batches/{batch_id}/files/{file_id}/review")
 def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request):
-    return execute(request, lambda cur: store.review_image(cur, str(batch_id), str(file_id), body.revision), write=True)
+    return execute(request, lambda cur: _write_draft(cur, lambda: store.review_image(cur, str(batch_id), str(file_id), body.revision), action='review_image', batch_id=batch_id), write=True)
 
 
 @router.post("/batches/{batch_id}/publish")

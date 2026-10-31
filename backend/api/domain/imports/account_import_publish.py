@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hmac
 import os
+import re
 
 from psycopg2.extras import Json
 
@@ -18,8 +19,58 @@ def enabled() -> bool:
     return os.environ.get("PAMS_IMPORT_PUBLISH_ENABLED", "").lower() == "true"
 
 
+def _isolated_source_enabled(cur):
+    """The experimental bridge only runs against explicitly marked test databases."""
+    if os.environ.get('PAMS_UNIFIED_SOURCE_ISOLATED', '').lower() != 'true':
+        return False
+    params = cur.connection.get_dsn_parameters()
+    if (params.get('host') not in {'127.0.0.1', 'localhost', '::1'} or
+        not re.fullmatch(r'pams_import_test_[0-9a-f]{32}', params.get('dbname', '')) or
+        cur.connection.server_version // 10000 != 16):
+        raise store.ImportProblem('isolated_only', '统一来源实验只允许隔离测试库', 403)
+    cur.execute("SELECT shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname=current_database()")
+    row = cur.fetchone()
+    if not row or row['marker'] != 'pams-isolated-account-import':
+        raise store.ImportProblem('isolated_only', '统一来源实验只允许隔离测试库', 403)
+    return True
+
+
+def _assert_no_source_batch(cur, batch_id):
+    """A source-backed draft must not fall back to the legacy writer."""
+    cur.execute("SELECT to_regclass('public.source_batches') AS source_table")
+    if cur.fetchone()['source_table'] is not None:
+        cur.execute('SELECT 1 FROM public.source_batches WHERE batch_id=%s', (str(batch_id),))
+        if cur.fetchone():
+            raise store.ImportProblem('source_preflight_required', '来源批次必须通过统一来源链路处理', 409)
+
+
 def preview(cur, batch_id, revision):
+    if not _isolated_source_enabled(cur):
+        _assert_no_source_batch(cur, batch_id)
+        return _legacy_preview(cur, batch_id, revision)
+    from domain.imports import source_import_adapter as source
+    source.ensure_legacy_staged(cur, batch_id)
+    cur.execute('SELECT revision FROM public.source_batches WHERE batch_id=%s', (batch_id,))
+    row = cur.fetchone()
+    if not row:
+        raise store.ImportProblem('source_preflight_required', '请先准备和核对来源明细', 409)
+    try:
+        candidate = source.prepare_candidate(cur, batch_id=batch_id, legacy_revision=revision,
+                                             source_revision=row['revision'])
+    except store.ImportProblem:
+        raise
+    except ValueError as exc:
+        raise store.ImportProblem('source_preflight_blocked', '来源核对不完整或已变化，请重新核对和预检', 409) from exc
+    metadata = {'revision': row['revision'], 'sha256': candidate['source_snapshot_sha256']}
+    cur.execute("UPDATE pams_account_import_batch SET preview_json=preview_json || %s::jsonb WHERE batch_id=%s",
+                (Json({'_unified_source': metadata}), batch_id))
+    return candidate['legacy_preview']
+
+
+def _legacy_preview(cur, batch_id, revision, *, _source_bridge=False):
     batch = store.batch(cur, batch_id, lock=True)
+    if not _source_bridge and (batch.get('preview_json') or {}).get('_unified_source'):
+        raise store.ImportProblem('source_preflight_required', '来源批次必须通过统一来源链路处理', 409)
     store.editable(batch, revision)
     result = preflight.preview(cur, batch)
     result.pop("_prepared")
@@ -52,10 +103,33 @@ def _snapshot(cur, row):
 
 
 def publish(cur, batch_id, revision, preview_token):
+    if not _isolated_source_enabled(cur):
+        _assert_no_source_batch(cur, batch_id)
+        return _legacy_publish(cur, batch_id, revision, preview_token)
+    from domain.imports import source_import_adapter as source
+    batch = store.batch(cur, batch_id, lock=True)
+    metadata = (batch.get('preview_json') or {}).get('_unified_source') or {}
+    source_revision, digest = metadata.get('revision'), metadata.get('sha256')
+    if (not isinstance(source_revision, int) or isinstance(source_revision, bool) or source_revision < 1 or
+        not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)):
+        raise store.ImportProblem('source_preflight_required', '请先完成来源预检', 409)
+    try:
+        return source.publish_candidate(cur, batch_id=batch_id, legacy_revision=revision,
+                                        source_revision=source_revision, preview_token=preview_token,
+                                        source_snapshot_sha256=digest)
+    except store.ImportProblem:
+        raise
+    except ValueError as exc:
+        raise store.ImportProblem('source_preflight_blocked', '来源核对不完整或已变化，请重新核对和预检', 409) from exc
+
+
+def _legacy_publish(cur, batch_id, revision, preview_token, *, _source_bridge=False):
     if not enabled():
         raise store.ImportProblem("publish_disabled", "发布未启用；可保存和核对草稿", 403)
     batch = store.batch(cur, batch_id, lock=True)
     stored = batch.get("preview_json") or {}
+    if not _source_bridge and stored.get('_unified_source'):
+        raise store.ImportProblem('source_preflight_required', '来源批次必须通过统一来源链路处理', 409)
     if not stored.get("preview_token") or not hmac.compare_digest(stored["preview_token"], preview_token):
         raise store.ImportProblem("preview_required", "请重新预检后发布", 409)
     if batch["revision"] != revision:
