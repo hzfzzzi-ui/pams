@@ -1,5 +1,5 @@
 """
-持仓交易 API - 从 Telegram 交易识别提交持仓数据
+持仓交易兼容 API。
 """
 import os
 import logging
