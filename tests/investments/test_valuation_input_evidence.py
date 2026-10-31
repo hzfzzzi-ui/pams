@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend/api"))
 from domain.investments.valuation_input_evidence import (
     bound_holding_freshness, record_bound_holding_version, record_result_version,
-    recorded_input_freshness, verify_recorded_version,
+    recorded_input_freshness, verify_recorded_version, versions_for_source_item,
 )
 
 
@@ -189,6 +189,13 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                 cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='source_item'", (bound_key,))
                 unknown = cur.fetchone()[0]
                 assert unknown["role"] == "ibkr_report" and unknown["source_ref"] is None and unknown["snapshot"] is None
+                cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (bound_key,))
+                original_holding = cur.fetchone()[0]["snapshot"]["content"]
+                assert original_holding["market_value"] == "100.0000"
+                with psycopg2.connect(**target) as other:
+                    with other.cursor() as other_cur:
+                        other_cur.execute("SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0))", ("account-import:acct",))
+                        assert other_cur.fetchone()[0] is False
                 # Historical holding/trade/FX quality and observation times are
                 # not invented merely because references were found.
                 assert bound_holding_freshness(cur, bound_key) == "unknown"
@@ -230,6 +237,21 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                 assert bound_holding_freshness(cur, bound_key) == "missing"
             conn.rollback()
             with conn.cursor() as cur:
+                cur.execute("DELETE FROM pams_holdings_snapshot WHERE id=%s", (holding_id,))
+                cur.execute("""INSERT INTO pams_holdings_snapshot
+                    (name, asset_liability, currency, account_code, major_category, minor_category, market_value, as_of)
+                    VALUES ('synthetic', '资产', 'CNY', 'acct', 'test', 'test', 105, '2026-01-02') RETURNING id""")
+                replacement_id = cur.fetchone()[0]
+                assert bound_holding_freshness(cur, bound_key) == "replacement_candidate"
+                new_key = record_bound_holding_version(cur, holding_id=replacement_id, calculation_version="v1", input_refs=refs)
+                assert new_key != bound_key and verify_recorded_version(cur, bound_key)
+                cur.execute("SELECT scope_key FROM public.pams_valuation_result_version WHERE version_key IN (%s,%s)", (bound_key, new_key))
+                scopes = [row[0] for row in cur.fetchall()]
+                assert len(scopes) == 2 and scopes[0] == scopes[1]
+                cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (bound_key,))
+                assert cur.fetchone()[0]["snapshot"]["content"] == original_holding
+            conn.rollback()
+            with conn.cursor() as cur:
                 missing_refs = [{"kind": "quote", "key": {"quote_id": quote_id + 999}}]
                 missing_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1", input_refs=missing_refs)
                 assert bound_holding_freshness(cur, missing_key) == "unknown"
@@ -241,6 +263,53 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                         input_refs=[{"kind": "fx", "key": {"as_of": "bad", "base_currency": "CNY", "quote_currency": "USD"}}])
                 cur.execute("SELECT market_value FROM pams_holdings_snapshot WHERE id=%s", (holding_id,))
                 assert str(cur.fetchone()[0]) == "100.0000"
+            conn.rollback()
+            with conn.cursor() as cur:
+                # Candidate source schema is isolated and mirrors the fields
+                # read from source_batches/source_items; no external data used.
+                cur.execute("""CREATE TABLE public.source_batches (
+                    batch_id uuid PRIMARY KEY, account_code text NOT NULL, business_type text NOT NULL,
+                    status text NOT NULL, date_from date, date_to date, published_source_hash text)""")
+                cur.execute("""CREATE TABLE public.source_items (
+                    source_item_id uuid PRIMARY KEY, batch_id uuid NOT NULL REFERENCES public.source_batches,
+                    record_hash text NOT NULL, review_status text NOT NULL, raw_fields jsonb NOT NULL)""")
+                cur.execute("ALTER TABLE public.pams_holdings_snapshot ADD COLUMN source_item_id uuid REFERENCES public.source_items")
+                batch1, batch2, draft_batch, foreign_batch, future_batch = (str(uuid4()) for _ in range(5))
+                item1, item2, draft_item, foreign_item, future_item, pending_item = (str(uuid4()) for _ in range(6))
+                for batch, status in ((batch1, 'published'), (batch2, 'published'), (draft_batch, 'draft')):
+                    cur.execute("""INSERT INTO public.source_batches VALUES
+                        (%s,'acct','holding',%s,'2026-01-02','2026-01-02',%s)""",
+                        (batch, status, "b" * 64))
+                for item, batch in ((item1, batch1), (item2, batch2), (draft_item, draft_batch)):
+                    cur.execute("INSERT INTO public.source_items VALUES (%s,%s,%s,'confirmed','{}')", (item, batch, "c" * 64))
+                cur.execute("INSERT INTO public.source_batches VALUES (%s,'other','holding','published','2026-01-02','2026-01-02',%s)", (foreign_batch, "b" * 64))
+                cur.execute("INSERT INTO public.source_batches VALUES (%s,'acct','holding','published','2026-01-03','2026-01-03',%s)", (future_batch, "b" * 64))
+                for item, batch, review in ((foreign_item, foreign_batch, 'confirmed'), (future_item, future_batch, 'confirmed'), (pending_item, batch2, 'pending')):
+                    cur.execute("INSERT INTO public.source_items VALUES (%s,%s,%s,%s,'{}')", (item, batch, "c" * 64, review))
+                cur.execute("UPDATE pams_holdings_snapshot SET source_item_id=%s WHERE id=%s", (item1, holding_id))
+            conn.commit()
+            with conn.cursor() as cur:
+                old_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2", input_refs=[])
+                old_versions = versions_for_source_item(cur, item1)
+                assert [row["version_key"] for row in old_versions] == [old_key]
+                cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (old_key,))
+                old_snapshot = cur.fetchone()[0]["snapshot"]["content"]
+                assert old_snapshot["source_item_id"] == item1 and old_snapshot["market_value"] == "100.0000"
+                for rejected in (draft_item, foreign_item, future_item, pending_item):
+                    with pytest.raises(ValueError, match="account or business date"):
+                        record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
+                            input_refs=[{"kind": "source_item", "role": "new_holding_source", "key": {"source_item_id": rejected}}])
+            conn.commit()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_holdings_snapshot SET market_value=105 WHERE id=%s", (holding_id,))
+                new_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
+                    input_refs=[{"kind": "source_item", "role": "new_holding_source", "key": {"source_item_id": item2}}])
+                assert new_key != old_key
+                assert {row["version_key"] for row in versions_for_source_item(cur, item1)} == {old_key, new_key}
+                assert [row["version_key"] for row in versions_for_source_item(cur, item2)] == [new_key]
+                assert bound_holding_freshness(cur, old_key) == "changed"
+                cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (old_key,))
+                assert cur.fetchone()[0]["snapshot"]["content"] == old_snapshot
             conn.rollback()
     finally:
         with admin.cursor() as cur:

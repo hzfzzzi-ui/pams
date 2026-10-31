@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS public.pams_valuation_input_evidence (
     evidence jsonb NOT NULL,
     PRIMARY KEY (version_key, input_hash)
 );
+CREATE INDEX IF NOT EXISTS idx_pams_valuation_input_source_item
+    ON public.pams_valuation_input_evidence ((evidence->'source_ref'->'key'->>'source_item_id'))
+    WHERE input_kind = 'source_item';
 
 CREATE OR REPLACE FUNCTION public.pams_valuation_evidence_immutable() RETURNS trigger
 LANGUAGE plpgsql AS $$
