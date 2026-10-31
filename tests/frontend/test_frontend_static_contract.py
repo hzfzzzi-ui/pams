@@ -393,7 +393,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     page_css = _read_public("assets/css/pages/ledger.css")
     navigation_css = _read_public("assets/css/page-shell.css")
     assert '<style>' not in html
-    assert 'assets/css/pages/ledger.css?v=20261101-ledger-long-amount' in html
+    assert 'assets/css/pages/ledger.css?v=20261101-ledger-colors' in html
     assert '.ledgerAnchorNav' in navigation_css and 'grid-auto-columns: minmax(0, 1fr)' in navigation_css
     assert '.page-ledger .cashflowBodyGrid {' in page_css
     assert 'grid-template-columns:minmax(0, 1fr)' in page_css
@@ -486,7 +486,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20261101-ledger-narrow" in html
+    assert "assets/js/ledger_cashflow.js?v=20261101-ledger-colors" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -955,7 +955,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20261101-ledger-narrow" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20261101-ledger-colors" in ledger_html
     assert "assets/js/transactions.js?v=20261031-modules-v1" in investments_html
 
 

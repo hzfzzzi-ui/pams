@@ -6,7 +6,7 @@ import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HA
 import { createLedgerLegacyModel } from './legacy_model.js?v=20261031-modules-v1';
 import { createLedgerTemplates } from './templates.js?v=20261031-modules-v1';
 import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js?v=20261031-modules-v1';
-import { createLedgerOverview } from './overview.js?v=20261101-ledger-narrow';
+import { createLedgerOverview } from './overview.js?v=20261101-ledger-colors';
 import { createLedgerLists } from './lists.js?v=20261031-modules-v1';
 import { createLedgerEditor } from './editor.js?v=20261031-modules-v1';
 import { readLedgerWorkbench } from './requests.js?v=20261031-modules-v1';

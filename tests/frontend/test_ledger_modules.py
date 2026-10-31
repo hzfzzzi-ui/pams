@@ -23,3 +23,9 @@ def test_optional_ledger_lifecycle_in_browser():
         cwd=root, capture_output=True, text=True, encoding='utf-8', timeout=90,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_ledger_rank_bars_keep_income_and_expense_semantic_colors():
+    css = (Path(__file__).resolve().parents[2] / "frontend/public/assets/css/pages/ledger.css").read_text(encoding="utf-8")
+    assert ".categoryBarList.income .categoryFill { background:#3fb950 }" in css
+    assert ".categoryBarList.expense .categoryFill { background:#f85149 }" in css
