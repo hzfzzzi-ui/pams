@@ -22,12 +22,16 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
     assert "]), 'holdings'));" in source
     assert "investmentNavChartPromise = trackInvestmentNav(jget('/nav/weekly?" in source
     assert "afterInvestmentNav(() => loadInvestmentReturnChartOnce())" in source
-    for name, tab, function in (
-        ("portfolio_risk.js", "risk", "loadPortfolioRiskDisclosure"),
-        ("portfolio_config.js", "allocation", "loadPortfolioConfig"),
+    for name, kind, tab in (
+        ("portfolio_risk.js", "risk", "risk"),
+        ("portfolio_config.js", "config", "allocation"),
     ):
         text = (PUBLIC / "assets/js" / name).read_text(encoding="utf-8")
-        assert f"afterInvestmentStartup({function}, '{tab}')" in text
+        assert "afterStartup: afterInvestmentStartup" in text
+        assert f"./features/portfolio/{kind}_controller.js?v=20261031-panels-v1" in text
+        controller = (PUBLIC / "assets/js/features/portfolio" / f"{kind}_controller.js").read_text(encoding="utf-8")
+        assert f"tab: '{tab}'" in controller
+        assert "afterStartup: context.afterStartup" in controller
     ui = (PUBLIC / "assets/js/ui.js").read_text(encoding="utf-8")
     assert "createPageBootstrap({afterStartup: afterInvestmentStartup, warmCache: warmApiCache})" in ui
     bootstrap = (PUBLIC / "assets/js/app/page_bootstrap.js").read_text(encoding="utf-8")
@@ -39,10 +43,14 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
 def test_investment_entries_share_one_startup_and_ui_module_version():
     html = (PUBLIC / "investments.html").read_text(encoding="utf-8")
     for name in ("holdings", "holdings_categories", "lookthrough", "transactions", "portfolio_risk", "portfolio_config"):
-        version = "20261031-ui-v1"
+        version = "20261031-panels-v1" if name in ("portfolio_risk", "portfolio_config") else "20261031-ui-v1"
         assert f"assets/js/{name}.js?v={version}" in html
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
-        assert "./ui.js?v=20261031-ui-v1" in text
+        if name != "portfolio_risk":
+            assert "./ui.js?v=20261031-ui-v1" in text
+        else:
+            view = (PUBLIC / "assets/js/features/portfolio/risk_view.js").read_text(encoding="utf-8")
+            assert "../../components/data_state.js?v=20261031-ui-v1" in view
     for name in ("ui", "holdings_categories", "lookthrough", "portfolio_risk", "portfolio_config"):
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
         assert re.findall(r"investment_startup\.js\?v=([^'\"]+)", text) == ["20261031-gray-v1"]

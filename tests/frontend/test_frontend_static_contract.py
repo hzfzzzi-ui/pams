@@ -799,8 +799,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
     assert "assets/js/holdings_categories.js?v=20261031-ui-v1" in html
     assert "assets/js/lookthrough.js?v=20261031-ui-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20261031-ui-v1" in html
-    assert "assets/js/portfolio_config.js?v=20261031-ui-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20261031-panels-v1" in html
+    assert "assets/js/portfolio_config.js?v=20261031-panels-v1" in html
     assert "style-phone.css?v=20261031-gray-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -943,8 +943,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
     html = _read_public("investments.html")
-    js = _read_public("assets/js/portfolio_config.js")
-    risk_js = _read_public("assets/js/portfolio_risk.js")
+    js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/config_controller.js", "assets/js/features/portfolio/config_view.js", "assets/js/features/portfolio/requests.js")))
+    risk_js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/risk_controller.js", "assets/js/features/portfolio/risk_view.js", "assets/js/features/portfolio/requests.js")))
     css = _read_public("assets/css/style.css")
     tab_js = _read_public("assets/js/holdings_categories.js")
     endpoint_py = Path("backend/api/endpoints/portfolio_state.py").read_text(encoding="utf-8")
@@ -1414,8 +1414,8 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
                       _read_public("assets/js/features/sync_center/controller.js") +
                       _read_public("assets/js/features/sync_center/view.js"))
     ui_js = _read_public("assets/js/ui.js")
-    portfolio_config_js = _read_public("assets/js/portfolio_config.js")
-    portfolio_risk_js = _read_public("assets/js/portfolio_risk.js")
+    portfolio_config_js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/config_controller.js", "assets/js/features/portfolio/config_view.js", "assets/js/features/portfolio/requests.js")))
+    portfolio_risk_js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/risk_controller.js", "assets/js/features/portfolio/risk_view.js", "assets/js/features/portfolio/requests.js")))
 
     for low_frequency_html in [html, accounts_html, data_sources_html]:
         assert "app-low-frequency" in low_frequency_html
@@ -1480,7 +1480,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
 
 def test_risk_capability_lives_in_investment_subpage() -> None:
     html = _read_public("investments.html")
-    js = _read_public("assets/js/portfolio_risk.js")
+    js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/risk_controller.js", "assets/js/features/portfolio/risk_view.js", "assets/js/features/portfolio/requests.js")))
     css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
