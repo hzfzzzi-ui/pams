@@ -50,7 +50,9 @@ window.addEventListener('message', event => {
 for (const link of links) link.addEventListener('click', event => {
   if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  const current = frame.contentWindow.location.pathname.split('/').pop();
+  let current = '';
+  try { current = frame.contentWindow.location.pathname.split('/').pop(); }
+  catch { /* A failed or external document must not disable the main navigation. */ }
   if (current !== link.dataset.page) navigate(new URL(link.dataset.page, location.href));
 });
 

@@ -26,6 +26,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 await context.route('**/*', async route => {
   const url = new URL(route.request().url());
+  if(url.origin==='http://unavailable.invalid')return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Isolated external document</title><p>Fixed test document</p>'});
   if(url.origin===base)return route.continue();
   if(url.hostname==='127.0.0.1')return route.fulfill({status:503,contentType:'application/json',body:'{"detail":"Fixed unavailable fixture"}'});
   return route.abort();
@@ -78,6 +79,10 @@ try {
       assert.equal(await page.locator('.pams-primary-nav').count(),1);
       assert.equal(await page.frameLocator('#page-content').locator('iframe').count(),0);
     }
+    await page.frameLocator('#page-content').locator('body').evaluate(() => location.assign('http://unavailable.invalid/'));
+    await page.waitForFunction(() => !document.querySelector('#page-content').contentDocument);
+    await page.locator('[data-page="ledger.html"]').click();
+    await page.locator('[data-page="ledger.html"][aria-current]').waitFor();
   }
   assert.deepEqual(failures,[]);
   console.log('Shell: four widths, persistent navigation, tabs, history and reload passed; APIs are explicit 503 fixtures.');
