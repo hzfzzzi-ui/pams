@@ -17,6 +17,7 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
 from domain.operations.sync_health import read_overseas_quote_health, scheduler_health
+from domain.operations.run_status import latest_sync_run as _latest_sync_run
 from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -50,34 +51,6 @@ def _now_local() -> datetime:
         return datetime.now(ZoneInfo(tz_name))
     except Exception:
         return datetime.now(ZoneInfo("Asia/Shanghai"))
-
-
-def _latest_sync_run(cur, sync_key: str, asset_scope: str | None = None) -> dict[str, Any] | None:
-    where = ["job_key = %s"]
-    params: list[Any] = [sync_key]
-    if asset_scope:
-        where.append("asset_scope = %s")
-        params.append(asset_scope)
-    cur.execute(
-        f"""
-        SELECT job_key AS sync_key,
-               asset_scope,
-               status,
-               started_at,
-               finished_at,
-               target_date AS target_trade_date,
-               data_as_of AS latest_trade_date_after,
-               rows_affected AS rows_upserted,
-               summary_json, error_text
-        FROM pams_data_job_run
-        WHERE {' AND '.join(where)}
-        ORDER BY started_at DESC
-        LIMIT 1
-        """,
-        params,
-    )
-    row = cur.fetchone()
-    return dict(row) if row else None
 
 
 def _holding_summary(
