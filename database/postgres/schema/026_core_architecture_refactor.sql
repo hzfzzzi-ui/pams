@@ -59,7 +59,6 @@ ALTER TABLE IF EXISTS public.pams_cashflow_fact
     ADD COLUMN IF NOT EXISTS source_channel TEXT,
     ADD COLUMN IF NOT EXISTS location TEXT,
     ADD COLUMN IF NOT EXISTS auto_classified BOOLEAN,
-    ADD COLUMN IF NOT EXISTS budget_id INTEGER,
     ADD COLUMN IF NOT EXISTS linked_holding_snapshot_id BIGINT;
 
 ALTER TABLE IF EXISTS public.pams_investment_trade_fact
@@ -276,58 +275,6 @@ CREATE INDEX IF NOT EXISTS idx_pams_data_job_run_key_date
 -- ---------------------------------------------------------------------------
 -- Backfills into target tables
 -- ---------------------------------------------------------------------------
-
-INSERT INTO public.pams_cashflow_fact (
-    event_date, posting_date, account_code, amount, currency, fx_rate_to_cny,
-    amount_cny, cashflow_type, category, subcategory, summary, description,
-    affects_spending, affects_nav, is_internal_transfer,
-    source_table, source_id, source_uid, source_hash, raw_json,
-    classification_source, confidence, review_status,
-    source_channel, location, auto_classified, budget_id
-)
-SELECT
-    t.date,
-    t.date,
-    COALESCE(NULLIF(t.account_code, ''), 'unknown'),
-    t.amount,
-    COALESCE(NULLIF(t.currency, ''), 'CNY'),
-    1,
-    t.amount,
-    CASE
-        WHEN COALESCE(t.category, '') = '内部划转' THEN 'internal_transfer'
-        WHEN t.amount >= 0 THEN 'operating_income'
-        ELSE 'operating_expense'
-    END,
-    t.category,
-    t.subcategory,
-    t.description,
-    t.description,
-    COALESCE(t.category, '') <> '内部划转',
-    TRUE,
-    COALESCE(t.category, '') = '内部划转',
-    'pams_transactions',
-    t.id::text,
-    'pams_transactions:' || t.id::text,
-    md5('pams_transactions:' || t.id::text),
-    to_jsonb(t),
-    CASE WHEN COALESCE(t.auto_classified, FALSE) THEN 'legacy_rule' ELSE 'legacy_manual' END,
-    COALESCE(t.confidence, 0)::numeric,
-    'legacy_imported',
-    t.source,
-    t.location,
-    t.auto_classified,
-    t.budget_id
-FROM public.pams_transactions t
-WHERE to_regclass('public.pams_transactions') IS NOT NULL
-ON CONFLICT DO NOTHING;
-
-UPDATE public.pams_cashflow_fact f
-SET
-    source_channel = COALESCE(f.source_channel, f.raw_json ->> 'source'),
-    location = COALESCE(f.location, f.raw_json ->> 'location'),
-    auto_classified = COALESCE(f.auto_classified, NULLIF(f.raw_json ->> 'auto_classified', '')::boolean),
-    budget_id = COALESCE(f.budget_id, NULLIF(f.raw_json ->> 'budget_id', '')::integer)
-WHERE f.source_table = 'pams_transactions';
 
 UPDATE public.pams_investment_trade_fact f
 SET
@@ -810,7 +757,6 @@ FROM (
         ('pams_bank_statement_imports'),
         ('pams_bank_statement_rows'),
         ('pams_bank_transfer_matches'),
-        ('pams_category_rules'),
         ('pams_cn_etf_daily'),
         ('pams_data_sync_runs'),
         ('pams_fund_nav_estimates'),
@@ -821,8 +767,7 @@ FROM (
         ('pams_investment_transactions'),
         ('pams_nav_daily'),
         ('pams_raw_rows'),
-        ('pams_tradingview_transactions'),
-        ('pams_transactions')
+        ('pams_tradingview_transactions')
 ) AS t(name);
 
 -- Optional modules kept out of the PAMS core schema.
@@ -831,7 +776,6 @@ FROM (
     VALUES
         ('pams_asset_fixed_income_profile'),
         ('pams_asset_real_asset_profile'),
-        ('pams_budgets'),
         ('pams_event_monitor'),
         ('pams_fundamental_snapshot'),
         ('pams_news_items'),

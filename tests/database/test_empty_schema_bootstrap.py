@@ -127,12 +127,9 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                 cur.execute("SELECT close,circ_mv FROM pams_external_market.pams_ohlcv_daily WHERE symbol='SHARED'")
                 assert cur.fetchone() == (8, 9)
                 cur.execute("INSERT INTO public.pams_fx_rates_daily(as_of,base_currency,quote_currency,rate) VALUES ('2026-01-01','CNY','USD',7.2)")
-                cur.execute("INSERT INTO public.pams_transactions(date,amount,currency,category,account,account_code) VALUES ('2026-01-01',10,'USD','测试','Santander','santander')")
-                cur.execute("SELECT amount_cny FROM public.v_transactions_cny")
-                assert cur.fetchone()[0] == 72
-                cur.execute("INSERT INTO public.pams_transactions(date,amount,currency,category,account,account_code) VALUES ('2026-01-01',10,'MXN','测试','Santander','santander')")
-                cur.execute("SELECT amount_cny FROM public.v_transactions_cny WHERE currency='MXN'")
-                assert cur.fetchone()[0] is None
+                for legacy in ("pams_transactions", "pams_budgets", "pams_category_rules", "v_transactions_cny"):
+                    cur.execute("SELECT to_regclass(%s)", ("public." + legacy,))
+                    assert cur.fetchone()[0] is None
                 cur.execute("""INSERT INTO public.pams_holdings_snapshot
                     (name,asset_liability,currency,account_code,major_category,minor_category,market_value,cost,as_of)
                     VALUES ('Test','资产','CNY','ibkr','测试','测试',100,80,'2026-01-01')""")

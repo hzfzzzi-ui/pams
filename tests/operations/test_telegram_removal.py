@@ -14,7 +14,7 @@ def test_telegram_services_and_sources_are_removed():
 
 
 def test_shared_transaction_and_ledger_api_sources_remain():
-    assert (ROOT / "backend/api/endpoints/transactions.py").is_file()
+    assert not (ROOT / "backend/api/endpoints/transactions.py").exists()
     assert (ROOT / "backend/api/endpoints/holdings_trade.py").is_file()
     assert (ROOT / "backend/api/endpoints/ledger.py").is_file()
 
@@ -29,7 +29,7 @@ def test_telegram_queue_routes_are_removed_but_asset_routes_remain():
 
         paths = {route.path for route in main.app.routes}
         assert not any(path.startswith(("/api/tasks", "/api/notifications")) for path in paths)
-        assert "/api/transactions" in paths
+        assert "/api/transactions" not in paths
         assert "/api/holdings/trade" in paths
         assert "/api/accounts" in paths
     finally:

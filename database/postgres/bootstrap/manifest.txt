@@ -1,13 +1,11 @@
 # Ordered files for a dedicated EMPTY database only; not a production upgrade.
 database/postgres/schema/004_fx_rates.sql
-database/postgres/schema/005_transactions.sql
-database/postgres/schema/006_update_accounts.sql
 database/postgres/schema/010_market_ohlcv.sql
 database/postgres/schema/011_industry_fallback.sql
 database/postgres/schema/011_shared_sentiment.sql
 database/postgres/schema/013_market_reference.sql
 database/postgres/schema/013a_alter_ohlcv.sql
-database/postgres/schema/014_transactions_account_code.sql
+database/postgres/schema/014_accounts.sql
 database/postgres/schema/016_data_sync_runs.sql
 database/postgres/schema/017_ibkr_trades.sql
 database/postgres/schema/018_ibkr_position_history.sql

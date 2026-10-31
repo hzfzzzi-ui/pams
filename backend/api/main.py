@@ -21,7 +21,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # 导入端点路由
-from endpoints import transactions
 from endpoints import prices
 from endpoints import holdings_trade
 from endpoints import risk
@@ -114,7 +113,6 @@ from src.core.config import load_risk_limits
 app = FastAPI(title="pams-api-v2", version="2.0.0")
 
 # 注册路由
-app.include_router(transactions.router, prefix="/api")
 app.include_router(prices.router, prefix="/api")
 app.include_router(holdings_trade.router, prefix="/api")
 app.include_router(risk.router, prefix="/api")
