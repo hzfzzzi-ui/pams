@@ -1,4 +1,4 @@
-import { jget } from './api.js?v=20260619-investment-hardening-v1';
+import { jget } from './api.js?v=20261031-risk-summary-retired-v1';
 
 let summaryRequest = null;
 

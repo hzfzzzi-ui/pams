@@ -31,7 +31,7 @@ def test_telegram_queue_routes_are_removed_but_asset_routes_remain():
         assert not any(path.startswith(("/api/tasks", "/api/notifications")) for path in paths)
         assert "/api/transactions" not in paths
         assert "/api/risk/pretrade-check" not in paths
-        assert "/api/risk/summary" in paths
+        assert "/api/risk/summary" not in paths
         assert "/api/holdings/trade" in paths
         assert "/api/accounts" in paths
     finally:

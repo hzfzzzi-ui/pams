@@ -35,7 +35,6 @@ function apiCacheTtl(path) {
   if (raw.includes("/api/sync/center")) return 45_000;
   if (raw.includes("/api/portfolio/valuation-state")) return 45_000;
   if (raw.includes("/api/portfolio/data-quality")) return 60_000;
-  if (raw.includes("/api/risk/summary")) return 60_000;
   return 0;
 }
 

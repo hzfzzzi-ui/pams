@@ -46,7 +46,7 @@ def test_more_uses_investment_tokens_without_new_font_or_financial_code():
     assert not any(value in css for value in ("@font-face", "@import", "url(", "vw", "#07090c"))
     html = (PUBLIC / "more.html").read_text(encoding="utf-8")
     assert "more.css?v=20261029-investment-language-v1" in html
-    assert "more.js?v=20261031-legacy-css-v1" in html
+    assert "more.js?v=20261031-risk-summary-retired-v1" in html
     assert html.count('class="moreRow" href=') == 4
     assert 'href="research.html"' not in html
 
