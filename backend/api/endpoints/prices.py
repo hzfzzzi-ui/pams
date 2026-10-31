@@ -32,6 +32,8 @@ import psycopg2.extras
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from domain.imports.isolation import source_enabled
+from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
 from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from domain.market.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
 from domain.investments.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
@@ -323,11 +325,34 @@ def _update_prices(updates: List[Tuple[float, float, int]]) -> int:
 
     with _get_conn() as conn:
         with conn.cursor() as cur:
-            cur.executemany("""
-                UPDATE pams_holdings_snapshot
-                SET current_price = %s, market_value = %s
-                WHERE id = %s
-            """, updates)
+            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s)',
+                        ([row[2] for row in updates],))
+            rows = cur.fetchall()
+            holdings = {(row['id'] if isinstance(row, dict) else row[0]): row for row in rows}
+            lock_holding_accounts(cur, [(row['account_code'] if isinstance(row, dict) else row[1]) for row in rows])
+            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s) FOR UPDATE',
+                        (list(holdings),))
+            locked = {(row['id'] if isinstance(row, dict) else row[0]): row for row in cur.fetchall()}
+            if locked != holdings:
+                raise ValueError('holding identity changed while acquiring account locks')
+            isolated = source_enabled(cur)
+            if isolated:
+                for price, value, identifier in updates:
+                    holding = holdings.get(identifier)
+                    if not holding:
+                        continue
+                    account, name, as_of = ((holding['account_code'],holding['name'],holding['as_of'])
+                                            if isinstance(holding, dict) else (holding[1],holding[2],holding[3]))
+                    prepare_holding_change(cur, account_code=account, name=name, as_of=as_of, source_item_id=None)
+                    cur.execute("""UPDATE pams_holdings_snapshot SET current_price=%s,market_value=%s
+                        WHERE id=%s AND (current_price,market_value) IS DISTINCT FROM (%s,%s) RETURNING id""",
+                        (price, value, identifier, price, value))
+                    if cur.fetchone():
+                        finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                            input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
+            else:
+                cur.executemany("""UPDATE pams_holdings_snapshot SET current_price=%s,market_value=%s WHERE id=%s""",
+                                [row for row in updates if row[2] in holdings])
             conn.commit()
             return len(updates)
 
@@ -590,7 +615,7 @@ def _apply_same_day_a_stock_trades(rows: list[dict], as_of) -> list[dict]:
 
 def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -> int:
     """Copy the latest category snapshot to `as_of` with refreshed prices."""
-    payload = []
+    payload, origins = [], []
     for row in rows:
         symbol = row["symbol"]
         if symbol not in prices:
@@ -613,13 +638,35 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
             row.get("buy_price"),
             current_price,
         ))
+        origins.append(row)
 
     if not payload:
         return 0
 
     with _get_conn() as conn:
         with conn.cursor() as cur:
-            cur.executemany("""
+            lock_holding_accounts(cur, [row[4] for row in payload])
+            isolated = source_enabled(cur)
+            if isolated:
+                keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price')
+                for original, target in zip(origins, payload):
+                    if not original.get('id'):
+                        raise ValueError('price source holding identity missing')
+                    cur.execute('SELECT ' + ','.join(keys) + ' FROM pams_holdings_snapshot WHERE id=%s FOR UPDATE', (original['id'],))
+                    stored = cur.fetchone()
+                    if not stored or any((stored[key] if isinstance(stored, dict) else stored[index]) != original.get(key)
+                                         for index,key in enumerate(keys)):
+                        raise ValueError('price source holding changed; refresh the input')
+                    cur.execute('SELECT id,quantity,cost FROM pams_holdings_snapshot WHERE account_code=%s AND name=%s AND as_of=%s FOR UPDATE',
+                                (target[4], target[1], target[9]))
+                    existing = cur.fetchone()
+                    if existing:
+                        stored_id = existing['id'] if isinstance(existing, dict) else existing[0]
+                        stored_qty = existing['quantity'] if isinstance(existing, dict) else existing[1]
+                        stored_cost = existing['cost'] if isinstance(existing, dict) else existing[2]
+                        if stored_id != original['id'] and (stored_qty != original.get('quantity') or stored_cost != original.get('cost')):
+                            raise ValueError('newer holding input conflicts with price refresh')
+            statement = """
                 INSERT INTO pams_holdings_snapshot (
                     symbol, name, asset_liability, currency, account_code,
                     major_category, minor_category, market_value, cost, as_of,
@@ -639,7 +686,25 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
                     buy_price = EXCLUDED.buy_price,
                     current_price = EXCLUDED.current_price,
                     updated_at = now()
-            """, payload)
+            """
+            if isolated:
+                statement += """ WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
+                    pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
+                    pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,
+                    pams_holdings_snapshot.buy_price,pams_holdings_snapshot.current_price)
+                    IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
+                    EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,
+                    EXCLUDED.buy_price,EXCLUDED.current_price) RETURNING id"""
+                for row in payload:
+                    prepare_holding_change(cur, account_code=row[4], name=row[1], as_of=row[9], source_item_id=None)
+                    cur.execute(statement, row)
+                    written = cur.fetchone()
+                    if written:
+                        identifier = written['id'] if isinstance(written, dict) else written[0]
+                        finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                            input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
+            else:
+                cur.executemany(statement, payload)
             conn.commit()
             return len(payload)
 
@@ -2423,6 +2488,24 @@ def _upsert_gold_spot_closes(
 def _sync_gold_accum_snapshots_from_spot(start: date, end: date) -> int:
     with _get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute("""SELECT id,account_code,name,as_of FROM pams_holdings_snapshot
+                WHERE as_of BETWEEN %s AND %s AND major_category='贵金属' AND quantity IS NOT NULL
+                  AND (UPPER(COALESCE(symbol,'')) IN ('CCB_GOLD_ACCUM','GOLD','XAU')
+                       OR UPPER(COALESCE(symbol,'')) LIKE '%%GOLD%%')""", (start, end))
+            targets = cur.fetchall()
+            lock_holding_accounts(cur, [(row['account_code'] if isinstance(row, dict) else row[1]) for row in targets])
+            isolated = source_enabled(cur)
+            target_ids = [row['id'] if isinstance(row, dict) else row[0] for row in targets]
+            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s) FOR UPDATE', (target_ids,))
+            locked = cur.fetchall()
+            keyed = lambda row: row['id'] if isinstance(row, dict) else row[0]
+            if {keyed(row): row for row in locked} != {keyed(row): row for row in targets}:
+                raise ValueError('gold holding identity changed while acquiring account locks')
+            if isolated:
+                for row in targets:
+                    account, name, as_of = ((row['account_code'],row['name'],row['as_of']) if isinstance(row, dict)
+                                            else (row[1],row[2],row[3]))
+                    prepare_holding_change(cur, account_code=account, name=name, as_of=as_of, source_item_id=None)
             cur.execute(
                 """
                 WITH spot AS (
@@ -2448,14 +2531,24 @@ def _sync_gold_accum_snapshots_from_spot(start: date, end: date) -> int:
                 WHERE h.as_of = spot.as_of
                   AND h.major_category = '贵金属'
                   AND h.quantity IS NOT NULL
+                  AND h.id=ANY(%s)
                   AND (
                       UPPER(COALESCE(h.symbol, '')) IN ('CCB_GOLD_ACCUM', 'GOLD', 'XAU')
                       OR UPPER(COALESCE(h.symbol, '')) LIKE '%%GOLD%%'
                   )
-                """,
-                (start, end),
+                """ + (""" AND (h.current_price,h.market_value) IS DISTINCT FROM
+                    (spot.close_price,ROUND((h.quantity * spot.close_price)::numeric,2)) RETURNING h.id""" if isolated else ""),
+                (start, end, target_ids),
             )
-            updated = cur.rowcount
+            if isolated:
+                changed = cur.fetchall()
+                for row in changed:
+                    identifier = row['id'] if isinstance(row, dict) else row[0]
+                    finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                        input_refs=[{'kind':'quote', 'key':None, 'role':'gold_valuation_quote'}])
+                updated = len(changed)
+            else:
+                updated = cur.rowcount
             conn.commit()
             return updated
 

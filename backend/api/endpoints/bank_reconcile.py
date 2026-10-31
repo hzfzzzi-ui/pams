@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
+from domain.imports.isolation import source_enabled
+from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
 from domain.ledger.cashflow_fact import backfill_cashflow_facts
 from domain.ledger.bank_statement_rules import (
     _classify as _classify, _classify_by_amount as _classify_by_amount,
@@ -115,6 +117,8 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
     payload = _statement_snapshot_payload(result, profile)
     if payload is None:
         return None
+    lock_holding_accounts(cur, [payload['account_code']])
+    isolated = source_enabled(cur)
 
     cur.execute(
         """
@@ -142,6 +146,9 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
             """,
             (payload["major_category"], payload["minor_category"]),
         )
+    if isolated:
+        prepare_holding_change(cur, account_code=payload['account_code'], name=payload['name'],
+                               as_of=payload['as_of'], source_item_id=None)
     cur.execute(
         """
         INSERT INTO pams_holdings_snapshot (
@@ -157,7 +164,11 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
             market_value = EXCLUDED.market_value,
             cost = EXCLUDED.cost,
             updated_at = NOW()
-        """,
+        """ + (""" WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
+            pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
+            pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost)
+            IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
+            EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost) RETURNING id""" if isolated else ""),
         (
             payload["symbol"],
             payload["name"],
@@ -171,6 +182,12 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
             payload["as_of"],
         ),
     )
+    if isolated:
+        row = cur.fetchone()
+        if row:
+            identifier = row['id'] if isinstance(row, dict) else row[0]
+            finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                                  input_refs=[{'kind':'source_item', 'key':None, 'role':'bank_statement'}])
     return payload
 
 
