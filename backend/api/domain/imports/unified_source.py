@@ -115,7 +115,7 @@ def lock_source_review(cur: Any, *, batch_id: UUID, expected_revision: int) -> d
 
     cur.execute(
         """SELECT file_id, filename, file_format, content_type, sha256, content
-           FROM public.source_files WHERE batch_id=%s ORDER BY file_id""", (str(batch_id),),
+           FROM public.source_files WHERE batch_id=%s ORDER BY file_id FOR SHARE""", (str(batch_id),),
     )
     files = _rows(cur)
     bad_file = False
@@ -126,7 +126,7 @@ def lock_source_review(cur: Any, *, batch_id: UUID, expected_revision: int) -> d
     cur.execute(
         """SELECT source_item_id, file_id, source_uid, external_id, location,
                   parse_method, raw_fields, parsed_fields, record_hash, review_status, review_note
-           FROM public.source_items WHERE batch_id=%s ORDER BY source_uid, source_item_id""",
+           FROM public.source_items WHERE batch_id=%s ORDER BY source_uid, source_item_id FOR SHARE""",
         (str(batch_id),),
     )
     items = _rows(cur)

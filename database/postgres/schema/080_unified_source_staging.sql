@@ -58,16 +58,16 @@ CREATE INDEX idx_source_items_batch_review ON public.source_items (batch_id, rev
 CREATE FUNCTION public.source_evidence_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_TABLE_NAME = 'source_items' THEN
-        IF (NEW.batch_id, NEW.file_id, NEW.source_uid, NEW.external_id, NEW.location,
-            NEW.parse_method, NEW.raw_fields, NEW.record_hash)
+        IF (NEW.source_item_id, NEW.batch_id, NEW.file_id, NEW.source_uid, NEW.external_id, NEW.location,
+            NEW.parse_method, NEW.raw_fields, NEW.record_hash, NEW.created_at)
            IS DISTINCT FROM
-           (OLD.batch_id, OLD.file_id, OLD.source_uid, OLD.external_id, OLD.location,
-            OLD.parse_method, OLD.raw_fields, OLD.record_hash) THEN
+           (OLD.source_item_id, OLD.batch_id, OLD.file_id, OLD.source_uid, OLD.external_id, OLD.location,
+            OLD.parse_method, OLD.raw_fields, OLD.record_hash, OLD.created_at) THEN
             RAISE EXCEPTION 'source item evidence is immutable' USING ERRCODE = '23514';
         END IF;
-    ELSIF (NEW.batch_id, NEW.filename, NEW.file_format, NEW.content_type, NEW.sha256, NEW.content)
+    ELSIF (NEW.file_id, NEW.batch_id, NEW.filename, NEW.file_format, NEW.content_type, NEW.sha256, NEW.content, NEW.created_at)
           IS DISTINCT FROM
-          (OLD.batch_id, OLD.filename, OLD.file_format, OLD.content_type, OLD.sha256, OLD.content) THEN
+          (OLD.file_id, OLD.batch_id, OLD.filename, OLD.file_format, OLD.content_type, OLD.sha256, OLD.content, OLD.created_at) THEN
         RAISE EXCEPTION 'source file evidence is immutable' USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
