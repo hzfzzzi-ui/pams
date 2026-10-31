@@ -784,15 +784,11 @@ FROM (
         ('pams_sentiment_state')
 ) AS t(name);
 
--- External OHLCV system: exclude from PAMS audit while preserving public views.
-SELECT pg_temp.move_table_with_compat_view(name, 'pams_external_market')
-FROM (
-    VALUES
-        ('pams_ohlcv_daily'),
-        ('pams_ohlcv_daily_v2'),
-        ('pams_ohlcv_daily_v2_audit_daily'),
-        ('pams_ohlcv_daily_v2_exceptions')
-) AS t(name);
+-- The independent market application owns the public v2 tables and runs DDL
+-- against them. A compatibility view cannot replace a table for ALTER/INDEX.
+-- Leave those tables and their OIDs in place. The older daily relation retains
+-- its existing compatibility behavior for PAMS readers and writers.
+SELECT pg_temp.move_table_with_compat_view('pams_ohlcv_daily', 'pams_external_market');
 
 -- Document the target-state intent in the database itself.
 COMMENT ON SCHEMA pams_legacy IS 'Legacy PAMS tables retained behind public compatibility views after target architecture refactor.';
