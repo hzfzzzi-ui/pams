@@ -258,6 +258,7 @@ function renderTrendChart(data) {
   const rows = state.trendMode === 'weekly' ? data.weekly_trend || [] : data.monthly_trend || [];
   const ctx = $('cashflowTrendChart');
   if (!ctx || typeof ChartClass !== 'function') return;
+  const tickFont = () => ({ size: host?.matchMedia?.('(max-width: 389px)').matches ? 10 : 12 });
   if (trendChart) trendChart.destroy();
   trendChart = new ChartClass(ctx, {
     data: {
@@ -308,8 +309,8 @@ function renderTrendChart(data) {
       },
       scales: {
         x: { ticks: { color: CHART_THEME.text }, grid: { color: CHART_THEME.grid } },
-        y: { ticks: { color: CHART_THEME.text, callback: axisMoney }, grid: { color: CHART_THEME.grid } },
-        net: { position: 'right', ticks: { color: CHART_THEME.text, callback: axisMoney }, grid: { drawOnChartArea: false } },
+        y: { ticks: { color: CHART_THEME.text, callback: axisMoney, font: tickFont }, grid: { color: CHART_THEME.grid } },
+        net: { position: 'right', ticks: { color: CHART_THEME.text, callback: axisMoney, font: tickFont }, grid: { drawOnChartArea: false } },
       },
     },
   });
