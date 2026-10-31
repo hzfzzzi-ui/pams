@@ -12,7 +12,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC = ROOT / "frontend" / "public"
 HTML = (PUBLIC / "account_import.html").read_text(encoding="utf-8")
-JS = (PUBLIC / "assets/js/account_import.js").read_text(encoding="utf-8")
+ENTRY = PUBLIC / "assets/js/account_import.js"
+JS = ENTRY.read_text(encoding="utf-8") + "\n" + "\n".join(
+    (PUBLIC / "assets/js/features/account_import" / name).read_text(encoding="utf-8")
+    for name in ["contract.js", "client.js", "mapping_editor.js", "records_editor.js", "controller.js", "request_scope.js"]
+)
 CSS = (PUBLIC / "assets/css/account-import.css").read_text(encoding="utf-8")
 
 
@@ -30,7 +34,7 @@ def node(script: str, timeout: int = 30) -> str:
 
 def module_test(code: str) -> None:
     node("import assert from 'node:assert/strict';\n"
-         f"const m = await import('data:text/javascript;base64,' + Buffer.from({json.dumps(JS)}).toString('base64'));\n"
+         f"const m = await import({json.dumps(ENTRY.as_uri())});\n"
          + code)
 
 
@@ -214,7 +218,7 @@ def test_only_private_same_origin_import_requests_and_raw_file_uploads() -> None
     assert "source.raw_text" in JS and "encodeURIComponent(file.file_id)" in JS
     assert "referrerPolicy = 'no-referrer'" in JS
     assert JS.count("/publish`, 'POST'") == 1
-    assert "$('publish').addEventListener('click'" in JS
+    assert "listen($('publish'), 'click'" in JS
     save = JS.split("async function saveDraft()", 1)[1].split("async function upload", 1)[0]
     assert "'PUT'" in save and "/publish" not in save
     assert "possible_duplicate" in JS and "核对为不同交易" in JS
