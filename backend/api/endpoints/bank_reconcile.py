@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
+from domain.assets.reference_data import ensure_legacy_category
 from domain.ledger.cashflow_fact import backfill_cashflow_facts
 from domain.ledger.bank_statement_rules import (
     _classify as _classify, _classify_by_amount as _classify_by_amount,
@@ -133,15 +134,7 @@ def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: 
             payload["is_asset"],
         ),
     )
-    if _table_exists(cur, "pams_asset_categories"):
-        cur.execute(
-            """
-            INSERT INTO pams_asset_categories (major_category, minor_category)
-            VALUES (%s, %s)
-            ON CONFLICT (major_category, minor_category) DO NOTHING
-            """,
-            (payload["major_category"], payload["minor_category"]),
-        )
+    ensure_legacy_category(cur, payload["major_category"], payload["minor_category"])
     cur.execute(
         """
         INSERT INTO pams_holdings_snapshot (
