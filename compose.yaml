@@ -21,7 +21,6 @@ services:
     container_name: pams-caddy
     restart: unless-stopped
     depends_on:
-      - firefly
       - pams-web
     ports:
       - "80:80/tcp"
@@ -42,71 +41,8 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
 
-  # --- Bookkeeping system (free, self-hosted) ---
-  firefly:
-    image: fireflyiii/core:latest
-    container_name: pams-firefly
-    restart: unless-stopped
-    depends_on:
-      - postgres
-    # Direct LAN access (no DNS/Caddy yet)
-    # Visit: http://192.168.0.143:8082
-    ports:
-      - "8082:8080"
-    environment:
-      APP_ENV: local
-      APP_KEY: ${FIREFLY_APP_KEY}
-      # Use Caddy virtual host
-      APP_URL: http://firefly.pams.local
-      TRUSTED_PROXIES: "**"
-
-      DB_CONNECTION: pgsql
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: ${FIREFLY_DB_DATABASE}
-      DB_USERNAME: ${FIREFLY_DB_USERNAME}
-      DB_PASSWORD: ${FIREFLY_DB_PASSWORD}
-
-      # Bootstrap owner (you can still change later in UI)
-      SITE_OWNER: ${FIREFLY_SITE_OWNER}
-      SITE_OWNER_EMAIL: ${FIREFLY_SITE_OWNER_EMAIL}
-      SITE_OWNER_PASSWORD: ${FIREFLY_SITE_OWNER_PASSWORD}
-      DEFAULT_LANGUAGE: zh_CN
-      DEFAULT_LOCALE: zh_CN
-      TZ: Etc/GMT+6
-      ENABLE_EXCHANGE_RATES: "true"
-      # default currency will be configured in UI as CNY; MXN enabled for foreign currency bookkeeping
-    volumes:
-      - firefly_upload:/var/www/html/storage/upload
-
-  # --- Firefly scheduler (required for periodic tasks like exchange rates) ---
-  firefly-cron:
-    image: fireflyiii/core:latest
-    container_name: pams-firefly-cron
-    restart: unless-stopped
-    depends_on:
-      - firefly
-    environment:
-      APP_ENV: local
-      APP_KEY: ${FIREFLY_APP_KEY}
-      APP_URL: http://firefly.pams.local
-      TRUSTED_PROXIES: "**"
-
-      DB_CONNECTION: pgsql
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: ${FIREFLY_DB_DATABASE}
-      DB_USERNAME: ${FIREFLY_DB_USERNAME}
-      DB_PASSWORD: ${FIREFLY_DB_PASSWORD}
-
-      DEFAULT_LANGUAGE: zh_CN
-      DEFAULT_LOCALE: zh_CN
-      TZ: Etc/GMT+6
-      ENABLE_EXCHANGE_RATES: "true"
-    command: ["sh", "-lc", "while true; do php /var/www/html/artisan schedule:run --no-interaction; sleep 60; done"]
-
-  # --- PAMS application (skeleton placeholders) ---
-  # Dashboard / analytics UI (MVP: static UI with mock data)
+  # --- PAMS application ---
+  # Asset and ledger web UI
   pams-web:
     build:
       context: ./frontend
@@ -117,7 +53,7 @@ services:
     ports:
       - "8080:80"
 
-  # Minimal API to read holdings snapshots from Postgres
+  # PAMS API
   pams-api:
     build:
       context: .
@@ -179,23 +115,6 @@ services:
     volumes:
       - scheduler_state:/state
 
-  # Collectors + schedulers (we'll implement)
-  # NOTE: Commented out until the image is built
-  # pams-collector:
-  #   image: ghcr.io/example/pams-collector:dev
-  #   container_name: pams-collector
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - postgres
-  #     - firefly
-  #   environment:
-  #     DATABASE_URL: postgres://pams:${POSTGRES_PASSWORD}@postgres:5432/pams
-  #     FIREFLY_BASE_URL: http://firefly.pams.local
-  #     FIREFLY_TOKEN: ${FIREFLY_TOKEN}
-  #     BINANCE_API_KEY: ${BINANCE_API_KEY}
-  #     BINANCE_API_SECRET: ${BINANCE_API_SECRET}
-  #     # IBKR will be added after we confirm integration approach
-
 volumes:
   adguard_work:
   adguard_conf:
@@ -203,4 +122,3 @@ volumes:
   caddy_config:
   pg_data:
   scheduler_state:
-  firefly_upload:
