@@ -1,0 +1,124 @@
+"""Candidate source schema runs only in a newly-created disposable database."""
+import os
+from hashlib import sha256
+from pathlib import Path
+import sys
+from uuid import uuid4
+
+import psycopg2
+from psycopg2 import errors, sql
+from psycopg2.extensions import parse_dsn
+import pytest
+
+
+SCHEMA = Path(__file__).resolve().parents[2] / 'database/postgres/schema/080_unified_source_staging.sql'
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
+from domain.imports.unified_source import add_item, attach_file, create_batch
+
+
+@pytest.fixture
+def isolated_database():
+    dsn = os.environ.get('PAMS_SCHEMA_TEST_POSTGRES_DSN')
+    if not dsn:
+        pytest.skip('Explicit disposable PostgreSQL DSN required')
+    params = parse_dsn(dsn)
+    assert params.get('host') in {'127.0.0.1', 'localhost', '::1'}
+    admin = psycopg2.connect(dsn, connect_timeout=5)
+    admin.autocommit = True
+    assert admin.server_version // 10000 == 16
+    with admin.cursor() as cur:
+        cur.execute("SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database()")
+        assert cur.fetchone()[0] == 'pams-disposable-schema-test'
+    name = 'pams_source_test_' + uuid4().hex
+    with admin.cursor() as cur:
+        cur.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
+    conn = None
+    try:
+        conn = psycopg2.connect(**{**params, 'dbname': name})
+        with conn.cursor() as cur:
+            cur.execute('CREATE TABLE public.pams_accounts (account_code varchar(50) PRIMARY KEY)')
+            cur.execute("INSERT INTO public.pams_accounts VALUES ('synthetic-a'), ('synthetic-b')")
+            cur.execute(SCHEMA.read_text(encoding='utf-8'))
+        conn.commit()
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        with admin.cursor() as cur:
+            cur.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(name)))
+        admin.close()
+
+
+def test_batch_file_item_constraints_and_rollback(isolated_database):
+    conn = isolated_database
+    batch_a, batch_b, file_a, item_a = [str(uuid4()) for _ in range(4)]
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method)
+                       VALUES (%s,'synthetic-a','cash','synthetic-bank','upload'),
+                              (%s,'synthetic-b','trade','synthetic-broker','manual')""", (batch_a, batch_b))
+        cur.execute("""INSERT INTO source_files(file_id,batch_id,filename,file_format,content_type,sha256,content)
+                       VALUES (%s,%s,'sample.csv','csv','text/csv',%s,%s)""", (file_a, batch_a, 'a' * 64, b'fixture'))
+        cur.execute("""INSERT INTO source_items(source_item_id,batch_id,file_id,source_uid,parse_method,record_hash)
+                       VALUES (%s,%s,%s,'row-1','template',%s)""", (item_a, batch_a, file_a, 'b' * 64))
+    conn.commit()
+
+    with pytest.raises(errors.ForeignKeyViolation):
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO source_items(source_item_id,batch_id,file_id,source_uid,parse_method,record_hash)
+                           VALUES (%s,%s,%s,'cross-batch','ocr',%s)""", (str(uuid4()), batch_b, file_a, 'c' * 64))
+    conn.rollback()
+
+    with pytest.raises(errors.UniqueViolation):
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash)
+                           VALUES (%s,%s,'row-1','manual',%s)""", (str(uuid4()), batch_a, 'd' * 64))
+    conn.rollback()
+
+    with pytest.raises(errors.CheckViolation):
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash)
+                           VALUES (%s,%s,'no-file','ocr',%s)""", (str(uuid4()), batch_a, 'e' * 64))
+    conn.rollback()
+
+    with conn.cursor() as cur:
+        cur.execute('SELECT count(*) FROM source_items WHERE batch_id = %s', (batch_a,))
+        assert cur.fetchone()[0] == 1
+        cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash)
+                       VALUES (%s,%s,'manual-1','manual',%s)""", (str(uuid4()), batch_b, 'f' * 64))
+        cur.execute('SELECT count(*) FROM source_items WHERE batch_id = %s', (batch_b,))
+        assert cur.fetchone()[0] == 1
+
+
+def test_unknown_account_and_reversed_dates_rejected(isolated_database):
+    conn = isolated_database
+    with pytest.raises(errors.ForeignKeyViolation):
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method)
+                           VALUES (%s,'unknown','cash','synthetic-bank','upload')""", (str(uuid4()),))
+    conn.rollback()
+    with pytest.raises(errors.CheckViolation):
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method,date_from,date_to)
+                           VALUES (%s,'synthetic-a','cash','synthetic-bank','upload','2026-02-01','2026-01-01')""", (str(uuid4()),))
+    conn.rollback()
+
+
+def test_repository_keeps_raw_and_corrected_values_and_is_atomic(isolated_database):
+    conn = isolated_database
+    batch, item, file_id = uuid4(), uuid4(), uuid4()
+    with conn.cursor() as cur:
+        create_batch(cur, batch_id=batch, account_code='synthetic-a', business_type='cash',
+                     institution='synthetic-bank', acquisition_method='upload')
+        digest = attach_file(cur, file_id=file_id, batch_id=batch, filename='fixture.png',
+                             file_format='png', content_type='image/png', content=b'synthetic')
+        assert digest == sha256(b'synthetic').hexdigest()
+        add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='ocr',
+                 record_hash='1' * 64, file_id=file_id, location='image:1',
+                 raw_fields={'amount': '800.00'}, parsed_fields={'amount': '80.00'})
+        cur.execute('SELECT raw_fields, parsed_fields, location FROM source_items WHERE source_item_id = %s', (str(item),))
+        raw, parsed, location = cur.fetchone()
+        assert raw['amount'] == '800.00' and parsed['amount'] == '80.00' and location == 'image:1'
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute('SELECT count(*) FROM source_batches WHERE batch_id = %s', (str(batch),))
+        assert cur.fetchone()[0] == 0
