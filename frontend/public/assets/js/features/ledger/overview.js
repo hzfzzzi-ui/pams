@@ -1,7 +1,11 @@
 import { accountLabel } from '../../api.js?v=20261031-modules-v1';
 import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-modules-v1';
-import { CHART_THEME, SERIES_COLORS } from '../../shared/chart_theme.js?v=20261031-modules-v1';
-const CATEGORY_PIE_COLORS = { income: SERIES_COLORS, expense: SERIES_COLORS };
+import { CHART_THEME } from '../../shared/chart_theme.js?v=20261031-modules-v1';
+// Restore the ledger's established semantic palette without changing shared charts or chrome.
+const CATEGORY_PIE_COLORS = {
+  income: ['#3fb950', '#58a6ff', '#d29922', '#a371f7', '#2ea043', '#79c0ff', '#8b949e'],
+  expense: ['#f85149', '#d29922', '#ff7b72', '#a371f7', '#f0883e', '#db6d28', '#8b949e'],
+};
 
 export function createLedgerOverview({ root, host, state, model, dom, ChartClass = host.Chart }) {
   const { $, setText } = dom;
@@ -268,16 +272,16 @@ function renderTrendChart(data) {
           type: 'bar',
           label: '收入',
           data: rows.map((r) => num(r.income)),
-          backgroundColor: SERIES_COLORS[1],
-          borderColor: SERIES_COLORS[1],
+          backgroundColor: 'rgba(63,185,80,.42)',
+          borderColor: 'rgba(63,185,80,.8)',
           borderWidth: 1,
         },
         {
           type: 'bar',
           label: '消费',
           data: rows.map((r) => num(r.expense)),
-          backgroundColor: SERIES_COLORS[3],
-          borderColor: SERIES_COLORS[3],
+          backgroundColor: 'rgba(248,81,73,.38)',
+          borderColor: 'rgba(248,81,73,.82)',
           borderWidth: 1,
         },
         {
@@ -286,8 +290,8 @@ function renderTrendChart(data) {
           borderDash: [5, 3],
           pointStyle: 'rectRot',
           data: rows.map((r) => num(r.net)),
-          borderColor: CHART_THEME.line,
-          backgroundColor: CHART_THEME.fill,
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,.12)',
           tension: 0.25,
           pointRadius: 2,
           yAxisID: 'net',

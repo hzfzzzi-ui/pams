@@ -51,6 +51,8 @@
 .categoryBarName { overflow-wrap:anywhere; white-space:normal; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
 .categoryTrack { height:3px; margin-top:7px; border-radius:999px; background:var(--pams-bg-soft); overflow:hidden }
 .categoryFill { height:100%; border-radius:999px; background:var(--pams-text-secondary) }
+.categoryBarList.income .categoryFill { background:#3fb950 }
+.categoryBarList.expense .categoryFill { background:#f85149 }
 .categoryBarCount { margin-top:5px; color:var(--muted); font-size:12px; line-height:1; font-weight:600 }
 .categoryBarMeta { display:grid; gap:4px; justify-items:end; min-width:92px; white-space:nowrap }
 .categoryBarMeta b { color:var(--text); font-family:var(--pams-font-sans); font-size:14px; line-height:1.15; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }

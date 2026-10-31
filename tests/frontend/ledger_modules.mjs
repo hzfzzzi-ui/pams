@@ -66,8 +66,13 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   const test = await fixture(320), controller = test.create(), ready = controller.init();
   test.resolveRead(0, data(10)); await ready;
   const trend = test.charts.find(chart => chart.config.options?.scales);
+  const pie = test.charts.find(chart => chart.config.type === 'pie');
   assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
   assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
+  assert.equal(trend.data.datasets[0].backgroundColor, 'rgba(63,185,80,.42)');
+  assert.equal(trend.data.datasets[1].backgroundColor, 'rgba(248,81,73,.38)');
+  assert.equal(trend.data.datasets[2].borderColor, '#58a6ff');
+  assert.equal(pie.data.datasets[0].backgroundColor[0], '#3fb950');
   test.setWidth(390);
   assert.equal(trend.config.options.scales.y.ticks.font().size, 12);
   assert.equal(trend.config.options.scales.net.ticks.font().size, 12);
@@ -119,6 +124,7 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   assert.deepEqual(test.reads.map(({ url, options }) => [url, options?.cache]), [['/api/ledger/workbench?baseCurrency=CNY&recentDays=30', false], ['/api/accounts/overview', undefined]]);
   test.resolveRead(0, data(10)); await initial;
   assert.equal(test.charts.length, 2);
+  assert.equal(test.charts.find(chart => chart.config.type === 'pie').data.datasets[0].backgroundColor[0], '#3fb950');
   const older = controller.loadWorkbench(), newer = controller.loadWorkbench();
   test.resolveRead(4, data(20)); await newer;
   test.resolveRead(2, data(15)); await assert.rejects(older, error => error.name === 'AbortError');
