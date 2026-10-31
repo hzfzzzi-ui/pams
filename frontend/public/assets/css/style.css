@@ -297,7 +297,6 @@ a { color: inherit; text-decoration: none ;}
   letter-spacing: 0;
 }
 .pageSubtitle {
-  color: var(--muted);
   font-size: var(--fs-md);
   margin-top: var(--sp-1);
   max-width: 860px;
@@ -339,7 +338,6 @@ a { color: inherit; text-decoration: none ;}
 }
 
 /* Legacy topbar compat */
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px ;}
 .brand { font-weight: 600; letter-spacing: .4px ;}
 
 /* ---- Navigation ---- */
@@ -351,7 +349,6 @@ a { color: inherit; text-decoration: none ;}
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: var(--sp-4);
   transition: all .25s cubic-bezier(0.4, 0, 0.2, 1);
   animation: none;
   box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.24);
@@ -380,7 +377,6 @@ a { color: inherit; text-decoration: none ;}
   font-size: var(--fs-xs);
   padding: 2px var(--sp-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--pams-font-sans);
   text-transform: uppercase;
@@ -501,7 +497,7 @@ a { color: inherit; text-decoration: none ;}
 }
 
 /* ---- Utility ---- */
-.mono { font-family: var(--pams-font-sans); font-variant-numeric: tabular-nums ;}
+.mono { font-family: var(--pams-font-sans); }
 .muted { color: var(--muted); font-size: var(--fs-md); line-height: 1.4 ;}
 
 /* ---- Row / List ---- */
@@ -744,7 +740,6 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
 .formInput:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: none;
   background: var(--card);
   transform: translateY(-1px);
 }
@@ -6020,8 +6015,6 @@ input[type="number"].formInput {
   .kpiGroup { grid-template-columns: 1fr ;}
   .wrap { padding: var(--sp-3) ;}
   .statusbar { padding: var(--sp-2) var(--sp-3) ;}
-  .pageHeader { align-items: flex-start; flex-direction: column ;}
-  .pageMeta { justify-content: flex-start ;}
 }
 
 @media (max-width: 900px) {
@@ -6104,7 +6097,6 @@ input[type="number"].formInput {
 
 .page-investments .investmentHeroMetric .value {
   margin-top: 6px;
-  font-size: 24px;
   font-weight: 600;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
@@ -6130,7 +6122,6 @@ input[type="number"].formInput {
 .page-investments .investmentConclusionText {
   margin-top: var(--sp-3);
   padding: 10px 12px;
-  border: 0;
   border-left: 3px solid var(--pams-line-strong);
   border-radius: 0 8px 8px 0;
   background: rgba(255,255,255,.06);
@@ -6147,7 +6138,6 @@ input[type="number"].formInput {
 }
 .page-investments .investmentDataBanner .dataIssueChips {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
   margin-top: 8px;
 }
@@ -6274,14 +6264,12 @@ input[type="number"].formInput {
   background: transparent !important;
   font-size: 12px;
   font-weight: 600;
-  list-style: none;
 }
 .compactDetails[open] > summary,
 details[open].compactDetails > summary {
   color: var(--pams-text-primary)!important;
   background: transparent !important;
 }
-.compactDetails > summary::-webkit-details-marker { display: none ;}
 
 .page-investments table {
   font-size: 13px;
@@ -6676,7 +6664,6 @@ details[open].compactDetails > summary {
 
 .page-investments .investmentHeroMetric {
   min-height: 74px;
-  padding: 10px 12px;
 }
 
 .page-investments .investmentHeroMetric .value {
@@ -7118,75 +7105,25 @@ th.num,
   font-size: 12px;
 }
 
-.quickNavGrid,
 .moreShortcutStrip {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.quickNavGrid-compact {
-  grid-template-columns: 1fr;
-}
 
-.quickNavCard {
-  display: flex;
-  min-width: 0;
-  min-height: 78px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255,255,255,.03);
-  transition: border-color .15s ease, background .15s ease, color .15s ease;
-}
 
-.quickNavCard strong {
-  color: var(--text);
-  font-size: 14px;
-}
 
-.quickNavCard span {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
 
-.quickNavCard:hover {
-  border-color: rgba(255,255,255,.34);
-  background: rgba(255,255,255,.09);
-}
 
 .desktopOnlyCard {
   display: block;
 }
 
-.mobilePageTitle {
-  display: none;
-}
 
-.mobileHeaderMeta {
-  display: none;
-}
 
-.moreHero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
 
-.moreHero h2 {
-  margin: 4px 0 0;
-  font-size: 22px;
-}
 
-.moreHeroMain {
-  min-width: 0;
-}
 
 .moreStatusGrid {
   display: grid;
@@ -7223,18 +7160,7 @@ th.num,
   gap: 14px;
 }
 
-.moreGroup {
-  display: grid;
-  gap: 8px;
-}
 
-.moreGroupTitle {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
 
 .manualSyncPanel {
   display: grid;
@@ -8011,19 +7937,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     letter-spacing: 3px;
   }
 
-  .mobilePageTitle {
-    display: inline-flex;
-    min-width: 0;
-    max-width: calc(100vw - 170px);
-    margin-left: 4px;
-    color: var(--text);
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   .status-left,
   .status-right {
@@ -8055,20 +7968,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none !important;
   }
 
-  .mobileHeaderMeta {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    min-height: 24px;
-    padding: 0 8px;
-    border: 1px solid rgba(255,255,255,.22);
-    border-radius: 999px;
-    color: var(--text-secondary);
-    background: rgba(255,255,255,.08);
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
 
   .wrap,
 .page-investments .wrap {
@@ -8398,17 +8297,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none;
   }
 
-  .page-more .moreHero {
-    align-items: flex-start;
-    flex-direction: column;
-    margin-bottom: 10px;
-    padding: 12px;
-    overflow: hidden;
-  }
 
-  .page-more .moreHero h2 {
-    font-size: 18px;
-  }
 
   .page-more .moreStatusGrid {
     width: 100%;
@@ -8424,19 +8313,11 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     gap: 12px;
   }
 
-  .quickNavGrid,
   .moreShortcutStrip {
     grid-template-columns: 1fr 1fr;
   }
 
-  .quickNavGrid-compact {
-    grid-template-columns: 1fr;
-  }
 
-  .quickNavCard {
-    min-height: 68px;
-    padding: 10px 11px;
-  }
 
   .page-more .manualSyncPanel {
     padding: 12px;
@@ -9195,21 +9076,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
 /* Final mobile shell correction: one bottom nav contract, no sticky top banner. */
 @media (max-width: 760px) {
-  .statusbar {
-    position: relative !important;
-    top: auto !important;
-    z-index: 30 !important;
-  }
 
-  .investmentTabs {
-    position: static !important;
-    top: auto !important;
-  }
 
-  .wrap,
-.page-investments .wrap {
-    padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
-  }
 
 }
 
@@ -9223,7 +9091,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   html,
   body {
     scrollbar-width: none;
-    overflow-x: hidden !important;
   }
 
   html::-webkit-scrollbar,
@@ -9233,28 +9100,10 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none;
   }
 
-  .page-investments .pageHeader,
-  .page-investments .desktopInvestmentHeroContent {
-    display: none !important;
-  }
 
-  .page-investments .wrap {
-    padding-top: 12px !important;
-  }
 
-  .page-investments #investment-conclusion.investmentHero {
-    display: block !important;
-    margin: 0 0 24px!important;
-    padding: var(--pams-card-pad)!important;
-    border: 0 !important;
-    border-radius: var(--pams-radius-panel)!important;
-    background: var(--pams-bg-panel)!important;
-    box-shadow: none !important;
-  }
 
   .page-investments .mobilePortfolioHero {
-    display: block !important;
-    min-height: 0!important;
     padding: 2px 0 0;
   }
 
@@ -9374,14 +9223,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     color: #f0b90b !important;
   }
 
-  .page-investments #holdings-smart-table.card {
-    margin-top: 0 !important;
-    padding: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-  }
 
   .page-investments #holdings-smart-table > .sectionTitle {
     display: grid !important;
@@ -9394,9 +9235,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     font-size: 16px!important;
   }
 
-  .page-investments .holdingGroupSelect {
-    display: none !important;
-  }
 
   .mobileHoldingFilterChips {
     display: flex !important;
@@ -9426,23 +9264,11 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .page-investments .mobileHoldingList {
-    display: grid !important;
-    gap: 0 !important;
-    margin-top: 0 !important;
     border-top: 1px solid rgba(255,255,255,.08);
   }
 
   .page-investments .mobileHoldingRow {
-    display: grid !important;
     grid-template-columns: minmax(0, 1fr) auto !important;
-    gap: 12px !important;
-    min-height: 72px !important;
-    padding: 10px 0 !important;
-    border: 0 !important;
-    border-bottom: 1px solid rgba(255,255,255,.08) !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
   }
 
   .page-investments .mobileHoldingRow:active {
@@ -9585,7 +9411,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .statusbar {
     min-height: 42px;
-    padding: 8px 14px;
     background: var(--pams-bg-panel);
     border-bottom-color: rgba(255,255,255,.08);
   }
@@ -9611,10 +9436,9 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .pageSubtitle,
-.pageMeta,
-.debugFooter,
-.moreHero,
-.moreShortcutStrip {
+  .pageMeta,
+  .debugFooter,
+  .moreShortcutStrip {
     display: none !important;
   }
 
@@ -9751,9 +9575,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     min-width: 118px;
   }
 
-  .page-investments #return-trend {
-    margin-top: 10px;
-  }
 
   .page-investments #return-trend .chartWrap {
     height: 220px !important;
@@ -9796,12 +9617,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     gap: 12px;
   }
 
-  .moreGroupTitle {
-    margin: 2px 0 8px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-  }
 
   .moreRow,
   .manualSyncPanel {
@@ -9811,16 +9626,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .manualSyncHead small,
   .moreRow small {
     max-width: 240px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  .manualSyncActions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
 
   .sourceActionCard {
     margin-bottom: 10px;
@@ -9927,8 +9734,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   body.app-shell {
     background: var(--pams-bg-panel);
 
-  font-weight: 400;
-  line-height: 1.5;}
+  }
 
   .wrap {
     padding: 12px 12px calc(96px + env(safe-area-inset-bottom, 0px));
@@ -9952,15 +9758,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none !important;
   }
 
-  .mobilePageTitle {
-    color: var(--text);
-    font-weight: 600;
-    font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 170px;
-  }
 
   .pageHeader {
     display: none !important;
@@ -10167,12 +9964,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     gap: 12px;
   }
 
-  .page-more .moreGroupTitle {
-    margin: 0 0 8px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-  }
 
   .manualSyncPanel {
     display: grid;
@@ -10302,12 +10093,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  .page-investments #investment-conclusion.investmentHero {
-    padding: var(--pams-card-pad)!important;
-    border-radius: var(--pams-radius-panel)!important;
-
-  margin: 0 0 24px !important;
-  background: var(--pams-bg-panel) !important;}
 
   .page-investments #investment-conclusion .sectionTitle {
     display: grid !important;
@@ -10438,34 +10223,9 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
 /* Investment mobile holding rows: asset-terminal layout. */
 @media (max-width: 760px) {
-  .page-investments .mobileHoldingList {
-    border-top: 1px solid rgba(255,255,255,.08) !important;
-  }
 
-  .page-investments .mobileHoldingRow {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    gap: 10px !important;
-    min-height: 0 !important;
-    padding: 15px 0 16px !important;
-    border: 0 !important;
-    border-bottom: 1px solid rgba(255,255,255,.08) !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-  }
 
-  .page-investments .assetDot {
-    display: none !important;
-  }
 
-  .page-investments .mobileHoldingMain {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    gap: 10px !important;
-    align-items: start !important;
-    min-width: 0 !important;
-  }
 
   .page-investments .mobileHoldingText {
     min-width: 0 !important;
@@ -10473,18 +10233,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-investments .mobileHoldingText strong {
     display: block !important;
-    overflow: hidden !important;
-    color: var(--text) !important;
-    font-size: 16px !important;
-    font-weight: 600!important;
-    line-height: 1.28 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
   }
 
-  .page-investments .mobileHoldingText small {
-    display: none !important;
-  }
 
   .page-investments .mobileHoldingText em {
     margin-left: 6px;
@@ -10498,9 +10248,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-investments .mobileHoldingQuote {
     display: grid !important;
-    justify-items: end !important;
     gap: 3px !important;
-    white-space: nowrap !important;
   }
 
   .page-investments .mobileHoldingQuote b {
@@ -10527,17 +10275,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     line-height: 1.1;
   }
 
-  .page-investments .mobileHoldingMetrics {
-    display: grid !important;
-    grid-template-columns: minmax(0, .92fr) minmax(0, .92fr) minmax(88px, 1.16fr) !important;
-    gap: 6px !important;
-  }
 
-  .page-investments .mobileHoldingMetric {
-    display: grid !important;
-    gap: 5px !important;
-    min-width: 0 !important;
-  }
 
   .page-investments .mobileHoldingMetric em {
     overflow: hidden;
@@ -10559,7 +10297,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     text-overflow: clip;
     white-space: normal;
 
-  overflow-wrap: anywhere;}
+  }
 
   .page-investments .mobileHoldingMetric strong.up,
   .page-investments .mobileHoldingQuote b.up {
@@ -10573,9 +10311,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   overflow-wrap: anywhere;}
 
-  .page-investments .mobileHoldingValue {
-    display: none !important;
-  }
 }
 
 /* Final winner: investments mobile asset page, no dashboard cards. */
@@ -10612,19 +10347,13 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .page-investments .mobilePortfolioHero {
     display: block !important;
-    min-height: 0!important;
     padding: 0 !important;
   }
 
   .page-investments .mobileHeroValue {
     margin-top: 5px !important;
-    font-size: clamp(28px, 8vw, 32px)!important;
-    line-height: 1.2!important;
 
-  font-weight: 650 !important;
-  letter-spacing: -.02em !important;
-  white-space: normal !important;
-  overflow-wrap: anywhere !important;}
+  }
 
   .page-investments .mobileHeroStats {
     gap: 12px!important;
@@ -10651,7 +10380,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .page-investments #holdings-smart-table.card {
-    margin-top: 0 !important;
     padding: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
@@ -11350,15 +11078,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     border-top: 1px solid rgba(255,255,255,.08) !important;
   }
 
-  .page-investments .mobileHoldingRow {
-    min-height: 72px !important;
-    padding: 10px 0 !important;
-    border: 0 !important;
-    border-bottom: 1px solid rgba(255,255,255,.08) !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-  }
 }
 
 /* Final override: mobile holding list follows Tencent/Binance-like asset rows. */
@@ -11492,12 +11211,11 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     overflow: visible!important;
     color: var(--text) !important;
     font-size: 14px !important;
-    font-weight: 600!important;
     line-height: 1.15 !important;
     text-overflow: clip!important;
     white-space: normal!important;
 
-  overflow-wrap: anywhere;}
+  }
 
   .page-investments .mobileHoldingMetric strong.up,
   .page-investments .mobileHoldingChangePct.up {
@@ -11971,10 +11689,6 @@ body.page-more details.card > :not(summary) {
     line-height: 1.25;
   }
 
-  .page-more .moreGrid {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
 
   .page-data-sources .sourceHealthList{
     display: grid;
@@ -14353,20 +14067,7 @@ body.page-more details.card > :not(summary) {
     gap: 14px !important;
   }
 
-  .page-more .moreGroup {
-    padding: 13px 14px 4px;
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 22px;
-    background: var(--pams-bg-panel);
-  }
 
-  .page-more .moreGroupTitle {
-    margin: 0 0 3px !important;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: .04em;
-  }
 
   .page-more .moreRow {
     min-height: 68px !important;
@@ -14377,9 +14078,6 @@ body.page-more details.card > :not(summary) {
     background: transparent !important;
   }
 
-  .page-more .moreGroupTitle + .moreRow {
-    border-top: 0 !important;
-  }
 
   .page-more .moreRow strong {
     font-size: 16px;
@@ -14439,13 +14137,12 @@ body.page-more details.card > :not(summary) {
   }
 
   body.app-shell:not(.page-accounts) .card,
-body.app-shell:not(.page-accounts) details.card,
-body.app-shell .investmentPanel,
-body.app-shell .portfolioRiskCategory,
-body.app-shell .portfolioRiskChecklistCard,
-body.app-shell .portfolioRuleNode,
-body.app-shell .tradeReviewSubsection,
-body.app-shell .moreGroup {
+  body.app-shell:not(.page-accounts) details.card,
+  body.app-shell .investmentPanel,
+  body.app-shell .portfolioRiskCategory,
+  body.app-shell .portfolioRiskChecklistCard,
+  body.app-shell .portfolioRuleNode,
+  body.app-shell .tradeReviewSubsection {
     border-radius: 16px !important;
     padding: var(--mobile-density-card-padding) !important;
   }
@@ -14502,13 +14199,12 @@ body.app-shell .moreGroup {
   line-height: 1.5;}
 
   body.app-shell:not(.page-accounts) .card,
-body.app-shell:not(.page-accounts) details.card,
-body.app-shell .investmentPanel,
-body.app-shell .portfolioRiskCategory,
-body.app-shell .portfolioRiskChecklistCard,
-body.app-shell .portfolioRuleNode,
-body.app-shell .tradeReviewSubsection,
-body.app-shell .moreGroup {
+  body.app-shell:not(.page-accounts) details.card,
+  body.app-shell .investmentPanel,
+  body.app-shell .portfolioRiskCategory,
+  body.app-shell .portfolioRiskChecklistCard,
+  body.app-shell .portfolioRuleNode,
+  body.app-shell .tradeReviewSubsection {
     border-radius: 14px !important;
   }
 

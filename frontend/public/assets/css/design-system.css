@@ -18,8 +18,7 @@ body.app-shell {
   font-family: var(--pams-font-sans);
   letter-spacing: 0;
 
-  font-weight: 400;
-  line-height: 1.5;}
+  }
 
 body.app-shell *,
 body.app-shell *::before,
@@ -73,7 +72,6 @@ body.app-shell .card,
 body.app-shell details.card {
   border: 1px solid var(--pams-border);
   border-radius: var(--pams-radius-panel);
-  background: var(--pams-surface-raised);
   padding: var(--pams-card-pad);
 }
 
@@ -99,7 +97,6 @@ body.app-shell .sectionTitle h3 {
 body.app-shell .sectionTitle h2,
 body.app-shell .sectionTitle h3 {
   margin: 0;
-  font-size: 16px;
   line-height: 1.12;
 }
 
@@ -139,7 +136,6 @@ body.app-shell .portfolioRiskCategory,
 body.app-shell .portfolioRiskChecklistCard,
 body.app-shell .portfolioRuleNode,
 body.app-shell .tradeReviewSubsection,
-body.app-shell .moreGroup,
 body.app-shell .qualityBox,
 body.app-shell .sourceTodo,
 body.app-shell .syncCenterPanel,
@@ -152,8 +148,7 @@ body.app-shell .card:hover,
 body.app-shell details.card:hover,
 body.app-shell .investmentPanel:hover,
 body.app-shell .portfolioRiskCategory:hover,
-body.app-shell .portfolioRuleNode:hover,
-body.app-shell .moreGroup:hover {
+body.app-shell .portfolioRuleNode:hover {
   transform: none;
 }
 
@@ -161,10 +156,7 @@ body.app-shell .appWorkHeader {
   display: grid;
   gap: 12px;
   margin-bottom: 16px;
-  padding: 8px 0 16px;
-  border: 0;
   border-radius: var(--pams-radius-panel);
-  background: transparent;
 }
 
 body.app-shell .appWorkHeaderTop {
@@ -678,7 +670,6 @@ body.app-shell.app-low-frequency .appWorkHeader {
   margin-bottom: var(--pams-shell-gap);
 }
 
-body.app-shell.app-low-frequency .moreGroup,
 body.app-shell.app-low-frequency .qualityBox,
 body.app-shell.app-low-frequency .metricPanel,
 body.app-shell.app-low-frequency .ipsStatusItem,
@@ -778,8 +769,7 @@ body.app-shell :focus-visible {
   body.app-shell .portfolioRiskCategory,
   body.app-shell .portfolioRiskChecklistCard,
   body.app-shell .portfolioRuleNode,
-  body.app-shell .tradeReviewSubsection,
-  body.app-shell .moreGroup {
+  body.app-shell .tradeReviewSubsection {
     border-radius: var(--pams-radius-panel);
   }
 
@@ -795,10 +785,8 @@ body.app-shell :focus-visible {
 
   body.app-shell .appWorkHeader {
     margin-bottom: 12px;
-    padding: 8px 0 16px;
 
-  background: transparent;
-  border: 0;}
+  }
 
   body.app-shell .appWorkHeaderTop {
     grid-template-columns: 1fr;
@@ -940,7 +928,6 @@ body.app-shell .portfolioRiskCategory,
 body.app-shell .portfolioRiskChecklistCard,
 body.app-shell .portfolioRuleNode,
 body.app-shell .tradeReviewSubsection,
-body.app-shell .moreGroup,
 body.app-shell .qualityBox,
 body.app-shell .sourceTodo,
 body.app-shell .syncCenterPanel,
@@ -969,7 +956,6 @@ body.app-shell .appWorkEyebrow {
   text-transform: none;
 }
 
-body.app-shell .moreGroupTitle,
 body.app-shell .kpi-label,
 body.app-shell .metricPanel .label,
 body.app-shell .ipsStatusLabel,
@@ -1025,9 +1011,6 @@ body.app-shell .moreRow.accent-system {
     font-size: 16px!important;
   }
 
-  body.app-shell .moreGroupTitle {
-    padding: 0 2px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
