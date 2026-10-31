@@ -127,6 +127,17 @@ try {
     await page.goBack();
     await page.frameLocator('#page-content').locator('body.page-more').waitFor();
     assert.equal(new URL(page.url()).searchParams.get('view'), 'more.html');
+    await page.frameLocator('#page-content').locator('#moreIssues').click();
+    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
+    await page.waitForFunction(() => new URL(location).searchParams.get('content_view') === 'issues');
+    await page.reload();
+    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('content_view'), 'issues');
+    await page.goto(`${base}/data_sources.html?view=issues#dataQuality`);
+    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
+    await page.waitForFunction(() => new URL(location).searchParams.get('content_view') === 'issues');
+    await page.reload();
+    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
     for (const target of ['accounts.html#overview','data_sources.html','account_import.html']) {
       await page.frameLocator('#page-content').locator('body').evaluate((node,href) => location.assign(href),target);
       await page.waitForFunction(expected => document.querySelector('#page-content').contentWindow.location.pathname.endsWith(expected),target.split('#')[0]);
