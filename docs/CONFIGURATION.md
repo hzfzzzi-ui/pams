@@ -9,9 +9,9 @@
 | config/accounts.yaml | 账户、流水、组合状态 | PAMS_ACCOUNTS_CONFIG 或 /app/config/accounts.yaml；部分读取者在文件不存在时回退源码 config |
 | config/investment_returns.yaml | 投资收益、交易及归因 | PAMS_INVESTMENT_RETURNS_CONFIG 或 /app/config/investment_returns.yaml；不存在时回退源码 config |
 | config/lookthrough.yaml | 资产主数据种子、持仓穿透 | PAMS_LOOKTHROUGH_CONFIG 或 /app/config/lookthrough.yaml；读取与显式同步主数据是不同操作 |
-| config/risk_limits.yaml | 风险规则、资产本位币 | domain/risk/core/config.py 从源码根目录 config 读取；函数可显式传入路径 |
+| config/risk_limits.yaml | 风险规则、资产本位币 | src/core/config.py 从源码根目录 config 读取；函数可显式传入路径 |
 | config/factor_map.yaml | 风险因子 | 同一风险配置读取器加载，不设通用环境覆盖器 |
-| config/risk_concentration.yaml | 集中度计算 | domain/risk/core/concentration.py 从源码根目录 config 读取 |
+| config/risk_concentration.yaml | 集中度计算 | src/core/concentration.py 从源码根目录 config 读取 |
 | bank_reconcile.yaml（私有） | 银行对账 | PAMS_BANK_RECONCILE_CONFIG 或 /app/config/bank_reconcile.yaml；不存在时回退源码 config |
 
 前六份 YAML 是已跟踪的默认业务输入。银行来源文件含私有路径，当前仓库未提供默认文件。配置异常和缺失的处理以各模块为准，变更回退行为须按业务变更验证。
@@ -42,7 +42,7 @@
 - 默认 API 挂载为 config → /app/config（只读）、data → /app/data、账户台账 → /host/account-ledger（只读）、scheduler_state → /scheduler-state（只读）。资料目录不是源码。
 - scheduler 写独立检查点卷；该卷只描述调度状态，不作为金融事实。
 - web 从 frontend/Dockerfile 构建，nginx 配置在该文件中生成，静态文件不会通过修改工作区自动上线。
-- gateway/Caddyfile 定义统一网关；PostgreSQL、Firefly、Caddy 和 AdGuard 分别使用自己的持久卷。
+- gateway/Caddyfile 定义统一网关；PostgreSQL、Caddy 和 AdGuard 分别使用自己的持久卷。
 
 运行核对使用带时间的 docker inspect、实际镜像 ID、挂载、能力和健康观察。核准清单描述预期；机器观察描述实际。操作方式见 [发布身份](REPAIR_RELEASE_AND_RECOVERY.md#发布身份)，不得从未知现场自动生成核准预期。
 
