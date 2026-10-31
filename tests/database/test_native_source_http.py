@@ -40,7 +40,7 @@ def isolated(client, monkeypatch):
     monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a1' * 32)
     monkeypatch.delenv('PAMS_SOURCE_LEGACY_BRIDGE', raising=False)
     with psycopg2.connect(**params) as conn, conn.cursor() as cur:
-        for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+        for name in ('074_unified_source.sql', '075_source_fact_links.sql', '076_valuation_input_evidence.sql'):
             cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
     return web, params
 

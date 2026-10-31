@@ -27,7 +27,7 @@ def isolated_ibkr(client, monkeypatch):
             trade_date date, symbol text, name text, asset_category text, currency text, side text,
             quantity numeric, price numeric, gross_amount numeric, commission numeric, net_cash numeric,
             realized_pnl numeric, raw_json jsonb, updated_at timestamptz DEFAULT now())''')
-        for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+        for name in ('074_unified_source.sql', '075_source_fact_links.sql'):
             cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
     return params

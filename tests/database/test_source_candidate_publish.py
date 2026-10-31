@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def setup_candidate(params, batch, *, create_schema=True):
     with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         if create_schema:
-            for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+            for name in ('074_unified_source.sql', '075_source_fact_links.sql'):
                 cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
         legacy = store.batch(cur, batch['batch_id'], lock=True)
         cur.execute('SELECT * FROM pams_account_import_file WHERE batch_id=%s', (batch['batch_id'],))

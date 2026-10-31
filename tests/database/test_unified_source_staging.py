@@ -11,7 +11,7 @@ from psycopg2.extensions import parse_dsn
 import pytest
 
 
-SCHEMA = Path(__file__).resolve().parents[2] / 'database/postgres/schema/080_unified_source_staging.sql'
+SCHEMA = Path(__file__).resolve().parents[2] / 'database/postgres/schema/074_unified_source.sql'
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
 from domain.imports.unified_source import add_item, attach_file, create_batch, review_item, lock_source_review
 

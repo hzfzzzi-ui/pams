@@ -19,7 +19,7 @@ def test_flex_http_cash_event_publishes_source_in_same_transaction(sync_case, da
     assert re.fullmatch(r'pams_ibkr_tx_test_[0-9a-f]{32}', params['dbname'])
     with conn.cursor() as cur:
         cur.execute(sql.SQL("COMMENT ON DATABASE {} IS 'pams-isolated-ibkr-sync'").format(sql.Identifier(params['dbname'])))
-        for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+        for name in ('074_unified_source.sql', '075_source_fact_links.sql'):
             cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
     conn.commit()
 

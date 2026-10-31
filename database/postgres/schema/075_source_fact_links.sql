@@ -1,4 +1,4 @@
--- Isolated candidate only: not a production upgrade or bootstrap manifest.
+-- Empty-database source links. This is not an existing-database upgrade.
 -- Preserve existing source_table/source_id/hash until each writer is migrated.
 -- One source item may generate multiple facts, including a counter-account
 -- cash leg. Do not add a uniqueness or same-account constraint here.
