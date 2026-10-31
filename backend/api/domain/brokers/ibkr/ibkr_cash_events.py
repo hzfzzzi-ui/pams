@@ -12,6 +12,7 @@ from typing import Any, Mapping
 import psycopg2.extras
 
 from domain.investments.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
+from domain.imports import isolation
 
 SOURCE_TABLE = "ibkr_flex_cash_transaction"
 
@@ -175,6 +176,7 @@ def import_cash_events(
             result["duplicate_count"] += 1
         events[event["source_key"]] = event
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        isolation.source_enabled(cur)
         for event in events.values():
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                         (f"{SOURCE_TABLE}:{event['source_key']}",))
@@ -213,7 +215,11 @@ def import_cash_events(
                 fact["fee_currency"] = event["currency"]
             elif event["side"] == "tax":
                 fact["tax_amount"] = abs(event["net_cash"])
-            result["inserted_count"] += insert_investment_trade_facts(cur, [fact], strict_source=True)
+            inserted = insert_investment_trade_facts(cur, [fact], strict_source=True)
+            if inserted:
+                from domain.brokers.ibkr.unified_source import link_new_fact
+                link_new_fact(cur, fact, event, source_account_id=event['source_account_id'])
+            result["inserted_count"] += inserted
     result["retryable_count"] = sum(item["retryable"] for item in result["pending"])
     result["waiting_evidence_count"] = len(result["pending"]) - result["retryable_count"]
     result["blocking_pending_count"] = sum(item["blocking"] for item in result["pending"])

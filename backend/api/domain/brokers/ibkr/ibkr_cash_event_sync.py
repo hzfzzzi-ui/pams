@@ -17,6 +17,7 @@ from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 
 from domain.brokers.ibkr import ibkr_cash_events as cash
 from domain.brokers.ibkr import ibkr_daily_close_read as daily
+from domain.imports import isolation
 from domain.investments.investment_trade_fact import IBKR_TABLE, build_investment_trade_fact, insert_investment_trade_facts
 
 BROKER_SOURCE = "ibkr_published_daily_close"
@@ -120,6 +121,7 @@ def _trade_versions(cur, snapshot: dict[str, Any]) -> dict[str, str]:
 
 
 def _import_day_trades(cur, snapshot: dict[str, Any], day: str) -> tuple[int, list[dict[str, Any]]]:
+    isolation.source_enabled(cur)
     cur.execute("""SELECT * FROM pams_investment_trade_fact WHERE source_table=%s
         AND account_code='ibkr' AND trade_date=%s""", (IBKR_TABLE, day))
     existing_by_key: dict[str, list[dict]] = {}
@@ -169,7 +171,11 @@ def _import_day_trades(cur, snapshot: dict[str, Any], day: str) -> tuple[int, li
                     "reason": "existing_trade_evidence_conflict", "retryable": False,
                     "state": "waiting_evidence", "fact_imported": True, "blocking": True})
             continue
-        inserted += insert_investment_trade_facts(cur, [fact], strict_source=True)
+        written = insert_investment_trade_facts(cur, [fact], strict_source=True)
+        if written:
+            from domain.brokers.ibkr.unified_source import link_new_fact
+            link_new_fact(cur, fact, row, source_account_id=snapshot['source_account_id'])
+        inserted += written
     return inserted, pending
 
 
