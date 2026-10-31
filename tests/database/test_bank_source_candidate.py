@@ -1,6 +1,7 @@
 """Bank statement evidence and cash facts using synthetic isolated data."""
 import os
 import sys
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -288,12 +289,62 @@ def test_bank_candidate_with_full_bootstrap_schema(tmp_path, monkeypatch):
                    (import_id, row['source_uid'], row['transaction_date'], row['posting_date'], row['amount'], row['currency'],
                     row['balance'], row['original_amount'], row['original_currency'], row['summary'], row['description'],
                     row['counterparty'], Json(row['raw'])))
+            cur.execute("""INSERT INTO pams_source_row
+                (source_system,source_table,source_id,source_uid,account_code,event_date,imported_at,created_at)
+                SELECT 'bank_statement_row','pams_bank_statement_rows',id::text,source_uid,account_code,
+                       transaction_date,created_at,'2025-12-31T00:00:00Z'
+                FROM pams_bank_statement_rows WHERE import_id=%s""", (import_id,))
+            cur.execute("""INSERT INTO pams_source_row
+                (source_system,source_table,source_id,source_uid,account_code,event_date,imported_at,created_at)
+                VALUES ('bank_statement_row','pams_bank_statement_rows','unmigrated','no-evidence',
+                        'bank_test',NULL,NULL,'2025-12-31T00:00:00Z')""")
         _, revision, digest = reviewed(target, import_id)
         with psycopg2.connect(**target) as conn:
             conn.set_session(isolation_level='SERIALIZABLE')
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 assert len(publish_bank_source(cur, import_id=import_id, expected_revision=revision,
                                                source_snapshot_sha256=digest)['records']) == 2
+        from domain.imports.source_row_read import source_row_relation
+        from domain.ledger.ledger_view import _load_cash_rows, _load_investment_account_rows
+        from endpoints.accounts import _fetch_statement_balances
+        with psycopg2.connect(**target) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT count(*) AS n FROM source_items WHERE raw_fields ? 'legacy_source_row'")
+            assert cur.fetchone()['n'] == 2
+
+            def view(isolated):
+                if isolated:
+                    monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
+                else:
+                    monkeypatch.delenv('PAMS_UNIFIED_SOURCE_ISOLATED', raising=False)
+                relation = source_row_relation(cur)
+                cur.execute(f"""SELECT source_system,source_table,source_id,source_uid,account_code,event_date,imported_at,created_at
+                    FROM {relation} AS s ORDER BY source_table,source_id""")
+                rows = [dict(row) for row in cur.fetchall()]
+                cur.execute(f"""SELECT max(event_date) AS as_of,max(created_at) AS updated_at,count(*) AS rows
+                    FROM {relation} AS s WHERE source_table='pams_bank_statement_rows'""")
+                health = dict(cur.fetchone())
+                accounts = _fetch_statement_balances(cur)
+                cash = _load_cash_rows(cur, start=date(2026,1,1), end=date(2026,1,31), base_currency='CNY')
+                investments = _load_investment_account_rows(cur, start=date(2026,1,1), end=date(2026,1,31), base_currency='CNY')
+                return rows, health, accounts, cash, investments
+
+            assert view(True) == view(False)
+            monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
+            cur.execute(f"SELECT source_projection_origin,count(*) AS n FROM {source_row_relation(cur)} AS s GROUP BY source_projection_origin ORDER BY source_projection_origin")
+            assert [dict(row) for row in cur.fetchall()] == [
+                {'source_projection_origin': 'legacy_source_row', 'n': 1},
+                {'source_projection_origin': 'unified_source_item', 'n': 2},
+            ]
+            # Once a legacy projection changes, the bridge must fall back to
+            # its actual timestamp instead of replaying stale source evidence.
+            cur.execute("UPDATE pams_source_row SET imported_at='2026-02-01T00:00:00Z' WHERE source_id=(SELECT min(source_id) FROM pams_source_row)")
+            assert view(True) == view(False)
+            monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
+            cur.execute(f"SELECT source_projection_origin,count(*) AS n FROM {source_row_relation(cur)} AS s GROUP BY source_projection_origin ORDER BY source_projection_origin")
+            assert [dict(row) for row in cur.fetchall()] == [
+                {'source_projection_origin': 'legacy_source_row', 'n': 2},
+                {'source_projection_origin': 'unified_source_item', 'n': 1},
+            ]
     finally:
         with admin.cursor() as cur:
             cur.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(name)))

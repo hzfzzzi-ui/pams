@@ -74,11 +74,27 @@ def _confirmed_cases(cur, row_id):
     return [dict(value) for value in cur.fetchall()]
 
 
-def _evidence(row, matches, cases):
-    return _json_ready({**{key: row.get(key) for key in ('id', 'import_id', 'profile_code', 'bank',
+def _source_row_snapshot(cur, row_id):
+    """Capture existing legacy projection fields without inventing timestamps."""
+    cur.execute("SELECT to_regclass('public.pams_source_row') AS table_name")
+    if not cur.fetchone()['table_name']:
+        return None
+    cur.execute("""SELECT source_system, source_table, source_id, source_uid, account_code,
+                          event_date, imported_at, created_at
+                   FROM pams_source_row WHERE source_table=%s AND source_id=%s FOR SHARE""",
+                (SOURCE_TABLE, str(row_id)))
+    row = cur.fetchone()
+    return _json_ready(dict(row)) if row else None
+
+
+def _evidence(row, matches, cases, legacy_source_row=None):
+    evidence = {**{key: row.get(key) for key in ('id', 'import_id', 'profile_code', 'bank',
                         'account_code', 'account_kind', *_FIELDS, 'category', 'subcategory',
                         'auto_classified', 'raw_json')}, 'transfer_matches': matches,
-                        'confirmed_cases': cases})
+                        'confirmed_cases': cases}
+    if legacy_source_row is not None:
+        evidence['legacy_source_row'] = legacy_source_row
+    return _json_ready(evidence)
 
 
 def stage_bank_source(cur, *, import_id: int, profile: dict, filename: str, content: bytes):
@@ -127,7 +143,8 @@ def _stage_bank_source(cur, *, import_id, profile, filename, content):
             {k: v for k, v in _json_ready(parsed_raw).items() if k != 'source_file'}):
             raise ValueError('bank original does not match legacy row')
 
-    evidence = {row['source_uid']: _evidence(row, _matches(cur, row['id']), _confirmed_cases(cur, row['id']))
+    evidence = {row['source_uid']: _evidence(row, _matches(cur, row['id']), _confirmed_cases(cur, row['id']),
+                                              _source_row_snapshot(cur, row['id']))
                 for row in rows}
     batch_id = _identifier('batch', import_id)
     file_id = _identifier('file', import_id)
@@ -186,7 +203,7 @@ def publish_bank_source(cur, *, import_id: int, expected_revision: int, source_s
             item = items[row['source_uid']]
             matches = _matches(cur, row['id'])
             cases = _confirmed_cases(cur, row['id'])
-            evidence = _evidence(row, matches, cases)
+            evidence = _evidence(row, matches, cases, _source_row_snapshot(cur, row['id']))
             if (item['review_status'] != 'confirmed' or item['raw_fields'] != evidence or
                 item['parsed_fields'] != evidence or row['currency'] != 'CNY'):
                 raise ValueError('bank source requires unchanged confirmed CNY rows')
