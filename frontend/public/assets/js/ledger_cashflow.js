@@ -1,6 +1,7 @@
+import { replaceContentAddress } from './app/routes.js?v=20261031-ui-v1';
 import { CHART_THEME, SERIES_COLORS } from './shared/chart_theme.js?v=20261031-gray-v1';
 import { accountLabel, jget, jpost } from './api.js?v=20261031-gray-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-ui-v1';
 import {
   byId as $,
   clearError,
@@ -1217,7 +1218,7 @@ function openRecentForAccount(accountCode) {
   });
   renderRecentAccountScope();
   renderRows('recentRows', filteredRecentRows(), 120);
-  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${LEDGER_PANEL_HASH.recent}`);
+  replaceContentAddress(`${window.location.pathname}${window.location.search}${LEDGER_PANEL_HASH.recent}`);
   setLedgerPanel('recent');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1876,7 +1877,7 @@ function bindLedgerAnchors() {
       const panel = link.dataset.ledgerTab || 'overview';
       const nextHash = LEDGER_PANEL_HASH[panel] || LEDGER_PANEL_HASH.overview;
       if (window.location.hash !== nextHash) {
-        history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+        replaceContentAddress(`${window.location.pathname}${window.location.search}${nextHash}`);
       }
       setLedgerPanel(panel);
       window.scrollTo({ top: 0, behavior: 'smooth' });

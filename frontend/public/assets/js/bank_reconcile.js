@@ -1,5 +1,6 @@
+import { replaceContentAddress } from './app/routes.js?v=20261031-ui-v1';
 import { jget, jpost, fmtMoneyFixed2, fmtSignedMoneyFixed2 } from "./api.js?v=20261031-gray-v1";
-import { openBottomSheet, setActiveNav } from "./ui.js?v=20261031-gray-v1";
+import { openBottomSheet, setActiveNav } from "./ui.js?v=20261031-ui-v1";
 
 let config = null;
 let accountOverview = null;
@@ -351,7 +352,7 @@ function initAccountTabs() {
       panel.hidden = panel.dataset.accountPanel !== tab;
     });
     if (location.hash !== `#${tab}`) {
-      history.replaceState(null, "", `${location.pathname}${location.search}#${tab}`);
+      replaceContentAddress(`${location.pathname}${location.search}#${tab}`);
     }
   };
   buttons.forEach((btn) => btn.addEventListener("click", () => show(btn.dataset.accountTab)));

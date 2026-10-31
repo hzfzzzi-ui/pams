@@ -1,5 +1,5 @@
 import { jget } from './api.js?v=20261031-gray-v1';
-import { dataStateHtml } from './ui.js?v=20261031-gray-v1';
+import { dataStateHtml } from './ui.js?v=20261031-ui-v1';
 import { afterInvestmentStartup } from './investment_startup.js?v=20261031-gray-v1';
 
 let currentCategories = [];

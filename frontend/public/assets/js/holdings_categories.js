@@ -1,6 +1,7 @@
+import { replaceContentAddress } from './app/routes.js?v=20261031-ui-v1';
 import { CHART_THEME, SERIES_COLORS, seriesAppearance } from './shared/chart_theme.js?v=20261031-gray-v1';
 import { jget, fmt2, accountLabel } from './api.js?v=20261031-gray-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-ui-v1';
 import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-gray-v1';
 import { afterInvestmentNav, trackInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261031-gray-v1';
 import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20261031-gray-v1';
@@ -2870,7 +2871,7 @@ function bindInvestmentPageTabs() {
 
     if (options.updateHash) {
       const href = links.find(link => link.dataset.investTab === activeTab)?.getAttribute('href');
-      if (href) history.replaceState(null, '', href);
+      if (href) replaceContentAddress(href);
     }
   };
 

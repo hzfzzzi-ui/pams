@@ -1,5 +1,5 @@
 import { accountLabel, fmt2, jget, jpost } from './api.js?v=20261031-gray-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-ui-v1';
 import {
   byId as $,
   escapeHtml,

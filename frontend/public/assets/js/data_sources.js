@@ -1,6 +1,6 @@
 import { jget } from './api.js?v=20261031-gray-v1';
-import { renderDataState, setActiveNav } from './ui.js?v=20261031-gray-v1';
-import { loadSyncCenter } from './sync_center.js?v=20261031-gray-v1';
+import { renderDataState, setActiveNav } from './ui.js?v=20261031-ui-v1';
+import { loadSyncCenter } from './sync_center.js?v=20261031-ui-v1';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({

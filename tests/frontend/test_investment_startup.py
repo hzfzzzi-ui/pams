@@ -29,17 +29,20 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
         text = (PUBLIC / "assets/js" / name).read_text(encoding="utf-8")
         assert f"afterInvestmentStartup({function}, '{tab}')" in text
     ui = (PUBLIC / "assets/js/ui.js").read_text(encoding="utf-8")
-    assert ui.count("scheduleIdle(() => afterInvestmentStartup(") == 2
+    assert "createPageBootstrap({afterStartup: afterInvestmentStartup, warmCache: warmApiCache})" in ui
+    bootstrap = (PUBLIC / "assets/js/app/page_bootstrap.js").read_text(encoding="utf-8")
+    assert "afterStartup(() => {" in bootstrap
+    assert "if (!disposed) return callback();" in bootstrap
     assert "afterInvestmentNav(() => {" in (PUBLIC / "assets/js/lookthrough.js").read_text(encoding="utf-8")
 
 
 def test_investment_entries_share_one_startup_and_ui_module_version():
     html = (PUBLIC / "investments.html").read_text(encoding="utf-8")
     for name in ("holdings", "holdings_categories", "lookthrough", "transactions", "portfolio_risk", "portfolio_config"):
-        version = "20261031-gray-v1"
+        version = "20261031-ui-v1"
         assert f"assets/js/{name}.js?v={version}" in html
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
-        assert "./ui.js?v=20261031-gray-v1" in text
+        assert "./ui.js?v=20261031-ui-v1" in text
     for name in ("ui", "holdings_categories", "lookthrough", "portfolio_risk", "portfolio_config"):
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
         assert re.findall(r"investment_startup\.js\?v=([^'\"]+)", text) == ["20261031-gray-v1"]
