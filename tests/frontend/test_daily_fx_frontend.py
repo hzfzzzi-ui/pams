@@ -19,7 +19,7 @@ const fs = require('node:fs'), vm = require('node:vm');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const before = JSON.stringify(input);
 function load(file, globals) {
-  let source = fs.readFileSync('frontend/public/assets/js/' + file, 'utf8')
+  let source = require('./tests/frontend/holdings_renderer_fixture.cjs').sourceFor(file)
     .replace(/^\uFEFF/, '').replace(/^import .*;\r?$/gm, '')
     .replace(/\r?\nbindEvents\(\);\s*observeAnalysisVisibility\(\);\s*$/, '')
     .split(/\r?\nmain\(\)\./)[0];
@@ -341,5 +341,5 @@ def test_sidecar_has_no_financial_formulas_or_global_amount_writes():
     assert "dailyFxAccountBridgeHtml(" not in source.split("function renderReturnAttributionSummary()", 1)[1].split("function returnAttributionRowHtml", 1)[0]
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     for name in ("holdings.js", "holdings_categories.js", "lookthrough.js"):
-        version = "20261031-investment-charts-v1" if name == "holdings_categories.js" else "20261031-analysis-modules-v1" if name == "lookthrough.js" else "20261031-ui-v1"
+        version = "20261031-holdings-v1" if name in ("holdings.js", "holdings_categories.js") else "20261031-analysis-modules-v1" if name == "lookthrough.js" else "20261031-ui-v1"
         assert f'assets/js/{name}?v={version}' in html

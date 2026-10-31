@@ -12,11 +12,11 @@ def test_investment_loading_lifecycle():
 
 
 def test_nav_starts_before_holdings_barrier_and_only_for_analysis():
-    source = (Path(__file__).resolve().parents[2] / "frontend/public/assets/js/holdings_categories.js").read_text(encoding="utf-8")
-    main = source[source.index("async function main(){"):]
+    source = (Path(__file__).resolve().parents[2] / "frontend/public/assets/js/features/investment/holdings/summary_controller.js").read_text(encoding="utf-8")
+    main = source[source.index("  context.bootstrap?.();"): ]
     assert main.index("bindInvestmentPageTabs();") < main.index("loadInvestmentNavChartOnce()")
-    assert main.index("loadInvestmentNavChartOnce()") < main.index("await trackInvestmentHoldings")
-    assert main.index("runWhenInvestmentAnalysisVisible") < main.index("await trackInvestmentHoldings")
+    assert main.index("loadInvestmentNavChartOnce()") < main.index("instance.ready = load();")
+    assert main.index("runWhenInvestmentAnalysisVisible") < main.index("instance.ready = load();")
     assert "if (document.body.dataset.investTab === 'analysis')" in main
 
 
