@@ -1,4 +1,4 @@
-import { fmt2, fmtMoneyFixed2, fmtSignedMoneyFixed2, jget } from './api.js?v=20260606-refresh-v3';
+import { fmt2, fmtMoneyFixed2, fmtSignedMoneyFixed2, jget } from './api.js?v=20261031-risk-summary-retired-v1';
 
 export const byId = (id) => document.getElementById(id);
 

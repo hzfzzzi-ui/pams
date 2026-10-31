@@ -23,7 +23,6 @@ from pydantic import BaseModel
 # 导入端点路由
 from endpoints import prices
 from endpoints import holdings_trade
-from endpoints import risk
 from endpoints import ibkr
 from endpoints import investment_transactions
 from endpoints import ledger
@@ -116,7 +115,6 @@ app = FastAPI(title="pams-api-v2", version="2.0.0")
 # 注册路由
 app.include_router(prices.router, prefix="/api")
 app.include_router(holdings_trade.router, prefix="/api")
-app.include_router(risk.router, prefix="/api")
 app.include_router(ibkr.router, prefix="/api")
 app.include_router(investment_transactions.router, prefix="/api")
 app.include_router(ledger.router, prefix="/api")

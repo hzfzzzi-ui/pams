@@ -1,4 +1,4 @@
-import { escapeHtml as esc, formatCurrency, safeNum } from './utils.js?v=20260622-fund-pnl-v1';
+import { escapeHtml as esc, formatCurrency, safeNum } from './utils.js?v=20261031-risk-summary-retired-v1';
 
 function fmtCny(value) {
   return formatCurrency(value, 'CNY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

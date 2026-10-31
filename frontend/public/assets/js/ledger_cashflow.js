@@ -1,5 +1,5 @@
-import { accountLabel, jget, jpost } from './api.js?v=20260606-refresh-v3';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-legacy-css-v1';
+import { accountLabel, jget, jpost } from './api.js?v=20261031-risk-summary-retired-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
 import {
   byId as $,
   clearError,
@@ -12,7 +12,7 @@ import {
   setText,
   showError,
   toFiniteNumber as num,
-} from './utils.js?v=20260607-shared-format-v1';
+} from './utils.js?v=20261031-risk-summary-retired-v1';
 
 const state = {
   data: null,

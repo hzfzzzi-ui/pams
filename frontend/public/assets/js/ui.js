@@ -1,4 +1,4 @@
-import { warmApiCache } from './api.js?v=20260619-investment-hardening-v1';
+import { warmApiCache } from './api.js?v=20261031-risk-summary-retired-v1';
 import { afterInvestmentStartup } from './investment_startup.js?v=20261026-startup-order-v1';
 
 export function setActiveNav() {
@@ -235,17 +235,17 @@ function setupAppPreload(activePath, path) {
       ['more.html', 'document'],
       ['assets/css/style.css?v=20261031-legacy-css-v1', 'style'],
       ['assets/css/design-system.css?v=20261029-scope-style-v1', 'style'],
-      ['assets/js/api.js?v=20260619-investment-hardening-v1', 'script'],
-      ['assets/js/ui.js?v=20261031-legacy-css-v1', 'script'],
+      ['assets/js/api.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/ui.js?v=20261031-risk-summary-retired-v1', 'script'],
       ['assets/js/account_cash.js?v=20260606-cash-active-v1', 'script'],
-      ['assets/js/holdings.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/holdings_categories.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/lookthrough.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/ledger_cashflow.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/transactions.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/portfolio_risk.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/portfolio_config.js?v=20261031-legacy-css-v1', 'script'],
-      ['assets/js/more.js?v=20261031-legacy-css-v1', 'script'],
+      ['assets/js/holdings.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/holdings_categories.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/lookthrough.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/ledger_cashflow.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/transactions.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/portfolio_risk.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/portfolio_config.js?v=20261031-risk-summary-retired-v1', 'script'],
+      ['assets/js/more.js?v=20261031-risk-summary-retired-v1', 'script'],
     ].forEach(([href, as]) => addPrefetch(href, as));
   }).catch(() => {}), 250);
 
