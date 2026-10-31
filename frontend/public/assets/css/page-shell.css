@@ -1,0 +1,9 @@
+/* Shared page geometry; loaded after each page's existing styles. */
+html.pams-content body.app-shell { padding-bottom: 0 !important; }
+html.pams-content body.app-shell > .wrap { width: 100% !important; max-width: 430px !important; margin-inline: auto !important; padding-top: 0 !important; }
+html.pams-content .nav { display: none !important; }
+body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) { display: grid !important; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-columns: none !important; position: sticky !important; top: 0 !important; z-index: 50; gap: 0 !important; margin: 0 0 12px !important; padding: 0 !important; width: 100% !important; background: #05070a !important; border-bottom: 1px solid #21262d !important; }
+body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { display: flex !important; align-items: center; justify-content: center; min-height: 46px !important; padding: 0 4px !important; font-size: 14px !important; font-weight: 800 !important; line-height: 1.3 !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; background: transparent !important; color: #8b949e !important; }
+body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a.is-active { color: #e6edf3 !important; border-bottom-color: #58a6ff !important; }
+body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a::after { content: none !important; }
+body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a:focus-visible { outline: 2px solid #58a6ff; outline-offset: -3px; }

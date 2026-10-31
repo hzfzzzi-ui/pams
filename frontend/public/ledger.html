@@ -505,35 +505,17 @@
       .ledgerKpiGrid { grid-template-columns:1fr }
     }
   </style>
+  <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-shell-v1" />
 </head>
 <body class="page-ledger app-shell">
   <div class="wrap">
-    <div class="nav">
-      <a data-nav href="investments.html">投资</a>
-      <a data-nav href="ledger.html">收支</a>
-      <a data-nav href="more.html">更多</a>
-    </div>
-
-    <div class="pageHeader">
-      <div>
-        <h1>流水</h1>
-        <div class="pageSubtitle">现金流、账户流水与内部转账。</div>
-        <details class="compactDetails">
-          <summary>口径说明</summary>
-          <div class="pageSubtitle">按月查看消费结构、收入来源和资金流转。投资买卖明细已移到投资页，避免把现金消费和投资交易混在一起。</div>
-        </details>
-      </div>
-      <div class="pageMeta">
-        <a class="pill" href="accounts.html#transfers">资金流转匹配</a>
-      </div>
-    </div>
-    <div id="err" class="ledgerError"></div>
 
     <nav class="ledgerAnchorNav" aria-label="收支模块">
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
       <a href="#account-cashflow-section" data-ledger-tab="account">账户</a>
     </nav>
+<div id="err" class="ledgerError"></div>
 
     <div class="ledgerPanelGroup" data-ledger-panel="overview">
       <section class="ledgerSection ledgerTop ledgerJumpCard" id="cashflow-workbench" style="border-radius:0 !important;border:0 !important;background:transparent !important;box-shadow:none !important;">
