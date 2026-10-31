@@ -10,6 +10,7 @@ from psycopg2.extras import Json
 
 from domain.imports import account_import_store as store
 from domain.imports import account_import_preflight as preflight
+from domain.imports import isolation
 from domain.ledger.cashflow_fact import insert_cashflow_facts
 from domain.imports.account_import_plan import bank_leg
 from domain.investments.investment_trade_fact import insert_investment_trade_facts
@@ -20,19 +21,10 @@ def enabled() -> bool:
 
 
 def _isolated_source_enabled(cur):
-    """The experimental bridge only runs against explicitly marked test databases."""
-    if os.environ.get('PAMS_UNIFIED_SOURCE_ISOLATED', '').lower() != 'true':
-        return False
-    params = cur.connection.get_dsn_parameters()
-    if (params.get('host') not in {'127.0.0.1', 'localhost', '::1'} or
-        not re.fullmatch(r'pams_import_test_[0-9a-f]{32}', params.get('dbname', '')) or
-        cur.connection.server_version // 10000 != 16):
-        raise store.ImportProblem('isolated_only', '统一来源实验只允许隔离测试库', 403)
-    cur.execute("SELECT shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname=current_database()")
-    row = cur.fetchone()
-    if not row or row['marker'] != 'pams-isolated-account-import':
-        raise store.ImportProblem('isolated_only', '统一来源实验只允许隔离测试库', 403)
-    return True
+    try:
+        return isolation.source_enabled(cur)
+    except isolation.IsolationError as exc:
+        raise store.ImportProblem('isolated_only', '统一来源实验只允许隔离测试库', 403) from exc
 
 
 def _assert_no_source_batch(cur, batch_id):
