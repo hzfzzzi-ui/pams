@@ -4,6 +4,9 @@ Callers own the transaction. This module does not publish financial facts or
 replace the existing import pipeline.
 """
 from hashlib import sha256
+import json
+from collections.abc import Mapping
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -79,3 +82,61 @@ def review_item(cur: Any, *, batch_id: UUID, item_id: UUID, expected_revision: i
     if row is None:
         raise ValueError('source batch or item missing, stale, or not editable')
     return int(row[0])
+
+
+def _rows(cur: Any) -> list[dict[str, Any]]:
+    columns = [column[0] for column in cur.description]
+    return [dict(row) if isinstance(row, Mapping) else dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def _json_value(value: Any) -> str:
+    if isinstance(value, (date, datetime, UUID)):
+        return str(value)
+    raise TypeError(f'unsupported snapshot value: {type(value).__name__}')
+
+
+def lock_source_review(cur: Any, *, batch_id: UUID, expected_revision: int) -> dict[str, Any]:
+    """Lock and inspect source evidence; this snapshot does not permit publication.
+
+    The caller must keep the transaction open and use its own account/fact
+    preflight before publishing. No source or financial records are modified.
+    """
+    cur.execute(
+        """SELECT batch_id, account_code, business_type, institution, acquisition_method,
+                  date_from, date_to, completeness, status, revision
+           FROM public.source_batches WHERE batch_id=%s FOR UPDATE""", (str(batch_id),),
+    )
+    batches = _rows(cur)
+    if not batches:
+        raise ValueError('source batch missing')
+    batch = batches[0]
+    if batch['revision'] != expected_revision or batch['status'] not in ('draft', 'review'):
+        raise ValueError('source batch stale or not editable')
+
+    cur.execute(
+        """SELECT file_id, filename, file_format, content_type, sha256, content
+           FROM public.source_files WHERE batch_id=%s ORDER BY file_id""", (str(batch_id),),
+    )
+    files = _rows(cur)
+    bad_file = False
+    for file in files:
+        content = file.pop('content')
+        if sha256(bytes(content)).hexdigest() != file['sha256']:
+            bad_file = True
+    cur.execute(
+        """SELECT source_item_id, file_id, source_uid, external_id, location,
+                  parse_method, raw_fields, parsed_fields, record_hash, review_status, review_note
+           FROM public.source_items WHERE batch_id=%s ORDER BY source_uid, source_item_id""",
+        (str(batch_id),),
+    )
+    items = _rows(cur)
+    blockers = []
+    if bad_file:
+        blockers.append('file_hash_mismatch')
+    if not any(item['review_status'] == 'confirmed' for item in items):
+        blockers.append('no_confirmed_items')
+    if any(item['review_status'] == 'pending' for item in items):
+        blockers.append('pending_items')
+    payload = {'batch': batch, 'files': files, 'items': items, 'blockers': blockers}
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=_json_value)
+    return {'snapshot': payload, 'source_snapshot_sha256': sha256(canonical.encode('utf-8')).hexdigest()}
