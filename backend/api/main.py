@@ -6,7 +6,7 @@ PAMS API V2 - 基于重构后的数据库结构
 """
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from datetime import date as Date, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import urlparse
@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 import yaml
-from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -464,157 +464,26 @@ def _owner_ratio_case_sql(alias: str = "h") -> tuple[str, list[Any]]:
 
 # ==================== 账户管理 ====================
 
-@app.get("/api/accounts")
-def get_accounts(active: bool = Query(True)):
-    """获取账户列表"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_accounts_payload(cur, active=active))
+from endpoints.core_routes import create_core_router
 
-@app.get("/api/accounts/{account_code}")
-def get_account_detail(account_code: str):
-    """获取单个账户详情"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            account_data = _build_account_detail_payload(cur, account_code=account_code)
-            if account_data is None:
-                raise HTTPException(status_code=404, detail=f"账户 {account_code} 不存在")
-            return json(account_data)
+_core_router, (
+    get_accounts, get_account_detail, get_categories, holdings_latest,
+    holdings_summary, holdings_by_account, get_latest_fx_rates, refresh_fx_rates,
+) = create_core_router(
+    get_conn=lambda *args, **kwargs: get_conn(*args, **kwargs),
+    json=lambda *args, **kwargs: json(*args, **kwargs),
+    _build_accounts_payload=lambda *args, **kwargs: _build_accounts_payload(*args, **kwargs),
+    _build_account_detail_payload=lambda *args, **kwargs: _build_account_detail_payload(*args, **kwargs),
+    _build_categories_payload=lambda *args, **kwargs: _build_categories_payload(*args, **kwargs),
+    _build_api_holdings_latest_payload=lambda *args, **kwargs: _build_api_holdings_latest_payload(*args, **kwargs),
+    _holdings_market_view_as_of=lambda *args, **kwargs: _holdings_market_view_as_of(*args, **kwargs),
+    _owner_ratio_case_sql=lambda *args, **kwargs: _owner_ratio_case_sql(*args, **kwargs),
+    _build_holdings_summary_payload=lambda *args, **kwargs: _build_holdings_summary_payload(*args, **kwargs),
+    _build_holdings_by_account_payload=lambda *args, **kwargs: _build_holdings_by_account_payload(*args, **kwargs),
+    _build_latest_fx_rates_payload=lambda *args, **kwargs: _build_latest_fx_rates_payload(*args, **kwargs),
+)
+app.include_router(_core_router)
 
-# ==================== 资产分类 ====================
-
-@app.get("/api/categories")
-def get_categories():
-    """获取所有资产分类"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_categories_payload(cur))
-
-# ==================== 持仓查询 ====================
-
-@app.get("/api/holdings/latest")
-def holdings_latest(
-    account_code: Optional[str] = None,
-    major_category: Optional[str] = None,
-    limit: int = Query(500, ge=1, le=5000),
-):
-    """获取最新持仓"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(
-                _build_api_holdings_latest_payload(
-                    cur,
-                    account_code=account_code,
-                    major_category=major_category,
-                    limit=limit,
-                    view_as_of=_holdings_market_view_as_of(cur),
-                )
-            )
-
-@app.get("/api/holdings/summary")
-def holdings_summary(base_currency: str = Query("CNY")):
-    """持仓汇总统计（按大类分组，含汇率换算）"""
-    owner_ratio_sql, owner_ratio_params = _owner_ratio_case_sql("h")
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(
-                _build_holdings_summary_payload(
-                    cur,
-                    base_currency=base_currency,
-                    view_as_of=_holdings_market_view_as_of(cur),
-                    owner_ratio_sql=owner_ratio_sql,
-                    owner_ratio_params=owner_ratio_params,
-                )
-            )
-
-@app.get("/api/holdings/by-account")
-def holdings_by_account(base_currency: str = Query("CNY")):
-    """按账户汇总持仓（含汇率换算）"""
-    owner_ratio_sql, owner_ratio_params = _owner_ratio_case_sql("h")
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(
-                _build_holdings_by_account_payload(
-                    cur,
-                    base_currency=base_currency,
-                    view_as_of=_holdings_market_view_as_of(cur),
-                    owner_ratio_sql=owner_ratio_sql,
-                    owner_ratio_params=owner_ratio_params,
-                )
-            )
-
-# ==================== 汇率查询 ====================
-
-@app.get("/api/fx-rates/latest")
-def get_latest_fx_rates(base_currency: str = Query("CNY")):
-    """获取最新汇率"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_latest_fx_rates_payload(cur, base_currency=base_currency))
-
-@app.post("/api/fx-rates/refresh")
-def refresh_fx_rates():
-    """从公开API获取最新汇率并存储双向汇率"""
-    import urllib.request
-    import json as json_mod
-    from datetime import date as d_date
-
-    today = d_date.today()
-    currencies = ['CNY', 'USD', 'MXN', 'HKD', 'KRW', 'SEK']
-    all_rates = {}
-
-    # 分别从公开API获取每个币种为基准的汇率
-    for base in currencies:
-        url = f"https://open.er-api.com/v6/latest/{base}"
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'PAMS/2.0'})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json_mod.loads(resp.read().decode())
-                if data.get('result') == 'success':
-                    all_rates[base] = data['rates']
-        except Exception as e:
-            return json({"error": f"获取{base}汇率失败: {str(e)}"}, status_code=502)
-
-    # 存储到数据库
-    # API convention: "1 [api_base] = [rate] [target]"
-    # PAMS convention: "1 [quote_currency] = [rate] [base_currency]"
-    # So: pams_base = target, pams_quote = api_base
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            stored = 0
-            for api_base in currencies:
-                rates = all_rates.get(api_base, {})
-                for target_cur in currencies:
-                    if target_cur == api_base:
-                        rate_val = 1.0
-                    else:
-                        rate_val = rates.get(target_cur)
-                        if rate_val is None:
-                            continue
-
-                    pams_base = target_cur   # PAMS base = API target
-                    pams_quote = api_base    # PAMS quote = API base
-                    cur.execute("""
-                        INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (as_of, base_currency, quote_currency)
-                        DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source
-                    """, (today, pams_base, pams_quote, rate_val, 'exchangerate-api'))
-                    stored += 1
-
-            conn.commit()
-
-    return json({
-        "success": True,
-        "as_of": today.isoformat(),
-        "stored": stored,
-        "rates_preview": {
-            "USD/CNY": all_rates.get('USD', {}).get('CNY'),
-            "MXN/CNY": all_rates.get('MXN', {}).get('CNY'),
-            "CNY/USD": all_rates.get('CNY', {}).get('USD'),
-            "CNY/MXN": all_rates.get('CNY', {}).get('MXN'),
-        }
-    })
 
 
 # ==================== 前端兼容端点 ====================
@@ -660,471 +529,72 @@ def _build_summary2_latest_payload_for_request(cur) -> dict[str, Any]:
                                                      account_balances=account_balances)
 
 
-@app.get("/summary2/latest")
-def summary2_latest():
-    """总览页汇总（前端兼容）- 使用major_category替代asset_class_map"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_summary2_latest_payload_for_request(cur))
+from endpoints.compatibility_routes import create_compatibility_router
 
-@app.get("/holdings/latest")
-def holdings_latest_compat(
-    limit: int = Query(500, ge=1, le=5000),
-    include_closed: bool = Query(False, alias="includeClosed"),
-):
-    """持仓页（前端兼容格式：account, type, name, currency, market_value, holding_pnl, daily_pnl）"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            def load(view_date, daily_date):
-                return _build_holdings_latest_payload(
-                    cur,
-                    limit=limit,
-                    include_closed=include_closed,
-                    view_as_of=view_date,
-                    excluded_accounts=_excluded_holding_accounts(),
-                    owner_ratios=_account_owner_ratios(),
-                    default_owner_ratio=_default_owner_ratio(),
-                    daily_pnl_start_as_of=daily_date,
-                )
-            active_date = _daily_pnl_view_as_of()
-            return json(attach_recent_market_returns(
-                cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
-                load_date=lambda day: load(day, day),
-            ))
+_compatibility_router, (
+    summary2_latest,
+    holdings_latest_compat,
+    holdings_by_category,
+    account_performance,
+    holdings_history_by_category,
+    nav_series,
+    investment_section_return_series,
+    refresh_investment_section_return_series_snapshot,
+    nav_weekly,
+    investment_return_series,
+    refresh_investment_return_series_snapshot,
+    nav_drawdown,
+    cashflow_series,
+    risk_latest,
+) = create_compatibility_router(
+    ANCHOR_NAV_DATE=ANCHOR_NAV_DATE,
+    _account_initial_capital_cny=lambda *args, **kwargs: _account_initial_capital_cny(*args, **kwargs),
+    _account_owner_ratio=lambda *args, **kwargs: _account_owner_ratio(*args, **kwargs),
+    _account_owner_ratios=lambda *args, **kwargs: _account_owner_ratios(*args, **kwargs),
+    _apply_published_valuation_state_to_return_series_payload=lambda *args, **kwargs: _apply_published_valuation_state_to_return_series_payload(*args, **kwargs),
+    _apply_reported_account_performance=lambda *args, **kwargs: _apply_reported_account_performance(*args, **kwargs),
+    _apply_section_holdings_pnl_overlay=lambda *args, **kwargs: _apply_section_holdings_pnl_overlay(*args, **kwargs),
+    _apply_summary_pnl_to_return_series_payload=lambda *args, **kwargs: _apply_summary_pnl_to_return_series_payload(*args, **kwargs),
+    _build_account_performance_payload=lambda *args, **kwargs: _build_account_performance_payload(*args, **kwargs),
+    _build_cashflow_series_payload=lambda *args, **kwargs: _build_cashflow_series_payload(*args, **kwargs),
+    _build_holdings_by_category_payload=lambda *args, **kwargs: _build_holdings_by_category_payload(*args, **kwargs),
+    _build_holdings_history_payload=lambda *args, **kwargs: _build_holdings_history_payload(*args, **kwargs),
+    _build_holdings_latest_payload=lambda *args, **kwargs: _build_holdings_latest_payload(*args, **kwargs),
+    _build_investment_return_series_payload=lambda *args, **kwargs: _build_investment_return_series_payload(*args, **kwargs),
+    _build_investment_return_series_payload_from_snapshot=lambda *args, **kwargs: _build_investment_return_series_payload_from_snapshot(*args, **kwargs),
+    _build_nav_drawdown_payload=lambda *args, **kwargs: _build_nav_drawdown_payload(*args, **kwargs),
+    _build_nav_series_payload=lambda *args, **kwargs: _build_nav_series_payload(*args, **kwargs),
+    _build_nav_weekly_payload=lambda *args, **kwargs: _build_nav_weekly_payload(*args, **kwargs),
+    _build_risk_latest_payload=lambda *args, **kwargs: _build_risk_latest_payload(*args, **kwargs),
+    _build_section_return_series_payload=lambda *args, **kwargs: _build_section_return_series_payload(*args, **kwargs),
+    _build_section_return_series_payload_from_snapshot=lambda *args, **kwargs: _build_section_return_series_payload_from_snapshot(*args, **kwargs),
+    _build_summary2_latest_payload_for_request=lambda *args, **kwargs: _build_summary2_latest_payload_for_request(*args, **kwargs),
+    _current_nav_account_values_from_parts=lambda *args, **kwargs: _current_nav_account_values_from_parts(*args, **kwargs),
+    _current_nav_bucket_from_parts=lambda *args, **kwargs: _current_nav_bucket_from_parts(*args, **kwargs),
+    _daily_pnl_view_as_of=lambda *args, **kwargs: _daily_pnl_view_as_of(*args, **kwargs),
+    _default_owner_ratio=lambda *args, **kwargs: _default_owner_ratio(*args, **kwargs),
+    _excluded_holding_accounts=lambda *args, **kwargs: _excluded_holding_accounts(*args, **kwargs),
+    _holdings_market_view_as_of=lambda *args, **kwargs: _holdings_market_view_as_of(*args, **kwargs),
+    _investment_return_view_as_of=lambda *args, **kwargs: _investment_return_view_as_of(*args, **kwargs),
+    _investment_today_label_date=lambda *args, **kwargs: _investment_today_label_date(*args, **kwargs),
+    _is_published_valuation_fresh_for_date=lambda *args, **kwargs: _is_published_valuation_fresh_for_date(*args, **kwargs),
+    _latest_published_portfolio_valuation_state=lambda *args, **kwargs: _latest_published_portfolio_valuation_state(*args, **kwargs),
+    _load_account_balances=lambda *args, **kwargs: _load_account_balances(*args, **kwargs),
+    _load_investment_positions=lambda *args, **kwargs: _load_investment_positions(*args, **kwargs),
+    _load_portfolio_accounts_config=lambda *args, **kwargs: _load_portfolio_accounts_config(*args, **kwargs),
+    _owner_ratio_case_sql=lambda *args, **kwargs: _owner_ratio_case_sql(*args, **kwargs),
+    _published_daily_close_compatible=lambda *args, **kwargs: _published_daily_close_compatible(*args, **kwargs),
+    _published_nav_bucket_from_row=lambda *args, **kwargs: _published_nav_bucket_from_row(*args, **kwargs),
+    _reported_returns_cfg=lambda *args, **kwargs: _reported_returns_cfg(*args, **kwargs),
+    _upsert_investment_return_series_snapshot=lambda *args, **kwargs: _upsert_investment_return_series_snapshot(*args, **kwargs),
+    _view_as_of=lambda *args, **kwargs: _view_as_of(*args, **kwargs),
+    accounts_endpoint=accounts_endpoint,
+    attach_recent_market_returns=lambda *args, **kwargs: attach_recent_market_returns(*args, **kwargs),
+    get_conn=lambda *args, **kwargs: get_conn(*args, **kwargs),
+    json=lambda *args, **kwargs: json(*args, **kwargs),
+)
+app.include_router(_compatibility_router)
 
-
-@app.get("/holdings/by-category/{category}")
-def holdings_by_category(
-    category: str,
-    limit: int = Query(500, ge=1, le=5000),
-    minor_category: Optional[str] = None,
-    include_closed: bool = Query(False, alias="includeClosed"),
-    include_closed_legacy: Optional[bool] = Query(None, alias="include_closed"),
-):
-    """Return holdings by major category."""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            def load(view_date, daily_date):
-                return _build_holdings_by_category_payload(
-                    cur,
-                    category=category,
-                    limit=limit,
-                    minor_category=minor_category,
-                    include_closed=include_closed if include_closed_legacy is None else include_closed_legacy,
-                    view_as_of=view_date,
-                    excluded_accounts=_excluded_holding_accounts(),
-                    owner_ratios=_account_owner_ratios(),
-                    default_owner_ratio=_default_owner_ratio(),
-                    daily_pnl_start_as_of=daily_date,
-                )
-            active_date = _daily_pnl_view_as_of()
-            return json(attach_recent_market_returns(
-                cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
-                load_date=lambda day: load(day, day),
-            ))
-
-@app.get("/api/account-performance/{account_code}")
-def account_performance(account_code: str):
-    """Return account-level personal performance using configured owner ratio and initial capital."""
-    owner_ratio = _account_owner_ratio(account_code)
-    initial_capital = _account_initial_capital_cny(account_code)
-    overview_payload = accounts_endpoint._overview_payload()
-    account_overview = next(
-        (item for item in overview_payload.get("accounts", []) if str(item.get("account_code") or "") == account_code),
-        {},
-    )
-    primary_balance = account_overview.get("primary_balance") or {}
-    gross_balance = primary_balance.get("gross_amount")
-    net_balance = primary_balance.get("amount")
-    balance_as_of = primary_balance.get("as_of")
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            payload = _build_account_performance_payload(
-                cur,
-                account_code=account_code,
-                owner_ratio=owner_ratio,
-                initial_capital=initial_capital,
-                net_liquidation_gross=Decimal(str(gross_balance)) if gross_balance is not None else None,
-                net_liquidation=Decimal(str(net_balance)) if net_balance is not None else None,
-                net_liquidation_as_of=balance_as_of,
-                daily_pnl_label_date=_daily_pnl_view_as_of(),
-            )
-            if payload is None:
-                raise HTTPException(status_code=404, detail=f"Account {account_code} has no holdings snapshot")
-            return json(_apply_reported_account_performance(payload, account_code))
-@app.get("/holdings/history/{category}")
-def holdings_history_by_category(
-    category: str,
-    days: int = Query(90, ge=1, le=365),
-    interval: str = Query("daily"),
-    minor_category: Optional[str] = None,
-    baseCurrency: str = "CNY",
-):
-    """Return holdings history by category."""
-    owner_ratio_sql, owner_ratio_params = _owner_ratio_case_sql("h")
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(
-                _build_holdings_history_payload(
-                    cur,
-                    category=category,
-                    days=days,
-                    interval=interval,
-                    minor_category=minor_category,
-                    view_as_of=_view_as_of(),
-                    tonghuashun_owner_ratio=_account_owner_ratio("tonghuashun"),
-                    owner_ratio_sql=owner_ratio_sql,
-                    owner_ratio_params=owner_ratio_params,
-                    excluded_accounts=sorted(_excluded_holding_accounts()),
-                    base_currency=baseCurrency,
-                )
-            )
-
-
-@app.get("/nav/series")
-def nav_series(limit: int = Query(90, ge=1, le=365), baseCurrency: str = "CNY"):
-    """NAV时间序列"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_nav_series_payload(cur, limit=limit, base_currency=baseCurrency))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-@app.get("/investment/section-return-series")
-def investment_section_return_series(
-    section: str = Query(..., pattern="^(a_stock|a_fund|us_stock|precious_metal)$"),
-    start: str = Query("2026-01-01"),
-    interval: str = Query("daily", pattern="^(daily|weekly)$"),
-    baseCurrency: str = "CNY",
-):
-    """Return section return rates after removing deposits, subscriptions, and redemptions."""
-    try:
-        start_date = Date.fromisoformat(start)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
-
-    payload = accounts_endpoint._overview_payload()
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            view_as_of = _investment_return_view_as_of(cur)
-            snapshot_payload = _build_section_return_series_payload_from_snapshot(
-                cur,
-                section=section,
-                start_date=start_date,
-                interval=interval,
-                base_currency=baseCurrency,
-                view_as_of=view_as_of,
-                today_label_date=_investment_today_label_date(),
-                require_data_completeness=True,
-            )
-            if snapshot_payload is not None:
-                return json(_apply_section_holdings_pnl_overlay(cur, section=section, payload=snapshot_payload))
-            payload = _build_section_return_series_payload(
-                cur,
-                section=section,
-                start_date=start_date,
-                interval=interval,
-                base_currency=baseCurrency,
-                view_as_of=view_as_of,
-                reported_returns_cfg=_reported_returns_cfg(),
-                overview_payload=payload,
-                owner_ratio_case_sql=_owner_ratio_case_sql,
-                account_owner_ratio=_account_owner_ratio,
-                excluded_holding_accounts=_excluded_holding_accounts(),
-                today_label_date=_investment_today_label_date(),
-            )
-            payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
-            return json(payload)
-
-
-@app.post("/investment/section-return-series/snapshot")
-def refresh_investment_section_return_series_snapshot(
-    section: str = Query(..., pattern="^(a_stock|a_fund|us_stock|precious_metal)$"),
-    start: str = Query("2026-01-01"),
-    interval: str = Query("daily", pattern="^(daily|weekly)$"),
-    baseCurrency: str = "CNY",
-):
-    """Explicitly rebuild and persist a section return-series snapshot."""
-    try:
-        start_date = Date.fromisoformat(start)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
-
-    overview_payload = accounts_endpoint._overview_payload()
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            view_as_of = _investment_return_view_as_of(cur)
-            payload = _build_section_return_series_payload(
-                cur,
-                section=section,
-                start_date=start_date,
-                interval=interval,
-                base_currency=baseCurrency,
-                view_as_of=view_as_of,
-                reported_returns_cfg=_reported_returns_cfg(),
-                overview_payload=overview_payload,
-                owner_ratio_case_sql=_owner_ratio_case_sql,
-                account_owner_ratio=_account_owner_ratio,
-                excluded_holding_accounts=_excluded_holding_accounts(),
-                today_label_date=_investment_today_label_date(),
-            )
-            payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
-            written = _upsert_investment_return_series_snapshot(
-                cur,
-                payload=payload,
-                base_currency=baseCurrency,
-                section=section,
-            )
-        conn.commit()
-    return json(
-        {
-            "status": "ok",
-            "section": section,
-            "base_currency": baseCurrency,
-            "rows": len(payload.get("rows") or []),
-            "written": written,
-            "as_of": payload.get("as_of"),
-        }
-    )
-
-
-@app.get("/nav/weekly")
-def nav_weekly(
-    start: str = Query("2026-01-01"),
-    baseCurrency: str = "CNY",
-    latest: bool = Query(False),
-    interval: str = Query("weekly", pattern="^(daily|weekly)$"),
-):
-    """Return weekly NAV using account anchors and back-cast statement flows."""
-    try:
-        start_date = Date.fromisoformat(start)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
-
-    payload = accounts_endpoint._overview_payload()
-
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
-            from domain.brokers.ibkr.ibkr_daily_close_read import configured as daily_close_configured
-            account_cfg = _load_portfolio_accounts_config() if latest and daily_close_configured() else None
-            account_balances = _load_account_balances(cur, baseCurrency, account_cfg) if account_cfg is not None else None
-            published_state = (
-                _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
-                if latest
-                else None
-            )
-            published_state_fresh = bool(
-                published_state
-                and _is_published_valuation_fresh_for_date(published_state, current_view_as_of)
-                and _published_daily_close_compatible(published_state, account_balances=account_balances)
-            )
-            terminal_date = (
-                published_state["valuation_date"]
-                if published_state_fresh and published_state and published_state.get("valuation_date")
-                else current_view_as_of
-            )
-            terminal_nav_bucket = None
-            terminal_account_values = None
-            if published_state_fresh and published_state:
-                terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
-            elif latest:
-                account_cfg = account_cfg if account_cfg is not None else _load_portfolio_accounts_config()
-                account_balances = (account_balances if account_balances is not None
-                                    else _load_account_balances(cur, baseCurrency, account_cfg))
-                investment_positions = _load_investment_positions(
-                    cur,
-                    baseCurrency,
-                    account_cfg,
-                    account_balances=account_balances,
-                )
-                current_as_of_dates = [
-                    str(item.get("as_of") or "")[:10]
-                    for item in [*account_balances, *investment_positions]
-                    if item.get("as_of")
-                ]
-                if current_as_of_dates:
-                    terminal_date = Date.fromisoformat(max(current_as_of_dates))
-                terminal_nav_bucket = _current_nav_bucket_from_parts(
-                    account_balances=account_balances,
-                    investment_positions=investment_positions,
-                )
-                terminal_account_values = _current_nav_account_values_from_parts(
-                    account_balances=account_balances,
-                    investment_positions=investment_positions,
-                )
-            return json(
-                _build_nav_weekly_payload(
-                    cur,
-                    start_date=start_date,
-                    base_currency=baseCurrency,
-                    overview_payload=payload,
-                    owner_ratio_case_sql=_owner_ratio_case_sql,
-                    account_owner_ratio=_account_owner_ratio,
-                    terminal_date=terminal_date,
-                    terminal_nav_bucket=terminal_nav_bucket,
-                    terminal_account_values_cny=terminal_account_values,
-                    interval=interval,
-                )
-            )
-
-
-@app.get("/investment/return-series")
-def investment_return_series(
-    start: str = Query("2026-01-01"),
-    interval: str = Query("daily", pattern="^(daily|weekly)$"),
-    baseCurrency: str = "CNY",
-):
-    """Return sampled investment return rate based on market value, cost, and confirmed income."""
-    try:
-        start_date = Date.fromisoformat(start)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
-
-    payload = accounts_endpoint._overview_payload()
-
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            view_as_of = _investment_return_view_as_of(cur)
-            if start_date > view_as_of:
-                start_date = view_as_of
-            snapshot_payload = _build_investment_return_series_payload_from_snapshot(
-                cur,
-                start_date=start_date,
-                interval=interval,
-                base_currency=baseCurrency,
-                view_as_of=view_as_of,
-                today_label_date=_investment_today_label_date(),
-                require_data_completeness=True,
-            )
-            if snapshot_payload is not None:
-                valuation_state = _latest_published_portfolio_valuation_state(
-                    cur,
-                    base_currency=baseCurrency,
-                )
-                payload_with_valuation = (
-                    _apply_published_valuation_state_to_return_series_payload(
-                        snapshot_payload,
-                        valuation_state,
-                    )
-                )
-                summary_payload = _build_summary2_latest_payload_for_request(cur)
-                return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
-            payload = _build_investment_return_series_payload(
-                cur,
-                start_date=start_date,
-                interval=interval,
-                base_currency=baseCurrency,
-                view_as_of=view_as_of,
-                overview_payload=payload,
-                reported_returns_cfg=_reported_returns_cfg(),
-                owner_ratio_case_sql=_owner_ratio_case_sql,
-                account_owner_ratio=_account_owner_ratio,
-                account_initial_capital_cny=_account_initial_capital_cny,
-                excluded_holding_accounts=_excluded_holding_accounts(),
-                today_label_date=_investment_today_label_date(),
-            )
-            valuation_state = _latest_published_portfolio_valuation_state(
-                cur,
-                base_currency=baseCurrency,
-            )
-            payload_with_valuation = (
-                _apply_published_valuation_state_to_return_series_payload(
-                    payload,
-                    valuation_state,
-                )
-            )
-            summary_payload = _build_summary2_latest_payload_for_request(cur)
-            return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
-
-
-@app.post("/investment/return-series/snapshot")
-def refresh_investment_return_series_snapshot(
-    start: str = Query("2026-01-01"),
-    interval: str = Query("daily", pattern="^(daily|weekly)$"),
-    baseCurrency: str = "CNY",
-):
-    """Explicitly rebuild and persist the total investment return-series snapshot."""
-    try:
-        start_date = Date.fromisoformat(start)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
-
-    overview_payload = accounts_endpoint._overview_payload()
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            view_as_of = _investment_return_view_as_of(cur)
-            if start_date > view_as_of:
-                start_date = view_as_of
-            payload = _build_investment_return_series_payload(
-                cur,
-                start_date=start_date,
-                interval=interval,
-                base_currency=baseCurrency,
-                view_as_of=view_as_of,
-                overview_payload=overview_payload,
-                reported_returns_cfg=_reported_returns_cfg(),
-                owner_ratio_case_sql=_owner_ratio_case_sql,
-                account_owner_ratio=_account_owner_ratio,
-                account_initial_capital_cny=_account_initial_capital_cny,
-                excluded_holding_accounts=_excluded_holding_accounts(),
-                today_label_date=_investment_today_label_date(),
-            )
-            written = _upsert_investment_return_series_snapshot(
-                cur,
-                payload=payload,
-                base_currency=baseCurrency,
-            )
-        conn.commit()
-    return json(
-        {
-            "status": "ok",
-            "section": "total",
-            "base_currency": baseCurrency,
-            "rows": len(payload.get("rows") or []),
-            "written": written,
-            "as_of": payload.get("as_of"),
-        }
-    )
-
-
-@app.get("/nav/drawdown")
-def nav_drawdown(limit: int = Query(365, ge=2, le=5000)):
-    """NAV回撤"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_nav_drawdown_payload(cur, limit=limit))
-@app.get("/cashflow/series")
-def cashflow_series(limit: int = Query(30, ge=1, le=365), currency: str = "CNY"):
-    """现金流序列（占位）"""
-    return json(_build_cashflow_series_payload(limit=limit, currency=currency))
-
-
-@app.get("/risk/latest")
-def risk_latest(limit: int = Query(100, ge=1, le=1000)):
-    """风险事件"""
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return json(_build_risk_latest_payload(cur, limit=limit))
 
 
 

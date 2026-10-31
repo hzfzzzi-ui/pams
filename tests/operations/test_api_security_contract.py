@@ -41,27 +41,27 @@ def test_analysis_get_endpoints_do_not_expose_asset_master_sync() -> None:
 
 
 def test_investment_return_series_get_endpoints_are_read_only() -> None:
-    main_py = (REPO_ROOT / "backend" / "api" / "main.py").read_text(encoding="utf-8")
+    main_py = (REPO_ROOT / "backend" / "api" / "endpoints" / "compatibility_routes.py").read_text(encoding="utf-8")
 
     section_get = re.search(
-        r'@app\.get\("/investment/section-return-series"\)(?P<body>.*?)'
-        r'@app\.post\("/investment/section-return-series/snapshot"\)',
+        r'@router\.get\("/investment/section-return-series"\)(?P<body>.*?)'
+        r'@router\.post\("/investment/section-return-series/snapshot"\)',
         main_py,
         re.S,
     )
     total_get = re.search(
-        r'@app\.get\("/investment/return-series"\)(?P<body>.*?)'
-        r'@app\.post\("/investment/return-series/snapshot"\)',
+        r'@router\.get\("/investment/return-series"\)(?P<body>.*?)'
+        r'@router\.post\("/investment/return-series/snapshot"\)',
         main_py,
         re.S,
     )
     section_post = re.search(
-        r'@app\.post\("/investment/section-return-series/snapshot"\)(?P<body>.*?)@app\.get\("/nav/weekly"\)',
+        r'@router\.post\("/investment/section-return-series/snapshot"\)(?P<body>.*?)@router\.get\("/nav/weekly"\)',
         main_py,
         re.S,
     )
     total_post = re.search(
-        r'@app\.post\("/investment/return-series/snapshot"\)(?P<body>.*?)@app\.get\("/nav/drawdown"\)',
+        r'@router\.post\("/investment/return-series/snapshot"\)(?P<body>.*?)@router\.get\("/nav/drawdown"\)',
         main_py,
         re.S,
     )

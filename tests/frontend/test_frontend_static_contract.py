@@ -104,6 +104,8 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     assert "'index.html': 'investments.html'" in ui_js
     assert "'risk.html': 'investments.html'" in ui_js
     assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html'])" in ui_js
+    assert "research.html" not in ui_js
+    assert "research: 'more.html'" not in ui_js
     assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
     assert "const stateRole = tone === 'error' ? 'alert' : 'status'" in ui_js
     assert "const liveMode = tone === 'error' ? 'assertive' : 'polite'" in ui_js
@@ -1204,6 +1206,7 @@ def test_investment_trade_review_uses_fact_annotations_and_sheet() -> None:
 
 def test_holdings_category_uses_market_view_date() -> None:
     api_py = Path("backend/api/main.py").read_text(encoding="utf-8")
+    api_py += Path("backend/api/endpoints/compatibility_routes.py").read_text(encoding="utf-8")
 
     assert "def _holdings_market_view_as_of" in api_py
     assert "_market_data_candidate_date" in api_py
@@ -1214,6 +1217,7 @@ def test_holdings_category_uses_market_view_date() -> None:
 
 def test_return_charts_use_daily_pnl_view_date() -> None:
     api_py = Path("backend/api/main.py").read_text(encoding="utf-8")
+    api_py += Path("backend/api/endpoints/compatibility_routes.py").read_text(encoding="utf-8")
     function_body = api_py.split("def _investment_return_view_as_of", 1)[1].split("def _investment_today_label_date", 1)[0]
 
     assert "Return charts use the same daily-PnL label as the holdings page" in function_body
@@ -1523,6 +1527,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "gzip on;" in dockerfile
     assert "location /holdings/" in dockerfile
     assert "summary2|nav|risk|cashflow" in dockerfile
+    assert "location ~ ^/(policy|watchlist)(/|$) { return 404; }" in dockerfile
     assert "location = /research.html { return 404; }" in dockerfile
     assert "proxy_pass http://pams-api:8000;" in dockerfile
     assert 'location /assets/' in dockerfile
@@ -1562,6 +1567,8 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
 
 def test_holding_summary_uses_market_view_date() -> None:
     api_py = Path("backend/api/main.py").read_text(encoding="utf-8")
+    api_py += Path("backend/api/endpoints/compatibility_routes.py").read_text(encoding="utf-8")
+    api_py += Path("backend/api/endpoints/core_routes.py").read_text(encoding="utf-8")
 
     assert "def _holdings_market_view_as_of" in api_py
     assert api_py.count("view_as_of=_holdings_market_view_as_of(cur)") >= 4
