@@ -46,7 +46,7 @@ pams/
 │  ├─ frontend/                  页面契约、JS 和交互回归
 │  └─ support/                   隔离数据库与演练辅助
 ├─ database/postgres/schema/     结构定义与历史 SQL；不可无条件全量执行
-├─ config/                       业务配置：账户、收益、分类、风控
+├─ config/                       应用本位币、账户、收益、分类、风控
 ├─ gateway/                      Caddy 网关配置
 ├─ scripts/                      日结、来源核验与发布身份工具
 ├─ docs/                         当前业务契约和开发规则

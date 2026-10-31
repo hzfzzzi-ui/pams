@@ -6,10 +6,10 @@ from typing import Any, Callable, Mapping
 import pandas as pd
 import yaml
 
-from src.core.risk_engine import ensure_positions
+from domain.risk.core.risk_engine import ensure_positions
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_CONCENTRATION_MAP_PATH = REPO_ROOT / "config" / "risk_concentration.yaml"
 
 ClassifierLookup = Mapping[str, str] | Callable[[str], str | None] | None

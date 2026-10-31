@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from domain.configuration import resolve_base_currency
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_RISK_LIMITS_PATH = REPO_ROOT / "config" / "risk_limits.yaml"
 DEFAULT_FACTOR_MAP_PATH = REPO_ROOT / "config" / "factor_map.yaml"
 
@@ -20,7 +21,10 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
 
 def load_risk_limits(path: str | Path = DEFAULT_RISK_LIMITS_PATH) -> dict[str, Any]:
     """Load portfolio risk limits from YAML."""
-    return load_yaml(path)
+    limits = load_yaml(path)
+    if isinstance(limits, dict):
+        limits["base_currency"] = resolve_base_currency(Path(path).parent, limits)
+    return limits
 
 
 def load_factor_map(path: str | Path = DEFAULT_FACTOR_MAP_PATH) -> dict[str, Any]:

@@ -9,14 +9,15 @@
 | config/accounts.yaml | 账户、流水、组合状态 | PAMS_ACCOUNTS_CONFIG 或 /app/config/accounts.yaml；部分读取者在文件不存在时回退源码 config |
 | config/investment_returns.yaml | 投资收益、交易及归因 | PAMS_INVESTMENT_RETURNS_CONFIG 或 /app/config/investment_returns.yaml；不存在时回退源码 config |
 | config/lookthrough.yaml | 资产主数据种子、持仓穿透 | PAMS_LOOKTHROUGH_CONFIG 或 /app/config/lookthrough.yaml；读取与显式同步主数据是不同操作 |
-| config/risk_limits.yaml | 风险规则、资产本位币 | src/core/config.py 从源码根目录 config 读取；函数可显式传入路径 |
+| config/application.yaml | 资产本位币 | 应用和风险计算统一读取；文件或字段不存在时兼容旧 risk_limits.yaml，均缺失时使用 CNY |
+| config/risk_limits.yaml | 风险规则 | domain/risk/core/config.py 从源码根目录 config 读取；函数可显式传入路径 |
 | config/factor_map.yaml | 风险因子 | 同一风险配置读取器加载，不设通用环境覆盖器 |
-| config/risk_concentration.yaml | 集中度计算 | src/core/concentration.py 从源码根目录 config 读取 |
+| config/risk_concentration.yaml | 集中度计算 | domain/risk/core/concentration.py 从源码根目录 config 读取 |
 | bank_reconcile.yaml（私有） | 银行对账 | PAMS_BANK_RECONCILE_CONFIG 或 /app/config/bank_reconcile.yaml；不存在时回退源码 config |
 
-前六份 YAML 是已跟踪的默认业务输入。银行来源文件含私有路径，当前仓库未提供默认文件。配置异常和缺失的处理以各模块为准，变更回退行为须按业务变更验证。
+前七份 YAML 是已跟踪的默认业务输入。银行来源文件含私有路径，当前仓库未提供默认文件。配置异常和缺失的处理以各模块为准，变更回退行为须按业务变更验证。
 
-当前源码不再使用策略 policy、扫描参数、回测参数或外部信号配置；资产本位币读取 risk_limits.yaml，不依赖策略数据库配置。运行中的旧镜像及数据库可能仍保留旧配置或消费者，按实际版本、挂载和发布记录核对。
+当前源码不再使用策略 policy、扫描参数、回测参数或外部信号配置；资产本位币优先读取 application.yaml，兼容旧 risk_limits.yaml，不依赖策略数据库配置。现有环境的 config 挂载覆盖镜像默认配置；迁移时必须把原有本位币写入 application.yaml，否则旧配置仍会回退生效。运行中的旧镜像及数据库可能仍保留旧配置或消费者，按实际版本、挂载和发布记录核对。
 
 ## 环境与能力开关
 

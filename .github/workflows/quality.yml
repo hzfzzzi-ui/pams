@@ -45,7 +45,7 @@ jobs:
         run: python -m pytest tests -q
       - name: Python与前端语法
         run: |
-          python -m compileall -q backend/api backend/scheduler src
+          python -m compileall -q backend/api backend/scheduler
           for file in frontend/public/assets/js/*.js; do node --check "$file"; done
       - name: 同步模块静态检查
         run: |
