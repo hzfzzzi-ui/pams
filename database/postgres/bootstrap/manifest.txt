@@ -33,3 +33,6 @@ database/postgres/schema/069_daily_return_state.sql
 database/postgres/schema/070_ibkr_source_link_repair_audit.sql
 database/postgres/schema/071_investment_trade_fee_currency.sql
 database/postgres/schema/072_account_import.sql
+database/postgres/schema/074_unified_source.sql
+database/postgres/schema/075_source_fact_links.sql
+database/postgres/schema/076_valuation_input_evidence.sql

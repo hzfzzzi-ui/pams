@@ -41,7 +41,7 @@ def test_child_inserts_and_deletes_advance_revision_atomically(isolated_database
 def test_published_associations_are_immutable_without_freezing_values(isolated_database, table):
     conn = isolated_database
     batch, item, another = (str(uuid4()) for _ in range(3))
-    schema = Path(__file__).resolve().parents[2] / 'database/postgres/schema/081_unified_source_fact_links.sql'
+    schema = Path(__file__).resolve().parents[2] / 'database/postgres/schema/075_source_fact_links.sql'
     with conn.cursor() as cur:
         for name in ('pams_cashflow_fact', 'pams_investment_trade_fact', 'pams_holdings_snapshot'):
             cur.execute(f'CREATE TABLE {name} (id integer PRIMARY KEY, value integer NOT NULL)')
@@ -77,7 +77,7 @@ def test_published_associations_are_immutable_without_freezing_values(isolated_d
 def test_publication_serializes_concurrent_association_change(isolated_database):
     conn = isolated_database
     batch, item = str(uuid4()), str(uuid4())
-    schema = Path(__file__).resolve().parents[2] / 'database/postgres/schema/081_unified_source_fact_links.sql'
+    schema = Path(__file__).resolve().parents[2] / 'database/postgres/schema/075_source_fact_links.sql'
     with conn.cursor() as cur:
         for name in ('pams_cashflow_fact', 'pams_investment_trade_fact', 'pams_holdings_snapshot'):
             cur.execute(f'CREATE TABLE {name} (id integer PRIMARY KEY)')

@@ -26,9 +26,7 @@ from scripts.bootstrap_empty_database import (
 
 
 def isolated_source_paths() -> list[Path]:
-    paths = bootstrap_paths()
-    return [*paths, ROOT / 'database/postgres/schema/080_unified_source_staging.sql',
-            ROOT / 'database/postgres/schema/081_unified_source_fact_links.sql']
+    return bootstrap_paths()
 
 
 def initialize_isolated_sources(conn) -> None:

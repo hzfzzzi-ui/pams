@@ -1,6 +1,5 @@
--- Candidate unified source layer. Not part of the production or empty-database
--- manifest: apply only to a disposable database for isolated development.
--- Existing import flows and fact tables remain authoritative until migrated.
+-- Unified source layer for the empty-database manifest. This file is not an
+-- existing-database upgrade; default production paths remain unchanged.
 
 CREATE TABLE public.source_batches (
     batch_id UUID PRIMARY KEY,

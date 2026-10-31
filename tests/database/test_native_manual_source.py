@@ -27,7 +27,7 @@ def isolated(client, monkeypatch):
     _, params = client
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
     with psycopg2.connect(**params) as conn, conn.cursor() as cur:
-        for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+        for name in ('074_unified_source.sql', '075_source_fact_links.sql', '076_valuation_input_evidence.sql'):
             cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
     return params
 

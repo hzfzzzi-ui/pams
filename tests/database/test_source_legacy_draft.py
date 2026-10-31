@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def enable_candidate(params, monkeypatch):
     with psycopg2.connect(**params) as conn, conn.cursor() as cur:
-        for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+        for name in ('074_unified_source.sql', '075_source_fact_links.sql'):
             cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
     monkeypatch.setenv('PAMS_SOURCE_LEGACY_BRIDGE', 'true')
