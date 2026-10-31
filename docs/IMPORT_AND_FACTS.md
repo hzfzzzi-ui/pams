@@ -8,6 +8,16 @@
 
 候选只约束批次账户、业务类型、文件哈希、同批次文件关联与批次内来源身份；它不证明跨批次去重、外部编号唯一、事实发布、原文不可变或生产兼容。这些必须在后续服务切换中实现并验证。
 
+| 现有来源 | 候选归属 | 必须保留的身份与信息 | 切换前仍需完成 |
+| --- | --- | --- | --- |
+| 银行 `pams_bank_statement_imports` / `pams_bank_statement_rows` | 账户 + cash 批次、文件、明细 | 原批次、`source_uid`、账户、原币金额及币种、原始字段、人工对账关联 | 银行来源映射与确认关系的原子发布 |
+| IBKR `pams_ibkr_trades` | 账户 + trade 批次及明细 | `source_account_id`、`source_trade_key`、官方成交/交易编号、原币金额及原文 | 官方编号跨批次冲突与事实来源关联 |
+| TradingView `pams_tradingview_transactions` | 账户 + trade 批次、文件、明细 | 文件哈希、`row_hash`、账户、成交时间和原始字段 | 行哈希幂等与来源到事实映射 |
+| 统一导入 `pams_account_import_batch` / `pams_account_import_file` | 按 holding、trade、cash 建批次、文件、明细 | 批次 revision、原件及哈希、人工编辑和核对决定 | 预检 token、发布锁和现有事实事务保持一致 |
+| `pams_investment_transactions` / `pams_source_row` | 逐条核查后归入来源明细 | 原 ID、来源关联、备注和已确认状态 | 消费者迁移及多事实来源关联；不能按同名字段盲目合并 |
+
+映射只描述目标契约，不授权读取或迁移现有用户数据。旧表与现有后端仍是当前运行路径。
+
 本主题规定原件、暂存、预检、写事实和自动现金事件的边界。手工导入、既有同步、隔离修复各走自己的门禁；文档合并不启用任何发布开关。候选开发见 [GitHub PR](https://github.com/hzfzzzi-ui/pams/pulls)，运行能力核对对应发布评论及实际开关。
 
 ## 原件、账户与候选
