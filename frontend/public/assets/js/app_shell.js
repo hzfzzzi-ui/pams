@@ -8,8 +8,16 @@ let loadedDocument = null;
 function contentUrl() {
   const url = new URL(location.href);
   const page = url.searchParams.get('view') || 'investments.html';
+  // `view` is also a business filter (data_sources.html?view=issues).
+  // The shell stores that filter separately; old redirects may supply it as a
+  // second view parameter, which must survive direct links as well.
+  const contentViews = url.searchParams.has('content_view')
+    ? url.searchParams.getAll('content_view')
+    : url.searchParams.getAll('view').filter(value => !pages.has(value));
   url.pathname = new URL(pages.has(page) ? page : 'investments.html', location.href).pathname;
   url.searchParams.delete('view');
+  url.searchParams.delete('content_view');
+  for (const value of contentViews) url.searchParams.append('view', value);
   url.searchParams.set('content', '1');
   return url;
 }
@@ -29,6 +37,8 @@ function syncAddress(replace = false) {
   const outer = new URL('app.html', location.href);
   outer.search = child.search;
   outer.searchParams.delete('content');
+  outer.searchParams.delete('content_view');
+  for (const value of child.searchParams.getAll('view')) outer.searchParams.append('content_view', value);
   outer.searchParams.set('view', page);
   outer.hash = child.hash;
   if (outer.href !== location.href) history[replace ? 'replaceState' : 'pushState']({}, '', outer);

@@ -54,7 +54,9 @@ def test_data_sources_page_exposes_portfolio_data_quality_panel() -> None:
     """Guard the data configuration page's unified data-quality summary."""
 
     html = _read_public("data_sources.html")
-    js = _read_public("assets/js/data_sources.js")
+    js = (_read_public("assets/js/data_sources.js") +
+          _read_public("assets/js/features/data_sources/controller.js") +
+          _read_public("assets/js/features/data_sources/view.js"))
 
     assert 'id="dataQuality"' in html
     assert "/api/portfolio/data-quality?baseCurrency=CNY" in js
@@ -1400,12 +1402,17 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
     html = _read_public("more.html")
-    more_js = _read_public("assets/js/more.js")
+    more_js = (_read_public("assets/js/more.js") +
+               _read_public("assets/js/features/more/controller.js"))
     nav_growth_js = _read_public("assets/js/nav_growth_explanation.js")
     accounts_html = _read_public("accounts.html")
     data_sources_html = _read_public("data_sources.html")
-    data_sources_js = _read_public("assets/js/data_sources.js")
-    sync_center_js = _read_public("assets/js/sync_center.js")
+    data_sources_js = (_read_public("assets/js/data_sources.js") +
+          _read_public("assets/js/features/data_sources/controller.js") +
+          _read_public("assets/js/features/data_sources/view.js"))
+    sync_center_js = (_read_public("assets/js/sync_center.js") +
+                      _read_public("assets/js/features/sync_center/controller.js") +
+                      _read_public("assets/js/features/sync_center/view.js"))
     ui_js = _read_public("assets/js/ui.js")
     portfolio_config_js = _read_public("assets/js/portfolio_config.js")
     portfolio_risk_js = _read_public("assets/js/portfolio_risk.js")
@@ -1430,7 +1437,8 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert 'id="moreNavGrowthExplanationPanel"' in html
     assert "NAV增值解释" in html
     assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" in more_js
-    assert "renderNavGrowthExplanationPanel(payload, panel)" in more_js
+    assert "renderExplanation: renderNavGrowthExplanationPanel" in more_js
+    assert "renderExplanation(payload, panel)" in more_js
     assert "growth_explanation" in nav_growth_js
     assert "navGrowthDrivers-compact" in nav_growth_js
     assert "bridgePayload?.quality" in nav_growth_js
@@ -1449,15 +1457,15 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20261031-ui-v1" in html
+    assert "assets/js/more.js?v=20261031-feature-v1" in html
     assert 'id="moreAdvanced"' in html and 'id="moreAdvanced" open' not in html
     assert 'class="statusbar"' not in html and 'LIVE' not in html
     assert 'href="accounts.html#sources"' not in html
     assert 'href="investments.html#portfolio-risk-disclosure"' not in html
     assert "./nav_growth_explanation.js?v=20261031-gray-v1" in more_js
     assert "assets/js/bank_reconcile.js?v=20261031-ui-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20261031-ui-v1" in data_sources_html
-    assert "./sync_center.js?v=20261031-ui-v1" in data_sources_js
+    assert "assets/js/data_sources.js?v=20261031-feature-v1" in data_sources_html
+    assert "./sync_center.js?v=20261031-feature-v1" in data_sources_js
     assert "./ui.js?v=20261031-ui-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
     data_state_js = _read_public("assets/js/components/data_state.js")
@@ -1614,13 +1622,14 @@ def test_investment_holding_rows_escape_imported_fields() -> None:
 
 
 def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
-    js = _read_public("assets/js/sync_center.js")
-    assert "const result = await jpost(" in js
+    js = _read_public("assets/js/features/sync_center/controller.js")
+    assert "const result = await post(" in js
+    assert "post: jpost" in _read_public("assets/js/sync_center.js")
     assert "result?.success === false" in js
     assert "['blocked', 'failed', 'error'].includes(result?.status)" in js
     assert "throw new Error(result.reason || result.error" in js
-    assert "sync_center.js?v=20261031-ui-v1" in _read_public("assets/js/data_sources.js")
-    assert "data_sources.js?v=20261031-ui-v1" in _read_public("data_sources.html")
+    assert "sync_center.js?v=20261031-feature-v1" in _read_public("assets/js/data_sources.js")
+    assert "data_sources.js?v=20261031-feature-v1" in _read_public("data_sources.html")
 
 
 def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
