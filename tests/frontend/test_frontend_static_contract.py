@@ -961,10 +961,10 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
 
 def test_ledger_narrow_mobile_summary_keeps_amounts_on_one_line() -> None:
     css = _read_public("assets/css/pages/ledger.css")
-    assert "@media (max-width: 359px)" in css
+    assert "@media (max-width: 389px)" in css
     assert ".ledgerMobileStats { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:8px; }" in css
     assert ".ledgerMobileStat:nth-child(3)" in css
-    assert ".ledgerMobileStat strong { font-size:14px; white-space:nowrap; overflow-wrap:normal; }" in css
+    assert ".ledgerMobileStat strong { font-size:clamp(12px,3.6vw,13px); white-space:nowrap; overflow-wrap:normal; }" in css
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:

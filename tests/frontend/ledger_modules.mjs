@@ -30,7 +30,7 @@ async function fixture(width = 390) {
   const elements = Object.fromEntries(['err', 'overviewCategoryPieChart', 'cashflowTrendChart'].map(id => [id, Object.assign(new Target(), { id, parentElement: { querySelector() { return null; } } })]));
   const document = Object.assign(new Target(), { body: { dataset: {} }, getElementById: id => elements[id] || null, querySelectorAll: () => [] });
   const window = Object.assign(new Target(), { location: { hash: '', pathname: '/ledger.html', search: '' }, scrollTo() {} });
-  window.matchMedia = query => ({ matches: query === '(max-width: 359px)' && viewportWidth <= 359 });
+  window.matchMedia = query => ({ matches: query === '(max-width: 389px)' && viewportWidth <= 389 });
   class Chart { constructor(canvas, config) { this.canvas = canvas; this.data = config.data; this.config = config; this.destroyCount = 0; charts.push(this); } destroy() { this.destroyCount += 1; } }
   window.Chart = Chart;
   const context = vm.createContext({ document, window, AbortController, URLSearchParams, console });
@@ -71,6 +71,12 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   test.setWidth(390);
   assert.equal(trend.config.options.scales.y.ticks.font().size, 12);
   assert.equal(trend.config.options.scales.net.ticks.font().size, 12);
+  test.setWidth(360);
+  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
+  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
+  test.setWidth(389);
+  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
+  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
   test.setWidth(320);
   assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
   assert.equal(JSON.stringify(trend.data.datasets.map(dataset => dataset.data)), JSON.stringify([[10], [1], [9]]));
@@ -82,6 +88,9 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   const trend = test.charts.find(chart => chart.config.options?.scales);
   assert.equal(trend.config.options.scales.y.ticks.font().size, 12);
   assert.equal(trend.config.options.scales.net.ticks.font().size, 12);
+  test.setWidth(360);
+  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
+  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
   controller.dispose();
 }
 

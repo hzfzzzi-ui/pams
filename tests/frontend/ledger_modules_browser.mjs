@@ -42,7 +42,7 @@ const browser = await chromium.launch({ headless: true, channel: 'msedge' });
 const errors = [];
 const snapshots = new Map();
 
-async function makePage(legacy = false) {
+async function makePage(legacy = false, fixtureData = fixture) {
   const context = await browser.newContext({ viewport: { width: 390, height: 1084 }, locale: 'zh-CN', timezoneId: 'Asia/Shanghai', serviceWorkers: 'block' });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(String(error)));
@@ -62,7 +62,7 @@ async function makePage(legacy = false) {
       window.__ledgerTest.writes.push({ url, body });
       return new Promise((resolve, reject) => window.__ledgerTest.pendingPosts.push({ resolve, reject }));
     };
-  }, { fixture, accounts });
+  }, { fixture: fixtureData, accounts });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.href.includes('chart.js@')) {
@@ -142,9 +142,68 @@ async function browse(legacy) {
   await context.close();
 }
 
+async function checkNarrowSummaryGeometry() {
+  const layoutFixture = structuredClone(fixture);
+  Object.assign(layoutFixture.periods.ytd, {
+    income: 123456789012.34,
+    expense: 9876543210.98,
+    disposable_net: 113580245801.36,
+  });
+  const { page, context } = await makePage(false, layoutFixture);
+  const formatExpected = (value, signed = false) => {
+    const number = Math.abs(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (!signed) return `¥${number}`;
+    return `${value < 0 ? '-' : '+'}¥${number}`;
+  };
+  const expectedValues = [
+    formatExpected(layoutFixture.periods.ytd.income),
+    formatExpected(-Math.abs(layoutFixture.periods.ytd.expense), true),
+    String(layoutFixture.periods.ytd.pending_count),
+  ];
+  const widths = [320, 360, 389];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 1084 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    const metrics = await page.evaluate(() => {
+      const items = [...document.querySelectorAll('.ledgerMobileStat strong')].map(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const rects = [...range.getClientRects()].map(rect => ({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }));
+        const cell = element.getBoundingClientRect();
+        return { text: element.textContent, rects, cell: { left: cell.left, right: cell.right }, overflow: element.scrollWidth > element.clientWidth };
+      });
+      let overlaps = false;
+      for (let i = 0; i < items.length; i += 1) {
+        for (let j = i + 1; j < items.length; j += 1) {
+          for (const a of items[i].rects) for (const b of items[j].rects) {
+            if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) overlaps = true;
+          }
+        }
+      }
+      return { viewport: innerWidth, pageScrollWidth: document.documentElement.scrollWidth,
+        pageClientWidth: document.documentElement.clientWidth, overlaps,
+        items: items.map(item => ({ text: item.text, lines: item.rects.length, overflow: item.overflow,
+          insideCell: item.rects.every(rect => rect.left >= item.cell.left - 0.5 && rect.right <= item.cell.right + 0.5) })) };
+    });
+    assert.equal(metrics.viewport, width);
+    assert.ok(metrics.pageScrollWidth <= metrics.pageClientWidth, `page horizontal overflow at ${width}px`);
+    assert.equal(metrics.overlaps, false, `summary values overlap at ${width}px`);
+    assert.equal(metrics.items.length, 3);
+    for (const [index, item] of metrics.items.entries()) {
+      assert.equal(item.text, expectedValues[index], `summary value is incomplete at ${width}px`);
+      assert.equal(item.lines, 1, `summary amount wraps at ${width}px`);
+      assert.equal(item.overflow, false, `summary amount overflows its cell at ${width}px`);
+      assert.equal(item.insideCell, true, `summary amount exceeds its cell at ${width}px`);
+    }
+  }
+  await context.close();
+  return widths;
+}
+
 try {
   if (baselineEntry) await browse(true);
   await browse(false);
+  const mobileSummaryWidths = await checkNarrowSummaryGeometry();
   const { page, context } = await makePage(false);
   await page.locator('[data-overview-period="month"]').click();
   await page.locator('[data-overview-flow="expense"]').click();
@@ -267,5 +326,5 @@ try {
   assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 0);
   assert.deepEqual(errors, []);
   await context.close();
-  console.log(JSON.stringify({ status: 'passed', fixedEquivalenceStates: baselineEntry ? snapshots.size : 0, controls: 'tabs/period/flow/trend/search/sort/account drilldown/cancel', edits: 'one POST per submit; explicit retry after failure; exact payload', lifecycle: 'latest read wins; dispose; replacement; BFCache restores view only; late POST inert', pageErrors: errors.length }));
+  console.log(JSON.stringify({ status: 'passed', fixedEquivalenceStates: baselineEntry ? snapshots.size : 0, mobileSummaryWidths, controls: 'tabs/period/flow/trend/search/sort/account drilldown/cancel', edits: 'one POST per submit; explicit retry after failure; exact payload', lifecycle: 'latest read wins; dispose; replacement; BFCache restores view only; late POST inert', pageErrors: errors.length }));
 } finally { await browser.close(); }

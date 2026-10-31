@@ -258,7 +258,7 @@ function renderTrendChart(data) {
   const rows = state.trendMode === 'weekly' ? data.weekly_trend || [] : data.monthly_trend || [];
   const ctx = $('cashflowTrendChart');
   if (!ctx || typeof ChartClass !== 'function') return;
-  const tickFont = () => ({ size: host?.matchMedia?.('(max-width: 359px)').matches ? 10 : 12 });
+  const tickFont = () => ({ size: host?.matchMedia?.('(max-width: 389px)').matches ? 10 : 12 });
   if (trendChart) trendChart.destroy();
   trendChart = new ChartClass(ctx, {
     data: {
