@@ -296,6 +296,9 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                 cur.execute("ROLLBACK TO SAVEPOINT no_current_source")
                 old_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
                     input_refs=[{"kind":"source_item", "role":"current_source", "key":{"source_item_id":item1}}])
+                with pytest.raises(ValueError, match="holding_creation_source"):
+                    record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
+                        input_refs=[{"kind":"source_item", "role":"holding_creation_source", "key":{"source_item_id":item2}}])
                 old_versions = versions_for_source_item(cur, item1)
                 assert {row["version_key"] for row in old_versions} == {old_key}
                 assert {row["role"] for row in old_versions} == {"holding_creation_source", "current_source"}

@@ -352,6 +352,8 @@ def record_bound_holding_version(cur: Any, *, holding_id: int, calculation_versi
         role = ref.get("role")
         if role is not None and (not isinstance(role, str) or not role.strip()):
             raise ValueError("role must be nonempty")
+        if role == "holding_creation_source":
+            raise ValueError("holding_creation_source comes only from the holding's stored link")
         if role == "current_source" and ref["kind"] != "source_item":
             raise ValueError("current_source must refer to a source item or remain unknown")
         if "key" not in ref or ref["key"] is None:
