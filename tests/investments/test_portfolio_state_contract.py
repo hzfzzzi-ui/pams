@@ -276,8 +276,35 @@ def test_load_valuation_series_reads_portfolio_valuation_state():
             "investment_cost_cny": Decimal("700"),
             "investment_pnl_cny": Decimal("100"),
             "investment_return_rate": Decimal("0.1428571428571428571428571429"),
+            "valuation_meta": {
+                "source_table": "pams_portfolio_valuation_state",
+                "source": None,
+                "business_date": date(2026, 6, 24),
+                "publication_status": "unknown",
+                "data_completeness": None,
+                "valuation_cycle": None,
+                "valuation_period": "unknown",
+                "source_run_id": None,
+                "source_hash": None,
+                "published_at": None,
+                "daily_accurate_eligible": None,
+                "input_lineage_status": "unknown",
+            },
         }
     ]
+
+
+def test_legacy_nav_series_keeps_amounts_and_marks_evidence_unknown():
+    cur = FakeCursor([
+        {"table_name": None}, {"table_name": "pams_nav_daily"},
+        [{"as_of": date(2026, 6, 24), "total_market_value": Decimal("1000")}],
+    ])
+    row = load_valuation_series(cur)[0]
+    assert row["net_worth_cny"] == Decimal("1000")
+    assert row["valuation_meta"]["source_table"] == "pams_nav_daily"
+    assert row["valuation_meta"]["publication_status"] == "unknown"
+    assert row["valuation_meta"]["daily_accurate_eligible"] is None
+    assert row["valuation_meta"]["input_lineage_status"] == "unknown"
 
 
 class FakeCursor:

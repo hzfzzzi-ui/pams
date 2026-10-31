@@ -21,7 +21,7 @@ import psycopg2.extras
 import yaml
 
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
-from domain.investments.valuation_state_reader import valuation_series_rows
+from domain.investments.valuation_state_reader import valuation_series_evidence, valuation_series_rows
 from domain.market.quote_valuation import quote_valuation_cte, snapshot_tables
 
 
@@ -1015,6 +1015,7 @@ def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> 
                     "investment_cost_cny": investment_cost,
                     "investment_pnl_cny": investment_pnl,
                     "investment_return_rate": return_rate,
+                    "valuation_meta": valuation_series_evidence(raw, source_table="pams_portfolio_valuation_state"),
                 }
             )
         return rows
@@ -1044,6 +1045,7 @@ def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> 
                 "investment_cost_cny": raw.get("investment_cost_cny"),
                 "investment_pnl_cny": raw.get("investment_pnl_cny"),
                 "investment_return_rate": raw.get("investment_return_rate"),
+                "valuation_meta": valuation_series_evidence(raw, source_table="pams_nav_daily"),
             }
         )
     return rows
