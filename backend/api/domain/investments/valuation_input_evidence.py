@@ -15,9 +15,9 @@ from typing import Any
 from psycopg2.extras import Json
 
 
-KINDS = {"holding", "trade", "quote", "fx"}
+KINDS = {"holding", "trade", "quote", "fx", "source_item"}
 QUALITIES = {"unknown", "pending", "estimated", "confirmed"}
-FIELDS = {"kind", "source_ref", "source_version", "business_date", "observed_at", "quality", "snapshot"}
+FIELDS = {"kind", "role", "source_ref", "source_version", "business_date", "observed_at", "quality", "snapshot"}
 
 
 def _normalize(value: Any) -> Any:
@@ -86,7 +86,10 @@ def normalize_inputs(inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         version = item.get("source_version")
         if version is not None and (not isinstance(version, str) or not version.strip()):
             raise ValueError("source_version must be nonempty or unknown")
-        row = _normalize({"kind": item["kind"], "source_ref": source_ref,
+        role = item.get("role")
+        if role is not None and (not isinstance(role, str) or not role.strip()):
+            raise ValueError("role must be nonempty or unknown")
+        row = _normalize({"kind": item["kind"], "role": role, "source_ref": source_ref,
                           "source_version": version, "business_date": day,
                           "observed_at": observed_at, "quality": quality, "snapshot": snapshot})
         if source_ref is not None:
@@ -111,7 +114,7 @@ def recorded_input_freshness(recorded: list[dict[str, Any]], current: list[dict[
     old, new = {key(row): row for row in before}, {key(row): row for row in after}
     for identity in old.keys() & new.keys():
         left, right = old[identity], new[identity]
-        for field in ("source_version", "business_date", "observed_at", "snapshot"):
+        for field in ("role", "source_version", "business_date", "observed_at", "snapshot"):
             if field == "snapshot" and (not left[field] or not right[field]):
                 continue
             if left[field] is not None and right[field] is not None and left[field] != right[field]:
@@ -119,6 +122,8 @@ def recorded_input_freshness(recorded: list[dict[str, Any]], current: list[dict[
         if left["quality"] != "unknown" and right["quality"] != "unknown" and left["quality"] != right["quality"]:
             return "changed"
     if old.keys() != new.keys():
+        return "unknown"
+    if any(old[identity]["role"] != new[identity]["role"] for identity in old):
         return "unknown"
     for row in before + after:
         if row["kind"] in {"holding", "trade"}:
@@ -198,3 +203,158 @@ def verify_recorded_version(cur: Any, version_key: str) -> bool:
         return _hash(identity) == version_key
     except (TypeError, ValueError):
         return False
+
+
+# Fixed SQL only; a caller may name known source keys but cannot supply values,
+# source timestamps, quality, or the result hash in this adapter.
+_BOUND_SOURCES = {
+    "holding": ("pams_holdings_snapshot", ("id",), "as_of", "SELECT row_to_json(s)::text FROM public.pams_holdings_snapshot s WHERE id = %s FOR SHARE"),
+    "trade": ("pams_investment_trade_fact", ("trade_id",), "trade_date", "SELECT row_to_json(s)::text FROM public.pams_investment_trade_fact s WHERE trade_id = %s FOR SHARE"),
+    "quote": ("pams_market_quote_snapshot", ("quote_id",), "quote_date", "SELECT row_to_json(s)::text FROM public.pams_market_quote_snapshot s WHERE quote_id = %s FOR SHARE"),
+    "fx": ("pams_fx_rates_daily", ("as_of", "base_currency", "quote_currency"), "as_of", "SELECT row_to_json(s)::text FROM public.pams_fx_rates_daily s WHERE as_of = %s AND base_currency = %s AND quote_currency = %s FOR SHARE"),
+}
+
+
+def _bound_input(cur: Any, kind: str, key: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if kind not in _BOUND_SOURCES or not isinstance(key, dict):
+        raise ValueError("unsupported source reference")
+    table, fields, date_field, statement = _BOUND_SOURCES[kind]
+    if set(key) != set(fields) or not all(_known_key(key[field]) for field in fields):
+        raise ValueError("invalid source key")
+    if kind in {"holding", "trade", "quote"}:
+        value = key[fields[0]]
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError("invalid source id")
+    if kind == "fx":
+        try:
+            day = key["as_of"]
+            if isinstance(day, str):
+                date.fromisoformat(day)
+            elif not isinstance(day, date) or isinstance(day, datetime):
+                raise ValueError("invalid fx date")
+        except ValueError as exc:
+            raise ValueError("invalid fx date") from exc
+        if any(not isinstance(key[field], str) or not key[field].strip() for field in ("base_currency", "quote_currency")):
+            raise ValueError("invalid fx currency")
+    # Normalize dates for stable JSON, while SQL remains parameterized.
+    source_key = _normalize(key)
+    ref: dict[str, Any] = {"table": table, "key": source_key}
+    cur.execute(statement, tuple(key[field] for field in fields))
+    result = cur.fetchone()
+    raw = json.loads((next(iter(result.values())) if isinstance(result, dict) else result[0]), parse_float=Decimal) if result else None
+    if raw is None:
+        return ({"kind": kind, "source_ref": ref, "source_version": None, "business_date": None,
+                 "observed_at": None, "quality": "unknown", "snapshot": None}, None)
+    if kind in {"holding", "trade"} and raw.get("account_code"):
+        ref["account_code"] = raw["account_code"]
+    quality = raw.get("return_status") if kind == "quote" else "unknown"
+    if quality not in QUALITIES:
+        quality = "unknown"
+    # Only an actual quote price_time is an observation time; fetch/update times
+    # and timezone-naive trade times are not silently converted into one.
+    observed = raw.get("price_time") if kind == "quote" else None
+    if observed:
+        try:
+            parsed = datetime.fromisoformat(observed.replace("Z", "+00:00"))
+            observed = parsed.isoformat() if parsed.utcoffset() is not None else None
+        except (TypeError, ValueError):
+            observed = None
+    evidence = {"kind": kind, "source_ref": ref, "source_version": None,
+                "business_date": raw.get(date_field), "observed_at": observed,
+                "quality": quality, "snapshot": {"content_hash": _hash(raw)}}
+    return evidence, raw
+
+
+def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_date: str) -> bool:
+    if evidence["snapshot"] is None:
+        return True  # Missing data is unknown, not a fabricated mismatch.
+    kind = evidence["kind"]
+    if kind in {"holding", "trade"} and evidence["source_ref"].get("account_code") != account_code:
+        return False
+    source_date = evidence["business_date"]
+    if not source_date:
+        return False
+    # Historical trades may contribute to a later holding; future trades cannot.
+    return source_date <= business_date if kind == "trade" else source_date == business_date
+
+
+def record_bound_holding_version(cur: Any, *, holding_id: int, calculation_version: str,
+                                 input_refs: list[dict[str, Any]]) -> str:
+    """Record explicitly selected current DB inputs; never infer old relationships."""
+    if cur.connection.autocommit:
+        raise ValueError("transaction required")
+    if not isinstance(holding_id, int) or isinstance(holding_id, bool) or holding_id <= 0:
+        raise ValueError("invalid holding id")
+    holding, raw = _bound_input(cur, "holding", {"id": holding_id})
+    if raw is None or not raw.get("account_code") or not raw.get("as_of"):
+        raise ValueError("holding result source is missing")
+    account, day = raw["account_code"], raw["as_of"]
+    inputs = [holding]
+    for ref in input_refs:
+        if not isinstance(ref, dict) or set(ref) - {"kind", "key", "role"} or ref.get("kind") not in KINDS:
+            raise ValueError("only source kind, key and role may be supplied")
+        role = ref.get("role")
+        if role is not None and (not isinstance(role, str) or not role.strip()):
+            raise ValueError("role must be nonempty")
+        if "key" not in ref or ref["key"] is None:
+            if role is None:
+                raise ValueError("unknown input requires a role")
+            item = {"kind": ref["kind"], "role": role, "source_ref": None, "source_version": None,
+                    "business_date": None, "observed_at": None, "quality": "unknown", "snapshot": None}
+        else:
+            item, _ = _bound_input(cur, ref["kind"], ref["key"])
+            item["role"] = role
+        if not _bound_consistent(item, account_code=account, business_date=day):
+            raise ValueError("input account or business date conflicts with holding")
+        inputs.append(item)
+    return record_result_version(cur, result_kind="holding", scope_key=f"holding:{holding_id}",
+        account_code=account, business_date=date.fromisoformat(day), base_currency=raw["currency"],
+        calculation_version=calculation_version, result_hash=_hash(raw), inputs=inputs)
+
+
+def bound_holding_freshness(cur: Any, version_key: str) -> str:
+    """Re-read captured references; unknown never asserts a complete input set."""
+    if not verify_recorded_version(cur, version_key):
+        return "invalid"
+    cur.execute("SELECT account_code, business_date FROM public.pams_valuation_result_version WHERE version_key=%s AND result_kind='holding'", (version_key,))
+    result = cur.fetchone()
+    if not result:
+        return "invalid"
+    account, day = ((result["account_code"], result["business_date"]) if isinstance(result, dict) else result)
+    cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s", (version_key,))
+    stored = [(row["evidence"] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
+    if not stored:
+        return "unknown"
+    current, known = [], []
+    unknown, missing = False, False
+    for original in stored:
+        ref = original.get("source_ref") or {}
+        kind = original.get("kind")
+        if not ref:
+            unknown = True
+            continue
+        if kind not in _BOUND_SOURCES or ref.get("table") != _BOUND_SOURCES[kind][0]:
+            unknown = True
+            continue
+        try:
+            item, raw = _bound_input(cur, kind, ref.get("key"))
+        except (TypeError, ValueError):
+            unknown = True
+            continue
+        if raw is None:
+            if original.get("snapshot") is not None:
+                missing = True
+            else:
+                unknown = True
+            continue
+        if not _bound_consistent(item, account_code=account, business_date=day.isoformat()):
+            return "inconsistent"
+        item["role"] = original.get("role")
+        known.append(original)
+        current.append(item)
+    freshness = recorded_input_freshness(known, current)
+    if freshness == "changed":
+        return "changed"
+    if missing:
+        return "missing"
+    return "unknown" if unknown else freshness

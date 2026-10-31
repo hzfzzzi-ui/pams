@@ -14,7 +14,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend/api"))
 from domain.investments.valuation_input_evidence import (
-    record_result_version, recorded_input_freshness, verify_recorded_version,
+    bound_holding_freshness, record_bound_holding_version, record_result_version,
+    recorded_input_freshness, verify_recorded_version,
 )
 
 
@@ -92,9 +93,12 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
     name = "pams_evidence_test_" + uuid4().hex
     with admin.cursor() as cur:
         cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        cur.execute(sql.SQL("COMMENT ON DATABASE {} IS 'pams-empty-bootstrap'").format(sql.Identifier(name)))
     target = {**params, "dbname": name}
     try:
         with psycopg2.connect(**target) as conn:
+            from scripts.bootstrap_empty_database import initialize_empty_database
+            initialize_empty_database(conn)
             with conn.cursor() as cur:
                 cur.execute((ROOT / "database/postgres/schema/083_valuation_input_evidence_candidate.sql").read_text(encoding="utf-8"))
                 cur.execute((ROOT / "database/postgres/schema/083_valuation_input_evidence_candidate.sql").read_text(encoding="utf-8"))
@@ -155,6 +159,89 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                 assert verify_recorded_version(cur, keys[0])
                 cur.execute("SELECT count(*) FROM public.pams_valuation_result_version")
                 assert cur.fetchone()[0] == 2
+
+                # Use actual empty-bootstrap table definitions, populated only
+                # with synthetic records and never with production data.
+                cur.execute("INSERT INTO pams_accounts (account_code, display_name) VALUES ('acct', 'test'), ('other', 'test')")
+                cur.execute("""INSERT INTO pams_holdings_snapshot
+                    (name, asset_liability, currency, account_code, major_category, minor_category, market_value, as_of)
+                    VALUES ('synthetic', '资产', 'CNY', 'acct', 'test', 'test', 100, '2026-01-02') RETURNING id""")
+                holding_id = cur.fetchone()[0]
+                cur.execute("""INSERT INTO pams_investment_trade_fact
+                    (trade_date, account_code, source_table, source_id, source_hash)
+                    VALUES ('2026-01-01', 'acct', 'synthetic', 't1', %s) RETURNING trade_id""", ("1" * 64,))
+                trade_id = cur.fetchone()[0]
+                cur.execute("""INSERT INTO pams_market_quote_snapshot
+                    (quote_date, provider, source, source_key, return_status, price, price_time)
+                    VALUES ('2026-01-02', 'synthetic', 'synthetic', 'q1', 'confirmed', 5, '2026-01-02T12:00:00Z') RETURNING quote_id""")
+                quote_id = cur.fetchone()[0]
+                cur.execute("""INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source)
+                    VALUES ('2026-01-02', 'CNY', 'USD', 7, 'synthetic')""")
+            conn.commit()
+            refs = [{"kind": "trade", "key": {"trade_id": trade_id}},
+                    {"kind": "quote", "key": {"quote_id": quote_id}},
+                    {"kind": "fx", "key": {"as_of": "2026-01-02", "base_currency": "CNY", "quote_currency": "USD"}},
+                    {"kind": "source_item", "role": "ibkr_report"}]
+            with conn.cursor() as cur:
+                bound_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1", input_refs=refs)
+                assert bound_key == record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1", input_refs=list(reversed(refs)))
+                assert verify_recorded_version(cur, bound_key)
+                cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='source_item'", (bound_key,))
+                unknown = cur.fetchone()[0]
+                assert unknown["role"] == "ibkr_report" and unknown["source_ref"] is None and unknown["snapshot"] is None
+                # Historical holding/trade/FX quality and observation times are
+                # not invented merely because references were found.
+                assert bound_holding_freshness(cur, bound_key) == "unknown"
+            conn.commit()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_market_quote_snapshot SET price=6 WHERE quote_id=%s", (quote_id,))
+                assert bound_holding_freshness(cur, bound_key) == "changed"
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_fx_rates_daily SET rate=8 WHERE as_of='2026-01-02' AND base_currency='CNY' AND quote_currency='USD'")
+                assert bound_holding_freshness(cur, bound_key) == "changed"
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_holdings_snapshot SET market_value=101 WHERE id=%s", (holding_id,))
+                assert bound_holding_freshness(cur, bound_key) == "changed"
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_market_quote_snapshot SET quote_date='2026-01-03' WHERE quote_id=%s", (quote_id,))
+                assert bound_holding_freshness(cur, bound_key) == "inconsistent"
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_investment_trade_fact SET account_code='other' WHERE trade_id=%s", (trade_id,))
+                assert bound_holding_freshness(cur, bound_key) == "inconsistent"
+                with pytest.raises(ValueError, match="account or business date"):
+                    record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1", input_refs=refs)
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE pams_investment_trade_fact SET trade_date='2026-01-03' WHERE trade_id=%s", (trade_id,))
+                assert bound_holding_freshness(cur, bound_key) == "inconsistent"
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source) VALUES ('2026-01-03', 'CNY', 'USD', 7, 'synthetic')")
+                wrong_date = [{"kind": "fx", "key": {"as_of": "2026-01-03", "base_currency": "CNY", "quote_currency": "USD"}}]
+                with pytest.raises(ValueError, match="business date"):
+                    record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1", input_refs=wrong_date)
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pams_market_quote_snapshot WHERE quote_id=%s", (quote_id,))
+                assert bound_holding_freshness(cur, bound_key) == "missing"
+            conn.rollback()
+            with conn.cursor() as cur:
+                missing_refs = [{"kind": "quote", "key": {"quote_id": quote_id + 999}}]
+                missing_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1", input_refs=missing_refs)
+                assert bound_holding_freshness(cur, missing_key) == "unknown"
+                with pytest.raises(ValueError, match="only source kind, key and role"):
+                    record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1",
+                        input_refs=[{"kind": "quote", "key": {"quote_id": quote_id}, "snapshot": {"price": "forged"}}])
+                with pytest.raises(ValueError, match="invalid fx date"):
+                    record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v1",
+                        input_refs=[{"kind": "fx", "key": {"as_of": "bad", "base_currency": "CNY", "quote_currency": "USD"}}])
+                cur.execute("SELECT market_value FROM pams_holdings_snapshot WHERE id=%s", (holding_id,))
+                assert str(cur.fetchone()[0]) == "100.0000"
+            conn.rollback()
     finally:
         with admin.cursor() as cur:
             cur.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))

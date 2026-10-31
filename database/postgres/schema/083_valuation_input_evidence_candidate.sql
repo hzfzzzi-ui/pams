@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.pams_valuation_input_evidence (
     version_key text NOT NULL REFERENCES public.pams_valuation_result_version(version_key)
         DEFERRABLE INITIALLY DEFERRED,
     input_hash text NOT NULL CHECK (input_hash ~ '^[0-9a-f]{64}$'),
-    input_kind text NOT NULL CHECK (input_kind IN ('holding', 'trade', 'quote', 'fx')),
+    input_kind text NOT NULL CHECK (input_kind IN ('holding', 'trade', 'quote', 'fx', 'source_item')),
     evidence jsonb NOT NULL,
     PRIMARY KEY (version_key, input_hash)
 );
