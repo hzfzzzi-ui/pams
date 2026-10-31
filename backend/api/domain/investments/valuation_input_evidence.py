@@ -259,9 +259,12 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any]) -> tuple[dict[str, An
     if kind == "source_item":
         batch, source_item = raw["batch"], raw["item"]
         ref["account_code"] = batch.get("account_code")
+        parsed = source_item.get("parsed_fields")
+        fields = parsed.get("fields") if isinstance(parsed, dict) else None
         snapshot = {"content_hash": _hash(raw), "batch_status": batch.get("status"),
                     "review_status": source_item.get("review_status"), "business_type": batch.get("business_type"),
-                    "date_from": batch.get("date_from"), "date_to": batch.get("date_to")}
+                    "date_from": batch.get("date_from"), "date_to": batch.get("date_to"),
+                    "source_action": fields.get("action") if isinstance(fields, dict) else None}
         return ({"kind": kind, "source_ref": ref, "source_version": None, "business_date": None,
                  "observed_at": None, "quality": "unknown", "snapshot": snapshot}, raw)
     if kind in {"holding", "trade"} and raw.get("account_code"):
@@ -289,19 +292,23 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any]) -> tuple[dict[str, An
     return evidence, raw
 
 
-def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_date: str) -> bool:
+def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_date: str,
+                      holding_raw: dict[str, Any]) -> bool:
     if evidence["snapshot"] is None:
         return True  # Missing data is unknown, not a fabricated mismatch.
     kind = evidence["kind"]
     if kind == "source_item":
         snapshot = evidence["snapshot"]
+        kind_allowed = snapshot.get("business_type") in {"holding", "trade"}
+        cash_balance = (snapshot.get("business_type") == "cash" and snapshot.get("source_action") == "balance"
+                        and holding_raw.get("major_category") == "现金")
         if (evidence["source_ref"].get("account_code") != account_code or snapshot.get("batch_status") != "published"
-                or snapshot.get("review_status") != "confirmed" or snapshot.get("business_type") not in {"holding", "trade"}):
+                or snapshot.get("review_status") != "confirmed" or not (kind_allowed or cash_balance)):
             return False
         # A batch range can disprove alignment; it cannot prove the exact input date.
         if snapshot.get("date_from") and snapshot["date_from"] > business_date:
             return False
-        if snapshot.get("business_type") == "holding" and snapshot.get("date_to") and snapshot["date_to"] < business_date:
+        if snapshot.get("business_type") in {"holding", "cash"} and snapshot.get("date_to") and snapshot["date_to"] < business_date:
             return False
         return True
     if kind in {"holding", "trade"} and evidence["source_ref"].get("account_code") != account_code:
@@ -336,7 +343,7 @@ def record_bound_holding_version(cur: Any, *, holding_id: int, calculation_versi
     if raw.get("source_item_id"):
         linked, source_raw = _bound_input(cur, "source_item", {"source_item_id": raw["source_item_id"]})
         linked["role"] = "holding_primary_source"
-        if source_raw is None or not _bound_consistent(linked, account_code=account, business_date=day):
+        if source_raw is None or not _bound_consistent(linked, account_code=account, business_date=day, holding_raw=raw):
             raise ValueError("linked holding source is missing, unconfirmed or inconsistent")
         inputs.append(linked)
     for ref in input_refs:
@@ -353,7 +360,7 @@ def record_bound_holding_version(cur: Any, *, holding_id: int, calculation_versi
         else:
             item, _ = _bound_input(cur, ref["kind"], ref["key"])
             item["role"] = role
-        if not _bound_consistent(item, account_code=account, business_date=day):
+        if not _bound_consistent(item, account_code=account, business_date=day, holding_raw=raw):
             raise ValueError("input account or business date conflicts with holding")
         inputs.append(item)
     logical_scope = "holding:" + _hash({"account_code": account, "name": raw["name"]})
@@ -375,6 +382,11 @@ def bound_holding_freshness(cur: Any, version_key: str) -> str:
     stored = [(row["evidence"] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
     if not stored:
         return "unknown"
+    holdings = [row for row in stored if row.get("kind") == "holding" and isinstance(row.get("snapshot"), dict)
+                and isinstance(row["snapshot"].get("content"), dict)]
+    if len(holdings) != 1:
+        return "unknown"
+    holding_raw = holdings[0]["snapshot"]["content"]
     current, known = [], []
     unknown, missing, replacement = False, False, False
     for original in stored:
@@ -407,7 +419,7 @@ def bound_holding_freshness(cur: Any, version_key: str) -> str:
             else:
                 unknown = True
             continue
-        if not _bound_consistent(item, account_code=account, business_date=day.isoformat()):
+        if not _bound_consistent(item, account_code=account, business_date=day.isoformat(), holding_raw=holding_raw):
             return "inconsistent"
         if original.get("snapshot") and original["snapshot"].get("content_hash") != item["snapshot"].get("content_hash"):
             return "changed"

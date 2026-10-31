@@ -272,7 +272,8 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                     status text NOT NULL, date_from date, date_to date, published_source_hash text)""")
                 cur.execute("""CREATE TABLE public.source_items (
                     source_item_id uuid PRIMARY KEY, batch_id uuid NOT NULL REFERENCES public.source_batches,
-                    record_hash text NOT NULL, review_status text NOT NULL, raw_fields jsonb NOT NULL)""")
+                    record_hash text NOT NULL, review_status text NOT NULL, raw_fields jsonb NOT NULL,
+                    parsed_fields jsonb NOT NULL DEFAULT '{}'::jsonb)""")
                 cur.execute("ALTER TABLE public.pams_holdings_snapshot ADD COLUMN source_item_id uuid REFERENCES public.source_items")
                 batch1, batch2, draft_batch, foreign_batch, future_batch = (str(uuid4()) for _ in range(5))
                 item1, item2, draft_item, foreign_item, future_item, pending_item = (str(uuid4()) for _ in range(6))
@@ -281,11 +282,11 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                         (%s,'acct','holding',%s,'2026-01-02','2026-01-02',%s)""",
                         (batch, status, "b" * 64))
                 for item, batch in ((item1, batch1), (item2, batch2), (draft_item, draft_batch)):
-                    cur.execute("INSERT INTO public.source_items VALUES (%s,%s,%s,'confirmed','{}')", (item, batch, "c" * 64))
+                    cur.execute("INSERT INTO public.source_items (source_item_id,batch_id,record_hash,review_status,raw_fields) VALUES (%s,%s,%s,'confirmed','{}')", (item, batch, "c" * 64))
                 cur.execute("INSERT INTO public.source_batches VALUES (%s,'other','holding','published','2026-01-02','2026-01-02',%s)", (foreign_batch, "b" * 64))
                 cur.execute("INSERT INTO public.source_batches VALUES (%s,'acct','holding','published','2026-01-03','2026-01-03',%s)", (future_batch, "b" * 64))
                 for item, batch, review in ((foreign_item, foreign_batch, 'confirmed'), (future_item, future_batch, 'confirmed'), (pending_item, batch2, 'pending')):
-                    cur.execute("INSERT INTO public.source_items VALUES (%s,%s,%s,%s,'{}')", (item, batch, "c" * 64, review))
+                    cur.execute("INSERT INTO public.source_items (source_item_id,batch_id,record_hash,review_status,raw_fields) VALUES (%s,%s,%s,%s,'{}')", (item, batch, "c" * 64, review))
                 cur.execute("UPDATE pams_holdings_snapshot SET source_item_id=%s WHERE id=%s", (item1, holding_id))
             conn.commit()
             with conn.cursor() as cur:
@@ -310,6 +311,26 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                 assert bound_holding_freshness(cur, old_key) == "changed"
                 cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (old_key,))
                 assert cur.fetchone()[0]["snapshot"]["content"] == old_snapshot
+            conn.rollback()
+            with conn.cursor() as cur:
+                cash_batch, cash_item, cash_event = (str(uuid4()) for _ in range(3))
+                cur.execute("INSERT INTO public.source_batches VALUES (%s,'acct','cash','published','2026-01-02','2026-01-02',%s)", (cash_batch, "b" * 64))
+                cur.execute("""INSERT INTO public.source_items VALUES
+                    (%s,%s,%s,'confirmed','{}','{"fields":{"action":"balance"}}'),
+                    (%s,%s,%s,'confirmed','{}','{"fields":{"action":"deposit"}}')""",
+                    (cash_item, cash_batch, "c" * 64, cash_event, cash_batch, "d" * 64))
+                cur.execute("""INSERT INTO pams_holdings_snapshot
+                    (name, asset_liability, currency, account_code, major_category, minor_category, market_value, as_of, source_item_id)
+                    VALUES ('cash', '资产', 'CNY', 'acct', '现金', '现金/活期', 20, '2026-01-02', %s) RETURNING id""", (cash_item,))
+                cash_holding = cur.fetchone()[0]
+                cash_key = record_bound_holding_version(cur, holding_id=cash_holding, calculation_version="v1", input_refs=[])
+                assert [row["version_key"] for row in versions_for_source_item(cur, cash_item)] == [cash_key]
+                with pytest.raises(ValueError, match="account or business date"):
+                    record_bound_holding_version(cur, holding_id=cash_holding, calculation_version="v1",
+                        input_refs=[{"kind":"source_item", "key":{"source_item_id":cash_event}}])
+                with pytest.raises(ValueError, match="account or business date"):
+                    record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
+                        input_refs=[{"kind":"source_item", "key":{"source_item_id":cash_item}}])
             conn.rollback()
     finally:
         with admin.cursor() as cur:
