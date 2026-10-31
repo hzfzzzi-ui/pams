@@ -5,6 +5,7 @@ status consumers from a future logging provider; it does not move or delete
 business publication pointers, evidence, or audit records.
 """
 from typing import Any
+from domain.operations.runtime_events import emit_status_observation
 
 
 def latest_sync_run(cur: Any, sync_key: str, asset_scope: str | None = None) -> dict[str, Any] | None:
@@ -32,4 +33,6 @@ def latest_sync_run(cur: Any, sync_key: str, asset_scope: str | None = None) -> 
         params,
     )
     row = cur.fetchone()
-    return dict(row) if row else None
+    result = dict(row) if row else None
+    emit_status_observation(result)
+    return result
