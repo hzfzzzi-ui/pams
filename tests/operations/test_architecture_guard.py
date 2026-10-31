@@ -29,12 +29,13 @@ def test_retired_paths_and_root_tests_are_rejected(tmp_path):
     files = fixture_repo(tmp_path)
     files += ['BACKTEST_v2/run.py', 'strategy/engine.py', 'strategy-gpt/x.py',
               'telegram-bot/bot.py', 'telegram-bot-assistant/bot.py',
-              'backend/api/services/old.py', 'backend/api/backtest/router.py',
+              'backend/api/services/old.py', 'backend/api/backtest/router.py', 'src/ingest/store.py',
               'backend/api/endpoints/live_signals.py',
               'frontend/public/assets/js/strategy.js',
               'frontend/public/research.html', 'tests/Test_old.py']
     errors = check_architecture(tmp_path, files)
-    assert len(errors) == 11
+    assert len(errors) == 12
+    assert any('src/ingest/store.py' in error for error in errors)
     assert any('tests/<domain>/' in error for error in errors)
     assert any('retired' in error for error in errors)
 
