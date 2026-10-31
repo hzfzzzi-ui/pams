@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import logging
 import os
 import tempfile
 import re
@@ -11,6 +13,28 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+
+_event_logger = logging.getLogger('pams.scheduler.events')
+_event_statuses = frozenset({'running', 'success', 'partial', 'failed', 'error', 'blocked', 'skipped', 'deferred'})
+
+
+def _emit_checkpoint_observation(job: dict) -> None:
+    """Emit a privacy-limited technical observation, never business evidence."""
+    status = job.get('status') if isinstance(job, dict) else None
+    if not isinstance(status, str) or status not in _event_statuses:
+        status = 'unknown'
+    event = {'schema': 'pams.runtime.v1', 'component': 'scheduler', 'event': 'scheduler_checkpoint_saved',
+             'status': status, 'time': datetime.now(timezone.utc).isoformat()}
+    try:
+        log = _event_logger.warning if status in {'failed', 'blocked', 'partial', 'error'} else _event_logger.info
+        log('%s', json.dumps(event, sort_keys=True, separators=(',', ':')))
+    except Exception:
+        try:
+            sys.stderr.write('{"schema":"pams.runtime.v1","component":"scheduler","event":"logging_failed"}\n')
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 @contextmanager
@@ -52,6 +76,7 @@ def store_job(path: Path, key: str, job: dict) -> None:
         state = read_state(path)
         state["jobs"][key] = job
         write_state(path, state)
+    _emit_checkpoint_observation(job)
 
 
 def latest_due_date(local_time: str, zone: str, now: datetime | None = None) -> date:

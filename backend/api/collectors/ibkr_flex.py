@@ -1102,7 +1102,13 @@ def record_sync_run(
                     error,
                 ),
             )
-    conn.commit()
+    from domain.operations.runtime_events import emit_sync_commit_failed, emit_sync_run_committed
+    try:
+        conn.commit()
+    except Exception:
+        emit_sync_commit_failed()
+        raise
+    emit_sync_run_committed(status)
     return _sync_row_to_status(row)
 
 
