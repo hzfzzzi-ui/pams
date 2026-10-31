@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import logging
 import os
 import tempfile
@@ -23,12 +24,17 @@ def _emit_checkpoint_observation(job: dict) -> None:
     status = job.get('status') if isinstance(job, dict) else None
     if not isinstance(status, str) or status not in _event_statuses:
         status = 'unknown'
-    event = {'schema': 'pams.runtime.v1', 'event': 'scheduler_checkpoint_saved', 'status': status}
+    event = {'schema': 'pams.runtime.v1', 'component': 'scheduler', 'event': 'scheduler_checkpoint_saved',
+             'status': status, 'time': datetime.now(timezone.utc).isoformat()}
     try:
-        _event_logger.info('%s', json.dumps(event, sort_keys=True, separators=(',', ':')))
+        log = _event_logger.warning if status in {'failed', 'blocked', 'partial', 'error'} else _event_logger.info
+        log('%s', json.dumps(event, sort_keys=True, separators=(',', ':')))
     except Exception:
-        # An unavailable logging handler cannot alter successful checkpointing.
-        pass
+        try:
+            sys.stderr.write('{"schema":"pams.runtime.v1","component":"scheduler","event":"logging_failed"}\n')
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 @contextmanager
