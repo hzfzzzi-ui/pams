@@ -12,10 +12,11 @@ from psycopg2.extensions import parse_dsn
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
-from domain.investments.valuation_state_reader import latest_published, valuation_series_rows
+from domain.investments.valuation_state_reader import latest_published, valuation_series_evidence, valuation_series_rows
+from domain.investments import portfolio_state
 
 
-def test_published_valuation_keeps_currency_status_order_and_source_evidence():
+def test_published_valuation_keeps_currency_status_order_and_source_evidence(monkeypatch):
     dsn = os.environ.get("PAMS_TEST_POSTGRES_DSN")
     if not dsn:
         pytest.skip("explicit disposable PostgreSQL DSN required")
@@ -41,7 +42,8 @@ def test_published_valuation_keeps_currency_status_order_and_source_evidence():
                 ('2026-01-02', 'newer-draft', 'CNY', 'draft', 'partial', 999, 'draft-new', '{}', NULL, '2026-01-08Z')""")
             cur.execute("""ALTER TABLE pams_portfolio_valuation_state
                 ADD COLUMN assets_cny numeric, ADD COLUMN liabilities_cny numeric,
-                ADD COLUMN investment_value_cny numeric, ADD COLUMN total_pnl_cny numeric""")
+                ADD COLUMN investment_value_cny numeric, ADD COLUMN total_pnl_cny numeric,
+                ADD COLUMN source_run_id bigint""")
             row = latest_published(cur, base_currency="cny")
             assert row["valuation_date"] == date(2026, 1, 2)
             assert row["cycle"] == "manual" and row["status"] == "published"
@@ -54,8 +56,30 @@ def test_published_valuation_keeps_currency_status_order_and_source_evidence():
             assert [row["valuation_date"] for row in series] == [date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4)]
             assert [row["net_liquidation_value"] for row in series] == [Decimal("98.76"), Decimal("100"), Decimal("200")]
             assert series[0]["assets_cny"] is None
+            evidence = [valuation_series_evidence(row, source_table="pams_portfolio_valuation_state") for row in series]
+            assert [item["publication_status"] for item in evidence] == ["published", "draft", "failed"]
+            assert [item["daily_accurate_eligible"] for item in evidence] == [None, False, False]
+            assert evidence[0]["source_hash"] == "hash-2"
+            assert evidence[0]["business_date"] == date(2026, 1, 2)
+            assert evidence[0]["data_completeness"] == "complete"
+            assert evidence[0]["input_lineage_status"] == "unknown"
+            assert evidence[0]["valuation_period"] == "unknown"
+            monkeypatch.setattr(portfolio_state, "_table_exists", lambda cur, table: True)
+            projected = portfolio_state.load_valuation_series(cur, limit=3, base_currency="CNY")
+            assert [row["net_worth_cny"] for row in projected] == [Decimal("98.76"), Decimal("100"), Decimal("200")]
+            assert [row["valuation_meta"]["publication_status"] for row in projected] == ["published", "draft", "failed"]
             assert len(valuation_series_rows(cur, base_currency="CNY", limit=2)) == 2
             assert valuation_series_rows(cur, base_currency="cny", limit=3) == []
     finally:
         conn.rollback()
         conn.close()
+
+
+def test_legacy_nav_evidence_does_not_invent_quality_or_publication():
+    evidence = valuation_series_evidence({"as_of": date(2025, 1, 1), "status": "published"}, source_table="pams_nav_daily")
+    assert evidence["business_date"] == date(2025, 1, 1)
+    assert evidence["publication_status"] == "unknown"
+    assert evidence["daily_accurate_eligible"] is None
+    assert evidence["data_completeness"] is None
+    assert evidence["source_hash"] is None
+    assert evidence["input_lineage_status"] == "unknown"
