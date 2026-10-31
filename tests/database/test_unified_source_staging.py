@@ -165,12 +165,34 @@ def test_candidate_review_rejects_stale_or_published_batch(isolated_database):
                         parsed_fields={'amount': '1'}, review_status='confirmed')
         cur.execute('SELECT raw_fields, parsed_fields, review_note FROM source_items WHERE source_item_id=%s', (str(item),))
         assert cur.fetchone() == ({'amount': '800'}, {'amount': '80'}, 'checked')
-        cur.execute("UPDATE source_batches SET status='published' WHERE batch_id=%s", (str(batch),))
+        cur.execute("UPDATE source_batches SET status='published', published_source_hash=%s WHERE batch_id=%s", ('a' * 64, str(batch)))
         with pytest.raises(ValueError):
             review_item(cur, batch_id=batch, item_id=item, expected_revision=2,
                         parsed_fields={'amount': '2'}, review_status='confirmed')
         cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s', (str(batch),))
         assert cur.fetchone()[0] == 2
+
+
+def test_direct_candidate_edit_advances_revision_and_published_is_read_only(isolated_database):
+    conn = isolated_database
+    batch, item = uuid4(), uuid4()
+    with conn.cursor() as cur:
+        create_batch(cur, batch_id=batch, account_code='synthetic-a', business_type='cash',
+                     institution='synthetic-bank', acquisition_method='manual')
+        add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='manual',
+                 record_hash='1' * 64, raw_fields={'amount': '800'})
+        cur.execute("UPDATE source_items SET parsed_fields='{}'::jsonb WHERE source_item_id=%s", (str(item),))
+        cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s', (str(batch),))
+        assert cur.fetchone()[0] == 2
+        with pytest.raises(ValueError):
+            review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
+                        parsed_fields={'amount': '80'}, review_status='confirmed')
+        cur.execute("UPDATE source_batches SET status='published', published_source_hash=%s WHERE batch_id=%s", ('a' * 64, str(batch)))
+    conn.commit()
+    with pytest.raises(errors.CheckViolation):
+        with conn.cursor() as cur:
+            cur.execute("UPDATE source_items SET review_note='changed' WHERE source_item_id=%s", (str(item),))
+    conn.rollback()
 
 
 def test_locked_review_reports_pending_and_binds_revision(isolated_database):

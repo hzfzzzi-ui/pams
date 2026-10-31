@@ -12,10 +12,12 @@ CREATE TABLE public.source_batches (
     date_to DATE,
     completeness TEXT NOT NULL DEFAULT 'unknown' CHECK (completeness IN ('complete', 'partial', 'unknown')),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'published', 'voided')),
+    published_source_hash CHAR(64) CHECK (published_source_hash IS NULL OR published_source_hash ~ '^[0-9a-f]{64}$'),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK (date_from IS NULL OR date_to IS NULL OR date_from <= date_to)
+    CHECK (date_from IS NULL OR date_to IS NULL OR date_from <= date_to),
+    CHECK (status <> 'published' OR published_source_hash IS NOT NULL)
 );
 CREATE INDEX idx_source_batches_account ON public.source_batches (account_code, created_at DESC);
 
@@ -64,6 +66,11 @@ BEGIN
            (OLD.source_item_id, OLD.batch_id, OLD.file_id, OLD.source_uid, OLD.external_id, OLD.location,
             OLD.parse_method, OLD.raw_fields, OLD.record_hash, OLD.created_at) THEN
             RAISE EXCEPTION 'source item evidence is immutable' USING ERRCODE = '23514';
+        END IF;
+        UPDATE public.source_batches SET revision = revision + 1, updated_at = now()
+        WHERE batch_id = OLD.batch_id AND status IN ('draft', 'review');
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'source batch is not editable' USING ERRCODE = '23514';
         END IF;
     ELSIF (NEW.file_id, NEW.batch_id, NEW.filename, NEW.file_format, NEW.content_type, NEW.sha256, NEW.content, NEW.created_at)
           IS DISTINCT FROM
