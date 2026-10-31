@@ -42,13 +42,13 @@ try{
    const row=document.createElement('div');row.className='mobileHoldingText';const label=document.createElement('strong');label.textContent='标的名称';row.append(label);document.getElementById('holdings-smart-table').append(row);
   });
   const investment={body:await style('body'),name:await style('.mobileHoldingText strong'),wrap:await style('.wrap')};
-  status='ok';const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.querySelector('.nav a.active'));
+  status='ok';const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
   await page.locator('#moreIssues').waitFor({state:'hidden'});assert.equal(await page.locator('#moreAdvanced').getAttribute('open'),null);
   const body=await style('body'),primary=await style('.morePrimary strong'),wrap=await style('.wrap');
   assert.equal(body.font,investment.body.font);assert.equal(body.background,investment.body.background);
   for(const key of ['font','size','weight','line','color'])assert.equal(primary[key],investment.name[key],JSON.stringify({width,key,primary,investment}));
   assert.equal(wrap.gutter,investment.wrap.gutter);assert.ok(wrap.width<=430);assert.equal(await page.locator('.moreHub').evaluate(n=>getComputedStyle(n).display),'block');
-  assert.equal(await page.locator('.nav a').count(),3);assert.deepEqual(calls.slice(before),['/api/portfolio/data-quality']);
+  assert.equal(await page.locator('.nav a').count(),0);assert.deepEqual(calls.slice(before),['/api/portfolio/data-quality']);
   await capture(width+'-home');
   await page.locator('#moreAdvanced>summary').click();await page.getByText('资产底表与映射',{exact:true}).waitFor();await page.mouse.move(0,0);
   const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));

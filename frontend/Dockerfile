@@ -70,12 +70,18 @@ RUN printf '%s\n' \
 '    proxy_set_header X-Forwarded-Proto $scheme;' \
 '  }' \
 '  root /usr/share/nginx/html;' \
-'  index investments.html;' \
+'  index app.html;' \
 '  location ~ ^/(policy|watchlist)(/|$) { return 404; }' \
 '  location = /research.html { return 404; }' \
 '  location = /backtest.html { return 404; }' \
 '  location = /backtest_v2.html { return 404; }' \
 '  location = /bank_reconcile.html { return 404; }' \
+'  location = /investments.html { if ($arg_content != 1) { return 302 /app.html?view=investments.html&$args; } add_header Cache-Control "no-store" always; }' \
+'  location = /ledger.html { if ($arg_content != 1) { return 302 /app.html?view=ledger.html&$args; } add_header Cache-Control "no-store" always; }' \
+'  location = /more.html { if ($arg_content != 1) { return 302 /app.html?view=more.html&$args; } add_header Cache-Control "no-store" always; }' \
+'  location = /accounts.html { if ($arg_content != 1) { return 302 /app.html?view=accounts.html&$args; } add_header Cache-Control "no-store" always; }' \
+'  location = /data_sources.html { if ($arg_content != 1) { return 302 /app.html?view=data_sources.html&$args; } add_header Cache-Control "no-store" always; }' \
+'  location = /account_import.html { if ($arg_content != 1) { return 302 /app.html?view=account_import.html&$args; } add_header Cache-Control "no-store" always; }' \
 '  location = /index.html { return 302 /investments.html; }' \
 '  location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }' \
 '  location = /holdings.html { return 404; }' \

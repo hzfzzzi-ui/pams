@@ -241,6 +241,11 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
     for page in _formal_html_pages():
         html = _read_public(page)
         parsed = _parse_html(html)
+        if page == "app.html":
+            assert parsed.stylesheets == ["assets/css/app-shell.css?v=20261031-shell-v1"]
+            assert html.count('aria-label="主导航"') == 1
+            assert 'id="page-content"' in html
+            continue
         style_name = "style-phone" if page in {"investments.html", "more.html"} else "style"
         design_name = "design-system-phone" if page in {"investments.html", "more.html"} else "design-system"
         style_index = next(i for i, href in enumerate(parsed.stylesheets) if href.startswith(f"assets/css/{style_name}.css"))
@@ -255,11 +260,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
         assert design_href == f"assets/css/{design_name}.css?v={design_version}"
         assert "app-shell" in parsed.body_classes
-        assert [(item["href"], item["text"].strip()) for item in parsed.data_navs] == ([] if page == "account_import.html" else [
-            ("investments.html", "投资"),
-            ("ledger.html", "收支"),
-            ("more.html", "更多"),
-        ])
+        assert parsed.data_navs == []  # Only app.html owns primary navigation.
         assert "appPageHero" not in html
         assert "page-risk" not in parsed.body_classes
         assert "page-dashboard" not in parsed.body_classes

@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="assets/css/design-system-phone.css?v=20261029-scope-style-v1" />
   <link rel="stylesheet" href="assets/css/holding-sync.css?v=20261029-holding-meta-v2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-shell-v1" />
 </head>
 <body id="top" class="page-investments app-shell investment-phone-layout">
   <div class="statusbar">
@@ -30,12 +31,7 @@
   </div>
 
   <div class="wrap">
-    <div class="nav">
-      <a data-nav href="investments.html">投资</a>
-      <a data-nav href="ledger.html">收支</a>
-      <a data-nav href="more.html">更多</a>
-    </div>
-    <div class="pageHeader">
+<div class="pageHeader">
       <div>
         <h1>投资</h1>
         <div class="pageSubtitle">持仓、收益分析、交易流水与穿透暴露</div>
@@ -43,6 +39,14 @@
       <div class="pageMeta">
         <a class="pill" href="accounts.html">账户核准</a>
       </div>
+    </div>
+
+    <div class="investAnchorNav" aria-label="投资页导航">
+      <a class="is-active" href="#holdings-smart-table" data-invest-tab="holdings">持仓</a>
+      <a href="#return-trend" data-invest-tab="analysis">分析</a>
+      <a href="#investment-ledger" data-invest-tab="transactions">交易</a>
+      <a href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>
+      <a href="#portfolio-constraints" data-invest-tab="allocation">配置</a>
     </div>
     <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
@@ -75,13 +79,7 @@
       </div>
     </section>
 
-    <div class="investAnchorNav" aria-label="投资页导航">
-      <a class="is-active" href="#holdings-smart-table" data-invest-tab="holdings">持仓</a>
-      <a href="#return-trend" data-invest-tab="analysis">分析</a>
-      <a href="#investment-ledger" data-invest-tab="transactions">交易</a>
-      <a href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>
-      <a href="#portfolio-constraints" data-invest-tab="allocation">配置</a>
-    </div>
+
 
     <!-- 全部投资资产总览 -->
     <div id="holdings-smart-table" class="card" data-invest-panel="holdings">
