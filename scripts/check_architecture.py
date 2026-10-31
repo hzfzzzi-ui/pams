@@ -29,6 +29,11 @@ RETIRED_PAGES = frozenset({
 })
 RETIRED_FILES = frozenset({
     'generate_mock_navdata.py',
+    'backend/api/endpoints/transactions.py',
+    'backend/api/domain/ledger/legacy_transaction_filters.py',
+    'database/postgres/schema/005_transactions.sql',
+    'database/postgres/schema/006_update_accounts.sql',
+    'database/postgres/schema/014_transactions_account_code.sql',
     'backend/api/endpoints/backtest_v2.py',
     'backend/api/endpoints/backtest_v2_artifacts.py',
     'backend/api/endpoints/live_signals.py',

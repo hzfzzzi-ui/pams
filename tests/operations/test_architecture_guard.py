@@ -25,6 +25,17 @@ def test_current_shape_and_untracked_private_material_are_ignored(tmp_path):
     assert check_architecture(tmp_path, files) == []
 
 
+def test_legacy_ledger_files_cannot_return(tmp_path):
+    files = fixture_repo(tmp_path)
+    legacy = ['backend/api/endpoints/transactions.py',
+              'backend/api/domain/ledger/legacy_transaction_filters.py',
+              'database/postgres/schema/005_transactions.sql',
+              'database/postgres/schema/006_update_accounts.sql',
+              'database/postgres/schema/014_transactions_account_code.sql']
+    errors = check_architecture(tmp_path, files + legacy)
+    assert all(any(path in error for error in errors) for path in legacy)
+
+
 def test_retired_paths_and_root_tests_are_rejected(tmp_path):
     files = fixture_repo(tmp_path)
     files += ['BACKTEST_v2/run.py', 'strategy/engine.py', 'strategy-gpt/x.py',

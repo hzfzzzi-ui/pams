@@ -399,16 +399,6 @@ def test_investment_account_rows_keep_original_currency_amount_for_display() -> 
     assert "amount_cny AS amount" not in trade_source
 
 
-def test_cash_rows_drop_stale_legacy_transaction_duplicates() -> None:
-    source = inspect.getsource(ledger_view._load_cash_rows)
-
-    assert "cf.source_table = 'pams_transactions'" in source
-    assert "bank_cf.source_table = 'pams_bank_statement_rows'" in source
-    assert "bank_cf.event_date = cf.event_date" in source
-    assert "bank_cf.account_code = cf.account_code" in source
-    assert "ABS(bank_cf.amount - cf.amount) < 0.01" in source
-
-
 def test_investment_account_rows_prefer_bank_cashflow_over_importer_cash_event() -> None:
     cash_row = {
         "id": "investment-inflow-855",
