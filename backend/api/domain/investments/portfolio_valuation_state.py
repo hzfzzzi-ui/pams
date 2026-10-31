@@ -28,7 +28,6 @@ from domain.investments.portfolio_state import (
 )
 from domain.investments.valuation_nav import current_nav_bucket_from_parts
 from domain.investments.valuation_nav import current_nav_account_values_from_parts
-from domain.investments.valuation_state_reader import latest_published
 
 
 STATE_TABLE = "pams_portfolio_valuation_state"
@@ -587,7 +586,18 @@ def latest_published_portfolio_valuation_state(
     """Return the latest published valuation state row if the table is ready."""
     if not _table_exists(cur, STATE_TABLE):
         return None
-    return latest_published(cur, base_currency=base_currency)
+    cur.execute(
+        f"""
+        SELECT *
+        FROM {STATE_TABLE}
+        WHERE base_currency = %s
+          AND status = 'published'
+        ORDER BY valuation_date DESC, published_at DESC NULLS LAST, updated_at DESC
+        LIMIT 1
+        """,
+        (str(base_currency or "CNY").upper(),),
+    )
+    return cur.fetchone()
 
 
 def published_daily_close_compatible(row: dict[str, Any] | None, *,
