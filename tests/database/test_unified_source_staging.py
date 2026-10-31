@@ -13,7 +13,7 @@ import pytest
 
 SCHEMA = Path(__file__).resolve().parents[2] / 'database/postgres/schema/080_unified_source_staging.sql'
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
-from domain.imports.unified_source import add_item, attach_file, create_batch
+from domain.imports.unified_source import add_item, attach_file, create_batch, review_item
 
 
 @pytest.fixture
@@ -148,3 +148,26 @@ def test_original_evidence_is_immutable_but_candidate_is_editable(isolated_datab
         cur.execute('SELECT raw_fields, parsed_fields, review_status FROM source_items WHERE source_item_id=%s', (str(item),))
         raw, parsed, status = cur.fetchone()
         assert raw['amount'] == '800' and parsed['amount'] == '80' and status == 'confirmed'
+
+
+def test_candidate_review_rejects_stale_or_published_batch(isolated_database):
+    conn = isolated_database
+    batch, item = uuid4(), uuid4()
+    with conn.cursor() as cur:
+        create_batch(cur, batch_id=batch, account_code='synthetic-a', business_type='cash',
+                     institution='synthetic-bank', acquisition_method='manual')
+        add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='manual',
+                 record_hash='1' * 64, raw_fields={'amount': '800'})
+        assert review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
+                           parsed_fields={'amount': '80'}, review_status='confirmed', review_note='checked') == 2
+        with pytest.raises(ValueError):
+            review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
+                        parsed_fields={'amount': '1'}, review_status='confirmed')
+        cur.execute('SELECT raw_fields, parsed_fields, review_note FROM source_items WHERE source_item_id=%s', (str(item),))
+        assert cur.fetchone() == ({'amount': '800'}, {'amount': '80'}, 'checked')
+        cur.execute("UPDATE source_batches SET status='published' WHERE batch_id=%s", (str(batch),))
+        with pytest.raises(ValueError):
+            review_item(cur, batch_id=batch, item_id=item, expected_revision=2,
+                        parsed_fields={'amount': '2'}, review_status='confirmed')
+        cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s', (str(batch),))
+        assert cur.fetchone()[0] == 2

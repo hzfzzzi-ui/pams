@@ -46,3 +46,36 @@ def add_item(cur: Any, *, item_id: UUID, batch_id: UUID, source_uid: str,
          source_uid, external_id, location, parse_method, record_hash,
          Json(raw_fields or {}), Json(parsed_fields or {})),
     )
+
+
+def review_item(cur: Any, *, batch_id: UUID, item_id: UUID, expected_revision: int,
+                parsed_fields: dict[str, Any], review_status: str,
+                review_note: str | None = None) -> int:
+    """Edit one candidate and advance its batch revision in one statement.
+
+    Missing, stale or non-editable batches fail without changing either row.
+    The caller owns the surrounding transaction and its commit or rollback.
+    """
+    cur.execute(
+        """WITH locked AS (
+             SELECT b.batch_id FROM public.source_batches b
+             WHERE b.batch_id = %s AND b.revision = %s
+               AND b.status IN ('draft', 'review')
+               AND EXISTS (SELECT 1 FROM public.source_items i
+                           WHERE i.batch_id = b.batch_id AND i.source_item_id = %s)
+             FOR UPDATE
+           ), changed AS (
+             UPDATE public.source_items i
+             SET parsed_fields = %s, review_status = %s, review_note = %s, updated_at = now()
+             FROM locked l WHERE i.batch_id = l.batch_id AND i.source_item_id = %s
+             RETURNING i.batch_id
+           )
+           UPDATE public.source_batches b SET revision = b.revision + 1, updated_at = now()
+           FROM changed c WHERE b.batch_id = c.batch_id RETURNING b.revision""",
+        (str(batch_id), expected_revision, str(item_id), Json(parsed_fields), review_status,
+         review_note, str(item_id)),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError('source batch or item missing, stale, or not editable')
+    return int(row[0])
