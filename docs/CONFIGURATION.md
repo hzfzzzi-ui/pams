@@ -42,6 +42,7 @@
 - API Dockerfile 复制 backend/api 和 config 到镜像。/app/config 被挂载时，挂载内容覆盖镜像内同路径默认文件。
 - 默认 API 挂载为 config → /app/config（只读）、data → /app/data、账户台账 → /host/account-ledger（只读）、scheduler_state → /scheduler-state（只读）。资料目录不是源码。
 - scheduler 写独立检查点卷；该卷只描述调度状态，不作为金融事实。
+- 同步中心状态读取和 scheduler 检查点可输出 `pams.runtime.v1` 脱敏技术观察事件，仅包含固定事件名和白名单状态。事件不包含来源内容、账户或错误文本，也不代表财务事实或发布成功；仓库未配置集中日志采集器。现有数据库状态、发布指针和检查点仍为原有运行输入。
 - web 从 frontend/Dockerfile 构建，nginx 配置在该文件中生成，静态文件不会通过修改工作区自动上线。
 - gateway/Caddyfile 定义统一网关；PostgreSQL、Caddy 和 AdGuard 分别使用自己的持久卷。
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import re
@@ -11,6 +12,23 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+
+_event_logger = logging.getLogger('pams.scheduler.events')
+_event_statuses = frozenset({'running', 'success', 'partial', 'failed', 'error', 'blocked', 'skipped', 'deferred'})
+
+
+def _emit_checkpoint_observation(job: dict) -> None:
+    """Emit a privacy-limited technical observation, never business evidence."""
+    status = job.get('status') if isinstance(job, dict) else None
+    if not isinstance(status, str) or status not in _event_statuses:
+        status = 'unknown'
+    event = {'schema': 'pams.runtime.v1', 'event': 'scheduler_checkpoint_saved', 'status': status}
+    try:
+        _event_logger.info('%s', json.dumps(event, sort_keys=True, separators=(',', ':')))
+    except Exception:
+        # An unavailable logging handler cannot alter successful checkpointing.
+        pass
 
 
 @contextmanager
@@ -52,6 +70,7 @@ def store_job(path: Path, key: str, job: dict) -> None:
         state = read_state(path)
         state["jobs"][key] = job
         write_state(path, state)
+    _emit_checkpoint_observation(job)
 
 
 def latest_due_date(local_time: str, zone: str, now: datetime | None = None) -> date:
