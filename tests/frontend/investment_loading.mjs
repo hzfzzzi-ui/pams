@@ -1,3 +1,4 @@
+import {chartHarnessSource} from './investment_chart_fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -28,27 +29,38 @@ async function chartModule(fallback = false) {
     update() {}
   }
   const jget = (url) => { const request = { url, ...deferred() }; requests.push(request); return request.promise; };
-  const context = vm.createContext({ window, console, ...(fallback ? {} : { Chart }),
+  const context = vm.createContext({ window, console, AbortController, ...(fallback ? {} : { Chart }),
     document: { body: { dataset: {} }, getElementById: id => elements[id] || null },
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
   });
   // Do not run page bootstrap; execute the actual chart functions without changing their bodies.
-  const module = new vm.SourceTextModule(source.slice(0, source.lastIndexOf('main().finally(')) + `
-    export { loadInvestmentNavChartOnce, renderInvestmentReturnChart, getInvestmentChartState,
-      applyInvestmentReturnWindow, normalizeInvestmentNavRows, buildInvestmentNavChartData, filterReturnWindowRows };
-  `, { context });
-  await module.link(specifier => {
-    const values = specifier.includes('api.js') ? { jget, fmt2: String, accountLabel: String }
-      : specifier.includes('utils.js') ? { safeNum: value => Number.isFinite(Number(value)) ? Number(value) : 0,
+  const moduleCache = new Map();
+  const entryURL = new URL('holdings_categories.js', root);
+  const module = new vm.SourceTextModule(chartHarnessSource, { context, identifier: entryURL.href });
+  moduleCache.set(entryURL.href, module);
+  await module.link((specifier, parent) => {
+    const url = new URL(specifier, parent.identifier);
+    url.search = '';
+    if (moduleCache.has(url.href)) return moduleCache.get(url.href);
+    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/shared/read_scope.js') || url.pathname.endsWith('/app/routes.js')) {
+      const dependency = new vm.SourceTextModule(readFileSync(url, 'utf8'), { context, identifier: url.href });
+      moduleCache.set(url.href, dependency);
+      return dependency;
+    }
+    const name = url.pathname.split('/').pop();
+    const values = name === 'api.js' ? { jget, fmt2: String, accountLabel: String }
+      : name === 'utils.js' ? { safeNum: value => Number.isFinite(Number(value)) ? Number(value) : 0,
         pnlPct: () => 0, createReturnRateChart() {} }
-        : specifier.includes('investment_startup.js') ? { trackInvestmentNav: value => value,
+        : name === 'investment_startup.js' ? { trackInvestmentNav: value => value,
           trackInvestmentHoldings: value => value, afterInvestmentNav: task => Promise.resolve().then(task) }
-        : specifier.includes('investment_requests.js') ? { loadInvestmentSummaryFresh() {} }
-          : specifier.includes('account_cash.js') ? { accountCashBreakdown() {} }
+        : name === 'investment_requests.js' ? { loadInvestmentSummaryFresh() {} }
+          : name === 'account_cash.js' ? { accountCashBreakdown() {} }
             : { openBottomSheet() {}, setActiveNav() {} };
-    return new vm.SyntheticModule(Object.keys(values), function () {
+    const dependency = new vm.SyntheticModule(Object.keys(values), function () {
       for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    }, { context });
+    }, { context, identifier: url.href });
+    moduleCache.set(url.href, dependency);
+    return dependency;
   });
   await module.evaluate();
   return { api: module.namespace, requests, charts, window, storage };

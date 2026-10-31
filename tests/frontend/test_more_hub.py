@@ -14,7 +14,7 @@ PUBLIC = ROOT / "frontend/public"
 
 
 def test_server_issue_summary_and_unknown_are_distinct():
-    source = (PUBLIC / "assets/js/more.js").read_text(encoding="utf-8")
+    source = (PUBLIC / "assets/js/features/more/controller.js").read_text(encoding="utf-8")
     source = re.sub(r"^import .*?;\s*", "", source, flags=re.M)
     script = "import assert from 'node:assert/strict';\n" + source.replace("export function", "function") + """
 assert.equal(issueSummary({data_quality:{summary:{status:'ok',error_count:0,warning_count:0}}}),null);
@@ -41,12 +41,12 @@ def test_more_uses_investment_tokens_without_new_font_or_financial_code():
     assert all(rule.type == "qualified-rule" for rule in rules)
     assert "font-family: var(--pams-font-sans)" in css
     assert "background: var(--pams-bg-canvas)" in css
-    assert "var(--pams-mobile-gutter, 10px)" in css
+    assert "var(--pams-mobile-gutter)" in css
     assert "body.page-more.app-shell .moreHub { display: block; }" in css
     assert not any(value in css for value in ("@font-face", "@import", "url(", "vw", "#07090c"))
     html = (PUBLIC / "more.html").read_text(encoding="utf-8")
-    assert "more.css?v=20261029-investment-language-v1" in html
-    assert "more.js?v=20261031-risk-summary-retired-v1" in html
+    assert "more.css?v=20261031-modules-v1" in html
+    assert "more.js?v=20261031-modules-v1" in html
     assert html.count('class="moreRow" href=') == 4
     assert 'href="research.html"' not in html
 

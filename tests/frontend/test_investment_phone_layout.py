@@ -1,4 +1,3 @@
-import hashlib
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -32,25 +31,31 @@ def test_viewport_lengths_use_phone_width_without_rewriting_strings():
     assert 'content:"100vw"' in result
 
 
-def test_original_phone_baseline_is_retained_and_build_is_deterministic():
-    baselines = {
-        "style": "aef39b73d3746bebbede94daa04c559de14d3991ca2e4e579e4f2c09a84387a7",
-        "design-system": "7a19043760523616103d4d363e3fba01d74fa49398ad7f88efc658d86e501b3d",
-    }
-    for name, fingerprint in baselines.items():
+def test_mobile_build_retains_rules_and_is_deterministic():
+    # UI redesign intentionally replaces the old whole-file hash freeze.
+    # Preserve media conversion, parsed rule count and actual cascade order.
+    for name in ("style", "design-system"):
         source = (ROOT / f"frontend/public/assets/css/{name}.css").read_text(encoding="utf-8")
-        assert hashlib.sha256(source.encode()).hexdigest() == fingerprint
         result = MODULE.phone_styles(source)
         assert result == MODULE.phone_styles(source)
-        assert not [r for r in tinycss2.parse_stylesheet(result) if r.type == "error"]
+        original_rules = tinycss2.parse_stylesheet(source, skip_whitespace=True, skip_comments=True)
+        generated_rules = tinycss2.parse_stylesheet(result, skip_whitespace=True, skip_comments=True)
+        assert not [r for r in generated_rules if r.type == "error"]
+        assert len(original_rules) == len(generated_rules)
+        assert [r.type for r in original_rules] == [r.type for r in generated_rules]
+        assert [tinycss2.serialize(r.prelude).strip() for r in original_rules if r.type == "qualified-rule"] == [
+            tinycss2.serialize(r.prelude).strip() for r in generated_rules if r.type == "qualified-rule"
+        ]
+        assert ("prefers-reduced-motion" in result) == ("prefers-reduced-motion" in source)
+        assert "body.app-shell" in result
 
 
 def test_phone_mode_is_limited_to_investment_and_approved_more_hub():
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     assert "investment-phone-layout" in html
-    assert "style-phone.css?v=20261031-legacy-css-v1" in html
+    assert "style-phone.css?v=20261031-modules-v1" in html
     more = (ROOT / "frontend/public/more.html").read_text(encoding="utf-8")
-    assert "style-phone.css?v=20261031-legacy-css-v1" in more
+    assert "style-phone.css?v=20261031-modules-v1" in more
     for name in ("ledger", "accounts", "data_sources"):
         assert "-phone.css" not in (ROOT / f"frontend/public/{name}.html").read_text(encoding="utf-8")
 

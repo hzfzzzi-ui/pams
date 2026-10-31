@@ -1,59 +1,26 @@
-import { jget } from './api.js?v=20261031-risk-summary-retired-v1';
-import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20261031-risk-summary-retired-v1';
-import { setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
+import { jget } from './api.js?v=20261031-modules-v1';
+import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20261031-modules-v1';
+import { setActiveNav } from './ui.js?v=20261031-modules-v1';
+import { mount as mountPage, dispose as disposePage } from './features/more/controller.js?v=20261031-modules-v1';
 
-export function issueSummary(payload) {
-  const summary = payload?.data_quality?.summary;
-  if (!summary || !['ok', 'warning', 'error'].includes(summary.status) ||
-      !Number.isInteger(summary.error_count) || !Number.isInteger(summary.warning_count) ||
-      summary.error_count < 0 || summary.warning_count < 0) throw new Error('数据状态暂不可用');
-  return summary.status === 'ok' ? null : `错误 ${summary.error_count} · 警告 ${summary.warning_count}`;
-}
+export { issueSummary } from './features/more/controller.js?v=20261031-modules-v1';
 
-async function loadIssues() {
-  const row = document.getElementById('moreIssues');
-  const label = document.getElementById('moreIssueText');
-  try {
-    const text = issueSummary(await jget('/api/portfolio/data-quality?baseCurrency=CNY', { cache: false }));
-    row.hidden = text === null;
-    if (text !== null) label.textContent = text;
-  } catch {
-    row.hidden = false;
-    row.querySelector('strong').textContent = '数据状态暂不可用';
-    label.textContent = '';
-  }
-}
-
-let navGrowthLoaded = false;
-
-async function loadNavGrowthExplanationOnce() {
-  const panel = document.getElementById('moreNavGrowthExplanationPanel');
-  if (!panel || navGrowthLoaded) return;
-  panel.innerHTML = '<div class="muted">正在加载NAV增值解释...</div>';
-  try {
-    const payload = await jget('/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY', { cache: false });
-    renderNavGrowthExplanationPanel(payload, panel);
-    navGrowthLoaded = true;
-  } catch (error) {
-    panel.innerHTML = '<div class="muted"></div>';
-    panel.firstElementChild.textContent = `NAV增值解释加载失败：${error?.message || String(error)}`;
-  }
-}
-
-function bindNavGrowthDetails() {
-  const details = document.getElementById('moreNavGrowthDetails');
-  if (!details) return;
-  if (details.open) loadNavGrowthExplanationOnce();
-  details.addEventListener('toggle', () => {
-    if (details.open) loadNavGrowthExplanationOnce();
+export function mount(root = document.body, context = {}) {
+  return mountPage(root, {
+    get: jget,
+    renderExplanation: renderNavGrowthExplanationPanel,
+    bootstrap: setActiveNav,
+    ...context,
   });
 }
 
-function boot() {
-  setActiveNav();
-  document.getElementById('moreOrigin').textContent = window.location.origin;
-  bindNavGrowthDetails();
-  loadIssues();
+export function dispose(root = document.body) {
+  disposePage(root);
 }
 
-if (typeof document !== 'undefined') boot();
+if (typeof document !== 'undefined') {
+  mount();
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) mount();
+  });
+}

@@ -8,7 +8,8 @@ import subprocess
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "frontend/public/assets/js/holdings_categories.js").read_text(encoding="utf-8")
+from .holdings_source import read_holdings_source
+SOURCE = read_holdings_source(ROOT / "frontend/public", "holdings_categories.js")
 
 
 def function(name):

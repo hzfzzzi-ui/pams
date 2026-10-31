@@ -150,6 +150,13 @@ function headerEntries(headers = {}) {
   return Object.entries(headers);
 }
 
+function cancelledRequest(signal) {
+  const error = new Error("Request cancelled");
+  error.name = "AbortError";
+  if (signal?.reason !== undefined) error.cause = signal.reason;
+  return error;
+}
+
 function xhrWithTimeout(url, init = {}, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -158,7 +165,11 @@ function xhrWithTimeout(url, init = {}, timeoutMs = 30000) {
     headerEntries(init.headers).forEach(([key, value]) => {
       if (value != null) xhr.setRequestHeader(key, value);
     });
+    const signal = init.signal;
+    const cancel = () => xhr.abort();
+    const cleanup = () => signal?.removeEventListener('abort', cancel);
     xhr.onload = () => {
+      cleanup();
       const body = xhr.responseText || "";
       resolve({
         ok: xhr.status >= 200 && xhr.status < 300,
@@ -168,33 +179,38 @@ function xhrWithTimeout(url, init = {}, timeoutMs = 30000) {
         json: async () => (body ? JSON.parse(body) : null),
       });
     };
-    xhr.onerror = () => reject(new Error("Network request failed"));
-    xhr.onabort = () => reject(new Error("Request aborted"));
+    xhr.onerror = () => { cleanup(); reject(new Error("Network request failed")); };
+    xhr.onabort = () => { cleanup(); reject(cancelledRequest(signal)); };
     xhr.ontimeout = () => {
+      cleanup();
       const error = new Error(`Request timeout (${Math.round(timeoutMs / 1000)}s)`);
       error.name = "AbortError";
       reject(error);
     };
-    xhr.send(init.body ?? null);
+    if (signal?.aborted) { reject(cancelledRequest(signal)); return; }
+    signal?.addEventListener('abort', cancel, {once: true});
+    try { xhr.send(init.body ?? null); } catch (error) { cleanup(); reject(error); }
   });
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = 30000) {
+async function fetchWithTimeout(url, init = {}, timeoutMs = 30000, consume) {
+  if (init.signal?.aborted) throw cancelledRequest(init.signal);
+  const read = response => consume ? consume(response) : response;
   if (typeof fetch === "function") {
-    if (typeof AbortController !== "function") {
-      return fetch(url, init);
-    }
+    if (typeof AbortController !== "function") return read(await fetch(url, init));
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const cancel = () => ctrl.abort(init.signal.reason);
+    init.signal?.addEventListener('abort', cancel, {once: true});
     try {
-      return await fetch(url, { ...init, signal: ctrl.signal });
+      // Keep cancellation connected through JSON body consumption, not only headers.
+      return await read(await fetch(url, { ...init, signal: ctrl.signal }));
     } finally {
       clearTimeout(timer);
+      init.signal?.removeEventListener('abort', cancel);
     }
   }
-  if (typeof XMLHttpRequest === "function") {
-    return xhrWithTimeout(url, init, timeoutMs);
-  }
+  if (typeof XMLHttpRequest === "function") return read(await xhrWithTimeout(url, init, timeoutMs));
   throw new Error("No browser HTTP transport available");
 }
 
@@ -287,30 +303,37 @@ export function typeLabel(t) {
 }
 
 export async function jget(path, options = {}) {
+  const signal = options.signal;
+  if (signal?.aborted) throw cancelledRequest(signal);
   const url = apiBase() + path;
   const ttlMs = options.ttlMs ?? apiCacheTtl(path);
   const cacheKey = ttlMs > 0 ? apiCacheKey(url) : "";
   if (ttlMs > 0 && options.cache !== false && !options.force) {
     const cached = readStoredCache(cacheKey, ttlMs);
     if (cached !== undefined) return cached;
-    const inFlight = apiInFlight.get(cacheKey);
+    // A caller-owned signal gets an independent request. It may read settled
+    // cache, but cancelling it must never abort another reader's shared work.
+    const inFlight = signal ? null : apiInFlight.get(cacheKey);
     if (inFlight) return inFlight;
   }
   const requestPromise = (async () => {
-    let res;
+    let data;
     const timeoutMs = apiRequestTimeoutMs(path);
     try {
-      res = await fetchWithTimeout(url, { cache: "no-store" }, timeoutMs);
+      data = await fetchWithTimeout(url, { cache: "no-store", signal }, timeoutMs, async res => {
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        return res.json();
+      });
     } catch (e) {
+      if (signal?.aborted) throw cancelledRequest(signal);
       if (e && e.name === "AbortError") throw new Error(`Request timeout (${Math.round(timeoutMs / 1000)}s)`);
       throw e;
     }
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const data = await res.json();
+    if (signal?.aborted) throw cancelledRequest(signal);
     if (ttlMs > 0 && options.cache !== false) writeStoredCache(cacheKey, data);
     return data;
   })();
-  if (ttlMs > 0 && options.cache !== false && !options.force) {
+  if (!signal && ttlMs > 0 && options.cache !== false && !options.force) {
     apiInFlight.set(cacheKey, requestPromise);
     requestPromise.then(
       () => apiInFlight.delete(cacheKey),

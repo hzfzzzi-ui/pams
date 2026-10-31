@@ -1,0 +1,454 @@
+.page-ledger {
+  font-family:var(--pams-font-sans);
+  letter-spacing: 0;
+}
+.ledgerToolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end }
+.ledgerToolbar .btn { min-height:44px; padding:0 12px }
+.ledgerToolbar .formInput { min-height:44px }
+.ledgerSection {
+  padding:14px 0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.ledgerSection:hover { transform:none; box-shadow:none; border:0 }
+.ledgerError {
+  display:none;
+  margin:0 12px 8px;
+  padding:10px 0;
+  border-bottom:1px solid rgba(248,81,73,.32);
+  color:var(--bad);
+}
+.ledgerTop { padding-top:0; border-color:transparent; box-shadow:none; background:transparent }
+.ledgerKpiGrid { display:grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap:10px; margin-top:8px; padding-bottom:8px; border-bottom:1px solid var(--line) }
+.ledgerKpi { padding:0; min-height:auto; border:0; border-radius:0; background:transparent }
+.ledgerKpi .label { color:var(--muted); font-size:12px; font-weight:600; letter-spacing:0 }
+.ledgerKpi .value { margin-top:4px; font-size:20px; line-height:1.15; font-weight:600; font-family:var(--pams-font-sans); font-variant-numeric:tabular-nums; letter-spacing:0 }
+.page-ledger .cashflowBodyGrid {
+  display:grid !important;
+  grid-template-columns:minmax(0,1fr);
+  gap:24px;
+  width:100%;
+  min-width:0;
+  margin-top:14px;
+  align-items:start;
+}
+.page-ledger .cashflowBodyGrid > div { min-width:0 }
+.page-ledger .cashflowBodyGrid .chartWrap {
+  width:100%;
+  min-width:0;
+  height:300px !important;
+  min-height:260px !important;
+  overflow:visible;
+  padding:0 6px 0 8px;
+}
+.categoryBarList { display:grid; border-top:1px solid var(--line) }
+.categoryBarRow { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:62px; padding:10px 0; border-bottom:1px solid var(--line) }
+.categoryBarRow:last-child { border-bottom:none }
+.categoryBarRank { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--pams-line-subtle); border-radius:999px; background:var(--pams-bg-soft); color:var(--pams-text-secondary); font-size:12px; font-weight:600; font-variant-numeric:tabular-nums }
+.categoryBarMain { min-width:0 }
+.categoryBarName { overflow-wrap:anywhere; white-space:normal; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
+.categoryTrack { height:3px; margin-top:7px; border-radius:999px; background:var(--pams-bg-soft); overflow:hidden }
+.categoryFill { height:100%; border-radius:999px; background:var(--pams-text-secondary) }
+.categoryBarCount { margin-top:5px; color:var(--muted); font-size:12px; line-height:1; font-weight:600 }
+.categoryBarMeta { display:grid; gap:4px; justify-items:end; min-width:92px; white-space:nowrap }
+.categoryBarMeta b { color:var(--text); font-family:var(--pams-font-sans); font-size:14px; line-height:1.15; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }
+.categoryBarMeta span { color:var(--muted); font-size:12px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums }
+.categoryInsightPanel { display:grid; gap:12px; min-width:0 }
+.categoryModeSwitch { display:flex; gap:6px; justify-content:flex-end; margin-bottom:0 }
+.categoryModeSwitch .tab-btn { min-height:44px; padding:0 11px }
+.categoryInsightGrid { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; align-items:center; min-width:0 }
+.categoryPieWrap { position:relative; width:128px; height:128px; min-width:128px; justify-self:center }
+.categoryPieWrap canvas { width:128px !important; height:128px !important }
+.categoryPieFallback { position:absolute; inset:0; border:1px solid var(--pams-line-subtle); border-radius:999px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04), 0 10px 26px rgba(0,0,0,.22) }
+.categoryPieEmpty { position:absolute; inset:0; display:grid; place-items:center; padding:12px; border:1px solid var(--pams-line-subtle); border-radius:999px; color:var(--muted); font-size:12px; line-height:1.35; font-weight:600; text-align:center }
+.ruleItem { padding:var(--sp-2) 0; border-bottom:1px solid var(--line) }
+.ruleItem:last-child { border-bottom:none }
+.ruleName { font-weight:600; margin-bottom:4px }
+.ledgerFilterGrid { display:grid; grid-template-columns: 180px 1fr; gap:var(--sp-2); align-items:center }
+.compactSectionTools { margin-top:-4px }
+.compactSectionTools .ledgerFilterGrid { grid-template-columns:minmax(0, 1fr); width:100% }
+
+.ledgerPanelGroup { display:grid; gap:12px }
+.ledgerPanelGroup[hidden] { display:none !important }
+.ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+.ledgerFlowChip { min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer; }
+.ledgerFlowChip.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text); }
+.ledgerSectionToolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; margin-left:auto }
+.ledgerIconButton { width:44px; height:44px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-secondary); cursor:pointer }
+.ledgerIconButton:hover,
+.ledgerIconButton:focus,
+.ledgerIconButton.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text) }
+.ledgerIconButton svg { width:16px; height:16px; stroke:currentColor; stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round }
+.ledgerSearchSheet { display:grid; gap:12px }
+.ledgerSearchSheetActions { display:grid; grid-template-columns:1fr 1fr; gap:8px }
+.ledgerOptionSheet { display:grid; gap:8px }
+.ledgerOptionButton { width:100%; min-height:44px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--text); text-align:left; cursor:pointer }
+.ledgerOptionButton.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft) }
+.ledgerOptionButton strong { font-size:14px; line-height:1.2; font-weight:600 }
+.ledgerOptionButton small { margin-top:3px; display:block; color:var(--muted); font-size:12px; line-height:1.2; font-weight:600 }
+.ledgerOptionButton em { width:18px; height:18px; display:grid; place-items:center; border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-primary); font-style:normal; font-size:12px; font-weight:600 }
+.recentAccountScope { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:600 }
+.recentAccountScope strong { color:var(--text); font-weight:600 }
+.recentAccountScope button { border:0; background:transparent; color:var(--pams-text-primary); font-size:12px; font-weight:600; cursor:pointer }
+.accountFlowList { display:grid; border-top:1px solid var(--line) }
+.accountPeriodToggle { display:flex; gap:8px; justify-content:flex-end; align-items:center; flex-wrap:wrap }
+.accountPeriodButton { min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer }
+.accountPeriodButton.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text) }
+.accountFlowRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
+.accountGroupBlock { border-bottom:1px solid var(--line) }
+.accountGroupBlock:last-child { border-bottom:0 }
+.accountGroupBlock .accountFlowRow:last-child { border-bottom:0 }
+.accountGroupRow { min-height:72px; border-bottom:0 }
+.accountStandaloneRow { border-bottom:1px solid var(--line) }
+.accountFlowHeader { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:start; min-width:0 }
+.accountFlowMain { min-width:0 }
+.accountFlowMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:16px; line-height:1.28; font-weight:600 }
+.accountFlowMain small { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1; font-weight:600 }
+.accountFlowMetaLine { display:flex !important; align-items:center; gap:7px; min-width:0; flex-wrap:wrap }
+.accountSyncBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid var(--pams-line-subtle); border-radius:999px; background:var(--pams-bg-soft); color:var(--pams-text-secondary); font-size:12px; line-height:1; font-weight:600; white-space:nowrap }
+.accountFlowFooter { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0 }
+.accountFlowFooter.is-compact { justify-content:flex-end }
+.accountFlowStats { display:flex; align-items:center; gap:8px; margin-top:0; color:var(--muted); font-size:12px; font-weight:600; flex-wrap:wrap; min-width:0 }
+.accountFlowStats span { white-space:nowrap }
+.accountFlowFooterMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex:0 0 auto; min-width:max-content; color:var(--muted); font-size:12px; font-weight:600; text-align:right; white-space:nowrap }
+.accountFlowNetBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid var(--pams-line-subtle); border-radius:999px; background:var(--pams-bg-soft); color:var(--pams-text-secondary); white-space:nowrap }
+.accountFlowNetBadge.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
+.accountFlowNetBadge.down { border-color:rgba(248,81,73,.28); background:rgba(248,81,73,.08); color:#ff8b81 }
+.accountInvestmentFooter { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center }
+.accountInvestmentStats { display:flex; align-items:center; gap:5px; flex:1 1 auto; flex-wrap:wrap; min-width:0 }
+.accountInvestmentChip { display:inline-flex; align-items:center; gap:4px; max-width:170px; min-height:22px; padding:0 7px; border:1px solid var(--pams-line-subtle); border-radius:999px; background:var(--pams-bg-soft); color:var(--muted); font-size:12px; line-height:1; font-weight:600; white-space:nowrap; overflow:hidden }
+.accountInvestmentChip span,
+.accountInvestmentChip strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.accountInvestmentChip strong { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums }
+.accountInvestmentChip.up { border-color:rgba(63,185,80,.26); background:rgba(63,185,80,.08); color:#7ee787 }
+.accountInvestmentChip.down,
+.accountInvestmentChip.risk { border-color:rgba(248,81,73,.30); background:rgba(248,81,73,.08); color:#ff8b81 }
+.accountInvestmentChip.data { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--pams-text-primary) }
+.accountInvestmentChip.up strong { color:#7ee787 }
+.accountInvestmentChip.down strong,
+.accountInvestmentChip.risk strong { color:#ff8b81 }
+.accountInvestmentChip.data strong { color:var(--pams-text-primary) }
+.accountFlowSide { display:grid; gap:4px; justify-items:end; min-width:124px; white-space:nowrap; text-align:right }
+.accountFlowSide b { font-family:var(--pams-font-sans); font-size:15px; line-height:1.15; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }
+.accountFlowSide small { color:var(--muted); font-size:12px; font-weight:600 }
+.accountBalanceValue { color:var(--text); font-size:16px !important }
+.accountBalanceValue.down { color:#ff7b72 }
+.accountBalanceValue.is-missing { color:var(--muted) }
+.accountGroupToggle { display:inline-flex; align-items:center; justify-content:center; min-height:24px; padding:0 9px; border:1px solid var(--pams-line-subtle); border-radius:999px; background:var(--pams-bg-soft); color:var(--pams-text-primary); font-size:12px; font-weight:600 }
+.accountPendingBadge { display:inline-flex; align-items:center; min-height:20px; padding:0 7px; border:1px solid rgba(248,81,73,.32); border-radius:999px; background:rgba(248,81,73,.1); color:#ff8b81; font-size:12px; line-height:1; font-weight:600; white-space:nowrap }
+.accountSubList { display:grid; margin:0 0 8px 13px; padding-left:13px; border-left:1px solid var(--pams-line-subtle) }
+.accountSubList[hidden] { display:none !important }
+.accountSubRow { min-height:58px; padding:10px 0; border-bottom:1px solid var(--pams-line-subtle) }
+.accountSubRow .accountFlowMain strong { font-size:14px }
+.accountSubRow .accountFlowMain small { margin-top:4px; font-size:12px }
+.accountSubRow .accountFlowStats { gap:8px }
+.accountSubRow .accountFlowSide { min-width:118px }
+.accountFlowRow.is-empty { cursor:default; opacity:.52 }
+.cashflowBridge { display:block; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
+.cashflowBridgeLine { display:grid; gap:9px; padding:10px 0 11px; border:0; border-top:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent }
+.cashflowBridgeHead { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0 }
+.cashflowBridgeHead span { color:var(--muted); font-size:12px; font-weight:600 }
+.cashflowBridgeHead strong { color:var(--pams-text-muted); font-size:12px; font-weight:600; white-space:nowrap }
+.cashflowTransferGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 }
+.cashflowTransferStat { min-width:0; padding:0 10px; border-left:1px solid rgba(255,255,255,.08) }
+.cashflowTransferStat:first-child { border-left:0; padding-left:0 }
+.cashflowTransferStat span { display:block; color:var(--muted); font-size:12px; font-weight:600 }
+.cashflowTransferStat strong { display:block; overflow-wrap:anywhere; white-space:normal; margin-top:3px; color:var(--text); font-family:var(--pams-font-sans); font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }
+.cashflowTransferStat.good strong { color:var(--good); text-shadow:none}
+.cashflowTransferStat.bad strong { color:var(--bad); text-shadow:none}
+.cashflowTransferStat.data strong { color:var(--text) }
+.cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
+.cashflowBridgeItem:first-child { border-left:0; padding-left:0 }
+.cashflowBridgeItem.good,
+.cashflowBridgeItem.bad,
+.cashflowBridgeItem.data,
+.cashflowBridgeItem.pending { border-left-color:rgba(255,255,255,.08) }
+.cashflowBridgeLabel { color:var(--muted); font-size:12px; font-weight:600 }
+.cashflowBridgeValue { margin-top:2px; font-weight:600; font-size:14px; font-family:var(--pams-font-sans); font-variant-numeric:tabular-nums; letter-spacing:0 }
+.cashflowBridgeOp { display:none }
+.ledgerJumpCard { scroll-margin-top:16px }
+.ledgerList { display:grid; border-top:1px solid var(--line) }
+.ledgerListRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
+.ledgerListRow:active { transform:scale(.995) }
+.ledgerListMain { min-width:0; display:flex; flex-direction:column; align-self:stretch }
+.ledgerListMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; line-height:1.28; font-weight:600 }
+.ledgerListMain small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; font-weight:600 }
+.ledgerListAccount { margin-top:6px; color:var(--pams-text-muted) !important }
+.ledgerListDate { margin-top:auto; padding-top:8px; color:var(--pams-text-muted) !important; font-variant-numeric:tabular-nums }
+.ledgerListSide { display:grid; gap:5px; justify-items:end; min-width:0; white-space:normal; text-align:right; overflow-wrap:anywhere }
+.ledgerListSide b { font-size:15px; font-weight:600; font-family:var(--pams-font-sans); font-variant-numeric:tabular-nums; letter-spacing:0 }
+.ledgerListSide b.transfer { color:var(--pams-text-primary); text-shadow:none}
+.ledgerListSide small { color:var(--muted); font-size:12px; font-weight:600 }
+.ledgerOriginalAmount { color:var(--pams-text-muted) !important; font-size:12px !important; font-weight:600 !important; font-variant-numeric:tabular-nums }
+.transferRoute { display:grid !important; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr); gap:8px; align-items:stretch; padding:0 0 12px; border-bottom:1px solid var(--pams-line-subtle) }
+.transferRouteHeader { grid-column:1 / -1; color:var(--pams-text-primary); font-size:12px; line-height:1; font-weight:600 }
+.transferRouteNode { min-width:0; padding:9px 10px; border:1px solid var(--pams-line-subtle); border-radius:8px; background:var(--pams-bg-soft) }
+.transferRouteNode.is-target { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft) }
+.transferRouteNode em { display:block; margin-bottom:5px; color:var(--muted); font-size:12px; line-height:1; font-style:normal; font-weight:600 }
+.transferRouteNode strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
+.transferRouteArrow { display:grid; place-items:center; color:var(--pams-text-primary); font-size:18px; line-height:1; font-weight:600 }
+.ledgerListMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap }
+.ledgerReviewHint { color:var(--muted); font-size:12px; font-weight:600; letter-spacing:.2px }
+.ledgerInlineEditBtn {
+  min-height:44px;
+  padding:0 12px;
+  border:1px solid var(--pams-line-subtle);
+  border-radius:var(--pams-radius-control);
+  background:var(--pams-bg-soft);
+  color:var(--pams-text-primary);
+  font-size:12px;
+  font-weight:600;
+  line-height:1;
+  cursor:pointer;
+}
+.ledgerRowActions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap }
+.ledgerInlineDetail { padding:0 0 12px; border-bottom:1px solid var(--line) }
+.ledgerEmpty { padding:14px 0; color:var(--muted); font-size:13px; font-weight:600 }
+.cashflowSidePanel { display:grid; gap:10px; margin-top:0 }
+.ledgerRules { margin-top:10px; border:0; border-top:1px solid var(--line); border-radius:0; padding:10px 0 0; background:transparent; }
+.ledgerRules summary { cursor:pointer; color:var(--text); font-weight:600; }
+.ledgerMobileHero { display:none; }
+.ledgerConfirmSheet { display:grid; gap:12px }
+.ledgerConfirmLead {
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:var(--text-secondary);
+  font-size:12px;
+  line-height:1.55;
+}
+.ledgerConfirmTitle {
+  color:var(--text);
+  font-size:18px;
+  line-height:1.35;
+  font-weight:600;
+  word-break:break-word;
+}
+.ledgerConfirmAmount {
+  font-family:var(--pams-font-sans);
+  font-size:28px;
+  line-height:1;
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0;
+}
+.ledgerConfirmMeta {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:8px;
+}
+.ledgerConfirmMeta > div {
+  border:0;
+  border-top:1px solid rgba(255,255,255,.08);
+  border-radius:0;
+  background:transparent;
+  padding:9px 0 0;
+}
+.ledgerConfirmMeta span {
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:600;
+  margin-bottom:4px;
+}
+.ledgerConfirmMeta strong {
+  display:block;
+  color:var(--text);
+  font-size:13px;
+  line-height:1.45;
+  word-break:break-word;
+}
+.ledgerConfirmActions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; }
+.ledgerConfirmActions .ledgerActionBtn {
+  width:100%;
+  min-height:44px;
+  border-radius:var(--pams-radius-control);
+}
+.ledgerDetailActions {
+  display:flex !important;
+  justify-content:flex-end;
+  padding:0 0 10px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.ledgerDetailActions .ledgerActionBtn { min-inline-size:120px }
+.ledgerEditGrid {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:10px;
+}
+.ledgerEditGrid label {
+  display:grid;
+  gap:6px;
+  min-width:0;
+}
+.ledgerEditGrid label > span {
+  color:var(--muted);
+  font-size:12px;
+  font-weight:600;
+}
+.ledgerEditGrid .formInput {
+  width:100%;
+  min-height:44px;
+  border-radius:10px;
+  font-weight:600;
+}
+.ledgerEditFull { grid-column:1 / -1 }
+@media (max-width: 880px) {
+  .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
+  .page-ledger .cashflowBodyGrid { grid-template-columns:1fr !important }
+  .cashflowBridge { grid-template-columns:repeat(2,minmax(0,1fr)) }
+
+}
+@media (max-width: 760px) {
+  .page-ledger .wrap {
+    padding-left: var(--pams-mobile-gutter);
+    padding-right: var(--pams-mobile-gutter);
+    padding-top: 8px;
+  }
+
+  .ledgerKpiGrid { grid-template-columns:1fr 1fr }
+  body.page-ledger.app-shell .ledgerToolbar { justify-content:flex-start }
+  .ledgerFilterGrid { grid-template-columns:1fr }
+  .page-ledger .pageHeader { display:none; }
+
+  .ledgerFlowChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none; }
+  .ledgerFlowChips::-webkit-scrollbar { display:none; }
+  .ledgerFlowChip { flex:0 0 auto; border-radius:var(--pams-radius-control) !important; }
+  .ledgerSectionToolbar { gap:6px; min-width:0 }
+  .accountPeriodToggle { justify-content:flex-start }
+  .page-ledger .ledgerPanelGroup {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  body.page-ledger.app-shell .ledgerTop {
+    margin-top:0;
+    padding:0;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+  }
+  body.page-ledger.app-shell .ledgerTop > .sectionTitle h3 {
+    margin:0;
+    min-width:0;
+    white-space:nowrap;
+    line-height:1.08;
+  }
+  body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle {
+    min-width:0;
+  }
+  body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle .accountPeriodButton {
+    padding:0 8px;
+  }
+  .ledgerMobileHero {
+    display:block;
+    margin:0 0 16px;
+    padding:16px;
+    border-radius:var(--pams-radius-panel);
+    background:var(--pams-bg-panel);
+  }
+  .ledgerMobileLabel { color:var(--muted); font-size:12px; font-weight:600; }
+  .ledgerMobileValue {
+    margin-top:5px;
+    font-family:var(--pams-font-sans);
+    font-size:clamp(28px, 8vw, 32px);
+    line-height:1;
+    font-weight:600;
+    font-variant-numeric:tabular-nums;
+    letter-spacing:0;
+    overflow-wrap:anywhere;
+  }
+  .ledgerMobileStats {
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:0;
+    margin-top:12px;
+    padding-top:10px;
+    border-top:1px solid rgba(255,255,255,.08);
+  }
+  .ledgerMobileStat {
+    min-width:0;
+    padding:0 9px;
+    border:0;
+    border-left:1px solid rgba(255,255,255,.08);
+    border-radius:0;
+    background:transparent;
+  }
+  .ledgerMobileStat:first-child { border-left:0; padding-left:0; }
+  .ledgerMobileStat span {
+    display:block;
+    color:var(--muted);
+    font-size:12px;
+    font-weight:600;
+  }
+  .ledgerMobileStat strong {
+    display:block;
+    margin-top:3px;
+    font-family:var(--pams-font-sans);
+    font-size:15px;
+    font-weight:600;
+    font-variant-numeric:tabular-nums;
+    letter-spacing:0;
+    overflow-wrap:anywhere;
+  }
+  .cashflowBridgeLine { padding:9px 0 10px; border-radius:0 }
+  .cashflowBridgeHead { align-items:flex-start; flex-direction:column; gap:3px }
+  .cashflowBridgeHead strong { white-space:normal }
+  .cashflowTransferStat { padding:0 8px }
+  .cashflowTransferStat strong { font-size:13px }
+  .page-ledger .ledgerKpiGrid { display:none; }
+  .page-ledger .cashflowBodyGrid {
+    display:grid !important;
+    grid-template-columns:1fr !important;
+    gap:24px;
+    margin-top:8px;
+  }
+  .page-ledger .cashflowBodyGrid .chartWrap {
+    height:280px !important;
+    min-height:260px !important;
+    padding:0 8px 0 10px;
+  }
+  .categoryInsightGrid {
+    grid-template-columns:minmax(0,1fr);
+    gap:10px;
+  }
+  .categoryPieWrap,
+  .categoryPieWrap canvas {
+    width:104px !important;
+    height:104px !important;
+    min-width:104px;
+  }
+  .ledgerListRow { min-height:82px; padding:12px 0; grid-template-columns:minmax(0,1fr) minmax(0,118px); align-items:stretch }
+  .ledgerListMain strong { font-size:15px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
+  .ledgerListMain small { white-space:nowrap; display:block }
+  .ledgerListAccount { white-space:normal !important; display:-webkit-box !important; -webkit-line-clamp:1; -webkit-box-orient:vertical }
+  .ledgerListDate { display:block !important; white-space:nowrap !important }
+  .ledgerListSide { min-width:0; gap:8px }
+  .ledgerListMeta { justify-content:flex-end }
+  .accountFlowRow { min-height:76px; padding:12px 0; align-items:stretch }
+  .accountFlowHeader { gap:10px }
+  .accountFlowMain strong { font-size:15px }
+  .accountFlowStats { gap:8px }
+  .accountInvestmentStats { gap:5px }
+  .accountInvestmentChip { max-width:100%; overflow:hidden; text-overflow:ellipsis }
+  .accountFlowSide { min-width:112px }
+  .accountFlowFooter { align-items:flex-start }
+  .categoryBarRow { min-height:58px; grid-template-columns:26px minmax(0,1fr) auto; padding:9px 0 }
+  .categoryBarName { font-size:15px }
+  .categoryBarMeta { min-width:86px }
+  .ledgerRowActions { display:grid; grid-template-columns:1fr; width:100% }
+  .ledgerActionBtn { width:100% }
+  .ledgerConfirmMeta,
+  .ledgerConfirmActions,
+  .ledgerEditGrid { grid-template-columns:1fr }
+  .ledgerDetailActions { justify-content:stretch }
+  .ledgerDetailActions .ledgerActionBtn { width:100% }
+  .transferRoute { grid-template-columns:1fr; gap:7px }
+  .transferRouteArrow { min-height:18px; transform:rotate(90deg) }
+}
+@media (max-width: 520px) {
+  .ledgerKpiGrid { grid-template-columns:1fr }
+}

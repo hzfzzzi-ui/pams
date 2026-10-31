@@ -22,9 +22,20 @@ def test_legacy_import_never_connects_or_writes(module,name,monkeypatch):
 
 
 def test_existing_investment_and_bank_entry_only_open_the_shared_flow():
-    trade=(ROOT/'frontend/public/assets/js/transactions.js').read_text(encoding='utf-8')
-    bank=(ROOT/'frontend/public/assets/js/bank_reconcile.js').read_text(encoding='utf-8')
-    assert "window.location.assign('account_import.html?kind=trade&mode=manual')" in trade
+    trade='\n'.join((ROOT/path).read_text(encoding='utf-8') for path in [
+        'frontend/public/assets/js/transactions.js',
+        'frontend/public/assets/js/features/transactions/controller.js',
+        'frontend/public/assets/js/features/transactions/commands.js',
+    ])
+    bank='\n'.join((ROOT/path).read_text(encoding='utf-8') for path in [
+        'frontend/public/assets/js/bank_reconcile.js',
+        'frontend/public/assets/js/features/accounts/controller.js',
+        'frontend/public/assets/js/features/accounts/actions.js',
+        'frontend/public/assets/js/features/accounts/view.js',
+    ])
+    assert "navigate('account_import.html?kind=trade&mode=manual')" in trade
+    assert "win.location.assign(url)" in trade
     assert "jpost('/api/investment-transactions', payload)" not in trade
+    assert "post('/api/investment-transactions', payload)" not in trade
     assert '"/api/bank-reconcile/import"' not in bank
     assert 'filePaths' not in bank

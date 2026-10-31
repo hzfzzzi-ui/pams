@@ -1,23 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+import { loadFeatureModule } from './feature_module_loader.mjs';
 
 const panel = { innerHTML: '' };
-const context = vm.createContext({
-  document: { getElementById: (id) => id === 'dataQuality' ? panel : null },
-});
-const source = readFileSync(new URL('../../frontend/public/assets/js/data_sources.js', import.meta.url), 'utf8');
-const module = new vm.SourceTextModule(source, { context });
-await module.link((specifier) => {
-  const exports = specifier.includes('api.js') ? ['jget']
-    : specifier.includes('sync_center.js') ? ['loadSyncCenter']
-      : ['renderDataState', 'setActiveNav'];
-  return new vm.SyntheticModule(exports, function () {
-    for (const name of exports) this.setExport(name, () => new Promise(() => {}));
-  }, { context });
-});
-await module.evaluate();
-const render = module.namespace.renderQuality;
+const module = await loadFeatureModule(
+  fileURLToPath(new URL('../../frontend/public', import.meta.url)), 'data_sources.js',
+  { document: { getElementById: (id) => id === 'dataQuality' ? panel : null } },
+);
+const render = module.renderQuality;
 const coverage = Object.fromEntries([
   'account_balances', 'investment_positions', 'investment_transactions',
   'cash_transactions', 'transfer_matches', 'fx_rates', 'valuation_series',
@@ -53,7 +43,7 @@ assert.match(panel.innerHTML, /缺数据/);
 assert.match(panel.innerHTML, /检查汇率/);
 console.log('Quality warning rendering OK');
 
-const issues = module.namespace.issuesHtml;
+const issues = module.issuesHtml;
 const summary = {status:'warning',warning_count:2,error_count:0};
 const data = {summary,checks:[
   {id:'account_balance_coverage',status:'attention',details:{missing_accounts:['a','b']}},

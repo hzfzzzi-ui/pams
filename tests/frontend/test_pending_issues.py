@@ -11,13 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_entry_and_full_diagnostics_remain_separate():
     more = (ROOT / 'frontend/public/more.html').read_text(encoding='utf-8')
     page = (ROOT / 'frontend/public/data_sources.html').read_text(encoding='utf-8')
-    script = (ROOT / 'frontend/public/assets/js/data_sources.js').read_text(encoding='utf-8')
+    entry = (ROOT / 'frontend/public/assets/js/data_sources.js').read_text(encoding='utf-8')
+    script = (ROOT / 'frontend/public/assets/js/features/data_sources/controller.js').read_text(encoding='utf-8')
     assert 'href="data_sources.html?view=issues#dataQuality"' in more
     assert 'href="data_sources.html"' in more
     assert 'id="issuesView" hidden' in page and 'id="sourceList"' in page and 'id="syncMatrix"' in page
-    assert "new URLSearchParams(window.location.search).get('view') === 'issues'" in script
-    assert "jget('/api/accounts/overview').catch(() => null)" in script
-    assert 'loadSyncCenter({' in script
+    assert "new URLSearchParams((context.location || win?.location)?.search || '').get('view') === 'issues'" in script
+    assert "reads.get('overview', '/api/accounts/overview').catch(error => readFallback(error, null))" in script
+    assert 'mountSyncCenter(root, {signal: context.signal, targets:' in script
+    assert 'syncCenter.reload()' in script
+    assert 'mountPage(root, {get: jget, mountSyncCenter' in entry
 
 
 def test_quality_warning_rendering():

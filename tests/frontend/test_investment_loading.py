@@ -12,18 +12,18 @@ def test_investment_loading_lifecycle():
 
 
 def test_nav_starts_before_holdings_barrier_and_only_for_analysis():
-    source = (Path(__file__).resolve().parents[2] / "frontend/public/assets/js/holdings_categories.js").read_text(encoding="utf-8")
-    main = source[source.index("async function main(){"):]
+    source = (Path(__file__).resolve().parents[2] / "frontend/public/assets/js/features/investment/holdings/summary_controller.js").read_text(encoding="utf-8")
+    main = source[source.index("  context.bootstrap?.();"): ]
     assert main.index("bindInvestmentPageTabs();") < main.index("loadInvestmentNavChartOnce()")
-    assert main.index("loadInvestmentNavChartOnce()") < main.index("await trackInvestmentHoldings")
-    assert main.index("runWhenInvestmentAnalysisVisible") < main.index("await trackInvestmentHoldings")
+    assert main.index("loadInvestmentNavChartOnce()") < main.index("instance.ready = load();")
+    assert main.index("runWhenInvestmentAnalysisVisible") < main.index("instance.ready = load();")
     assert "if (document.body.dataset.investTab === 'analysis')" in main
 
 
 def test_summary_consumers_use_the_same_versioned_module():
     root = Path(__file__).resolve().parents[2] / "frontend/public/assets/js"
-    specifier = "import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-risk-summary-retired-v1';"
-    for name in ("holdings_categories.js", "lookthrough.js"):
+    specifier = "import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-modules-v1';"
+    for name, prefix in (("holdings_categories.js", "./"), ("features/analysis/requests.js", "../../")):
         source = (root / name).read_text(encoding="utf-8")
-        assert specifier in source
+        assert specifier.replace("./investment_requests", prefix + "investment_requests") in source
         assert "/summary2/latest" not in source

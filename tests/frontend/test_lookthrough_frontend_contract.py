@@ -12,7 +12,7 @@ def _read_public(path: str) -> str:
 
 
 def test_lookthrough_frontend_uses_separate_exposure_tabs() -> None:
-    js = _read_public("assets/js/lookthrough.js")
+    js = ("\n".join(_read_public(path) for path in ("assets/js/features/analysis/constants.js", "assets/js/features/analysis/state.js", "assets/js/features/analysis/legacy_model.js", "assets/js/features/analysis/charts.js", "assets/js/features/analysis/templates.js", "assets/js/features/analysis/view.js", "assets/js/features/analysis/requests.js", "assets/js/features/analysis/controller.js", "assets/js/features/analysis/page.js")))
 
     for label in ["资产类型", "行业", "主题暴露", "市种", "地区", "币种", "底层暴露"]:
         assert label in js
@@ -23,7 +23,7 @@ def test_lookthrough_frontend_uses_separate_exposure_tabs() -> None:
     assert "主题可重叠，一只持仓可以同时属于多个主题，因此主题暴露合计可能超过 100%。" in js
     assert "themeFamilyFilters" in js
     assert "underlyingExposureTable" in js
-    assert "if (activeDimension === 'market') return rows.length;" in js
+    assert "if (state.activeDimension === 'market') return rows.length;" in js
     assert "INDUSTRY_EXCLUDED_ASSET_TYPES" in js
     assert "renderIndustryExcludedSummary" in js
     assert "exposureRows('asset_type')" in js
@@ -35,7 +35,7 @@ def test_lookthrough_frontend_uses_separate_exposure_tabs() -> None:
 
 
 def test_return_attribution_frontend_contract() -> None:
-    js = _read_public("assets/js/lookthrough.js")
+    js = ("\n".join(_read_public(path) for path in ("assets/js/features/analysis/constants.js", "assets/js/features/analysis/state.js", "assets/js/features/analysis/legacy_model.js", "assets/js/features/analysis/charts.js", "assets/js/features/analysis/templates.js", "assets/js/features/analysis/view.js", "assets/js/features/analysis/requests.js", "assets/js/features/analysis/controller.js", "assets/js/features/analysis/page.js")))
     html = _read_public("investments.html")
 
     assert "收益归因" in html

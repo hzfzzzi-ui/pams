@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const source = readFileSync(new URL('../../frontend/public/assets/js/investment_startup.js', import.meta.url), 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -118,27 +120,35 @@ for (const navOnly of [false, true]) {
 for (const directTrade of [true, false]) {
   const events = [], queued = [];
   const window = { location: { hash: directTrade ? '#trade-attribution-analysis' : '#return-trend' },
-    dispatchEvent: event => events.push(event.type) };
+    dispatchEvent: event => events.push(event.type), CustomEvent: class { constructor(type) { this.type = type; } } };
   const context = vm.createContext({ window, CustomEvent: class { constructor(type) { this.type = type; } },
     document: { body: { dataset: { investTab: 'analysis' } },
       getElementById: id => id === 'return-attribution' ? {} : null,
       querySelectorAll: () => [] },
   });
-  const text = readFileSync(new URL('../../frontend/public/assets/js/lookthrough.js', import.meta.url), 'utf8');
-  const module = new vm.SourceTextModule(text.slice(0, text.lastIndexOf('bindEvents();')) + `
-    export { scheduleVisibleAnalysisLoad };
-    export function selectTradePanel() { activeAnalysisPanel = 'trade_attribution'; return loadActiveAnalysisPanel(); }
-  `, { context });
-  await module.link(specifier => {
-    const exports = specifier.includes('investment_startup.js') ? {
-      afterInvestmentNav: task => { queued.push(task); return Promise.resolve(); },
-    } : specifier.includes('investment_requests.js') ? { loadInvestmentSummaryFresh() {} }
-      : specifier.includes('api.js') ? { jget() { throw new Error('Unexpected data read'); } }
-        : { openBottomSheet() {} };
-    return new vm.SyntheticModule(Object.keys(exports), function () {
+  const jsRoot = fileURLToPath(new URL('../../frontend/public/assets/js/', import.meta.url));
+  const cache = new Map();
+  async function load(file) {
+    file = path.resolve(file);
+    if (cache.has(file)) return cache.get(file);
+    let exports;
+    if (file.endsWith('investment_startup.js')) exports = { afterInvestmentNav: task => { queued.push(task); return Promise.resolve(); } };
+    if (file.endsWith('investment_requests.js')) exports = { loadInvestmentSummaryFresh() {} };
+    if (file.endsWith('api.js')) exports = { jget() { throw new Error('Unexpected data read'); } };
+    if (file.endsWith('bottom_sheet.js')) exports = { createBottomSheet: () => ({open() {}, dispose() {}}) };
+    const result = exports ? new vm.SyntheticModule(Object.keys(exports), function () {
       for (const [key, value] of Object.entries(exports)) this.setExport(key, value);
-    }, { context });
-  });
+    }, {context, identifier: file}) : new vm.SourceTextModule(readFileSync(file, 'utf8'), {context, identifier: file});
+    cache.set(file, result);
+    return result;
+  }
+  const module = new vm.SourceTextModule(`
+    import {createAnalysisController} from './features/analysis/controller.js';
+    const instance = createAnalysisController();
+    export const scheduleVisibleAnalysisLoad = instance.scheduleVisibleAnalysisLoad;
+    export function selectTradePanel() { instance.state.activeAnalysisPanel = 'trade_attribution'; return instance.loadActiveAnalysisPanel(); }
+  `, { context, identifier: path.join(jsRoot, 'lookthrough-test.js') });
+  await module.link((specifier, ref) => load(path.resolve(path.dirname(ref.identifier), specifier.split('?')[0])));
   await module.evaluate();
   module.namespace.scheduleVisibleAnalysisLoad();
   if (!directTrade) await module.namespace.selectTradePanel();

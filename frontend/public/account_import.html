@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" content="#05070a" />
+  <meta name="theme-color" content="#000000" />
   <title>PAMS · 导入资料</title>
-  <link rel="stylesheet" href="assets/css/style.css?v=20261031-legacy-css-v1" />
-  <link rel="stylesheet" href="assets/css/design-system.css?v=20261029-scope-style-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261030-review-cleanup-v1" />
-  <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-shell-v1" />
+  <link rel="stylesheet" href="assets/css/tokens.css?v=20261031-modules-v1" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261031-modules-v1" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20261031-modules-v1" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261031-modules-v1" />
+  <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-modules-v1" />
 </head>
 <body class="page-account-import app-shell">
   <div class="wrap import-shell">
@@ -20,6 +21,7 @@
     <p id="notice" role="status" aria-live="polite">正在载入导入资料…</p>
     <p id="capability-note" class="import-meta" hidden>仅预览</p>
     <div id="conflict" role="alert" hidden>草稿已在其他会话更新。本地修改尚未覆盖服务器。<button id="reload" type="button">重新载入服务器版本</button></div>
+    <div id="pending-result" class="import-warning" role="alert" hidden>操作结果待刷新确认。草稿记录与未保存编辑已保留；未完成的文件请核对结果后重新选择。<button id="refresh-result" type="button">刷新服务器结果</button></div>
     <section id="gate" aria-label="服务状态">
       <button id="retry" type="button">重新检查</button>
     </section>
@@ -88,6 +90,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261030-review-cleanup-v1"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261031-modules-v1"></script>
 </body>
 </html>

@@ -1,0 +1,87 @@
+.sourceTodo {
+  border:1px solid var(--line);
+  background:var(--bg-surface);
+  border-radius:var(--radius-md);
+  padding: 10px 12px;
+  line-height: 1.6;
+}
+.statusLine {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+}
+.sourceNote { border:1px solid var(--line); border-radius:var(--radius-md); padding:10px 12px; background:transparent; }
+.sourceNote summary { cursor:pointer; color:var(--info); font-weight:600; }
+.actionChecklist { display:grid; gap:8px; }
+.actionChecklist label { display:flex; gap:8px; align-items:flex-start; }
+.pipeline { display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:8px; margin-top:var(--sp-3); }
+.pipelineStep { border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg-surface); padding:10px; text-align:center; font-weight:600; }
+.sourceMatrix { width:100%; min-width:900px; table-layout:fixed; }
+.sourceMatrix th, .sourceMatrix td { padding-left:8px; padding-right:8px; }
+.sourceMatrix th:nth-child(1), .sourceMatrix td:nth-child(1) { width:220px; }
+.sourceMatrix th:nth-child(2), .sourceMatrix td:nth-child(2) { width:110px; }
+.sourceMatrix th:nth-child(3), .sourceMatrix td:nth-child(3) { width:210px; }
+.sourceMatrix th:nth-child(4), .sourceMatrix td:nth-child(4) { width:80px; text-align:right; }
+.sourceMatrix th:nth-child(5), .sourceMatrix td:nth-child(5) { width:84px; }
+.sourceMatrix th:nth-child(6), .sourceMatrix td:nth-child(6) { width:96px; }
+.sourceMatrix td { vertical-align:top; }
+.qualityGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.qualityBox {
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  padding: 12px;
+  min-width: 0;
+  background:var(--bg-surface);
+}
+.qualityBox h4 {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  color:var(--muted);
+}
+.qualityList {
+  display: grid;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.qualityRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom:1px solid var(--line);
+  padding-bottom: 6px;
+}
+.qualityRow:last-child { border-bottom:0; padding-bottom: 0; }
+.qualityAction {
+  display: grid;
+  gap: 4px;
+  border-bottom:1px solid var(--line);
+  padding-bottom: 8px;
+}
+.qualityAction:last-child { border-bottom:0; padding-bottom: 0; }
+.qualityAction a {
+  color:var(--accent);
+  font-weight:600;
+  text-decoration: none;
+}
+.qualityAction span {
+  color:var(--muted);
+  overflow-wrap: anywhere;
+}
+body.issues-only .statusbar { display: none; }
+body.issues-only .wrap { max-width: 430px; }
+body.issues-only .wrap > :not(.nav):not(#issuesView) { display: none; }
+#issuesView h1 { font-size: 22px; margin: 16px 0 24px; }
+#issuesView .issueRow { display: block; padding: 16px 0; border-bottom:1px solid var(--line); }
+#issuesView .issueRow h2 { font-size: 16px; margin: 0 0 8px; }
+#issuesView .issueRow p { color:var(--muted); font-size: 14px; line-height: 1.55; margin: 0 0 8px; overflow-wrap: anywhere; }
+#issuesView a { color:var(--info); text-decoration: none; font-size: 14px; }
+#issuesView .issueDiagnostics { display: inline-block; margin-top: 24px; }
+@media (max-width: 980px) {
+  .statusLine, .qualityGrid, .pipeline { grid-template-columns: 1fr; }
+}
