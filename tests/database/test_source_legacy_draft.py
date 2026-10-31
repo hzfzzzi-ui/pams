@@ -16,6 +16,7 @@ def enable_candidate(params, monkeypatch):
         for name in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
             cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
+    monkeypatch.setenv('PAMS_SOURCE_LEGACY_BRIDGE', 'true')
 
 
 def test_migration_before_edit_preserves_original_manual_evidence(client, monkeypatch):

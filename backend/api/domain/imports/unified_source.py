@@ -99,7 +99,7 @@ def lock_source_review(cur: Any, *, batch_id: UUID, expected_revision: int) -> d
     preflight before publishing. No source or financial records are modified.
     """
     cur.execute(
-        """SELECT batch_id, account_code, business_type, institution, acquisition_method,
+        """SELECT batch_id, account_code, business_type, workflow, institution, acquisition_method,
                   date_from, date_to, completeness, status, revision
            FROM public.source_batches WHERE batch_id=%s FOR UPDATE""", (str(batch_id),),
     )
@@ -111,7 +111,7 @@ def lock_source_review(cur: Any, *, batch_id: UUID, expected_revision: int) -> d
         raise ValueError('source batch stale or not editable')
 
     cur.execute(
-        """SELECT file_id, filename, file_format, content_type, sha256, content
+        """SELECT file_id, filename, file_format, content_type, sha256, content, current_metadata, review_fingerprint
            FROM public.source_files WHERE batch_id=%s ORDER BY file_id FOR SHARE""", (str(batch_id),),
     )
     files = _rows(cur)
@@ -121,9 +121,9 @@ def lock_source_review(cur: Any, *, batch_id: UUID, expected_revision: int) -> d
         if sha256(bytes(content)).hexdigest() != file['sha256']:
             bad_file = True
     cur.execute(
-        """SELECT source_item_id, file_id, source_uid, external_id, location,
+        """SELECT source_item_id, source_order, file_id, source_uid, external_id, location,
                   parse_method, raw_fields, parsed_fields, record_hash, review_status, review_note
-           FROM public.source_items WHERE batch_id=%s ORDER BY source_uid, source_item_id FOR SHARE""",
+           FROM public.source_items WHERE batch_id=%s ORDER BY source_order FOR SHARE""",
         (str(batch_id),),
     )
     items = _rows(cur)

@@ -6,6 +6,7 @@ CREATE TABLE public.source_batches (
     batch_id UUID PRIMARY KEY,
     account_code VARCHAR(50) NOT NULL REFERENCES public.pams_accounts(account_code),
     business_type TEXT NOT NULL CHECK (business_type IN ('holding', 'trade', 'cash', 'balance')),
+    workflow TEXT NOT NULL DEFAULT 'general' CHECK (length(trim(workflow)) > 0),
     institution TEXT NOT NULL CHECK (length(trim(institution)) > 0),
     acquisition_method TEXT NOT NULL CHECK (acquisition_method IN ('api', 'upload', 'manual')),
     date_from DATE,
@@ -13,6 +14,8 @@ CREATE TABLE public.source_batches (
     completeness TEXT NOT NULL DEFAULT 'unknown' CHECK (completeness IN ('complete', 'partial', 'unknown')),
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'published', 'voided')),
     published_source_hash CHAR(64) CHECK (published_source_hash IS NULL OR published_source_hash ~ '^[0-9a-f]{64}$'),
+    published_preview_token CHAR(64) CHECK (published_preview_token IS NULL OR published_preview_token ~ '^[0-9a-f]{64}$'),
+    published_result JSONB CHECK (published_result IS NULL OR jsonb_typeof(published_result)='object'),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -29,6 +32,8 @@ CREATE TABLE public.source_files (
     content_type TEXT NOT NULL,
     sha256 CHAR(64) NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
     content BYTEA NOT NULL CHECK (octet_length(content) <= 10485760),
+    current_metadata JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(current_metadata)='object'),
+    review_fingerprint CHAR(64) CHECK (review_fingerprint IS NULL OR review_fingerprint ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (batch_id, sha256),
     UNIQUE (batch_id, file_id)
@@ -36,6 +41,7 @@ CREATE TABLE public.source_files (
 
 CREATE TABLE public.source_items (
     source_item_id UUID PRIMARY KEY,
+    source_order BIGSERIAL NOT NULL UNIQUE,
     batch_id UUID NOT NULL REFERENCES public.source_batches(batch_id),
     file_id UUID,
     source_uid TEXT NOT NULL CHECK (length(trim(source_uid)) > 0),
@@ -60,10 +66,10 @@ CREATE INDEX idx_source_items_batch_review ON public.source_items (batch_id, rev
 CREATE FUNCTION public.source_evidence_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_TABLE_NAME = 'source_items' THEN
-        IF (NEW.source_item_id, NEW.batch_id, NEW.file_id, NEW.source_uid, NEW.external_id, NEW.location,
+        IF (NEW.source_item_id, NEW.source_order, NEW.batch_id, NEW.file_id, NEW.source_uid, NEW.external_id, NEW.location,
             NEW.parse_method, NEW.raw_fields, NEW.record_hash, NEW.created_at)
            IS DISTINCT FROM
-           (OLD.source_item_id, OLD.batch_id, OLD.file_id, OLD.source_uid, OLD.external_id, OLD.location,
+           (OLD.source_item_id, OLD.source_order, OLD.batch_id, OLD.file_id, OLD.source_uid, OLD.external_id, OLD.location,
             OLD.parse_method, OLD.raw_fields, OLD.record_hash, OLD.created_at) THEN
             RAISE EXCEPTION 'source item evidence is immutable' USING ERRCODE = '23514';
         END IF;
@@ -76,6 +82,12 @@ BEGIN
           IS DISTINCT FROM
           (OLD.file_id, OLD.batch_id, OLD.filename, OLD.file_format, OLD.content_type, OLD.sha256, OLD.content, OLD.created_at) THEN
         RAISE EXCEPTION 'source file evidence is immutable' USING ERRCODE = '23514';
+    ELSE
+        UPDATE public.source_batches SET revision = revision + 1, updated_at = now()
+        WHERE batch_id = OLD.batch_id AND status IN ('draft', 'review');
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'source batch is not editable' USING ERRCODE = '23514';
+        END IF;
     END IF;
     RETURN NEW;
 END $$;

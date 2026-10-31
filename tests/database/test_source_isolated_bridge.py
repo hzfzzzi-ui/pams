@@ -11,6 +11,11 @@ from domain.imports import account_import_store as store
 from domain.imports.unified_source import review_item
 
 
+@pytest.fixture(autouse=True)
+def legacy_bridge(monkeypatch):
+    monkeypatch.setenv('PAMS_SOURCE_LEGACY_BRIDGE', 'true')
+
+
 def test_http_bridge_links_fact_and_replays(client, monkeypatch):
     web, params = client
     batch = draft(web, [trade(source_ref='isolated-http-bridge')])

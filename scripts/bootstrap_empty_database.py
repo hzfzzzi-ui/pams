@@ -58,18 +58,21 @@ def _transaction_safe_sql(path: Path) -> str:
 
 
 def initialize_empty_database(conn) -> None:
+    _initialize_empty_database(conn, bootstrap_paths(), MARKER)
+
+
+def _initialize_empty_database(conn, paths: list[Path], marker: str) -> None:
     if conn.info.transaction_status != TRANSACTION_STATUS_IDLE:
         raise BootstrapError("connection must be idle")
     if conn.autocommit:
         conn.autocommit = False
-    paths = bootstrap_paths()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_xact_lock(hashtext('pams-empty-bootstrap'))")
             if not cur.fetchone()[0]:
                 raise BootstrapError("another bootstrap is running")
             cur.execute("SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname=current_database()")
-            if cur.fetchone()[0] != MARKER:
+            if cur.fetchone()[0] != marker:
                 raise BootstrapError("target database lacks the empty-bootstrap marker")
             cur.execute("""SELECT count(*) FROM pg_stat_activity
                 WHERE datname=current_database() AND pid <> pg_backend_pid()
