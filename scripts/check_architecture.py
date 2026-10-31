@@ -20,6 +20,7 @@ RETIRED_PREFIXES = (
     'telegram-bot/', 'telegram-bot-assistant/',
     'backend/api/backtest/', 'backend/api/strategy/', 'backend/api/datahub/',
     'backend/api/services/',
+    'src/ingest/',
 )
 RETIRED_PAGES = frozenset({
     'frontend/public/backtest.html', 'frontend/public/strategy.html',
@@ -59,7 +60,7 @@ WORKTREE_PATHS = (
     'generate_mock_navdata.py',
     'backend/api/domain', 'backend/api/endpoints', 'backend/api/services',
     'backend/api/backtest', 'backend/api/strategy', 'backend/api/datahub',
-    'frontend/public', 'tests', 'database/postgres/schema', MANIFEST,
+    'frontend/public', 'tests', 'src/ingest', 'database/postgres/schema', MANIFEST,
 )
 RETIRED_ROOTS = ('backtest_V2', 'strategy', 'strategy-gpt', 'telegram-bot', 'telegram-bot-assistant')
 PRIVATE_PREFIXES = (
