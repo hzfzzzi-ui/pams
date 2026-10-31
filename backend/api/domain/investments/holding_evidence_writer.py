@@ -6,6 +6,7 @@ The existing source_item_id denotes creation, not the current value's source.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from domain.imports.isolation import source_enabled
@@ -21,26 +22,37 @@ def _require(cur):
         raise ValueError('holding evidence writer requires an isolated transaction')
 
 
+def _value(row, key, index):
+    return row[key] if isinstance(row, Mapping) else row[index]
+
+
+def lock_holding_accounts(cur: Any, accounts) -> None:
+    """Take the common transaction lock in stable order for multi-account writes."""
+    for account in sorted({str(value) for value in accounts if value}):
+        cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('account-import:' + account,))
+
+
 def prepare_holding_change(cur: Any, *, account_code: str, name: str, as_of, source_item_id: str | None):
     """Lock account and capture the old value before any upsert or replacement."""
     _require(cur)
     if not account_code or not name or not as_of:
         raise ValueError('holding identity is incomplete')
-    cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('account-import:' + account_code,))
+    lock_holding_accounts(cur, [account_code])
     cur.execute("SELECT to_regclass('public.pams_valuation_result_version') AS table_name")
-    if not cur.fetchone()['table_name']:
+    if not _value(cur.fetchone(), 'table_name', 0):
         raise ValueError('holding correction requires versioned evidence')
     cur.execute('SELECT id,source_item_id FROM pams_holdings_snapshot WHERE account_code=%s AND name=%s AND as_of=%s FOR UPDATE',
                 (account_code, name, as_of))
     previous = cur.fetchone()
     if previous:
-        source = current_holding_source(cur, previous['id'])
+        previous_id = _value(previous, 'id', 0)
+        source = current_holding_source(cur, previous_id)
         known_source = {'source_item_id': source['source_item_id']} if source['status'] == 'recorded' else None
-        record_bound_holding_version(cur, holding_id=previous['id'], calculation_version='holding-change-before',
+        record_bound_holding_version(cur, holding_id=previous_id, calculation_version='holding-change-before',
             input_refs=[{'kind':'source_item', 'key':known_source, 'role':'current_source'}])
-    return {'previous_id': previous['id'] if previous else None,
-            'retain_origin': bool(previous and previous['source_item_id'] is not None and
-                                  str(previous['source_item_id']) != str(source_item_id or ''))}
+    previous_source = _value(previous, 'source_item_id', 1) if previous else None
+    return {'previous_id': _value(previous, 'id', 0) if previous else None,
+            'retain_origin': bool(previous_source is not None and str(previous_source) != str(source_item_id or ''))}
 
 
 def finish_holding_change(cur: Any, *, holding_id: int, source_item_id: str | None,
@@ -69,4 +81,4 @@ def verify_historical_holding_source(cur: Any, *, holding_id: int, source_item_i
         WHERE s.input_kind='source_item' AND s.evidence->>'role'='current_source'
           AND s.evidence->'source_ref'->'key'->>'source_item_id'=%s
           AND h.evidence->'snapshot'->'content'->>'id'=%s""", (str(source_item_id), str(holding_id)))
-    return any(verify_recorded_version(cur, row['version_key']) for row in cur.fetchall())
+    return any(verify_recorded_version(cur, _value(row, 'version_key', 0)) for row in cur.fetchall())

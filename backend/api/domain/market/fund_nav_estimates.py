@@ -27,6 +27,8 @@ from zoneinfo import ZoneInfo
 import psycopg2.extras
 import requests
 from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
+from domain.imports.isolation import source_enabled
+from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
 
 
 MONEY = Decimal("0.01")
@@ -554,6 +556,28 @@ def insert_or_update_generated_snapshot(
     update_existing: bool,
 ) -> bool:
     """Write a generated holding snapshot for estimated/confirmed fund valuation."""
+    lock_holding_accounts(cur, [holding['account_code']])
+    isolated = source_enabled(cur)
+    if isolated:
+        keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price')
+        if not holding.get('id'):
+            raise ValueError('fund source holding identity missing')
+        cur.execute('SELECT ' + ','.join(keys) + ' FROM pams_holdings_snapshot WHERE id=%s FOR UPDATE', (holding['id'],))
+        stored = cur.fetchone()
+        if not stored or any((stored[key] if isinstance(stored, dict) else stored[index]) != holding.get(key)
+                             for index,key in enumerate(keys)):
+            raise ValueError('fund source holding changed; refresh the input')
+        cur.execute('SELECT id,quantity,cost FROM pams_holdings_snapshot WHERE account_code=%s AND name=%s AND as_of=%s FOR UPDATE',
+                    (holding['account_code'], holding['name'], as_of))
+        target = cur.fetchone()
+        if target:
+            target_id = target['id'] if isinstance(target, dict) else target[0]
+            target_quantity = target['quantity'] if isinstance(target, dict) else target[1]
+            target_cost = target['cost'] if isinstance(target, dict) else target[2]
+            if target_id != holding['id'] and (target_quantity != holding.get('quantity') or target_cost != holding.get('cost')):
+                raise ValueError('newer holding input conflicts with fund valuation')
+        prepare_holding_change(cur, account_code=holding['account_code'], name=holding['name'],
+                               as_of=as_of, source_item_id=None)
     cost = dec(holding.get("cost"), MONEY)
     buy_price = (cost / units).quantize(PRICE, rounding=ROUND_HALF_UP) if units > 0 and cost > 0 else None
     if update_existing:
@@ -577,7 +601,12 @@ def insert_or_update_generated_snapshot(
                 current_price = EXCLUDED.current_price,
                 asset_id = COALESCE(EXCLUDED.asset_id, pams_holdings_snapshot.asset_id),
                 updated_at = now()
-            """,
+            """ + (""" WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.market_value,
+                pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,pams_holdings_snapshot.buy_price,
+                pams_holdings_snapshot.current_price,pams_holdings_snapshot.asset_id)
+                IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,
+                EXCLUDED.buy_price,EXCLUDED.current_price,COALESCE(EXCLUDED.asset_id,pams_holdings_snapshot.asset_id))
+                RETURNING id""" if isolated else ""),
             {
                 "symbol": holding["symbol"],
                 "name": holding["name"],
@@ -591,6 +620,12 @@ def insert_or_update_generated_snapshot(
                 "asset_id": holding.get("asset_id"),
             },
         )
+        if isolated:
+            row = cur.fetchone()
+            if row:
+                identifier = row['id'] if isinstance(row, dict) else row[0]
+                finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                                      input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
         return True
 
     cur.execute(
@@ -605,7 +640,7 @@ def insert_or_update_generated_snapshot(
             %(quantity)s, %(buy_price)s, %(current_price)s, %(asset_id)s
         )
         ON CONFLICT (account_code, name, as_of) DO NOTHING
-        """,
+        """ + (" RETURNING id" if isolated else ""),
         {
             "symbol": holding["symbol"],
             "name": holding["name"],
@@ -619,6 +654,13 @@ def insert_or_update_generated_snapshot(
             "asset_id": holding.get("asset_id"),
         },
     )
+    if isolated:
+        row = cur.fetchone()
+        if row:
+            identifier = row['id'] if isinstance(row, dict) else row[0]
+            finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                                  input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
+        return bool(row)
     return cur.rowcount > 0
 
 
