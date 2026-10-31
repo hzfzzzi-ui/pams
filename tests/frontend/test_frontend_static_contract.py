@@ -487,6 +487,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
     assert "assets/js/ledger_cashflow.js?v=20261101-ledger-colors" in html
+    assert "./features/ledger/page.js?v=20261101-ledger-colors" in _read_public("assets/js/ledger_cashflow.js")
+    assert "./controller.js?v=20261101-ledger-colors" in _read_public("assets/js/features/ledger/page.js")
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -956,6 +958,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20261101-ledger-colors" in ledger_html
+    assert "./features/ledger/page.js?v=20261101-ledger-colors" in _read_public("assets/js/ledger_cashflow.js")
+    assert "./controller.js?v=20261101-ledger-colors" in _read_public("assets/js/features/ledger/page.js")
     assert "assets/js/transactions.js?v=20261031-modules-v1" in investments_html
 
 
