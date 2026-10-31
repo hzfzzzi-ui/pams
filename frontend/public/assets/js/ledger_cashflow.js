@@ -1,4 +1,4 @@
-import { mountLedgerPage } from './features/ledger/page.js?v=20261101-ledger-narrow';
+import { mountLedgerPage } from './features/ledger/page.js?v=20261101-ledger-colors';
 
 const ledger = mountLedgerPage();
 
