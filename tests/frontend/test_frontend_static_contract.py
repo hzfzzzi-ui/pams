@@ -10,6 +10,19 @@ def _read_public(path: str) -> str:
     return (PUBLIC_ROOT / path).read_text(encoding="utf-8")
 
 
+def _transactions_source() -> str:
+    """Keep existing field/wording contracts across the explicit feature boundary."""
+    return "\n".join(_read_public(path) for path in [
+        "assets/js/transactions.js",
+        "assets/js/features/transactions/legacy_review.js",
+        "assets/js/features/transactions/list_view.js",
+        "assets/js/features/transactions/attribution_view.js",
+        "assets/js/features/transactions/editor.js",
+        "assets/js/features/transactions/commands.js",
+        "assets/js/features/transactions/controller.js",
+    ])
+
+
 class _StaticHtmlParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -604,7 +617,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
     holding_rows_js = _read_public("assets/js/holdings.js")
     account_cash_js = _read_public("assets/js/account_cash.js")
-    tx_js = _read_public("assets/js/transactions.js")
+    tx_js = _transactions_source()
 
     for element_id in [
         "investmentSummaryHeader",
@@ -898,7 +911,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     utils_js = _read_public("assets/js/utils.js")
     ledger_js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
-    tx_js = _read_public("assets/js/transactions.js")
+    tx_js = _transactions_source()
     ledger_html = _read_public("ledger.html")
     investments_html = _read_public("investments.html")
 
@@ -917,7 +930,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert helper in utils_js
 
-    for js, prefix in [(ledger_js, "../../"), (tx_js, "./")]:
+    for js, prefix in [(ledger_js, "../../"), (tx_js, "../../")]:
         assert f"from '{prefix}utils.js?v=20261031-gray-v1'" in js
         assert "function escapeHtml" not in js
         assert "function num(" not in js
@@ -943,7 +956,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
         assert duplicated_helper not in ledger_js
 
     assert "assets/js/ledger_cashflow.js?v=20261031-ledger-modules-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20261031-ui-v1" in investments_html
+    assert "assets/js/transactions.js?v=20261031-transactions-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1142,7 +1155,7 @@ def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
 
 def test_investment_trade_review_uses_fact_annotations_and_sheet() -> None:
     html = _read_public("investments.html")
-    tx_js = _read_public("assets/js/transactions.js")
+    tx_js = _transactions_source()
     css = _read_public("assets/css/style.css")
     more_html = _read_public("more.html")
     api_py = Path("backend/api/endpoints/investment_transactions.py").read_text(encoding="utf-8")
@@ -1241,7 +1254,7 @@ def test_return_charts_use_daily_pnl_view_date() -> None:
 
 def test_investment_trade_attribution_is_rendered_from_api() -> None:
     html = _read_public("investments.html")
-    tx_js = _read_public("assets/js/transactions.js")
+    tx_js = _transactions_source()
     css = _read_public("assets/css/style.css")
 
     assert "TradeAttributionPanel" in tx_js
@@ -1327,7 +1340,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert ".slice(0, 6)" not in tx_js
     assert "负向动作" in tx_js
     assert "正向动作" in tx_js
-    asset_heatmap_block = tx_js.split("function TradeReviewAssetHeatmap", 1)[1].split("function tradeReviewPatternTiles", 1)[0]
+    asset_heatmap_block = tx_js.split("function TradeReviewAssetHeatmap", 1)[1].split("function TradeReviewPatternHeatmap", 1)[0]
     assert "TradeReviewDirectionalTradePanel(payload)" in asset_heatmap_block
     assert "TradeReviewPatternPanel" not in asset_heatmap_block
     assert "TradeReviewDataGaps" not in asset_heatmap_block
@@ -1362,7 +1375,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "openTradeReviewById" in tx_js
     assert "tradeRowFromAttributionPayload" in tx_js
     trade_panel_block = tx_js.split("function TradeAttributionPanelV2", 1)[1].split("function renderTradeAttribution", 1)[0]
-    render_attribution_block = tx_js.split("function renderTradeAttribution", 1)[1].split("function renderReviewChoiceOptions", 1)[0]
+    render_attribution_block = tx_js.split("function renderTradeAttribution", 1)[1].split("function AutoEvidenceList", 1)[0]
     assert "查看原始分组统计" not in trade_panel_block
     assert "CampaignLifecyclePanel" not in render_attribution_block
     assert "展开卖出复盘" not in render_attribution_block
@@ -1392,7 +1405,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "requestInitialVisibleTradeAttributionLoad" in tx_js
     assert "scheduleInitialTradeAttributionLoadProbe" in tx_js
     assert "hash === 'trade-attribution-analysis' || panel.hidden === false" in tx_js
-    assert "window.addEventListener('hashchange', requestVisibleTradeAttributionLoad)" in tx_js
+    assert "scope.onWindow('hashchange', requestVisibleTradeAttributionLoad)" in tx_js
     assert "[0, 300, 1200, 3000]" in tx_js
     assert "TradeAttributionPanel(state.attribution)" not in tx_js
     assert "tradeAutoAttribution" in tx_js
@@ -1401,7 +1414,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20261031-ui-v1" in html
+    assert "assets/js/transactions.js?v=20261031-transactions-v1" in html
     assert "assets/css/style-phone.css?v=20261031-gray-v1" in html
 
 
