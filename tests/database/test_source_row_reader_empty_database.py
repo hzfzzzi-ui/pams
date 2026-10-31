@@ -20,7 +20,7 @@ def test_new_source_and_published_facts_work_without_legacy_source_table(monkeyp
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
     with scratch_database() as target:
         with psycopg2.connect(**target) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-            for filename in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+            for filename in ('074_unified_source.sql', '075_source_fact_links.sql'):
                 cur.execute((ROOT / 'database/postgres/schema' / filename).read_text(encoding='utf-8'))
             cur.execute("ALTER TABLE pams_accounts ADD COLUMN account_type text, ADD COLUMN is_asset boolean DEFAULT true")
             cur.execute("ALTER TABLE pams_cashflow_fact ADD COLUMN source_channel text")

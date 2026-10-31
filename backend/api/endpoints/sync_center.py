@@ -251,7 +251,7 @@ def sync_center() -> dict[str, Any]:
                 f"""
                 SELECT MAX(event_date) AS as_of, MAX(created_at) AS updated_at, COUNT(*) AS rows
                 FROM {source_row_relation(cur)} AS source_rows
-                WHERE source_table = 'pams_bank_statement_rows'
+                WHERE is_bank_statement
                 """,
             )
             cash_tx = _count_query(

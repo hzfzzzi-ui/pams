@@ -9,7 +9,10 @@ _UNIFIED_ROWS = """
                           'source_table',f.source_table,'source_id',f.source_id,
                           'source_uid',i.source_uid,'account_code',f.account_code,'event_date',f.event_date)
                 THEN i.raw_fields->'legacy_source_row'->>'source_system'
-                WHEN f.source_table='pams_bank_statement_rows' THEN 'bank_statement_row'
+                WHEN f.source_table='pams_bank_statement_rows' OR
+                     (f.source_table IN ('pams_account_import_batch','source_items') AND b.business_type='cash'
+                      AND i.raw_fields->'source'->'statement' = 'true'::jsonb)
+                THEN 'bank_statement_row'
                 ELSE 'unified_source' END::text AS source_system,
            f.source_table::text AS source_table, f.source_id::text AS source_id,
            i.source_uid::text AS source_uid, f.account_code::text AS account_code,
@@ -34,7 +37,10 @@ _UNIFIED_ROWS = """
                     THEN (i.raw_fields->'legacy_source_row'->>'created_at')::timestamptz ELSE NULL END
              WHEN i.raw_fields ? 'id' AND f.source_table='pams_bank_statement_rows' THEN NULL
              ELSE i.created_at END AS created_at,
-           'unified_source_item'::text AS source_projection_origin
+           'unified_source_item'::text AS source_projection_origin,
+           (f.source_table='pams_bank_statement_rows' OR
+            (f.source_table IN ('pams_account_import_batch','source_items') AND b.business_type='cash'
+             AND i.raw_fields->'source'->'statement' = 'true'::jsonb)) IS TRUE AS is_bank_statement
     FROM pams_cashflow_fact f
     JOIN source_items i ON i.source_item_id=f.source_item_id
     JOIN source_batches b ON b.batch_id=i.batch_id
@@ -50,12 +56,23 @@ def source_row_relation(cur) -> str:
     databases do not need the legacy table. Missing historical timestamps stay
     null rather than being replaced with a later migration timestamp.
     """
-    if not source_enabled(cur):
-        return "pams_source_row"
-    cur.execute("SELECT to_regclass('public.pams_source_row') AS table_name")
+    isolated = source_enabled(cur)
+    cur.execute("""SELECT to_regclass('public.pams_source_row') AS legacy_table,
+                           to_regclass('public.source_items') AS source_items,
+                           to_regclass('public.source_batches') AS source_batches""")
     row = cur.fetchone()
-    if not (row.get('table_name') if isinstance(row, dict) else row[0] if row else None):
+    if isinstance(row, dict):
+        legacy = row.get('legacy_table')
+        ready = row.get('source_items') and row.get('source_batches')
+    else:
+        legacy = row[0] if row else None
+        ready = bool(row and len(row) >= 3 and row[1] and row[2])
+    if not legacy and ready:
         return "(" + _UNIFIED_ROWS + ")"
+    if not isolated:
+        return "(SELECT s.*, (s.source_table='pams_bank_statement_rows') AS is_bank_statement FROM pams_source_row s)"
+    if not legacy:
+        raise ValueError('neither unified source tables nor legacy source rows are available')
     return """(
         WITH matches AS (
             SELECT s.source_table, s.source_id, i.raw_fields->'legacy_source_row' AS old,
@@ -78,11 +95,13 @@ def source_row_relation(cur) -> str:
                old->>'account_code' AS account_code, (old->>'event_date')::date AS event_date,
                (old->>'imported_at')::timestamptz AS imported_at,
                (old->>'created_at')::timestamptz AS created_at,
-               'unified_source_item'::text AS source_projection_origin
+               'unified_source_item'::text AS source_projection_origin,
+               (old->>'source_table'='pams_bank_statement_rows') AS is_bank_statement
         FROM valid
         UNION ALL
         SELECT s.source_system,s.source_table,s.source_id,s.source_uid,s.account_code,
-               s.event_date,s.imported_at,s.created_at,'legacy_source_row'::text AS source_projection_origin
+               s.event_date,s.imported_at,s.created_at,'legacy_source_row'::text AS source_projection_origin,
+               (s.source_table='pams_bank_statement_rows') AS is_bank_statement
         FROM pams_source_row s
         WHERE NOT EXISTS (SELECT 1 FROM valid v WHERE v.source_table=s.source_table AND v.source_id=s.source_id)
         UNION ALL

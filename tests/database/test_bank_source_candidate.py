@@ -39,7 +39,7 @@ def bank_data(tmp_path, monkeypatch):
     parsed = parse_statement(path, PROFILE)
     with scratch_database() as params:
         with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-            for name in ('022_bank_reconcile.sql', '080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
+            for name in ('022_bank_reconcile.sql', '074_unified_source.sql', '075_source_fact_links.sql'):
                 cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
             cur.execute("""CREATE TABLE pams_reconciliation_case (
                 case_id bigint PRIMARY KEY, source_ref_table text, source_ref_id text,
@@ -276,8 +276,15 @@ def test_bank_candidate_with_full_bootstrap_schema(tmp_path, monkeypatch):
         parsed = parse_statement(path, PROFILE)
         with psycopg2.connect(**target) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("INSERT INTO pams_accounts(account_code,display_name,base_currency) VALUES ('bank_test','Synthetic','CNY')")
-            for filename in ('080_unified_source_staging.sql', '081_unified_source_fact_links.sql'):
-                cur.execute((ROOT / 'database/postgres/schema' / filename).read_text(encoding='utf-8'))
+            # Only this test models an old database; new bootstrap does not
+            # create the legacy source table.
+            cur.execute("""CREATE TABLE public.pams_source_row (
+                source_row_id bigserial PRIMARY KEY, source_system text NOT NULL,
+                source_table text NOT NULL, source_id text NOT NULL, source_uid text,
+                account_code text, event_date date, source_file text, row_hash text,
+                amount numeric(28,10), currency text, raw_json jsonb NOT NULL DEFAULT '{}',
+                imported_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+                UNIQUE (source_table, source_id))""")
             cur.execute("""INSERT INTO pams_bank_statement_imports(profile_code,bank,account_code,account_kind,source_file,row_count)
                            VALUES ('synthetic','Manual','bank_test','manual',%s,2) RETURNING id""", (str(path),))
             import_id = cur.fetchone()['id']

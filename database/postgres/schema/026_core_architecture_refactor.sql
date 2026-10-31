@@ -174,26 +174,6 @@ CREATE TABLE IF NOT EXISTS public.pams_asset_market_daily (
 CREATE INDEX IF NOT EXISTS idx_pams_asset_market_daily_symbol_date
     ON public.pams_asset_market_daily (symbol, as_of DESC);
 
-CREATE TABLE IF NOT EXISTS public.pams_source_row (
-    source_row_id BIGSERIAL PRIMARY KEY,
-    source_system TEXT NOT NULL,
-    source_table TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    source_uid TEXT,
-    account_code TEXT,
-    event_date DATE,
-    source_file TEXT,
-    row_hash TEXT,
-    amount NUMERIC(28, 10),
-    currency TEXT,
-    raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    imported_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (source_table, source_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_pams_source_row_account_date
-    ON public.pams_source_row (account_code, event_date DESC);
 
 CREATE TABLE IF NOT EXISTS public.pams_reconciliation_case (
     case_id BIGSERIAL PRIMARY KEY,
@@ -481,45 +461,7 @@ $statement$;
 END
 $optional$;
 
-INSERT INTO public.pams_source_row (
-    source_system, source_table, source_id, source_uid, account_code, event_date,
-    source_file, amount, currency, raw_json, imported_at
-)
-SELECT
-    'bank_statement_import',
-    'pams_bank_statement_imports',
-    i.id::text,
-    i.profile_code || ':' || i.id::text,
-    i.account_code,
-    i.statement_end,
-    i.source_file,
-    i.statement_balance,
-    NULL,
-    to_jsonb(i),
-    i.imported_at
-FROM public.pams_bank_statement_imports i
-WHERE to_regclass('public.pams_bank_statement_imports') IS NOT NULL
-ON CONFLICT DO NOTHING;
 
-INSERT INTO public.pams_source_row (
-    source_system, source_table, source_id, source_uid, account_code, event_date,
-    row_hash, amount, currency, raw_json, imported_at
-)
-SELECT
-    'bank_statement_row',
-    'pams_bank_statement_rows',
-    r.id::text,
-    r.source_uid,
-    r.account_code,
-    r.transaction_date,
-    r.source_uid,
-    r.amount,
-    r.currency,
-    to_jsonb(r),
-    r.created_at
-FROM public.pams_bank_statement_rows r
-WHERE to_regclass('public.pams_bank_statement_rows') IS NOT NULL
-ON CONFLICT DO NOTHING;
 
 INSERT INTO public.pams_reconciliation_case (
     case_type, relation_code, from_account_code, to_account_code,
@@ -801,7 +743,6 @@ COMMENT ON SCHEMA pams_external_market IS 'External OHLCV market-data system tab
 
 COMMENT ON TABLE public.pams_asset_exposure_relation IS 'Unified asset exposure relationship table for industry, theme, and component/lookthrough relations.';
 COMMENT ON TABLE public.pams_asset_market_daily IS 'PAMS valuation-oriented market daily table, excluding external OHLCV system tables.';
-COMMENT ON TABLE public.pams_source_row IS 'Unified source-row ledger for imported non-fact source records.';
 COMMENT ON TABLE public.pams_reconciliation_case IS 'Unified reconciliation and review case table.';
 COMMENT ON TABLE public.pams_external_transaction_source IS 'Unified external/manual transaction source record table feeding investment trade facts.';
 COMMENT ON TABLE public.pams_data_job_run IS 'Unified data job run and data-version audit table.';

@@ -28,7 +28,7 @@ BEGIN
             NOT VALID;
     END IF;
 
-    IF NOT EXISTS (
+    IF to_regclass('public.pams_source_row') IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'fk_pams_source_row_account_code'
     ) THEN
         ALTER TABLE pams_source_row
@@ -103,7 +103,11 @@ END $$;
 
 ALTER TABLE pams_cashflow_fact VALIDATE CONSTRAINT fk_pams_cashflow_fact_account_code;
 ALTER TABLE pams_cashflow_fact VALIDATE CONSTRAINT fk_pams_cashflow_fact_counter_account_code;
-ALTER TABLE pams_source_row VALIDATE CONSTRAINT fk_pams_source_row_account_code;
+DO $$ BEGIN
+    IF to_regclass('public.pams_source_row') IS NOT NULL THEN
+        ALTER TABLE pams_source_row VALIDATE CONSTRAINT fk_pams_source_row_account_code;
+    END IF;
+END $$;
 ALTER TABLE pams_external_transaction_source VALIDATE CONSTRAINT fk_pams_external_transaction_source_account_code;
 ALTER TABLE pams_investment_trade_fact VALIDATE CONSTRAINT fk_pams_investment_trade_fact_account_code;
 ALTER TABLE pams_investment_trade_snapshot VALIDATE CONSTRAINT fk_pams_investment_trade_snapshot_account_code;

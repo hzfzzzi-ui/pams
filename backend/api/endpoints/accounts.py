@@ -410,7 +410,7 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
             MAX(event_date) AS latest_balance_date,
             NULL::numeric AS latest_balance
         FROM {source_rows} AS source_rows
-        WHERE source_table = 'pams_bank_statement_rows'
+        WHERE is_bank_statement
           AND account_code IS NOT NULL
         GROUP BY account_code, COALESCE(NULLIF(source_system, ''), source_table)
         ORDER BY account_code
