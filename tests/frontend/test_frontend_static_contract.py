@@ -92,25 +92,20 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
 
     assert "appActionRow" not in css
     assert "riskAnchorNav" not in css
-    mobile_tabs = ui_js.split("const MOBILE_TABS = {", 1)[1].split("};", 1)[0]
-    assert "'investments.html': { key: 'invest', label: '投资' }" in mobile_tabs
-    assert "'ledger.html': { key: 'ledger', label: '收支' }" in mobile_tabs
-    assert "'more.html': { key: 'more', label: '更多' }" in mobile_tabs
-    assert "index.html" not in mobile_tabs
-    assert "accounts.html" not in mobile_tabs
-    assert "accounts: 'more.html'" in ui_js
-    assert "'accounts.html': 'more.html'" in ui_js
-    assert "index: 'investments.html'" in ui_js
-    assert "'index.html': 'investments.html'" in ui_js
-    assert "'risk.html': 'investments.html'" in ui_js
-    assert "const moreActive = new Set(['more.html', 'accounts.html', 'data_sources.html'])" in ui_js
-    assert "research.html" not in ui_js
-    assert "research: 'more.html'" not in ui_js
-    assert "const primary = new Set(['investments.html', 'ledger.html', 'more.html'])" in ui_js
-    assert "const stateRole = tone === 'error' ? 'alert' : 'status'" in ui_js
-    assert "const liveMode = tone === 'error' ? 'assertive' : 'polite'" in ui_js
-    assert 'role="${stateRole}" aria-live="${liveMode}"' in ui_js
-    assert "empty: '暂无'" in ui_js
+    shell_html = _read_public("app.html")
+    routes_js = _read_public("assets/js/app/routes.js")
+    data_state_js = _read_public("assets/js/components/data_state.js")
+    assert shell_html.count('data-page=') == 3
+    for page, label in [("investments.html", "投资"), ("ledger.html", "收支"), ("more.html", "更多")]:
+        assert f'data-page="{page}">{label}</a>' in shell_html
+    assert "PRIMARY_PAGES = Object.freeze(CONTENT_PAGES.slice(0, 3))" in routes_js
+    assert "PRIMARY_PAGES.includes(page) ? page : 'more.html'" in routes_js
+    assert "MOBILE_TABS" not in ui_js
+    assert "research.html" not in routes_js + ui_js
+    assert "const stateRole = tone === 'error' ? 'alert' : 'status'" in data_state_js
+    assert "const liveMode = tone === 'error' ? 'assertive' : 'polite'" in data_state_js
+    assert 'role="${stateRole}" aria-live="${liveMode}"' in data_state_js
+    assert "empty: '暂无'" in data_state_js
 
     for page in [
         "accounts.html",
@@ -475,7 +470,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20261031-gray-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20261031-ui-v1" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -788,7 +783,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261031-gray-v1" in html
+    assert "assets/js/holdings.js?v=20261031-ui-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
@@ -800,10 +795,10 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261031-gray-v1" in html
-    assert "assets/js/lookthrough.js?v=20261031-gray-v1" in html
-    assert "assets/js/portfolio_risk.js?v=20261031-gray-v1" in html
-    assert "assets/js/portfolio_config.js?v=20261031-gray-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261031-ui-v1" in html
+    assert "assets/js/lookthrough.js?v=20261031-ui-v1" in html
+    assert "assets/js/portfolio_risk.js?v=20261031-ui-v1" in html
+    assert "assets/js/portfolio_config.js?v=20261031-ui-v1" in html
     assert "style-phone.css?v=20261031-gray-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
@@ -940,8 +935,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20261031-gray-v1" in ledger_html
-    assert "assets/js/transactions.js?v=20261031-gray-v1" in investments_html
+    assert "assets/js/ledger_cashflow.js?v=20261031-ui-v1" in ledger_html
+    assert "assets/js/transactions.js?v=20261031-ui-v1" in investments_html
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
@@ -1399,7 +1394,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "tradeAutoMetricGrid" in css
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
-    assert "assets/js/transactions.js?v=20261031-gray-v1" in html
+    assert "assets/js/transactions.js?v=20261031-ui-v1" in html
     assert "assets/css/style-phone.css?v=20261031-gray-v1" in html
 
 
@@ -1454,19 +1449,21 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20261031-gray-v1" in html
+    assert "assets/js/more.js?v=20261031-ui-v1" in html
     assert 'id="moreAdvanced"' in html and 'id="moreAdvanced" open' not in html
     assert 'class="statusbar"' not in html and 'LIVE' not in html
     assert 'href="accounts.html#sources"' not in html
     assert 'href="investments.html#portfolio-risk-disclosure"' not in html
     assert "./nav_growth_explanation.js?v=20261031-gray-v1" in more_js
-    assert "assets/js/bank_reconcile.js?v=20261031-gray-v1" in accounts_html
-    assert "assets/js/data_sources.js?v=20261031-gray-v1" in data_sources_html
-    assert "./sync_center.js?v=20261031-gray-v1" in data_sources_js
-    assert "./ui.js?v=20261031-gray-v1" in sync_center_js
+    assert "assets/js/bank_reconcile.js?v=20261031-ui-v1" in accounts_html
+    assert "assets/js/data_sources.js?v=20261031-ui-v1" in data_sources_html
+    assert "./sync_center.js?v=20261031-ui-v1" in data_sources_js
+    assert "./ui.js?v=20261031-ui-v1" in sync_center_js
     assert "ui.js?v=20260606-refresh-v3" not in data_sources_js + sync_center_js
-    assert "function dataStateHtml" in ui_js
-    assert "function renderDataState" in ui_js
+    data_state_js = _read_public("assets/js/components/data_state.js")
+    assert "function dataStateHtml" in data_state_js
+    assert "function renderDataState" in data_state_js
+    assert "export { dataStateHtml, renderDataState }" in ui_js
     assert "renderDataState(el" in data_sources_js
     assert "dataStateHtml({" in sync_center_js
     assert "dataStateHtml({" in portfolio_config_js
@@ -1513,25 +1510,22 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "clearApiCache();" in api_js
     assert 'port === "8080"' in api_js
 
-    assert "setupAppPreload" in ui_js
+    assert "createPageBootstrap" in ui_js
+    bootstrap_js = _read_public("assets/js/app/page_bootstrap.js")
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" in holdings_js
     assert "/api/analysis/lookthrough?baseCurrency=CNY" in lookthrough_js
     assert "/api/analysis/return-attribution?baseCurrency=CNY" in lookthrough_js
-    preload_block = ui_js.split("warmApiCache([", 1)[1].split("]).catch", 1)[0]
+    preload_block = bootstrap_js.split("function warmupPaths(now)", 1)[1].split("export function createPageBootstrap", 1)[0]
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
-    assert "assets/js/ledger_cashflow.js?v=20261031-gray-v1" in ui_js
-    assert "assets/css/style.css?v=20261031-gray-v1" in ui_js
-    assert "assets/css/design-system.css?v=20261031-gray-v1" in ui_js
-    assert "assets/js/ui.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/holdings.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/holdings_categories.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/lookthrough.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/transactions.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/portfolio_risk.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/portfolio_config.js?v=20261031-gray-v1" in ui_js
-    assert "assets/js/more.js?v=20261031-gray-v1" in ui_js
+    # Preload uses the versions actually loaded by the page, not a stale duplicate manifest.
+    assert "collectPrefetchResources(doc)" in bootstrap_js
+    assert "script[type=\"module\"][src]" in bootstrap_js
+    for path in ["/api/accounts/overview", "/api/sync/center",
+                 "/api/portfolio/data-quality?baseCurrency=CNY", "/api/ledger/workbench?month="]:
+        assert path in preload_block
+    assert "/api/account-import" not in preload_block
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" not in api_js + ui_js
 
@@ -1625,8 +1619,8 @@ def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
     assert "result?.success === false" in js
     assert "['blocked', 'failed', 'error'].includes(result?.status)" in js
     assert "throw new Error(result.reason || result.error" in js
-    assert "sync_center.js?v=20261031-gray-v1" in _read_public("assets/js/data_sources.js")
-    assert "data_sources.js?v=20261031-gray-v1" in _read_public("data_sources.html")
+    assert "sync_center.js?v=20261031-ui-v1" in _read_public("assets/js/data_sources.js")
+    assert "data_sources.js?v=20261031-ui-v1" in _read_public("data_sources.html")
 
 
 def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
@@ -1666,8 +1660,8 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
-    assert "holdings.js?v=20261031-gray-v1" in html
-    assert "holdings_categories.js?v=20261031-gray-v1" in html
+    assert "holdings.js?v=20261031-ui-v1" in html
+    assert "holdings_categories.js?v=20261031-ui-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:

@@ -10,6 +10,8 @@ const root = path.resolve(process.argv[2] || 'frontend/public');
 const output = process.env.PAMS_FRONTEND_ARTIFACT_DIR;
 if (output) await mkdir(output, {recursive:true});
 const context = await browser.newContext();
+let delayAccountLoad = false;
+let releaseAccountLoad;
 const server = createServer(async (req,res) => {
   const url = new URL(req.url,'http://localhost');
   if (/\/(investments|ledger|more|accounts|data_sources|account_import)\.html$/.test(url.pathname) && url.searchParams.get('content') !== '1') {
@@ -18,7 +20,12 @@ const server = createServer(async (req,res) => {
   const file=path.resolve(root,'.'+url.pathname);
   try {
     assert.ok(file.startsWith(root+path.sep));
-    const body=await readFile(file);
+    let body=await readFile(file);
+    if (delayAccountLoad && url.pathname === '/accounts.html') {
+      // A non-blocking image keeps load pending after the module normalizes its hash.
+      body = Buffer.from(body.toString().replace('</body>', '<img hidden src="/pending-account-load"></body>'));
+      delayAccountLoad = false;
+    }
     res.writeHead(200,{'content-type':({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8'})[path.extname(file)] || 'application/octet-stream'});res.end(body);
   } catch { res.writeHead(503,{'content-type':'application/json'});res.end('{"detail":"Fixed unavailable fixture"}'); }
 });
@@ -26,6 +33,10 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 await context.route('**/*', async route => {
   const url = new URL(route.request().url());
+  if (url.origin === base && url.pathname === '/pending-account-load') {
+    await new Promise(resolve => { releaseAccountLoad = resolve; });
+    return route.fulfill({status: 204, body: ''});
+  }
   if(url.origin==='http://unavailable.invalid')return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Isolated external document</title><p>Fixed test document</p>'});
   if(url.origin===base)return route.continue();
   if(url.hostname==='127.0.0.1')return route.fulfill({status:503,contentType:'application/json',body:'{"detail":"Fixed unavailable fixture"}'});
@@ -62,11 +73,21 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
       if (key==='ledger') {
         assert.equal(await frame.locator('.pageHeader').count(),0);
-        for (const tab of ['recent','account','overview']) await frame.locator(`[data-ledger-tab="${tab}"]`).click();
+        for (const tab of ['recent','account','overview']) {
+          const link = frame.locator(`[data-ledger-tab="${tab}"]`);
+          const hash = await link.getAttribute('href');
+          await link.click();
+          await page.waitForFunction(expected => location.hash === expected, hash);
+        }
       }
       if (key==='more') assert.equal(await frame.locator('h1').count(),0);
       if (key==='investments') {
-        for (const tab of ['analysis','transactions','risk','allocation','holdings']) await frame.locator(`[data-invest-tab="${tab}"]`).click();
+        for (const tab of ['analysis','transactions','risk','allocation','holdings']) {
+          const link = frame.locator(`[data-invest-tab="${tab}"]`);
+          const hash = await link.getAttribute('href');
+          await link.click();
+          await page.waitForFunction(expected => location.hash === expected, hash);
+        }
       }
       if (output) await page.screenshot({path:path.join(output,`shell-${width}-${key}.png`)});
     }
@@ -76,9 +97,36 @@ try {
     await page.locator('[data-page="investments.html"][aria-current]').waitFor();
     await page.reload();
     await page.locator('[data-page="investments.html"][aria-current]').waitFor();
+    await page.frameLocator('#page-content').locator('[data-invest-tab="analysis"]').click();
+    await page.waitForFunction(() => location.hash === '#return-trend');
+    await page.reload();
+    await page.frameLocator('#page-content').locator('[data-invest-tab="analysis"].is-active').waitFor();
+    await page.locator('[data-page="ledger.html"]').click();
+    await page.frameLocator('#page-content').locator('[data-ledger-tab="account"]').click();
+    await page.waitForFunction(() => location.hash === '#account-cashflow-section');
+    await page.reload();
+    await page.frameLocator('#page-content').locator('[data-ledger-tab="account"].is-active').waitFor();
     await page.frameLocator('#page-content').locator('body').evaluate(() => location.assign('more.html'));
     await page.locator('[data-page="more.html"][aria-current]').waitFor();
     assert.equal(await page.frameLocator('#page-content').locator('iframe').count(),0);
+    await page.evaluate(() => {
+      window.accountRouteNotice = null;
+      window.addEventListener('message', event => {
+        if (event.data?.type === 'pams-content-route' && event.data.href.includes('/accounts.html')) {
+          window.accountRouteNotice = event.data.href;
+        }
+      });
+    });
+    delayAccountLoad = true;
+    await page.frameLocator('#page-content').locator('a[href="accounts.html#overview"]').evaluate(node => { node.href = 'accounts.html'; });
+    await page.frameLocator('#page-content').locator('a[href="accounts.html"]').click();
+    await page.waitForFunction(() => window.accountRouteNotice?.endsWith('#overview'));
+    assert.equal(new URL(page.url()).searchParams.get('view'), 'more.html');
+    releaseAccountLoad(); releaseAccountLoad = null;
+    await page.waitForFunction(() => new URL(location).searchParams.get('view') === 'accounts.html');
+    await page.goBack();
+    await page.frameLocator('#page-content').locator('body.page-more').waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('view'), 'more.html');
     for (const target of ['accounts.html#overview','data_sources.html','account_import.html']) {
       await page.frameLocator('#page-content').locator('body').evaluate((node,href) => location.assign(href),target);
       await page.waitForFunction(expected => document.querySelector('#page-content').contentWindow.location.pathname.endsWith(expected),target.split('#')[0]);
@@ -101,4 +149,4 @@ try {
 } catch (error) {
   console.error(JSON.stringify({url:page.url(),frames:page.frames().map(f=>f.url()),failures}));
   throw error;
-} finally { await browser.close(); await new Promise(resolve=>server.close(resolve)); }
+} finally { releaseAccountLoad?.(); await browser.close(); await new Promise(resolve=>server.close(resolve)); }

@@ -1,7 +1,9 @@
 // Keep one navigation DOM node; existing page controllers stay in their own document.
-const pages = new Set(['investments.html', 'ledger.html', 'more.html', 'accounts.html', 'data_sources.html', 'account_import.html']);
+import { CONTENT_PAGES, primaryPageFor, resolveContentRoute } from './app/routes.js?v=20261031-ui-v1';
+const pages = new Set(CONTENT_PAGES);
 const frame = document.getElementById('page-content');
 const links = [...document.querySelectorAll('[data-page]')];
+let loadedDocument = null;
 
 function contentUrl() {
   const url = new URL(location.href);
@@ -13,7 +15,7 @@ function contentUrl() {
 }
 
 function navigate(url) {
-  if (url.origin !== location.origin || !pages.has(url.pathname.split('/').pop())) return;
+  if (!resolveContentRoute(url, location.href)) return;
   url.searchParams.set('content', '1');
   // replace avoids adding a second frame-history entry for a shell navigation.
   // Native beforeunload protection in the import editor remains effective.
@@ -23,14 +25,14 @@ function navigate(url) {
 function syncAddress(replace = false) {
   const child = new URL(frame.contentWindow.location.href);
   const page = child.pathname.split('/').pop();
-  if (!pages.has(page)) return;
+  if (!resolveContentRoute(child, location.href)) return;
   const outer = new URL('app.html', location.href);
   outer.search = child.search;
   outer.searchParams.delete('content');
   outer.searchParams.set('view', page);
   outer.hash = child.hash;
   if (outer.href !== location.href) history[replace ? 'replaceState' : 'pushState']({}, '', outer);
-  const active = ['investments.html', 'ledger.html'].includes(page) ? page : 'more.html';
+  const active = primaryPageFor(page);
   for (const link of links) {
     if (link.dataset.page === active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -44,8 +46,14 @@ if (window.parent !== window) {
   window.parent.postMessage({type: 'pams-shell-route', href: contentUrl().href}, location.origin);
 } else {
 window.addEventListener('message', event => {
-  if (event.origin !== location.origin || event.source !== frame.contentWindow || event.data?.type !== 'pams-shell-route') return;
-  try { navigate(new URL(event.data.href)); } catch { /* Ignore malformed routes. */ }
+  if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+  try {
+    if (event.data?.type === 'pams-shell-route') navigate(new URL(event.data.href));
+    // Initialization can normalize a tab before this document's load event.
+    // Its first route must still push the destination, preserving the source.
+    if (event.data?.type === 'pams-content-route' && loadedDocument === frame.contentDocument
+      && event.data.href === frame.contentWindow.location.href) syncAddress(true);
+  } catch { /* Ignore malformed routes and unavailable content documents. */ }
 });
 for (const link of links) link.addEventListener('click', event => {
   if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -67,12 +75,13 @@ frame.addEventListener('load', () => {
   doc.documentElement.classList.add('pams-content');
   doc.querySelector('.nav')?.remove();
   syncAddress();
+  loadedDocument = doc;
   doc.addEventListener('click', event => {
     if (event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target.closest('a[href]');
     if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
     const url = new URL(anchor.href);
-    if (url.origin !== location.origin || !pages.has(url.pathname.split('/').pop())) return;
+    if (!resolveContentRoute(url, location.href)) return;
     if (url.pathname === doc.location.pathname && url.search === doc.location.search) return;
     event.preventDefault();
     navigate(url);

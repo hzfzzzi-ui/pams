@@ -179,4 +179,4 @@ def test_unverified_close_date_is_not_advertised_as_official_rate_evidence():
 
 def test_investment_entry_uses_a_distinct_binding_module_cache_key():
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
-    assert "holdings_categories.js?v=20261031-gray-v1" in html
+    assert "holdings_categories.js?v=20261031-ui-v1" in html
