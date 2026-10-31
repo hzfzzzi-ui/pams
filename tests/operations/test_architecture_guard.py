@@ -120,15 +120,35 @@ def test_domain_symlink_is_rejected_without_reading_it(tmp_path, monkeypatch):
     assert any('must not be symlinks' in error for error in errors)
 
 
+def test_forced_tracked_root_secrets_are_rejected_without_reading_content(tmp_path, monkeypatch):
+    files = fixture_repo(tmp_path)
+    subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
+    (tmp_path / '.gitignore').write_text('secrets/\n', encoding='utf-8')
+    secret = tmp_path / 'secrets/key.txt'
+    secret.parent.mkdir()
+    secret.write_bytes(b'\xffprivate')
+    subprocess.run(['git', '-C', str(tmp_path), 'add', *files, '.gitignore'], check=True)
+    subprocess.run(['git', '-C', str(tmp_path), 'add', '-f', 'secrets/key.txt'], check=True)
+    original = Path.read_text
+    def guarded_read(path, *args, **kwargs):
+        assert path != secret
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', guarded_read)
+    errors = check_architecture(tmp_path, tracked_files(tmp_path))
+    assert errors == ['private data, secrets or runtime output must not be tracked (path redacted)']
+    assert 'secrets/key.txt' not in worktree_files(tmp_path)
+
+
 def test_tracked_secrets_data_and_runtime_outputs_are_rejected_but_examples_and_fixtures_allowed(tmp_path):
     files = fixture_repo(tmp_path)
-    sensitive = ['.env', 'config/.env.production', 'config/bank_reconcile.yaml',
+    sensitive = ['.env', 'config/.env.production', 'config/bank_reconcile.yaml', 'secrets/key.txt',
                  'private.xls', 'private.xlsx', 'data/ledger.csv', '账户台账/source.pdf',
                  'import_templates/private.xlsx', 'templates/private.csv', '.tmp_state.json',
                  'outputs/report.csv', 'test-results/a.png',
                  'database/postgres/backups/db.dump', 'snapshot.tar.gz']
     safe = ['.env.example', 'config/.env.production.example', 'config/accounts.yaml',
             'tests/fixtures/data/synthetic.csv', 'tests/fixtures/templates/synthetic.csv',
+            'tests/fixtures/secrets/synthetic.txt',
             'tests/fixtures/example.xlsx']
     errors = check_architecture(tmp_path, files + sensitive + safe)
     assert len(errors) == len(sensitive)
@@ -171,6 +191,9 @@ def test_worktree_mode_uses_existing_index_and_unignored_source_additions(tmp_pa
     private = tmp_path / 'data/private-secret.txt'
     private.parent.mkdir()
     private.write_bytes(b'\xffprivate')
+    secret = tmp_path / 'secrets/private.txt'
+    secret.parent.mkdir()
+    secret.write_bytes(b'\xffprivate')
     template = tmp_path / 'templates/private.csv'
     template.parent.mkdir()
     template.write_bytes(b'\xffprivate')
@@ -189,7 +212,7 @@ def test_worktree_mode_uses_existing_index_and_unignored_source_additions(tmp_pa
     (retired / 'private-content.txt').write_bytes(b'\xffprivate')
     original_read = Path.read_text
     def guarded_read(path, *args, **kwargs):
-        assert path not in {private, template, root_state, root_workbook, private_config,
+        assert path not in {private, secret, template, root_state, root_workbook, private_config,
                             env, retired / 'private-content.txt'}
         return original_read(path, *args, **kwargs)
     monkeypatch.setattr(Path, 'read_text', guarded_read)
@@ -199,6 +222,7 @@ def test_worktree_mode_uses_existing_index_and_unignored_source_additions(tmp_pa
     assert 'tests/test_ignored.py' not in local
     assert 'tests/test_new.py' in local and 'backend/api/domain/assets/new.py' in local
     assert 'data/private-secret.txt' not in local
+    assert 'secrets/private.txt' not in local
     assert 'templates/private.csv' not in local and '.tmp_state.json' not in local
     assert 'private.xlsx' not in local and 'config/bank_reconcile.yaml' not in local
     assert 'frontend/public/.env.local' not in local

@@ -63,7 +63,7 @@ WORKTREE_PATHS = (
 )
 RETIRED_ROOTS = ('backtest_V2', 'strategy', 'strategy-gpt', 'telegram-bot', 'telegram-bot-assistant')
 PRIVATE_PREFIXES = (
-    'data/', '账户台账/', 'import_templates/', 'templates/', 'output/', 'outputs/',
+    'data/', '账户台账/', 'import_templates/', 'templates/', 'secrets/', 'output/', 'outputs/',
     'reports/', 'logs/', 'artifacts/', 'test-results/', 'tmp/', '.codex-artifacts/',
     '.pytest_cache/', '.mypy_cache/', '.playwright-cli/', 'htmlcov/',
     'database/backups/', 'database/postgres/backups/',
