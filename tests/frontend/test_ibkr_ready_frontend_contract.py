@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "frontend/public/assets/js/holdings_categories.js").read_text(encoding="utf-8")
+from .holdings_source import read_holdings_source
+SOURCE = read_holdings_source(ROOT / "frontend/public", "holdings_categories.js")
 UTILS = (ROOT / "frontend/public/assets/js/utils.js").read_text(encoding="utf-8")
 DAY = "2024-01-05"
 
@@ -179,4 +180,4 @@ def test_unverified_close_date_is_not_advertised_as_official_rate_evidence():
 
 def test_investment_entry_uses_a_distinct_binding_module_cache_key():
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
-    assert "holdings_categories.js?v=20261031-investment-charts-v1" in html
+    assert "holdings_categories.js?v=20261031-holdings-v1" in html

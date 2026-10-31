@@ -1,3 +1,4 @@
+import {chartHarnessSource} from './investment_chart_fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -88,14 +89,14 @@ async function fixture({ fallback = false } = {}) {
   const source = readFileSync(entryURL, 'utf8');
   const commonExports = 'loadInvestmentNavChartOnce, renderInvestmentReturnChart, getInvestmentChartState, applyInvestmentReturnWindow';
   const extraExports = ', createInvestmentChartController, disposeInvestmentCharts';
-  const module = new vm.SourceTextModule(source.slice(0, source.lastIndexOf('main().finally(')) + `\nexport { ${commonExports}${extraExports} };`, { context, identifier: entryURL.href });
+  const module = new vm.SourceTextModule(chartHarnessSource, { context, identifier: entryURL.href });
   const cache = new Map([[entryURL.href, module]]);
   await module.link((specifier, parent) => {
     const url = new URL(specifier, parent.identifier); url.search = '';
     if (cache.has(url.href)) return cache.get(url.href);
     const name = url.pathname.split('/').pop();
     let dependency;
-    if (url.pathname.includes('/features/investment/charts/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/app/routes.js')) {
+    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/app/routes.js')) {
       dependency = new vm.SourceTextModule(readFileSync(url, 'utf8'), { context, identifier: url.href });
     } else {
       const values = name === 'api.js' ? { jget, fmt2: String, accountLabel: String }

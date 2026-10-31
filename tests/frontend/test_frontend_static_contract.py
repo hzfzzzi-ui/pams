@@ -1,3 +1,4 @@
+from .holdings_source import read_holdings_source
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -297,7 +298,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
 def test_mobile_holdings_primary_amount_uses_cost_basis() -> None:
     """Mobile holding rows should show position cost, not market value."""
 
-    js = _read_public("assets/js/holdings.js")
+    js = read_holdings_source(PUBLIC_ROOT, "holdings.js")
     mobile_renderer = js.split("function renderMobileHoldingRows", 1)[1].split(
         "el.querySelectorAll('[data-mobile-holding-index]')",
         1,
@@ -315,7 +316,7 @@ def test_mobile_holdings_primary_amount_uses_cost_basis() -> None:
 def test_a_stock_account_total_pnl_drives_profile_summary() -> None:
     """A-share account cards should display account-level total PnL, not row-only holding PnL."""
 
-    js = _read_public("assets/js/holdings_categories.js")
+    js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     summary_block = js.split("const aStockSummary = aStockAccountSummary", 1)[1].split(
         "const fundDisplaySummary",
         1,
@@ -331,7 +332,7 @@ def test_a_stock_account_total_pnl_drives_profile_summary() -> None:
 def test_ibkr_incomplete_account_performance_does_not_drive_total_pnl() -> None:
     """IBKR account performance without total PnL/deposit should not infer a large account loss."""
 
-    js = _read_public("assets/js/holdings_categories.js")
+    js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     renderer_block = js.split("function renderIbkrPerformance", 1)[1].split(
         "function renderAStockOwnerPerformance",
         1,
@@ -609,13 +610,13 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
 
 def test_investments_page_exposes_performance_dashboard_sections() -> None:
     html = _read_public("investments.html")
-    holdings_js = _read_public("assets/js/holdings_categories.js")
+    holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     chart_renderer = _read_public("assets/js/features/investment/charts/renderer.js")
     chart_model = _read_public("assets/js/features/investment/charts/legacy_model.js")
     chart_requests = _read_public("assets/js/features/investment/charts/requests.js")
     chart_source = chart_renderer + chart_model + chart_requests
 
-    holding_rows_js = _read_public("assets/js/holdings.js")
+    holding_rows_js = read_holdings_source(PUBLIC_ROOT, "holdings.js")
     account_cash_js = _read_public("assets/js/account_cash.js")
     tx_js = _transactions_source()
 
@@ -701,8 +702,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     ]:
         assert fn in holdings_js + tx_js
 
-    main_js = holdings_js.split("async function main()", 1)[1]
-    first_main_load = main_js.split("await trackInvestmentHoldings(afterInvestmentNav(() => Promise.all([", 1)[1].split("]), 'holdings'));", 1)[0]
+    first_main_load = _read_public("assets/js/features/investment/holdings/requests.js").split("export function readSummaryInputs", 1)[1].split("export function readListInputs", 1)[0]
     assert "runWhenInvestmentAnalysisVisible" in holdings_js
     assert "loadAllCategoryReturnCharts" in holdings_js
     assert "const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
@@ -803,7 +803,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261031-ui-v1" in html
+    assert "assets/js/holdings.js?v=20261031-holdings-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
@@ -815,7 +815,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261031-investment-charts-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261031-holdings-v1" in html
     assert "assets/js/lookthrough.js?v=20261031-analysis-modules-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261031-panels-v1" in html
     assert "assets/js/portfolio_config.js?v=20261031-panels-v1" in html
@@ -964,7 +964,7 @@ def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
     js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/config_controller.js", "assets/js/features/portfolio/config_view.js", "assets/js/features/portfolio/requests.js")))
     risk_js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/risk_controller.js", "assets/js/features/portfolio/risk_view.js", "assets/js/features/portfolio/requests.js")))
     css = _read_public("assets/css/style.css")
-    tab_js = _read_public("assets/js/holdings_categories.js")
+    tab_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     endpoint_py = Path("backend/api/endpoints/portfolio_state.py").read_text(encoding="utf-8")
     service_py = Path("backend/api/domain/risk/portfolio_config.py").read_text(encoding="utf-8")
     risk_service_py = Path("backend/api/domain/risk/portfolio_risk_disclosure.py").read_text(encoding="utf-8")
@@ -1522,7 +1522,7 @@ def test_risk_capability_lives_in_investment_subpage() -> None:
 def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     api_js = _read_public("assets/js/api.js")
     ui_js = _read_public("assets/js/ui.js")
-    holdings_js = _read_public("assets/js/holdings_categories.js")
+    holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     lookthrough_js = ("\n".join(_read_public(path) for path in ("assets/js/features/analysis/constants.js", "assets/js/features/analysis/state.js", "assets/js/features/analysis/legacy_model.js", "assets/js/features/analysis/charts.js", "assets/js/features/analysis/templates.js", "assets/js/features/analysis/view.js", "assets/js/features/analysis/requests.js", "assets/js/features/analysis/controller.js", "assets/js/features/analysis/page.js")))
     css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
@@ -1606,7 +1606,7 @@ def test_holding_summary_uses_market_view_date() -> None:
 
 
 def test_investment_header_daily_pnl_uses_total_return_window() -> None:
-    holdings_js = _read_public("assets/js/holdings_categories.js")
+    holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     api_js = _read_public("assets/js/api.js")
 
     assert "loadInvestmentSummaryFresh" in holdings_js
@@ -1629,7 +1629,7 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
 
 
 def test_investment_holding_rows_escape_imported_fields() -> None:
-    holdings_js = _read_public("assets/js/holdings.js")
+    holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings.js")
 
     assert "function esc(value)" in holdings_js
     assert "${esc(r.symbol || '—')}" in holdings_js
@@ -1651,8 +1651,8 @@ def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
 
 
 def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
-    rows_js = _read_public("assets/js/holdings.js")
-    hero_js = _read_public("assets/js/holdings_categories.js")
+    rows_js = read_holdings_source(PUBLIC_ROOT, "holdings.js")
+    hero_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     html = _read_public("investments.html")
 
     pending = rows_js.split("function holdingDailyPnlPending(row)", 1)[1].split("function hasDailyTotalPnl", 1)[0]
@@ -1687,12 +1687,12 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
-    assert "holdings.js?v=20261031-ui-v1" in html
-    assert "holdings_categories.js?v=20261031-investment-charts-v1" in html
+    assert "holdings.js?v=20261031-holdings-v1" in html
+    assert "holdings_categories.js?v=20261031-holdings-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
-    rows_js = _read_public("assets/js/holdings.js")
+    rows_js = read_holdings_source(PUBLIC_ROOT, "holdings.js")
     native = rows_js.split("function dailyNativeText(row)", 1)[1].split("function holdingDailyPnlPending", 1)[0]
     fx = rows_js.split("function dailyFxText(row)", 1)[1].split("function dailyNativeText", 1)[0]
     assert "if (!native) return '';" in native

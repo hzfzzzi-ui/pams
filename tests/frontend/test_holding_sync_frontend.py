@@ -13,7 +13,7 @@ const fs = require('node:fs'), vm = require('node:vm');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const before = JSON.stringify(input);
 function load(file, globals) {
-  const source = fs.readFileSync('frontend/public/assets/js/' + file, 'utf8')
+  const source = require('./tests/frontend/holdings_renderer_fixture.cjs').sourceFor(file)
     .replace(/^\uFEFF/, '').replace(/^import .*;\r?$/gm, '').split(/\r?\nmain\(\)\./)[0];
   const ctx = vm.createContext(globals);
   vm.runInContext(fs.readFileSync('frontend/public/assets/js/shared/chart_theme.js', 'utf8').replace(/^export /gm, ''), ctx);

@@ -1,3 +1,4 @@
+import {chartHarnessSource} from './investment_chart_fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -35,16 +36,13 @@ async function chartModule(fallback = false) {
   // Do not run page bootstrap; execute the actual chart functions without changing their bodies.
   const moduleCache = new Map();
   const entryURL = new URL('holdings_categories.js', root);
-  const module = new vm.SourceTextModule(source.slice(0, source.lastIndexOf('main().finally(')) + `
-    export { loadInvestmentNavChartOnce, renderInvestmentReturnChart, getInvestmentChartState,
-      applyInvestmentReturnWindow, normalizeInvestmentNavRows, buildInvestmentNavChartData, filterReturnWindowRows };
-  `, { context, identifier: entryURL.href });
+  const module = new vm.SourceTextModule(chartHarnessSource, { context, identifier: entryURL.href });
   moduleCache.set(entryURL.href, module);
   await module.link((specifier, parent) => {
     const url = new URL(specifier, parent.identifier);
     url.search = '';
     if (moduleCache.has(url.href)) return moduleCache.get(url.href);
-    if (url.pathname.includes('/features/investment/charts/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/app/routes.js')) {
+    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/app/routes.js')) {
       const dependency = new vm.SourceTextModule(readFileSync(url, 'utf8'), { context, identifier: url.href });
       moduleCache.set(url.href, dependency);
       return dependency;

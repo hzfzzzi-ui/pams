@@ -17,9 +17,9 @@ def test_investment_startup_lifecycle():
 
 
 def test_startup_hooks_do_not_change_api_or_rendering_contracts():
-    source = (PUBLIC / "assets/js/holdings_categories.js").read_text(encoding="utf-8")
-    assert "await trackInvestmentHoldings(afterInvestmentNav(() => Promise.all([" in source
-    assert "]), 'holdings'));" in source
+    source = (PUBLIC / "assets/js/features/investment/holdings/summary_controller.js").read_text(encoding="utf-8")
+    assert "await trackInvestmentHoldings(afterInvestmentNav(() => readSummaryInputs({" in source
+    assert "}), 'holdings'));" in source
     chart_controller = (PUBLIC / "assets/js/features/investment/charts/controller.js").read_text(encoding="utf-8")
     requests = (PUBLIC / "assets/js/features/investment/charts/requests.js").read_text(encoding="utf-8")
     assert "navPromise = trackInvestmentNav(readInvestmentNav()" in chart_controller
@@ -47,7 +47,7 @@ def test_investment_entries_share_one_startup_and_ui_module_version():
     html = (PUBLIC / "investments.html").read_text(encoding="utf-8")
     for name in ("holdings", "holdings_categories", "lookthrough", "transactions", "portfolio_risk", "portfolio_config"):
         version = ("20261031-panels-v1" if name in ("portfolio_risk", "portfolio_config")
-                   else "20261031-investment-charts-v1" if name == "holdings_categories" else "20261031-analysis-modules-v1" if name == "lookthrough" else "20261031-transactions-v1" if name == "transactions" else "20261031-ui-v1")
+                   else "20261031-holdings-v1" if name in ("holdings", "holdings_categories") else "20261031-analysis-modules-v1" if name == "lookthrough" else "20261031-transactions-v1" if name == "transactions" else "20261031-ui-v1")
         assert f"assets/js/{name}.js?v={version}" in html
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
         if name == "lookthrough":
