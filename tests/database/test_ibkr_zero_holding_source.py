@@ -31,7 +31,7 @@ def xml(*positions):
             '<OpenPositions>' + ''.join(positions) + '</OpenPositions></FlexStatement></FlexStatements></FlexQueryResponse>').encode()
 
 
-ZERO = '<OpenPosition accountId="U_TEST" symbol="TEST" reportDate="20261022" position="0" costBasisMoney="0" marketValue="0" />'
+ZERO = '<OpenPosition accountId="U_TEST" symbol="TEST" currency="USD" reportDate="20261022" position="0" costBasisMoney="0" marketValue="0" />'
 
 
 def stage(params, report):
@@ -80,6 +80,7 @@ def test_reviewed_scope_and_explicit_three_zero_fields_allow_retirement(isolated
     ZERO.replace(' marketValue="0"', ''),
     ZERO.replace(' position="0"', ''),
     ZERO.replace(' reportDate="20261022"', ''),
+    ZERO.replace(' currency="USD"', ''),
     ZERO.replace('accountId="U_TEST"', 'accountId="OTHER"'),
 ])
 def test_missing_or_conflicting_evidence_is_unknown(isolated, position):

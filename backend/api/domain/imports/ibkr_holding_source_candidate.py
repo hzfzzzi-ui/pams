@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+import re
 from uuid import UUID, uuid5
 
 from domain.imports import isolation
@@ -63,17 +64,20 @@ def _extract(content: bytes, *, source_account_id: str, business_date: date):
                 conflict = True
             ancestor = parents.get(ancestor)
         symbol = str(attrs.get('symbol') or '').strip()
+        currency = str(attrs.get('currency') or '').strip().upper()
+        if not re.fullmatch(r'[A-Z]{3}', currency):
+            currency = None
         position_day = _day(attrs.get('reportDate'))
         quantity = _number(attrs, ('position', 'quantity', 'qty'))
         cost = _number(attrs, ('costBasisMoney', 'costBasis', 'cost'))
         value = _number(attrs, ('marketValue', 'positionValue', 'value', 'markValue'))
         missing = [name for name, item in (('account', None if conflict else source_account_id),
-                    ('symbol', symbol or None), ('business_date', position_day), ('quantity', quantity),
+                    ('symbol', symbol or None), ('currency', currency), ('business_date', position_day), ('quantity', quantity),
                     ('cost', cost), ('market_value', value)) if item is None]
         if position_day is not None and position_day != business_date:
             missing.append('business_date_conflict')
         state = 'unknown' if missing else ('explicit_zero' if quantity == cost == value == 0 else 'nonzero')
-        rows.append({'ordinal': ordinal, 'raw_attributes': attrs, 'symbol': symbol or None,
+        rows.append({'ordinal': ordinal, 'raw_attributes': attrs, 'symbol': symbol or None, 'currency': currency,
                      'business_date': position_day.isoformat() if position_day else None,
                      'state': state, 'unknown_fields': missing})
     return text, dict(statement.attrib), rows
@@ -178,6 +182,7 @@ def retirement_status(cur, *, batch_id, item_id, account_code: str, business_dat
     selected = candidates[0]
     if selected['state'] != 'explicit_zero':
         return {'state': 'unknown', 'reason': 'position_not_explicit_zero'}
-    if sum(row['symbol'] == selected['symbol'] for row in positions) != 1:
+    if sum((row['symbol'], row['currency']) == (selected['symbol'], selected['currency']) for row in positions) != 1:
         return {'state': 'unknown', 'reason': 'ambiguous_symbol'}
-    return {'state': 'confirmed_zero', 'symbol': selected['symbol'], 'source_item_id': str(item['source_item_id'])}
+    return {'state': 'confirmed_zero', 'symbol': selected['symbol'], 'currency': selected['currency'],
+            'source_item_id': str(item['source_item_id'])}
