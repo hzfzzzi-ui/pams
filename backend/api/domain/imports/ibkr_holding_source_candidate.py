@@ -185,4 +185,4 @@ def retirement_status(cur, *, batch_id, item_id, account_code: str, business_dat
     if sum((row['symbol'], row['currency']) == (selected['symbol'], selected['currency']) for row in positions) != 1:
         return {'state': 'unknown', 'reason': 'ambiguous_symbol'}
     return {'state': 'confirmed_zero', 'symbol': selected['symbol'], 'currency': selected['currency'],
-            'source_item_id': str(item['source_item_id'])}
+            'source_sha256': digest, 'source_item_id': str(item['source_item_id'])}

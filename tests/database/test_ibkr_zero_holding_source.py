@@ -1,6 +1,7 @@
 """Synthetic Flex position evidence; missing fields never imply retirement."""
 # ruff: noqa: F811
 from datetime import date
+from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -71,6 +72,7 @@ def test_reviewed_scope_and_explicit_three_zero_fields_allow_retirement(isolated
     confirm(isolated, staged)
     result = status(isolated, staged)
     assert result['state'] == 'confirmed_zero' and result['symbol'] == 'TEST'
+    assert result['source_sha256'] == sha256(report).hexdigest()
     scope = sql(isolated, "SELECT raw_fields FROM source_items WHERE source_uid='scope'")[0]['raw_fields']
     assert scope['raw_xml'].encode('utf-8') == report
 
