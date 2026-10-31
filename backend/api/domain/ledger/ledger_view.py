@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
+from domain.imports.source_row_read import source_row_relation
 
 
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
@@ -603,8 +604,9 @@ def _table_exists(cur, table_name: str) -> bool:
 
 
 def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+    source_rows = source_row_relation(cur)
     cur.execute(
-        """
+        f"""
         SELECT
             cf.cashflow_id AS id,
             cf.account_code,
@@ -629,7 +631,7 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
             cf.source_id,
             COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
         FROM pams_cashflow_fact cf
-        LEFT JOIN pams_source_row sr
+        LEFT JOIN {source_rows} sr
           ON sr.source_table = cf.source_table
          AND sr.source_id = cf.source_id
         WHERE cf.event_date >= %(start)s
@@ -776,8 +778,9 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
 
 
 def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+    source_rows = source_row_relation(cur)
     cur.execute(
-        """
+        f"""
         WITH funding AS (
             SELECT
                 cf.cashflow_id AS id,
@@ -802,7 +805,7 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
                 cf.source_id,
                 COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
             FROM pams_cashflow_fact cf
-            LEFT JOIN pams_source_row sr
+            LEFT JOIN {source_rows} sr
               ON sr.source_table = cf.source_table
              AND sr.source_id = cf.source_id
             WHERE cf.event_date >= %(start)s
