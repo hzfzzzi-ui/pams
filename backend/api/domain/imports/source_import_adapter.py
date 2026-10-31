@@ -160,7 +160,7 @@ def prepare_candidate(cur, *, batch_id, legacy_revision, source_revision):
     cur.execute('SAVEPOINT candidate_source_prepare')
     try:
         source = _verified_projection(cur, batch_id, legacy_revision, source_revision)
-        legacy = publisher.preview(cur, str(batch_id), legacy_revision)
+        legacy = publisher._legacy_preview(cur, str(batch_id), legacy_revision, _source_bridge=True)
         if legacy['counts']['duplicates']:
             raise ValueError('duplicate source requires explicit association; not supported yet')
         cur.execute('RELEASE SAVEPOINT candidate_source_prepare')
@@ -187,7 +187,7 @@ def publish_candidate(cur, *, batch_id, legacy_revision, source_revision,
                 source_state['revision'] != source_revision or not source_state['published_source_hash'] or
                 not hmac.compare_digest(source_state['published_source_hash'], source_snapshot_sha256)):
                 raise ValueError('published source snapshot does not match')
-            result = publisher.publish(cur, str(batch_id), legacy_revision, preview_token)
+            result = publisher._legacy_publish(cur, str(batch_id), legacy_revision, preview_token, _source_bridge=True)
             _check_complete_records(cur, batch_id, result['records'])
             for record in result['records']:
                 _check_fact_link(cur, record, update=False)
@@ -198,7 +198,7 @@ def publish_candidate(cur, *, batch_id, legacy_revision, source_revision,
             raise ValueError('source snapshot changed; repeat preflight')
         if (legacy.get('preview_json') or {}).get('counts', {}).get('duplicates'):
             raise ValueError('duplicate source requires explicit association; not supported yet')
-        result = publisher.publish(cur, str(batch_id), legacy_revision, preview_token)
+        result = publisher._legacy_publish(cur, str(batch_id), legacy_revision, preview_token, _source_bridge=True)
         _check_complete_records(cur, batch_id, result['records'])
         for record in result['records']:
             _check_fact_link(cur, record, update=True)

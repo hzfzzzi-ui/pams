@@ -83,3 +83,32 @@ CREATE TRIGGER source_items_evidence_immutable BEFORE UPDATE ON public.source_it
     FOR EACH ROW EXECUTE FUNCTION public.source_evidence_immutable();
 CREATE TRIGGER source_files_evidence_immutable BEFORE UPDATE ON public.source_files
     FOR EACH ROW EXECUTE FUNCTION public.source_evidence_immutable();
+
+-- Publication freezes the batch and its evidence at the database boundary.
+-- Locking the parent also serializes child insertion with publication.
+CREATE FUNCTION public.source_batch_freeze() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.status = 'published' AND NEW IS DISTINCT FROM OLD THEN
+        RAISE EXCEPTION 'published source batch is immutable' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER source_batch_published_immutable BEFORE UPDATE ON public.source_batches
+    FOR EACH ROW EXECUTE FUNCTION public.source_batch_freeze();
+
+CREATE FUNCTION public.source_child_write_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE parent_status TEXT;
+BEGIN
+    SELECT status INTO parent_status FROM public.source_batches
+    WHERE batch_id = CASE WHEN TG_OP = 'DELETE' THEN OLD.batch_id ELSE NEW.batch_id END
+    FOR UPDATE;
+    IF parent_status IS NULL OR parent_status NOT IN ('draft', 'review') THEN
+        RAISE EXCEPTION 'source batch is not editable' USING ERRCODE = '23514';
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER source_files_insert_delete_guard BEFORE INSERT OR DELETE ON public.source_files
+    FOR EACH ROW EXECUTE FUNCTION public.source_child_write_guard();
+CREATE TRIGGER source_items_insert_delete_guard BEFORE INSERT OR DELETE ON public.source_items
+    FOR EACH ROW EXECUTE FUNCTION public.source_child_write_guard();
