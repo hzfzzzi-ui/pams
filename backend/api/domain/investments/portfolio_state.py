@@ -21,6 +21,7 @@ import psycopg2.extras
 import yaml
 
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.valuation_state_reader import valuation_series_rows
 from domain.market.quote_valuation import quote_valuation_cte, snapshot_tables
 
 
@@ -993,34 +994,7 @@ def load_fx_rates(cur, base_currency: str) -> list[dict[str, Any]]:
 def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> list[dict[str, Any]]:
     """Load available valuation rows and project them to the valuation series contract."""
     if _table_exists(cur, "pams_portfolio_valuation_state"):
-        cur.execute(
-            """
-            WITH ranked AS (
-                SELECT *,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY valuation_date
-                           ORDER BY
-                               CASE WHEN status = 'published' THEN 0 ELSE 1 END,
-                               published_at DESC NULLS LAST,
-                               updated_at DESC NULLS LAST
-                       ) AS rn
-                FROM pams_portfolio_valuation_state
-                WHERE base_currency = %s
-            )
-            SELECT valuation_date,
-                   assets_cny,
-                   liabilities_cny,
-                   net_liquidation_value,
-                   investment_value_cny,
-                   total_pnl_cny
-            FROM ranked
-            WHERE rn = 1
-            ORDER BY valuation_date DESC
-            LIMIT %s
-            """,
-            (base_currency, limit),
-        )
-        raw_rows = list(reversed([dict(r) for r in cur.fetchall()]))
+        raw_rows = valuation_series_rows(cur, base_currency=base_currency, limit=limit)
         rows: list[dict[str, Any]] = []
         for raw in raw_rows:
             investment_value = raw.get("investment_value_cny")
