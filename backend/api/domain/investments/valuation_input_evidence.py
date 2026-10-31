@@ -94,7 +94,7 @@ def normalize_inputs(inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                           "source_version": version, "business_date": day,
                           "observed_at": observed_at, "quality": quality, "snapshot": snapshot})
         if source_ref is not None:
-            identity = _canonical([row["kind"], row["source_ref"]])
+            identity = _canonical([row["kind"], row["source_ref"], row["role"]])
             if identity in identities:
                 raise ValueError("duplicate input identity")
             identities.add(identity)
@@ -111,7 +111,7 @@ def recorded_input_freshness(recorded: list[dict[str, Any]], current: list[dict[
     before, after = normalize_inputs(recorded), normalize_inputs(current)
     if not before or not after or any(row["source_ref"] is None for row in before + after):
         return "unknown"
-    key = lambda row: _canonical([row["kind"], row["source_ref"]])
+    key = lambda row: _canonical([row["kind"], row["source_ref"], row["role"]])
     old, new = {key(row): row for row in before}, {key(row): row for row in after}
     for identity in old.keys() & new.keys():
         left, right = old[identity], new[identity]
@@ -342,7 +342,7 @@ def record_bound_holding_version(cur: Any, *, holding_id: int, calculation_versi
     inputs = [holding]
     if raw.get("source_item_id"):
         linked, source_raw = _bound_input(cur, "source_item", {"source_item_id": raw["source_item_id"]})
-        linked["role"] = "holding_primary_source"
+        linked["role"] = "holding_creation_source"
         if source_raw is None or not _bound_consistent(linked, account_code=account, business_date=day, holding_raw=raw):
             raise ValueError("linked holding source is missing, unconfirmed or inconsistent")
         inputs.append(linked)
@@ -352,6 +352,8 @@ def record_bound_holding_version(cur: Any, *, holding_id: int, calculation_versi
         role = ref.get("role")
         if role is not None and (not isinstance(role, str) or not role.strip()):
             raise ValueError("role must be nonempty")
+        if role == "current_source" and ref["kind"] != "source_item":
+            raise ValueError("current_source must refer to a source item or remain unknown")
         if "key" not in ref or ref["key"] is None:
             if role is None:
                 raise ValueError("unknown input requires a role")
@@ -442,10 +444,75 @@ def versions_for_source_item(cur: Any, source_item_id: str) -> list[dict[str, An
         item_id = str(UUID(str(source_item_id)))
     except (TypeError, ValueError, AttributeError) as exc:
         raise ValueError("invalid source item id") from exc
-    cur.execute("""SELECT v.version_key, v.scope_key, v.account_code, v.business_date
+    cur.execute("""SELECT v.version_key, v.scope_key, v.account_code, v.business_date, e.evidence->>'role' AS role
         FROM public.pams_valuation_input_evidence e
         JOIN public.pams_valuation_result_version v ON v.version_key=e.version_key
         WHERE e.input_kind='source_item' AND e.evidence->'source_ref'->'key'->>'source_item_id'=%s
-        ORDER BY v.business_date, v.version_key""", (item_id,))
-    names = ("version_key", "scope_key", "account_code", "business_date")
+        ORDER BY v.business_date, v.version_key, role""", (item_id,))
+    names = ("version_key", "scope_key", "account_code", "business_date", "role")
     return [dict(row) if isinstance(row, dict) else dict(zip(names, row)) for row in cur.fetchall()]
+
+
+def current_holding_source(cur: Any, holding_id: int) -> dict[str, Any]:
+    """Return only an explicit current source for the exact current snapshot.
+
+    A recorded source is not proof that the source alone produced the holding.
+    Competing sources, missing sources, and incomplete evidence fail closed.
+    """
+    if cur.connection.autocommit:
+        raise ValueError("transaction required")
+    if not isinstance(holding_id, int) or isinstance(holding_id, bool) or holding_id <= 0:
+        raise ValueError("invalid holding id")
+    cur.execute("SELECT account_code FROM public.pams_holdings_snapshot WHERE id=%s", (holding_id,))
+    row = cur.fetchone()
+    if not row:
+        return {"status": "unknown", "source_item_id": None}
+    account = row["account_code"] if isinstance(row, dict) else row[0]
+    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("account-import:" + account,))
+    _, raw = _bound_input(cur, "holding", {"id": holding_id})
+    if raw is None or raw.get("account_code") != account or not raw.get("name") or not raw.get("as_of"):
+        return {"status": "unknown", "source_item_id": None}
+    scope = "holding:" + _hash({"account_code": account, "name": raw["name"]})
+    cur.execute("""SELECT version_key FROM public.pams_valuation_result_version
+        WHERE result_kind='holding' AND account_code=%s AND scope_key=%s AND business_date=%s AND result_hash=%s""",
+        (account, scope, raw["as_of"], _hash(raw)))
+    versions = [(row["version_key"] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
+    if not versions:
+        return {"status": "unknown", "source_item_id": None}
+    recorded: set[str] = set()
+    unknown = False
+    for version in versions:
+        if not verify_recorded_version(cur, version):
+            unknown = True
+            continue
+        cur.execute("SELECT input_kind, evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s", (version,))
+        values = [(row["input_kind"], row["evidence"]) if isinstance(row, dict) else row for row in cur.fetchall()]
+        holding_rows = [value for kind, value in values if kind == "holding"]
+        if (len(holding_rows) != 1 or (holding_rows[0].get("source_ref") or {}).get("key") != {"id": holding_id}
+                or not isinstance((holding_rows[0].get("snapshot") or {}).get("content"), dict)
+                or (holding_rows[0].get("snapshot") or {}).get("content_hash") != _hash(raw)):
+            unknown = True
+            continue
+        sources = [value for kind, value in values if kind == "source_item" and value.get("role") == "current_source"]
+        if not sources:
+            unknown = True
+        for source in sources:
+            ref = source.get("source_ref") or {}
+            if ref.get("table") != "source_items":
+                unknown = True
+                continue
+            try:
+                item, source_raw = _bound_input(cur, "source_item", ref.get("key"))
+            except (TypeError, ValueError):
+                unknown = True
+                continue
+            if (source_raw is None or not _bound_consistent(item, account_code=account, business_date=raw["as_of"], holding_raw=raw)
+                    or (source.get("snapshot") or {}).get("content_hash") != item["snapshot"]["content_hash"]):
+                unknown = True
+                continue
+            recorded.add(item["source_ref"]["key"]["source_item_id"])
+    if len(recorded) > 1:
+        return {"status": "ambiguous", "source_item_id": None}
+    if unknown or not recorded:
+        return {"status": "unknown", "source_item_id": None}
+    return {"status": "recorded", "source_item_id": next(iter(recorded))}

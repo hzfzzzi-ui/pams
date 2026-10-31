@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend/api"))
 from domain.investments.valuation_input_evidence import (
-    bound_holding_freshness, record_bound_holding_version, record_result_version,
+    bound_holding_freshness, current_holding_source, record_bound_holding_version, record_result_version,
     recorded_input_freshness, verify_recorded_version, versions_for_source_item,
 )
 
@@ -290,9 +290,16 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
                 cur.execute("UPDATE pams_holdings_snapshot SET source_item_id=%s WHERE id=%s", (item1, holding_id))
             conn.commit()
             with conn.cursor() as cur:
-                old_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2", input_refs=[])
+                cur.execute("SAVEPOINT no_current_source")
+                record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2", input_refs=[])
+                assert current_holding_source(cur, holding_id) == {"status": "unknown", "source_item_id": None}
+                cur.execute("ROLLBACK TO SAVEPOINT no_current_source")
+                old_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
+                    input_refs=[{"kind":"source_item", "role":"current_source", "key":{"source_item_id":item1}}])
                 old_versions = versions_for_source_item(cur, item1)
-                assert [row["version_key"] for row in old_versions] == [old_key]
+                assert {row["version_key"] for row in old_versions} == {old_key}
+                assert {row["role"] for row in old_versions} == {"holding_creation_source", "current_source"}
+                assert current_holding_source(cur, holding_id) == {"status": "recorded", "source_item_id": item1}
                 cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (old_key,))
                 old_snapshot = cur.fetchone()[0]["snapshot"]["content"]
                 assert old_snapshot["source_item_id"] == item1 and old_snapshot["market_value"] == "100.0000"
@@ -303,11 +310,19 @@ def test_disposable_database_versions_are_atomic_immutable_and_idempotent():
             conn.commit()
             with conn.cursor() as cur:
                 cur.execute("UPDATE pams_holdings_snapshot SET market_value=105 WHERE id=%s", (holding_id,))
+                assert current_holding_source(cur, holding_id) == {"status": "unknown", "source_item_id": None}
                 new_key = record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v2",
-                    input_refs=[{"kind": "source_item", "role": "new_holding_source", "key": {"source_item_id": item2}}])
+                    input_refs=[{"kind": "source_item", "role": "current_source", "key": {"source_item_id": item2}}])
                 assert new_key != old_key
                 assert {row["version_key"] for row in versions_for_source_item(cur, item1)} == {old_key, new_key}
                 assert [row["version_key"] for row in versions_for_source_item(cur, item2)] == [new_key]
+                assert current_holding_source(cur, holding_id) == {"status": "recorded", "source_item_id": item2}
+                record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v3",
+                    input_refs=[{"kind": "source_item", "role": "current_source"}])
+                assert current_holding_source(cur, holding_id) == {"status": "unknown", "source_item_id": None}
+                record_bound_holding_version(cur, holding_id=holding_id, calculation_version="v4",
+                    input_refs=[{"kind": "source_item", "role": "current_source", "key": {"source_item_id": item1}}])
+                assert current_holding_source(cur, holding_id) == {"status": "ambiguous", "source_item_id": None}
                 assert bound_holding_freshness(cur, old_key) == "changed"
                 cur.execute("SELECT evidence FROM public.pams_valuation_input_evidence WHERE version_key=%s AND input_kind='holding'", (old_key,))
                 assert cur.fetchone()[0]["snapshot"]["content"] == old_snapshot

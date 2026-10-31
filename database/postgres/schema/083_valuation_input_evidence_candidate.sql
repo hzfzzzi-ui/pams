@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS public.pams_valuation_result_version (
     created_at timestamptz NOT NULL DEFAULT now(),
     CHECK (result_kind <> 'holding' OR (account_code IS NOT NULL AND account_code <> ''))
 );
+CREATE INDEX IF NOT EXISTS idx_pams_valuation_result_current
+    ON public.pams_valuation_result_version (account_code, scope_key, business_date, result_hash)
+    WHERE result_kind = 'holding';
 
 CREATE TABLE IF NOT EXISTS public.pams_valuation_input_evidence (
     version_key text NOT NULL REFERENCES public.pams_valuation_result_version(version_key)
