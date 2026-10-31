@@ -39,6 +39,34 @@ def test_retired_paths_and_root_tests_are_rejected(tmp_path):
     assert any('retired' in error for error in errors)
 
 
+def test_retired_individual_sources_are_rejected_but_shared_schemas_are_allowed(tmp_path):
+    files = fixture_repo(tmp_path)
+    retired = [
+        'generate_mock_navdata.py',
+        'frontend/public/experiments.html.bak',
+        'database/postgres/schema/008_task_queue.sql',
+        'database/postgres/schema/009_notifications.sql',
+        'database/postgres/schema/010_strategy.sql',
+        'database/postgres/schema/011_fundamental_sentiment.sql',
+        'database/postgres/schema/012_watchlist_management.sql',
+        'database/postgres/schema/013_pit_tables.sql',
+        'database/postgres/schema/015_live_signal_packages.sql',
+    ]
+    shared = [
+        'database/postgres/schema/010_market_ohlcv.sql',
+        'database/postgres/schema/011_shared_sentiment.sql',
+        'database/postgres/schema/013_market_reference.sql',
+    ]
+    for path in shared:
+        (tmp_path / path).write_text('-- synthetic structure\n', encoding='utf-8')
+    manifest = tmp_path / MANIFEST
+    manifest.write_text(manifest.read_text(encoding='utf-8') + '\n'.join(shared) + '\n', encoding='utf-8')
+    errors = check_architecture(tmp_path, files + retired + shared)
+    assert len(errors) == len(retired)
+    assert all('retired' in error for error in errors)
+    assert not any(path in error for path in shared for error in errors)
+
+
 def test_domain_cannot_import_entrypoints_but_comments_and_domain_imports_are_allowed(tmp_path):
     files = fixture_repo(tmp_path)
     good = 'backend/api/domain/assets/ok.py'
@@ -192,3 +220,35 @@ def test_worktree_ignores_retired_directory_unless_its_contents_are_indexed(tmp_
     assert 'backtest_V2/__retired_directory__' not in worktree_files(tmp_path)
     subprocess.run(['git', '-C', str(tmp_path), 'add', '-f', 'backtest_V2/old.py'], check=True)
     assert 'backtest_V2/__retired_directory__' in worktree_files(tmp_path)
+
+
+def test_worktree_retired_exact_files_respect_git_ignore_without_reading_private_data(tmp_path, monkeypatch):
+    files = fixture_repo(tmp_path)
+    subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
+    (tmp_path / '.gitignore').write_text('*.bak\n', encoding='utf-8')
+    subprocess.run(['git', '-C', str(tmp_path), 'add', *files, '.gitignore'], check=True)
+    mock = tmp_path / 'generate_mock_navdata.py'
+    mock.write_text('pass\n', encoding='utf-8')
+    old_schema = tmp_path / 'database/postgres/schema/010_strategy.sql'
+    old_schema.write_text('-- synthetic\n', encoding='utf-8')
+    backup = tmp_path / 'frontend/public/experiments.html.bak'
+    backup.parent.mkdir(parents=True)
+    backup.write_text('synthetic\n', encoding='utf-8')
+    private = tmp_path / 'data/private.txt'
+    private.parent.mkdir()
+    private.write_bytes(b'\xffprivate')
+    original_read = Path.read_text
+    def guarded_read(path, *args, **kwargs):
+        assert path != private
+        return original_read(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', guarded_read)
+    local = worktree_files(tmp_path)
+    assert 'generate_mock_navdata.py' in local
+    assert 'database/postgres/schema/010_strategy.sql' in local
+    assert 'frontend/public/experiments.html.bak' not in local
+    assert 'data/private.txt' not in local
+    assert len(check_architecture(tmp_path, local)) == 2
+    subprocess.run(['git', '-C', str(tmp_path), 'add', '-f', 'frontend/public/experiments.html.bak'], check=True)
+    local = worktree_files(tmp_path)
+    assert 'frontend/public/experiments.html.bak' in local
+    assert len(check_architecture(tmp_path, local)) == 3

@@ -27,6 +27,7 @@ RETIRED_PAGES = frozenset({
     'frontend/public/experiments.html',
 })
 RETIRED_FILES = frozenset({
+    'generate_mock_navdata.py',
     'backend/api/endpoints/backtest_v2.py',
     'backend/api/endpoints/backtest_v2_artifacts.py',
     'backend/api/endpoints/live_signals.py',
@@ -34,6 +35,14 @@ RETIRED_FILES = frozenset({
     'frontend/public/assets/js/strategy.js',
     'frontend/public/assets/js/research.js',
     'frontend/public/assets/js/watchlist.js',
+    'frontend/public/experiments.html.bak',
+    'database/postgres/schema/008_task_queue.sql',
+    'database/postgres/schema/009_notifications.sql',
+    'database/postgres/schema/010_strategy.sql',
+    'database/postgres/schema/011_fundamental_sentiment.sql',
+    'database/postgres/schema/012_watchlist_management.sql',
+    'database/postgres/schema/013_pit_tables.sql',
+    'database/postgres/schema/015_live_signal_packages.sql',
 })
 RETIRED_PREFIXES_FOLDED = tuple(prefix.casefold() for prefix in RETIRED_PREFIXES)
 RETIRED_FILES_FOLDED = frozenset(entry.casefold() for entry in RETIRED_PAGES | RETIRED_FILES)
@@ -47,6 +56,7 @@ HISTORY_NAME = re.compile(r'(?:^|_)(?:backfill|drop_deprecated)(?:_|\.|$)', re.I
 
 # Local mode never walks configuration, account ledgers, data or import files.
 WORKTREE_PATHS = (
+    'generate_mock_navdata.py',
     'backend/api/domain', 'backend/api/endpoints', 'backend/api/services',
     'backend/api/backtest', 'backend/api/strategy', 'backend/api/datahub',
     'frontend/public', 'tests', 'database/postgres/schema', MANIFEST,
