@@ -645,9 +645,9 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
     assert 'id="tradeFilterPanel" class="investmentPanel tradeFilterPanel" hidden' in html
 
-    lookthrough_js = _read_public("assets/js/lookthrough.js")
+    lookthrough_js = ("\n".join(_read_public(path) for path in ("assets/js/features/analysis/constants.js", "assets/js/features/analysis/state.js", "assets/js/features/analysis/legacy_model.js", "assets/js/features/analysis/charts.js", "assets/js/features/analysis/templates.js", "assets/js/features/analysis/view.js", "assets/js/features/analysis/requests.js", "assets/js/features/analysis/controller.js", "assets/js/features/analysis/page.js")))
     assert "/api/analysis/lookthrough?baseCurrency=CNY" in lookthrough_js
-    assert "observeAnalysisVisibility" in lookthrough_js
+    assert "observer.observe(doc.body" in lookthrough_js
     assert "loadActiveAnalysisPanel" in lookthrough_js
     assert "trade_attribution" in lookthrough_js
     assert "loadLookthrough();" not in lookthrough_js
@@ -803,7 +803,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
     assert "assets/js/holdings_categories.js?v=20261031-investment-charts-v1" in html
-    assert "assets/js/lookthrough.js?v=20261031-ui-v1" in html
+    assert "assets/js/lookthrough.js?v=20261031-analysis-modules-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261031-panels-v1" in html
     assert "assets/js/portfolio_config.js?v=20261031-panels-v1" in html
     assert "style-phone.css?v=20261031-gray-v1" in html
@@ -1510,7 +1510,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     api_js = _read_public("assets/js/api.js")
     ui_js = _read_public("assets/js/ui.js")
     holdings_js = _read_public("assets/js/holdings_categories.js")
-    lookthrough_js = _read_public("assets/js/lookthrough.js")
+    lookthrough_js = ("\n".join(_read_public(path) for path in ("assets/js/features/analysis/constants.js", "assets/js/features/analysis/state.js", "assets/js/features/analysis/legacy_model.js", "assets/js/features/analysis/charts.js", "assets/js/features/analysis/templates.js", "assets/js/features/analysis/view.js", "assets/js/features/analysis/requests.js", "assets/js/features/analysis/controller.js", "assets/js/features/analysis/page.js")))
     css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
@@ -1576,7 +1576,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "safeStorageSet" in lookthrough_js
     assert "localStorage.getItem('pams.lookthrough.dimension')" not in lookthrough_js
     requests_js = _read_public("assets/js/investment_requests.js")
-    assert "loadInvestmentSummaryFresh()" in lookthrough_js
+    assert "summary = loadInvestmentSummaryFresh" in lookthrough_js
     assert "jget('/summary2/latest?baseCurrency=CNY', { cache: false })" in requests_js
     assert "pams:load-trade-attribution" in lookthrough_js
     assert "returnAssetHeatmapCanvas" in css

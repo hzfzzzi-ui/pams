@@ -19,10 +19,26 @@ const fs = require('node:fs'), vm = require('node:vm');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const before = JSON.stringify(input);
 function load(file, globals) {
-  const source = fs.readFileSync('frontend/public/assets/js/' + file, 'utf8')
+  let source = fs.readFileSync('frontend/public/assets/js/' + file, 'utf8')
     .replace(/^\uFEFF/, '').replace(/^import .*;\r?$/gm, '')
     .replace(/\r?\nbindEvents\(\);\s*observeAnalysisVisibility\(\);\s*$/, '')
     .split(/\r?\nmain\(\)\./)[0];
+  if (file === 'lookthrough.js') {
+    source = ['constants', 'state', 'legacy_model', 'charts', 'templates', 'view'].map(name =>
+      fs.readFileSync('frontend/public/assets/js/features/analysis/' + name + '.js', 'utf8')
+        .replace(/^import .*;\r?$/gm, '').replace(/^export \{.*\};\r?$/gm, '').replace(/^export /gm, '')
+    ).join('\n') + `
+      const analysisState = createAnalysisState(window);
+      const model = createAnalysisLegacyModel({state: analysisState});
+      const charts = createAnalysisCharts({root: document, state: analysisState, model});
+      const templates = createAnalysisTemplates({state: analysisState, model});
+      const view = createAnalysisView({root: document, state: analysisState, model, charts, templates});
+      Object.assign(globalThis, model, templates, view);
+      for (const key of ['returnAttributionData', 'activeReturnAttributionDimension']) {
+        Object.defineProperty(globalThis, key, {get: () => analysisState[key], set: value => {analysisState[key] = value;}});
+      }
+    `;
+  }
   const context = vm.createContext(globals);
   vm.runInContext(fs.readFileSync('frontend/public/assets/js/shared/chart_theme.js', 'utf8').replace(/^export /gm, ''), context);
   vm.runInContext("'use strict';\n" + source, context, {filename: file});
@@ -315,7 +331,7 @@ def test_fx_source_machine_enums_stay_api_only():
 
 
 def test_sidecar_has_no_financial_formulas_or_global_amount_writes():
-    source = (JS / "lookthrough.js").read_text(encoding="utf-8")
+    source = "\n".join((JS / "features/analysis" / f"{name}.js").read_text(encoding="utf-8") for name in ("legacy_model", "templates", "view"))
     sidecar = source.split("function dailyFxAccountBridgeHtml(row)", 1)[1].split("function returnAttributionDetailHtml", 1)[0]
     for forbidden in (".reduce(", "Math.", "parseFloat(", "Number(", "returnAttributionData =", "document.", "jget("):
         assert forbidden not in sidecar
@@ -325,5 +341,5 @@ def test_sidecar_has_no_financial_formulas_or_global_amount_writes():
     assert "dailyFxAccountBridgeHtml(" not in source.split("function renderReturnAttributionSummary()", 1)[1].split("function returnAttributionRowHtml", 1)[0]
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     for name in ("holdings.js", "holdings_categories.js", "lookthrough.js"):
-        version = "20261031-investment-charts-v1" if name == "holdings_categories.js" else "20261031-ui-v1"
+        version = "20261031-investment-charts-v1" if name == "holdings_categories.js" else "20261031-analysis-modules-v1" if name == "lookthrough.js" else "20261031-ui-v1"
         assert f'assets/js/{name}?v={version}' in html
