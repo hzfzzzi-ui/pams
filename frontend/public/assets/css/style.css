@@ -9966,8 +9966,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none !important;
   }
 
-  .card,
-.manualSyncPanel {
+  body:not(.page-accounts) .card,
+  body:not(.page-accounts) .manualSyncPanel {
     border-radius: 18px !important;
     padding: 14px !important;
     background: var(--pams-bg-panel)!important;
