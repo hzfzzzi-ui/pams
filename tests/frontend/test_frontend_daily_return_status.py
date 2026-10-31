@@ -17,6 +17,7 @@ function load(file, globals) {
   const source = fs.readFileSync('frontend/public/assets/js/' + file, 'utf8')
     .replace(/^\uFEFF/, '').replace(/^import .*;\r?$/gm, '').split(/\r?\nmain\(\)\./)[0];
   const context = vm.createContext(globals);
+  vm.runInContext(fs.readFileSync('frontend/public/assets/js/shared/chart_theme.js', 'utf8').replace(/^export /gm, ''), context);
   vm.runInContext(source, context, {filename: file});
   return context;
 }

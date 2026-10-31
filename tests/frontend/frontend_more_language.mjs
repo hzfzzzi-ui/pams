@@ -52,7 +52,7 @@ try{
   await capture(width+'-home');
   await page.locator('#moreAdvanced>summary').click();await page.getByText('资产底表与映射',{exact:true}).waitFor();await page.mouse.move(0,0);
   const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));
-  assert.equal(children.length,4);for(const child of children){assert.equal(child.font,body.font);assert.equal(child.size,'14px');assert.equal(child.weight,'700');assert.equal(child.color,body.color);assert.equal(child.background,'rgba(0, 0, 0, 0)');}
+  assert.equal(children.length,4);for(const child of children){assert.equal(child.font,body.font);assert.equal(child.size,'14px');assert.equal(child.weight,'600');assert.equal(child.color,body.color);assert.equal(child.background,'rgba(0, 0, 0, 0)');}
   assert.equal(await page.locator('#moreAdvanced>summary').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
   await capture(width+'-advanced');
   await page.locator('.moreSystem>summary').click();await page.locator('#moreOrigin').waitFor();assert.equal(await page.locator('#moreOrigin').textContent(),'http://language.invalid');

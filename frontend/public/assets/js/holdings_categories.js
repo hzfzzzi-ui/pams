@@ -1,9 +1,10 @@
-import { jget, fmt2, accountLabel } from './api.js?v=20261031-risk-summary-retired-v1';
-import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
-import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-risk-summary-retired-v1';
-import { afterInvestmentNav, trackInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261026-startup-order-v1';
-import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20261031-risk-summary-retired-v1';
-import { accountCashBreakdown } from './account_cash.js?v=20260606-cash-active-v1';
+import { CHART_THEME, SERIES_COLORS, seriesAppearance } from './shared/chart_theme.js?v=20261031-gray-v1';
+import { jget, fmt2, accountLabel } from './api.js?v=20261031-gray-v1';
+import { openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
+import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-gray-v1';
+import { afterInvestmentNav, trackInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261031-gray-v1';
+import { safeNum, pnlPct, createReturnRateChart } from './utils.js?v=20261031-gray-v1';
+import { accountCashBreakdown } from './account_cash.js?v=20261031-gray-v1';
 
 // Investment uses the existing phone interaction model at every viewport width.
 const INVESTMENT_PHONE_QUERY = '(min-width: 0px)';
@@ -944,10 +945,10 @@ async function renderInvestmentReturnChart() {
   loadInvestmentNavChartOnce().catch(() => null);
 
   const sectionSpecs = [
-    { key: 'a_stock', label: 'A股个股', color: '#f85149', url: '/investment/section-return-series?section=a_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
-    { key: 'a_fund', label: '基金', color: '#d29922', url: '/investment/section-return-series?section=a_fund&start=2026-01-01&interval=daily&baseCurrency=CNY' },
-    { key: 'us_stock', label: '美股', color: '#58a6ff', url: '/investment/section-return-series?section=us_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
-    { key: 'precious_metal', label: '贵金属', color: '#a371f7', url: '/investment/section-return-series?section=precious_metal&start=2026-01-01&interval=daily&baseCurrency=CNY' },
+    { key: 'a_stock', label: 'A股个股', color: SERIES_COLORS[0], url: '/investment/section-return-series?section=a_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
+    { key: 'a_fund', label: '基金', color: SERIES_COLORS[1], url: '/investment/section-return-series?section=a_fund&start=2026-01-01&interval=daily&baseCurrency=CNY' },
+    { key: 'us_stock', label: '美股', color: SERIES_COLORS[2], url: '/investment/section-return-series?section=us_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
+    { key: 'precious_metal', label: '贵金属', color: SERIES_COLORS[3], url: '/investment/section-return-series?section=precious_metal&start=2026-01-01&interval=daily&baseCurrency=CNY' },
   ];
   const [resp, ...sectionResponses] = await Promise.all([
     jget('/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY').catch(() => ({ rows: [] })),
@@ -981,13 +982,14 @@ async function renderInvestmentReturnChart() {
   chartState.topContribution = initialWindowData.topContribution;
   chartState.pnlMap = initialWindowData.pnlMap;
   chartState.valueMap = initialWindowData.valueMap;
-  const sectionDatasets = sectionSpecs.map((spec) => {
+  const sectionDatasets = sectionSpecs.map((spec, index) => {
     const sectionData = initialWindowData.sectionDataByKey.get(spec.key) || { data: [], pointRadius: 2 };
     return {
       returnSeriesKey: spec.key,
       label: spec.label,
       data: sectionData.data,
       borderColor: spec.color,
+      ...seriesAppearance(index + 1),
       backgroundColor: `${spec.color}1a`,
       tension: 0.25,
       fill: false,
@@ -1015,13 +1017,13 @@ async function renderInvestmentReturnChart() {
         returnSeriesKey: 'total',
         label: '总收益率',
         data: initialWindowData.totalData,
-        borderColor: '#58a6ff',
+        borderColor: CHART_THEME.line,
         hidden: false,
       }, {
         returnSeriesKey: 'events',
         label: '关键事件',
         data: initialWindowData.eventData,
-        borderColor: '#f5a524',
+        borderColor: CHART_THEME.event,
         hidden: false,
       }, ...sectionDatasets],
     });
@@ -1043,8 +1045,8 @@ async function renderInvestmentReturnChart() {
         returnSeriesKey: 'total',
         label: '总收益率',
         data: initialWindowData.totalData,
-        borderColor: '#58a6ff',
-        backgroundColor: 'rgba(88,166,255,.08)',
+        borderColor: CHART_THEME.line,
+        backgroundColor: CHART_THEME.fill,
         tension: 0.25,
         fill: true,
         pointRadius: initialWindowData.totalPointRadius,
@@ -1054,8 +1056,8 @@ async function renderInvestmentReturnChart() {
         returnSeriesKey: 'events',
         label: '关键事件',
         data: initialWindowData.eventData,
-        borderColor: '#f5a524',
-        backgroundColor: '#f5a524',
+        borderColor: CHART_THEME.event,
+        backgroundColor: CHART_THEME.event,
         tension: 0,
         fill: false,
         showLine: false,
@@ -1105,7 +1107,7 @@ async function renderInvestmentReturnChart() {
       scales: {
         x: {
           ticks: {
-            color: '#6e7681',
+            color: CHART_THEME.text,
             maxRotation: 0,
             autoSkip: true,
             autoSkipPadding: isMobileReturnChart ? 34 : 12,
@@ -1118,15 +1120,15 @@ async function renderInvestmentReturnChart() {
               return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5).replace('-', '/') : label;
             },
           },
-          grid: { color: 'rgba(110,118,129,.12)' },
+          grid: { color: CHART_THEME.grid },
         },
         y: {
           ticks: {
-            color: '#6e7681',
+            color: CHART_THEME.text,
             font: { size: isMobileReturnChart ? 11 : 12 },
             callback: v => `${safeNum(v).toFixed(1)}%`,
           },
-          grid: { color: 'rgba(110,118,129,.12)' },
+          grid: { color: CHART_THEME.grid },
         },
       },
     },
@@ -1756,7 +1758,7 @@ function drawInvestmentReturnCanvasFallback(canvas, chartData) {
     }))
     .filter(dataset => dataset.values.length);
   if (!labels.length || !visibleDatasets.length) {
-    ctx.fillStyle = '#8b949e';
+    ctx.fillStyle = CHART_THEME.text;
     ctx.font = '12px sans-serif';
     ctx.fillText('暂无收益曲线数据', 16, 28);
     return;
@@ -1771,7 +1773,7 @@ function drawInvestmentReturnCanvasFallback(canvas, chartData) {
   const xAt = (index) => pad.left + (labels.length === 1 ? innerW : innerW * index / (labels.length - 1));
   const yAt = (value) => pad.top + innerH - ((value - minValue) / range) * innerH;
 
-  ctx.strokeStyle = 'rgba(110,118,129,.14)';
+  ctx.strokeStyle = CHART_THEME.grid;
   ctx.lineWidth = 1;
   for (let i = 0; i < 4; i += 1) {
     const y = pad.top + innerH * i / 3;
@@ -1798,12 +1800,14 @@ function drawInvestmentReturnCanvasFallback(canvas, chartData) {
       }
     });
     if (!hasPoint) continue;
-    ctx.strokeStyle = dataset.borderColor || '#58a6ff';
+    ctx.strokeStyle = dataset.borderColor || CHART_THEME.line;
     ctx.lineWidth = dataset.returnSeriesKey === 'total' ? 2.2 : 1.6;
+    ctx.setLineDash(dataset.borderDash || []);
     ctx.stroke();
   }
+  ctx.setLineDash([]);
 
-  ctx.fillStyle = '#8b949e';
+  ctx.fillStyle = CHART_THEME.text;
   ctx.font = '11px sans-serif';
   ctx.fillText(`${maxValue.toFixed(1)}%`, pad.left, 11);
   ctx.fillText(`${minValue.toFixed(1)}%`, pad.left, height - 6);
@@ -1867,7 +1871,7 @@ function drawInvestmentNavCanvasFallback(canvas, data) {
   ctx.clearRect(0, 0, width, height);
   const values = data?.values || [];
   if (!values.length) {
-    ctx.fillStyle = '#8b949e';
+    ctx.fillStyle = CHART_THEME.text;
     ctx.font = '12px sans-serif';
     ctx.fillText('暂无NAV数据', 16, 28);
     return;
@@ -1881,7 +1885,7 @@ function drawInvestmentNavCanvasFallback(canvas, data) {
   const xAt = (index) => pad.left + (values.length === 1 ? innerW : innerW * index / (values.length - 1));
   const yAt = (value) => pad.top + innerH - ((value - minValue) / range) * innerH;
 
-  ctx.strokeStyle = 'rgba(110,118,129,.16)';
+  ctx.strokeStyle = CHART_THEME.grid;
   ctx.lineWidth = 1;
   for (let i = 0; i < 4; i += 1) {
     const y = pad.top + innerH * i / 3;
@@ -1892,8 +1896,8 @@ function drawInvestmentNavCanvasFallback(canvas, data) {
   }
 
   const gradient = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
-  gradient.addColorStop(0, 'rgba(126,231,135,.18)');
-  gradient.addColorStop(1, 'rgba(126,231,135,0)');
+  gradient.addColorStop(0, 'rgba(245,245,247,.12)');
+  gradient.addColorStop(1, 'rgba(245,245,247,0)');
   ctx.beginPath();
   values.forEach((value, index) => {
     const x = xAt(index);
@@ -1914,7 +1918,7 @@ function drawInvestmentNavCanvasFallback(canvas, data) {
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = '#7ee787';
+  ctx.strokeStyle = CHART_THEME.line;
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -1922,10 +1926,10 @@ function drawInvestmentNavCanvasFallback(canvas, data) {
   const lastY = yAt(values[values.length - 1]);
   ctx.beginPath();
   ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = '#7ee787';
+  ctx.fillStyle = CHART_THEME.line;
   ctx.fill();
 
-  ctx.fillStyle = '#8b949e';
+  ctx.fillStyle = CHART_THEME.text;
   ctx.font = '11px sans-serif';
   ctx.fillText(navAxisLabel(maxValue), pad.left, 11);
   ctx.fillText(navAxisLabel(minValue), pad.left, height - 6);
@@ -1960,8 +1964,8 @@ function renderInvestmentNavChart(rows, windowKey, isMobile) {
       datasets: [{
         label: 'NAV',
         data: data.values,
-        borderColor: '#7ee787',
-        backgroundColor: 'rgba(126,231,135,.10)',
+        borderColor: CHART_THEME.line,
+        backgroundColor: CHART_THEME.fill,
         tension: 0.25,
         fill: true,
         pointRadius: data.pointRadius,
@@ -1984,7 +1988,7 @@ function renderInvestmentNavChart(rows, windowKey, isMobile) {
       scales: {
         x: {
           ticks: {
-            color: '#6e7681',
+            color: CHART_THEME.text,
             maxRotation: 0,
             autoSkip: true,
             maxTicksLimit: isMobile ? 3 : 7,
@@ -1993,15 +1997,15 @@ function renderInvestmentNavChart(rows, windowKey, isMobile) {
               return isMobile && /^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5).replace('-', '/') : label;
             },
           },
-          grid: { color: 'rgba(110,118,129,.10)' },
+          grid: { color: CHART_THEME.grid },
         },
         y: {
           beginAtZero: false,
           ticks: {
-            color: '#6e7681',
+            color: CHART_THEME.text,
             callback: navAxisLabel,
           },
-          grid: { color: 'rgba(110,118,129,.10)' },
+          grid: { color: CHART_THEME.grid },
         },
       },
     },
@@ -2923,28 +2927,28 @@ const CATEGORY_RETURN_CHART_SPECS = [
     targetId: 'section-a-stock-equity',
     chartId: 'chartAStockEquity',
     url: '/investment/section-return-series?section=a_stock&start=2026-01-01&interval=daily&baseCurrency=CNY',
-    color: '#f85149',
+    color: SERIES_COLORS[0],
     title: 'A股个股收益率',
   },
   {
     targetId: 'section-a-fund',
     chartId: 'chartAFund',
     url: '/investment/section-return-series?section=a_fund&start=2026-01-01&interval=daily&baseCurrency=CNY',
-    color: '#d29922',
+    color: SERIES_COLORS[1],
     title: '基金收益率',
   },
   {
     targetId: 'section-us-stock',
     chartId: 'chartUSStock',
     url: '/investment/section-return-series?section=us_stock&start=2026-01-01&interval=daily&baseCurrency=CNY',
-    color: '#58a6ff',
+    color: SERIES_COLORS[2],
     title: '美股收益率',
   },
   {
     targetId: 'section-precious-metal',
     chartId: 'chartPreciousMetal',
     url: '/investment/section-return-series?section=precious_metal&start=2026-01-01&interval=daily&baseCurrency=CNY',
-    color: '#a371f7',
+    color: SERIES_COLORS[3],
     title: '贵金属收益率',
   },
 ];
@@ -3387,7 +3391,7 @@ async function main(){
     const accountCash = accountCashBreakdown(accountOverview, fxRates);
     const cashCategory = {
       label: '现金/活期',
-      color: '#8b949e',
+      color: SERIES_COLORS[5],
       totalValue: accountCash.netCash,
       totalCost: Math.max(accountCash.cashAssets, 0),
       totalPnl: 0,
@@ -3401,11 +3405,11 @@ async function main(){
     };
 
     const categories = [
-      { label: 'A股个股', color: '#f85149', ...aStockSummary },
-      { label: '基金', color: '#d29922', ...fundSummary, totalValue: fundDisplaySummary.totalValue },
-      { label: '美股', color: '#58a6ff', ...usCategorySummary },
-      { label: '贵金属', color: '#a371f7', ...preciousSummary },
-      { label: '内部股份分红', color: '#7ee787', ...esopSummary },
+      { label: 'A股个股', color: SERIES_COLORS[0], ...aStockSummary },
+      { label: '基金', color: SERIES_COLORS[1], ...fundSummary, totalValue: fundDisplaySummary.totalValue },
+      { label: '美股', color: SERIES_COLORS[2], ...usCategorySummary },
+      { label: '贵金属', color: SERIES_COLORS[3], ...preciousSummary },
+      { label: '内部股份分红', color: SERIES_COLORS[4], ...esopSummary },
     ];
     if (Math.abs(cashCategory.totalValue) >= 0.005) categories.push(cashCategory);
 
@@ -3454,7 +3458,7 @@ async function main(){
         datasets: [{
           data: pieData.map(c => c.totalValue),
           backgroundColor: pieData.map(c => c.color),
-          borderColor: '#161a1e',
+          borderColor: CHART_THEME.background,
           borderWidth: 2
         }]
       },
@@ -3462,7 +3466,7 @@ async function main(){
         responsive: true,
         maintainAspectRatio: true,
         plugins: {
-          legend: { position: 'bottom', labels: { color: '#e1e4e8', padding: 16 } },
+          legend: { position: 'bottom', labels: { color: CHART_THEME.text, padding: 16 } },
           tooltip: {
             callbacks: {
               label: (ctx) => {

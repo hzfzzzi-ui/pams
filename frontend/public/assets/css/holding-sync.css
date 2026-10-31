@@ -1,7 +1,7 @@
 body.page-investments.investment-phone-layout .mobileHoldingSync {
   margin-left: auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.3;
   white-space: nowrap;
   text-align: right;
@@ -31,7 +31,7 @@ body.page-investments.investment-phone-layout .mobileHoldingMeta em {
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
-  font-size: 10px !important;
+  font-size: 12px!important;
   line-height: 1.4;
 }
 
@@ -42,5 +42,6 @@ body.page-investments.investment-phone-layout .mobileHoldingMeta .mobileHoldingQ
 }
 
 body.page-investments.investment-phone-layout .mobileHoldingMeta .mobileHoldingQuote strong {
-  font-size: 11px !important;
-}
+  font-size: 12px!important;
+
+  overflow-wrap: anywhere;}

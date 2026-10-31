@@ -6,35 +6,6 @@
    Page-specific business layouts should stay in their own modules.
    ============================================================ */
 
-:root {
-  --pams-bg: var(--pams-bg-canvas, var(--bg, #05070a));
-  --pams-surface: var(--pams-bg-surface, #0b0f14);
-  --pams-surface-raised: var(--pams-bg-panel, #0f141b);
-  --pams-surface-soft: var(--pams-bg-soft, rgba(255,255,255,.026));
-  --pams-border: var(--pams-line-subtle, rgba(255,255,255,.085));
-  --pams-border-strong: var(--pams-line-strong, rgba(255,255,255,.14));
-  --pams-text: var(--pams-text-primary, var(--text, #f3f6fb));
-  --pams-muted: var(--pams-text-muted, var(--muted, #6f7888));
-  --pams-good: var(--pams-profit, var(--good, #23c26b));
-  --pams-bad: var(--pams-loss, var(--bad, #ff5b5b));
-  --pams-warn: var(--pams-warning, var(--warn, #f5a524));
-  --pams-info: #4c8dff;
-  --pams-radius-panel: var(--pams-radius-lg, 14px);
-  --pams-radius-row: var(--pams-radius-md, 8px);
-  --pams-radius-control: var(--pams-radius-pill, 999px);
-  --pams-row-min: 58px;
-  --pams-chip-height: 30px;
-  --pams-shell-max-width: 1400px;
-  --pams-shell-gutter: 20px;
-  --pams-shell-gap: 16px;
-  --pams-card-pad: 16px;
-  --pams-list-gap: 8px;
-  --pams-list-row-pad-y: 10px;
-  --pams-list-row-pad-x: 12px;
-  --pams-font-sans: var(--pams-font-ui, Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
-  --pams-font-mono: var(--pams-font-number, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-}
-
 html {
   color-scheme: dark;
   -webkit-text-size-adjust: 100%;
@@ -46,7 +17,9 @@ body.app-shell {
   color: var(--pams-text);
   font-family: var(--pams-font-sans);
   letter-spacing: 0;
-}
+
+  font-weight: 400;
+  line-height: 1.5;}
 
 body.app-shell *,
 body.app-shell *::before,
@@ -126,7 +99,7 @@ body.app-shell .sectionTitle h3 {
 body.app-shell .sectionTitle h2,
 body.app-shell .sectionTitle h3 {
   margin: 0;
-  font-size: 22px;
+  font-size: 16px;
   line-height: 1.12;
 }
 
@@ -188,10 +161,10 @@ body.app-shell .appWorkHeader {
   display: grid;
   gap: 12px;
   margin-bottom: 16px;
-  padding: 15px 16px;
-  border: 1px solid var(--pams-border);
+  padding: 8px 0 16px;
+  border: 0;
   border-radius: var(--pams-radius-panel);
-  background: linear-gradient(180deg, rgba(15,20,27,.98), rgba(9,13,19,.98));
+  background: transparent;
 }
 
 body.app-shell .appWorkHeaderTop {
@@ -218,9 +191,9 @@ body.app-shell .appWorkHeader p {
 body.app-shell .appWorkEyebrow {
   display: inline-flex;
   align-items: center;
-  color: #9fc2ff;
-  font-size: 11px;
-  font-weight: 900;
+  color: var(--pams-text-primary);
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -288,7 +261,7 @@ body.app-shell .analysisSwitch button,
 body.app-shell .returnSeriesToggle,
 body.app-shell .returnWindowSegment button,
 body.app-shell .tradeReviewDirectionFilterToggle {
-  min-height: var(--pams-chip-height);
+  min-height: 44px;
   border-radius: var(--pams-radius-control);
   letter-spacing: 0;
 }
@@ -303,8 +276,8 @@ body.app-shell .miniBadge {
   border-radius: var(--pams-radius-control);
   background: var(--pams-surface-raised);
   color: var(--pams-muted);
-  font-size: 11px;
-  font-weight: 850;
+  font-size: 12px;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -325,7 +298,7 @@ body.app-shell .flowTag {
   min-width: 64px;
   padding: 2px 8px;
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 body.app-shell .ledgerActionBtn,
@@ -335,7 +308,7 @@ body.app-shell .reviewBtn {
   color: var(--pams-text);
   cursor: pointer;
   font-family: inherit;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 body.app-shell .ledgerActionBtn {
@@ -346,8 +319,8 @@ body.app-shell .ledgerActionBtn {
 
 body.app-shell .reviewBtn {
   padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 body.app-shell .ledgerActionBtn:disabled,
@@ -362,9 +335,9 @@ body.app-shell .flowTag.transfer,
 body.app-shell .basisBadge,
 body.app-shell .miniBadge.data,
 body.app-shell .statusChip.in_transit {
-  border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
-  background: color-mix(in srgb, var(--pams-info) 11%, transparent);
-  color: #9dc7ff;
+  border-color: var(--pams-line-subtle);
+  background: var(--pams-bg-soft);
+  color: var(--pams-text-secondary);
 }
 
 body.app-shell .tag.warn,
@@ -393,15 +366,15 @@ body.app-shell .statusChip.approved,
 body.app-shell .flowTag.income,
 body.app-shell .reviewBtn.primary,
 body.app-shell .miniBadge.ok {
-  border-color: color-mix(in srgb, var(--pams-good) 42%, transparent);
-  background: color-mix(in srgb, var(--pams-good) 10%, transparent);
-  color: #7ee2a6;
+  border-color: var(--pams-line-subtle);
+  background: var(--pams-bg-soft);
+  color: var(--pams-text-secondary);
 }
 
 body.app-shell .miniBadge.pending {
-  border-color: color-mix(in srgb, #a371f7 42%, transparent);
-  background: color-mix(in srgb, #a371f7 10%, transparent);
-  color: #d9bdff;
+  border-color: color-mix(in srgb, var(--pams-line-strong) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-text-primary) 10%, transparent);
+  color: var(--pams-text-primary);
 }
 
 body.app-shell .statusChip.missing_deferred,
@@ -424,7 +397,7 @@ body.app-shell .emptyState {
   background: var(--pams-surface-soft);
   color: var(--pams-muted);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 body.app-shell .dataState {
@@ -446,7 +419,7 @@ body.app-shell .dataStateTitle {
   overflow: hidden;
   color: var(--pams-text);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -456,7 +429,7 @@ body.app-shell .dataStateDetail {
   margin: 0;
   color: var(--pams-muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -475,8 +448,8 @@ body.app-shell .dataState-error {
 
 body.app-shell .dataState-stale,
 body.app-shell .dataState-loading {
-  border-color: color-mix(in srgb, var(--pams-warn) 35%, transparent);
-  background: color-mix(in srgb, var(--pams-warn) 6%, transparent);
+  border-color: var(--pams-border);
+  background: var(--pams-bg-soft);
 }
 
 body.app-shell .dataState-empty {
@@ -535,9 +508,9 @@ body.app-shell .appBottomSheetPanel {
   overflow: auto;
   border: 1px solid var(--pams-border);
   border-bottom: 0;
-  border-radius: 22px 22px 0 0;
-  background: var(--pams-surface-raised);
-  box-shadow: 0 -18px 50px rgba(0,0,0,.38);
+  border-radius: var(--pams-radius-panel) var(--pams-radius-panel) 0 0;
+  background: var(--pams-bg-panel-hover);
+  box-shadow: none;
 }
 
 body.app-shell .appBottomSheetHandle {
@@ -567,14 +540,14 @@ body.app-shell .appBottomSheetHead h3 {
 }
 
 body.app-shell .appBottomSheetClose {
-  min-height: 32px;
+  min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--pams-border);
   border-radius: var(--pams-radius-control);
   background: var(--pams-surface-soft);
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 600;
 }
 
 body.sheet-open {
@@ -607,10 +580,12 @@ body.app-shell .assetMasterFundHolding {
   min-height: var(--pams-row-min);
   min-width: 0;
   border-color: var(--pams-border);
-  border-radius: var(--pams-radius-row);
-  background-color: var(--pams-surface-soft);
+  border-radius: 0;
+  background-color: transparent;
   color: var(--pams-text);
-}
+
+  border: 0;
+  border-bottom: 1px solid var(--pams-line-subtle);}
 
 body.app-shell .ledgerListRow,
 body.app-shell .accountIssueRow,
@@ -661,7 +636,7 @@ body.app-shell .moreRow strong,
 body.app-shell .mobileHoldingText strong,
 body.app-shell .tradeReviewDirectionTrade strong {
   color: var(--pams-text);
-  font-weight: 900;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -673,7 +648,7 @@ body.app-shell .moreRow small,
 body.app-shell .mobileHoldingText small,
 body.app-shell .tradeReviewDirectionTrade span {
   color: var(--pams-muted);
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -708,9 +683,7 @@ body.app-shell.app-low-frequency .qualityBox,
 body.app-shell.app-low-frequency .metricPanel,
 body.app-shell.app-low-frequency .ipsStatusItem,
 body.app-shell.app-low-frequency .profileItem,
-body.app-shell.app-low-frequency .pipelineStep,
-body.app-shell.app-low-frequency .accountMobileStat,
-body.app-shell.app-low-frequency .mobileAccountRow {
+body.app-shell.app-low-frequency .pipelineStep {
   border-color: var(--pams-border);
   border-radius: var(--pams-radius-panel);
   background: var(--pams-surface-raised);
@@ -720,8 +693,7 @@ body.app-shell.app-low-frequency .qualityBox,
 body.app-shell.app-low-frequency .metricPanel,
 body.app-shell.app-low-frequency .ipsStatusItem,
 body.app-shell.app-low-frequency .profileItem,
-body.app-shell.app-low-frequency .pipelineStep,
-body.app-shell.app-low-frequency .accountMobileStat {
+body.app-shell.app-low-frequency .pipelineStep {
   padding: var(--pams-list-row-pad-y) var(--pams-list-row-pad-x);
 }
 
@@ -734,7 +706,7 @@ body.app-shell.app-low-frequency .truthNote > summary {
   justify-content: space-between;
   gap: 12px;
   color: var(--pams-text);
-  font-weight: 900;
+  font-weight: 600;
 }
 
 body.app-shell.app-low-frequency details.card > summary::after,
@@ -745,8 +717,8 @@ body.app-shell.app-low-frequency .truthNote > summary::after {
   border: 1px solid var(--pams-border);
   border-radius: var(--pams-radius-control);
   color: var(--pams-muted);
-  font-size: 11px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 600;
   line-height: 22px;
   text-align: center;
 }
@@ -782,13 +754,15 @@ body.app-shell :focus-visible {
 
 @media (max-width: 760px) {
   body.app-shell {
-    --pams-shell-gutter: 12px;
-    --pams-shell-gap: 10px;
-    --pams-card-pad: 12px;
-    --pams-list-gap: 7px;
-    --pams-list-row-pad-y: 9px;
-    --pams-list-row-pad-x: 10px;
-  }
+
+    --pams-shell-gap: 24px;
+    --pams-card-pad: 16px;
+    --pams-list-gap: 0px;
+    --pams-list-row-pad-y: 12px;
+    --pams-list-row-pad-x: 0px;
+
+  font-weight: 400;
+  line-height: 1.5;}
 
   body.app-shell .wrap {
     max-width: 430px;
@@ -815,14 +789,16 @@ body.app-shell :focus-visible {
 
   body.app-shell .sectionTitle h2,
   body.app-shell .sectionTitle h3 {
-    font-size: 22px;
+    font-size: 16px;
     line-height: 1.15;
   }
 
   body.app-shell .appWorkHeader {
     margin-bottom: 12px;
-    padding: 13px 14px;
-  }
+    padding: 8px 0 16px;
+
+  background: transparent;
+  border: 0;}
 
   body.app-shell .appWorkHeaderTop {
     grid-template-columns: 1fr;
@@ -840,50 +816,27 @@ body.app-shell :focus-visible {
     min-height: 72px;
   }
 
-  body.app-shell .nav {
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-  }
-
-  body.app-shell .nav a[data-mobile-nav="primary"] {
-    min-height: 50px;
-  }
-
-  body.app-shell .nav .mobileNavText {
-    letter-spacing: 0;
-  }
 }
 
 /* PAMS Mobile Polish v1 */
 @media (max-width: 430px) {
   body.app-shell {
-    --pams-mobile-gutter: 10px;
-    --pams-shell-gutter: var(--pams-mobile-gutter);
-    --pams-shell-gap: 9px;
-    --pams-card-pad: 11px;
-    --pams-list-gap: 6px;
-    --pams-list-row-pad-y: 8px;
-    --pams-list-row-pad-x: 10px;
+
+    --pams-shell-gap: 24px;
+    --pams-card-pad: 16px;
+    --pams-list-gap: 0px;
+    --pams-list-row-pad-y: 12px;
+    --pams-list-row-pad-x: 0px;
     overflow-x: hidden;
-  }
+
+  font-weight: 400;
+  line-height: 1.5;}
 
   body.app-shell .wrap,
   body.page-investments .wrap {
     max-width: 430px;
     padding-right: var(--pams-mobile-gutter) !important;
     padding-left: var(--pams-mobile-gutter) !important;
-  }
-
-  body.app-shell .nav {
-    gap: 4px;
-    padding: 4px;
-  }
-
-  body.app-shell .nav a[data-mobile-nav="primary"] {
-    min-height: 36px;
-    padding: 0 10px;
-    font-size: 14px;
-    line-height: 36px;
   }
 
   body.app-shell .pageHeader {
@@ -933,8 +886,10 @@ body.app-shell :focus-visible {
     max-height: min(82vh, 640px);
     padding-right: 12px;
     padding-left: 12px;
-    border-radius: 20px 20px 0 0;
-  }
+    border-radius: var(--pams-radius-panel) var(--pams-radius-panel) 0 0;
+
+  background: var(--pams-bg-panel-hover);
+  box-shadow: none;}
 
   body.app-shell .analysisSwitch,
   body.app-shell .lookthroughTabs,
@@ -954,21 +909,12 @@ body.app-shell :focus-visible {
   }
 }
 
-@media (max-width: 380px) {
-  body.app-shell {
-    --pams-mobile-gutter: 8px;
-  }
-
-  body.app-shell .nav a[data-mobile-nav="primary"] {
-    padding: 0 8px;
-    font-size: 13px;
-  }
-}
-
 /* PAMS Visual Cohesion v1 */
 body.app-shell {
   font-size: var(--pams-font-size-base);
-}
+
+  font-weight: 400;
+  line-height: 1.5;}
 
 body.app-shell .pageHeader h1 {
   font-size: clamp(24px, 3vw, 32px);
@@ -984,7 +930,7 @@ body.app-shell .pageSubtitle {
 
 body.app-shell .sectionTitle h2,
 body.app-shell .sectionTitle h3 {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 body.app-shell .card,
@@ -1004,8 +950,10 @@ body.app-shell .assetMasterFund {
 }
 
 body.app-shell .appWorkHeader {
-  background: var(--pams-surface-raised);
-}
+  background: transparent;
+
+  border: 0;
+  padding: 8px 0 16px;}
 
 body.app-shell .appWorkHeader h2 {
   font-size: clamp(22px, 3vw, 26px);
@@ -1028,8 +976,8 @@ body.app-shell .ipsStatusLabel,
 body.app-shell .mobileHeroLabel,
 body.app-shell .accountMobileLabel {
   color: var(--pams-muted);
-  font-size: 11px;
-  font-weight: 850;
+  font-size: 12px;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -1043,14 +991,12 @@ body.app-shell .moreRow.accent-account {
 }
 
 body.app-shell .moreRow.accent-invest {
-  border-left-color: color-mix(in srgb, var(--pams-good) 58%, transparent);
+  border-left-color: var(--pams-line-subtle);
 }
 
 body.app-shell .moreRow.accent-risk {
   border-left-color: color-mix(in srgb, var(--pams-bad) 58%, transparent);
 }
-
-
 
 body.app-shell .moreRow.accent-system {
   border-left-color: var(--pams-border-strong);
@@ -1069,11 +1015,14 @@ body.app-shell .moreRow.accent-system {
 
   body.app-shell .appWorkHeader {
     display: none !important;
-  }
+
+  background: transparent;
+  border: 0;
+  padding: 8px 0 16px;}
 
   body.app-shell .sectionTitle h2,
   body.app-shell .sectionTitle h3 {
-    font-size: 18px !important;
+    font-size: 16px!important;
   }
 
   body.app-shell .moreGroupTitle {

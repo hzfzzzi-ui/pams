@@ -1,5 +1,6 @@
-import { accountLabel, jget, jpost } from './api.js?v=20261031-risk-summary-retired-v1';
-import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-risk-summary-retired-v1';
+import { CHART_THEME, SERIES_COLORS } from './shared/chart_theme.js?v=20261031-gray-v1';
+import { accountLabel, jget, jpost } from './api.js?v=20261031-gray-v1';
+import { closeBottomSheet, openBottomSheet, setActiveNav } from './ui.js?v=20261031-gray-v1';
 import {
   byId as $,
   clearError,
@@ -12,7 +13,7 @@ import {
   setText,
   showError,
   toFiniteNumber as num,
-} from './utils.js?v=20261031-risk-summary-retired-v1';
+} from './utils.js?v=20261031-gray-v1';
 
 const state = {
   data: null,
@@ -31,10 +32,7 @@ const state = {
 
 const ledgerEditBoundButtons = new WeakSet();
 
-const CATEGORY_PIE_COLORS = {
-  income: ['#3fb950', '#58a6ff', '#d29922', '#a371f7', '#2ea043', '#79c0ff', '#8b949e'],
-  expense: ['#f85149', '#d29922', '#ff7b72', '#a371f7', '#f0883e', '#db6d28', '#8b949e'],
-};
+const CATEGORY_PIE_COLORS = { income: SERIES_COLORS, expense: SERIES_COLORS };
 
 const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
@@ -1412,7 +1410,7 @@ function renderOverviewCategoryPie(rows, flowType) {
       datasets: [{
         data: chartRows.map((row) => num(row.amount)),
         backgroundColor: chartRows.map((_, index) => colors[index % colors.length]),
-        borderColor: 'rgba(5,7,10,.92)',
+        borderColor: CHART_THEME.background,
         borderWidth: 2,
         hoverOffset: 3,
       }],
@@ -1524,24 +1522,26 @@ function renderTrendChart(data) {
           type: 'bar',
           label: '收入',
           data: rows.map((r) => num(r.income)),
-          backgroundColor: 'rgba(63,185,80,.42)',
-          borderColor: 'rgba(63,185,80,.8)',
+          backgroundColor: SERIES_COLORS[1],
+          borderColor: SERIES_COLORS[1],
           borderWidth: 1,
         },
         {
           type: 'bar',
           label: '消费',
           data: rows.map((r) => num(r.expense)),
-          backgroundColor: 'rgba(248,81,73,.38)',
-          borderColor: 'rgba(248,81,73,.82)',
+          backgroundColor: SERIES_COLORS[3],
+          borderColor: SERIES_COLORS[3],
           borderWidth: 1,
         },
         {
           type: 'line',
           label: '净流入',
+          borderDash: [5, 3],
+          pointStyle: 'rectRot',
           data: rows.map((r) => num(r.net)),
-          borderColor: '#58a6ff',
-          backgroundColor: 'rgba(88,166,255,.12)',
+          borderColor: CHART_THEME.line,
+          backgroundColor: CHART_THEME.fill,
           tension: 0.25,
           pointRadius: 2,
           yAxisID: 'net',
@@ -1554,7 +1554,7 @@ function renderTrendChart(data) {
       layout: { padding: { left: 8, right: 18, top: 2, bottom: 4 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#8b949e', boxWidth: 28, boxHeight: 10, padding: 12 } },
+        legend: { labels: { color: CHART_THEME.text, boxWidth: 28, boxHeight: 10, padding: 12 } },
         tooltip: {
           callbacks: {
             label: (ctxItem) => `${ctxItem.dataset.label}: ${money(ctxItem.parsed.y)}`,
@@ -1562,9 +1562,9 @@ function renderTrendChart(data) {
         },
       },
       scales: {
-        x: { ticks: { color: '#8b949e' }, grid: { color: 'rgba(139,148,158,.12)' } },
-        y: { ticks: { color: '#8b949e', callback: axisMoney }, grid: { color: 'rgba(139,148,158,.14)' } },
-        net: { position: 'right', ticks: { color: '#8b949e', callback: axisMoney }, grid: { drawOnChartArea: false } },
+        x: { ticks: { color: CHART_THEME.text }, grid: { color: CHART_THEME.grid } },
+        y: { ticks: { color: CHART_THEME.text, callback: axisMoney }, grid: { color: CHART_THEME.grid } },
+        net: { position: 'right', ticks: { color: CHART_THEME.text, callback: axisMoney }, grid: { drawOnChartArea: false } },
       },
     },
   });

@@ -50,6 +50,13 @@ try {
       assert.equal(await frame.locator('.nav').count(),0);
       const after = await page.locator('.pams-primary-nav').boundingBox();
       assert.deepEqual(after,before);
+      const navStyle = await page.locator(`[data-page="${key}.html"]`).evaluate(node => {
+        const css = getComputedStyle(node);
+        return {color:css.color, weight:css.fontWeight, background:getComputedStyle(document.body).backgroundColor};
+      });
+      assert.deepEqual(navStyle, {color:'rgb(245, 245, 247)',weight:'600',background:'rgb(0, 0, 0)'});
+      const contentFrame = page.frames().find(f => f.parentFrame() === page.mainFrame());
+      assert.equal(await contentFrame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.equal(after.width,Math.min(width,430));
       assert.ok(Math.abs(after.x-(width-after.width)/2)<1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
@@ -76,6 +83,11 @@ try {
       await page.frameLocator('#page-content').locator('body').evaluate((node,href) => location.assign(href),target);
       await page.waitForFunction(expected => document.querySelector('#page-content').contentWindow.location.pathname.endsWith(expected),target.split('#')[0]);
       await page.frameLocator('#page-content').locator('body').waitFor();
+      if (target.startsWith('accounts.html')) {
+        const accountList = page.frameLocator('#page-content').locator('[data-account-panel="overview"] .card').first();
+        assert.equal(await accountList.evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
+        assert.equal(await accountList.evaluate(node => getComputedStyle(node).borderRadius), '0px');
+      }
       assert.equal(await page.locator('.pams-primary-nav').count(),1);
       assert.equal(await page.frameLocator('#page-content').locator('iframe').count(),0);
     }

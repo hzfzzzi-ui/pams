@@ -15,7 +15,9 @@ const before = JSON.stringify(input);
 function load(file, globals) {
   const source = fs.readFileSync('frontend/public/assets/js/' + file, 'utf8')
     .replace(/^\uFEFF/, '').replace(/^import .*;\r?$/gm, '').split(/\r?\nmain\(\)\./)[0];
-  const ctx = vm.createContext(globals); vm.runInContext(source, ctx); return ctx;
+  const ctx = vm.createContext(globals);
+  vm.runInContext(fs.readFileSync('frontend/public/assets/js/shared/chart_theme.js', 'utf8').replace(/^export /gm, ''), ctx);
+  vm.runInContext(source, ctx); return ctx;
 }
 const rows = load('holdings.js', {
   URLSearchParams, window: {location: {search: ''}, matchMedia: () => ({matches: false})},
