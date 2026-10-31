@@ -5,6 +5,23 @@ from __future__ import annotations
 from typing import Any
 
 
+def ensure_legacy_category(cur, major_category: str, minor_category: str) -> None:
+    """Maintain the optional legacy category FK without defining new classifications."""
+    cur.execute("SELECT to_regclass(%s) AS table_name", ("pams_asset_categories",))
+    row = cur.fetchone()
+    exists = bool(row and (row.get("table_name") if isinstance(row, dict) else row[0]) is not None)
+    if not exists:
+        return
+    cur.execute(
+        """
+        INSERT INTO pams_asset_categories (major_category, minor_category)
+        VALUES (%s, %s)
+        ON CONFLICT (major_category, minor_category) DO NOTHING
+        """,
+        (major_category, minor_category),
+    )
+
+
 def build_categories_payload(cur) -> dict[str, dict[str, list[Any]]]:
     """Return the legacy /api/categories payload."""
     cur.execute("SELECT to_regclass('public.pams_asset_categories') IS NOT NULL AS exists")
