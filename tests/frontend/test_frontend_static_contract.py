@@ -393,7 +393,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     page_css = _read_public("assets/css/pages/ledger.css")
     navigation_css = _read_public("assets/css/page-shell.css")
     assert '<style>' not in html
-    assert 'assets/css/pages/ledger.css?v=20261101-ledger-narrow' in html
+    assert 'assets/css/pages/ledger.css?v=20261101-ledger-long-amount' in html
     assert '.ledgerAnchorNav' in navigation_css and 'grid-auto-columns: minmax(0, 1fr)' in navigation_css
     assert '.page-ledger .cashflowBodyGrid {' in page_css
     assert 'grid-template-columns:minmax(0, 1fr)' in page_css
@@ -964,7 +964,7 @@ def test_ledger_narrow_mobile_summary_keeps_amounts_on_one_line() -> None:
     assert "@media (max-width: 389px)" in css
     assert ".ledgerMobileStats { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:8px; }" in css
     assert ".ledgerMobileStat:nth-child(3)" in css
-    assert ".ledgerMobileStat strong { font-size:clamp(12px,3.6vw,13px); white-space:nowrap; overflow-wrap:normal; }" in css
+    assert ".ledgerMobileStat strong { font-size:clamp(10.5px,3.4vw,13px); white-space:nowrap; overflow-wrap:normal; }" in css
 
 
 def test_investment_portfolio_config_page_uses_constraint_rules() -> None:
