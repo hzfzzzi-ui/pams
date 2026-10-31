@@ -7,8 +7,8 @@ import {
   dilutedAveragePriceText, holdingGroupLabel, holdingGroupRank, shortHoldingName,
   holdingPriceText, holdingQuantityText, holdingAveragePriceText, holdingPriceChangePct,
   signedPercentText, aggregateMobileHoldingRows
-} from './list_legacy_model.js?v=20261031-holdings-v1';
-import { typeLabel, accountLabel } from '../../../api.js?v=20261031-gray-v1';
+} from './list_legacy_model.js?v=20261031-modules-v1';
+import { typeLabel, accountLabel } from '../../../api.js?v=20261031-modules-v1';
 
 export function createListView({ document, host: window, showDetails: openBottomSheet, scope }) {
   const rowListeners = new Set();

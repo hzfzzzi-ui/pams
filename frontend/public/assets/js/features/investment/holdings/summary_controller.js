@@ -1,30 +1,30 @@
 import {
   fmtCny, fmtSignedCny, formatNumber, formatPercentRate,
   esc, fmtSignedPctFromRate
-} from './summary_legacy_model.js?v=20261031-holdings-v1';
+} from './summary_legacy_model.js?v=20261031-modules-v1';
 import {
   createSummaryView
-} from './summary_view.js?v=20261031-holdings-v1';
+} from './summary_view.js?v=20261031-modules-v1';
 import {
   applyLegacySummaryPayload
-} from './legacy_summary_projection.js?v=20261031-holdings-v1';
+} from './legacy_summary_projection.js?v=20261031-modules-v1';
 import {
   readSummaryInputs
-} from './requests.js?v=20261031-holdings-v1';
+} from './requests.js?v=20261031-modules-v1';
 import {
   createScope, createScopedDocument, createOwnedDetails, createOwnedError
-} from './scope.js?v=20261031-holdings-v1';
+} from './scope.js?v=20261031-modules-v1';
 import {
   acquireClosedPositions
-} from './closed_positions.js?v=20261031-holdings-v1';
+} from './closed_positions.js?v=20261031-modules-v1';
 import {
   createCategoryChartLoader
-} from './category_charts.js?v=20261031-holdings-v1';
+} from './category_charts.js?v=20261031-modules-v1';
 import {
   CATEGORY_SECTION_IDS, CATEGORY_RETURN_CHART_SPECS, INVESTMENT_PHONE_QUERY
-} from './constants.js?v=20261031-holdings-v1';
-import { createInvestmentChartController } from '../charts/controller.js?v=20261031-investment-charts-v1';
-import { replaceContentAddress } from '../../../app/routes.js?v=20261031-ui-v1';
+} from './constants.js?v=20261031-modules-v1';
+import { createInvestmentChartController } from '../charts/controller.js?v=20261031-modules-v1';
+import { replaceContentAddress } from '../../../app/routes.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 export function mount(root, context) {

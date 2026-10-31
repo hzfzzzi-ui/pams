@@ -162,11 +162,11 @@ try {
   // Removing and remounting the same real root starts with one delegated listener.
   await page.evaluate(() => {
     window.syncNew = mountSync(sourceRoot, {get: makeGet('syncNew'), post, targets: {rowsEl: sourceRoot.querySelector('#sourceList')}});
-    window.pendingNew = syncNew.reload();
+    window.pendingNew = syncNew.reload().then(() => 'resolved', error => error.name);
   });
   assert.equal(await page.evaluate(() => sourceRoot.clickListeners.size), 1);
   await page.evaluate(() => {syncNew.dispose(); sourceRoot.querySelector('#sourceList').textContent = '新的页面内容'; reads.syncNew[0].reject(new Error('晚返回错误'));});
-  await page.evaluate(() => pendingNew);
+  assert.equal(await page.evaluate(() => pendingNew), 'AbortError');
   assert.equal(await page.locator('#source-a #sourceList').textContent(), '新的页面内容');
   assert.equal(await page.evaluate(() => sourceRoot.clickListeners.size), 0);
 

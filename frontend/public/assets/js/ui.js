@@ -1,10 +1,10 @@
-import { warmApiCache } from './api.js?v=20261031-gray-v1';
-import { afterInvestmentStartup } from './investment_startup.js?v=20261031-gray-v1';
-import { createPageBootstrap } from './app/page_bootstrap.js?v=20261031-ui-v1';
-import { disposeBottomSheet } from './components/bottom_sheet.js?v=20261031-ui-v1';
+import { warmApiCache } from './api.js?v=20261031-modules-v1';
+import { afterInvestmentStartup } from './investment_startup.js?v=20261031-modules-v1';
+import { createPageBootstrap } from './app/page_bootstrap.js?v=20261031-modules-v1';
+import { disposeBottomSheet } from './components/bottom_sheet.js?v=20261031-modules-v1';
 
-export { openBottomSheet, closeBottomSheet } from './components/bottom_sheet.js?v=20261031-ui-v1';
-export { dataStateHtml, renderDataState } from './components/data_state.js?v=20261031-ui-v1';
+export { openBottomSheet, closeBottomSheet } from './components/bottom_sheet.js?v=20261031-modules-v1';
+export { dataStateHtml, renderDataState } from './components/data_state.js?v=20261031-modules-v1';
 
 let bootstrap;
 

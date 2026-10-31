@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import {options, rows, ledger, attribution, tradeAttribution} from './fixtures/transactions_lifecycle.mjs';
 
 const publicRoot = path.resolve(process.argv[2] || fileURLToPath(new URL('../../frontend/public', import.meta.url)));
-const context = vm.createContext({URLSearchParams});
+const context = vm.createContext({AbortController, URLSearchParams});
 const modules = new Map();
 function moduleAt(file) {
   if (!modules.has(file)) modules.set(file, new vm.SourceTextModule(readFileSync(file, 'utf8'), {context, identifier: file}));

@@ -1,19 +1,21 @@
-import { replaceContentAddress } from '../../app/routes.js?v=20261031-ui-v1';
-import { createBottomSheet } from '../../components/bottom_sheet.js?v=20261031-ui-v1';
-import { setActiveNav } from '../../ui.js?v=20261031-ui-v1';
-import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL } from './state.js?v=20261031-ledger-modules-v1';
-import { createLedgerLegacyModel } from './legacy_model.js?v=20261031-ledger-modules-v1';
-import { createLedgerTemplates } from './templates.js?v=20261031-ledger-modules-v1';
-import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js?v=20261031-ledger-modules-v1';
-import { createLedgerOverview } from './overview.js?v=20261031-ledger-modules-v1';
-import { createLedgerLists } from './lists.js?v=20261031-ledger-modules-v1';
-import { createLedgerEditor } from './editor.js?v=20261031-ledger-modules-v1';
-import { readLedgerWorkbench } from './requests.js?v=20261031-ledger-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { replaceContentAddress } from '../../app/routes.js?v=20261031-modules-v1';
+import { createBottomSheet } from '../../components/bottom_sheet.js?v=20261031-modules-v1';
+import { setActiveNav } from '../../ui.js?v=20261031-modules-v1';
+import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL } from './state.js?v=20261031-modules-v1';
+import { createLedgerLegacyModel } from './legacy_model.js?v=20261031-modules-v1';
+import { createLedgerTemplates } from './templates.js?v=20261031-modules-v1';
+import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js?v=20261031-modules-v1';
+import { createLedgerOverview } from './overview.js?v=20261031-modules-v1';
+import { createLedgerLists } from './lists.js?v=20261031-modules-v1';
+import { createLedgerEditor } from './editor.js?v=20261031-modules-v1';
+import { readLedgerWorkbench } from './requests.js?v=20261031-modules-v1';
 
 const owners = new WeakMap();
 
 export function createLedgerController({ root = document, host = window, sheetService, ChartClass = host.Chart, viewState } = {}) {
   owners.get(root)?.dispose();
+  const reads = createReadScope({AbortController: host?.AbortController});
   let disposed = false;
   let initialized = false;
   let initialLoad = null;
@@ -24,7 +26,8 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const model = createLedgerLegacyModel(state);
   const templates = createLedgerTemplates({ state, model });
   const dom = createLedgerDom(root);
-  const { $, showError, clearError } = dom;
+  const { $, clearError } = dom;
+  const showError = error => {if (current() && !isReadCancelled(error)) dom.showError(error);};
   const { currentAccountSummary, currentOverviewTransferSummary } = model;
   const events = createLedgerEvents(current);
   const sheets = createLedgerSheets(sheetService || createBottomSheet(root.ownerDocument || root), events, current);
@@ -44,13 +47,14 @@ async function loadWorkbench() {
   const generation = ++readGeneration;
   clearError();
   try {
-    const { data, accounts } = await readLedgerWorkbench();
+    const { data, accounts } = await reads.run('workbench', signal => readLedgerWorkbench({signal}));
     if (!current() || generation !== readGeneration) return null;
     state.data = data;
     state.accounts = accounts;
     renderAll(data);
     return data;
   } catch (error) {
+    if (isReadCancelled(error)) throw error;
     if (!current() || generation !== readGeneration) return null;
     throw error;
   }
@@ -182,6 +186,7 @@ function bindLedgerAnchors() {
     dispose() {
       if (disposed) return;
       disposed = true;
+      reads.dispose();
       readGeneration += 1;
       events.dispose();
       sheets.dispose();

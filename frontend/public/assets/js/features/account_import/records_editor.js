@@ -1,4 +1,4 @@
-import { KIND_TEXT, DECIMALS, LABELS, TEXT, decimalString, displayAssetType, recordEditable } from './contract.js?v=20261031-import-v1';
+import { KIND_TEXT, DECIMALS, LABELS, TEXT, decimalString, displayAssetType, recordEditable } from './contract.js?v=20261031-modules-v1';
 
 // The editor owns field rendering, exact decimal strings, search cancellation,
 // and suspended local input. It does not infer financial facts or publish.

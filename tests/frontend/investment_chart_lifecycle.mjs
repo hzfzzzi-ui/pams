@@ -83,7 +83,7 @@ async function fixture({ fallback = false } = {}) {
     getElementsAtEventForMode() { return []; }
   }
   const jget = (url, options) => { const req = { url, options, ...deferred() }; requests.push(req); return req.promise; };
-  const context = vm.createContext({ window, document, console, ...(fallback ? {} : { Chart }),
+  const context = vm.createContext({ window, document, console, AbortController, ...(fallback ? {} : { Chart }),
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) } });
   const entryURL = new URL('holdings_categories.js', root);
   const source = readFileSync(entryURL, 'utf8');
@@ -96,7 +96,7 @@ async function fixture({ fallback = false } = {}) {
     if (cache.has(url.href)) return cache.get(url.href);
     const name = url.pathname.split('/').pop();
     let dependency;
-    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/app/routes.js')) {
+    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/shared/read_scope.js') || url.pathname.endsWith('/app/routes.js')) {
       dependency = new vm.SourceTextModule(readFileSync(url, 'utf8'), { context, identifier: url.href });
     } else {
       const values = name === 'api.js' ? { jget, fmt2: String, accountLabel: String }
@@ -169,6 +169,7 @@ for (const oldFirst of [false, true]) {
   const oldRequests = test.requests.slice();
   const replacement = test.create(), currentLoading = replacement.loadReturnsOnce();
   assert.equal(old.disposed, true);
+  assert.ok(oldRequests.every(request => request.options.signal.aborted));
   const freshRequests = test.requests.slice(6);
   if (oldFirst) { test.resolve(oldRequests); assert.equal(await oldLoading, null); assert.equal(test.charts.length, 0); }
   test.resolve(freshRequests); await currentLoading; await replacement.loadNavOnce();
@@ -190,6 +191,8 @@ for (const oldFirst of [false, true]) {
   const newer = controller.renderReturns();
   const newReturnRequests = test.requests.slice(6);
   assert.equal(test.requests.length, 11);
+  assert.ok(oldReturnRequests.every(request => request.options.signal.aborted));
+  assert.ok(newReturnRequests.every(request => !request.options.signal.aborted));
   test.requests[0].resolve(nav);
   test.resolve(newReturnRequests, nav, { rows: [{ date: '2026-10-30', total_pnl: 10, market_value: 1010, return_rate: 0.01 }] });
   await newer;
@@ -204,12 +207,27 @@ for (const oldFirst of [false, true]) {
 {
   const test = await fixture(), controller = test.create();
   const loading = controller.loadReturnsOnce();
-  controller.dispose(); test.resolve();
+  controller.dispose();
+  assert.ok(test.requests.every(request => request.options.signal.aborted));
+  test.resolve();
   assert.equal(await loading, null); await settle();
   assert.equal(test.charts.length, 0);
   assert.equal(test.window.count('resize'), 0);
   assert.equal(test.window.count('pagehide'), 0);
   assert.equal(test.document.body.dataset.investmentReturnChartLoaded, undefined);
+  assert.equal(test.document.body.dataset.investmentReturnChartError, undefined);
+}
+
+// Late ordinary failures from a reader that ignored abort are inert after exit.
+{
+  const test = await fixture(), controller = test.create();
+  const loading = controller.loadReturnsOnce();
+  controller.dispose();
+  test.requests.forEach(request => request.reject(new Error('late synthetic network failure')));
+  assert.equal(await loading, null); await settle();
+  assert.equal(test.charts.length, 0);
+  assert.equal(test.document.body.dataset.investmentReturnChartLoaded, undefined);
+  assert.equal(test.document.body.dataset.investmentReturnChartError, undefined);
 }
 
 // A legacy entry disposed before lazy mount never starts a fresh controller later.

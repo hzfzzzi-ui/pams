@@ -1,6 +1,6 @@
-import { accountLabel } from '../../api.js?v=20261031-gray-v1';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-gray-v1';
-import { LEDGER_PANEL_HASH, RECENT_SORT_OPTIONS } from './state.js?v=20261031-ledger-modules-v1';
+import { accountLabel } from '../../api.js?v=20261031-modules-v1';
+import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-modules-v1';
+import { LEDGER_PANEL_HASH, RECENT_SORT_OPTIONS } from './state.js?v=20261031-modules-v1';
 
 export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, replaceContentAddress, setLedgerPanel, showDetails }) {
   const { $ } = dom;

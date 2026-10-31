@@ -5,11 +5,11 @@ import {
   confirmedIbkrAccountSummary, summarizeRows, holdingReturnRateFromSummary, withReportedPnlRows,
   withEsopDisplayRows, applyReportedReturnTotal, categoryMetric, buildContributionRows,
   deriveDataQualityIssues
-} from './summary_legacy_model.js?v=20261031-holdings-v1';
-import { fmt2 } from '../../../api.js?v=20261031-gray-v1';
-import { safeNum } from '../../../utils.js?v=20261031-gray-v1';
-import { accountCashBreakdown } from '../../../account_cash.js?v=20261031-gray-v1';
-import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-gray-v1';
+} from './summary_legacy_model.js?v=20261031-modules-v1';
+import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
+import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
+import { accountCashBreakdown } from '../../../account_cash.js?v=20261031-modules-v1';
+import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 
 // Legacy projection statements retained verbatim; dependencies are page-owned.
 export function applyLegacySummaryPayload(payloads, context) {

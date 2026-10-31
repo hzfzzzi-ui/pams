@@ -31,7 +31,7 @@ async function fixture() {
   const window = Object.assign(new Target(), { location: { hash: '', pathname: '/ledger.html', search: '' }, scrollTo() {} });
   class Chart { constructor(canvas, config) { this.canvas = canvas; this.data = config.data; this.destroyCount = 0; charts.push(this); } destroy() { this.destroyCount += 1; } }
   window.Chart = Chart;
-  const context = vm.createContext({ document, window, URLSearchParams, console });
+  const context = vm.createContext({ document, window, AbortController, URLSearchParams, console });
   function moduleFor(url) {
     url = new URL(url); url.search = '';
     if (cache.has(url.href)) return cache.get(url.href);
@@ -87,12 +87,12 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   assert.equal(test.charts.length, 2);
   const older = controller.loadWorkbench(), newer = controller.loadWorkbench();
   test.resolveRead(4, data(20)); await newer;
-  test.resolveRead(2, data(15)); assert.equal(await older, null);
+  test.resolveRead(2, data(15)); await assert.rejects(older, error => error.name === 'AbortError');
   assert.equal(controller.state.data.periods.ytd.income, 20);
   assert.equal(test.charts.length, 4);
   const pending = controller.loadWorkbench();
   controller.dispose(); controller.dispose();
-  test.resolveRead(6, data(99)); assert.equal(await pending, null);
+  test.resolveRead(6, data(99)); await assert.rejects(pending, error => error.name === 'AbortError');
   assert.ok(test.charts.every(chart => chart.destroyCount === 1));
   assert.equal(test.document.count('click'), 0);
   assert.equal(test.window.count('hashchange'), 0);

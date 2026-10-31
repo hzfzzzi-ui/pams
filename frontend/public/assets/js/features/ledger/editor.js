@@ -1,5 +1,6 @@
-import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js?v=20261031-ledger-modules-v1';
-import { updateLedgerRow } from './requests.js?v=20261031-ledger-modules-v1';
+import { isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js?v=20261031-modules-v1';
+import { updateLedgerRow } from './requests.js?v=20261031-modules-v1';
 
 export function createLedgerEditor({ model, templates, sheets, dom, current, reload }) {
   const { isEditableLedgerRow, findLedgerRowById, ledgerCategoryOptions, ledgerSubcategoryOptions, ledgerEditSubmitLabel } = model;
@@ -70,7 +71,7 @@ function bindLedgerEditSheet(row, session) {
       session.close();
       await reload();
     } catch (err) {
-      if (!current() || (!saved && !session.active())) return;
+      if (!current() || isReadCancelled(err) || (!saved && !session.active())) return;
       dom.showError(err);
       if (session.active()) {
         pending = false;

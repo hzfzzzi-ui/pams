@@ -1,4 +1,4 @@
-import { SERIES_COLORS } from '../../shared/chart_theme.js?v=20261031-gray-v1';
+import { SERIES_COLORS } from '../../shared/chart_theme.js?v=20261031-modules-v1';
 
 const DIMENSIONS = [
   ['asset_type', '资产类型'],

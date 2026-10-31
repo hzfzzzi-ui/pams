@@ -1,4 +1,4 @@
-import { renderDataState } from '../../ui.js?v=20261031-ui-v1';
+import { renderDataState } from '../../ui.js?v=20261031-modules-v1';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({

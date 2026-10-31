@@ -1,6 +1,6 @@
-import {configModelFromPayload, renderRuleGroups, rebalanceHtml, rebalanceDetailHtml, configErrorHtml} from './config_view.js?v=20261031-panels-v1';
-import {loadPortfolioConfig} from './requests.js?v=20261031-panels-v1';
-import {createReadSession} from './read_session.js?v=20261031-panels-v1';
+import {configModelFromPayload, renderRuleGroups, rebalanceHtml, rebalanceDetailHtml, configErrorHtml} from './config_view.js?v=20261031-modules-v1';
+import {loadPortfolioConfig} from './requests.js?v=20261031-modules-v1';
+import {createReadSession} from './read_session.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 

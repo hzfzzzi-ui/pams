@@ -7,7 +7,7 @@ import {config, overview, matches, unmatched, imports, initialUrls, responseFor}
 
 const publicRoot = path.resolve(process.argv[2] || fileURLToPath(new URL('../../frontend/public', import.meta.url)));
 async function load(entry) {
-  const context = vm.createContext({URLSearchParams});
+  const context = vm.createContext({AbortController, URLSearchParams});
   const modules = new Map();
   function moduleAt(file) {
     if (!modules.has(file)) modules.set(file, new vm.SourceTextModule(readFileSync(file, 'utf8'), {context, identifier: file}));

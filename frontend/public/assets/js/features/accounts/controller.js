@@ -1,5 +1,6 @@
-import { createView } from './view.js?v=20261031-accounts-v1';
-import { createActions } from './actions.js?v=20261031-accounts-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { createView } from './view.js?v=20261031-modules-v1';
+import { createActions } from './actions.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 const filterValues = {'缺数据': 'missing', '金额差异': 'diff', '日期过期': 'stale', '负余额': 'negative', '在途资金': 'transit'};
@@ -9,6 +10,7 @@ export function mount(root, context) {
   const current = mounted.get(root);
   if (current) return current;
   const {get, post, replaceAddress, openSheet, closeSheet, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
+  const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const location = context.location || win?.location;
   const find = id => root.querySelector(`#${id}`);
   const restore = context.restoreState;
@@ -40,14 +42,14 @@ export function mount(root, context) {
   }
 
   function showError(error) {
-    if (alive) view.showError(String(error?.message || error));
+    if (alive && !isReadCancelled(error)) view.showError(String(error?.message || error));
   }
 
   async function readInto(key, url, render) {
     if (!alive) return null;
     const generation = (generations.get(key) || 0) + 1;
     generations.set(key, generation);
-    const data = await get(url);
+    const data = await reads.get(key, url);
     if (alive && generations.get(key) === generation) render(data);
     return data;
   }
@@ -55,6 +57,7 @@ export function mount(root, context) {
   function acceptOverview(data) {
     if (!alive) return;
     generations.set('overview', (generations.get('overview') || 0) + 1);
+    reads.cancel('overview');
     renderOverview(data);
   }
 
@@ -161,7 +164,7 @@ export function mount(root, context) {
   }
 
   async function load() {
-    state.config = await get('/api/bank-reconcile/config');
+    state.config = await reads.get('config', '/api/bank-reconcile/config');
     if (!alive) return;
     await loadAccountOverview();
     if (!alive) return;
@@ -181,6 +184,7 @@ export function mount(root, context) {
   function dispose() {
     if (!alive) return;
     alive = false;
+    reads.dispose();
     root.removeEventListener('click', onClick);
     win?.removeEventListener('pagehide', dispose);
     releaseSheet();

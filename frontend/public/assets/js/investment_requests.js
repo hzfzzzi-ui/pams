@@ -1,4 +1,4 @@
-import { jget } from './api.js?v=20261031-gray-v1';
+import { jget } from './api.js?v=20261031-modules-v1';
 
 let summaryRequest = null;
 

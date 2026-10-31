@@ -1,7 +1,7 @@
-import { accountLabel } from '../../api.js?v=20261031-gray-v1';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-gray-v1';
-import { RECENT_SORT_OPTIONS } from './state.js?v=20261031-ledger-modules-v1';
-import { LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS } from './legacy_model.js?v=20261031-ledger-modules-v1';
+import { accountLabel } from '../../api.js?v=20261031-modules-v1';
+import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-modules-v1';
+import { RECENT_SORT_OPTIONS } from './state.js?v=20261031-modules-v1';
+import { LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS } from './legacy_model.js?v=20261031-modules-v1';
 
 export function createLedgerTemplates({ state, model }) {
   const { isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, rowTitle, originalCurrencyText, transferEndpointName, transferRoute, ledgerCategoryOptions, ledgerSubcategoryOptions, accountDisplayName, subAccountDisplayName, accountBalanceSummary, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, hasAccountActivity, accountFlowStatsEntries, formatSyncDate, accountFlowCountText } = model;

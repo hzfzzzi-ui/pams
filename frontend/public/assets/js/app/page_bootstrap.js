@@ -1,4 +1,4 @@
-import { PRIMARY_PAGES, resolveContentRoute } from './routes.js?v=20261031-ui-v1';
+import { PRIMARY_PAGES, resolveContentRoute } from './routes.js?v=20261031-modules-v1';
 
 // Read the versions already selected by the page, rather than duplicating an
 // asset/version manifest here. Only same-origin static assets are eligible.
@@ -35,6 +35,7 @@ function warmupPaths(now) {
 
 export function createPageBootstrap({
   doc = document, win = window, afterStartup, warmCache, now = () => new Date(),
+  AbortController: Controller = win.AbortController || globalThis.AbortController,
 }) {
   let started = false;
   let disposed = false;
@@ -42,6 +43,7 @@ export function createPageBootstrap({
   const idleCallbacks = new Set();
   const prefetched = new Set();
   const links = new Set();
+  const warmup = new Controller();
 
   function prefetchResources() {
     for (const {href, as} of collectPrefetchResources(doc)) {
@@ -89,12 +91,13 @@ export function createPageBootstrap({
     if (connection?.saveData) return;
     const paths = warmupPaths(now());
     schedule(prefetchResources, 250);
-    schedule(() => warmCache(paths), 900);
+    schedule(() => warmCache(paths, {signal: warmup.signal}), 900);
   }
 
   function dispose() {
     if (disposed) return;
     disposed = true;
+    warmup.abort();
     for (const id of timers) win.clearTimeout(id);
     for (const id of idleCallbacks) win.cancelIdleCallback?.(id);
     timers.clear();

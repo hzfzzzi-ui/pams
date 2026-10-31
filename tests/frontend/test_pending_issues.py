@@ -17,8 +17,8 @@ def test_entry_and_full_diagnostics_remain_separate():
     assert 'href="data_sources.html"' in more
     assert 'id="issuesView" hidden' in page and 'id="sourceList"' in page and 'id="syncMatrix"' in page
     assert "new URLSearchParams((context.location || win?.location)?.search || '').get('view') === 'issues'" in script
-    assert "get('/api/accounts/overview').catch(() => null)" in script
-    assert 'mountSyncCenter(root, {targets:' in script
+    assert "reads.get('overview', '/api/accounts/overview').catch(error => readFallback(error, null))" in script
+    assert 'mountSyncCenter(root, {signal: context.signal, targets:' in script
     assert 'syncCenter.reload()' in script
     assert 'mountPage(root, {get: jget, mountSyncCenter' in entry
 

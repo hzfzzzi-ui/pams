@@ -42,7 +42,7 @@ async function setup(tab = 'analysis') {
     observe() {observers.add(this);}
     disconnect() {observers.delete(this);}
   };
-  const context = vm.createContext({document: root, window: host, console});
+  const context = vm.createContext({document: root, window: host, AbortController, console});
   const modules = new Map();
   const loader = (specifier, ref) => {
     const filename = path.resolve(path.dirname(ref.identifier), specifier.split('?')[0]);
@@ -101,7 +101,7 @@ async function setup(tab = 'analysis') {
   const html = test.root.getElementById('returnAttributionSummary').innerHTML;
   assert.match(html, /55\.3/);
   oldAttribution.resolve({...payload, total_pnl_cny: 999999}); oldSummary.resolve({children: [{symbol: 'TEST', daily_pnl: 999999}]});
-  await oldLoad; await test.flushNav();
+  await assert.rejects(oldLoad, error => error.name === 'AbortError'); await test.flushNav();
   assert.equal(old.state.returnAttributionData, null); assert.equal(old.state.returnAttributionHoldingDailySummary, null);
   assert.equal(test.root.getElementById('returnAttributionSummary').innerHTML, html);
   replacement.dispose(); assert.equal(test.observers.size, 0);
@@ -131,7 +131,7 @@ async function setup(tab = 'analysis') {
   const loading = old.loadReturnAttributionData(); old.dispose();
   const replacement = test.api.createAnalysisController({requests: test.requests}); await replacement.loadReturnAttributionData();
   const html = test.root.getElementById('returnAttributionList').innerHTML;
-  pending.reject(new Error('old unavailable')); await assert.rejects(loading, /old unavailable/);
+  pending.reject(new Error('old unavailable')); await assert.rejects(loading, error => error.name === 'AbortError');
   assert.equal(test.root.getElementById('returnAttributionList').innerHTML, html);
   replacement.dispose();
 }

@@ -29,7 +29,7 @@ async function chartModule(fallback = false) {
     update() {}
   }
   const jget = (url) => { const request = { url, ...deferred() }; requests.push(request); return request.promise; };
-  const context = vm.createContext({ window, console, ...(fallback ? {} : { Chart }),
+  const context = vm.createContext({ window, console, AbortController, ...(fallback ? {} : { Chart }),
     document: { body: { dataset: {} }, getElementById: id => elements[id] || null },
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
   });
@@ -42,7 +42,7 @@ async function chartModule(fallback = false) {
     const url = new URL(specifier, parent.identifier);
     url.search = '';
     if (moduleCache.has(url.href)) return moduleCache.get(url.href);
-    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/app/routes.js')) {
+    if (url.pathname.includes('/features/investment/charts/') || url.pathname.includes('/features/investment/holdings/') || url.pathname.endsWith('/shared/chart_theme.js') || url.pathname.endsWith('/shared/read_scope.js') || url.pathname.endsWith('/app/routes.js')) {
       const dependency = new vm.SourceTextModule(readFileSync(url, 'utf8'), { context, identifier: url.href });
       moduleCache.set(url.href, dependency);
       return dependency;

@@ -1,5 +1,5 @@
 // Existing display bindings and legacy calculations are preserved; API business semantics remain upstream.
-import { INDUSTRY_EXCLUDED_ASSET_TYPES, THEME_FAMILIES, UNDERLYING_SORTS, QUALITY_LABELS, TYPE_LABELS } from './constants.js?v=20261031-analysis-modules-v1';
+import { INDUSTRY_EXCLUDED_ASSET_TYPES, THEME_FAMILIES, UNDERLYING_SORTS, QUALITY_LABELS, TYPE_LABELS } from './constants.js?v=20261031-modules-v1';
 
 export function createAnalysisTemplates({ state, model }) {
   const { esc, n, returnAttributionLookupHoldingDaily, fmtMoney, fmtPct, fmtSignedMoney, calibratedReturnAttributionData, confidenceClass, confidenceLabel, qualityClass, rowValue, rowWeight, exposureRows, exposureName, portfolioTotalValue, displayName, sortUnderlyingRows, sourceBreakdownText, isClosedAttributionRow, dailyFxValueText, returnAttributionFxDisplay } = model;

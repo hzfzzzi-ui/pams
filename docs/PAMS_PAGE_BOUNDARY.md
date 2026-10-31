@@ -61,7 +61,7 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 
 ## 前端目标架构与渐进迁移
 
-视觉规范、功能保留和批次验收见 [前端设计与重构方案](PAMS_FRONTEND_DESIGN_SYSTEM.md)。以下是目标职责，不代表已创建目录、替换 iframe 或更换框架；方案本身不改变运行/API/数据库。
+视觉规范、功能保留和批次验收见 [前端设计与重构方案](PAMS_FRONTEND_DESIGN_SYSTEM.md)。以下依赖适用于当前模块与后续迁移；兼容 HTML/JS 入口保留，外壳继续加载同源内容文档，不引入新框架或改变 API/数据库。
 
 ### 目标依赖
 
@@ -75,23 +75,24 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 
 业务模块不直接调用其他模块的 DOM 或内部状态；共享组件不反向依赖业务页，不自行请求金融数据。展示适配允许字段映射、格式化、排序和筛选，不生成分类、收益、NAV、FX、风险或跨账户合并口径。
 
-| 目标职责 | 当前入口/债务 | 迁移要求 |
+| 职责 | 兼容入口与模块 | 边界 |
 | --- | --- | --- |
-| 外壳与路由 | `app.html`、`app_shell.js`、`app/routes.js` | 外壳唯一持有主导航、地址及主页面切换；兼容现有六页路径、query/hash；`ui.js` 不创建导航 |
-| 投资模块 | `holdings.js`、大型 `holdings_categories.js`、`lookthrough.js` 等 | 按摘要/列表/详情/图表分渲染职责，请求与事件独立；保留持仓、分析、交易、风险、配置入口 |
-| 交易/收支 | `transactions.js`、`ledger_cashflow.js` 中请求、模板、事件混合 | 筛选/展开状态归所属模块，编辑和写请求与查询分开；默认十单及折叠入口保留 |
-| 账户/导入/数据源 | `bank_reconcile.js`、`account_import.js`、`data_sources.js`/`sync_center.js` | 保留专用的工作流、冲突和能力判断；不为复用而合并不同写入协议 |
-| 共享组件 | `ui.js`、各页模板和重复样式 | 提取底部浮层、列表、按钮、状态、图表框；通过参数/事件传递数据，不扫描其他页的 document |
-| 展示工具 | `utils.js` 及各模块重复格式化 | 统一空值/零、金额精度、日期、枚举映射；历史计算明确隔离，不直接复制到新工具库 |
-| HTTP 与领域请求 | `api.js` 的缓存/并发/超时，导入专用请求 | 公共层负责传输；领域层决定缓存、失效和敏感性。导入原件/预检不缓存，409 不自动重试写入 |
+| 外壳与路由 | `app.html`、`app_shell.js`、`app/routes.js` | 外壳唯一持有主导航、地址及主页面切换；兼容六页路径、query/hash；`ui.js` 不创建导航 |
+| 投资持仓/图表 | `holdings.js`、`holdings_categories.js` → `features/investment/holdings/`、`charts/` | 列表/摘要控制器拥有各自请求、视图及清理；原财务展示位于明确的历史模型/投影 |
+| 分析/风险/配置 | `lookthrough.js`、`portfolio_risk.js`、`portfolio_config.js` → `features/analysis/`、`portfolio/` | 维度、下钻和图形消费原 API 结果，保留 NAV 启动依赖与缺失状态 |
+| 交易/收支 | `transactions.js`、`ledger_cashflow.js` → `features/transactions/`、`ledger/` | 筛选/展开归所属模块；编辑和显式命令与查询分离，默认十单及折叠入口保留 |
+| 账户/导入/工具 | `bank_reconcile.js`、`account_import.js`、`more.js`、`data_sources.js`、`sync_center.js` → 对应 `features/` | 保留各自工作流、冲突和能力判断；不合并不同写入协议 |
+| 共享 UI | `ui.js` → `app/page_bootstrap.js`、`components/bottom_sheet.js`、`data_state.js` | 共享组件不自行请求金融数据；模板通过所属根节点和显式浮层作用域操作 |
+| 展示工具 | `utils.js`、`shared/chart_theme.js`、`shared/dom_view.js` | 格式化、图表颜色和根节点内显示；历史算法不复制到新共享库 |
+| HTTP 与领域请求 | `api.js`、`shared/read_scope.js`、各域 requests；导入独立 client | 传输负责缓存/超时/取消，领域负责范围与回退；已提交写入不因页面退出自动重试 |
 
-目录可以逐步采用 `assets/js/app/`、`features/<业务域>/`、`components/`、`data/`、`shared/`。先抽取有调用边界的模块，再迁路径；旧入口可短期转调，更新全部直接/间接 import 和缓存版本后才删除。不能仅移动大型文件并声称职责已拆分。
+业务模块位于 `assets/js/features/<业务域>/`，基础设施位于 `app/`、`components/`、`shared/`。旧入口转调模块，全部直接/间接 import 及 HTML 使用同一轮资源版本；静态模块图校验路径存在、同一文件只有一个浏览器缓存身份、共享组件不反向依赖业务目录。将来删除兼容入口须先确认调用方，不能只移动大型文件并声称职责已拆分。
 
 ### 生命周期与状态
 
 每个可挂载业务模块提供明确的初始化、清理和离页检查能力；候选接口为 `mount(root, context)` 返回清理函数，具体名称由实施选择。DOM 查询限制在模块根节点；清理事件、计时器、观察器及 Chart 实例，中止过期查询，防止晚返回响应覆盖新页面。
 
-共享 UI 入口保留 `ui.js` 的旧调用名称，具体职责交给 `app/page_bootstrap.js`、`components/bottom_sheet.js` 与 `components/data_state.js`。预加载读取页面实际资源版本，沿用四组既有轻量读取；销毁时清理本模块计时器、空闲回调及预加载节点，等待首屏后的迟到回调不再启动新工作。已经发出的缓存读取不因这一层销毁而取消，投资业务控制器的监听与图表不在此层代管。
+共享 UI 入口保留 `ui.js` 的旧调用名称，具体职责交给 `app/page_bootstrap.js`、`components/bottom_sheet.js` 与 `components/data_state.js`。预加载读取页面实际资源版本，沿用四组既有轻量读取；销毁时清理本模块计时器、空闲回调及预加载节点，等待首屏后的迟到回调不再启动新工作。本层已启动的预热 GET 使用自己的取消信号，销毁时中止；投资业务控制器的监听与图表仍由所属模块管理。
 
 底部浮层负责焦点进入/返回、Tab 边界、Esc、背景 inert 及滚动锁；关闭时移除浮层 DOM 和监听，重开创建干净实例。状态组件保持既有空/错/加载语义，不请求或推导金融结果。`replaceContentAddress` 只替换同页地址并通知外壳；外壳只接收已加载内容文档的替换通知，初始化规范化交由首次 load 记录，避免覆盖来源页历史。导入自己的 push/pop、修订与离页协议继续保留。
 
@@ -99,7 +100,7 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 
 外壳 URL 的 `view` 表示页面文件名，业务内容的同名参数转存为 `content_view`，加载时还原。例如数据源“待处理”保留 `view=issues`；直接旧链接、刷新和后退保持该模式。此转义只解决导航参数重名，不更改 API 查询或权限。
 
-投资风险/配置面板由 `features/portfolio/` 下各自的 controller 与 view、共享的只读 requests/read_session 组成。每个根节点拥有展开状态；等待投资首屏结束后才读取，退出或后续 reload 会使旧响应失效。清理解除监听并发出调用方取消信号；网络能否中止取决于注入客户端，不能把 generation 校验当作已取消网络。缓存文档恢复时重新挂载并恢复展开快照，配置详情仅由拥有它的控制器关闭。视图保留历史统计和格式化语义，不建立新的风险阈值、分类或再平衡规则。
+投资风险/配置面板由 `features/portfolio/` 下各自的 controller 与 view、共享的只读 requests/read_session 组成。每个根节点拥有展开状态；等待投资首屏结束后才读取，退出或后续 reload 会使旧响应失效。清理解除监听并发出调用方取消信号；默认公共客户端同时支持 fetch/XHR 中止，generation 校验仍隔离不支持信号的注入读取。缓存文档恢复时重新挂载并恢复展开快照，配置详情仅由拥有它的控制器关闭。视图保留历史统计和格式化语义，不建立新的风险阈值、分类或再平衡规则。
 
 投资主收益/NAV 两图由 `features/investment/charts/` 中 requests、state、renderer、controller 管理；历史窗口重基、事件与贡献等函数原样隔离在 `legacy_model.js`，不得据此扩展前端金融口径。摘要控制器组合拥有主图，保留 NAV 提前加载、持仓等待及分析页延迟加载顺序，兼容原图表引用。退出或替换控制器时销毁图表，解除窗口/序列/热点及 resize 监听；缓存文档恢复重新挂载并读取，仍不代表统一路由容器已替换 iframe。
 
@@ -123,6 +124,12 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 | API 数据 | 领域请求层 | 缓存 key 包含真实请求范围；写入成功仅失效相关读取；部分失败保留已知状态并标注 |
 
 替换 iframe 前必须满足：六页均可安全初始化/退出；统一离页检查且取消时 URL/选中态不变；旧路径、hash、刷新/后退不丢状态；导入权限/revision/409 处理保持；无重复主导航、嵌套滚动或遗留监听；真实手机键盘、安全区、原生离页流程验收完成。迁移可逐页进行，但同一路由任一时刻只能由一个容器拥有，不能同时启动 iframe 和模块控制器。
+
+### 只读请求生命周期
+
+`shared/read_scope.js` 以明确键持有可替换读取或并行读取组，替换/退出时中止旧 GET，并保留 generation 检查。`api.js` 的调用方 signal 贯穿 fetch 响应体或 XHR；带 signal 的读取独立发起，可使用已完成缓存，但不加入其他调用方的共享进行中请求，因此取消不会中止别人的读取。普通无 signal 读取继续沿用原缓存/并发/TTL；GET 超时覆盖 JSON 响应体。
+
+取消以 `AbortError` 传播到所属 UI 边界，不变成成功的零值/空财务数据；普通失败的已有可选回退保留。并行组失败清理尚未结束的兄弟读取。独立质量结果不因另一同步读取被替换而丢弃；已明确的 POST 失败原因也不被其后刷新取消掩盖。POST 不进入取消作用域，仍只由明确操作触发，不重试、不重放；导入原件和预检继续使用独立无缓存协议。
 
 ### 与后端并行重构的接口清单
 

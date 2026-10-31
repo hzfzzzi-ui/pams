@@ -1,5 +1,5 @@
 // Existing display bindings and legacy calculations are preserved; API business semantics remain upstream.
-import { TYPE_LABELS, EXPOSURE_COLORS } from './constants.js?v=20261031-analysis-modules-v1';
+import { TYPE_LABELS, EXPOSURE_COLORS } from './constants.js?v=20261031-modules-v1';
 
 export function createAnalysisLegacyModel({ state }) {
 

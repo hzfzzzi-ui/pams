@@ -1,5 +1,5 @@
-import { accountLabel } from '../../api.js?v=20261031-gray-v1';
-import { escapeHtml, formatPlainMoney as money, readOptionalNumber as readNumber } from '../../utils.js?v=20261031-gray-v1';
+import { accountLabel } from '../../api.js?v=20261031-modules-v1';
+import { escapeHtml, formatPlainMoney as money, readOptionalNumber as readNumber } from '../../utils.js?v=20261031-modules-v1';
 
 export function createLegacyReview({state, scope}) {
 const $ = scope.byId;

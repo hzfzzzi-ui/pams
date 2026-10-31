@@ -1,10 +1,15 @@
-import { accountLabel } from '../../api.js?v=20261031-gray-v1';
-import { escapeHtml, formatPlainMoney as money } from '../../utils.js?v=20261031-gray-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { accountLabel } from '../../api.js?v=20261031-modules-v1';
+import { escapeHtml, formatPlainMoney as money } from '../../utils.js?v=20261031-modules-v1';
 
-export function createEditor({state, scope, legacy, attribution, get}) {
+export function createEditor({state, scope, legacy, attribution, get, reads = createReadScope({get})}) {
 const $ = scope.byId;
 const openBottomSheet = scope.openSheet;
 let openingRequest = 0;
+scope.onSheetClose?.(() => {
+  reads.cancel('editor-open');
+  reads.cancel('editor-attribution');
+});
 const {COMMON_REVIEW_TAG_VALUES, HOLDING_PERIOD_OPTIONS, REVIEW_TAG_GROUP_LABELS, REVIEW_TAG_LABEL_OVERRIDES, addDaysIso, applyIdentityDefaults, findTradeRow, holdingDisplay, identityRule, option, reviewOptionLabel, reviewOptionList, reviewTextValue, ruleLabel, sideLabel, tradeRowFromAttributionPayload} = legacy;
 const {TradeAutoAttributionPanelV3, renderTradeAutoAttribution} = attribution;
 
@@ -107,6 +112,7 @@ function renderReviewTagOptions(selectedTags) {
 async function openTradeReviewById(tradeId) {
   if (!scope.alive) return;
   const request = ++openingRequest;
+  reads.cancel('editor-open');
   const sheetVersion = scope.sheetVersion;
   const existing = findTradeRow(tradeId);
   if (existing) {
@@ -115,7 +121,7 @@ async function openTradeReviewById(tradeId) {
   }
   let payload;
   try {
-    payload = await get(`/api/investment-transactions/${encodeURIComponent(tradeId)}/attribution`, { cache: false });
+    payload = await reads.get('editor-open', `/api/investment-transactions/${encodeURIComponent(tradeId)}/attribution`, { cache: false });
   } catch (error) {
     if (scope.alive && request === openingRequest && sheetVersion === scope.sheetVersion) throw error;
     return;
@@ -127,7 +133,7 @@ async function openTradeReviewById(tradeId) {
 }
 
 async function loadTradeAttribution(tradeId, form = $('tradeReviewForm')) {
-  const payload = await get(`/api/investment-transactions/${encodeURIComponent(tradeId)}/attribution`, { cache: false });
+  const payload = await reads.get('editor-attribution', `/api/investment-transactions/${encodeURIComponent(tradeId)}/attribution`, { cache: false });
   if (!scope.isCurrentForm(form) || String(form.dataset.tradeId) !== String(tradeId)) return;
   renderTradeAutoAttribution(payload);
 }
@@ -135,6 +141,8 @@ async function loadTradeAttribution(tradeId, form = $('tradeReviewForm')) {
 function openTradeReviewSheet(row) {
   if (!scope.alive) return;
   openingRequest++;
+  reads.cancel('editor-open');
+  reads.cancel('editor-attribution');
   const holding = holdingDisplay(row);
   const side = String(row?.side_normalized || '').toLowerCase();
   const showBuyReason = side === 'buy' || row?.buy_reason;
@@ -333,8 +341,8 @@ function openTradeReviewSheet(row) {
   `);
   const form = $('tradeReviewForm');
   applyIdentityDefaults(form);
-  loadTradeAttribution(row.native_id, form).catch(() => {
-    if (!scope.isCurrentForm(form)) return;
+  loadTradeAttribution(row.native_id, form).catch(error => {
+    if (isReadCancelled(error) || !scope.isCurrentForm(form)) return;
     renderTradeAutoAttribution({
     event_metrics: { coverage: 'missing', warnings: ['自动表现暂时不可用。'] },
     judgements: [{ label: '不可用', message: '自动归因接口暂时不可用。', level: 'muted' }],

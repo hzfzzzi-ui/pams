@@ -1,4 +1,4 @@
-import { LABELS } from './contract.js?v=20261031-import-v1';
+import { LABELS } from './contract.js?v=20261031-modules-v1';
 
 // Mapping drafts and explicit two-click replacement retain the server protocol.
 export function createMappingEditor(context) {

@@ -1,17 +1,19 @@
-import { ANALYSIS_PANEL_KEYS } from './constants.js?v=20261031-analysis-modules-v1';
-import { createAnalysisState, safeStorageSet, analysisPanelFromHash } from './state.js?v=20261031-analysis-modules-v1';
-import { createAnalysisLegacyModel } from './legacy_model.js?v=20261031-analysis-modules-v1';
-import { createAnalysisCharts } from './charts.js?v=20261031-analysis-modules-v1';
-import { createAnalysisTemplates } from './templates.js?v=20261031-analysis-modules-v1';
-import { createAnalysisView } from './view.js?v=20261031-analysis-modules-v1';
-import { createAnalysisRequests } from './requests.js?v=20261031-analysis-modules-v1';
-import { createBottomSheet } from '../../components/bottom_sheet.js?v=20261031-ui-v1';
-import { afterInvestmentNav } from '../../investment_startup.js?v=20261031-gray-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { ANALYSIS_PANEL_KEYS } from './constants.js?v=20261031-modules-v1';
+import { createAnalysisState, safeStorageSet, analysisPanelFromHash } from './state.js?v=20261031-modules-v1';
+import { createAnalysisLegacyModel } from './legacy_model.js?v=20261031-modules-v1';
+import { createAnalysisCharts } from './charts.js?v=20261031-modules-v1';
+import { createAnalysisTemplates } from './templates.js?v=20261031-modules-v1';
+import { createAnalysisView } from './view.js?v=20261031-modules-v1';
+import { createAnalysisRequests } from './requests.js?v=20261031-modules-v1';
+import { createBottomSheet } from '../../components/bottom_sheet.js?v=20261031-modules-v1';
+import { afterInvestmentNav } from '../../investment_startup.js?v=20261031-modules-v1';
 
 const owners = new WeakMap();
 
 export function createAnalysisController({ root = document, host = window, viewState = null, requests = createAnalysisRequests(), afterNav = afterInvestmentNav } = {}) {
   owners.get(root)?.dispose();
+  const reads = createReadScope({AbortController: host?.AbortController});
   const doc = root.ownerDocument || root;
   const state = createAnalysisState(host, viewState);
   const model = createAnalysisLegacyModel({ state });
@@ -58,13 +60,14 @@ export function createAnalysisController({ root = document, host = window, viewS
     if (!current()) return Promise.resolve(null);
     if (state.returnAttributionHoldingDailySummary) return Promise.resolve(state.returnAttributionHoldingDailySummary);
     if (returnAttributionHoldingDailyLoadPromise) return returnAttributionHoldingDailyLoadPromise;
-    returnAttributionHoldingDailyLoadPromise = requests.holdingDaily()
+    returnAttributionHoldingDailyLoadPromise = reads.run('holding-daily', signal => requests.holdingDaily({signal}))
       .then(data => {
         if (!current()) return null;
         setReturnAttributionHoldingDailySummary(data);
         return data;
       })
-      .catch(() => {
+      .catch(error => {
+        if (isReadCancelled(error)) throw error;
         if (current()) setReturnAttributionHoldingDailySummary(null);
         return null;
       })
@@ -79,7 +82,7 @@ export function createAnalysisController({ root = document, host = window, viewS
       return Promise.resolve(state.lookthroughData);
     }
     if (lookthroughLoadPromise) return lookthroughLoadPromise;
-    lookthroughLoadPromise = requests.lookthrough()
+    lookthroughLoadPromise = reads.run('lookthrough', signal => requests.lookthrough({signal}))
       .then(data => {
         if (!current()) return null;
         state.lookthroughData = data;
@@ -87,6 +90,7 @@ export function createAnalysisController({ root = document, host = window, viewS
         return data;
       })
       .catch(error => {
+        if (isReadCancelled(error)) throw error;
         if (current() && (isRiskPanelVisible() || (isAnalysisPanelVisible() && state.activeAnalysisPanel === 'asset_master'))) {
           const el = getElementById('lookthroughList');
           if (el) el.innerHTML = `<div class="lookthroughEmpty">风险暴露接口暂不可用：${esc(error?.message || error)}</div>`;
@@ -111,7 +115,7 @@ export function createAnalysisController({ root = document, host = window, viewS
       return Promise.resolve(state.returnAttributionData);
     }
     if (returnAttributionLoadPromise) return returnAttributionLoadPromise;
-    returnAttributionLoadPromise = Promise.all([requests.attribution(), loadReturnAttributionHoldingDailySummary()])
+    returnAttributionLoadPromise = Promise.all([reads.run('attribution', signal => requests.attribution({signal})), loadReturnAttributionHoldingDailySummary()])
       .then(([data]) => {
         if (!current()) return null;
         state.returnAttributionData = data;
@@ -119,6 +123,7 @@ export function createAnalysisController({ root = document, host = window, viewS
         return data;
       })
       .catch(error => {
+        if (isReadCancelled(error)) throw error;
         if (attributionVisible()) {
           const el = getElementById('returnAttributionList');
           if (el) el.innerHTML = `<div class="lookthroughEmpty">收益归因接口暂不可用：${esc(error?.message || error)}</div>`;
@@ -275,6 +280,7 @@ export function createAnalysisController({ root = document, host = window, viewS
     dispose() {
       if (disposed) return;
       disposed = true;
+      reads.dispose();
       observer?.disconnect();
       observer = null;
       for (const remove of removers.splice(0)) remove();

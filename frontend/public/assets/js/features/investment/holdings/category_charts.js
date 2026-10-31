@@ -1,6 +1,6 @@
-import { safeNum } from '../../../utils.js?v=20261031-gray-v1';
-import { fmt2 } from '../../../api.js?v=20261031-gray-v1';
-import { CHART_THEME } from '../../../shared/chart_theme.js?v=20261031-gray-v1';
+import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
+import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
+import { CHART_THEME } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 
 // Legacy category-chart formula is unchanged, now owned by this investment page.
 export function createCategoryChartLoader({ document, host: window, get: jget, Chart }) {

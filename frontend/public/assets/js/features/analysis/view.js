@@ -1,5 +1,5 @@
 // Existing display bindings and legacy calculations are preserved; API business semantics remain upstream.
-import { DIMENSIONS, CHART_DIMENSIONS, RETURN_ATTRIBUTION_DIMENSIONS, RETURN_ATTRIBUTION_DEFAULT_LIMIT } from './constants.js?v=20261031-analysis-modules-v1';
+import { DIMENSIONS, CHART_DIMENSIONS, RETURN_ATTRIBUTION_DIMENSIONS, RETURN_ATTRIBUTION_DEFAULT_LIMIT } from './constants.js?v=20261031-modules-v1';
 
 export function createAnalysisView({ state, root, model, templates, charts }) {
   const { esc, n, fmtMoney, fmtPct, calibratedReturnAttributionData, splitQualityIssues, returnAttributionRows } = model;

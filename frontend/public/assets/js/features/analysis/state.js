@@ -1,4 +1,4 @@
-import { DIMENSION_KEYS, RETURN_ATTRIBUTION_KEYS, ANALYSIS_PANEL_KEYS } from './constants.js?v=20261031-analysis-modules-v1';
+import { DIMENSION_KEYS, RETURN_ATTRIBUTION_KEYS, ANALYSIS_PANEL_KEYS } from './constants.js?v=20261031-modules-v1';
 
 export function safeStorageGet(host, key) {
   try { return host.localStorage?.getItem(key) ?? null; } catch { return null; }

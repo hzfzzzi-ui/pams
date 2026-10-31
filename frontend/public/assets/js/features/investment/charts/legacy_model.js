@@ -1,7 +1,7 @@
 // Compatibility-only chart model. Bodies copied unchanged from holdings_categories.js.
 // Existing rebasing, NAV summary, event thresholds and attribution remain legacy behavior.
 // Do not extend these formulas; future changes require the backend result contract.
-import { safeNum } from '../../../utils.js?v=20261031-gray-v1';
+import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
 
 const RETURN_WINDOW_OPTIONS = [
   { key: 'ytd', label: '年初至今' },

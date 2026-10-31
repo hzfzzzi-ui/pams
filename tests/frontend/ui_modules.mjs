@@ -6,7 +6,7 @@ import {dataStateHtml} from '../../frontend/public/assets/js/components/data_sta
 const settle = () => new Promise(resolve => setImmediate(resolve));
 function fixture({saveData = false, gate} = {}) {
   let nextId = 0;
-  const timers = new Map(), idle = new Map(), listeners = new Map(), nodes = [], calls = [];
+  const timers = new Map(), idle = new Map(), listeners = new Map(), nodes = [], calls = [], signals = [];
   const node = (tagName, attr, value) => ({tagName, getAttribute: key => key === attr ? value : null});
   const resources = [
     node('LINK', 'href', 'assets/css/tokens.css?v=fresh-token-version'),
@@ -32,14 +32,14 @@ function fixture({saveData = false, gate} = {}) {
   };
   const controller = createPageBootstrap({doc, win,
     afterStartup: callback => gate ? gate.then(callback) : Promise.resolve().then(callback),
-    warmCache: paths => calls.push(paths), now: () => new Date(2026, 9, 31),
+    warmCache: (paths, {signal}) => {calls.push(paths); signals.push(signal);}, now: () => new Date(2026, 9, 31),
   });
   async function expire() {
     for (const [id, timer] of [...timers]) { timers.delete(id); timer.callback(); }
     for (const [id, callback] of [...idle]) { idle.delete(id); callback(); }
     await settle();
   }
-  return {controller, expire, timers, idle, listeners, nodes, calls, doc};
+  return {controller, expire, timers, idle, listeners, nodes, calls, signals, doc};
 }
 
 {
@@ -58,7 +58,9 @@ function fixture({saveData = false, gate} = {}) {
   assert.ok(!f.nodes.some(n => n.href.includes('/api/') || n.href.includes('outside.invalid')));
   assert.deepEqual(collectPrefetchResources(f.doc).filter(n => n.as === 'document').map(n => new URL(n.href).pathname),
     ['/ledger.html', '/more.html']);
+  assert.equal(f.signals[0].aborted, false);
   f.controller.dispose(); assert.equal(f.listeners.size, 0);
+  assert.equal(f.signals[0].aborted, true);
   assert.ok(f.nodes.every(node => node.removed));
 }
 {

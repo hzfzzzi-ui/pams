@@ -1,4 +1,4 @@
-import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData } from './legacy_model.js?v=20261031-investment-charts-v1';
+import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData } from './legacy_model.js?v=20261031-modules-v1';
 
 const RETURN_WINDOW_STORAGE_KEY = 'pams.investmentReturn.window';
 function readReturnWindowPreference() {

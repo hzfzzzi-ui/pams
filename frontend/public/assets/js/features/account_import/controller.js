@@ -1,8 +1,8 @@
-import { ROOT, KIND_TEXT, DECIMALS, LABELS, TEXT, accessState, fileFormat, previewFields, displayAssetType, recordEditable, publishable } from './contract.js?v=20261031-import-v1';
-import { createImportClient } from './client.js?v=20261031-import-v1';
-import { createRequestScope } from './request_scope.js?v=20261031-import-v1';
-import { createRecordsEditor } from './records_editor.js?v=20261031-import-v1';
-import { createMappingEditor } from './mapping_editor.js?v=20261031-import-v1';
+import { ROOT, KIND_TEXT, DECIMALS, LABELS, TEXT, accessState, fileFormat, previewFields, displayAssetType, recordEditable, publishable } from './contract.js?v=20261031-modules-v1';
+import { createImportClient } from './client.js?v=20261031-modules-v1';
+import { createRequestScope } from './request_scope.js?v=20261031-modules-v1';
+import { createRecordsEditor } from './records_editor.js?v=20261031-modules-v1';
+import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 

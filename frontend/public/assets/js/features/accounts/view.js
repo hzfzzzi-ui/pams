@@ -1,4 +1,4 @@
-import { fmtMoneyFixed2, fmtSignedMoneyFixed2 } from '../../api.js?v=20261031-gray-v1';
+import { fmtMoneyFixed2, fmtSignedMoneyFixed2 } from '../../api.js?v=20261031-modules-v1';
 
 // Existing display helpers and financial field interpretation are preserved.
 // This view receives the instance state; it creates no subscriptions or requests.

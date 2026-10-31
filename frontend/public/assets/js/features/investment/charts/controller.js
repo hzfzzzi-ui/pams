@@ -1,14 +1,16 @@
-import { SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-gray-v1';
-import { trackInvestmentNav } from '../../../investment_startup.js?v=20261031-gray-v1';
-import { normalizeInvestmentNavRows } from './legacy_model.js?v=20261031-investment-charts-v1';
-import { createInvestmentChartState } from './state.js?v=20261031-investment-charts-v1';
-import { RETURN_SECTION_SPECS, readInvestmentNav, readInvestmentReturnSeries } from './requests.js?v=20261031-investment-charts-v1';
-import { createInvestmentChartRenderer } from './renderer.js?v=20261031-investment-charts-v1';
+import { createReadScope, isReadCancelled } from '../../../shared/read_scope.js?v=20261031-modules-v1';
+import { SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
+import { trackInvestmentNav } from '../../../investment_startup.js?v=20261031-modules-v1';
+import { normalizeInvestmentNavRows } from './legacy_model.js?v=20261031-modules-v1';
+import { createInvestmentChartState } from './state.js?v=20261031-modules-v1';
+import { RETURN_SECTION_SPECS, readInvestmentNav, readInvestmentReturnSeries } from './requests.js?v=20261031-modules-v1';
+import { createInvestmentChartRenderer } from './renderer.js?v=20261031-modules-v1';
 
 const owners = new WeakMap();
 
 export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart }) {
   owners.get(root)?.dispose();
+  const reads = createReadScope({AbortController: host?.AbortController});
   const state = createInvestmentChartState(host);
   const renderer = createInvestmentChartRenderer({ root, host, state, presenters, ChartClass });
   const sectionSpecs = RETURN_SECTION_SPECS.map((spec, index) => ({ ...spec, color: SERIES_COLORS[index] }));
@@ -26,7 +28,7 @@ export function createInvestmentChartController({ root = document, host = window
   function loadNavOnce() {
     if (!current()) return Promise.resolve(null);
     if (!navPromise) {
-      navPromise = trackInvestmentNav(readInvestmentNav()
+      navPromise = trackInvestmentNav(reads.run('nav', signal => readInvestmentNav({signal}))
         .then(response => {
           if (!current()) return null;
           state.navRows = normalizeInvestmentNavRows(response.rows || []);
@@ -36,7 +38,7 @@ export function createInvestmentChartController({ root = document, host = window
           return state.navChart;
         })
         .catch(error => {
-          if (!current()) return null;
+          if (!current() || isReadCancelled(error)) return null;
           navPromise = null;
           console.error('NAV曲线加载失败', error);
           throw error;
@@ -51,7 +53,13 @@ export function createInvestmentChartController({ root = document, host = window
     if (!el) return null;
     loadNavOnce().catch(() => null);
     const generation = ++returnGeneration;
-    const response = await readInvestmentReturnSeries();
+    let response;
+    try {
+      response = await reads.run('returns', signal => readInvestmentReturnSeries({signal}));
+    } catch (error) {
+      if (isReadCancelled(error)) return null;
+      throw error;
+    }
     if (!current() || generation !== returnGeneration) return null;
     const result = renderer.renderReturns({ ...response, sectionSpecs });
     publishCharts();
@@ -62,7 +70,7 @@ export function createInvestmentChartController({ root = document, host = window
     if (!current()) return Promise.resolve(null);
     if (!returnPromise) {
       returnPromise = renderReturns().catch(error => {
-        if (!current()) return null;
+        if (!current() || isReadCancelled(error)) return null;
         returnPromise = null;
         (root.body || root).dataset.investmentReturnChartError = String(error);
         console.error('收益曲线加载失败', error);
@@ -89,6 +97,7 @@ export function createInvestmentChartController({ root = document, host = window
     dispose() {
       if (disposed) return;
       disposed = true;
+      reads.dispose();
       returnGeneration += 1;
       host.removeEventListener?.('pagehide', onPageHide);
       renderer.dispose();

@@ -1,6 +1,6 @@
-import { accountLabel } from '../../api.js?v=20261031-gray-v1';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-gray-v1';
-import { CHART_THEME, SERIES_COLORS } from '../../shared/chart_theme.js?v=20261031-gray-v1';
+import { accountLabel } from '../../api.js?v=20261031-modules-v1';
+import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-modules-v1';
+import { CHART_THEME, SERIES_COLORS } from '../../shared/chart_theme.js?v=20261031-modules-v1';
 const CATEGORY_PIE_COLORS = { income: SERIES_COLORS, expense: SERIES_COLORS };
 
 export function createLedgerOverview({ root, host, state, model, dom, ChartClass = host.Chart }) {

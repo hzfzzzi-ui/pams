@@ -1,5 +1,6 @@
-import { dataStateHtml } from '../../ui.js?v=20261031-ui-v1';
-import { fmtSyncTime, renderSyncSummary, renderWorkflow, renderSyncRows, renderSyncTable, rowDetail, setStatus } from './view.js?v=20261031-feature-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { dataStateHtml } from '../../ui.js?v=20261031-modules-v1';
+import { fmtSyncTime, renderSyncSummary, renderWorkflow, renderSyncRows, renderSyncTable, rowDetail, setStatus } from './view.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 
@@ -12,14 +13,20 @@ export async function triggerSync(row, {statusEl, after, post, isActive = () => 
     const result = await post(row.trigger_endpoint, row.trigger_body || {});
     if (!isActive()) return;
     if (result?.success === false || ['blocked', 'failed', 'error'].includes(result?.status)) {
-      if (after) await after();
+      if (after) {
+        try { await after(); }
+        catch (error) {
+          // Replacing only the refresh read must not hide a known POST failure.
+          if (!isReadCancelled(error)) throw error;
+        }
+      }
       if (!isActive()) return;
       throw new Error(result.reason || result.error || '未通过发布检查，保留上一有效值');
     }
     setStatus(statusEl, `${row.source} 已刷新`, 'ok');
     if (after) await after();
   } catch (err) {
-    if (isActive()) setStatus(statusEl, `${row.source} 刷新失败：${String(err?.message || err)}`, 'error');
+    if (isActive() && !isReadCancelled(err)) setStatus(statusEl, `${row.source} 刷新失败：${String(err?.message || err)}`, 'error');
   }
 }
 
@@ -31,6 +38,7 @@ export function mount(root, context) {
     return current;
   }
   const {get, post, openSheet, closeSheet, win = root.ownerDocument?.defaultView} = context;
+  const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   let targets = {};
   let alive = true;
   let generation = 0;
@@ -53,8 +61,9 @@ export function mount(root, context) {
     const request = ++generation;
     let data;
     try {
-      data = await get('/api/sync/center');
+      data = await reads.get('center', '/api/sync/center');
     } catch (error) {
+      if (isReadCancelled(error)) throw error;
       const message = String(error?.message || error);
       const failed = {rows: [], summary: {}, workflows: [], error: message};
       if (!alive || request !== generation) return failed;
@@ -135,6 +144,7 @@ export function mount(root, context) {
   function dispose() {
     if (!alive) return;
     alive = false;
+    reads.dispose();
     generation++;
     root.removeEventListener('click', onClick);
     win?.removeEventListener('pagehide', dispose);

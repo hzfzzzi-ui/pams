@@ -53,9 +53,9 @@ def test_mobile_build_retains_rules_and_is_deterministic():
 def test_phone_mode_is_limited_to_investment_and_approved_more_hub():
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     assert "investment-phone-layout" in html
-    assert "style-phone.css?v=20261031-style-cleanup-v1" in html
+    assert "style-phone.css?v=20261031-modules-v1" in html
     more = (ROOT / "frontend/public/more.html").read_text(encoding="utf-8")
-    assert "style-phone.css?v=20261031-style-cleanup-v1" in more
+    assert "style-phone.css?v=20261031-modules-v1" in more
     for name in ("ledger", "accounts", "data_sources"):
         assert "-phone.css" not in (ROOT / f"frontend/public/{name}.html").read_text(encoding="utf-8")
 

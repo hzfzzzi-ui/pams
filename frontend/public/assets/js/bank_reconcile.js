@@ -1,7 +1,7 @@
-import { replaceContentAddress } from './app/routes.js?v=20261031-ui-v1';
-import { jget, jpost } from './api.js?v=20261031-gray-v1';
-import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js?v=20261031-ui-v1';
-import { mount as mountPage, dispose as disposePage } from './features/accounts/controller.js?v=20261031-accounts-v1';
+import { replaceContentAddress } from './app/routes.js?v=20261031-modules-v1';
+import { jget, jpost } from './api.js?v=20261031-modules-v1';
+import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js?v=20261031-modules-v1';
+import { mount as mountPage, dispose as disposePage } from './features/accounts/controller.js?v=20261031-modules-v1';
 
 let page;
 let restoreState;

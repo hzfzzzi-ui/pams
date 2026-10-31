@@ -1,11 +1,12 @@
-import { createDomView } from '../../shared/dom_view.js?v=20261031-transactions-v1';
-import { createState } from './state.js?v=20261031-transactions-v1';
-import { createScope } from './scope.js?v=20261031-transactions-v1';
-import { createLegacyReview } from './legacy_review.js?v=20261031-transactions-v1';
-import { createListView } from './list_view.js?v=20261031-transactions-v1';
-import { createAttributionView } from './attribution_view.js?v=20261031-transactions-v1';
-import { createEditor } from './editor.js?v=20261031-transactions-v1';
-import { createCommands } from './commands.js?v=20261031-transactions-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { createDomView } from '../../shared/dom_view.js?v=20261031-modules-v1';
+import { createState } from './state.js?v=20261031-modules-v1';
+import { createScope } from './scope.js?v=20261031-modules-v1';
+import { createLegacyReview } from './legacy_review.js?v=20261031-modules-v1';
+import { createListView } from './list_view.js?v=20261031-modules-v1';
+import { createAttributionView } from './attribution_view.js?v=20261031-modules-v1';
+import { createEditor } from './editor.js?v=20261031-modules-v1';
+import { createCommands } from './commands.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 
@@ -18,8 +19,9 @@ export function mount(root, context) {
   const navigate = context.navigate || (url => win.location.assign(url));
   const restore = context.restoreState;
   const scope = createScope(root, {...context, win});
+  const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const dom = createDomView(root);
-  const showError = error => {if (scope.alive) dom.showError(error);};
+  const showError = error => {if (scope.alive && !isReadCancelled(error)) dom.showError(error);};
   const clearError = () => {if (scope.alive) dom.clearError();};
   const state = createState();
   const legacy = createLegacyReview({state, scope});
@@ -27,7 +29,7 @@ export function mount(root, context) {
   state.showAll = Boolean(restore?.showAll);
   const list = createListView({state, scope, legacy});
   const attribution = createAttributionView({state, scope, legacy});
-  const editor = createEditor({state, scope, legacy, attribution, get});
+  const editor = createEditor({state, scope, legacy, attribution, get, reads});
   const commands = createCommands({scope, legacy, post, loadOptions, loadLedger});
   const $ = scope.byId;
   const closeBottomSheet = scope.closeSheet;
@@ -42,7 +44,7 @@ export function mount(root, context) {
 async function loadOptions() {
   if (!scope.alive) return;
   const request = ++requests.options;
-  const data = await get('/api/investment-transactions/options');
+  const data = await reads.get('options', '/api/investment-transactions/options');
   if (!scope.alive || request !== requests.options) return;
   state.accounts = data.accounts || [];
   state.categories = data.categories || [];
@@ -56,7 +58,7 @@ async function loadLedger() {
   if (!scope.alive) return;
   const request = ++requests.ledger;
   clearError();
-  const data = await get(`/api/investment-transactions?${buildQuery()}`);
+  const data = await reads.get('ledger', `/api/investment-transactions?${buildQuery()}`);
   if (!scope.alive || request !== requests.ledger) return;
   state.rows = data.rows || [];
   state.summary = data.summary || {};
@@ -68,7 +70,8 @@ async function loadLedger() {
 function requestAttributionSummaryLoad() {
   if (!scope.alive) return Promise.resolve();
   if (state.attributionLoadPromise) return state.attributionLoadPromise;
-  state.attributionLoadPromise = loadAttributionSummary().catch(() => {
+  state.attributionLoadPromise = loadAttributionSummary().catch(error => {
+    if (isReadCancelled(error)) return;
     if (!scope.alive) return;
     renderTradeAttribution({
       sample_count: 0,
@@ -116,7 +119,7 @@ async function loadAttributionSummary() {
   if (start) params.set('start', start);
   if (end) params.set('end', end);
   params.set('limit', '300');
-  const payload = await get(`/api/investment-transactions/attribution/summary?${params.toString()}`, { cache: false });
+  const payload = await reads.get('attribution-summary', `/api/investment-transactions/attribution/summary?${params.toString()}`, { cache: false });
   if (!scope.alive || request !== requests.attribution) return;
   state.attribution = payload;
   state.campaigns = null;
@@ -137,9 +140,10 @@ async function loadCampaignSummary() {
   if (filters.assetKey) params.set('asset_key', filters.assetKey);
   params.set('limit', '5');
   try {
-    const campaigns = await get(`/api/investment-transactions/campaigns?${params.toString()}`, { cache: false });
+    const campaigns = await reads.get('campaigns', `/api/investment-transactions/campaigns?${params.toString()}`, { cache: false });
     if (scope.alive && request === requests.campaigns) state.campaigns = campaigns;
   } catch (err) {
+    if (isReadCancelled(err)) throw err;
     if (!scope.alive || request !== requests.campaigns) return;
     state.campaigns = {
       summary: { total_campaigns: 0, status_counts: {} },
@@ -406,6 +410,7 @@ function bindEvents() {
     if (!scope.alive) return;
     closeTradeReviewAssetFloat();
     scope.root.classList.remove('trade-review-asset-open');
+    reads.dispose();
     scope.dispose();
     if (mounted.get(root) === controller) mounted.delete(root);
   }

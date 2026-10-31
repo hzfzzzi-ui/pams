@@ -182,7 +182,7 @@ try {
   // An older read in the same controller cannot overwrite a newer response.
   await page.evaluate(() => {
     __ledgerTest.deferReads = true;
-    __older = __ledgerPage.controller.loadWorkbench();
+    __older = __ledgerPage.controller.loadWorkbench().then(() => 'resolved', error => error.name);
     __newer = __ledgerPage.controller.loadWorkbench();
     const next = structuredClone(__ledgerTest.fixture); next.periods.ytd.income = 9999;
     __ledgerTest.pendingReads[1].resolve(next);
@@ -190,6 +190,7 @@ try {
   await page.waitForFunction(() => __ledgerPage.controller.state.data.periods.ytd.income === 9999);
   await page.evaluate(() => __ledgerTest.pendingReads[0].resolve(structuredClone(__ledgerTest.fixture)));
   await page.evaluate(() => Promise.all([__older, __newer]));
+  assert.equal(await page.evaluate(() => __older), 'AbortError');
   assert.equal(await page.evaluate(() => __ledgerPage.controller.state.data.periods.ytd.income), 9999);
   await page.evaluate(() => { __ledgerTest.deferReads = false; __ledgerTest.pendingReads = []; });
 
@@ -206,7 +207,7 @@ try {
   await page.locator('[data-ledger-edit-form] button[type="submit"]').click();
   const writesBefore = await page.evaluate(() => __ledgerTest.writes.length);
   const viewBefore = await page.evaluate(async () => {
-    const { snapshotLedgerViewState } = await import('/assets/js/features/ledger/state.js?v=20261031-ledger-modules-v1');
+    const { snapshotLedgerViewState } = await import('/assets/js/features/ledger/state.js?v=20261031-modules-v1');
     return snapshotLedgerViewState(__ledgerPage.controller.state);
   });
   await page.evaluate(() => { __oldController = __ledgerPage.controller; window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })); });
@@ -215,7 +216,7 @@ try {
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await page.evaluate(() => __ledgerPage.ready);
   const viewAfter = await page.evaluate(async () => {
-    const { snapshotLedgerViewState } = await import('/assets/js/features/ledger/state.js?v=20261031-ledger-modules-v1');
+    const { snapshotLedgerViewState } = await import('/assets/js/features/ledger/state.js?v=20261031-modules-v1');
     return snapshotLedgerViewState(__ledgerPage.controller.state);
   });
   assert.deepEqual(viewAfter, viewBefore);
@@ -231,8 +232,8 @@ try {
   // Mounting again is idempotent; explicit disposal allows a fresh owner.
   await page.evaluate(async () => {
     __ledgerTest.deferReads = true;
-    __oldLoading = __ledgerPage.controller.loadWorkbench();
-    const { mountLedgerPage } = await import('/assets/js/features/ledger/page.js?v=20261031-ledger-modules-v1');
+    __oldLoading = __ledgerPage.controller.loadWorkbench().then(() => 'resolved', error => error.name);
+    const { mountLedgerPage } = await import('/assets/js/features/ledger/page.js?v=20261031-modules-v1');
     if (mountLedgerPage() !== __ledgerPage) throw new Error('Repeated mount must reuse the page');
     if (__ledgerTest.pendingReads.length !== 1) throw new Error('Repeated mount issued another read');
     __ledgerPage.dispose();
@@ -241,7 +242,7 @@ try {
   });
   await page.evaluate(() => __ledgerPage.ready);
   await page.evaluate(() => __ledgerTest.pendingReads[0].resolve({ periods: { ytd: { income: 111 } } }));
-  await page.evaluate(() => __oldLoading);
+  assert.equal(await page.evaluate(() => __oldLoading), 'AbortError');
   assert.equal(await page.evaluate(() => __ledgerPage.controller.state.data.periods.ytd.income), 2250.25);
   assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 2);
   const requestCount = await page.evaluate(() => __ledgerTest.reads.length);
@@ -254,7 +255,7 @@ try {
   // A mounted element queries and binds only its own subtree.
   await page.evaluate(async () => {
     __ledgerTest.deferReads = false;
-    const { mountLedgerPage } = await import('/assets/js/features/ledger/page.js?v=20261031-ledger-modules-v1');
+    const { mountLedgerPage } = await import('/assets/js/features/ledger/page.js?v=20261031-modules-v1');
     const outside = document.createElement('button'); outside.id = 'outside-ledger'; outside.dataset.overviewPeriod = 'month'; document.body.append(outside);
     __ledgerPage = mountLedgerPage({ root: document.querySelector('.wrap') });
     await __ledgerPage.ready;

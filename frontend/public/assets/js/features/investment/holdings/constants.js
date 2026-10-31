@@ -1,4 +1,4 @@
-import { SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-gray-v1';
+import { SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 export const INVESTMENT_PHONE_QUERY = '(min-width: 0px)';
 
 export const CATEGORY_SECTION_IDS = [

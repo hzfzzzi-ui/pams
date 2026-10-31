@@ -1,5 +1,5 @@
 // Keep one navigation DOM node; existing page controllers stay in their own document.
-import { CONTENT_PAGES, primaryPageFor, resolveContentRoute } from './app/routes.js?v=20261031-ui-v1';
+import { CONTENT_PAGES, primaryPageFor, resolveContentRoute } from './app/routes.js?v=20261031-modules-v1';
 const pages = new Set(CONTENT_PAGES);
 const frame = document.getElementById('page-content');
 const links = [...document.querySelectorAll('[data-page]')];

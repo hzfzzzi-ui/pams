@@ -141,10 +141,10 @@ const syncPayload = {updated_at: '2026-10-31T00:00:00Z', summary: {ok: 3, manual
   assert.match(root.querySelector('#statusLine').innerHTML, /正常<\/span><strong>3/);
   assert.match(root.querySelector('#statusLine').innerHTML, /待人工<\/span><strong>2/);
   assert.match(root.querySelector('#statusLine').innerHTML, /异常<\/span><strong>1/);
-  reads[0].resolve({...syncPayload, rows: []}); await first;
+  reads[0].resolve({...syncPayload, rows: []}); await assert.rejects(first, error => error.name === 'AbortError');
   assert.equal(root.querySelector('#sourceList').innerHTML, rows, 'Older reloads must not replace newer render');
   const late = page.reload(); page.dispose(); root.querySelector('#sourceList').innerHTML = 'disposed';
-  reads[2].reject(new Error('late unavailable')); await late;
+  reads[2].reject(new Error('late unavailable')); await assert.rejects(late, error => error.name === 'AbortError');
   assert.equal(root.querySelector('#sourceList').innerHTML, 'disposed');
   assert.equal(root.count('click'), 0); assert.equal(win.count('pagehide'), 0);
   await page.reload(); assert.equal(reads.length, 3);
@@ -159,6 +159,29 @@ const syncPayload = {updated_at: '2026-10-31T00:00:00Z', summary: {ok: 3, manual
   assert.equal(status.textContent, '<固定数据> 刷新中...'); assert.equal(after, 0); assert.equal(writes, 1);
   await sync.triggerSync(syncPayload.rows[0], {statusEl: status, post: async () => ({status: 'blocked', reason: '固定阻断原因'}), after: async () => {after++;}});
   assert.equal(after, 1); assert.equal(status.textContent, '<固定数据> 刷新失败：固定阻断原因');
+  assert.equal(status.className, 'manualSyncStatus error');
+}
+
+// A child reload cancellation is independent of a valid quality result.
+{
+  const root = dataRoot(), cancelled = Object.assign(new Error('child replaced'), {name: 'AbortError'});
+  const page = data.mount(root, {win: new Node(), location: {search: ''},
+    get: async () => ({as_of: '2026-10-31', data_quality: quality}),
+    mountSyncCenter: () => ({reload: async () => {throw cancelled;}, dispose() {}}),
+  });
+  await page.ready;
+  assert.equal(root.querySelector('#asof').textContent, '2026-10-31');
+  assert.match(root.querySelector('#dataQuality').innerHTML, /行动提示/);
+  assert.equal(root.querySelector('#err').textContent, ''); page.dispose();
+}
+// An explicit POST failure remains visible if only its follow-up GET is replaced.
+{
+  const status = new Node(); let writes = 0;
+  await sync.triggerSync(syncPayload.rows[0], {statusEl: status,
+    post: async () => {writes++; return {status: 'blocked', reason: '固定服务端失败'};},
+    after: async () => {throw Object.assign(new Error('read replaced'), {name: 'AbortError'});},
+  });
+  assert.equal(writes, 1); assert.equal(status.textContent, '<固定数据> 刷新失败：固定服务端失败');
   assert.equal(status.className, 'manualSyncStatus error');
 }
 

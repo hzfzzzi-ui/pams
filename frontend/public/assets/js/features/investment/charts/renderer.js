@@ -1,8 +1,8 @@
-import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-gray-v1';
-import { fmt2 } from '../../../api.js?v=20261031-gray-v1';
-import { safeNum } from '../../../utils.js?v=20261031-gray-v1';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261031-investment-charts-v1';
-import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261031-investment-charts-v1';
+import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
+import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
+import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
+import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261031-modules-v1';
+import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261031-modules-v1';
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {

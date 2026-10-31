@@ -1,18 +1,8 @@
+import { createDomView } from '../../shared/dom_view.js?v=20261031-modules-v1';
 // One root owns its queries/listeners; sheet sessions are explicit child views.
 export function createLedgerDom(root) {
-  const $ = id => root.getElementById ? root.getElementById(id) : root.querySelector(`#${id}`);
-  return {
-    $,
-    setText(id, value) { const el = $(id); if (el) el.textContent = value; },
-    showError(err, id = 'err') {
-      const el = $(id);
-      if (el) { el.style.display = 'block'; el.textContent = err?.message || String(err); }
-    },
-    clearError(id = 'err') {
-      const el = $(id);
-      if (el) { el.style.display = 'none'; el.textContent = ''; }
-    },
-  };
+  const view = createDomView(root);
+  return {$: view.byId, ...view};
 }
 
 export function createLedgerEvents(current) {

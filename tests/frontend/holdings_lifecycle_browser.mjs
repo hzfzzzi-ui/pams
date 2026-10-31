@@ -23,9 +23,9 @@ try {
  await page.goto('http://holdings.invalid/investments.html?content=1');
  const result=await page.evaluate(async()=>{
   const base='/assets/js/features/investment/holdings/';
-  const list=await import(base+'list_controller.js?v=20261031-holdings-v1');
-  const summary=await import(base+'summary_controller.js?v=20261031-holdings-v1');
-  const closed=await import(base+'closed_positions.js?v=20261031-holdings-v1');
+  const list=await import(base+'list_controller.js?v=20261031-modules-v1');
+  const summary=await import(base+'summary_controller.js?v=20261031-modules-v1');
+  const closed=await import(base+'closed_positions.js?v=20261031-modules-v1');
   const assert=(condition,message)=>{if(!condition)throw new Error(message);};
   const root=document.body, listeners=new Set(),timers=new Set(),observers=new Set(),charts=[];
   // The legacy distribution canvas is optional in today's page; exercise its

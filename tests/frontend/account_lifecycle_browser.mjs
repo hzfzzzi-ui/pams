@@ -103,7 +103,7 @@ try {
   entryMode = true;
   await page.addInitScript(() => Object.defineProperty(navigator, 'connection', {configurable: true, value: {saveData: true}}));
   await page.goto('http://accounts-fixture.invalid/accounts.html?content=1');
-  await page.evaluate(async () => {window.entry = await import('/assets/js/bank_reconcile.js?v=20261031-accounts-v1'); await entry.mount().ready;});
+  await page.evaluate(async () => {window.entry = await import('/assets/js/bank_reconcile.js?v=20261031-modules-v1'); await entry.mount().ready;});
   assert.deepEqual(entryReads, fixtures.initialUrls);
   await page.locator('[data-account-filter="缺数据"]').click();
   await page.locator('[data-account-tab="sources"]').click(); await page.locator('[data-profile="synthetic_hkd"]').click();

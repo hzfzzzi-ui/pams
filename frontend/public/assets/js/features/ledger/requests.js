@@ -1,10 +1,11 @@
-import { jget, jpost } from '../../api.js?v=20261031-gray-v1';
+import { readFallback } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { jget, jpost } from '../../api.js?v=20261031-modules-v1';
 
-export function readLedgerWorkbench() {
+export function readLedgerWorkbench({signal} = {}) {
   const params = new URLSearchParams({ baseCurrency: 'CNY', recentDays: '30' });
   return Promise.all([
-    jget(`/api/ledger/workbench?${params.toString()}`, { cache: false }),
-    jget('/api/accounts/overview').catch(() => ({ summary: {}, accounts: [] })),
+    jget(`/api/ledger/workbench?${params.toString()}`, { cache: false, signal }),
+    jget('/api/accounts/overview', {signal}).catch(error => readFallback(error, { summary: {}, accounts: [] })),
   ]).then(([data, accounts]) => ({ data, accounts }));
 }
 

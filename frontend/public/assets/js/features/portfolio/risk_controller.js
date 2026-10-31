@@ -1,6 +1,6 @@
-import {dashboardView, riskCategoriesHtml, riskErrorHtml} from './risk_view.js?v=20261031-panels-v1';
-import {loadRiskDisclosure} from './requests.js?v=20261031-panels-v1';
-import {createReadSession} from './read_session.js?v=20261031-panels-v1';
+import {dashboardView, riskCategoriesHtml, riskErrorHtml} from './risk_view.js?v=20261031-modules-v1';
+import {loadRiskDisclosure} from './requests.js?v=20261031-modules-v1';
+import {createReadSession} from './read_session.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
 

@@ -26,7 +26,7 @@ await page.route('**/*', async route => {
     if (!entryMode || !payloads[url.pathname]) {unexpected.push(url.href); return route.abort();}
     entryReads.push(url.pathname+url.search); return route.fulfill({json: payloads[url.pathname]});
   }
-  if (url.pathname === '/entry.html') return route.fulfill({contentType: 'text/html', body: `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>固定交易入口测试</title>${style}<body>${markup}<script type="module" src="/assets/js/transactions.js?v=20261031-transactions-v1"></script></body></html>`});
+  if (url.pathname === '/entry.html') return route.fulfill({contentType: 'text/html', body: `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>固定交易入口测试</title>${style}<body>${markup}<script type="module" src="/assets/js/transactions.js?v=20261031-modules-v1"></script></body></html>`});
   if (url.pathname === '/') return route.fulfill({contentType: 'text/html', body: `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>固定交易生命周期测试</title>${style}<body><h1>固定交易生命周期测试</h1><div id="roots"></div>
 <script type="module">
 import {mount} from '/assets/js/features/transactions/controller.js';
@@ -145,7 +145,7 @@ try {
   entryMode=true;
   await page.addInitScript(()=>Object.defineProperty(navigator,'connection',{configurable:true,value:{saveData:true}}));
   await page.goto('http://transactions-fixture.invalid/entry.html');
-  await page.evaluate(async()=>{window.entry=await import('/assets/js/transactions.js?v=20261031-transactions-v1');await entry.mount().ready;});
+  await page.evaluate(async()=>{window.entry=await import('/assets/js/transactions.js?v=20261031-modules-v1');await entry.mount().ready;});
   await page.locator('#btnToggleTradeFilters').click(); await page.locator('#filterSheetSearch').fill('已应用筛选'); await page.locator('#tradeFilterForm button[type="submit"]').click();
   await page.locator('#btnToggleAllTrades').click(); assert.equal(await page.locator('.tradeLedgerItem').count(),12);
   await page.locator('#btnToggleTradeFilters').click(); await page.locator('#filterSheetSearch').fill('未应用草稿'); await page.locator('#filterSheetStart').fill('2026-05-05');

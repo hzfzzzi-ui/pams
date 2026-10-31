@@ -1,4 +1,4 @@
-import { readOptionalNumber as readNumber } from '../../utils.js?v=20261031-gray-v1';
+import { readOptionalNumber as readNumber } from '../../utils.js?v=20261031-modules-v1';
 
 export function createCommands({scope, legacy, post, loadOptions, loadLedger}) {
 const $ = scope.byId;

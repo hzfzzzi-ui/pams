@@ -1,3 +1,4 @@
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
   if (!summary || !['ok', 'warning', 'error'].includes(summary.status) ||
@@ -10,12 +11,13 @@ export function issueSummary(payload) {
 const mounted = new WeakMap();
 
 // Each page instance owns its queries, listeners and pending response lifetime.
-// API requests may still complete in the shared cache after dispose.
+// Each GET is independently cancellable; late-response guards remain in place.
 export function mount(root, context) {
   if (!root?.querySelector) throw new TypeError('More page root is required');
   const current = mounted.get(root);
   if (current) return current;
   const {get, renderExplanation, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
+  const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const find = id => root.querySelector(`#${id}`);
   const row = find('moreIssues');
   const label = find('moreIssueText');
@@ -27,15 +29,15 @@ export function mount(root, context) {
 
   async function loadIssues() {
     try {
-      const payload = await get('/api/portfolio/data-quality?baseCurrency=CNY', {cache: false});
+      const payload = await reads.get('issues', '/api/portfolio/data-quality?baseCurrency=CNY', {cache: false});
       if (!alive) return;
       const text = issueSummary(payload);
       if (row) row.hidden = text === null;
       const title = row?.querySelector('strong');
       if (title) title.textContent = '待处理';
       if (label && text !== null) label.textContent = text;
-    } catch {
-      if (!alive) return;
+    } catch (error) {
+      if (!alive || isReadCancelled(error)) return;
       if (row) row.hidden = false;
       const title = row?.querySelector('strong');
       if (title) title.textContent = '数据状态暂不可用';
@@ -49,12 +51,12 @@ export function mount(root, context) {
     panel.innerHTML = '<div class="muted">正在加载NAV增值解释...</div>';
     navGrowthPending = (async () => {
       try {
-        const payload = await get('/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY', {cache: false});
+        const payload = await reads.get('explanation', '/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY', {cache: false});
         if (!alive) return;
         renderExplanation(payload, panel);
         navGrowthLoaded = true;
       } catch (error) {
-        if (!alive) return;
+        if (!alive || isReadCancelled(error)) return;
         panel.innerHTML = '<div class="muted"></div>';
         panel.firstElementChild.textContent = `NAV增值解释加载失败：${error?.message || String(error)}`;
       } finally {
@@ -71,6 +73,7 @@ export function mount(root, context) {
   function dispose() {
     if (!alive) return;
     alive = false;
+    reads.dispose();
     details?.removeEventListener('toggle', onToggle);
     win?.removeEventListener('pagehide', dispose);
     if (mounted.get(root) === controller) mounted.delete(root);

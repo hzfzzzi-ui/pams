@@ -77,8 +77,8 @@ async function makePage(legacy = false) {
     if (pathname.endsWith('/api.js')) body = 'export const jget = (...args) => window.__read(...args);';
     else if (pathname.endsWith('/investment_requests.js')) body = "export const loadInvestmentSummaryFresh = () => window.__read('summary');";
     else if (pathname.endsWith('/investment_startup.js')) body = 'export const afterInvestmentNav = task => window.__afterNav(task);';
-    else if (pathname.endsWith('/ui.js')) body = "import {createBottomSheet} from './components/bottom_sheet.js?v=20261031-ui-v1'; const sheet=createBottomSheet(document); export const openBottomSheet=(...args)=>sheet.open(...args);";
-    else if (pathname.endsWith('/lookthrough.js')) body = legacy ? await readFile(baselineEntry, 'utf8') : "import {mountAnalysisPage} from './features/analysis/page.js?v=20261031-analysis-modules-v1'; window.__analysisPage=mountAnalysisPage();";
+    else if (pathname.endsWith('/ui.js')) body = "import {createBottomSheet} from './components/bottom_sheet.js?v=20261031-modules-v1'; const sheet=createBottomSheet(document); export const openBottomSheet=(...args)=>sheet.open(...args);";
+    else if (pathname.endsWith('/lookthrough.js')) body = legacy ? await readFile(baselineEntry, 'utf8') : "import {mountAnalysisPage} from './features/analysis/page.js?v=20261031-modules-v1'; window.__analysisPage=mountAnalysisPage();";
     else if (pathname === '/fixture.html') {
       type = 'text/html; charset=utf-8';
       body = (await readFile(path.join(publicRoot, 'investments.html'), 'utf8')).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -177,14 +177,14 @@ try {
       // A disposed generation's deferred requests cannot overwrite its replacement.
       await page.evaluate(async () => {
         window.__analysisPage.dispose();
-        const {mountAnalysisPage} = await import('/assets/js/features/analysis/page.js?v=20261031-analysis-modules-v1');
+        const {mountAnalysisPage} = await import('/assets/js/features/analysis/page.js?v=20261031-modules-v1');
         window.__test.defer = true;
         window.__analysisPage = mountAnalysisPage();
         window.__old = window.__analysisPage.controller;
       });
       await page.waitForFunction(() => window.__test.pending.length === 1);
       await page.evaluate(async () => {
-        const {mountAnalysisPage} = await import('/assets/js/features/analysis/page.js?v=20261031-analysis-modules-v1');
+        const {mountAnalysisPage} = await import('/assets/js/features/analysis/page.js?v=20261031-modules-v1');
         window.__test.defer = false;
         if (mountAnalysisPage() !== window.__analysisPage) throw new Error('Repeated mount replaced the current page');
         window.__analysisPage.dispose();
@@ -196,7 +196,7 @@ try {
       // Scoped controllers never consume another root's tabs or stale NAV callbacks.
       await page.evaluate(async () => {
         window.__analysisPage.dispose();
-        const {createAnalysisController} = await import('/assets/js/features/analysis/controller.js?v=20261031-analysis-modules-v1');
+        const {createAnalysisController} = await import('/assets/js/features/analysis/controller.js?v=20261031-modules-v1');
         const content = '<button data-return-attr-dim="industry">industry</button><div id="return-attribution"></div><div id="returnAttributionTabs"></div><div id="returnAttributionList"></div>';
         const one = document.createElement('section'), two = document.createElement('section');
         one.innerHTML = content; two.innerHTML = content; document.body.append(one, two);

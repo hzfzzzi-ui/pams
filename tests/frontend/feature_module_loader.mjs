@@ -5,7 +5,7 @@ import vm from 'node:vm';
 // Use real feature modules and presentation renderers; only the network, shell
 // bootstrap and unrelated NAV renderer are injectable at this boundary.
 export async function loadFeatureModule(publicRoot, entry, globals = {}, overrides = {}) {
-  const context = vm.createContext({URLSearchParams, ...globals});
+  const context = vm.createContext({AbortController, URLSearchParams, ...globals});
   const cache = new Map();
   const jsRoot = path.join(publicRoot, 'assets/js');
   const resolve = (file, specifier) => path.resolve(path.dirname(file), specifier.split('?')[0]);
