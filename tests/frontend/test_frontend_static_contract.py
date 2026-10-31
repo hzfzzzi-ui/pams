@@ -372,7 +372,7 @@ def test_legacy_frontend_entrypoints_stay_removed() -> None:
 
 def test_ledger_page_uses_card_list_navigation_contract() -> None:
     html = _read_public("ledger.html")
-    js = _read_public("assets/js/ledger_cashflow.js")
+    js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
     css = _read_public("assets/css/style.css")
 
     assert 'class="ledgerAnchorNav"' in html
@@ -472,7 +472,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
     assert "'#review-section': 'account'" in js
-    assert "assets/js/ledger_cashflow.js?v=20261031-ui-v1" in html
+    assert "assets/js/ledger_cashflow.js?v=20261031-ledger-modules-v1" in html
     assert 'id="overviewTitle"' in html
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
@@ -536,7 +536,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "function rowSearchText(row)" in js
     assert "function rowMetaText(row)" in js
     assert "function ledgerEditSheetHtml(row)" in js
-    assert "function bindLedgerEditSheet(row)" in js
+    assert "function bindLedgerEditSheet(row, session)" in js
     assert "function openLedgerEdit(row)" in js
     assert "function ledgerEditActionLabel(row)" in js
     assert "LEDGER_EDIT_CATEGORY_OPTIONS" in js
@@ -897,7 +897,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
 def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     utils_js = _read_public("assets/js/utils.js")
-    ledger_js = _read_public("assets/js/ledger_cashflow.js")
+    ledger_js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
     tx_js = _read_public("assets/js/transactions.js")
     ledger_html = _read_public("ledger.html")
     investments_html = _read_public("investments.html")
@@ -917,8 +917,8 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert helper in utils_js
 
-    for js in [ledger_js, tx_js]:
-        assert "from './utils.js?v=20261031-gray-v1'" in js
+    for js, prefix in [(ledger_js, "../../"), (tx_js, "./")]:
+        assert f"from '{prefix}utils.js?v=20261031-gray-v1'" in js
         assert "function escapeHtml" not in js
         assert "function num(" not in js
         assert "function showError(" not in js
@@ -942,7 +942,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     ]:
         assert duplicated_helper not in ledger_js
 
-    assert "assets/js/ledger_cashflow.js?v=20261031-ui-v1" in ledger_html
+    assert "assets/js/ledger_cashflow.js?v=20261031-ledger-modules-v1" in ledger_html
     assert "assets/js/transactions.js?v=20261031-ui-v1" in investments_html
 
 
