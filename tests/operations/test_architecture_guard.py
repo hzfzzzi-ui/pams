@@ -36,6 +36,14 @@ def test_legacy_ledger_files_cannot_return(tmp_path):
     assert all(any(path in error for error in errors) for path in legacy)
 
 
+def test_retired_write_scripts_cannot_return(tmp_path):
+    files = fixture_repo(tmp_path)
+    retired = ['scripts/import_holdings_from_excel.py',
+               'scripts/repair_ibkr_us_estimate_fallback.py']
+    errors = check_architecture(tmp_path, files + retired)
+    assert all(any(path in error for error in errors) for path in retired)
+
+
 def test_retired_paths_and_root_tests_are_rejected(tmp_path):
     files = fixture_repo(tmp_path)
     files += ['BACKTEST_v2/run.py', 'strategy/engine.py', 'strategy-gpt/x.py',

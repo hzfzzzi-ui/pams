@@ -29,6 +29,8 @@ RETIRED_PAGES = frozenset({
 })
 RETIRED_FILES = frozenset({
     'generate_mock_navdata.py',
+    'scripts/import_holdings_from_excel.py',
+    'scripts/repair_ibkr_us_estimate_fallback.py',
     'backend/api/endpoints/transactions.py',
     'backend/api/domain/ledger/legacy_transaction_filters.py',
     'database/postgres/schema/005_transactions.sql',
@@ -62,7 +64,8 @@ HISTORY_NAME = re.compile(r'(?:^|_)(?:backfill|drop_deprecated)(?:_|\.|$)', re.I
 
 # Local mode never walks configuration, account ledgers, data or import files.
 WORKTREE_PATHS = (
-    'generate_mock_navdata.py',
+    'generate_mock_navdata.py', 'scripts/import_holdings_from_excel.py',
+    'scripts/repair_ibkr_us_estimate_fallback.py',
     'backend/api/domain', 'backend/api/endpoints', 'backend/api/services',
     'backend/api/backtest', 'backend/api/strategy', 'backend/api/datahub',
     'frontend/public', 'tests', 'src/ingest', 'src/core', 'database/postgres/schema', MANIFEST,
