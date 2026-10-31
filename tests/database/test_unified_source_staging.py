@@ -158,8 +158,8 @@ def test_candidate_review_rejects_stale_or_published_batch(isolated_database):
                      institution='synthetic-bank', acquisition_method='manual')
         add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='manual',
                  record_hash='1' * 64, raw_fields={'amount': '800'})
-        assert review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
-                           parsed_fields={'amount': '80'}, review_status='confirmed', review_note='checked') == 2
+        assert review_item(cur, batch_id=batch, item_id=item, expected_revision=2,
+                           parsed_fields={'amount': '80'}, review_status='confirmed', review_note='checked') == 3
         with pytest.raises(ValueError):
             review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
                         parsed_fields={'amount': '1'}, review_status='confirmed')
@@ -167,10 +167,10 @@ def test_candidate_review_rejects_stale_or_published_batch(isolated_database):
         assert cur.fetchone() == ({'amount': '800'}, {'amount': '80'}, 'checked')
         cur.execute("UPDATE source_batches SET status='published', published_source_hash=%s WHERE batch_id=%s", ('a' * 64, str(batch)))
         with pytest.raises(ValueError):
-            review_item(cur, batch_id=batch, item_id=item, expected_revision=2,
+            review_item(cur, batch_id=batch, item_id=item, expected_revision=3,
                         parsed_fields={'amount': '2'}, review_status='confirmed')
         cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s', (str(batch),))
-        assert cur.fetchone()[0] == 2
+        assert cur.fetchone()[0] == 3
 
 
 def test_direct_candidate_edit_advances_revision_and_published_is_read_only(isolated_database):
@@ -183,7 +183,7 @@ def test_direct_candidate_edit_advances_revision_and_published_is_read_only(isol
                  record_hash='1' * 64, raw_fields={'amount': '800'})
         cur.execute("UPDATE source_items SET parsed_fields='{}'::jsonb WHERE source_item_id=%s", (str(item),))
         cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s', (str(batch),))
-        assert cur.fetchone()[0] == 2
+        assert cur.fetchone()[0] == 3
         with pytest.raises(ValueError):
             review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
                         parsed_fields={'amount': '80'}, review_status='confirmed')
@@ -203,11 +203,11 @@ def test_locked_review_reports_pending_and_binds_revision(isolated_database):
                      institution='synthetic-bank', acquisition_method='manual')
         add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='manual',
                  record_hash='1' * 64, raw_fields={'amount': '800'})
-        pending = lock_source_review(cur, batch_id=batch, expected_revision=1)
+        pending = lock_source_review(cur, batch_id=batch, expected_revision=2)
         assert 'pending_items' in pending['snapshot']['blockers']
-        review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
+        review_item(cur, batch_id=batch, item_id=item, expected_revision=2,
                     parsed_fields={'amount': '80'}, review_status='confirmed')
-        ready = lock_source_review(cur, batch_id=batch, expected_revision=2)
+        ready = lock_source_review(cur, batch_id=batch, expected_revision=3)
         assert ready['snapshot']['blockers'] == []
         assert ready['source_snapshot_sha256'] != pending['source_snapshot_sha256']
         with pytest.raises(ValueError):
@@ -225,7 +225,7 @@ def test_locked_review_detects_inconsistent_file_hash(isolated_database):
                     (str(file_id), str(batch), 'a' * 64, b'synthetic'))
         add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='ocr',
                  record_hash='1' * 64, file_id=file_id, raw_fields={'amount': '80'})
-        review_item(cur, batch_id=batch, item_id=item, expected_revision=1,
+        review_item(cur, batch_id=batch, item_id=item, expected_revision=3,
                     parsed_fields={'amount': '80'}, review_status='confirmed')
-        result = lock_source_review(cur, batch_id=batch, expected_revision=2)
+        result = lock_source_review(cur, batch_id=batch, expected_revision=4)
         assert 'file_hash_mismatch' in result['snapshot']['blockers']

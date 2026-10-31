@@ -57,6 +57,21 @@ def test_bridge_cannot_be_bypassed_by_disabling_flag_after_preview(client, monke
     assert sql(params, 'SELECT count(*) AS n FROM pams_investment_trade_fact')[0]['n'] == 0
 
 
+def test_publication_rejects_unexpected_existing_fact_link(client, monkeypatch):
+    web, params = client
+    earlier = draft(web, [trade(source_ref='existing-independent-fact')])
+    assert publish(web, earlier, preview(web, earlier)).status_code == 200
+    batch = draft(web, [trade(source_ref='new-reviewed-source')])
+    setup_candidate(params, batch)
+    monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED', 'true')
+    check = preview(web, batch)
+    sql(params, 'UPDATE pams_investment_trade_fact SET source_item_id=%s', (batch['rows'][0]['row_id'],))
+    response = publish(web, batch, check)
+    assert response.status_code == 409, response.text
+    assert sql(params, 'SELECT count(*) AS n FROM pams_investment_trade_fact')[0]['n'] == 1
+    assert sql(params, 'SELECT status FROM source_batches')[0]['status'] == 'draft'
+
+
 @pytest.mark.parametrize('host,name,marker', [
     ('db.example', 'pams_import_test_' + 'a' * 32, 'pams-isolated-account-import'),
     ('127.0.0.1', 'production', 'pams-isolated-account-import'),

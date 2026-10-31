@@ -24,7 +24,7 @@ def test_source_review_lock_blocks_concurrent_review(isolated_database):
                  file_id=file_id, record_hash='1' * 64, raw_fields={'amount': '10'})
     conn.commit()
     with conn.cursor() as cur:
-        lock_source_review(cur, batch_id=batch_id, expected_revision=1)
+        lock_source_review(cur, batch_id=batch_id, expected_revision=4)
 
     def concurrent_action(action):
         other = psycopg2.connect(os.environ['PAMS_SCHEMA_TEST_POSTGRES_DSN'],
@@ -34,7 +34,7 @@ def test_source_review_lock_blocks_concurrent_review(isolated_database):
                 cur.execute("SET LOCAL lock_timeout='400ms'")
                 try:
                     if action == 'review':
-                        review_item(cur, batch_id=batch_id, item_id=item_id, expected_revision=1,
+                        review_item(cur, batch_id=batch_id, item_id=item_id, expected_revision=4,
                                     parsed_fields={'amount': '20'}, review_status='confirmed')
                     elif action == 'update':
                         cur.execute("UPDATE source_items SET parsed_fields='{}'::jsonb WHERE source_item_id=%s", (str(item_id),))
@@ -56,8 +56,8 @@ def test_source_review_lock_blocks_concurrent_review(isolated_database):
             assert executor.submit(concurrent_action, action).result(timeout=5) == 'blocked', action
     conn.rollback()
     with conn.cursor() as cur:
-        assert review_item(cur, batch_id=batch_id, item_id=item_id, expected_revision=1,
-                           parsed_fields={'amount': '20'}, review_status='confirmed') == 2
+        assert review_item(cur, batch_id=batch_id, item_id=item_id, expected_revision=4,
+                           parsed_fields={'amount': '20'}, review_status='confirmed') == 5
         cur.execute('DELETE FROM source_files WHERE file_id=%s', (str(spare_file_id),))
         assert cur.rowcount == 1
         add_item(cur, item_id=uuid4(), batch_id=batch_id, source_uid='new-row',

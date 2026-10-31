@@ -14,16 +14,10 @@ from uuid import UUID
 from domain.imports.unified_source import add_item, attach_file, create_batch, lock_source_review
 from domain.imports import account_import_store as store
 from domain.imports import account_import_publish as publisher
+from domain.imports.account_import_review import image_reviewed
 
 
-def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str) -> None:
-    """Stage one locked legacy draft; reject cases without lossless evidence.
-
-    The caller must obtain the legacy batch using FOR UPDATE and must rollback
-    the whole transaction on any failure. No preflight or publication approval
-    is implied. Existing source IDs remain stable; review is deliberately reset
-    to pending except explicit exclusions.
-    """
+def _prepare_legacy_draft(batch: dict, files: list[dict]):
     if batch.get('status') != 'draft':
         raise ValueError('only unpublished draft batches may be staged')
     batch_id = UUID(str(batch['batch_id']))
@@ -31,7 +25,7 @@ def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str)
     kind = batch.get('kind')
     mode = batch.get('mode')
     revision = batch.get('revision')
-    if not account or not isinstance(institution, str) or not institution.strip() or kind not in {'holding', 'trade', 'cash'} or mode not in {'manual', 'upload'}:
+    if not account or kind not in {'holding', 'trade', 'cash'} or mode not in {'manual', 'upload'}:
         raise ValueError('invalid account, business type or acquisition method')
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         raise ValueError('invalid legacy revision')
@@ -55,7 +49,7 @@ def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str)
         file_index[file_id] = (file, content, fmt)
 
     prepared = []
-    seen, referenced = set(), set()
+    seen = set()
     for row in rows:
         item_id = UUID(str(row['row_id']))
         if item_id in seen:
@@ -72,7 +66,6 @@ def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str)
         if file_id:
             if file_id not in file_index or source.get('file_sha256') != file_index[file_id][0].get('sha256'):
                 raise ValueError('source file missing or hash mismatch')
-            referenced.add(file_id)
         origin = source.get('origin')
         if origin == 'ocr' and file_id:
             method = 'ocr'
@@ -94,8 +87,14 @@ def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str)
         except (TypeError, ValueError) as exc:
             raise ValueError('source evidence is not JSON-safe') from exc
         prepared.append((item_id, file_id, method, evidence, candidate, sha256(encoded).hexdigest()))
-    if set(file_index) != referenced:
-        raise ValueError('files without source items require separate metadata migration')
+    return batch_id, account, kind, mode, revision, file_index, prepared
+
+
+def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str) -> None:
+    """Stage a locked draft without implying review or publication approval."""
+    if not isinstance(institution, str) or not institution.strip():
+        raise ValueError('institution required')
+    batch_id, account, kind, mode, revision, file_index, prepared = _prepare_legacy_draft(batch, files)
 
     create_batch(cur, batch_id=batch_id, account_code=account, business_type=kind,
                  institution=institution, acquisition_method=mode)
@@ -109,11 +108,90 @@ def stage_legacy_draft(cur, batch: dict, files: list[dict], *, institution: str)
                  parse_method=method, record_hash=digest, raw_fields=evidence, parsed_fields=candidate)
         if candidate['excluded']:
             cur.execute("UPDATE public.source_items SET review_status='excluded' WHERE source_item_id=%s", (str(item_id),))
-    cur.execute('UPDATE public.source_batches SET revision=%s, completeness=%s WHERE batch_id=%s',
+    cur.execute('UPDATE public.source_batches SET revision=GREATEST(revision,%s), completeness=%s WHERE batch_id=%s',
                 (revision, batch.get('completeness', 'unknown'), str(batch_id)))
 
 
-def _verified_projection(cur, batch_id, legacy_revision, source_revision):
+def ensure_legacy_staged(cur, batch_id: str) -> bool:
+    """Stage an existing editable draft on first isolated use under its row lock."""
+    legacy = store.batch(cur, str(batch_id), lock=True)
+    store.editable(legacy)
+    cur.execute('SELECT 1 FROM public.source_batches WHERE batch_id=%s FOR UPDATE', (str(batch_id),))
+    if cur.fetchone():
+        return False
+    cur.execute('SELECT * FROM pams_account_import_file WHERE batch_id=%s', (str(batch_id),))
+    files = [dict(row) for row in cur.fetchall()]
+    stage_legacy_draft(cur, legacy, files, institution=legacy['account_code'])
+    sync_legacy_draft(cur, legacy, action='migration')
+    return True
+
+
+def sync_legacy_draft(cur, batch: dict, *, action: str) -> None:
+    """Synchronize a legacy draft inside its write transaction, without publishing."""
+    if action not in {'create', 'save', 'upload', 'reparse', 'review_image', 'migration'}:
+        raise ValueError('unsupported source synchronization action')
+    batch_id = str(batch['batch_id'])
+    cur.execute('SELECT * FROM pams_account_import_file WHERE batch_id=%s', (batch_id,))
+    files = [dict(row) for row in cur.fetchall()]
+    _, account, kind, mode, _, file_index, prepared = _prepare_legacy_draft(batch, files)
+    cur.execute('SELECT * FROM public.source_batches WHERE batch_id=%s FOR UPDATE', (batch_id,))
+    existing = cur.fetchone()
+    if not existing:
+        if action != 'create':
+            raise ValueError('source draft missing; cannot silently recreate evidence')
+        stage_legacy_draft(cur, batch, files, institution=account)
+        return
+    if (existing['status'] not in {'draft', 'review'} or existing['account_code'] != account or
+        existing['business_type'] != kind or existing['acquisition_method'] != mode):
+        raise ValueError('source draft attributes changed')
+    cur.execute('SELECT * FROM public.source_files WHERE batch_id=%s', (batch_id,))
+    old_files = {str(row['file_id']): row for row in cur.fetchall()}
+    if set(old_files) - {str(key) for key in file_index}:
+        raise ValueError('source file missing from legacy draft')
+    for file_id, (file, content, fmt) in file_index.items():
+        old = old_files.get(str(file_id))
+        if old:
+            if (old['sha256'] != file['sha256'] or old['filename'] != file['filename'] or
+                old['content_type'] != file['content_type'] or bytes(old['content']) != content):
+                raise ValueError('source file differs from legacy draft')
+        else:
+            attach_file(cur, file_id=file_id, batch_id=UUID(batch_id), filename=file['filename'],
+                        file_format=fmt, content_type=file['content_type'], content=content)
+    cur.execute('SELECT * FROM public.source_items WHERE batch_id=%s', (batch_id,))
+    old_items = {str(row['source_item_id']): row for row in cur.fetchall()}
+    new_ids = {str(value[0]) for value in prepared}
+    for item_id in set(old_items) - new_ids:
+        cur.execute('DELETE FROM public.source_items WHERE source_item_id=%s AND batch_id=%s', (item_id, batch_id))
+    for item_id, file_id, method, evidence, candidate, digest in prepared:
+        old = old_items.get(str(item_id))
+        if old:
+            if (str(old['file_id'] or '') != str(file_id or '') or old['parse_method'] != method or
+                old['raw_fields'].get('source') != evidence['source']):
+                raise ValueError('existing source identity changed')
+            status = old['review_status']
+        else:
+            add_item(cur, item_id=item_id, batch_id=UUID(batch_id), source_uid=str(item_id), file_id=file_id,
+                     location=str(evidence['source']['row']) if evidence['source'].get('row') is not None else None,
+                     parse_method=method, record_hash=digest, raw_fields=evidence, parsed_fields=candidate)
+            status = 'pending'
+        if candidate['excluded']:
+            status = 'excluded'
+        elif method == 'ocr':
+            status = 'confirmed' if candidate['acknowledged'] and image_reviewed(batch, str(file_id)) else 'pending'
+        elif action == 'save':
+            status = 'confirmed'
+        elif old and (old['parsed_fields'] != candidate or status == 'excluded'):
+            status = 'pending'
+        if not old or old['parsed_fields'] != candidate or old['review_status'] != status:
+            from psycopg2.extras import Json
+            cur.execute('UPDATE public.source_items SET parsed_fields=%s,review_status=%s,review_note=%s,updated_at=now() WHERE source_item_id=%s AND batch_id=%s',
+                        (Json(candidate), status, 'legacy explicit review' if status == 'confirmed' else None,
+                         str(item_id), batch_id))
+    cur.execute('UPDATE public.source_batches SET completeness=%s,revision=revision+1,updated_at=now() WHERE batch_id=%s',
+                (batch['completeness'], batch_id))
+
+
+def _verified_projection(cur, batch_id, legacy_revision, source_revision, *, allow_pending=False):
     """Lock both drafts and fail closed if their reviewed contents diverge."""
     legacy = store.batch(cur, str(batch_id), lock=True)
     store.editable(legacy, legacy_revision)
@@ -123,7 +201,7 @@ def _verified_projection(cur, batch_id, legacy_revision, source_revision):
     if (batch['account_code'] != legacy['account_code'] or batch['business_type'] != legacy['kind'] or
         batch['acquisition_method'] != legacy['mode'] or batch['completeness'] != legacy['completeness']):
         raise ValueError('source batch attributes differ from legacy draft')
-    if snap['blockers']:
+    if snap['blockers'] and (not allow_pending or 'file_hash_mismatch' in snap['blockers']):
         raise ValueError('source review blocked: ' + ', '.join(snap['blockers']))
     legacy_rows = {str(row['row_id']): row for row in legacy['rows']}
     source_rows = {str(row['source_item_id']): row for row in snap['items']}
@@ -132,7 +210,7 @@ def _verified_projection(cur, batch_id, legacy_revision, source_revision):
     for key, old in legacy_rows.items():
         new = source_rows[key]
         expected_status = 'excluded' if old.get('excluded', False) else 'confirmed'
-        if new['review_status'] != expected_status:
+        if new['review_status'] != expected_status and not (allow_pending and new['review_status'] == 'pending' and expected_status == 'confirmed'):
             raise ValueError('source review decision differs from legacy draft')
         evidence = new['raw_fields']
         candidate = new['parsed_fields']
@@ -140,15 +218,15 @@ def _verified_projection(cur, batch_id, legacy_revision, source_revision):
                     'excluded': old.get('excluded', False), 'acknowledged': old.get('acknowledged', False)}
         if evidence.get('source') != old.get('source') or candidate != expected:
             raise ValueError('source evidence or candidate differs from legacy draft')
-        if not new['file_id'] and evidence.get('manual_draft_fields') != old.get('fields'):
-            raise ValueError('manual source evidence differs from legacy draft')
     old_files = {str(f['file_id']): (str(f['sha256']), f['filename'], f['content_type']) for f in legacy['files']}
     new_files = {str(f['file_id']): (str(f['sha256']), f['filename'], f['content_type']) for f in snap['files']}
     if old_files != new_files:
         raise ValueError('source files differ from legacy draft')
     metadata = {str(f['file_id']): f.get('metadata') or {} for f in legacy['files']}
     for item in snap['items']:
-        if item['file_id'] and item['raw_fields'].get('legacy_file_metadata') != metadata[str(item['file_id'])]:
+        original = item['raw_fields'].get('legacy_file_metadata') or {}
+        current = metadata[str(item['file_id'])] if item['file_id'] else {}
+        if item['file_id'] and {k: v for k, v in original.items() if k != 'review_fingerprint'} != {k: v for k, v in current.items() if k != 'review_fingerprint'}:
             raise ValueError('source file metadata differs from legacy draft')
     return result
 
@@ -159,8 +237,10 @@ def prepare_candidate(cur, *, batch_id, legacy_revision, source_revision):
         raise ValueError('candidate preflight requires a transaction')
     cur.execute('SAVEPOINT candidate_source_prepare')
     try:
-        source = _verified_projection(cur, batch_id, legacy_revision, source_revision)
+        source = _verified_projection(cur, batch_id, legacy_revision, source_revision, allow_pending=True)
         legacy = publisher._legacy_preview(cur, str(batch_id), legacy_revision, _source_bridge=True)
+        if source['snapshot']['blockers']:
+            legacy['can_publish'] = False
         if legacy['counts']['duplicates']:
             raise ValueError('duplicate source requires explicit association; not supported yet')
         cur.execute('RELEASE SAVEPOINT candidate_source_prepare')
@@ -191,6 +271,7 @@ def publish_candidate(cur, *, batch_id, legacy_revision, source_revision,
             _check_complete_records(cur, batch_id, result['records'])
             for record in result['records']:
                 _check_fact_link(cur, record, update=False)
+            _check_all_source_links(cur, batch_id, result['records'])
             cur.execute('RELEASE SAVEPOINT candidate_source_publish')
             return result
         source = _verified_projection(cur, batch_id, legacy_revision, source_revision)
@@ -202,6 +283,7 @@ def publish_candidate(cur, *, batch_id, legacy_revision, source_revision,
         _check_complete_records(cur, batch_id, result['records'])
         for record in result['records']:
             _check_fact_link(cur, record, update=True)
+        _check_all_source_links(cur, batch_id, result['records'])
         cur.execute("UPDATE public.source_batches SET status='published', published_source_hash=%s, updated_at=now() WHERE batch_id=%s",
                     (source_snapshot_sha256, str(batch_id)))
         if cur.rowcount != 1:
@@ -238,6 +320,21 @@ def _check_complete_records(cur, batch_id, records):
                 expected_legs.append((str(UUID(str(record['row_id']))), str(trade['cashflow_id'])))
     if sorted(legs) != sorted(expected_legs):
         raise ValueError('published cash legs do not match investment facts')
+
+
+def _check_all_source_links(cur, batch_id, records):
+    """Reject extra or missing facts associated with this source batch."""
+    targets = {'pams_cashflow_fact': 'cashflow_id', 'pams_investment_trade_fact': 'trade_id',
+               'pams_holdings_snapshot': 'id'}
+    expected = {(record['table'], str(record['id']), str(UUID(str(record['row_id'])))) for record in records}
+    actual = set()
+    for table, column in targets.items():
+        cur.execute(f'SELECT fact.{column} AS fact_id, fact.source_item_id FROM public.{table} fact '
+                    'JOIN public.source_items source ON source.source_item_id=fact.source_item_id '
+                    'WHERE source.batch_id=%s', (str(batch_id),))
+        actual.update((table, str(row['fact_id']), str(row['source_item_id'])) for row in cur.fetchall())
+    if actual != expected:
+        raise ValueError('source batch has unexpected or missing fact associations')
 
 
 def _check_fact_link(cur, record, *, update):

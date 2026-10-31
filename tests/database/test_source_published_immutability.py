@@ -46,3 +46,18 @@ def test_published_source_blocks_direct_sql_mutation(isolated_database):
         assert cur.fetchone() == ('published', 'b' * 64, 'synthetic-a')
         cur.execute('SELECT count(*) FROM source_items WHERE batch_id=%s', (batch_id,))
         assert cur.fetchone()[0] == 1
+
+
+def test_empty_published_batch_cannot_be_deleted(isolated_database):
+    conn = isolated_database
+    batch_id = str(uuid4())
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO source_batches(batch_id, account_code, business_type, institution, acquisition_method)
+                       VALUES (%s,'synthetic-a','cash','synthetic-bank','manual')""", (batch_id,))
+        cur.execute("UPDATE source_batches SET status='published', published_source_hash=%s WHERE batch_id=%s",
+                    ('b' * 64, batch_id))
+    conn.commit()
+    with pytest.raises(errors.CheckViolation):
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM source_batches WHERE batch_id=%s', (batch_id,))
+    conn.rollback()

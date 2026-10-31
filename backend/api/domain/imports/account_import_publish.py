@@ -35,10 +35,21 @@ def _isolated_source_enabled(cur):
     return True
 
 
+def _assert_no_source_batch(cur, batch_id):
+    """A source-backed draft must not fall back to the legacy writer."""
+    cur.execute("SELECT to_regclass('public.source_batches') AS source_table")
+    if cur.fetchone()['source_table'] is not None:
+        cur.execute('SELECT 1 FROM public.source_batches WHERE batch_id=%s', (str(batch_id),))
+        if cur.fetchone():
+            raise store.ImportProblem('source_preflight_required', '来源批次必须通过统一来源链路处理', 409)
+
+
 def preview(cur, batch_id, revision):
     if not _isolated_source_enabled(cur):
+        _assert_no_source_batch(cur, batch_id)
         return _legacy_preview(cur, batch_id, revision)
     from domain.imports import source_import_adapter as source
+    source.ensure_legacy_staged(cur, batch_id)
     cur.execute('SELECT revision FROM public.source_batches WHERE batch_id=%s', (batch_id,))
     row = cur.fetchone()
     if not row:
@@ -93,6 +104,7 @@ def _snapshot(cur, row):
 
 def publish(cur, batch_id, revision, preview_token):
     if not _isolated_source_enabled(cur):
+        _assert_no_source_batch(cur, batch_id)
         return _legacy_publish(cur, batch_id, revision, preview_token)
     from domain.imports import source_import_adapter as source
     batch = store.batch(cur, batch_id, lock=True)
