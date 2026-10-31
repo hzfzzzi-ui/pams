@@ -273,8 +273,8 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         assert 0 < style_index < design_index
         assert "?v=" in parsed.stylesheets[style_index]
         assert "?v=" in design_href
-        style_version = "20261031-gray-v1"
-        design_version = "20261031-gray-v1" if page in {"investments.html", "more.html"} else "20261031-gray-v1"
+        style_version = "20261031-style-cleanup-v1"
+        design_version = "20261031-style-cleanup-v1"
         assert parsed.stylesheets[style_index] == f"assets/css/{style_name}.css?v={style_version}"
         assert design_href == f"assets/css/{design_name}.css?v={design_version}"
         assert "app-shell" in parsed.body_classes
@@ -819,7 +819,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "assets/js/lookthrough.js?v=20261031-analysis-modules-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261031-panels-v1" in html
     assert "assets/js/portfolio_config.js?v=20261031-panels-v1" in html
-    assert "style-phone.css?v=20261031-gray-v1" in html
+    assert "style-phone.css?v=20261031-style-cleanup-v1" in html
     assert 'href="#portfolio-risk-disclosure" data-invest-tab="risk">风险</a>' in html
     assert 'href="#portfolio-constraints" data-invest-tab="allocation">配置</a>' in html
     assert 'id="portfolio-constraints"' in html
@@ -1415,7 +1415,7 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "asset.display_name || asset.name" in tx_js
     assert "start: ''," in tx_js
     assert "assets/js/transactions.js?v=20261031-transactions-v1" in html
-    assert "assets/css/style-phone.css?v=20261031-gray-v1" in html
+    assert "assets/css/style-phone.css?v=20261031-style-cleanup-v1" in html
 
 
 def test_more_page_consolidates_low_frequency_entries() -> None:
