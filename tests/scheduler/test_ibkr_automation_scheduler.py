@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from tests.scheduler.test_legacy_strategy_scheduler import _load_scheduler
+from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
 
 NOW = datetime(2026, 10, 23, 22, tzinfo=timezone.utc)
 

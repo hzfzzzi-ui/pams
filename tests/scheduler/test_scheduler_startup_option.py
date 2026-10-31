@@ -4,7 +4,7 @@ import types
 
 import pytest
 
-from tests.scheduler.test_legacy_strategy_scheduler import _load_scheduler
+from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
 
 
 class StopLoop(Exception):

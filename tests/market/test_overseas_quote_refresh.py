@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
 
 from endpoints import prices
 from domain.market import overseas_return_calendar
-from tests.scheduler.test_legacy_strategy_scheduler import _load_scheduler
+from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
 from tests.market.test_us_quote_projection import (
     BASE_DAY,
     QUOTE_DAY,

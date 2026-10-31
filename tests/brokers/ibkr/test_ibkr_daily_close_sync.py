@@ -18,7 +18,7 @@ from domain.brokers.ibkr import ibkr_daily_close_read as reader
 from domain.brokers.ibkr.ibkr_daily_close_publish import publish
 from domain.brokers.ibkr.ibkr_report_state import PublishedReport
 from tests.brokers.ibkr.test_ibkr_daily_close_read import xml, ACCOUNT, DAY
-from tests.scheduler.test_legacy_strategy_scheduler import _load_scheduler
+from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
 
 NEXT = date(2024, 1, 3)
 
