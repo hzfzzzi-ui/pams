@@ -122,3 +122,29 @@ def test_repository_keeps_raw_and_corrected_values_and_is_atomic(isolated_databa
     with conn.cursor() as cur:
         cur.execute('SELECT count(*) FROM source_batches WHERE batch_id = %s', (str(batch),))
         assert cur.fetchone()[0] == 0
+
+
+def test_original_evidence_is_immutable_but_candidate_is_editable(isolated_database):
+    conn = isolated_database
+    batch, item, file_id = uuid4(), uuid4(), uuid4()
+    with conn.cursor() as cur:
+        create_batch(cur, batch_id=batch, account_code='synthetic-a', business_type='cash',
+                     institution='synthetic-bank', acquisition_method='upload')
+        attach_file(cur, file_id=file_id, batch_id=batch, filename='x.png', file_format='png',
+                    content_type='image/png', content=b'original')
+        add_item(cur, item_id=item, batch_id=batch, source_uid='row-1', parse_method='ocr',
+                 record_hash='1' * 64, file_id=file_id, raw_fields={'amount': '800'})
+    conn.commit()
+    with pytest.raises(errors.CheckViolation):
+        with conn.cursor() as cur:
+            cur.execute("UPDATE source_items SET raw_fields = '{\"amount\":\"80\"}'::jsonb WHERE source_item_id=%s", (str(item),))
+    conn.rollback()
+    with pytest.raises(errors.CheckViolation):
+        with conn.cursor() as cur:
+            cur.execute("UPDATE source_files SET content=%s WHERE file_id=%s", (b'changed', str(file_id)))
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute("UPDATE source_items SET parsed_fields = '{\"amount\":\"80\"}'::jsonb, review_status='confirmed' WHERE source_item_id=%s", (str(item),))
+        cur.execute('SELECT raw_fields, parsed_fields, review_status FROM source_items WHERE source_item_id=%s', (str(item),))
+        raw, parsed, status = cur.fetchone()
+        assert raw['amount'] == '800' and parsed['amount'] == '80' and status == 'confirmed'

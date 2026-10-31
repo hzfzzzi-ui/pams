@@ -52,3 +52,27 @@ CREATE TABLE public.source_items (
     CHECK ((parse_method IN ('manual', 'api')) OR file_id IS NOT NULL)
 );
 CREATE INDEX idx_source_items_batch_review ON public.source_items (batch_id, review_status);
+
+-- Source evidence is immutable; only parsed candidates and review decisions
+-- can be edited. Replacing evidence requires a new source record or file.
+CREATE FUNCTION public.source_evidence_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_TABLE_NAME = 'source_items' THEN
+        IF (NEW.batch_id, NEW.file_id, NEW.source_uid, NEW.external_id, NEW.location,
+            NEW.parse_method, NEW.raw_fields, NEW.record_hash)
+           IS DISTINCT FROM
+           (OLD.batch_id, OLD.file_id, OLD.source_uid, OLD.external_id, OLD.location,
+            OLD.parse_method, OLD.raw_fields, OLD.record_hash) THEN
+            RAISE EXCEPTION 'source item evidence is immutable' USING ERRCODE = '23514';
+        END IF;
+    ELSIF (NEW.batch_id, NEW.filename, NEW.file_format, NEW.content_type, NEW.sha256, NEW.content)
+          IS DISTINCT FROM
+          (OLD.batch_id, OLD.filename, OLD.file_format, OLD.content_type, OLD.sha256, OLD.content) THEN
+        RAISE EXCEPTION 'source file evidence is immutable' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER source_items_evidence_immutable BEFORE UPDATE ON public.source_items
+    FOR EACH ROW EXECUTE FUNCTION public.source_evidence_immutable();
+CREATE TRIGGER source_files_evidence_immutable BEFORE UPDATE ON public.source_files
+    FOR EACH ROW EXECUTE FUNCTION public.source_evidence_immutable();
