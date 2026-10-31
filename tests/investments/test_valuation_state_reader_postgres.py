@@ -12,7 +12,7 @@ from psycopg2.extensions import parse_dsn
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
-from domain.investments.valuation_state_reader import latest_published
+from domain.investments.valuation_state_reader import latest_published, valuation_series_rows
 
 
 def test_published_valuation_keeps_currency_status_order_and_source_evidence():
@@ -37,6 +37,11 @@ def test_published_valuation_keeps_currency_status_order_and_source_evidence():
                 ('2026-01-03', 'close', 'CNY', 'draft', 'complete', 100, 'draft', '{}', NULL, '2026-01-04Z'),
                 ('2026-01-04', 'close', 'CNY', 'failed', 'complete', 200, 'failed', '{}', NULL, '2026-01-04Z'),
                 ('2026-01-05', 'close', 'USD', 'published', 'partial', 5, 'usd', '{}', '2026-01-05Z', '2026-01-05Z')""")
+            cur.execute("""INSERT INTO pams_portfolio_valuation_state VALUES
+                ('2026-01-02', 'newer-draft', 'CNY', 'draft', 'partial', 999, 'draft-new', '{}', NULL, '2026-01-08Z')""")
+            cur.execute("""ALTER TABLE pams_portfolio_valuation_state
+                ADD COLUMN assets_cny numeric, ADD COLUMN liabilities_cny numeric,
+                ADD COLUMN investment_value_cny numeric, ADD COLUMN total_pnl_cny numeric""")
             row = latest_published(cur, base_currency="cny")
             assert row["valuation_date"] == date(2026, 1, 2)
             assert row["cycle"] == "manual" and row["status"] == "published"
@@ -45,6 +50,12 @@ def test_published_valuation_keeps_currency_status_order_and_source_evidence():
             assert row["raw_json"] == {"quality": "confirmed"}
             assert latest_published(cur, base_currency="USD")["source_hash"] == "usd"
             assert latest_published(cur, base_currency="EUR") is None
+            series = valuation_series_rows(cur, base_currency="CNY", limit=3)
+            assert [row["valuation_date"] for row in series] == [date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4)]
+            assert [row["net_liquidation_value"] for row in series] == [Decimal("98.76"), Decimal("100"), Decimal("200")]
+            assert series[0]["assets_cny"] is None
+            assert len(valuation_series_rows(cur, base_currency="CNY", limit=2)) == 2
+            assert valuation_series_rows(cur, base_currency="cny", limit=3) == []
     finally:
         conn.rollback()
         conn.close()
