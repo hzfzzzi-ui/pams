@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "backend" / "api"))
 
 from refresh_state import RefreshJournal, latest_due_date, read_state, result_issues
 from domain.operations.sync_health import scheduler_health
-from tests.scheduler.test_legacy_strategy_scheduler import _load_scheduler
+from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
 
 
 @pytest.mark.parametrize("payload", [

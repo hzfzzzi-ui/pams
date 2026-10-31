@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/scheduler"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
 from flex_confirmation import FlexConfirmationJournal
 from refresh_state import RefreshJournal, read_state, write_state
-from tests.scheduler.test_legacy_strategy_scheduler import _load_scheduler
+from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
 
 NOW = datetime(2026, 10, 23, 0, tzinfo=timezone.utc)
 
