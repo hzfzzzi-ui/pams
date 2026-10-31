@@ -597,6 +597,11 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
 def test_investments_page_exposes_performance_dashboard_sections() -> None:
     html = _read_public("investments.html")
     holdings_js = _read_public("assets/js/holdings_categories.js")
+    chart_renderer = _read_public("assets/js/features/investment/charts/renderer.js")
+    chart_model = _read_public("assets/js/features/investment/charts/legacy_model.js")
+    chart_requests = _read_public("assets/js/features/investment/charts/requests.js")
+    chart_source = chart_renderer + chart_model + chart_requests
+
     holding_rows_js = _read_public("assets/js/holdings.js")
     account_cash_js = _read_public("assets/js/account_cash.js")
     tx_js = _read_public("assets/js/transactions.js")
@@ -697,26 +702,26 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "const dailyPnlEffective = perf.daily_pnl_effective !== false" in holdings_js
     assert "dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))" in holdings_js
     assert 'id="investmentNavChart"' in html
-    assert "function renderInvestmentNavChart(rows, windowKey, isMobile)" in holdings_js
-    assert "function createInvestmentReturnCanvasFallback(canvas, data)" in holdings_js
-    assert "if (typeof Chart === 'undefined')" in holdings_js
-    assert "function returnEventAdjustedAmount(row, prev)" in holdings_js
-    assert "return safeNum(row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate)" in holdings_js
-    assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in holdings_js
-    assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in holdings_js
-    assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in holdings_js
-    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" not in holdings_js
-    assert "function renderNavGrowthExplanationPanel(bridgePayload)" not in holdings_js
-    assert "function normalizeInvestmentNavRows(rows)" in holdings_js
-    assert "row.netWorth ?? row.net_worth ?? row.market_value" in holdings_js
-    assert "updateInvestmentNavChart(state);" in holdings_js
-    assert "updateInvestmentNavChart(state, windowData.rows)" not in holdings_js
-    return_date_parser = holdings_js.split("function parseReturnSeriesDate(value)", 1)[1].split("function returnWindowStartDate", 1)[0]
+    assert "function renderInvestmentNavChart(rows, windowKey, isMobile)" in chart_source
+    assert "function createInvestmentReturnCanvasFallback(canvas, data)" in chart_source
+    assert "if (typeof ChartClass !== 'function')" in chart_source
+    assert "function returnEventAdjustedAmount(row, prev)" in chart_source
+    assert "return safeNum(row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate)" in chart_source
+    assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in chart_source
+    assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in chart_source
+    assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in chart_source
+    assert "/api/portfolio/equity-bridge?start=2026-01-01&baseCurrency=CNY" not in holdings_js + chart_source
+    assert "function renderNavGrowthExplanationPanel(bridgePayload)" not in holdings_js + chart_source
+    assert "function normalizeInvestmentNavRows(rows)" in chart_source
+    assert "row.netWorth ?? row.net_worth ?? row.market_value" in chart_source
+    assert "updateInvestmentNavChart(state);" in chart_source
+    assert "updateInvestmentNavChart(state, windowData.rows)" not in holdings_js + chart_source
+    return_date_parser = chart_model.split("function parseReturnSeriesDate(value)", 1)[1].split("function returnWindowStartDate", 1)[0]
     assert "Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))" in return_date_parser
     assert "T00:00:00+08:00" not in return_date_parser
-    assert "setUTCDate" in holdings_js
-    assert "setUTCMonth" in holdings_js
-    assert "/nav/series" not in holdings_js
+    assert "setUTCDate" in chart_source
+    assert "setUTCMonth" in chart_source
+    assert "/nav/series" not in holdings_js + chart_source
     assert "dailyPnl: null" in holdings_js
     assert "flexCoversPositionDate" in holdings_js
     assert "accountNetLiquidationFromHoldings" in holdings_js
@@ -767,7 +772,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "展开更多",
         "含多口径数据",
     ]:
-        assert phrase in html + holdings_js + tx_js
+        assert phrase in html + holdings_js + chart_source + tx_js
 
     assert "最近10单" not in tx_js
     assert "deposit: '入金'" in tx_js
@@ -797,7 +802,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261031-ui-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261031-investment-charts-v1" in html
     assert "assets/js/lookthrough.js?v=20261031-ui-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261031-panels-v1" in html
     assert "assets/js/portfolio_config.js?v=20261031-panels-v1" in html
@@ -839,26 +844,26 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "returnInsightGrid" in html
     assert "returnInsightCard" in html
     assert "returnEventsPanel" not in html
-    assert "buildReturnEvents" in holdings_js
-    assert "renderReturnEventHotspots" in holdings_js
-    assert "bindReturnEventPopover" in holdings_js
-    assert "showReturnEventPopover" in holdings_js
-    assert "buildTopContributionForWindow" in holdings_js
+    assert "buildReturnEvents" in chart_source
+    assert "renderReturnEventHotspots" in chart_source
+    assert "bindReturnEventPopover" in chart_source
+    assert "showReturnEventPopover" in chart_source
+    assert "buildTopContributionForWindow" in chart_source
     assert "TopContributionPanel" in holdings_js
-    assert "realized_other" not in holdings_js
-    assert "总账补差" not in holdings_js
-    assert "confirmedTotalPnl" not in holdings_js
+    assert "realized_other" not in holdings_js + chart_source
+    assert "总账补差" not in holdings_js + chart_source
+    assert "confirmedTotalPnl" not in holdings_js + chart_source
     assert "renderInvestmentReturnChart(grandPnl)" not in holdings_js
     assert "renderInvestmentReturnChart()" in holdings_js
-    assert "unattributed_residual" in holdings_js
+    assert "unattributed_residual" in chart_source
     assert "未归因差额" in holdings_js
-    assert "returnSeriesKey: 'events'" in holdings_js
-    assert "RETURN_WINDOW_OPTIONS" in holdings_js
-    assert "data-return-window" in holdings_js
-    assert "年初至今" in holdings_js
-    assert "近1月" in holdings_js
-    assert "近1周" in holdings_js
-    assert "rebaseReturnRate" in holdings_js
+    assert "returnSeriesKey: 'events'" in chart_source
+    assert "RETURN_WINDOW_OPTIONS" in chart_source
+    assert "data-return-window" in chart_source
+    assert "年初至今" in chart_source
+    assert "近1月" in chart_source
+    assert "近1周" in chart_source
+    assert "rebaseReturnRate" in chart_source
     assert "accountCashBreakdown" in holdings_js
     assert "makeAccountCashHoldingRows" in holding_rows_js
     assert "subtractMoneyCents" in holding_rows_js
@@ -1520,7 +1525,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
 
     assert "createPageBootstrap" in ui_js
     bootstrap_js = _read_public("assets/js/app/page_bootstrap.js")
-    assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" in holdings_js
+    assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" in _read_public("assets/js/features/investment/charts/requests.js")
     assert "/api/analysis/lookthrough?baseCurrency=CNY" in lookthrough_js
     assert "/api/analysis/return-attribution?baseCurrency=CNY" in lookthrough_js
     preload_block = bootstrap_js.split("function warmupPaths(now)", 1)[1].split("export function createPageBootstrap", 1)[0]
@@ -1670,7 +1675,7 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
     assert "holdings.js?v=20261031-ui-v1" in html
-    assert "holdings_categories.js?v=20261031-ui-v1" in html
+    assert "holdings_categories.js?v=20261031-investment-charts-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
