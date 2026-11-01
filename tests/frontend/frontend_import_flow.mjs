@@ -103,7 +103,11 @@ try {
  assert.match(await page.locator('#file-selection-status').textContent(),/table\.xls/);
  await page.getByText('模板解析成功，已识别 1 条；请继续核对。',{exact:true}).waitFor();
  await page.locator('#history>summary').click();
- assert.equal(await page.getByRole('button',{name:'打开批次',exact:true}).count(),1);
+ assert.equal(await page.locator('.import-history-open').count(),1);
+ assert.equal(await page.locator('.import-history-open').innerText().then(t=>t.includes('打开批次')),false);
+ assert.equal(await page.locator('.import-history-delete svg').count(),1);
+ const historyBox=await page.locator('.import-history-row').boundingBox(), deleteBox=await page.locator('.import-history-delete').boundingBox();
+ assert.ok(deleteBox.x+deleteBox.width<=historyBox.x+historyBox.width+1 && deleteBox.y+deleteBox.height<=historyBox.y+historyBox.height+1);
  assert.equal(await page.getByText('暂无批次草稿',{exact:true}).count(),0);
  const originalDraft=structuredClone(batch), writesBeforeSwitch=calls.filter(([m])=>m==='PUT').length;
  await page.locator('#mode-manual').click();await ready();
@@ -111,11 +115,11 @@ try {
  assert.equal(await page.locator('#account').isDisabled(),false);
  assert.equal(calls.filter(([m])=>m==='PUT').length,writesBeforeSwitch);
  assert.deepEqual(batch,originalDraft);
- await page.getByRole('button',{name:'打开批次',exact:true}).click();await ready();
+ await page.locator('.import-history-open').focus();await page.keyboard.press('Enter');await ready();
  assert.match(await page.locator('#file-selection-status').textContent(),/table\.xls/);
  assert.deepEqual(batch,originalDraft);
  await page.locator('#mode-ocr').click();await ready();assert.equal(await page.locator('#mode-ocr').getAttribute('aria-pressed'),'true');
- await page.getByRole('button',{name:'打开批次',exact:true}).click();await ready();assert.deepEqual(batch,originalDraft);
+ await page.locator('.import-history-open').click();await ready();assert.deepEqual(batch,originalDraft);
  reset();mismatchTemplate=true;await open();await page.locator('#files').setInputFiles({name:'unknown.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});await ready();
  await page.getByText('模板未匹配或识别不完整，请核对账户、文件或配置字段。',{exact:true}).waitFor();
  reset();await open();assert.equal(await page.locator('#kind-prompt').isHidden(),true);
@@ -134,7 +138,9 @@ try {
  await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
  await page.getByRole('heading',{name:'批次草稿'}).waitFor();await page.getByRole('heading',{name:'已录入批次'}).waitFor();
  assert.equal(await page.getByRole('button',{name:'删除草稿'}).count(),1);
+ const batchReadsBeforeDelete=calls.filter(([m,p])=>m==='GET'&&p==='/api/account-import/batches/b').length;
  page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'删除草稿'}).click();await ready();
+ assert.equal(calls.filter(([m,p])=>m==='GET'&&p==='/api/account-import/batches/b').length,batchReadsBeforeDelete);
  assert.equal(batch.status,'voided');await page.getByText('暂无批次草稿',{exact:true}).waitFor();
  assert.equal(await page.getByRole('heading',{name:'已录入批次'}).count(),1);assert.equal(publishes,0);
  reset();await open();await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();

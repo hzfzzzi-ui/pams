@@ -43,6 +43,11 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-row { padding: 16px 0; border-bottom: 1px solid var(--pams-line-subtle); min-width: 0; }
 .page-account-import .import-row strong { display: block; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; white-space: normal; }
 .page-account-import .import-row button { margin-top: 8px; }
+.page-account-import .import-history-row { position: relative; border-bottom: 1px solid var(--pams-line-subtle); }
+.page-account-import .import-history-open { display: block; width: 100%; min-height: 92px; margin: 0; padding: 16px 56px 16px 0; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.page-account-import .import-history-open strong, .page-account-import .import-history-open span { display: block; overflow-wrap: anywhere; }
+.page-account-import .import-history-delete { position: absolute; right: 0; bottom: 6px; display: grid; place-items: center; width: 44px; height: 44px; padding: 10px; border: 0; background: transparent; color: var(--pams-text-secondary); }
+.page-account-import .import-history-delete svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .page-account-import .import-row[data-status="blocked"] { border-left: 2px solid var(--pams-loss); padding-left: 10px; }
 .page-account-import .import-row[data-status="duplicate"] { color: var(--pams-text-secondary); }
 .page-account-import :is(#originals,#history) { padding-block: 20px; border-bottom: 1px solid var(--pams-line-subtle); }

@@ -235,14 +235,19 @@ export function mount(root, context = {}) {
       const section = el('section'); section.append(el('h3', group.title));
       if (!group.rows.length) section.append(el('p', group.empty, 'import-meta'));
       for (const item of group.rows) {
-        const node = el('div', undefined, 'import-row');
-        node.append(el('strong', state.accounts.find(a => a.account_code === item.account_code)?.label || item.account_code));
-        node.append(el('p', `${item.status === 'published' ? '已录入' : TEXT[item.status] || item.status} · ${item.batch_id}${item.updated_at ? ` · ${item.updated_at}` : ''}`, 'import-meta'));
-        node.append(button('打开批次', () => run(async () => {
+        const node = el('div', undefined, 'import-history-row');
+        const label = state.accounts.find(a => a.account_code === item.account_code)?.label || item.account_code;
+        const status = item.status === 'published' ? '已录入' : TEXT[item.status] || item.status;
+        const open = button('', () => run(async () => {
           if (!abandon()) return;
           if (useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) message('');
-        })));
-        if (item.status === 'draft') node.append(button('删除草稿', () => run(async () => {
+        }));
+        open.className = 'import-history-open';
+        open.setAttribute('aria-label', `打开批次：${label}，${status}，${item.batch_id}`);
+        open.append(el('strong', label), el('span', `${status} · ${item.batch_id}${item.updated_at ? ` · ${item.updated_at}` : ''}`, 'import-meta'));
+        node.append(open);
+        if (item.status === 'draft') {
+          const remove = button('', () => run(async () => {
           if (state.conflict || state.needsRefresh) { message('请先刷新并确认服务器批次状态，再删除草稿。'); return; }
           if (!window.confirm('删除此草稿后将从列表移除；原始凭证和已建立的资产来源仍会保留。继续？')) return;
           if (!abandon()) return;
@@ -250,7 +255,14 @@ export function mount(root, context = {}) {
           if (!state.batch || state.batch.status !== 'draft') throw new Error('批次已变化，请刷新后重新核对。');
           await api(`${path()}/void`, 'POST', { revision: state.batch.revision });
           clearCurrentBatch(); render(); await history(); message('草稿已从列表移除，原始凭证和资产来源已保留。');
-        })));
+          }));
+          remove.className = 'import-history-delete'; remove.setAttribute('aria-label', '删除草稿'); remove.title = '删除草稿';
+          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
+          const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          shape.setAttribute('d', 'M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5');
+          icon.append(shape); remove.append(icon); node.append(remove);
+        }
         section.append(node);
       }
       $('batch-list').append(section);
