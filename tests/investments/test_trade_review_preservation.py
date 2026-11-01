@@ -10,6 +10,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
 from domain.investments.trade_attribution import (  # noqa: E402
     _annotate_trade_lifecycle,
+    _judgements,
+    _market_hint,
     _price_performance_metrics,
     build_auto_trade_annotation,
     build_auto_trade_review,
@@ -81,6 +83,33 @@ def test_missing_price_history_does_not_create_a_return():
     assert result['coverage'] == 'missing'
     assert result['horizons'] == {}
     assert 'current_return_pct' not in result
+
+
+def test_price_horizons_and_extremes_use_the_same_trade_basis():
+    values = ['10', '11', '9', '12', '10', '13', '14']
+    rows = [{'trade_date': date(2025, 1, i + 1), 'close': Decimal(value)}
+            for i, value in enumerate(values)]
+    result = _price_performance_metrics(rows, trade_date=date(2025, 1, 1), trade_price=Decimal('10'))
+    assert result['horizons']['t1']['return_pct'] == Decimal('10')
+    assert result['horizons']['t5']['return_pct'] == Decimal('30')
+    assert result['max_adverse_excursion_pct'] == Decimal('-10')
+    assert result['max_favorable_excursion_pct'] == Decimal('40')
+
+
+@pytest.mark.parametrize(('currency', 'expected'), [
+    ('HKD', 'HK_STOCK'), ('KRW', 'KR_STOCK'), ('SEK', 'SE_STOCK'), ('USD', 'YF'),
+])
+def test_generic_stock_market_hint_uses_explicit_currency(currency, expected):
+    assert _market_hint({'market': 'STK', 'currency': currency}) == expected
+
+
+def test_trade_judgements_distinguish_buy_drawdown_and_sell_upside():
+    buy = {'coverage': 'ok', 'current_return_pct': Decimal('-6'),
+           'max_adverse_excursion_pct': Decimal('-10'), 'horizons': {'t20': {'return_pct': Decimal('-2')}}}
+    sell = {'coverage': 'ok', 'current_return_pct': Decimal('8'),
+            'max_adverse_excursion_pct': Decimal('0'), 'horizons': {'t20': {'return_pct': Decimal('8')}}}
+    assert '买入承压' in [item['label'] for item in _judgements({'trade_type': 'buy'}, buy)]
+    assert '卖飞' in [item['label'] for item in _judgements({'trade_type': 'sell'}, sell)]
 
 
 def test_closed_stop_loss_is_not_misclassified_as_identity_drift():
