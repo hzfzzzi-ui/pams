@@ -107,6 +107,11 @@
         </table>
       </div>
       <div id="mobileHoldingList" class="mobileHoldingList"></div>
+      <section id="trade-derived-positions" hidden aria-live="polite">
+        <h3>同花顺交易推算持仓</h3>
+        <p class="muted">根据已录入的买卖记录推算数量；未计入上方组合汇总。市值及盈亏需要行情和估值证据。</p>
+        <div id="trade-derived-position-list"></div>
+      </section>
     </div>
 
     <!-- 投资汇总统计 -->
@@ -686,7 +691,7 @@
     </div>
   </div>
 
-  <script type="module" src="assets/js/holdings.js?v=20261031-modules-v1"></script>
+  <script type="module" src="assets/js/holdings.js?v=20261101-trade-positions-v1"></script>
   <script type="module" src="assets/js/holdings_categories.js?v=20261031-modules-v1"></script>
   <script type="module" src="assets/js/lookthrough.js?v=20261031-modules-v1"></script>
   <script type="module" src="assets/js/transactions.js?v=20261031-modules-v1"></script>

@@ -14,6 +14,7 @@ import {
 import {
   acquireClosedPositions
 } from './closed_positions.js?v=20261031-modules-v1';
+import { renderTradeDerivedPositions } from './trade_derived_positions.js?v=20261101-trade-positions-v1';
 
 const mounted = new WeakMap();
 export function mount(root, context) {
@@ -104,6 +105,25 @@ function setupHoldingGroupFilter(allRows) {
   const allRows = [...sourceRows, ...accountCashRows];
 
   setupHoldingGroupFilter(allRows);
+  // A reconstructed trade campaign is not a valuation snapshot. Keep it out
+  // of portfolio totals and avoid duplicating an existing account snapshot.
+  const section = document.getElementById('trade-derived-positions');
+  const list = document.getElementById('trade-derived-position-list');
+  if (section && list) { section.hidden = true; list.textContent = ''; }
+  const hasSecuritiesSnapshot = (holdings.rows || []).some(row =>
+    (row.account || row.account_code) === 'tonghuashun'
+    && !['现金', '现金/活期'].includes(row.major_category || row.type));
+  if (section && list && !hasSecuritiesSnapshot) {
+    try {
+      const campaigns = await scope.get('/api/investment-transactions/campaigns?account_code=tonghuashun&status=open&limit=500');
+      if (scope.active) renderTradeDerivedPositions(section, list, campaigns);
+    } catch (error) {
+      if (scope.active && error?.name !== 'AbortError') {
+        section.hidden = false;
+        list.textContent = '交易推算暂不可用，请稍后重试。';
+      }
+    }
+  }
     } catch (error) {
       if (!scope.active) return;
       errorView.show(error);
