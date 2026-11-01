@@ -1,6 +1,8 @@
 """Synthetic source publication and strictly read-only snapshot preview."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import psycopg2
 import pytest
@@ -65,7 +67,7 @@ def test_isolated_snapshot_write_binds_inputs_and_rejects_replay(client, monkeyp
             conn.set_session(isolation_level='SERIALIZABLE')
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 publish_isolated(cur, account_code='tonghuashun', as_of=date.fromisoformat(DAY),
-                                 quote_ids={'000001': 1}, expected_digest='0' * 64)
+                                 quote_ids={'000001': 1}, expected_digest='0' * 64, confirmed_scope=True)
     assert not sql(params, 'SELECT id FROM pams_holdings_snapshot')
     import domain.investments.trade_snapshot_writer as writer
     original = writer.finish_holding_change
@@ -77,15 +79,16 @@ def test_isolated_snapshot_write_binds_inputs_and_rejects_replay(client, monkeyp
             conn.set_session(isolation_level='SERIALIZABLE')
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 publish_isolated(cur, account_code='tonghuashun', as_of=date.fromisoformat(DAY),
-                                 quote_ids={'000001': 1}, expected_digest=candidate['digest'])
+                                 quote_ids={'000001': 1}, expected_digest=candidate['digest'], confirmed_scope=True)
     assert not sql(params, 'SELECT id FROM pams_holdings_snapshot')
     monkeypatch.setattr(writer, 'finish_holding_change', original)
     with psycopg2.connect(**params) as conn:
         conn.set_session(isolation_level='SERIALIZABLE')
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             result = publish_isolated(cur, account_code='tonghuashun', as_of=date.fromisoformat(DAY),
-                                      quote_ids={'000001': 1}, expected_digest=candidate['digest'])
+                                      quote_ids={'000001': 1}, expected_digest=candidate['digest'], confirmed_scope=True)
     assert len(result['holding_ids']) == 1
+    assert result['replayed'] is False
     rows = sql(params, 'SELECT quantity,cost,market_value FROM pams_holdings_snapshot')
     assert rows[0]['quantity'] == Decimal('100')
     assert rows[0]['cost'] == Decimal('1005')
@@ -94,7 +97,40 @@ def test_isolated_snapshot_write_binds_inputs_and_rejects_replay(client, monkeyp
     with psycopg2.connect(**params) as conn:
         conn.set_session(isolation_level='SERIALIZABLE')
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            with pytest.raises(ValueError, match='existing account snapshot'):
-                publish_isolated(cur, account_code='tonghuashun', as_of=date.fromisoformat(DAY),
-                                 quote_ids={'000001': 1}, expected_digest=candidate['digest'])
+            replay = publish_isolated(cur, account_code='tonghuashun', as_of=date.fromisoformat(DAY),
+                                      quote_ids={'000001': 1}, expected_digest=candidate['digest'], confirmed_scope=True)
+            assert replay['replayed'] is True
     assert len(sql(params, 'SELECT id FROM pams_holdings_snapshot')) == 1
+
+
+def test_concurrent_isolated_publication_never_duplicates_snapshot(client):
+    web, params = client
+    batch = draft(web, [trade(trade_time='10:00:00')])
+    assert publish(web, batch, preview(web, batch)).status_code == 200
+    sql(params, '''CREATE TABLE market_observations (
+        quote_id bigint primary key, observation_type text, symbol text, asset_id text, currency text,
+        provider text, source text, as_of date, quote_date date, price numeric, price_time timestamptz)''')
+    sql(params, '''INSERT INTO market_observations VALUES
+        (1,'quote','sz000001','TEST_STOCK','CNY','tencent','tencent_stock_quote',%s,%s,12,%s)''',
+        (DAY, DAY, datetime.fromisoformat(DAY).replace(tzinfo=timezone.utc)))
+    day = date.fromisoformat(DAY)
+    with psycopg2.connect(**params) as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            digest = writer_preview(cur, account_code='tonghuashun', as_of=day, quote_ids={'000001': 1})['digest']
+    gate = Barrier(2)
+    def run():
+        try:
+            with psycopg2.connect(**params) as conn:
+                conn.set_session(isolation_level='SERIALIZABLE')
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    gate.wait(timeout=10)
+                    return publish_isolated(cur, account_code='tonghuashun', as_of=day,
+                                            quote_ids={'000001': 1}, expected_digest=digest, confirmed_scope=True)
+        except psycopg2.errors.SerializationFailure:
+            return None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: run(), range(2)))
+    assert any(result and not result['replayed'] for result in results)
+    assert len(sql(params, 'SELECT id FROM pams_holdings_snapshot')) == 1
+    assert len(sql(params, "SELECT batch_id FROM source_batches WHERE workflow='trade_snapshot'")) == 1
