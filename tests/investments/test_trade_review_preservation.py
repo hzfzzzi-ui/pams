@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
 from domain.investments.trade_attribution import (  # noqa: E402
     _annotate_trade_lifecycle,
+    _build_trade_asset_heatmap,
     _judgements,
     _market_hint,
     _price_performance_metrics,
@@ -31,6 +32,21 @@ def test_auto_annotation_does_not_replace_human_review(status):
                                                   'current_position_identity': 'value'}})
     assert result['updates'] == {}
     assert row['notes'] == 'human note'
+
+
+def test_auto_annotation_requires_review_when_filling_missing_fields():
+    row = {'trade_id': 1, 'trade_type': 'buy', 'symbol': 'SYNTH',
+           'buy_reason': None, 'initial_position_identity': None,
+           'current_position_identity': None, 'review_status': 'auto', 'review_tags': []}
+    payload = {'side': 'buy', 'auto_review': {'suggested_tags': ['early_bottom'],
+                                             'needs_human_review': True}}
+    result = build_auto_trade_annotation(row, payload, learned_defaults={'synth': {
+        'buy_reason': 'trend_signal', 'initial_position_identity': 'trend',
+        'current_position_identity': 'trend'}})
+    assert result['updates']['buy_reason'] == 'trend_signal'
+    assert result['updates']['initial_position_identity'] == 'trend'
+    assert result['updates']['current_position_identity'] == 'trend'
+    assert result['updates']['review_status'] == 'needs_review'
 
 
 def test_full_sale_closes_only_matching_account_position():
@@ -122,3 +138,15 @@ def test_closed_stop_loss_is_not_misclassified_as_identity_drift():
     result = build_auto_trade_review(row, metrics)
     assert result['kind'] == 'stop_loss_effective'
     assert result['needs_human_review'] is False
+
+
+def test_heatmap_event_list_is_not_limited_by_asset_preview():
+    events = [{'trade_id': i, 'trade_date': date(2025, 1, i), 'name': 'Synthetic',
+               'symbol': 'SYNTH', 'side': 'buy', 'current_return_pct': Decimal(i),
+               'estimated_decision_effect_cny': Decimal(i), 'gross_exposure_cny': Decimal('100'),
+               'review_tags': [], 'auto_review': {'label': '示例'}} for i in range(1, 11)]
+    result = _build_trade_asset_heatmap(events)
+    assert result['asset_count'] == 1
+    assert result['trade_count'] == 10
+    assert len(result['assets'][0]['trades']) == 8
+    assert len(result['directional_trades']) == 10
