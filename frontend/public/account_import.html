@@ -8,15 +8,15 @@
   <link rel="stylesheet" href="assets/css/tokens.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/style.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20261031-modules-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-template-status" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-step-nav" />
   <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-modules-v1" />
 </head>
 <body class="page-account-import app-shell">
   <div class="wrap import-shell">
     <header class="import-head"><button id="flow-back" type="button" aria-label="返回上一层" title="返回">‹</button><h1>导入资料</h1></header>
     <ol class="import-steps" aria-label="导入步骤">
-      <li id="step-one" aria-current="step"><span>01</span> 填写 / 识别</li>
-      <li id="step-two"><span>02</span> 核对发布</li>
+      <li id="step-one" aria-current="step"><button id="step-one-link" type="button"><span>01</span> 填写 / 识别</button></li>
+      <li id="step-two"><button id="step-two-link" type="button"><span>02</span> 核对发布</button></li>
     </ol>
     <p id="notice" role="status" aria-live="polite">正在载入导入资料…</p>
     <p id="capability-note" class="import-meta" hidden>仅预览</p>
@@ -73,6 +73,10 @@
     <form id="record-form" novalidate>
       <header class="import-sheet-head"><h2 id="editor-title">编辑记录</h2><button id="close-editor" type="button" aria-label="关闭记录编辑器" title="关闭">×</button></header>
       <div class="import-sheet-body">
+        <section class="import-fields"><h3>处理选项</h3><p id="editor-guidance" class="import-meta"></p>
+          <div id="handling-fields" class="import-grid"></div>
+          <label class="import-check"><input id="row-excluded" type="checkbox" />不发布此条记录</label>
+        </section>
         <section class="import-fields"><h3>账户与日期</h3><p id="editor-account" class="import-meta"></p>
           <div id="identity-fields" class="import-grid"></div>
         </section>
@@ -82,15 +86,13 @@
           <div id="asset-fields" class="import-grid"></div>
         </section>
         <section class="import-fields"><h3>数量与金额</h3><div id="value-fields" class="import-grid"></div></section>
-        <section class="import-fields"><h3>来源与核对</h3><div id="source-fields"></div><div id="row-evidence"></div>
-          <label class="import-check"><input id="row-excluded" type="checkbox" />不发布此条记录</label>
-        </section>
+        <section class="import-fields"><h3>来源与核对</h3><div id="source-fields"></div><div id="row-evidence"></div></section>
         <p id="editor-error" role="alert"></p>
       </div>
       <footer class="import-sheet-actions"><button id="keep-edit" type="button">暂存输入并返回</button><button type="submit" class="primary">核对并保存草稿</button></footer>
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261101-auto-kind"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261101-draft-modes"></script>
 </body>
 </html>

@@ -17,7 +17,8 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-head a { display: grid; place-items: center; min-width: 44px; height: 44px; font-size: 30px; color: var(--pams-text-primary); text-decoration: none; }
 .page-account-import .import-head h1 { margin: 0; }
 .page-account-import .import-steps { display: grid; grid-template-columns: 1fr 1fr; list-style: none; padding: 0; margin: 0 0 20px; border-bottom: 1px solid var(--pams-line-subtle); }
-.page-account-import .import-steps li { padding: 0 0 14px; font-size: 14px; color: var(--pams-text-muted); }
+.page-account-import .import-steps li { font-size: 14px; color: var(--pams-text-muted); }
+.page-account-import .import-steps button { display: block; width: 100%; padding: 0 0 14px; text-align: left; border: 0; border-radius: 0; background: none; color: inherit; font-size: inherit; }
 .page-account-import .import-steps span { font-family: var(--pams-font-number); margin-right: 4px; }
 .page-account-import .import-steps [aria-current] { color: var(--import-yellow); border-bottom: 2px solid var(--import-yellow); }
 .page-account-import #notice { font-size: 14px; line-height: 1.6; min-height: 24px; }

@@ -39,6 +39,19 @@ def cash_member(row):
         "借款" in str(row.get(k) or "") for k in ("major_category", "minor_category")) and _is_cash_like_holding(row)
 
 
+def ths_display_price_matches(quantity: Decimal, price: Decimal, gross: Decimal) -> bool:
+    """Accept a source amount compatible with a displayed three-decimal average.
+
+    This is a bounded compatibility check, not a claim about the broker's
+    calculation or permission to replace its reported amounts.
+    """
+    if quantity <= 0 or price <= 0 or gross < 0 or price % Decimal("0.001"):
+        return False
+    midpoint = quantity * price
+    half_step = quantity * Decimal("0.0005")
+    return midpoint - half_step <= gross < midpoint + half_step
+
+
 def decimal(value, field: str, errors: list, *, required=True, scale=10):
     if value in (None, ""):
         if required:
@@ -294,7 +307,8 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
         if any(v is not None and v < 0 for v in (quantity, price, gross, fees, taxes)) or quantity == 0 or price == 0:
             errors.append(issue(None, "invalid_sign", "数量、成交价、发生额与税费需为正数或明确的零费用"))
         if quantity is not None and price is not None and gross is not None and abs(quantity * price - gross) > Decimal("0.01"):
-            errors.append(issue("gross_amount", "gross_mismatch", "份额×成交价与成交额不一致，请核对净额/总额口径"))
+            if not (native and ths_display_price_matches(quantity, price, gross)):
+                errors.append(issue("gross_amount", "gross_mismatch", "份额×成交价与成交额不一致，请核对净额/总额口径"))
         confirmed = None
         if action in {"subscribe", "redeem"}:
             try:

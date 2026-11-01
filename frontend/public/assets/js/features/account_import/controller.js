@@ -1,7 +1,7 @@
 import { ROOT, KIND_TEXT, DECIMALS, LABELS, TEXT, accessState, fileFormat, previewFields, displayAssetType, recordEditable, publishable } from './contract.js?v=20261031-modules-v1';
 import { createImportClient } from './client.js?v=20261031-modules-v1';
 import { createRequestScope } from './request_scope.js?v=20261101-auto-kind';
-import { createRecordsEditor } from './records_editor.js?v=20261031-modules-v1';
+import { createRecordsEditor } from './records_editor.js?v=20261101-record-handling';
 import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
@@ -216,6 +216,13 @@ export function mount(root, context = {}) {
     const data = await api('/batches?limit=20');
     state.historyRows = data.rows || []; renderHistory();
   }
+  function rememberBatch(batch) {
+    if (!batch?.batch_id) return;
+    const item = { batch_id: batch.batch_id, account_code: batch.account_code, status: batch.status,
+      revision: batch.revision, updated_at: batch.updated_at, row_count: batch.rows?.length || 0 };
+    state.historyRows = [item, ...(state.historyRows || []).filter(row => row.batch_id !== item.batch_id)].slice(0, 20);
+    renderHistory();
+  }
   function renderHistory() {
     const rows = state.historyRows || []; $('batch-list').replaceChildren();
     const groups = [
@@ -285,7 +292,7 @@ export function mount(root, context = {}) {
   function useBatch(batch) {
     if (!confirmRecovery(batch)) { state.needsRefresh = true; message(recoveryNotice()); renderControls(); return false; }
     state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false; state.needsKind = false; pendingSelection = null;
-    state.mappings.clear();
+    state.mappings.clear(); rememberBatch(batch);
     $('conflict').hidden = true; renderAccounts(batch.account_code); configureKind(batch.kind); state.needsKind = false;
     $('completeness').value = batch.completeness || 'partial'; state.mode = batch.mode === 'manual' ? 'manual' : images().length ? 'ocr' : 'upload'; render();
     return true;
@@ -295,7 +302,7 @@ export function mount(root, context = {}) {
     if (!account()) throw new Error('请选择服务端配置的投资账户');
     if (!$('kind').value || !(account().kinds || []).includes($('kind').value)) throw new Error('请先确认资料类别。');
     state.batch = await api('/batches', 'POST', { account_code: account().account_code, mode: state.mode === 'manual' ? 'manual' : 'upload', kind: $('kind').value, completeness: $('completeness').value });
-    render();
+    rememberBatch(state.batch); render();
   }
   async function saveDraft() {
     if (state.needsRefresh) throw new Error('上次操作结果待刷新确认，请先载入服务器版本。');
@@ -305,7 +312,7 @@ export function mount(root, context = {}) {
       const payload = { revision: state.batch.revision, completeness: $('completeness').value, rows: state.batch.rows.map(row => ({ ...(row.row_id ? { row_id: row.row_id } : row.image_file_id ? {image_file_id:row.image_file_id} : {}), fields: row.fields, acknowledged: !!row.acknowledged, excluded: !!row.excluded })) };
       state.batch = await api(path(), 'PUT', payload); state.dirty = false; state.preview = null;
     }
-    message('草稿已保存，尚未发布。'); render();
+    rememberBatch(state.batch); message('草稿已保存，尚未发布。'); render();
   }
   async function upload(files, selectedKind = '', previouslyDetected = []) {
     if (!files.length) return;
@@ -360,7 +367,7 @@ export function mount(root, context = {}) {
         if (error.status === 400 && error.code === 'invalid_document') error.message = `模板不匹配或文件无法识别，请核对账户和文件。${error.message}`;
         throw error;
       }
-      state.preview = null; render();
+      state.preview = null; rememberBatch(state.batch); render();
     }
     const selected = (state.batch?.files || []).filter(file => files.some(item => item.name === file.filename));
     const results = selected.filter(file => !file.content_type?.startsWith('image/')).map(file => templateStatus(file));
@@ -432,14 +439,19 @@ export function mount(root, context = {}) {
     render();
   }
   listen($('retry'), 'click', () => run(start));
-  for (const mode of ['upload', 'ocr', 'manual']) listen($(`mode-${mode}`), 'click', () => {
-    if (state.batch?.rows?.length && mode !== state.mode) { message('请先保留当前草稿并新建批次，再选择另一种输入方式。'); return; }
-    state.mode = mode; pendingSelection = null;
-    if (!state.batch && mode === 'manual' && !$('kind').value) {
-      state.needsKind = true; message('手动填写无法自动识别类别，请先选择资料类别。');
-    } else if (!state.batch) state.needsKind = false;
-    render();
-  });
+  for (const mode of ['upload', 'ocr', 'manual']) listen($(`mode-${mode}`), 'click', () => run(async () => {
+    if (mode === state.mode) return;
+    if (state.conflict || state.needsRefresh) throw new Error('请先刷新并确认当前批次状态，再切换输入方式。');
+    if (state.suspended) throw new Error('请先继续并保存未完成的记录编辑，再切换输入方式。');
+    if (mappingDirty()) throw new Error('请先保存字段映射，再切换输入方式。');
+    const hadBatch = !!state.batch, hadPendingFile = !!pendingSelection;
+    if (state.dirty) await saveDraft();
+    if (state.batch) rememberBatch(state.batch);
+    state.mode = mode; clearCurrentBatch(); render();
+    message(hadPendingFile ? '未识别类别的文件尚未上传；需要时请重新选择。' : hadBatch
+      ? '原批次已保留在草稿列表，可随时打开；已切换输入方式。'
+      : state.needsKind ? '手动填写无法自动识别类别，请先选择资料类别。' : '');
+  }));
   listen($('account'), 'change', () => {
     detachEmptyDraft(); pendingSelection = null; configureKind();
     if (state.needsKind) message('手动填写无法自动识别类别，请先选择资料类别。');
@@ -463,9 +475,22 @@ export function mount(root, context = {}) {
     state.preview = await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
     state.step = 2; state.imageIndex = null; message(''); renderPreview();
   }
-  listen($('next'), 'click', () => run(async () => {
+  async function advanceToReview() {
+    if (state.step === 2) return;
+    if (state.conflict || state.needsRefresh || !editable()) throw new Error('请先确认当前批次状态，再进入核对。');
+    if (state.suspended) throw new Error('请先继续并保存未完成的记录编辑。');
+    if (mappingDirty()) throw new Error('请先保存字段映射后再继续。');
+    if (!(state.batch?.rows?.length || images().length)) throw new Error('请先选择文件、截图或填写记录，再进入核对。');
     await saveDraft();
     if (images().length) { state.step = 2; state.imageIndex = 0; render(); } else await makePreview();
+    pushFlow(); window.scrollTo(0, 0);
+  }
+  listen($('next'), 'click', () => run(advanceToReview));
+  listen($('step-two-link'), 'click', () => run(advanceToReview));
+  listen($('step-one-link'), 'click', () => run(async () => {
+    if (state.step === 1) return;
+    if (state.suspended) throw new Error('请先继续并保存未完成的记录编辑。');
+    state.step = 1; state.imageIndex = null; state.preview = null; render();
     pushFlow(); window.scrollTo(0, 0);
   }));
   listen($('back'), 'click', () => run(goBack));
