@@ -234,6 +234,69 @@ def test_native_mixed_file_preview_never_writes_financial_facts(client, monkeypa
         assert not sql(params, "SELECT * FROM " + table)
 
 
+def test_void_draft_hides_batch_but_retains_source_and_rejects_stale_revision(client):
+    web, params = client
+    batch, content = native_batch(web)
+    endpoint = f"/api/account-import/batches/{batch['batch_id']}/void"
+    assert web.post(endpoint, json={'revision': batch['revision']}, headers={'Origin': 'http://other.invalid'}).status_code == 403
+    assert web.post(endpoint, json={'revision': batch['revision'] - 1}).status_code == 409
+    assert sql(params, 'SELECT status FROM source_batches')[0]['status'] == 'draft'
+    response = web.post(endpoint, json={'revision': batch['revision']})
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'voided'
+    assert web.get('/api/account-import/batches').json()['rows'] == []
+    assert web.get('/api/account-import/batches/' + batch['batch_id']).json()['status'] == 'voided'
+    assert sql(params, 'SELECT content FROM source_files')[0]['content'].tobytes() == content
+    assert len(sql(params, 'SELECT * FROM source_items')) == 7
+    assert not sql(params, 'SELECT * FROM pams_investment_trade_fact')
+    assert web.post(endpoint, json={'revision': response.json()['revision']}).status_code == 409
+
+
+def test_void_refuses_published_or_linked_drafts(client):
+    web, params = client
+    published = draft(web, [trade()])
+    assert publish(web, published, preview(web, published)).status_code == 200
+    path = f"/api/account-import/batches/{published['batch_id']}/void"
+    assert web.post(path, json={'revision': published['revision']}).status_code == 409
+    assert len(sql(params, 'SELECT * FROM pams_investment_trade_fact')) == 1
+    linked = draft(web, [trade(source_ref='new-source')])
+    sql(params, """INSERT INTO pams_cashflow_fact(event_date,account_code,amount,amount_cny,
+        source_table,source_id,source_hash,source_item_id)
+        VALUES (%s,'tonghuashun',1,1,'synthetic','linked','synthetic-hash',%s)""",
+        (DAY, linked['rows'][0]['row_id']))
+    result = web.post(f"/api/account-import/batches/{linked['batch_id']}/void", json={'revision': linked['revision']})
+    assert result.status_code == 409 and result.json()['detail']['code'] == 'draft_has_evidence'
+    assert sql(params, 'SELECT status FROM source_batches WHERE batch_id=%s', (linked['batch_id'],))[0]['status'] == 'draft'
+
+
+def test_concurrent_void_and_publish_have_only_one_effect(client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    web, params = client
+    batch = draft(web, [trade(source_ref='synthetic-void-race')])
+    check = preview(web, batch)
+    barrier = Barrier(2)
+    def act(action):
+        try:
+            with psycopg2.connect(**params) as conn:
+                conn.set_session(isolation_level='SERIALIZABLE')
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    barrier.wait(timeout=10)
+                    if action == 'void':
+                        publisher.void_draft(cur, batch['batch_id'], batch['revision'])
+                    else:
+                        publisher.publish(cur, batch['batch_id'], batch['revision'], check['preview_token'])
+            return action
+        except (psycopg2.Error, store.ImportProblem, ValueError):
+            return None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        successes = list(pool.map(act, ['void', 'publish']))
+    assert len([value for value in successes if value]) == 1
+    status = sql(params, 'SELECT status FROM source_batches')[0]['status']
+    assert status in {'voided', 'published'}
+    assert len(sql(params, 'SELECT * FROM pams_investment_trade_fact')) == (1 if status == 'published' else 0)
+
+
 def test_native_funding_bank_links_idempotence_and_financial_flags_in_isolation(client):
     web, params = client
     batch, _ = native_batch(web)

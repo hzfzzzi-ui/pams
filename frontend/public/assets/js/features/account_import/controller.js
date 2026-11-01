@@ -137,7 +137,7 @@ export function mount(root, context = {}) {
     $('completeness-label').hidden = $('kind').value !== 'holding';
     $('complete-warning').hidden = $('completeness').value !== 'complete';
     const batch = state.batch;
-    $('batch-meta').textContent = batch ? `${TEXT[batch.status] || batch.status} · ${batch.batch_id} · 版本 ${batch.revision}${state.dirty ? ' · 未保存' : ''}${batch.updated_at ? ` · ${batch.updated_at}` : ''}` : '尚无暂存记录';
+    $('batch-meta').textContent = batch ? `${batch.status === 'published' ? '已录入' : TEXT[batch.status] || batch.status} · ${batch.batch_id} · 版本 ${batch.revision}${state.dirty ? ' · 未保存' : ''}${batch.updated_at ? ` · ${batch.updated_at}` : ''}` : '尚无暂存记录';
     $('rows').replaceChildren();
     for (const [index, row] of (batch?.rows || []).entries()) {
       const f = row.fields || {}, node = el('article', undefined, 'import-row');
@@ -185,22 +185,41 @@ export function mount(root, context = {}) {
     state.historyRows = data.rows || []; renderHistory();
   }
   function renderHistory() {
-    const data = { rows: state.historyRows }; $('batch-list').replaceChildren();
-    for (const batch of data.rows || []) {
-      const node = el('div', undefined, 'import-row');
-      node.append(el('strong', state.accounts.find(a => a.account_code === batch.account_code)?.label || batch.account_code));
-      node.append(el('p', `${TEXT[batch.status] || batch.status} · ${batch.batch_id}${batch.updated_at ? ` · ${batch.updated_at}` : ''}`, 'import-meta'));
-      node.append(button('打开批次', () => run(async () => {
-        if (!abandon()) return;
-        if (useBatch(await api(`/batches/${encodeURIComponent(batch.batch_id)}`))) message('');
-      }))); $('batch-list').append(node);
+    const rows = state.historyRows || []; $('batch-list').replaceChildren();
+    const groups = [
+      { title: '批次草稿', rows: rows.filter(batch => batch.status === 'draft') },
+      { title: '已录入批次', rows: rows.filter(batch => batch.status === 'published') },
+      { title: '其他状态', rows: rows.filter(batch => !['draft', 'published', 'voided'].includes(batch.status)) },
+    ];
+    for (const group of groups) {
+      if (!group.rows.length) continue;
+      const section = el('section'); section.append(el('h3', group.title));
+      for (const item of group.rows) {
+        const node = el('div', undefined, 'import-row');
+        node.append(el('strong', state.accounts.find(a => a.account_code === item.account_code)?.label || item.account_code));
+        node.append(el('p', `${item.status === 'published' ? '已录入' : TEXT[item.status] || item.status} · ${item.batch_id}${item.updated_at ? ` · ${item.updated_at}` : ''}`, 'import-meta'));
+        node.append(button('打开批次', () => run(async () => {
+          if (!abandon()) return;
+          if (useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) message('');
+        })));
+        if (item.status === 'draft') node.append(button('删除草稿', () => run(async () => {
+          if (!window.confirm('删除此草稿后将从列表移除；原始凭证和已建立的资产来源仍会保留。继续？')) return;
+          if (!abandon()) return;
+          if (state.batch?.batch_id !== item.batch_id && !useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) return;
+          if (!state.batch || state.batch.status !== 'draft') throw new Error('批次已变化，请刷新后重新核对。');
+          await api(`${path()}/void`, 'POST', { revision: state.batch.revision });
+          clearCurrentBatch(); render(); await history(); message('草稿已从列表移除，原始凭证和资产来源已保留。');
+        })));
+        section.append(node);
+      }
+      $('batch-list').append(section);
     }
-    if (!data.rows?.length) $('batch-list').append(el('p', '暂无历史批次', 'import-meta'));
+    if (!groups.some(group => group.rows.length)) $('batch-list').append(el('p', '暂无历史批次', 'import-meta'));
   }
 
   function abandon() { return !(state.dirty || state.suspended || mappingDirty()) || window.confirm('有未保存输入，放弃本地修改？'); }
   function writeUsesRevision(operation) {
-    return operation?.method === 'PUT' || /\/(?:publish|review|preview)$/.test(operation?.path || '');
+    return operation?.method === 'PUT' || /\/(?:publish|review|preview|void)$/.test(operation?.path || '');
   }
   function recoveryNotice() {
     if (scope.hasPendingWrite()) return '上次操作仍在处理中；读取草稿不能确认结果。请等待后再载入服务器版本，期间不会继续或重复写入。';
@@ -375,12 +394,15 @@ export function mount(root, context = {}) {
     useBatch(result.batch); message('批次已发布。'); await history();
   }));
   listen($('refresh-history'), 'click', () => run(history));
+  function clearCurrentBatch() {
+    state.batch = null; state.preview = null; state.dirty = false; state.suspended = null; state.conflict = false; state.needsRefresh = false; state.step = 1; state.imageIndex = null;
+    state.mappings.clear();
+    $('conflict').hidden = true; $('completeness').value = 'partial';
+  }
   listen($('new-batch'), 'click', () => {
     if (state.needsRefresh) { message(recoveryNotice()); return; }
     if (!abandon()) return;
-    state.batch = null; state.preview = null; state.dirty = false; state.suspended = null; state.conflict = false; state.needsRefresh = false; state.step = 1; state.imageIndex = null;
-    state.mappings.clear();
-    $('conflict').hidden = true; $('completeness').value = 'partial'; message(''); render();
+    clearCurrentBatch(); message(''); render();
   });
   async function reloadLatest() {
     if (!window.confirm('重新载入会放弃本地未保存修改，继续？')) return;
@@ -395,7 +417,11 @@ export function mount(root, context = {}) {
       return;
     }
     if ($('editor').open) $('editor').close();
-    if (useBatch(await api(path()))) message('已载入服务器版本。');
+    const loaded = await api(path());
+    if (useBatch(loaded)) {
+      if (loaded.status === 'voided') await history();
+      message(loaded.status === 'voided' ? '已确认草稿删除，原始凭证已保留。' : '已载入服务器版本。');
+    }
   }
   listen($('reload'), 'click', () => run(reloadLatest));
   listen($('refresh-result'), 'click', () => run(reloadLatest));
@@ -508,4 +534,3 @@ export function mount(root, context = {}) {
 }
 
 export function dispose(root) { return mounted.get(root)?.dispose(); }
-
