@@ -215,7 +215,6 @@ def test_load_investment_transactions_reads_trade_fact_table_first():
         [
             {"table_name": "pams_investment_trade_fact"},
             {"table_name": "pams_fx_rates_daily"},
-            [{"quote_currency": "USD", "rate": Decimal("7.2")}],
             [
                 {
                     "account_code": "ibkr",
@@ -226,6 +225,7 @@ def test_load_investment_transactions_reads_trade_fact_table_first():
                     "quantity": Decimal("1"),
                     "price": Decimal("100"),
                     "gross_amount": Decimal("100"),
+                    "gross_fx_rate_cny": Decimal("7.2"),
                     "fees": Decimal("1.5"),
                     "currency": "USD",
                     "source": "ibkr_flex",
@@ -250,7 +250,7 @@ def test_load_investment_transactions_reads_trade_fact_table_first():
 def test_load_valuation_series_reads_portfolio_valuation_state():
     cur = FakeCursor(
         [
-            {"table_name": "pams_portfolio_valuation_state"},
+            {"table_name": "valuation_results"},
             [
                 {
                     "valuation_date": date(2026, 6, 24),
@@ -276,8 +276,48 @@ def test_load_valuation_series_reads_portfolio_valuation_state():
             "investment_cost_cny": Decimal("700"),
             "investment_pnl_cny": Decimal("100"),
             "investment_return_rate": Decimal("0.1428571428571428571428571429"),
+            "valuation_meta": {
+                "source_table": "valuation_results",
+                "source": None,
+                "business_date": date(2026, 6, 24),
+                "publication_status": "unknown",
+                "data_completeness": None,
+                "valuation_cycle": None,
+                "valuation_period": "unknown",
+                "source_run_id": None,
+                "source_hash": None,
+                "published_at": None,
+                "daily_accurate_eligible": None,
+                "input_lineage_status": "unknown",
+            },
         }
     ]
+
+
+def test_valuation_metadata_does_not_infer_daily_accuracy_from_publication():
+    from domain.investments.valuation_state_reader import valuation_series_evidence
+
+    evidence = valuation_series_evidence(
+        {"valuation_date": date(2026, 6, 24), "status": "published",
+         "data_completeness": "complete", "raw_json": {"source": "test"}},
+        source_table="valuation_results",
+    )
+    assert evidence["publication_status"] == "published"
+    assert evidence["data_completeness"] == "complete"
+    assert evidence["valuation_period"] == "unknown"
+    assert evidence["daily_accurate_eligible"] is None
+    assert evidence["input_lineage_status"] == "unknown"
+
+
+def test_legacy_valuation_metadata_does_not_claim_publication():
+    from domain.investments.valuation_state_reader import valuation_series_evidence
+
+    evidence = valuation_series_evidence(
+        {"as_of": date(2026, 6, 24), "status": "published"}, source_table="pams_nav_daily"
+    )
+    assert evidence["business_date"] == date(2026, 6, 24)
+    assert evidence["publication_status"] == "unknown"
+    assert evidence["daily_accurate_eligible"] is None
 
 
 class FakeCursor:
@@ -295,12 +335,23 @@ class FakeCursor:
         return self.results.pop(0)
 
 
+def test_unproven_empty_broker_account_is_incomplete_not_zero():
+    from domain.investments.valuation_nav import current_nav_bucket_from_parts
+    balance = {"account_code": "tonghuashun", "include_in_nav": True, "amount_cny": None,
+               "snapshot_scope_status": "unknown"}
+    state = build_portfolio_state_from_parts(as_of=date(2026, 6, 16), base_currency="CNY",
+                                            account_balances=[balance], investment_positions=[])
+    assert state["snapshot_scope_status"] == "incomplete"
+    assert state["risk_snapshot"]["total_nav"] is None
+    bucket = current_nav_bucket_from_parts(account_balances=[balance], investment_positions=[])
+    assert bucket["net_worth"] is None and bucket["unavailable_accounts"] == ["tonghuashun"]
+
+
 def test_load_account_balances_prefers_newer_platform_snapshot_for_platform_accounts():
     cur = FakeCursor(
         [
             {"table_name": "pams_fx_rates_daily"},
             [],
-            {"table_name": None},
             {"table_name": "pams_holdings_snapshot"},
             [
                 {
@@ -310,6 +361,7 @@ def test_load_account_balances_prefers_newer_platform_snapshot_for_platform_acco
                     "market_value": Decimal("387782.00"),
                 }
             ],
+            {"version_exists": False, "member_exists": False},
         ]
     )
     account_cfg = {
@@ -331,7 +383,8 @@ def test_load_account_balances_prefers_newer_platform_snapshot_for_platform_acco
 
     rows = load_account_balances(cur, "CNY", account_cfg)
 
-    assert rows[0]["amount_cny"] == Decimal("242363.750000")
+    assert rows[0]["amount_cny"] is None
+    assert rows[0]["snapshot_scope_status"] == "unknown"
     assert rows[0]["as_of"] == date(2026, 6, 16)
     assert any("complete_account_snapshot" in sql for sql, _ in cur.executed)
 
@@ -383,12 +436,49 @@ def test_load_investment_positions_adds_synthetic_broker_cash_from_net_liquidati
     assert security["asset_id"] == "601899"
     assert security["holding_snapshot_asset_id"] == "manual-security-id"
     assert security["holding_snapshot_currency"] == "CNY"
-    cash = next(row for row in rows if row["source_type"] == "synthetic_broker_cash")
-    assert cash["account_code"] == "tonghuashun"
-    assert cash["asset_type"] == "cash"
-    assert cash["symbol"] == "CASH_CNY"
-    assert cash["market_value_cny"] == Decimal("33522.85000")
+    assert not any(row["source_type"] == "synthetic_broker_cash" for row in rows)
+    assert security["snapshot_scope_status"] == "unknown"
     assert any("complete_account_snapshot" in sql for sql, _ in cur.executed)
+
+
+def test_missing_foreign_exchange_does_not_become_one_or_complete_risk(monkeypatch):
+    from domain.investments import portfolio_state, valuation_nav
+
+    monkeypatch.setattr(portfolio_state, "_latest_fx_rates", lambda *args: {"CNY": Decimal("1")})
+    monkeypatch.setattr(portfolio_state, "_statement_balances", lambda *args: {})
+    monkeypatch.setattr(portfolio_state, "_platform_balances", lambda *args: {})
+    monkeypatch.setattr(portfolio_state, "_apply_daily_close_balance", lambda *args, **kwargs: None)
+    config = {"accounts": {"bank": {"account_type": "funding", "include_in_nav": True,
+        "manual_balance": {"amount": "100", "currency": "USD", "as_of": "2026-06-04"}}}}
+    rows = portfolio_state.load_account_balances(object(), "CNY", config)
+    assert rows[0]["amount"] == Decimal("100")
+    assert rows[0]["amount_cny"] is None and rows[0]["fx_status"] == "unavailable"
+    state = portfolio_state.build_portfolio_state_from_parts(as_of="2026-06-04", base_currency="CNY", account_balances=rows,
+        risk_snapshot={"total_nav": 100})
+    assert state["risk_snapshot"]["total_nav"] is None
+    assert state["fx_unavailable_accounts"] == ["bank"]
+    nav = valuation_nav.current_nav_bucket_from_parts(account_balances=rows, investment_positions=[])
+    assert nav["net_worth"] is None and nav["unavailable_accounts"] == ["bank"]
+    assert portfolio_state._known_fx_rate({"USD": Decimal("7")}, "USD", "CNY") == Decimal("7")
+    assert portfolio_state._known_fx_rate({}, "CNY", "CNY") == Decimal("1")
+
+
+def test_missing_fx_on_complete_holding_preserves_native_value_and_blocks_total(monkeypatch):
+    from domain.investments import portfolio_state, valuation_nav
+
+    monkeypatch.setattr(portfolio_state, "snapshot_tables", lambda cur: {"table_name": "pams_holdings_snapshot"})
+    monkeypatch.setattr(portfolio_state, "_latest_fx_rates", lambda *args: {"CNY": Decimal("1")})
+    monkeypatch.setattr(portfolio_state, "annotate_snapshot_coverage", lambda cur, rows: [dict(r, snapshot_scope_status="complete") for r in rows])
+    monkeypatch.setattr(portfolio_state, "_cash_like_carry_forward_rows", lambda *args, **kwargs: [])
+    cur = FakeCursor([[{"account_code": "broker", "name": "ABC", "symbol": "ABC", "currency": "USD",
+                       "market_value": Decimal("100"), "cost": Decimal("80"), "holding_pnl": Decimal("20"),
+                       "quantity": Decimal("1"), "as_of": date(2026, 6, 4)}]])
+    config = {"accounts": {"broker": {"account_type": "brokerage", "include_in_nav": True}}}
+    rows = portfolio_state.load_investment_positions(cur, "CNY", config)
+    assert len(rows) == 1 and rows[0]["market_value"] == Decimal("100")
+    assert rows[0]["market_value_cny"] is None and rows[0]["fx_status"] == "unavailable"
+    assert valuation_nav.current_nav_bucket_from_parts(account_balances=[], investment_positions=rows)["net_worth"] is None
+    assert portfolio_state.build_risk_snapshot([], rows)["total_nav"] is None
 
 
 def test_non_investment_account_does_not_enter_holding_projection():
@@ -452,8 +542,7 @@ def test_load_investment_positions_adds_synthetic_broker_cash_from_account_balan
         ],
     )
 
-    cash = next(row for row in rows if row["source_type"] == "synthetic_broker_cash")
-    assert cash["market_value_cny"] == Decimal("7.500")
+    assert not any(row["source_type"] == "synthetic_broker_cash" for row in rows)
 
 
 def test_load_investment_positions_skips_stale_synthetic_broker_cash():

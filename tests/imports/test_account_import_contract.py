@@ -68,6 +68,10 @@ def test_statement_transaction_and_balance_only_selected_rows_publish(bill_clien
     path = f"/api/account-import/batches/{batch['batch_id']}"
     batch = web.post(path+'/files?filename=bank.csv', content=content).json()
     assert len(batch['rows']) == 2 and batch['rows'][1]['excluded']
+    assert not preview(web,batch)['can_publish']
+    reviewed = web.put(path, json={'revision':batch['revision'], 'rows':batch['rows']})
+    assert reviewed.status_code == 200, reviewed.text
+    batch = reviewed.json()
     check = preview(web,batch)
     assert check['can_publish'] and check['write_count'] == 1
     assert publish(web,batch,check).status_code == 200

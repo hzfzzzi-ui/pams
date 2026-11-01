@@ -86,3 +86,18 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
         "refresh_overseas_quotes", "due:asia", "due:north_america",
         "run_flex_confirmation", "run_daily_close_confirmation", "run_cash_event_confirmation",
     ]
+
+
+def test_development_mode_disables_scheduler_and_direct_calls(monkeypatch):
+    scheduler = _load_scheduler(monkeypatch)
+    monkeypatch.setenv('PAMS_SOURCE_MODE', 'development')
+    def forbidden(*args, **kwargs):
+        pytest.fail('development scheduler attempted network or scheduling')
+    monkeypatch.setattr(scheduler.requests, 'get', forbidden)
+    monkeypatch.setattr(scheduler.requests, 'post', forbidden)
+    monkeypatch.setattr(scheduler.schedule, 'every', forbidden)
+    assert scheduler._get('anything', 'synthetic') is None
+    assert scheduler._request_json('post', 'http://example.invalid', 'synthetic', failure_details=True) == {
+        'success': False, 'status': 'disabled', 'reason': 'development_mode'
+    }
+    assert scheduler.main() is None

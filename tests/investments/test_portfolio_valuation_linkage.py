@@ -91,8 +91,8 @@ def test_apply_published_valuation_state_to_summary_skips_stale_state():
 @pytest.mark.parametrize("target,adjustment", [(150.0, 50.0), (50.0, -50.0), (100.0, 0.0)])
 def test_published_nav_keeps_unexplained_difference_out_of_exposure(target, adjustment):
     from domain.risk.core.risk_engine import gross_exposure, negative_cash_ratio, position_weight
-    positions = pd.DataFrame([{"as_of": "2026-06-18", "account_code": "broker", "asset_id": "QQQ",
-                               "asset_name": "QQQ", "asset_type": "us_stock", "market_value_cny": 100.0}])
+    positions = pd.DataFrame([{"account_code": "broker", "account_name": "Broker",
+        "asset_id": "QQQ", "asset_name": "QQQ", "asset_type": "us_stock", "market_value_cny": 100.0}])
     out, nav, meta = _positions_reconciled_to_published_nav(positions, {}, {
         "valuation_date": date(2026, 6, 18), "cycle": "manual_publish", "status": "published",
         "data_completeness": "complete", "net_liquidation_value": target,
@@ -108,8 +108,8 @@ def test_published_nav_keeps_unexplained_difference_out_of_exposure(target, adju
 
 @pytest.mark.parametrize("value,completeness", [("NaN", "complete"), (100, "partial")])
 def test_incomplete_or_invalid_published_valuation_is_unavailable(value, completeness):
-    positions = pd.DataFrame([{"as_of": "2026-06-18", "account_code": "broker", "asset_id": "QQQ",
-                               "asset_name": "QQQ", "asset_type": "us_stock", "market_value_cny": 100.0}])
+    positions = pd.DataFrame([{"account_code": "broker", "asset_id": "QQQ", "asset_name": "QQQ",
+                               "asset_type": "us_stock", "market_value_cny": 100.0}])
     _, _, meta = _positions_reconciled_to_published_nav(positions, {}, {
         "valuation_date": date(2026, 6, 18), "status": "published",
         "data_completeness": completeness, "net_liquidation_value": value})
@@ -315,8 +315,7 @@ def test_apply_holdings_category_pnl_to_section_return_series_payload_uses_categ
 
     first = out["rows"][0]
     latest = out["rows"][-1]
-    assert Decimal(first["return_rate"]).quantize(Decimal("0.000001")) == Decimal("0.083333")
-    assert Decimal(first["display_return_rate"]).quantize(Decimal("0.000001")) == Decimal("0.083333")
+    assert first == payload["rows"][0]
     assert latest["market_value"] == "120"
     assert latest["total_pnl"] == "25"
     assert latest["position_pnl"] == "20"
@@ -324,12 +323,14 @@ def test_apply_holdings_category_pnl_to_section_return_series_payload_uses_categ
     assert latest["cost"] == "150"
     assert latest["return_rate"] == "0.1666666666666666666666666667"
     assert latest["display_return_rate"] == "0.1666666666666666666666666667"
-    assert Decimal(latest["daily_return_rate"]).quantize(Decimal("0.000001")) == Decimal("0.076923")
+    assert latest["daily_return_rate"] is None
     assert latest["daily_return_amount"] == "2"
     assert out["summary"]["total_return"] == "25"
     assert out["summary"]["total_return_rate"] == "0.1666666666666666666666666667"
+    assert out["summary"]["annualized_return_rate"] is None
     assert out["section_pnl_state"]["overlay_applied"] is True
     assert out["section_pnl_state"]["row_count"] == 2
+    assert out["section_pnl_state"]["historical_values_recalibrated"] is False
 
 
 def test_apply_holdings_category_pnl_to_section_return_series_payload_skips_date_mismatch():
@@ -341,3 +342,99 @@ def test_apply_holdings_category_pnl_to_section_return_series_payload_skips_date
     assert out["rows"][-1]["total_pnl"] == "10"
     assert out["section_pnl_state"]["overlay_applied"] is False
     assert out["section_pnl_state"]["overlay_reason"] == "date_mismatch"
+
+
+def test_category_daily_pnl_keeps_known_value_but_unknown_if_any_member_missing():
+    payload={'rows':[{'date':'2026-06-21','daily_return_amount':'99','daily_return_rate':'0.1'}]}
+    holdings={'as_of':'2026-06-21','rows':[
+        {'market_value_cny':'120','cost_cny':'100','holding_pnl_cny':'20','daily_pnl_cny':'2'},
+        {'market_value_cny':'40','cost_cny':'40','holding_pnl_cny':'0','daily_pnl_cny':None}]}
+    result=apply_holdings_category_pnl_to_section_return_series_payload(payload,holdings)
+    latest=result['rows'][-1]
+    assert latest['market_value']=='160' and latest['total_pnl']=='20'
+    assert latest['daily_return_amount'] is None and latest['daily_return_rate'] is None
+    holdings['rows'][1]['daily_pnl_cny']='0'
+    assert apply_holdings_category_pnl_to_section_return_series_payload(payload,holdings)['rows'][-1]['daily_return_amount']=='2'
+    holdings['rows'][0]['daily_pnl_cny']='0'
+    assert apply_holdings_category_pnl_to_section_return_series_payload(payload,holdings)['rows'][-1]['daily_return_amount']=='0'
+
+
+def test_category_unknown_cost_or_value_never_preserves_stale_income_or_invents_value():
+    payload={'summary':{'total_return':'100'},'rows':[{'date':'2026-06-21','market_value':'999',
+             'daily_return_amount':'99','daily_return_rate':'0.2'}]}
+    holdings={'as_of':'2026-06-21','rows':[
+        {'market_value_cny':'120','cost_cny':None,'holding_pnl_cny':None,'daily_pnl_cny':None}]}
+    result=apply_holdings_category_pnl_to_section_return_series_payload(payload,holdings)
+    assert result['rows'][-1]['market_value']=='120' and result['summary']['total_return'] is None
+    assert result['rows'][-1]['daily_return_amount'] is None and result['rows'][-1]['daily_return_rate'] is None
+    holdings['rows'][0]['market_value_cny']=None
+    assert apply_holdings_category_pnl_to_section_return_series_payload(payload,holdings)['rows'][-1]['market_value'] is None
+
+
+def test_category_zero_cost_does_not_invent_rate():
+    payload={'rows':[{'date':'2026-06-21','daily_return_rate':'0.2'}]}
+    holdings={'as_of':'2026-06-21','rows':[{'market_value_cny':'0','cost_cny':'0',
+               'holding_pnl_cny':'0','daily_pnl_cny':'0'}]}
+    result=apply_holdings_category_pnl_to_section_return_series_payload(payload,holdings)
+    assert result['rows'][-1]['market_value']=='0' and result['rows'][-1]['daily_return_amount']=='0'
+    assert result['rows'][-1]['return_rate'] is None and result['rows'][-1]['daily_return_rate'] is None
+    assert result['summary']['total_return_rate'] is None
+
+
+def test_category_overlay_preserves_negative_and_zero_terminal_history_without_interpolation():
+    payload = {'start': '2026-06-19', 'rows': [
+        {'date': '2026-06-19', 'display_return_rate': '-0.123456789', 'total_pnl': '-12.3456789',
+         'daily_return_rate': '-0.04', 'source_tag': 'original'},
+        {'date': '2026-06-20', 'display_return_rate': '0', 'total_pnl': '0'},
+        {'date': '2026-06-21', 'display_return_rate': '0', 'total_pnl': '0'},
+    ]}
+    holdings = {'as_of': '2026-06-21', 'rows': [
+        {'market_value_cny': '120', 'cost_cny': '100', 'holding_pnl_cny': '20', 'daily_pnl_cny': '0'}]}
+    result = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings)
+    assert result['rows'][:-1] == payload['rows'][:-1]
+    assert result['rows'][-1]['return_rate'] == '0.2'
+    assert result['rows'][-1]['daily_return_rate'] is None
+    assert result['rows'][-1]['daily_return_amount'] == '0'
+    assert result['summary']['annualized_return_rate'] is None
+
+
+def test_category_unknown_current_cost_preserves_known_historical_rows():
+    payload = {'summary': {'total_return': '10'}, 'rows': [
+        {'date': '2026-06-20', 'cost': '50', 'total_pnl': '-5', 'display_return_rate': '-0.1',
+         'daily_return_rate': '-0.02'},
+        {'date': '2026-06-21', 'cost': '50', 'total_pnl': '10'}]}
+    holdings = {'as_of': '2026-06-21', 'rows': [
+        {'market_value_cny': '120', 'cost_cny': None, 'holding_pnl_cny': None, 'daily_pnl_cny': '2'}]}
+    result = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings)
+    assert result['rows'][0] == payload['rows'][0]
+    assert result['rows'][-1]['total_pnl'] is None
+    assert result['rows'][-1]['market_value'] == '120'
+    assert result['rows'][-1]['daily_return_amount'] == '2'
+    assert result['rows'][-1]['daily_return_rate'] is None
+
+
+def test_category_overlay_preserves_existing_rates_when_terminal_basis_matches():
+    payload = {'summary': {'total_return': '20', 'annualized_return_rate': '0.3'}, 'rows': [
+        {'date': '2026-06-20', 'display_return_rate': '-0.1'},
+        {'date': '2026-06-21', 'market_value': '120', 'cost': '100', 'total_pnl': '20',
+         'return_rate': '0.2', 'display_return_rate': '0.2', 'daily_return_amount': '2',
+         'daily_return_rate': '0.01', 'time_weighted_return_rate': '0.19'}]}
+    holdings = {'as_of': '2026-06-21', 'rows': [
+        {'market_value_cny': '120', 'cost_cny': '100', 'holding_pnl_cny': '20', 'daily_pnl_cny': '2'}]}
+    result = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings)
+    assert result['rows'][0] == payload['rows'][0]
+    assert result['rows'][-1]['daily_return_rate'] == '0.01'
+    assert result['rows'][-1]['time_weighted_return_rate'] == '0.19'
+    assert result['summary']['annualized_return_rate'] == '0.3'
+    assert result['section_pnl_state']['daily_and_annualized_rate_reason'] == 'original_rates_retained_basis_unverified'
+
+
+@pytest.mark.parametrize('holdings_date,terminal_date', [(None, '2026-06-21'), ('2026-06-21', None),
+                                                          ('not-a-date', '2026-06-21')])
+def test_category_overlay_refuses_unverified_dates(holdings_date, terminal_date):
+    payload = {'rows': [{'date': terminal_date, 'total_pnl': '10'}]}
+    holdings = {'as_of': holdings_date, 'rows': [
+        {'market_value_cny': '120', 'cost_cny': '100', 'holding_pnl_cny': '20'}]}
+    result = apply_holdings_category_pnl_to_section_return_series_payload(payload, holdings)
+    assert result['rows'] == payload['rows']
+    assert result['section_pnl_state']['overlay_reason'] == 'date_unverified'

@@ -129,10 +129,10 @@ def test_subject_cash_positions_only_never_certifies_nav_ytd_fx_or_history(local
     assert not check(result, "period_return")["evidence"]["return_ratio_verified"]
     assert not check(result, "history_coverage")["evidence"]["all_dates_verified"]
     assert result["adapter"]["internal_nav_basis"] == "cash_plus_positions_not_official_nav_total"
-    assert result["adapter"]["history_date_count"] == 1
+    assert result["adapter"]["history_date_count"] == 0
+    assert result["adapter"]["history_dates_source"] == "unavailable_without_official_daily_coverage"
     assert local_case["conn"].closed and json.loads(json.dumps(result)) == result
-    history_query, bindings = local_case["statements"][-1]
-    assert "SELECT DISTINCT as_of" in history_query and bindings == ("U_TEST",)
+    assert all("pams_ibkr_position_history" not in query for query, _ in local_case["statements"])
 
 
 @pytest.mark.parametrize("field,value,key,expected", [
@@ -289,7 +289,7 @@ def test_stale_quality_does_not_certify_subject(local_case, monkeypatch):
 def test_missing_report_and_missing_history_are_read_only(local_case, monkeypatch):
     local_case["history_present"] = False
     result = read(local_case)
-    assert result["adapter"]["history_dates_source"] == "missing_table"
+    assert result["adapter"]["history_dates_source"] == "unavailable_without_official_daily_coverage"
     assert result["adapter"]["history_date_count"] == 0
     assert not any("SELECT DISTINCT" in q for q, _ in local_case["statements"])
     monkeypatch.setattr(service, "select_report", lambda *args: (None, None))
@@ -331,6 +331,12 @@ def test_optional_display_fx_default_contract_and_base_formula_ast(tmp_path, mon
     assert [a.arg for a in node.args.kwonlyargs] == ["include_display_fx"]
     assert isinstance(node.args.kw_defaults[0], ast.Constant) and node.args.kw_defaults[0].value is True
     node.args.kwonlyargs, node.args.kw_defaults = [], []
+    assert ast.unparse(node.args.args[0].annotation) == 'Path | report_state.StoredReport'
+    node.args.args[0].annotation = ast.Name(id='Path', ctx=ast.Load())
+    root_assignment = next(n for n in node.body if isinstance(n, ast.Assign)
+                           and isinstance(n.targets[0], ast.Name) and n.targets[0].id == 'root')
+    assert ast.unparse(root_assignment.value) == 'ET.fromstring(path.read_bytes())'
+    root_assignment.value = ast.parse('ET.parse(path).getroot()', mode='eval').body
     assignment = next(n for n in node.body if isinstance(n, ast.Assign)
                       and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "usd_cny")
     assert isinstance(assignment.value, ast.IfExp) and isinstance(assignment.value.test, ast.Name)
@@ -351,8 +357,7 @@ def published_case(sync_case):
 
 
 def stored_state(database):
-    return {**business_state(database), "runs": rows(database, "pams_data_sync_runs"),
-            "jobs": rows(database, "pams_data_job_run")}
+    return {**business_state(database), "jobs": rows(database, "pams_data_job_run")}
 
 
 def test_postgres_route_is_server_readonly_repeatable_and_preserves_old_routes(published_case, database, monkeypatch):
@@ -403,36 +408,30 @@ def test_postgres_selection_quality_and_history_share_snapshot(published_case, d
     def concurrent(conn, raw):
         report, latest = selected(conn, raw)
         calls.append(report.run_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT market_value FROM pams_holdings_snapshot WHERE symbol='TEST'")
+            before = cur.fetchone()[0]
         other = database()
         try:
             with other, other.cursor() as cur:
-                cur.execute("""INSERT INTO pams_data_sync_runs (sync_key, asset_scope, status)
-                               VALUES ('ibkr_flex', 'ibkr', 'failed')""")
-                cur.execute("""INSERT INTO pams_ibkr_position_history
-                    (account_code, source_account_id, symbol, name, asset_liability, currency,
-                     major_category, minor_category, market_value, as_of)
-                    VALUES ('ibkr', 'U_TEST', 'HIST', 'HISTORY', 'asset', 'USD', 'test', 'test', 1, '2026-10-21')""")
+                cur.execute("UPDATE pams_holdings_snapshot SET market_value=market_value+1 WHERE symbol='TEST'")
         finally:
             other.close()
+        with conn.cursor() as cur:
+            cur.execute("SELECT market_value FROM pams_holdings_snapshot WHERE symbol='TEST'")
+            assert cur.fetchone()[0] == before
         return report, latest
     monkeypatch.setattr(service, "select_report", concurrent)
     monkeypatch.setattr(performance, "_latest_usd_cny_rate", lambda: pytest.fail("external display FX"))
     result = service.read_ibkr_account_audit(connection_factory=database)
     assert len(calls) == 1 and result["report_quality"]["status"] == "ok"
-    assert result["adapter"]["history_date_count"] == 1
-    assert check(result, "history_coverage")["evidence"]["requested_date_count"] == 1
-    assert len({row["as_of"] for row in rows(database, "pams_ibkr_position_history")}) == 2
+    assert result["adapter"]["history_date_count"] == 0
+    assert result["adapter"]["history_dates_source"] == "unavailable_without_official_daily_coverage"
 
 
 def test_postgres_missing_history_is_not_created(published_case, database):
-    conn = database()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute("DROP TABLE pams_ibkr_position_history")
-    finally:
-        conn.close()
     result = service.read_ibkr_account_audit(connection_factory=database)
-    assert result["adapter"]["history_dates_source"] == "missing_table"
+    assert result["adapter"]["history_dates_source"] == "unavailable_without_official_daily_coverage"
     conn = database()
     try:
         with conn, conn.cursor() as cur:

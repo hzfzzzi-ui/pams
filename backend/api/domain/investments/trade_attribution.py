@@ -639,11 +639,12 @@ def _trade_query(where_sql: str = "") -> str:
             f.gross_amount,
             f.fee_amount,
             f.tax_amount,
+            f.raw_json,
             f.net_cash,
-            f.fx_rate_to_cny,
-            f.net_cash_cny,
+            fx.rate AS fx_rate_to_cny,
+            f.net_cash * fx.rate AS net_cash_cny,
             f.realized_pnl,
-            f.realized_pnl_cny,
+            f.realized_pnl * fx.rate AS realized_pnl_cny,
             f.buy_reason,
             f.sell_reason,
             COALESCE(f.review_tags, ARRAY[]::text[]) AS review_tags,
@@ -661,6 +662,11 @@ def _trade_query(where_sql: str = "") -> str:
             END AS review_status
         FROM pams_investment_trade_fact f
         LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+        LEFT JOIN LATERAL (SELECT CASE WHEN f.currency='CNY' THEN 1::numeric ELSE (
+            SELECT r.rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+                AND r.quote_currency=f.currency AND r.as_of=f.trade_date AND r.rate > 0
+                AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1
+        ) END AS rate) fx ON TRUE
         {where_sql}
     """
 
@@ -1558,7 +1564,8 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
             if len(returns) % 2
             else (returns[mid - 1] + returns[mid]) / Decimal("2")
         )
-        bucket["win_rate"] = Decimal(bucket["win_count"]) / Decimal(len(returns)) * Decimal("100")
+        bucket["win_rate"] = (Decimal(bucket["win_count"]) / Decimal(len(returns)) * Decimal("100")
+                              if bucket["estimated_decision_effect_cny"] is not None else None)
     if mae:
         bucket["avg_mae_pct"] = sum(mae, Decimal("0")) / Decimal(len(mae))
     if mfe:
@@ -1590,46 +1597,50 @@ def _add_metric_to_bucket(bucket: dict[str, Any], row: dict[str, Any], payload: 
             bucket["missed_gain_count"] += 1
         if current < Decimal("-5"):
             bucket["avoided_loss_count"] += 1
-    bucket["gross_exposure_cny"] += exposure
-    if effect is not None:
+    if exposure is None:
+        bucket["gross_exposure_cny"] = None
+        bucket["estimated_decision_effect_cny"] = None
+    elif bucket["gross_exposure_cny"] is not None:
+        bucket["gross_exposure_cny"] += exposure
+    if effect is not None and bucket["estimated_decision_effect_cny"] is not None:
         bucket["estimated_decision_effect_cny"] += effect
+    elif effect is None:
+        bucket["estimated_decision_effect_cny"] = None
 
 
-def _trade_exposure_cny(row: dict[str, Any]) -> Decimal:
-    net_cash_cny = abs(dec(row.get("net_cash_cny")))
-    if net_cash_cny > 0:
-        return net_cash_cny
-    gross = abs(dec(row.get("gross_amount")))
-    if gross <= 0:
-        gross = abs(dec(row.get("net_cash")))
-    fx = dec(row.get("fx_rate_to_cny"))
-    if gross <= 0:
-        return Decimal("0")
-    if fx <= 0:
-        fx = Decimal("1")
-    return gross * fx
+def _trade_exposure_cny(row: dict[str, Any]) -> Decimal | None:
+    amount = row.get("net_cash") if row.get("net_cash") is not None else row.get("gross_amount")
+    rate = row.get("fx_rate_to_cny")
+    if amount is None or rate is None:
+        return None
+    fx = dec(rate)
+    if not fx.is_finite() or fx <= 0:
+        return None
+    return abs(dec(amount)) * fx
 
 
-def _trade_fee_drag_cny(row: dict[str, Any]) -> Decimal:
-    fee = abs(dec(row.get("fee_amount"))) + abs(dec(row.get("tax_amount")))
+def _trade_fee_drag_cny(row: dict[str, Any]) -> Decimal | None:
+    from domain.investments.trade_cost_evidence import known_trade_charges
+    fee = known_trade_charges(row)
+    if fee is None:
+        return None
     if fee <= 0:
         return Decimal("0")
-    fx = dec(row.get("fx_rate_to_cny"))
-    if fx <= 0:
-        fx = Decimal("1")
+    if row.get("fx_rate_to_cny") is None:
+        return None
+    fx = dec(row["fx_rate_to_cny"])
+    if not fx.is_finite() or fx <= 0:
+        return None
     return -fee * fx
 
 
-def _trade_realized_pnl_cny(row: dict[str, Any]) -> Decimal:
-    realized_cny = dec(row.get("realized_pnl_cny"))
-    if realized_cny:
-        return realized_cny
-    realized = dec(row.get("realized_pnl"))
-    if not realized:
-        return Decimal("0")
-    fx = dec(row.get("fx_rate_to_cny"))
-    if fx <= 0:
-        fx = Decimal("1")
+def _trade_realized_pnl_cny(row: dict[str, Any]) -> Decimal | None:
+    if row.get("realized_pnl") is None or row.get("fx_rate_to_cny") is None:
+        return None
+    realized = dec(row["realized_pnl"])
+    fx = dec(row["fx_rate_to_cny"])
+    if not fx.is_finite() or fx <= 0:
+        return None
     return realized * fx
 
 
@@ -1639,7 +1650,7 @@ def _decision_effect_cny(row: dict[str, Any], payload: dict[str, Any]) -> Decima
         return None
     current = _metric_decimal(metrics, "current_return_pct")
     exposure = _trade_exposure_cny(row)
-    if current is None or exposure <= 0:
+    if current is None or exposure is None or exposure <= 0:
         return None
     price_move = exposure * current / Decimal("100")
     return -price_move if payload.get("side") == "sell" else price_move
@@ -1917,7 +1928,7 @@ def _asset_attribution_breakdown(bucket: dict[str, Any], actual: dict[str, Any] 
     effect = dec(bucket.get("estimated_decision_effect_cny"))
     buy_effect = dec(bucket.get("buy_timing_effect_cny"))
     sell_effect = dec(bucket.get("sell_timing_effect_cny"))
-    fee_drag = dec(bucket.get("fee_drag_cny"))
+    fee_drag = None if bucket.get('fee_drag_cny') is None else dec(bucket.get("fee_drag_cny"))
     breakdown = [
         {
             "key": "decision_timing",
@@ -1944,13 +1955,13 @@ def _asset_attribution_breakdown(bucket: dict[str, Any], actual: dict[str, Any] 
             "key": "fees",
             "label": "税费成本",
             "value_cny": fee_drag,
-            "status": "actual",
-            "note": "来自交易事实表的手续费和税费。",
+            "status": "actual" if fee_drag is not None else "missing",
+            "note": "来自交易事实表的手续费和税费。" if fee_drag is not None else "税费证据不完整。",
         },
     ]
     if actual:
         actual_total = dec(actual.get("actual_total_pnl_cny"))
-        unexplained = actual_total - effect - fee_drag
+        unexplained = actual_total - effect - fee_drag if fee_drag is not None else None
         breakdown.insert(
             0,
             {
@@ -1988,7 +1999,7 @@ def _asset_rule_insights(bucket: dict[str, Any], actual: dict[str, Any] | None) 
     effect = dec(bucket.get("estimated_decision_effect_cny"))
     buy_effect = dec(bucket.get("buy_timing_effect_cny"))
     sell_effect = dec(bucket.get("sell_timing_effect_cny"))
-    fee_drag = dec(bucket.get("fee_drag_cny"))
+    fee_drag = None if bucket.get('fee_drag_cny') is None else dec(bucket.get("fee_drag_cny"))
     plan_count = int(dec(bucket.get("planned_trade_count")))
     trade_count = int(dec(bucket.get("trade_count")))
     actual_total = dec(actual.get("actual_total_pnl_cny")) if actual else None
@@ -2033,7 +2044,7 @@ def _asset_rule_insights(bucket: dict[str, Any], actual: dict[str, Any] | None) 
                 "detail": "卖出后价格下跌，退出纪律或再平衡动作对组合有帮助。",
             }
         )
-    if fee_drag < Decimal("-200"):
+    if fee_drag is not None and fee_drag < Decimal("-200"):
         insights.append(
             {
                 "level": "warn",
@@ -2067,9 +2078,11 @@ def _build_trade_asset_heatmap(
 ) -> dict[str, Any]:
     grouped: dict[str, dict[str, Any]] = {}
     directional_trades: list[dict[str, Any]] = []
+    unknown_effect_count = 0
     for record in event_records:
         effect = record.get("estimated_decision_effect_cny")
         if effect is None:
+            unknown_effect_count += 1
             continue
         key = _asset_key(record)
         if not key:
@@ -2115,8 +2128,14 @@ def _build_trade_asset_heatmap(
             bucket["flat_count"] += 1
         bucket["estimated_decision_effect_cny"] += value
         bucket["gross_exposure_cny"] += dec(record.get("gross_exposure_cny"))
-        bucket["fee_drag_cny"] += dec(record.get("fee_drag_cny"))
-        bucket["realized_pnl_cny"] += dec(record.get("realized_pnl_cny"))
+        if record.get('fee_drag_cny') is None:
+            bucket['fee_drag_cny'] = None
+        elif bucket['fee_drag_cny'] is not None:
+            bucket["fee_drag_cny"] += dec(record.get("fee_drag_cny"))
+        if record.get("realized_pnl_cny") is None:
+            bucket["realized_pnl_cny"] = None
+        elif bucket["realized_pnl_cny"] is not None:
+            bucket["realized_pnl_cny"] += dec(record["realized_pnl_cny"])
         if side == "buy":
             bucket["buy_timing_effect_cny"] += value
         elif side == "sell":
@@ -2180,8 +2199,6 @@ def _build_trade_asset_heatmap(
         returns = bucket.pop("_returns")
         tags = bucket.pop("_tags")
         effect = bucket["estimated_decision_effect_cny"]
-        exposure = bucket["gross_exposure_cny"]
-        trade_count = bucket["trade_count"]
         avg_return = sum(returns, Decimal("0")) / Decimal(len(returns)) if returns else None
         trades = bucket["trades"]
         actual = _asset_actual_pnl(
@@ -2212,7 +2229,7 @@ def _build_trade_asset_heatmap(
                 "actual_daily_price_pnl_cny": actual.get("actual_daily_price_pnl_cny") if actual else None,
                 "actual_daily_fx_pnl_cny": actual.get("actual_daily_fx_pnl_cny") if actual else None,
                 "market_value_cny": actual.get("market_value_cny") if actual else None,
-                "unexplained_pnl_cny": actual_total - effect - dec(bucket.get("fee_drag_cny")) if actual_total is not None else None,
+                "unexplained_pnl_cny": actual_total - effect - dec(bucket["fee_drag_cny"]) if actual_total is not None and bucket.get('fee_drag_cny') is not None else None,
                 "attribution_status": "partial_with_actual_pnl" if actual else "timing_only",
                 "missing_components": ["benchmark_market", "industry_relative"],
                 "attribution_breakdown": _asset_attribution_breakdown(bucket, actual),
@@ -2253,7 +2270,9 @@ def _build_trade_asset_heatmap(
         "positive_action_count": positive_action_count,
         "negative_action_count": negative_action_count,
         "flat_action_count": len(directional_trades) - positive_action_count - negative_action_count,
-        "estimated_decision_effect_cny": norm(total_effect),
+        "estimated_decision_effect_cny": None if unknown_effect_count else norm(total_effect),
+        "unknown_effect_count": unknown_effect_count,
+        "coverage_status": "incomplete" if unknown_effect_count else "complete",
         "assets": [{k: norm(v) for k, v in item.items()} for item in assets],
         "directional_trades": [{k: norm(v) for k, v in item.items()} for item in directional_trades],
         "note": "按标的聚合真实盈亏和事件级交易动作；基准/行业超额仍为待接入项。",
@@ -2272,6 +2291,8 @@ def _event_needs_attention(record: dict[str, Any]) -> bool:
 
 
 def _pattern_takeaway(group_name: str, row: dict[str, Any]) -> str:
+    if row.get("estimated_decision_effect_cny") is None:
+        return "部分交易缺少汇率或金额证据，无法计算完整的金额影响。"
     avg = dec(row.get("avg_return_pct"))
     effect = dec(row.get("estimated_decision_effect_cny"))
     missed = int(dec(row.get("missed_gain_count")))

@@ -9,12 +9,38 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date as Date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from domain.investments.investment_return_math import dec, ibkr_return_effective_date
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
-from domain.investments.valuation_nav import fx_rate_at
+
+
+FX_UNAVAILABLE = object()
+
+
+class FlowEvents(list):
+    """Flows retain the reason an amount cannot be valued."""
+    def __init__(self):
+        super().__init__()
+        self.missing_fx = False
+
+
+def exact_fx_rate_at(timelines, currency, as_of, base_currency):
+    """Only an explicit same-day rate or base-currency identity is usable."""
+    if not isinstance(currency,str) or not currency.strip():
+        return None
+    quote=currency.strip().upper()
+    if quote==str(base_currency).upper():
+        return Decimal('1')
+    rates=[value for day,value in timelines.get(quote,[]) if day==as_of]
+    if len(rates)!=1:
+        return None
+    try:
+        rate=Decimal(str(rates[0]))
+        return rate if rate.is_finite() and rate>0 else None
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 
 SECTION_RETURN_CONFIG: dict[str, dict[str, Any]] = {
@@ -116,11 +142,11 @@ def _reported_account_return_adjustments(
                   AND asset_liability = '资产'
                   AND major_category = ANY(%s::text[])
             )
-            SELECT COALESCE(SUM(
-                (h.market_value - COALESCE(h.cost, 0))
-                * COALESCE(fx_hist.rate, fx_latest.rate, 1)
+            SELECT CASE WHEN COUNT(*) FILTER (WHERE h.cost IS NULL OR COALESCE(fx_identity.rate, fx_hist.rate) IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(
+                (h.market_value - h.cost)
+                * COALESCE(fx_identity.rate, fx_hist.rate)
                 * {owner_sql}
-            ), 0) AS computed_pnl
+            ), 0) END AS computed_pnl
             FROM pams_holdings_snapshot h
             JOIN latest l ON h.as_of = l.as_of
             LEFT JOIN LATERAL (
@@ -128,18 +154,15 @@ def _reported_account_return_adjustments(
                 FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency = %s
                   AND fx.quote_currency = h.currency
-                  AND fx.as_of <= h.as_of
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = h.as_of
                 ORDER BY fx.as_of DESC
                 LIMIT 1
             ) fx_hist ON TRUE
             LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = h.currency
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_latest ON TRUE
+                SELECT CASE WHEN h.currency = %s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
             WHERE h.account_code = %s
               AND h.asset_liability = '资产'
               AND h.major_category = ANY(%s::text[])
@@ -157,13 +180,19 @@ def _reported_account_return_adjustments(
             ),
         )
         row = cur.fetchone()
+        if row and row['computed_pnl'] is None:
+            for sample_date in dates:
+                if sample_date >= anchor_date:
+                    adjustments[sample_date] = None
+            continue
         computed_pnl = dec(row["computed_pnl"] if row else 0)
         delta = target_pnl - computed_pnl
         if abs(delta) < Decimal("0.005"):
             continue
         for sample_date in dates:
             if sample_date >= anchor_date:
-                adjustments[sample_date] += delta
+                if adjustments[sample_date] is not None:
+                    adjustments[sample_date] += delta
     return adjustments
 
 
@@ -328,28 +357,25 @@ def _snapshot_category_value_series(
         ), marked AS (
             SELECT
                 h.date,
-                h.market_value * COALESCE(fx_hist.rate, fx_latest.rate, 1) * {owner_ratio_sql} AS value_cny
+                h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql} AS value_cny
             FROM h
             LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency = %s
                   AND fx.quote_currency = h.currency
-                  AND fx.as_of <= h.date
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = h.date
                 ORDER BY fx.as_of DESC
                 LIMIT 1
             ) fx_hist ON TRUE
             LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = h.currency
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_latest ON TRUE
+                SELECT CASE WHEN h.currency = %s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
             WHERE {' AND '.join(h_filters)}
         )
-        SELECT date, COALESCE(SUM(value_cny), 0) AS value_cny
+        SELECT date, CASE WHEN COUNT(*) FILTER (WHERE value_cny IS NULL)>0 THEN NULL ELSE SUM(value_cny) END AS value_cny
         FROM marked
         GROUP BY date
         ORDER BY date
@@ -365,7 +391,7 @@ def _snapshot_category_value_series(
         ),
     )
     for row in cur.fetchall():
-        values[row["date"]] = dec(row["value_cny"])
+        values[row["date"]] = dec(row["value_cny"]) if row["value_cny"] is not None else None
     return values
 
 
@@ -428,7 +454,7 @@ def _apply_gold_proxy_to_precious_values(
             FROM series_dates d
             LEFT JOIN LATERAL (
                 SELECT COALESCE(close_price, unit_nav, estimated_unit_nav) AS close_price
-                FROM pams_asset_market_daily px
+                FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') px
                 WHERE (
                     px.asset_id = ANY(%s::text[])
                     OR px.symbol = ANY(%s::text[])
@@ -473,31 +499,28 @@ def _apply_gold_proxy_to_precious_values(
         ), marked AS (
             SELECT
                 owned.date,
-                owned.market_value * COALESCE(fx_hist.rate, fx_latest.rate, 1) * owned.owner_ratio AS snapshot_value_cny,
-                owned.quantity * owned.close_price * COALESCE(fx_hist.rate, fx_latest.rate, 1) * owned.owner_ratio AS proxy_value_cny
+                owned.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * owned.owner_ratio AS snapshot_value_cny,
+                owned.quantity * owned.close_price * COALESCE(fx_identity.rate, fx_hist.rate) * owned.owner_ratio AS proxy_value_cny
             FROM owned
             LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency = %s
                   AND fx.quote_currency = owned.currency
-                  AND fx.as_of <= owned.date
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = owned.date
                 ORDER BY fx.as_of DESC
                 LIMIT 1
             ) fx_hist ON TRUE
             LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = owned.currency
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_latest ON TRUE
+                SELECT CASE WHEN owned.currency = %s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
         )
         SELECT
             date,
-            COALESCE(SUM(snapshot_value_cny), 0) AS snapshot_value_cny,
-            COALESCE(SUM(proxy_value_cny), 0) AS proxy_value_cny,
+            CASE WHEN COUNT(*) FILTER (WHERE snapshot_value_cny IS NULL)>0 THEN NULL ELSE SUM(snapshot_value_cny) END AS snapshot_value_cny,
+            CASE WHEN COUNT(*) FILTER (WHERE proxy_value_cny IS NULL)>0 THEN NULL ELSE SUM(proxy_value_cny) END AS proxy_value_cny,
             COUNT(*) AS priced_count
         FROM marked
         GROUP BY date
@@ -519,9 +542,13 @@ def _apply_gold_proxy_to_precious_values(
         if int(row.get("priced_count") or 0) <= 0:
             continue
         sample_date = row["date"]
-        snapshot_value = dec(row.get("snapshot_value_cny"))
-        proxy_value = dec(row.get("proxy_value_cny"))
-        adjusted[sample_date] = dec(adjusted.get(sample_date)) - snapshot_value + proxy_value
+        if (row.get("snapshot_value_cny") is None or row.get("proxy_value_cny") is None or
+            adjusted.get(sample_date) is None):
+            adjusted[sample_date] = None
+            continue
+        snapshot_value = dec(row["snapshot_value_cny"])
+        proxy_value = dec(row["proxy_value_cny"])
+        adjusted[sample_date] = dec(adjusted[sample_date]) - snapshot_value + proxy_value
     return adjusted
 
 
@@ -555,9 +582,9 @@ def _exact_snapshot_category_value(
     cur.execute(
         f"""
         WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
-        SELECT COALESCE(SUM(
-            h.market_value * COALESCE(fx_hist.rate, fx_latest.rate, 1) * {owner_ratio_sql}
-        ), 0) AS value_cny,
+        SELECT CASE WHEN COUNT(*) FILTER (WHERE COALESCE(fx_identity.rate, fx_hist.rate) IS NULL)>0 THEN NULL ELSE SUM(
+            h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql}
+        ) END AS value_cny,
         COUNT(*) AS row_count
         FROM pams_holdings_snapshot h
         JOIN complete_account_snapshot cas
@@ -568,18 +595,15 @@ def _exact_snapshot_category_value(
             FROM pams_fx_rates_daily fx
             WHERE fx.base_currency = %s
               AND fx.quote_currency = h.currency
-              AND fx.as_of <= h.as_of
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+              AND fx.as_of = h.as_of
             ORDER BY fx.as_of DESC
             LIMIT 1
         ) fx_hist ON TRUE
         LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %s
-              AND fx.quote_currency = h.currency
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
+            SELECT CASE WHEN h.currency = %s THEN 1::numeric END AS rate
+        ) fx_identity ON TRUE
         WHERE {' AND '.join(filters)}
         """,
         (
@@ -593,7 +617,7 @@ def _exact_snapshot_category_value(
     row = cur.fetchone()
     if not row or int(row.get("row_count") or 0) <= 0:
         return None
-    return dec(row.get("value_cny"))
+    return FX_UNAVAILABLE if row.get("value_cny") is None else dec(row["value_cny"])
 
 
 
@@ -654,7 +678,7 @@ def _investment_transaction_flow_events(
             trade_date,
             COALESCE(NULLIF(side, ''), trade_type) AS side,
             gross_amount,
-            COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0) AS fees,
+            fee_amount, tax_amount, net_cash, raw_json,
             currency
         FROM pams_investment_trade_fact
         WHERE {' AND '.join(filters)}
@@ -665,24 +689,35 @@ def _investment_transaction_flow_events(
 
     positive_sides = {"buy", "subscribe", "purchase", "deposit", "transfer_in", "in"}
     negative_sides = {"sell", "redeem", "redemption", "withdraw", "withdrawal", "cancel", "transfer_out", "out"}
-    events: list[tuple[Date, Decimal]] = []
+    events = FlowEvents()
     for row in cur.fetchall():
         side = str(row.get("side") or "").strip().lower()
         amount = abs(dec(row.get("gross_amount")))
-        fees = abs(dec(row.get("fees")))
-        if side in positive_sides:
+        from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
+        fees = known_trade_charges(row)
+        if unconverted_ibkr_fee(row):
+            events.append((row['trade_date'], None))
+            continue
+        net_cash = row.get('net_cash')
+        if net_cash is not None:
+            signed_native = -dec(net_cash)
+        elif fees is None:
+            events.append((row['trade_date'], None))
+            continue
+        elif side in positive_sides:
             signed_native = amount + fees
         elif side in negative_sides:
             signed_native = -(amount - fees)
         else:
             continue
         trade_date = row["trade_date"]
-        currency = str(row.get("currency") or base_currency).upper()
-        signed = (
-            signed_native
-            * fx_rate_at(fx_timelines, currency, trade_date, base_currency)
-            * account_owner_ratio(str(row.get("account_code") or ""))
-        )
+        currency = row.get("currency")
+        rate = exact_fx_rate_at(fx_timelines,currency,trade_date,base_currency)
+        if rate is None:
+            events.missing_fx = True
+            events.append((trade_date,None))
+            continue
+        signed = signed_native * rate * account_owner_ratio(str(row.get("account_code") or ""))
         events.append((trade_date, signed))
     return events
 
@@ -710,15 +745,19 @@ def _tonghuashun_external_flow_events(
         """,
         (start_date, end_date),
     )
-    events: list[tuple[Date, Decimal]] = []
+    events = FlowEvents()
     owner_ratio = account_owner_ratio("tonghuashun")
     for row in cur.fetchall():
         side = str(row.get("side") or "").strip().lower()
         amount = abs(dec(row.get("gross_amount")) or dec(row.get("net_cash")))
         signed_native = -amount if side in {"withdraw", "cash_withdrawal", "transfer_out"} else amount
         trade_date = row["trade_date"]
-        currency = str(row.get("currency") or base_currency).upper()
-        signed = signed_native * fx_rate_at(fx_timelines, currency, trade_date, base_currency) * owner_ratio
+        rate = exact_fx_rate_at(fx_timelines,row.get("currency"),trade_date,base_currency)
+        if rate is None:
+            events.missing_fx = True
+            events.append((trade_date,None))
+            continue
+        signed = signed_native * rate * owner_ratio
         events.append((trade_date, signed))
     return events
 
@@ -738,7 +777,7 @@ def _ibkr_trade_flow_events(
             trade_date,
             quantity,
             gross_amount,
-            COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0) AS commission,
+            fee_amount, tax_amount, raw_json,
             net_cash,
             currency
         FROM pams_investment_trade_fact
@@ -752,22 +791,37 @@ def _ibkr_trade_flow_events(
         """,
         (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
     )
-    events: list[tuple[Date, Decimal]] = []
+    events = FlowEvents()
     for row in cur.fetchall():
         qty = dec(row.get("quantity"))
         gross = abs(dec(row.get("gross_amount")))
-        commission = abs(dec(row.get("commission")))
+        from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
+        commission = known_trade_charges(row)
         net_cash = dec(row.get("net_cash"))
-        if qty > 0:
-            signed_native = abs(net_cash) if net_cash != 0 else gross + commission
-        elif qty < 0:
-            signed_native = -(net_cash if net_cash > 0 else max(gross - commission, Decimal("0")))
-        else:
-            continue
-        currency = str(row.get("currency") or "USD").upper()
+        currency = str(row.get("currency") or "").upper()
         trade_date = ibkr_return_effective_date(row["trade_date"], currency)
         if trade_date < start_date or trade_date > end_date:
             continue
-        signed = signed_native * fx_rate_at(fx_timelines, currency, trade_date, base_currency)
+        if unconverted_ibkr_fee(row):
+            events.append((trade_date, None))
+            continue
+        if row.get('net_cash') is None and commission is None:
+            events.append((trade_date, None))
+            continue
+        commission = commission if commission is not None else Decimal('0')
+        if row.get('net_cash') is not None:
+            signed_native = -net_cash
+        elif qty > 0:
+            signed_native = gross + commission
+        elif qty < 0:
+            signed_native = -max(gross - commission, Decimal("0"))
+        else:
+            continue
+        rate = exact_fx_rate_at(fx_timelines,currency,trade_date,base_currency)
+        if rate is None:
+            events.missing_fx = True
+            events.append((trade_date,None))
+            continue
+        signed = signed_native * rate
         events.append((trade_date, signed))
     return events

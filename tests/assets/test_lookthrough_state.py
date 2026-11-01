@@ -122,8 +122,105 @@ def test_derive_lookthrough_payload_reads_asset_master_without_syncing_by_defaul
 
     assert payload["master_data"]["status"] == "ok"
     assert any("FROM pams_asset_master" in sql for sql in cur.executed)
-    assert len(cur.executed) == 4
+    assert len(cur.executed) == 5
+    assert any("FROM pams_fund_underlying_position" in sql for sql in cur.executed)
     _assert_read_only_sql(cur.executed)
+
+
+def test_stored_fund_members_override_config_without_writing(monkeypatch) -> None:
+    from domain.assets import lookthrough_state as module
+
+    lookup = {
+        "assets": {"FUND": {"asset_id": "FUND", "primary_symbol": "F1", "canonical_name": "Fund",
+                            "asset_type": "fund_cn", "aliases": [], "industry": None, "themes": []}},
+        "alias_to_id": {},
+        "fund_underlyings_by_id": {"FUND": [{"fund_asset_id": "FUND", "source": "manual",
+            "as_of": "2026-01-01", "coverage_type": "top10", "underlying_name": "Database stock",
+            "underlying_symbol": "DB", "underlying_weight": 0.4, "confidence": "high", "raw_json": {}}]},
+    }
+    monkeypatch.setattr(module, "load_asset_master_lookup", lambda *args, **kwargs: lookup)
+    config = {"asset_mapping": [{"symbol": "F1", "asset_name": "Fund", "asset_class": "fund_cn"}],
+              "asset_lookthrough": [{"parent_symbol": "F1", "parent_asset_name": "Fund", "lookthrough_type": "TOP10",
+                                     "holdings": [{"underlying_name": "Config stock", "underlying_weight": 0.9}]}]}
+    position = {"symbol": "F1", "asset_name": "Fund", "asset_type": "fund_cn", "market_value_cny": 100,
+                "as_of": "2026-01-02"}
+    payload = module.derive_lookthrough_payload([position], config, as_of="2026-01-02", asset_master_cur=object())
+    quality = payload["quality"]["items"][0]
+    assert quality["lookthrough_source"] == "database"
+    assert quality["coverage_ratio"] == pytest.approx(0.4)
+    names = {row["name"] for row in payload["exposures"]["underlying_asset"]}
+    assert any("Database stock" in name for name in names)
+    assert all("Config stock" not in name for name in names)
+
+
+def test_future_stored_fund_members_do_not_fall_back_to_config(monkeypatch) -> None:
+    from domain.assets import lookthrough_state as module
+
+    lookup = {"assets": {"FUND": {"asset_id": "FUND", "primary_symbol": "F1", "canonical_name": "Fund",
+                                  "asset_type": "fund_cn", "aliases": [], "industry": None, "themes": []}},
+              "alias_to_id": {}, "fund_underlyings_by_id": {"FUND": [{"source": "manual", "as_of": "2026-02-01",
+                  "coverage_type": "top10", "underlying_name": "Future stock", "underlying_weight": 0.4}]}}
+    monkeypatch.setattr(module, "load_asset_master_lookup", lambda *args, **kwargs: lookup)
+    config = {"asset_mapping": [{"symbol": "F1", "asset_name": "Fund", "asset_class": "fund_cn"}],
+              "asset_lookthrough": [{"parent_symbol": "F1", "parent_asset_name": "Fund", "lookthrough_type": "TOP10",
+                                     "holdings": [{"underlying_name": "Config stock", "underlying_weight": 0.9}]}]}
+    position = {"symbol": "F1", "asset_name": "Fund", "asset_type": "fund_cn", "market_value_cny": 100,
+                "as_of": "2026-01-02"}
+    payload = module.derive_lookthrough_payload([position], config, as_of="2026-01-02", asset_master_cur=object())
+    quality = payload["quality"]["items"][0]
+    assert quality["lookthrough_source"] == "database"
+    assert quality["coverage_ratio"] == 0
+
+
+def test_stored_fund_missing_date_or_currency_is_not_invented() -> None:
+    from domain.assets import lookthrough_state as module
+
+    lookup = {"assets": {"FUND": {"asset_id": "FUND", "primary_symbol": "F1", "canonical_name": "Fund"}},
+              "alias_to_id": {}, "fund_underlyings_by_id": {"FUND": [{"source": "manual", "as_of": "2026-01-01",
+                  "coverage_type": "top10", "underlying_name": "Stock", "underlying_weight": 0.4}]}}
+    position = {"symbol": "F1", "asset_name": "Fund"}
+    assert module._stored_lookthrough(position, lookup, None) == []
+    rows = module._stored_lookthrough(position, lookup, "2026-01-02")
+    assert rows is not None and rows[0]["underlying_currency"] == "Unknown"
+    lookup["fund_underlyings_by_id"]["FUND"][0]["as_of"] = None
+    assert module._stored_lookthrough(position, lookup, "2026-01-02") == []
+
+
+def test_each_holding_uses_its_own_date_not_latest_portfolio_date(monkeypatch) -> None:
+    from domain.assets import lookthrough_state as module
+
+    lookup = {"assets": {"FUND": {"asset_id": "FUND", "primary_symbol": "F1", "canonical_name": "Fund",
+                                  "asset_type": "fund_cn", "aliases": [], "industry": None, "themes": []}},
+              "alias_to_id": {}, "fund_underlyings_by_id": {"FUND": [{"source": "manual", "as_of": "2026-01-02",
+                  "coverage_type": "top10", "underlying_name": "Future stock", "underlying_weight": 0.4}]}}
+    monkeypatch.setattr(module, "load_asset_master_lookup", lambda *args, **kwargs: lookup)
+    positions = [{"symbol": "F1", "asset_name": "Fund", "asset_type": "fund_cn", "market_value_cny": 100,
+                  "as_of": "2026-01-01"},
+                 {"symbol": "OTHER", "asset_name": "Other", "asset_type": "stock_cn", "market_value_cny": 1,
+                  "as_of": "2026-01-03"}]
+    config = {"asset_mapping": [{"symbol": "F1", "asset_name": "Fund", "asset_class": "fund_cn"}],
+              "asset_lookthrough": []}
+    payload = module.derive_lookthrough_payload(positions, config, asset_master_cur=object())
+    quality = next(item for item in payload["quality"]["items"] if item["symbol"] == "F1")
+    assert payload["as_of"] == "2026-01-03"
+    assert quality["coverage_ratio"] == 0
+    assert quality["lookthrough_source"] == "database"
+
+
+@pytest.mark.parametrize("source_as_of", [None, "2026-01-03"])
+def test_configuration_fallback_does_not_use_unknown_or_future_date(source_as_of) -> None:
+    from domain.assets import lookthrough_state as module
+
+    config = {"asset_mapping": [{"symbol": "F1", "asset_name": "Fund", "asset_class": "fund_cn"}],
+              "asset_lookthrough": [{"parent_symbol": "F1", "as_of": source_as_of, "lookthrough_type": "TOP10",
+                                     "holdings": [{"underlying_name": "Stock", "underlying_weight": 0.8}]}]}
+    position = {"symbol": "F1", "asset_name": "Fund", "asset_type": "fund_cn", "market_value_cny": 100,
+                "as_of": "2026-01-02"}
+    payload = module.derive_lookthrough_payload([position], config)
+    quality = payload["quality"]["items"][0]
+    assert quality["coverage_ratio"] == 0
+    assert quality["lookthrough_source"] == "config_unavailable"
+    assert any("日期未知或晚于持仓日期" in warning for warning in payload["data_warnings"])
 
 
 def test_derive_lookthrough_payload_syncs_asset_master_only_when_explicit(monkeypatch) -> None:

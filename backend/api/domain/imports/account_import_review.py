@@ -3,7 +3,7 @@ import hashlib
 import json
 
 
-DECISIONS = {"duplicate_decision", "counter_account_code"}
+DECISIONS = {"duplicate_decision", "counter_account_code", "bank_cashflow_id", "derived_cashflow_id"}
 
 
 def editable_fields(row):

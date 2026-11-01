@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 import hashlib
+import re
 import json
 from zoneinfo import ZoneInfo
 
@@ -165,10 +166,14 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
         return result
     if fields.get("kind") != batch["kind"]:
         errors.append(issue("kind", "kind_mismatch", "记录类型与批次不一致"))
-    if not any(a["account_code"] == batch["account_code"] and a["active"] and a["base_currency"] == "CNY" for a in state["accounts"]):
-        errors.append(issue("account_code", "account_inactive", "目标账户已停用或币种不匹配"))
-    if fields.get("currency") != "CNY":
-        errors.append(issue("currency", "currency_unverified", "本轮仅接收人民币原币资料，不推断换汇"))
+    bank_cash = (batch['kind'] == 'cash' and batch['account_code'] in state.get('_statement_sources', {})
+                 and fields.get('action') in {'income','expense','transfer'})
+    currency = fields.get('currency')
+    account = next((a for a in state['accounts'] if a['account_code'] == batch['account_code'] and a['active']), None)
+    if not account or account.get('base_currency') != currency:
+        errors.append(issue('account_code', 'account_inactive', '目标账户已停用或币种不匹配'))
+    if currency != 'CNY' and (not bank_cash or not isinstance(currency,str) or not re.fullmatch(r'[A-Z]{3}',currency)):
+        errors.append(issue('currency', 'currency_unverified', '此资料类型暂不支持该币种，不推断换汇'))
     try:
         day = date.fromisoformat(fields.get("business_date") or "")
         if day > datetime.now(ZoneInfo("Asia/Shanghai")).date():
@@ -186,7 +191,7 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
     if kind == "cash" and batch["account_code"] in state.get("_statement_sources", {}) and fields.get("action") != "balance":
         if row.get("source", {}).get("origin") != "ocr":
             errors.extend(i for i in row.get("issues", []) if i.get("severity") == "error")
-        return statement.prepare(result, batch, state, decimal, issue)
+        return statement.prepare(cur, result, batch, state, decimal, issue, row)
     cash_balance = kind == "cash" and fields.get("action") == "balance" or kind == "holding" and fields.get("asset_type") == "cash"
     if cash_balance and any(p.get("account_kind") == "credit_card" or (p.get("pams_target") or {}).get("is_asset") is False
                             for p in state.get("_statement_sources", {}).get(batch["account_code"], [])):
@@ -250,7 +255,9 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
         if asset and action not in profile_actions.get(asset_type(fields.get("asset_type")), []):
             errors.append(issue("action", "action_type", "方向与账户交易场所不一致：场内买卖和场外申赎不能混用"))
         fees = decimal(fields.get("fee_amount"), "fee_amount", errors) if kind == "trade" else Decimal(0)
-        taxes = decimal(fields.get("tax_amount"), "tax_amount", errors) if kind == "trade" and fields.get("fee_scope") == "separate" else Decimal(0)
+        taxes = (decimal(fields.get("tax_amount"), "tax_amount", errors)
+                 if kind == "trade" and fields.get("fee_scope") == "separate"
+                 else None if kind == "trade" and fields.get("fee_scope") == "total_charges" else Decimal(0))
         if kind == "trade" and fields.get("fee_scope") not in {"separate", "total_charges"}:
             errors.append(issue("fee_scope", "fee_scope_required", "请明确税费合计或分列，不推断缺失税费为零"))
         if kind == "trade" and fields.get("fee_scope") == "total_charges" and fields.get("tax_amount") not in (None, ""):
@@ -263,7 +270,7 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
             cash = decimal(fields.get("net_cash"), "net_cash", errors)
             gross = abs(cash) if cash is not None else None
         else:
-            gross = decimal(fields.get("gross_amount"), "gross_amount", errors) if action != "fee" else fees + taxes if fees is not None and taxes is not None else None
+            gross = decimal(fields.get("gross_amount"), "gross_amount", errors) if action != "fee" else (fees + taxes if taxes is not None else fees) if fees is not None else None
         net = decimal(fields.get("net_cash"), "net_cash", errors, scale=4 if kind == "cash" else 10)
         if any(v is not None and v < 0 for v in (quantity, price, gross, fees, taxes)) or quantity == 0 or price == 0:
             errors.append(issue(None, "invalid_sign", "数量、成交价、发生额与税费需为正数或明确的零费用"))
@@ -302,11 +309,11 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
             except ValueError:
                 errors.append(issue("trade_time", "invalid_time", "成交时间须为北京时间，不接受混合时区"))
         if not errors:
-            fact = build_investment_trade_fact({**fields, "source_table": "pams_account_import_batch",
+            fact = build_investment_trade_fact({**fields, "source_table": "source_items",
                 "source_id": result["key"], "source_key": batch["account_code"] + ":" + result["key"],
                 "account_code": batch["account_code"], "broker": batch["account_code"], "trade_date": confirmed or day,
                 "trade_time": stamp, "settle_date": confirmed, "side": action, "quantity": quantity, "price": price,
-                "gross_amount": gross, "fee_amount": fees, "tax_amount": taxes, "net_cash": None, "fx_rate_to_cny": 1,
+                "gross_amount": gross, "fee_amount": fees, "tax_amount": taxes, "fee_scope": fields.get("fee_scope"), "net_cash": None, "fx_rate_to_cny": 1,
                 "raw_json": {"batch_id": batch["batch_id"], "row_id": row["row_id"], "source": row.get("source", {})}})
             if fact["net_cash"] != net:
                 errors.append(issue("net_cash", "net_mismatch", "净收付与方向、成交额及税费不闭合"))
@@ -322,6 +329,17 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
 
 def preview(cur, batch: dict) -> dict:
     state = current_state(cur, batch["account_code"])
+    if batch.get("unified_source"):
+        counterparts = sorted({r.get("fields", {}).get("counter_account_code") for r in batch["rows"]
+                               if r.get("fields", {}).get("counter_account_code")})
+        if counterparts:
+            cur.execute("SELECT * FROM pams_cashflow_fact WHERE account_code=ANY(%s::text[]) ORDER BY cashflow_id LIMIT 10001", (counterparts,))
+            additional = [dict(row) for row in cur.fetchall()]
+            if len(additional) > 10000:
+                raise store.ImportProblem("history_limit", "对方账户资金历史过多，不能截断确认候选")
+            combined = {row['cashflow_id']: row for row in [*state['cashflows'], *additional]}
+            state['cashflows'] = [combined[key] for key in sorted(combined)]
+            state['version'] = fingerprint([state['version'], state['cashflows']])
     state["_statement_config"] = statement.config()
     state["_statement_sources"] = statement.profiles(state["_statement_config"])
     rows = [prepare_row(cur, batch, row, state) for row in batch["rows"]]
@@ -350,7 +368,7 @@ def preview(cur, batch: dict) -> dict:
             continue
         seen_keys[row["key"]] = row
         if fact:
-            existing = [f for f in state["facts"] if f.get("source_table") == "pams_account_import_batch" and f.get("source_id") == row["key"]]
+            existing = [f for f in state["facts"] if f.get("source_table") == "source_items" and f.get("source_id") == row["key"]]
             if existing:
                 row["status"] = "duplicate" if len(existing) == 1 and same_fact(existing[0], fact) else "blocked"
                 if row["status"] == "blocked":
@@ -363,11 +381,35 @@ def preview(cur, batch: dict) -> dict:
                 row["status"] = "blocked"
                 row["issues"].append(issue("duplicate_decision", "possible_duplicate", "存在相同日期/代码/金额记录，请核对为不同交易或跳过"))
             seen_economic.append(fact)
-            if fact["side"] in {"deposit", "withdraw"} and any(str(f["event_date"]) == str(fact["trade_date"]) and
+            if fact["side"] in {"deposit", "withdraw"}:
+                candidates = [f for f in state["cashflows"] if str(f["event_date"]) == str(fact["trade_date"]) and
                     f["account_code"] == row["fields"].get("counter_account_code") and f["currency"] == "CNY" and
-                    f["amount"] == -fact["net_cash"] for f in state["cashflows"]):
-                row["status"] = "blocked"
-                row["issues"].append(issue("source_ref", "existing_bank_leg", "对方账户已有同日同额现金流水，需要核对关联，不重复新增银行腿"))
+                    f["amount"] == -fact["net_cash"]]
+                if not batch.get("unified_source"):
+                    if candidates:
+                        row["status"] = "blocked"
+                        row["issues"].append(issue("source_ref", "existing_bank_leg", "对方账户已有同日同额现金流水，需要核对关联，不重复新增银行腿"))
+                elif candidates:
+                    selected = row["fields"].get("bank_cashflow_id")
+                    if (len(candidates) != 1 or not original.get('acknowledged') or not str(selected or '').isdigit()
+                            or int(selected) != candidates[0]['cashflow_id']):
+                        row["status"] = "blocked"
+                        row["issues"].append(issue("bank_cashflow_id", "bank_confirmation_required", "同额银行流水须唯一且由用户明确核准关联；歧义保持待处理"))
+                    else:
+                        from domain.ledger.confirmed_transfers import _leg
+                        try:
+                            source = _leg(cur, 'cashflow', int(selected))
+                            if source['counter_account_code'] not in (None, batch['account_code']):
+                                raise ValueError('counter account differs')
+                        except ValueError:
+                            row["status"] = "blocked"
+                            row["issues"].append(issue("bank_cashflow_id", "bank_source_unverified", "银行流水须有独立且已核准的来源，不能使用派生银行腿"))
+                        else:
+                            fact['cashflow_id'] = int(selected)
+                            row['existing_bank_cashflow_id'] = int(selected)
+                elif row["fields"].get("bank_cashflow_id"):
+                    row["status"] = "blocked"
+                    row["issues"].append(issue("bank_cashflow_id", "bank_source_missing", "所选银行流水不存在或内容已变化"))
     snapshots = [r for r in rows if r.get("snapshot") and r["status"] in {"ready", "duplicate"}]
     targets: dict = {}
     for row in snapshots:
@@ -409,6 +451,8 @@ def preview(cur, batch: dict) -> dict:
             symbol = row["fields"].get("symbol") or row["fields"].get("name") or "未知标的"
             unresolved[symbol] = unresolved.get(symbol, 0) + 1
     warnings = ["持仓、交易、现金独立核对；未上传部分不视为零。"]
+    if batch.get("unified_source") and any(row.get("fact") and row["fact"].get("side") in {"deposit", "withdraw"} for row in rows):
+        warnings.append("未上传独立银行资料时生成派生银行腿，并标记与券商侧同源；已有真实流水须唯一且人工确认后关联。")
     if unresolved:
         warnings.append("资产底表待补充/核准：" + "、".join(sorted(unresolved)) + "；按标的统一处理，不要求逐笔修改交易。")
     if any(any(i["code"] == "counter_required" for i in row["issues"]) and row["status"] == "pending" for row in rows):

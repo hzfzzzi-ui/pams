@@ -12,27 +12,28 @@ from datetime import date as Date
 from decimal import Decimal
 from typing import Any
 
-from domain.accounts.account_balance import load_account_balance_basis
+from domain.accounts.account_balance import _cash_delta_cny, load_account_balance_basis
 from domain.investments.investment_return_math import (
     annualized_rate,
     apply_reported_display_anchor,
     bucket_flow_events as _bucket_flow_events,
     cash_flow_adjusted_return_rows as _cash_flow_adjusted_return_rows,
     dec,
-    derived_cumulative_anchor,
+    derived_cumulative_anchor,  # noqa: F401  # legacy import surface
     norm,
     row_index_on_or_after,
     section_return_summary,
 )
 from domain.investments.valuation_nav import (
     account_anchor_amount,
-    account_anchor_value_cny,
     load_fx_timelines,
     scale_series_to_terminal_anchor,
     series_dates,
     _tonghuashun_series as tonghuashun_series,
 )
 from domain.investments.investment_return_data import (
+    FX_UNAVAILABLE,
+    exact_fx_rate_at,
     INVESTMENT_RETURN_CATEGORIES,
     INVESTMENT_RETURN_SNAPSHOT_EXCLUDE,
     SECTION_RETURN_CONFIG,
@@ -49,10 +50,10 @@ from domain.investments.investment_return_data import (
 from domain.investments.holdings_view import build_holdings_by_category_payload
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.investment_return_ibkr import (
-    _close_on_or_before,
-    _fetch_yfinance_closes,
+    _close_on_or_before,  # noqa: F401  # legacy import surface
+    _fetch_yfinance_closes,  # noqa: F401  # legacy import surface
     _ibkr_full_trade_return_series,
-    _ibkr_yfinance_symbol,
+    _ibkr_yfinance_symbol,  # noqa: F401  # legacy import surface
 )
 
 
@@ -171,7 +172,17 @@ def _account_net_liquidation_anchor_cny(
         None,
     )
     primary_balance = account.get("primary_balance") if account else None
-    if isinstance(primary_balance, dict) and primary_balance.get("gross_amount") is not None and primary_balance.get("as_of"):
+    balance_date = _date_key(primary_balance.get("as_of")) if isinstance(primary_balance, dict) else None
+    currency = (primary_balance or {}).get("currency") or (account or {}).get("base_currency")
+    if not currency or not balance_date:
+        return None
+    if str(currency).upper() != str(base_currency).upper():
+        if balance_date != _date_key(as_of):
+            return None
+        anchor = account_anchor_amount(account)
+        rate = exact_fx_rate_at(fx_timelines, currency, as_of, base_currency)
+        return anchor[0] * rate if anchor is not None and rate is not None else None
+    if isinstance(primary_balance, dict) and primary_balance.get("gross_amount") is not None:
         payload = build_account_performance_payload(
             cur,
             account_code=account_code,
@@ -185,14 +196,12 @@ def _account_net_liquidation_anchor_cny(
             ),
             net_liquidation_as_of=primary_balance.get("as_of"),
         )
-        if payload and payload.get("net_liquidation_cny") not in (None, ""):
+        if payload and _date_key(payload.get("as_of")) == _date_key(as_of) and payload.get("net_liquidation_cny") not in (None, ""):
             return dec(payload.get("net_liquidation_cny"))
-    return account_anchor_value_cny(
-        account,
-        fx_timelines=fx_timelines,
-        as_of=as_of,
-        base_currency=base_currency,
-    )
+    if balance_date != _date_key(as_of):
+        return None
+    anchor = account_anchor_amount(account)
+    return anchor[0] if anchor is not None else None
 
 
 def _compound_reported_summary(
@@ -247,9 +256,9 @@ def _overlay_exact_snapshot_values(
     cur.execute(
         f"""
         WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
-        SELECT h.as_of, COALESCE(SUM(
-            h.market_value * COALESCE(fx_hist.rate, fx_latest.rate, 1) * {owner_ratio_sql}
-        ), 0) AS value_cny,
+        SELECT h.as_of, CASE WHEN COUNT(*) FILTER (WHERE COALESCE(fx_identity.rate, fx_hist.rate) IS NULL)>0 THEN NULL ELSE SUM(
+            h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql}
+        ) END AS value_cny,
         COUNT(*) AS row_count
         FROM pams_holdings_snapshot h
         JOIN complete_account_snapshot cas
@@ -260,18 +269,15 @@ def _overlay_exact_snapshot_values(
             FROM pams_fx_rates_daily fx
             WHERE fx.base_currency = %s
               AND fx.quote_currency = h.currency
-              AND fx.as_of <= h.as_of
+              AND fx.as_of = h.as_of
+              AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
             ORDER BY fx.as_of DESC
             LIMIT 1
         ) fx_hist ON TRUE
         LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %s
-              AND fx.quote_currency = h.currency
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
+            SELECT CASE WHEN h.currency=%s THEN 1::numeric END AS rate
+        ) fx_identity ON TRUE
         WHERE h.as_of = ANY(%s::date[])
           AND h.account_code = ANY(%s::text[])
           AND h.asset_liability = %s
@@ -289,7 +295,7 @@ def _overlay_exact_snapshot_values(
     )
     for row in cur.fetchall():
         if int(row.get("row_count") or 0) > 0:
-            adjusted[row["as_of"]] = dec(row.get("value_cny"))
+            adjusted[row["as_of"]] = dec(row["value_cny"]) if row.get("value_cny") is not None else None
     return adjusted
 
 
@@ -324,7 +330,9 @@ def _overlay_terminal_exact_section_value(
         excluded_holding_accounts=excluded_holding_accounts,
         account_codes=account_codes,
     )
-    if exact is not None:
+    if exact is FX_UNAVAILABLE:
+        adjusted[dates[-1]] = None
+    elif exact is not None:
         adjusted[dates[-1]] = exact
     return adjusted
 
@@ -418,40 +426,48 @@ def _ibkr_holdings_today_window_payload(
             WHERE hs.account_code = 'ibkr'
               AND hs.asset_liability = %s
               AND hs.major_category = %s
-        ), fx AS (
-            SELECT DISTINCT ON (quote_currency) quote_currency, rate
+        ), base_ccy AS (SELECT %s::text AS currency), fx AS (
+            SELECT quote_currency, as_of, rate
             FROM pams_fx_rates_daily
-            WHERE base_currency = %s
-            ORDER BY quote_currency, as_of DESC
+            WHERE base_currency = (SELECT currency FROM base_ccy) AND NULLIF(BTRIM(source), '') IS NOT NULL AND rate > 0 AND rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
         )
         SELECT
             l.as_of AS latest_date,
             ps.as_of AS baseline_date,
-            COALESCE(SUM(
+            CASE WHEN COUNT(*) FILTER (WHERE h.quantity IS NULL OR eff.current_price IS NULL OR eff.previous_price IS NULL
+                OR prev_basis.previous_as_of IS NULL
+                OR (h.currency IS DISTINCT FROM (SELECT currency FROM base_ccy) AND (fx.rate IS NULL OR prev_overseas_fx.rate IS NULL)))>0
+                THEN NULL ELSE COALESCE(SUM(
                 CASE
                     WHEN h.quantity IS NOT NULL
                      AND eff.current_price IS NOT NULL
                      AND eff.previous_price IS NOT NULL
-                    THEN (eff.current_price - eff.previous_price) * h.quantity * COALESCE(fx.rate, 1)
+                    THEN (eff.current_price - eff.previous_price) * h.quantity * CASE WHEN h.currency=(SELECT currency FROM base_ccy) THEN 1::numeric ELSE fx.rate END
                     ELSE 0
                 END
-            ), 0) AS daily_price_pnl_cny,
-            COALESCE(SUM(
+            ), 0) END AS daily_price_pnl_cny,
+            CASE WHEN COUNT(*) FILTER (WHERE h.quantity IS NULL OR eff.current_price IS NULL OR eff.previous_price IS NULL
+                OR prev_basis.previous_as_of IS NULL
+                OR (h.currency IS DISTINCT FROM (SELECT currency FROM base_ccy) AND (fx.rate IS NULL OR prev_overseas_fx.rate IS NULL)))>0
+                THEN NULL ELSE COALESCE(SUM(
                 CASE
                     WHEN h.quantity IS NOT NULL
                      AND eff.previous_price IS NOT NULL
-                    THEN eff.previous_price * h.quantity * (COALESCE(fx.rate, 1) - COALESCE(prev_overseas_fx.rate, fx.rate, 1))
+                    THEN eff.previous_price * h.quantity * (CASE WHEN h.currency=(SELECT currency FROM base_ccy) THEN 1::numeric ELSE fx.rate END - CASE WHEN h.currency=(SELECT currency FROM base_ccy) THEN 1::numeric ELSE prev_overseas_fx.rate END)
                     ELSE 0
                 END
-            ), 0) AS daily_fx_pnl_cny,
-            COALESCE(SUM(
+            ), 0) END AS daily_fx_pnl_cny,
+            CASE WHEN COUNT(*) FILTER (WHERE h.quantity IS NULL OR eff.current_price IS NULL OR eff.previous_price IS NULL
+                OR prev_basis.previous_as_of IS NULL
+                OR (h.currency IS DISTINCT FROM (SELECT currency FROM base_ccy) AND (fx.rate IS NULL OR prev_overseas_fx.rate IS NULL)))>0
+                THEN NULL ELSE COALESCE(SUM(
                 CASE
                     WHEN h.quantity IS NOT NULL
                      AND eff.previous_price IS NOT NULL
-                    THEN eff.previous_price * h.quantity * COALESCE(prev_overseas_fx.rate, fx.rate, 1)
+                    THEN eff.previous_price * h.quantity * CASE WHEN h.currency=(SELECT currency FROM base_ccy) THEN 1::numeric ELSE prev_overseas_fx.rate END
                     ELSE 0
                 END
-            ), 0) AS baseline_value_cny
+            ), 0) END AS baseline_value_cny
         FROM latest l
         LEFT JOIN previous_snapshot ps ON TRUE
         JOIN pams_holdings_snapshot h
@@ -459,7 +475,7 @@ def _ibkr_holdings_today_window_payload(
          AND h.as_of = l.as_of
          AND h.asset_liability = %s
          AND h.major_category = %s
-        LEFT JOIN fx ON fx.quote_currency = h.currency
+        LEFT JOIN fx ON fx.quote_currency = h.currency AND fx.as_of = h.as_of
         LEFT JOIN LATERAL (
             SELECT o.trade_date, o.close
             FROM pams_ohlcv_daily o
@@ -479,7 +495,7 @@ def _ibkr_holdings_today_window_payload(
             LIMIT 1
         ) prev_overseas_px ON TRUE
         LEFT JOIN LATERAL (
-            SELECT hs.current_price
+            SELECT hs.current_price, hs.as_of
             FROM pams_holdings_snapshot hs
             WHERE hs.account_code = h.account_code
               AND hs.as_of < h.as_of
@@ -505,7 +521,7 @@ def _ibkr_holdings_today_window_payload(
                      AND curr_overseas_px.close IS NOT NULL
                      AND h.current_price IS DISTINCT FROM curr_overseas_px.close
                     THEN curr_overseas_px.trade_date
-                    ELSE COALESCE(prev_overseas_px.trade_date, h.as_of - 1)
+                    ELSE COALESCE(prev_overseas_px.trade_date, prev_snap.as_of)
                 END AS previous_as_of
         ) prev_basis ON TRUE
         LEFT JOIN LATERAL (
@@ -514,7 +530,9 @@ def _ibkr_holdings_today_window_payload(
             WHERE prev_fx.base_currency = %s
               AND prev_fx.quote_currency = h.currency
               AND prev_basis.previous_as_of IS NOT NULL
-              AND prev_fx.as_of <= prev_basis.previous_as_of
+              AND prev_fx.as_of = prev_basis.previous_as_of
+              AND NULLIF(BTRIM(prev_fx.source), '') IS NOT NULL
+              AND prev_fx.rate > 0 AND prev_fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
             ORDER BY prev_fx.as_of DESC
             LIMIT 1
         ) prev_overseas_fx ON TRUE
@@ -547,10 +565,17 @@ def _ibkr_holdings_today_window_payload(
             "label_date": label_date.isoformat(),
             "baseline_date": latest_date.isoformat(),
             "latest_date": latest_date.isoformat(),
-            "total_return": norm(Decimal("0")),
-            "return_rate": norm(Decimal("0")),
+            "total_return": None,
+            "return_rate": None,
+            "status": "unavailable",
+            "reason": "stale_snapshot",
         }
 
+    if any(row.get(key) is None for key in ("daily_price_pnl_cny","daily_fx_pnl_cny","baseline_value_cny")):
+        return {"label_date": (label_date or latest_date).isoformat(),
+                "baseline_date": row["baseline_date"].isoformat() if row.get("baseline_date") else None,
+                "latest_date": latest_date.isoformat(), "total_return": None, "return_rate": None,
+                "status":"unavailable", "reason":"fx_or_price_unknown"}
     amount = dec(row.get("daily_price_pnl_cny")) + dec(row.get("daily_fx_pnl_cny"))
     capital = abs(dec(row.get("baseline_value_cny")))
     return {
@@ -850,6 +875,8 @@ def _total_section_return_amounts(
             excluded_holding_accounts=excluded_holding_accounts,
             today_label_date=None,
         )
+        if payload.get("status") in {"unavailable", "partial"}:
+            return None
         rows = [
             {
                 "date": Date.fromisoformat(str(row["date"])),
@@ -945,6 +972,47 @@ def _total_section_today_window_payload(
     }
 
 
+def _apply_ibkr_history_coverage(payload: dict[str, Any], warnings: list[str]) -> None:
+    """Label recoverable legacy estimates and do not expose absent observations as zero."""
+    if "ibkr_history_coverage_unverified" not in warnings:
+        return
+    origins: dict[str, str] = {}
+    missing: set[str] = set()
+    for warning in warnings:
+        if warning.startswith("ibkr_history_origins:"):
+            for item in warning.partition(":")[2].split(","):
+                if "=" in item:
+                    day, source_day = item.split("=", 1)
+                    origins[day] = source_day
+        elif warning.startswith("ibkr_history_missing:"):
+            missing.update(day for day in warning.partition(":")[2].split(",") if day)
+    payload["status"] = "partial" if missing else "estimated"
+    payload["reason"] = "ibkr_history_coverage_unverified"
+    for row in payload.get("rows", []):
+        day = str(row.get("date"))
+        row["ibkr_history_evidence"] = {
+            "status": "unavailable" if day in missing else "estimated",
+            "source_as_of": origins.get(day),
+            "basis": "legacy_snapshot" if day in origins else "trade_reconstruction",
+            "coverage": "unknown",
+        }
+        if day in missing:
+            for field in ("market_value", "cost", "position_pnl", "realized_income", "total_pnl",
+                          "net_flow", "cumulative_capital", "reported_return_adjustment"):
+                if field in row:
+                    row[field] = None
+        if missing:
+            for field in ("capital_return_rate", "daily_return_rate", "time_weighted_return_rate",
+                          "display_return_rate", "display_return_rate_raw", "return_rate"):
+                if field in row:
+                    row[field] = None
+    if missing:
+        if "summary" in payload:
+            payload["summary"] = {key: None for key in payload["summary"]}
+        if "today_window" in payload:
+            payload["today_window"] = None
+
+
 def build_section_return_series_payload(
     cur,
     *,
@@ -1002,6 +1070,7 @@ def build_section_return_series_payload(
             fx_timelines=fx_timelines,
             account_owner_ratio=account_owner_ratio,
         )
+        events.extend((day, None) for day in getattr(values, 'unknown_dates', ()))
     elif section == "us_stock":
         values, _costs, warnings = _ibkr_full_trade_return_series(
             cur,
@@ -1009,6 +1078,24 @@ def build_section_return_series_payload(
             base_currency=base_currency,
             fx_timelines=fx_timelines,
         )
+        missing_history_reason = next((reason for reason in warnings if reason ==
+            "ibkr_position_history_unavailable"), None)
+        if missing_history_reason:
+            payload = {
+                "section": section, "label": cfg["label"], "start": start_date.isoformat(),
+                "end": terminal_date.isoformat(), "base_currency": base_currency,
+                "interval": interval, "method": "cash_flow_adjusted_time_weighted_return",
+                "status": "unavailable", "reason": missing_history_reason,
+                "coverage_notes": ["IBKR 历史持仓或报告覆盖范围无法验证。"],
+                "summary": {"total_return": None, "total_return_rate": None, "annualized_return_rate": None},
+                "rows": [{"date": norm(day), **{key: None for key in (
+                    "market_value", "net_flow", "cumulative_capital", "capital_return_rate",
+                    "daily_return_rate", "time_weighted_return_rate", "display_return_rate",
+                    "display_return_rate_raw")}} for day in dates],
+            }
+            if today_label_date is not None:
+                payload["today_window"] = None
+            return payload
         values = _overlay_terminal_exact_section_value(
             cur,
             values,
@@ -1056,6 +1143,22 @@ def build_section_return_series_payload(
             account_owner_ratio=account_owner_ratio,
         )
 
+    if any(value is None for value in values.values()) or any(amount is None for _, amount in events):
+        fx_missing = any(value is None for value in values.values()) or getattr(events, 'missing_fx', False)
+        payload = {
+            "section": section, "label": cfg["label"], "start": start_date.isoformat(),
+            "end": terminal_date.isoformat(), "base_currency": base_currency,
+            "interval": interval, "method": "cash_flow_adjusted_time_weighted_return",
+            "status": "unavailable", "reason": "fx_rate_unknown" if fx_missing else "trade_cost_evidence_missing",
+            "coverage_notes": ["缺少同日汇率，不能计算完整收益。" if fx_missing else "交易净现金及完整税费证据不足，不能计算期间收益。"],
+            "summary": {"total_return": None, "total_return_rate": None, "annualized_return_rate": None},
+            "rows": [{"date": norm(day), "market_value": norm(values.get(day)), **{key: None for key in (
+                "net_flow", "cumulative_capital", "capital_return_rate", "daily_return_rate",
+                "time_weighted_return_rate", "display_return_rate", "display_return_rate_raw")}} for day in dates],
+        }
+        if today_label_date is not None:
+            payload["today_window"] = None
+        return payload
     flows = _bucket_flow_events(dates, events)
     rows = _cash_flow_adjusted_return_rows(dates=dates, values=values, flows=flows)
     for row in rows:
@@ -1103,7 +1206,8 @@ def build_section_return_series_payload(
                 if section == "precious_metal"
                 else []
             ),
-            *([str(w) for w in warnings] if warnings else []),
+            *(["IBKR 历史结果为估值，报告覆盖范围未验证。"] if "ibkr_history_coverage_unverified" in warnings else []),
+            *([str(w) for w in warnings if not w.startswith("ibkr_history_")] if warnings else []),
         ],
         "summary": {
             "total_return": norm(summary["total_return"]),
@@ -1184,6 +1288,7 @@ def build_section_return_series_payload(
             label_date=today_label_date,
             return_amount=_section_return_amount,
             )
+    _apply_ibkr_history_coverage(payload, warnings)
     return payload
 
 
@@ -1244,70 +1349,68 @@ def build_investment_return_series_payload(
         ), positions_marked AS (
             SELECT
                 h.date,
-                h.market_value * COALESCE(fx_hist.rate, fx_latest.rate, 1) * {h_owner_sql} AS market_value_cny
+                h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {h_owner_sql} AS market_value_cny
             FROM h
             LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency = %s
                   AND fx.quote_currency = h.currency
-                  AND fx.as_of <= h.date
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = h.date
                 ORDER BY fx.as_of DESC
                 LIMIT 1
             ) fx_hist ON TRUE
             LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = h.currency
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_latest ON TRUE
+                SELECT CASE WHEN h.currency=%s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
         ), position_values AS (
             SELECT
                 date,
-                COALESCE(SUM(market_value_cny), 0) AS market_value_cny
+                CASE WHEN COUNT(*) FILTER (WHERE market_value_cny IS NULL)>0 THEN NULL ELSE SUM(market_value_cny) END AS market_value_cny,
+                COUNT(*) FILTER (WHERE market_value_cny IS NULL) AS unknown_fx_count
             FROM positions_marked
             GROUP BY date
         ), cost_marked AS (
             SELECT
                 h.date,
-                COALESCE(h.cost, 0) * COALESCE(fx_hist.rate, fx_latest.rate, 1) * {h_owner_sql} AS cost_cny
+                h.cost * COALESCE(fx_identity.rate, fx_hist.rate) * {h_owner_sql} AS cost_cny
             FROM h
             LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency = %s
                   AND fx.quote_currency = h.currency
-                  AND fx.as_of <= h.date
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = h.date
                 ORDER BY fx.as_of DESC
                 LIMIT 1
             ) fx_hist ON TRUE
             LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = h.currency
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_latest ON TRUE
+                SELECT CASE WHEN h.currency=%s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
         ), costs AS (
-            SELECT date, COALESCE(SUM(cost_cny), 0) AS cost_cny
+            SELECT date, SUM(cost_cny) AS cost_cny,
+                   COUNT(*) FILTER (WHERE cost_cny IS NULL) AS unknown_cost_count
             FROM cost_marked
             GROUP BY date
         ), positions AS (
             SELECT
                 d.date,
-                COALESCE(v.market_value_cny, 0) AS market_value_cny,
-                COALESCE(c.cost_cny, 0) AS cost_cny,
-                COALESCE(v.market_value_cny, 0) - COALESCE(c.cost_cny, 0) AS position_pnl_cny
+                CASE WHEN COALESCE(v.unknown_fx_count,0)>0 THEN NULL ELSE COALESCE(v.market_value_cny, 0) END AS market_value_cny,
+                CASE WHEN COALESCE(c.unknown_cost_count, 0) > 0 THEN NULL ELSE COALESCE(c.cost_cny, 0) END AS cost_cny,
+                CASE WHEN COALESCE(c.unknown_cost_count, 0) > 0 OR COALESCE(v.unknown_fx_count,0)>0 THEN NULL ELSE COALESCE(v.market_value_cny, 0) - COALESCE(c.cost_cny, 0) END AS position_pnl_cny,
+                COALESCE(v.unknown_fx_count,0) AS unknown_fx_count,
+                COALESCE(c.unknown_cost_count, 0) AS unknown_cost_count
             FROM series_dates d
             LEFT JOIN position_values v ON v.date = d.date
             LEFT JOIN costs c ON c.date = d.date
         ), income_marked AS (
             SELECT
                 d.date,
-                tx.gross_amount * COALESCE(fx_hist.rate, fx_latest.rate, 1) * {tx_owner_sql} AS income_cny
+                tx.gross_amount * COALESCE(fx_identity.rate, fx_hist.rate) * {tx_owner_sql} AS income_cny
             FROM series_dates d
             JOIN pams_investment_trade_fact tx ON tx.trade_date <= d.date
             LEFT JOIN LATERAL (
@@ -1315,18 +1418,15 @@ def build_investment_return_series_payload(
                 FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency = %s
                   AND fx.quote_currency = tx.currency
-                  AND fx.as_of <= d.date
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = tx.trade_date
                 ORDER BY fx.as_of DESC
                 LIMIT 1
             ) fx_hist ON TRUE
             LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = tx.currency
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_latest ON TRUE
+                SELECT CASE WHEN tx.currency=%s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
             WHERE COALESCE(
                 NULLIF(tx.asset_major_category, ''),
                 NULLIF(tx.raw_json #>> '{{source_row,major_category}}', ''),
@@ -1337,13 +1437,16 @@ def build_investment_return_series_payload(
               AND tx.gross_amount IS NOT NULL
               AND COALESCE(LOWER(tx.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
         ), income AS (
-            SELECT date, COALESCE(SUM(income_cny), 0) AS realized_income_cny
+            SELECT date, CASE WHEN COUNT(*) FILTER (WHERE income_cny IS NULL)>0 THEN NULL ELSE SUM(income_cny) END AS realized_income_cny,
+                   COUNT(*) FILTER (WHERE income_cny IS NULL) AS unknown_fx_count
             FROM income_marked
             GROUP BY date
         )
         SELECT
             d.date,
-            COALESCE(p.market_value_cny, 0) AS market_value_cny,
+            COALESCE(p.unknown_cost_count, 0) AS unknown_cost_count,
+            COALESCE(p.unknown_fx_count,0) + COALESCE(i.unknown_fx_count,0) AS unknown_fx_count,
+            CASE WHEN COALESCE(p.unknown_fx_count,0)>0 THEN NULL ELSE COALESCE(p.market_value_cny, 0) END AS market_value_cny,
             COALESCE(p.cost_cny, 0) AS cost_cny,
             COALESCE(p.position_pnl_cny, 0) AS position_pnl_cny,
             COALESCE(i.realized_income_cny, 0) AS realized_income_cny,
@@ -1382,11 +1485,38 @@ def build_investment_return_series_payload(
     rows = [dict(r) for r in cur.fetchall()]
     dates = [r["date"] for r in rows]
 
+    if any(row.get('unknown_fx_count', 0) for row in rows):
+        payload = {
+            "start": start_date.isoformat(), "end": view_as_of.isoformat(),
+            "base_currency": base_currency, "interval": interval,
+            "method": "coverage_adjusted_daily_return", "status": "unavailable", "reason": "fx_rate_unknown",
+            "coverage_notes": [{"reason": "缺少同业务日汇率，不能计算完整收益。"}],
+            "rows": [{"date": norm(row['date']), "market_value": norm(row.get('market_value_cny')),
+                      **{key: None for key in ("cost", "position_pnl", "realized_income", "total_pnl",
+                          "return_rate", "reported_return_adjustment", "daily_return_rate", "time_weighted_return_rate")}}
+                     for row in rows],
+        }
+        if today_label_date is not None:
+            payload['today_window'] = None
+        return payload
+
+    if any(row.get('unknown_cost_count', 0) for row in rows):
+        payload = {
+            "start": start_date.isoformat(), "end": view_as_of.isoformat(),
+            "base_currency": base_currency, "interval": interval,
+            "method": "coverage_adjusted_daily_return", "status": "unavailable",
+            "reason": "holding_cost_unknown",
+            "coverage_notes": [{"reason": "持仓成本未知，不能计算完整收益。"}],
+            "rows": [{"date": norm(day), **{key: None for key in (
+                "market_value", "cost", "position_pnl", "realized_income", "total_pnl",
+                "return_rate", "reported_return_adjustment", "daily_return_rate",
+                "time_weighted_return_rate")}} for day in dates],
+        }
+        if today_label_date is not None:
+            payload['today_window'] = None
+        return payload
+
     if dates:
-        overview_accounts = [
-            a for a in overview_payload.get("accounts", [])
-            if a.get("include_in_nav") and account_anchor_amount(a) is not None
-        ]
         fx_timelines = load_fx_timelines(cur, base_currency)
 
         a_share_values = tonghuashun_series(
@@ -1409,6 +1539,21 @@ def build_investment_return_series_payload(
             terminal_date=dates[-1],
             target_value=tonghuashun_anchor_cny,
         )
+        if getattr(a_share_values, 'unknown_dates', set()):
+            payload = {
+                "start": start_date.isoformat(), "end": view_as_of.isoformat(),
+                "base_currency": base_currency, "interval": interval,
+                "method": "coverage_adjusted_daily_return", "status": "unavailable",
+                "reason": "trade_cost_evidence_missing",
+                "coverage_notes": [{"account_code": "tonghuashun", "reason": "交易成本缺少税费或净现金证据。"}],
+                "rows": [{"date": norm(day), **{key: None for key in (
+                    "market_value", "cost", "position_pnl", "realized_income", "total_pnl",
+                    "return_rate", "reported_return_adjustment", "daily_return_rate",
+                    "time_weighted_return_rate")}} for day in dates],
+            }
+            if today_label_date is not None:
+                payload["today_window"] = None
+            return payload
         a_share_costs = _tonghuashun_cost_series(
             cur,
             dates=dates,
@@ -1421,6 +1566,24 @@ def build_investment_return_series_payload(
             base_currency=base_currency,
             fx_timelines=fx_timelines,
         )
+        missing_history_reason = next((reason for reason in ibkr_warnings if reason ==
+            "ibkr_position_history_unavailable"), None)
+        if missing_history_reason:
+            payload = {
+                "start": start_date.isoformat(), "end": view_as_of.isoformat(),
+                "base_currency": base_currency, "interval": interval,
+                "method": "coverage_adjusted_daily_return", "status": "unavailable",
+                "reason": missing_history_reason,
+                "coverage_notes": [{"account_code": "ibkr", "label": "IBKR 美股",
+                                    "reason": "历史持仓或报告覆盖范围无法验证。"}],
+                "rows": [{"date": norm(day), **{key: None for key in (
+                    "market_value", "cost", "position_pnl", "realized_income", "total_pnl",
+                    "return_rate", "reported_return_adjustment", "daily_return_rate",
+                    "time_weighted_return_rate")}} for day in dates],
+            }
+            if today_label_date is not None:
+                payload["today_window"] = None
+            return payload
         ibkr_values = _overlay_terminal_exact_section_value(
             cur,
             ibkr_values,
@@ -1432,12 +1595,54 @@ def build_investment_return_series_payload(
             account_codes=["ibkr"],
         )
 
-        esop_value = account_anchor_value_cny(
-            next((a for a in overview_accounts if str(a.get("account_code") or "") == "huawei_stock"), None),
-            fx_timelines=fx_timelines,
-            as_of=dates[-1],
-            base_currency=base_currency,
-        ) or Decimal("0")
+        if any(value is None for value in ibkr_values.values()):
+            payload = {"start": start_date.isoformat(), "end": view_as_of.isoformat(),
+                "base_currency": base_currency, "interval": interval, "method": "coverage_adjusted_daily_return",
+                "status": "unavailable", "reason": "fx_rate_unknown",
+                "coverage_notes": [{"account_code":"ibkr", "reason":"缺少同业务日汇率。"}],
+                "rows": [{"date":norm(day), **{key:None for key in ("market_value","cost","position_pnl",
+                    "realized_income","total_pnl","return_rate","reported_return_adjustment",
+                    "daily_return_rate","time_weighted_return_rate")}} for day in dates]}
+            if today_label_date is not None:
+                payload['today_window'] = None
+            return payload
+
+        esop_account = next((a for a in overview_payload.get("accounts", [])
+                             if a.get("include_in_nav") and str(a.get("account_code") or "") == "huawei_stock"), None)
+        if esop_account:
+            balance = esop_account.get('primary_balance') or {}
+            currency = balance.get('currency') or esop_account.get('base_currency')
+            anchor = account_anchor_amount(esop_account) if currency else None
+            rate = exact_fx_rate_at(fx_timelines,currency,dates[-1],base_currency)
+            esop_value = anchor[0] * rate if anchor is not None and rate is not None else None
+        else:
+            esop_value = Decimal("0")
+        if esop_value is None:
+            payload = {"start": start_date.isoformat(), "end": view_as_of.isoformat(),
+                "base_currency": base_currency, "interval": interval, "method": "coverage_adjusted_daily_return",
+                "status": "unavailable", "reason": "fx_rate_unknown",
+                "coverage_notes": [{"account_code":"huawei_stock", "reason":"账户金额或同日汇率未知。"}],
+                "rows": [{"date":norm(day), **{key:None for key in ("market_value","cost","position_pnl",
+                    "realized_income","total_pnl","return_rate","reported_return_adjustment",
+                    "daily_return_rate","time_weighted_return_rate")}} for day in dates]}
+            if today_label_date is not None:
+                payload['today_window'] = None
+            return payload
+
+        if any(value is None for value in ibkr_costs.values()):
+            payload = {"start": start_date.isoformat(), "end": view_as_of.isoformat(),
+                "base_currency": base_currency, "interval": interval, "method": "coverage_adjusted_daily_return",
+                "status": "unavailable", "reason": "holding_cost_unknown",
+                "coverage_notes": [{"account_code": "ibkr", "reason": "持仓成本未知，不能计算完整收益。"}],
+                "rows": [{"date": norm(row["date"]),
+                    "market_value": norm(dec(row["market_value_cny"]) + a_share_values.get(row["date"], Decimal("0"))
+                                         + ibkr_values.get(row["date"], Decimal("0")) + esop_value),
+                    **{key: None for key in ("cost", "position_pnl", "realized_income", "total_pnl",
+                        "return_rate", "reported_return_adjustment", "daily_return_rate", "time_weighted_return_rate")}}
+                    for row in rows]}
+            if today_label_date is not None:
+                payload["today_window"] = None
+            return payload
 
         for row in rows:
             sample_date = row["date"]
@@ -1464,6 +1669,17 @@ def build_investment_return_series_payload(
             reported_returns_cfg=reported_returns_cfg,
             owner_ratio_case_sql=owner_ratio_case_sql,
         )
+        if any(value is None for value in reported_adjustments.values()):
+            payload = {"start": start_date.isoformat(), "end": view_as_of.isoformat(),
+                "base_currency": base_currency, "interval": interval, "method": "coverage_adjusted_daily_return",
+                "status": "unavailable", "reason": "valuation_evidence_unknown",
+                "coverage_notes": [{"reason":"平台收益锚点缺少成本或同业务日汇率。"}],
+                "rows": [{"date":norm(day), **{key:None for key in ("market_value","cost","position_pnl",
+                    "realized_income","total_pnl","return_rate","reported_return_adjustment",
+                    "daily_return_rate","time_weighted_return_rate")}} for day in dates]}
+            if today_label_date is not None:
+                payload['today_window'] = None
+            return payload
         for row in rows:
             adjustment = reported_adjustments.get(row["date"], Decimal("0"))
             row["reported_return_adjustment_cny"] = adjustment
@@ -1554,7 +1770,7 @@ def build_investment_return_series_payload(
                     "label": "IBKR 美股",
                     "reason": warning,
                 }
-                for warning in ibkr_warnings
+                for warning in ibkr_warnings if not warning.startswith("ibkr_history_")
             ],
         ],
         "rows": [
@@ -1591,6 +1807,7 @@ def build_investment_return_series_payload(
             label_date=today_label_date,
             return_amount=_total_return_amount,
         )
+    _apply_ibkr_history_coverage(payload, ibkr_warnings)
     return payload
 
 
@@ -1604,8 +1821,9 @@ def build_account_performance_payload(
     net_liquidation: Decimal | None = None,
     net_liquidation_as_of: Any | None = None,
     daily_pnl_label_date: Date | None = None,
+    initial_capital_as_of: Date | str | None = None,
 ) -> dict[str, Any] | None:
-    """Return account-level personal performance using existing snapshot semantics."""
+    """Return account-level performance only with verified period coverage."""
     basis = load_account_balance_basis(
         cur,
         account_code=account_code,
@@ -1625,18 +1843,60 @@ def build_account_performance_payload(
     net_liquidation_source = basis["net_liquidation_source"]
     net_liquidation_rollforward = basis["net_liquidation_rollforward"]
     previous_net_gross = basis["previous_net_gross"]
-    daily_pnl_personal = (
-        (net_gross - previous_net_gross) * owner_ratio
-        if previous_net_gross is not None else None
-    )
-    daily_pnl_source = (
-        "rolled_forward_net_liquidation_delta" if previous_net_gross is not None else None
-    )
-    holding_pnl_personal = holding_pnl_gross * owner_ratio
+    previous_as_of = basis.get("previous_as_of")
+    cash_value_gross = basis.get("cash_value_gross")
+    securities_value_gross = basis.get("securities_value_gross")
+    other_liabilities_gross = basis.get("other_liabilities_gross")
+    observed_external_flow = (_cash_delta_cny(cur, account_code, previous_as_of, as_of, external_only=True)
+                              if previous_net_gross is not None and previous_as_of is not None else None)
+    # Reviewed holdings do not prove complete external-flow coverage. A
+    # published official report may prove it independently; observed rows alone
+    # never do so and an unverified initial-capital date cannot define a period.
+    from domain.accounts.official_flow_coverage import IBKRSourceConflict, latest_verified_ibkr_period, verified_ibkr_period
+    from domain.accounts.flow_coverage import latest_verified_period, verified_period
+    daily_conflict = False
+    try:
+        daily_proof = (latest_verified_ibkr_period(cur, account_code=account_code, end=as_of,
+                        ending_gross_cny=net_gross, raise_on_conflict=True) if cash_value_gross is not None else None)
+    except IBKRSourceConflict:
+        daily_proof = None
+        daily_conflict = True
+    if not daily_proof and not daily_conflict and cash_value_gross is not None:
+        daily_proof = latest_verified_period(cur, account_code=account_code, end=as_of, ending_gross_cny=net_gross)
+    daily_pnl_personal = ((net_gross - daily_proof['opening_gross_cny'] - daily_proof['external_flow_gross_cny']) * owner_ratio
+                          if daily_proof else None)
+    daily_pnl_source = (('verified_reviewed_source_period' if daily_proof.get('basis') == 'reviewed_source_reports'
+                         else 'verified_official_nav_bridge') if daily_proof else None)
+    if daily_proof:
+        observed_external_flow = daily_proof['external_flow_gross_cny']
+    holding_pnl_personal = holding_pnl_gross * owner_ratio if holding_pnl_gross is not None else None
     initial_personal = initial_capital * owner_ratio if initial_capital is not None else None
-    total_pnl = net_personal - initial_personal if initial_personal is not None else None
-    realized_pnl = total_pnl - holding_pnl_personal if total_pnl is not None else None
-    return_ratio = total_pnl / initial_personal if initial_personal and initial_personal > 0 else None
+    total_pnl = None
+    realized_pnl = None  # Lifetime realized P&L is not proven by a period bridge.
+    return_ratio = None
+    total_proof = None
+    total_conflict = False
+    if initial_capital is not None and initial_capital_as_of and cash_value_gross is not None:
+        try:
+            start = initial_capital_as_of if type(initial_capital_as_of) is Date else Date.fromisoformat(str(initial_capital_as_of))
+        except (TypeError, ValueError):
+            start = None
+        if start is not None:
+            try:
+                total_proof = verified_ibkr_period(cur, account_code=account_code, start=start, end=as_of,
+                                                   ending_gross_cny=net_gross, raise_on_conflict=True)
+            except IBKRSourceConflict:
+                total_proof = None
+                total_conflict = True
+            if not total_proof and not total_conflict:
+                total_proof = verified_period(cur, account_code=account_code, start=start, end=as_of,
+                                              ending_gross_cny=net_gross)
+            if total_proof and abs(total_proof['opening_gross_cny'] - initial_capital) <= Decimal('0.01'):
+                total_pnl = (net_gross - initial_capital - total_proof['external_flow_gross_cny']) * owner_ratio
+                capital = (initial_capital + total_proof['external_flow_gross_cny']) * owner_ratio
+                return_ratio = total_pnl / capital if capital > 0 else None
+            else:
+                total_proof = None
 
     daily_pnl_effective = daily_pnl_personal is not None
     if daily_pnl_label_date is not None:
@@ -1655,9 +1915,19 @@ def build_account_performance_payload(
         "net_liquidation_cny": norm(net_personal),
         "net_liquidation_source": net_liquidation_source,
         "net_liquidation_rollforward": net_liquidation_rollforward,
-        "position_market_value_gross_cny": norm(position_value_gross),
-        "position_market_value_cny": norm(position_value_gross * owner_ratio),
-        "cash_or_uninvested_cny": norm(net_personal - position_value_gross * owner_ratio),
+        "position_market_value_gross_cny": norm(securities_value_gross),
+        "position_market_value_cny": norm(securities_value_gross * owner_ratio if securities_value_gross is not None else None),
+        "cash_or_uninvested_cny": norm(cash_value_gross * owner_ratio if cash_value_gross is not None else None),
+        "other_liabilities_cny": norm(other_liabilities_gross * owner_ratio if other_liabilities_gross is not None else None),
+        "observed_external_net_flow_cny": norm(observed_external_flow * owner_ratio if observed_external_flow is not None else None),
+        "external_flow_coverage": "verified" if daily_proof else "unknown",
+        "daily_pnl_unavailable_reason": None if daily_proof else "published_source_conflict_or_unverified" if daily_conflict else "external_flow_coverage_unproven",
+        "total_pnl_unavailable_reason": None if total_proof else "published_source_conflict_or_unverified" if total_conflict else "capital_and_external_flow_coverage_unproven",
+        "daily_pnl_evidence": {key: norm(value) for key, value in daily_proof.items()} if daily_proof else None,
+        "total_pnl_evidence": {key: norm(value) for key, value in total_proof.items()} if total_proof else None,
+        "total_pnl_basis": "verified_anchor_period_not_inception" if total_proof else None,
+        "return_ratio_basis": "period_pnl_over_opening_nav_plus_net_external_flows_not_twr_or_mwr" if total_proof else None,
+        "unexplained_anchor_difference_cny": norm(net_personal - position_value_gross * owner_ratio),
         "holding_pnl_cny": norm(holding_pnl_personal),
         "total_pnl_cny": norm(total_pnl),
         "daily_pnl_cny": norm(visible_daily_pnl),

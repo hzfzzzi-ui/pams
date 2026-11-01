@@ -162,17 +162,8 @@ def quote_session_from_source(
     return default if default in VALID_QUOTE_SESSIONS else "unknown"
 
 
-def asset_key(row: dict[str, Any]) -> str:
-    """Return a stable asset key for daily PnL facts."""
-    for key in ("asset_id", "symbol", "name"):
-        value = str(row.get(key) or "").strip()
-        if value:
-            return value
-    return "unknown"
-
-
 def quote_snapshot_from_market_daily(row: dict[str, Any]) -> dict[str, Any]:
-    """Build a canonical quote snapshot from pams_asset_market_daily-like rows."""
+    """Build a canonical quote snapshot from daily market observations."""
     source = row.get("source")
     market = row.get("market")
     status = normalize_return_status(
@@ -218,61 +209,23 @@ def quote_snapshot_from_market_daily(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def daily_pnl_row_from_holding(row: dict[str, Any], *, trade_date: Any | None = None) -> dict[str, Any]:
-    """Build a canonical asset daily-PnL row from holdings API rows."""
-    status = normalize_return_status(row.get("daily_pnl_status") or row.get("daily_return_status"))
-    daily_pnl = row.get("daily_total_pnl_cny")
-    if daily_pnl in (None, ""):
-        daily_pnl = row.get("daily_pnl_cny", row.get("daily_pnl", 0))
-    market_value = row.get("market_value_cny", row.get("market_value", 0))
-    total_pnl = row.get("holding_pnl_cny", row.get("holding_pnl", row.get("total_pnl_cny", 0)))
-    payload = {
-        "trade_date": trade_date or row.get("as_of") or row.get("snapshot_as_of"),
-        "account_code": row.get("account_code") or row.get("account") or "",
-        "asset_key": asset_key(row),
-        "asset_id": row.get("asset_id"),
-        "symbol": row.get("symbol"),
-        "name": row.get("name"),
-        "major_category": row.get("major_category"),
-        "minor_category": row.get("minor_category"),
-        "currency": row.get("currency") or "CNY",
-        "base_currency": row.get("base_currency") or "CNY",
-        "quantity": row.get("quantity"),
-        "previous_price": row.get("previous_price"),
-        "current_price": row.get("current_price"),
-        "market_value_cny": market_value,
-        "daily_pnl_cny": daily_pnl,
-        "total_pnl_cny": total_pnl,
-        "return_rate": row.get("return_rate"),
-        "daily_return_rate": row.get("daily_return_rate"),
-        "return_status": status,
-        "provider": row.get("daily_pnl_provider") or row.get("provider"),
-        "raw_json": {
-            "daily_pnl_status_label": row.get("daily_pnl_status_label"),
-            "daily_pnl_as_of": row.get("daily_pnl_as_of"),
-        },
-    }
-    payload["source_hash"] = stable_source_hash(payload)
-    return payload
-
-
 def upsert_quote_snapshot(cur: Any, quote: dict[str, Any]) -> dict[str, Any]:
     """Upsert one quote snapshot and return the database row."""
     cur.execute(
         """
-        INSERT INTO pams_market_quote_snapshot (
-            quote_date, asset_id, symbol, name, market, currency,
+        INSERT INTO market_observations (
+            observation_type,
+            as_of, asset_id, symbol, name, market, currency,
             provider, source, source_key, quote_session, return_status,
             price, price_time, base_currency, fx_rate, source_hash, raw_json,
             updated_at
-        )
-        VALUES (
+        ) VALUES ('quote',
             %(quote_date)s, %(asset_id)s, %(symbol)s, %(name)s, %(market)s, %(currency)s,
             %(provider)s, %(source)s, %(source_key)s, %(quote_session)s, %(return_status)s,
             %(price)s, %(price_time)s, %(base_currency)s, %(fx_rate)s, %(source_hash)s,
             %(raw_json)s, now()
         )
-        ON CONFLICT (quote_date, provider, source_key, quote_session)
+        ON CONFLICT (as_of, provider, source_key, quote_session) WHERE observation_type = 'quote'
         DO UPDATE SET
             asset_id = EXCLUDED.asset_id,
             symbol = EXCLUDED.symbol,
@@ -291,54 +244,5 @@ def upsert_quote_snapshot(cur: Any, quote: dict[str, Any]) -> dict[str, Any]:
         RETURNING *
         """,
         {**quote, "raw_json": psycopg2.extras.Json(norm(quote.get("raw_json") or {}))},
-    )
-    return cur.fetchone()
-
-
-def upsert_asset_daily_pnl(cur: Any, row: dict[str, Any]) -> dict[str, Any]:
-    """Upsert one asset daily-PnL fact and return the database row."""
-    cur.execute(
-        """
-        INSERT INTO pams_asset_daily_pnl (
-            trade_date, account_code, asset_key, asset_id, symbol, name,
-            major_category, minor_category, currency, base_currency,
-            quantity, previous_price, current_price, market_value_cny,
-            daily_pnl_cny, total_pnl_cny, return_rate, daily_return_rate,
-            return_status, provider, source_quote_id, source_hash, raw_json,
-            updated_at
-        )
-        VALUES (
-            %(trade_date)s, %(account_code)s, %(asset_key)s, %(asset_id)s, %(symbol)s, %(name)s,
-            %(major_category)s, %(minor_category)s, %(currency)s, %(base_currency)s,
-            %(quantity)s, %(previous_price)s, %(current_price)s, %(market_value_cny)s,
-            %(daily_pnl_cny)s, %(total_pnl_cny)s, %(return_rate)s, %(daily_return_rate)s,
-            %(return_status)s, %(provider)s, %(source_quote_id)s, %(source_hash)s, %(raw_json)s,
-            now()
-        )
-        ON CONFLICT (trade_date, account_code, asset_key, base_currency)
-        DO UPDATE SET
-            asset_id = EXCLUDED.asset_id,
-            symbol = EXCLUDED.symbol,
-            name = EXCLUDED.name,
-            major_category = EXCLUDED.major_category,
-            minor_category = EXCLUDED.minor_category,
-            currency = EXCLUDED.currency,
-            quantity = EXCLUDED.quantity,
-            previous_price = EXCLUDED.previous_price,
-            current_price = EXCLUDED.current_price,
-            market_value_cny = EXCLUDED.market_value_cny,
-            daily_pnl_cny = EXCLUDED.daily_pnl_cny,
-            total_pnl_cny = EXCLUDED.total_pnl_cny,
-            return_rate = EXCLUDED.return_rate,
-            daily_return_rate = EXCLUDED.daily_return_rate,
-            return_status = EXCLUDED.return_status,
-            provider = EXCLUDED.provider,
-            source_quote_id = EXCLUDED.source_quote_id,
-            source_hash = EXCLUDED.source_hash,
-            raw_json = EXCLUDED.raw_json,
-            updated_at = now()
-        RETURNING *
-        """,
-        {**row, "raw_json": psycopg2.extras.Json(norm(row.get("raw_json") or {}))},
     )
     return cur.fetchone()

@@ -38,6 +38,9 @@ class SequenceCursor:
     def fetchone(self):
         return self.results.pop(0)
 
+    def fetchall(self):
+        return self.results.pop(0)
+
 
 def test_build_accounts_payload_active_true_preserves_fields():
     cur = FakeCursor(
@@ -91,7 +94,9 @@ def test_build_accounts_payload_handles_empty_result():
     assert build_accounts_payload(FakeCursor([]), active=True) == {"accounts": []}
 
 
-def test_build_account_detail_payload_preserves_shape_with_stats():
+def test_build_account_detail_payload_preserves_shape_with_stats(monkeypatch):
+    from domain.investments import snapshot_coverage
+    monkeypatch.setattr(snapshot_coverage, "load_account_snapshot_coverage", lambda cur, keys: {key: {"status": "complete"} for key in keys})
     cur = SequenceCursor(
         [
             {
@@ -102,7 +107,8 @@ def test_build_account_detail_payload_preserves_shape_with_stats():
                 "active": True,
                 "created_at": "2026-01-01",
             },
-            {"holdings_count": 3, "total_value": "123.45"},
+            [{"holdings_count": 3, "market_value": "123.45", "missing_values": 0,
+              "currency": "CNY", "as_of": date(2026, 1, 2)}],
         ]
     )
 
@@ -115,7 +121,7 @@ def test_build_account_detail_payload_preserves_shape_with_stats():
     assert cur.executed[1][1][1] == "tonghuashun"
 
 
-def test_build_account_detail_payload_returns_zero_total_when_stats_value_missing():
+def test_build_account_detail_payload_keeps_missing_total_unknown():
     cur = SequenceCursor(
         [
             {
@@ -126,13 +132,14 @@ def test_build_account_detail_payload_returns_zero_total_when_stats_value_missin
                 "active": True,
                 "created_at": "2026-01-01",
             },
-            {"holdings_count": 0, "total_value": None},
+            [],
         ]
     )
 
     payload = build_account_detail_payload(cur, account_code="empty")
 
-    assert payload["total_value"] == "0"
+    assert payload["total_value"] is None
+    assert payload["total_value_status"] == "unknown"
 
 
 def test_build_account_detail_payload_returns_none_for_missing_account():
@@ -162,39 +169,64 @@ def test_primary_platform_balance_converts_net_multi_currency_platform_snapshot(
         {"currency": "MXN", "market_value": "108999.9998", "as_of": date(2026, 6, 21)},
         {"currency": "SEK", "market_value": "-4.0000", "as_of": date(2026, 6, 21)},
     ]
-    fx = {
-        "USD": {
-            "HKD": Decimal("0.127588"),
-            "KRW": Decimal("0.000653"),
-            "MXN": Decimal("0.057694"),
-        }
-    }
-
+    fx = {'2026-06-21': {
+        'USD': Decimal('7'), 'HKD': Decimal('0.893116'), 'KRW': Decimal('0.004571'),
+        'MXN': Decimal('0.403858'), 'SEK': Decimal('0.56'),
+    }}
     balance = _primary_platform_balance(rows, "USD", fx)
-
-    expected = (
-        Decimal("32507.9996")
-        + Decimal("13924.4867") * Decimal("0.127588")
-        + Decimal("4727382.7800") * Decimal("0.000653")
-        + Decimal("108999.9998") * Decimal("0.057694")
-    )
+    expected_cny = (Decimal('32507.9996') * Decimal('7')
+        + Decimal('13924.4867') * Decimal('0.893116')
+        + Decimal('4727382.7800') * Decimal('0.004571')
+        + Decimal('108999.9998') * Decimal('0.403858') - Decimal('4') * Decimal('0.56'))
     assert balance is not None
-    assert balance["currency"] == "USD"
-    assert balance["as_of"] == date(2026, 6, 21)
-    assert Decimal(str(balance["amount"])).quantize(Decimal("0.01")) == expected.quantize(Decimal("0.01"))
+    assert balance['currency'] == 'USD' and balance['as_of'] == date(2026,6,21)
+    assert balance['amount_cny'] == expected_cny
+    assert balance['amount'] == expected_cny / Decimal('7')
 
 
-def test_primary_platform_balance_falls_back_to_base_when_material_fx_is_missing():
+def test_primary_platform_balance_never_drops_currency_when_fx_missing():
     rows = [
-        {"currency": "USD", "market_value": "100", "as_of": date(2026, 6, 21)},
-        {"currency": "SEK", "market_value": "1000", "as_of": date(2026, 6, 21)},
+        {'currency':'USD','market_value':'100','as_of':date(2026,6,21)},
+        {'currency':'SEK','market_value':'4','as_of':date(2026,6,21)},
     ]
+    assert _primary_platform_balance(rows, 'USD', {'2026-06-21':{'USD':Decimal('7')}}) is None
+    # A quote for a different day cannot fill a gap in the business date.
+    assert _primary_platform_balance(rows, 'USD', {'2026-06-22':{'USD':Decimal('7'),'SEK':Decimal('1')}}) is None
+    known_native = _primary_platform_balance(rows[:1], 'USD', {})
+    assert known_native['amount'] == 100 and known_native['amount_cny'] is None
 
-    balance = _primary_platform_balance(rows, "USD", {"USD": {}})
 
-    assert balance is not None
-    assert balance["amount"] == Decimal("100")
-    assert balance["currency"] == "USD"
+
+def test_primary_platform_balance_rejects_missing_values_and_mixed_dates():
+    assert _primary_platform_balance([{'currency':'CNY','market_value':None,'as_of':date(2026,6,21)}], 'CNY', {}) is None
+    assert _primary_platform_balance([
+        {'currency':'USD','market_value':'100','as_of':date(2026,6,21)},
+        {'currency':'EUR','market_value':'1','as_of':date(2026,6,22)},
+    ], 'USD', {}) is None
+
+
+def test_owner_ratio_scales_proven_cny_and_native_amount_together():
+    from endpoints.accounts import _apply_owner_ratio_to_money
+    balance={'currency':'USD','amount':Decimal('200'),'amount_cny':Decimal('1400')}
+    adjusted=_apply_owner_ratio_to_money(balance,Decimal('0.5'))
+    assert adjusted['amount']==100 and adjusted['amount_cny']==700
+    assert balance['amount_cny']==1400
+
+
+
+def test_primary_platform_balance_fx_direction_and_negative_cash():
+    day = date(2026, 6, 21)
+    rows = [{'currency':'USD','market_value':'100','as_of':day},
+            {'currency':'EUR','market_value':'-30','as_of':day},
+            {'currency':'GBP','market_value':'0','as_of':day}]
+    rates = {'2026-06-21':{'USD':Decimal('7'),'EUR':Decimal('8')}}
+    usd = _primary_platform_balance(rows,'USD',rates)
+    cny = _primary_platform_balance(rows,'CNY',rates)
+    assert usd['amount_cny']==Decimal('460')
+    assert usd['amount']==Decimal('460') / Decimal('7')
+    assert cny['amount']==cny['amount_cny']==Decimal('460')
+    assert _primary_platform_balance(rows,'EUR',rates)['amount']==Decimal('460')/Decimal('8')
+
 
 
 def test_pick_primary_balance_prefers_latest_platform_snapshot_for_position_nav_account():

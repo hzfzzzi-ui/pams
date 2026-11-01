@@ -16,7 +16,6 @@ from domain.investments.portfolio_summary import (  # noqa: E402
     build_holdings_by_account_payload,
     build_holdings_summary_payload,
     build_summary2_from_holdings_latest_payload,
-    build_summary2_latest_payload,
 )
 
 
@@ -55,6 +54,7 @@ def test_build_holdings_summary_payload_preserves_legacy_shape():
                     "total_pnl_base": Decimal("5.00"),
                 },
             ],
+            [],
         ]
     )
 
@@ -71,9 +71,9 @@ def test_build_holdings_summary_payload_preserves_legacy_shape():
     assert payload["total"] == {"value": "150.25", "cost": "135.0", "pnl": "15.25"}
     assert payload["by_category"][0]["total_value_base"] == "100.25"
     sql, params = cur.executed[1]
-    assert "JOIN latest_account la" in sql
+    assert "FROM latest_known_holding hs" in sql
     assert "latest_position" not in sql
-    assert params == (date(2026, 6, 1), "CNY")
+    assert params == (date(2026, 6, 1), "CNY", date(2026, 6, 1))
 
 
 def test_build_holdings_by_account_payload_preserves_legacy_shape():
@@ -89,6 +89,7 @@ def test_build_holdings_by_account_payload_preserves_legacy_shape():
                     "total_value_base": Decimal("200.00"),
                 }
             ],
+            [],
         ]
     )
 
@@ -105,59 +106,9 @@ def test_build_holdings_by_account_payload_preserves_legacy_shape():
     assert payload["by_account"][0]["account_code"] == "ibkr"
     assert payload["by_account"][0]["total_value_base"] == "200.00"
     sql, params = cur.executed[1]
-    assert "JOIN latest_account la" in sql
+    assert "FROM latest_known_holding hs" in sql
     assert "latest_position" not in sql
-    assert params == (date(2026, 6, 1), "CNY")
-
-
-def test_build_summary2_latest_payload_preserves_legacy_shape():
-    cur = FakeCursor(
-        [
-            {"as_of": date(2026, 5, 31)},
-            [
-                {
-                    "asset_class": "A股",
-                    "market_value": Decimal("100.00"),
-                    "holding_pnl": Decimal("-5.00"),
-                    "daily_pnl": Decimal("0"),
-                },
-                {
-                    "asset_class": "LIABILITY",
-                    "market_value": Decimal("-20.00"),
-                    "holding_pnl": Decimal("0"),
-                    "daily_pnl": Decimal("0"),
-                },
-            ],
-            [
-                {
-                    "asset_class": "A股",
-                    "venue": "tonghuashun",
-                    "account": "tonghuashun",
-                    "type": "A股",
-                    "symbol": "601899",
-                    "name": "紫金矿业",
-                    "currency": "CNY",
-                    "market_value": Decimal("100.00"),
-                    "holding_pnl": Decimal("-5.00"),
-                    "daily_pnl": Decimal("0"),
-                }
-            ],
-        ]
-    )
-
-    payload = build_summary2_latest_payload(
-        cur,
-        base_currency="CNY",
-        view_as_of=date(2026, 6, 1),
-        owner_ratio_sql="1",
-        owner_ratio_params=[],
-        excluded_accounts=[],
-    )
-
-    assert set(payload) == {"as_of", "base_currency", "totals", "by_asset_class", "children"}
-    assert payload["as_of"] == "2026-06-01"
-    assert payload["totals"] == {"market_value": "80.0", "holding_pnl": "-5.0", "daily_pnl": "0.0"}
-    assert payload["children"][0]["symbol"] == "601899"
+    assert params == (date(2026, 6, 1), "CNY", date(2026, 6, 1))
 
 
 def test_build_summary2_from_holdings_latest_payload_nets_liabilities():
@@ -298,3 +249,45 @@ def test_apply_return_attribution_pnl_to_summary_prefers_canonical_total():
     assert out["totals"]["holding_pnl"] == "20.00"
     assert out["totals"]["current_float_pnl"] == "12.00"
     assert out["totals"]["closed_realized_pnl"] == "8.00"
+
+
+def test_summary2_unknown_stale_cash_and_empty_are_not_zero():
+    from domain.investments.portfolio_summary import build_summary2_from_holdings_latest_payload as build
+    empty=build({'as_of':None,'rows':[]},base_currency='CNY',account_balances=[])
+    assert empty['totals']=={'market_value':None,'holding_pnl':None,'daily_pnl':None}
+    assert empty['daily_pnl_status']=='unknown'
+    row={'account':'demo','currency':'CNY','major_category':'股票','market_value_cny':'100',
+         'holding_pnl_cny':'10','daily_pnl_cny':None}
+    unknown=build({'as_of':'2026-10-30','rows':[row]},base_currency='CNY')
+    assert unknown['totals']=={'market_value':'100','holding_pnl':'10','daily_pnl':None}
+    assert unknown['by_asset_class'][0]['daily_pnl'] is None and unknown['children'][0]['daily_pnl'] is None
+    zero=build({'as_of':'2026-10-30','rows':[{**row,'daily_pnl_cny':'0','daily_pnl_status':'confirmed'}]},base_currency='CNY')
+    assert zero['totals']['daily_pnl']=='0' and zero['daily_pnl_status']=='confirmed'
+    stale=build({'as_of':'2026-10-30','rows':[{**row,'daily_pnl_cny':'0','daily_pnl_stale':True}]},base_currency='CNY')
+    assert stale['totals']['daily_pnl'] is None
+    pending=build({'as_of':'2026-10-30','rows':[{**row,'daily_pnl_cny':'3','daily_pnl_status':'pending'}]},base_currency='CNY')
+    assert pending['totals']['daily_pnl'] is None and pending['children'][0]['daily_pnl_status']=='unknown'
+    estimated=build({'as_of':'2026-10-30','rows':[{**row,'daily_pnl_cny':'3','daily_pnl_status':'estimated'}]},base_currency='CNY')
+    assert estimated['totals']['daily_pnl']=='3' and estimated['daily_pnl_status']=='estimated'
+    malformed=build({'as_of':'2026-10-30','rows':[{**row,'daily_pnl_cny':'NaN','daily_pnl_status':'confirmed'}]},base_currency='CNY')
+    assert malformed['totals']['daily_pnl'] is None and malformed['children'][0]['daily_pnl_status']=='unknown'
+    cash={'account_code':'bank','account_type':'funding','currency':'CNY','amount_cny':'20','include_in_nav':True}
+    mixed=build({'as_of':'2026-10-30','rows':[{**row,'daily_pnl_cny':'5'}]},base_currency='CNY',account_balances=[cash])
+    assert mixed['totals']['market_value']=='120' and mixed['totals']['daily_pnl'] is None
+    assert mixed['totals']['holding_pnl'] is None
+    cash_child=next(item for item in mixed['children'] if item['account']=='bank')
+    assert cash_child['market_value']=='20' and cash_child['daily_pnl'] is None
+    missing=build({'as_of':'2026-10-30','rows':[{**row,'market_value_cny':None}]},base_currency='CNY')
+    assert missing['totals']['market_value'] is None and missing['value_status']=='incomplete'
+    confirmed_cash_zero=build({'as_of':'2026-10-30','rows':[]},base_currency='CNY',account_balances=[{**cash,'amount_cny':'0'}])
+    assert confirmed_cash_zero['totals']['market_value']=='0' and confirmed_cash_zero['totals']['daily_pnl'] is None
+
+
+def test_summary2_stale_valuation_cannot_override_empty_or_fx_unknown():
+    from domain.investments.portfolio_summary import apply_published_valuation_state_to_summary as apply
+    candidate={'valuation_date':'2026-10-30','net_liquidation_value':'999'}
+    for payload in ({'totals':{'market_value':None}},
+                    {'totals':{'market_value':None},'fx_status':'incomplete'},
+                    {'totals':{'market_value':None},'value_status':'incomplete'}):
+        result=apply(payload,candidate)
+        assert result['totals']['market_value'] is None and not result['valuation_state']['overlay_applied']

@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import os
 from typing import Any
 from zoneinfo import ZoneInfo
+from domain.investments.trade_cost_evidence import known_trade_charges
 
 
 MONEY = Decimal("0.01")
@@ -103,8 +104,8 @@ def _gross_amount(row: dict[str, Any]) -> Decimal:
     return quantity * price
 
 
-def _fees(row: dict[str, Any]) -> Decimal:
-    return abs(dec(row.get("fee_amount"))) + abs(dec(row.get("tax_amount")))
+def _fees(row: dict[str, Any]) -> Decimal | None:
+    return known_trade_charges(row)
 
 
 def _quantity(row: dict[str, Any]) -> Decimal:
@@ -119,7 +120,7 @@ def _trade_time_key(row: dict[str, Any]) -> tuple[str, str, int]:
     )
 
 
-def _event(row: dict[str, Any], *, side: str, amount: Decimal, fees: Decimal) -> dict[str, Any]:
+def _event(row: dict[str, Any], *, side: str, amount: Decimal | None, fees: Decimal | None) -> dict[str, Any]:
     return {
         "trade_id": row.get("trade_id"),
         "trade_date": row.get("trade_date"),
@@ -127,8 +128,8 @@ def _event(row: dict[str, Any], *, side: str, amount: Decimal, fees: Decimal) ->
         "trade_type": row.get("trade_type"),
         "quantity": q_qty(_quantity(row)),
         "price": dec(row.get("price")) if row.get("price") not in (None, "") else None,
-        "amount": q_money(amount),
-        "fees": q_money(fees),
+        "amount": q_money(amount) if amount is not None else None,
+        "fees": q_money(fees) if fees is not None else None,
         "buy_reason": row.get("buy_reason"),
         "sell_reason": row.get("sell_reason"),
         "review_tags": list(row.get("review_tags") or []),
@@ -172,6 +173,7 @@ def _new_campaign(row: dict[str, Any], ordinal: int) -> dict[str, Any]:
         "events": [],
         "lot_matches": [],
         "warnings": [],
+        "_fees_unknown": False,
         "_lots": [],
     }
 
@@ -192,14 +194,17 @@ def _update_status(campaign: dict[str, Any]) -> None:
 def _add_buy(campaign: dict[str, Any], row: dict[str, Any]) -> None:
     quantity = _quantity(row)
     gross = _gross_amount(row)
-    fees = _fees(row)
+    known_fees = _fees(row)
+    if known_fees is None:
+        campaign['_fees_unknown'] = True
+    fees = known_fees if known_fees is not None else Decimal('0')
     cost = gross + fees
     campaign["buy_count"] += 1
     campaign["trade_count"] += 1
     campaign["fees"] += fees
     campaign["total_buy_quantity"] += quantity
     campaign["total_buy_cost"] += cost
-    campaign["events"].append(_event(row, side="buy", amount=cost, fees=fees))
+    campaign["events"].append(_event(row, side="buy", amount=cost if known_fees is not None else None, fees=known_fees))
     if quantity > EPSILON_QTY:
         campaign["open_quantity"] += quantity
         campaign["open_cost_basis"] += cost
@@ -222,7 +227,10 @@ def _add_buy(campaign: dict[str, Any], row: dict[str, Any]) -> None:
 def _add_sell(campaign: dict[str, Any], row: dict[str, Any]) -> None:
     quantity = _quantity(row)
     gross = _gross_amount(row)
-    fees = _fees(row)
+    known_fees = _fees(row)
+    if known_fees is None:
+        campaign['_fees_unknown'] = True
+    fees = known_fees if known_fees is not None else Decimal('0')
     proceeds = gross - fees
     campaign["sell_count"] += 1
     campaign["reduce_count"] += 1
@@ -231,7 +239,7 @@ def _add_sell(campaign: dict[str, Any], row: dict[str, Any]) -> None:
     campaign["total_sell_quantity"] += quantity
     campaign["total_sell_proceeds"] += proceeds
     campaign["realized_pnl_reported"] += dec(row.get("realized_pnl"))
-    campaign["events"].append(_event(row, side="sell", amount=proceeds, fees=fees))
+    campaign["events"].append(_event(row, side="sell", amount=proceeds if known_fees is not None else None, fees=known_fees))
     if quantity <= EPSILON_QTY:
         campaign["amount_only_trade_count"] += 1
         campaign["warnings"].append(f"sell trade {row.get('trade_id')} has no quantity; lot matching skipped")
@@ -308,6 +316,17 @@ def _finalize_campaign(campaign: dict[str, Any]) -> dict[str, Any]:
         "fees",
     ):
         campaign[key] = q_money(campaign[key])
+    if campaign.pop('_fees_unknown'):
+        campaign['fee_evidence'] = 'unknown'
+        campaign['warnings'].append('transaction fees or tax are unknown; financial totals are unavailable')
+        for key in ('total_buy_cost', 'total_sell_proceeds', 'open_cost_basis',
+                    'realized_pnl_estimated', 'fees', 'avg_entry_price', 'avg_exit_price'):
+            campaign[key] = None
+        for match in campaign['lot_matches']:
+            for key in ('cost_basis', 'proceeds', 'realized_pnl'):
+                match[key] = None
+    else:
+        campaign['fee_evidence'] = 'complete'
     campaign.pop("_lots", None)
     campaign["events"] = [{k: norm(v) for k, v in event.items()} for event in campaign["events"]]
     campaign["lot_matches"] = [{k: norm(v) for k, v in match.items()} for match in campaign["lot_matches"]]
@@ -367,7 +386,10 @@ def _summary(campaigns: list[dict[str, Any]]) -> dict[str, Any]:
     for campaign in campaigns:
         status_counts[str(campaign.get("status") or "unknown")] += 1
         currency = str(campaign.get("currency") or "UNKNOWN")
-        currency_totals[currency]["realized_pnl_estimated"] += dec(campaign.get("realized_pnl_estimated"))
+        if campaign.get('realized_pnl_estimated') is None:
+            currency_totals[currency]['realized_pnl_estimated'] = None
+        elif currency_totals[currency]['realized_pnl_estimated'] is not None:
+            currency_totals[currency]["realized_pnl_estimated"] += dec(campaign.get("realized_pnl_estimated"))
         currency_totals[currency]["realized_pnl_reported"] += dec(campaign.get("realized_pnl_reported"))
         unmatched += dec(campaign.get("unmatched_sell_quantity"))
     single_currency = len(currency_totals) == 1
@@ -380,11 +402,11 @@ def _summary(campaigns: list[dict[str, Any]]) -> dict[str, Any]:
         "amount_only_campaigns": status_counts.get("amount_only", 0),
         "orphan_sell_campaigns": status_counts.get("orphan_sell", 0),
         "amount_scope": "original_currency",
-        "realized_pnl_estimated": q_money(only_totals["realized_pnl_estimated"]) if only_totals else None,
+        "realized_pnl_estimated": q_money(only_totals["realized_pnl_estimated"]) if only_totals and only_totals["realized_pnl_estimated"] is not None else None,
         "realized_pnl_reported": q_money(only_totals["realized_pnl_reported"]) if only_totals else None,
         "currency_totals": {
             currency: {
-                "realized_pnl_estimated": q_money(totals["realized_pnl_estimated"]),
+                "realized_pnl_estimated": q_money(totals["realized_pnl_estimated"]) if totals["realized_pnl_estimated"] is not None else None,
                 "realized_pnl_reported": q_money(totals["realized_pnl_reported"]),
             }
             for currency, totals in sorted(currency_totals.items())
@@ -432,6 +454,7 @@ def build_position_campaigns_payload(
             f.gross_amount,
             f.fee_amount,
             f.tax_amount,
+            f.raw_json,
             f.net_cash,
             f.realized_pnl,
             f.realized_pnl_cny,

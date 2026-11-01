@@ -31,6 +31,7 @@ def create_core_router(
     def get_account_detail(account_code: str):
         """获取单个账户详情"""
         with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 account_data = _build_account_detail_payload(cur, account_code=account_code)
                 if account_data is None:
@@ -54,6 +55,7 @@ def create_core_router(
     ):
         """获取最新持仓"""
         with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 return json(
                     _build_api_holdings_latest_payload(
@@ -71,6 +73,7 @@ def create_core_router(
         """持仓汇总统计（按大类分组，含汇率换算）"""
         owner_ratio_sql, owner_ratio_params = _owner_ratio_case_sql("h")
         with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 return json(
                     _build_holdings_summary_payload(
@@ -88,6 +91,7 @@ def create_core_router(
         """按账户汇总持仓（含汇率换算）"""
         owner_ratio_sql, owner_ratio_params = _owner_ratio_case_sql("h")
         with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 return json(
                     _build_holdings_by_account_payload(
@@ -111,6 +115,10 @@ def create_core_router(
     @router.post("/api/fx-rates/refresh")
     def refresh_fx_rates():
         """从公开API获取最新汇率并存储双向汇率"""
+        from domain.imports.isolation import source_mode
+        from fastapi import HTTPException
+        if source_mode() == "development":
+            raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
         import urllib.request
         import json as json_mod
         from datetime import date as d_date

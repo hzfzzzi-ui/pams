@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extensions import TRANSACTION_STATUS_IDLE, connection
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE, connection, parse_dsn
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -38,8 +38,9 @@ XML = """<FlexQueryResponse><FlexStatements>
 </FlexStatement></FlexStatements></FlexQueryResponse>"""
 
 TABLES = (
-    "pams_holdings_snapshot", "pams_ibkr_position_history", "pams_ibkr_trades",
-    "pams_cashflow_fact", "pams_bank_transfer_matches", "pams_investment_trade_fact",
+    "pams_holdings_snapshot", "pams_cashflow_fact", "pams_investment_trade_fact",
+    "source_batches", "source_files", "source_items", "valuation_evidence", "evidence_confirmation",
+    "broker_publications", "broker_cash_progress",
 )
 
 
@@ -55,22 +56,32 @@ class ObservedConnection(connection):
         return super().commit()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def database():
     dsn = os.environ.get("PAMS_TEST_POSTGRES_DSN")
     if not dsn:
         pytest.skip("Set PAMS_TEST_POSTGRES_DSN to an isolated PostgreSQL test server")
-    # All DDL and writes target a newly-created disposable database, never the DSN's database.
-    name = "pams_ibkr_tx_test_" + uuid4().hex
+    # Only the marked local PG16 test server can create a disposable database.
+    params = parse_dsn(dsn)
+    if params.get("host") not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("explicit local disposable test server required")
+    name = "pams_import_test_" + uuid4().hex
     admin = psycopg2.connect(dsn)
     admin.autocommit = True
+    created = False
     try:
         with admin.cursor() as cur:
+            cur.execute("SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=current_database()")
+            if admin.server_version // 10000 != 16 or cur.fetchone()[0] != "pams-disposable-schema-test":
+                raise ValueError("marked disposable PG16 test server required")
             cur.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(sql.Identifier(name)))
+            created = True
+            cur.execute(sql.SQL("COMMENT ON DATABASE {} IS 'pams-isolated-account-import'").format(sql.Identifier(name)))
         yield lambda **kwargs: psycopg2.connect(dsn, dbname=name, **kwargs)
     finally:
-        with admin.cursor() as cur:
-            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name)))
+        if created:
+            with admin.cursor() as cur:
+                cur.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
         admin.close()
 
 
@@ -78,63 +89,31 @@ def database():
 def sync_case(database, monkeypatch, tmp_path):
     monkeypatch.delenv("PAMS_IBKR_CASH_EVENTS_AFTER", raising=False)
     monkeypatch.setattr(ibkr_report_state, "utc_now", lambda: datetime(2026, 10, 22, 22, tzinfo=timezone.utc))
+    monkeypatch.setenv("PAMS_UNIFIED_SOURCE_ISOLATED", "true")
+    monkeypatch.setenv("PAMS_HOLDING_EVIDENCE_ISOLATED", "true")
     conn = database(connection_factory=ObservedConnection)
+    from scripts.bootstrap_isolated_sources import initialize_isolated_sources
+    initialize_isolated_sources(conn)
     with conn.cursor() as cur:
-        cur.execute("""
-            DROP SCHEMA public CASCADE;
-            CREATE SCHEMA public;
-            CREATE TABLE pams_accounts (
-                account_code varchar(80) PRIMARY KEY, display_name text,
-                base_currency text, is_asset boolean, active boolean
-            );
-            CREATE TABLE pams_asset_master (asset_id varchar(120) PRIMARY KEY);
-            CREATE TABLE pams_holdings_snapshot (
-                id bigserial PRIMARY KEY, symbol text, name text, asset_liability text,
-                currency text, account_code text, major_category text, minor_category text,
-                market_value numeric(28,10), cost numeric(28,10), quantity numeric(28,10),
-                buy_price numeric(28,10), current_price numeric(28,10), as_of date,
-                updated_at timestamptz DEFAULT now(), UNIQUE(account_code,name,as_of)
-            );
-            CREATE TABLE pams_fx_rates_daily (
-                base_currency text, quote_currency text, rate numeric, as_of date
-            );
-            INSERT INTO pams_fx_rates_daily VALUES ('CNY','USD',7,'2026-10-22');
-            CREATE TABLE pams_data_job_run (
-                job_key text, job_type text, source_table text, source_id text,
-                asset_scope text, target_date date, data_as_of date, status text,
-                started_at timestamptz, finished_at timestamptz, rows_affected integer,
-                summary_json jsonb, error_text text, UNIQUE(source_table,source_id)
-            );
-        """)
-        for filename in ("022_bank_reconcile.sql", "024_cashflow_and_trade_fact.sql"):
-            cur.execute((ROOT / "database/postgres/schema" / filename).read_text(encoding="utf-8"))
+        cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES ('2026-10-22','CNY','USD',7,'synthetic')")
+        cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('test_bank','Synthetic bank') ON CONFLICT DO NOTHING")
     conn.commit()
     monkeypatch.setenv("PAMS_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(ibkr, "_credentials", lambda: ("test-token", "test-query"))
     monkeypatch.setattr(ibkr, "get_conn", lambda: conn)
     monkeypatch.setattr(collector, "request_flex_reference", lambda *a, **k: {"reference_code": "TEST"})
-    report = {"xml": XML.replace('tradeID="T1"', 'tradeID="T0"').replace('deposits="100"', 'deposits="0"')}
+    fixture_xml = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="USD" taxAmount="0"')
+    report = {"xml": fixture_xml.replace('tradeID="T1"', 'tradeID="T0"').replace('deposits="100"', 'deposits="0"')}
     monkeypatch.setattr(collector, "fetch_flex_statement", lambda *a, **k: report["xml"])
     app = FastAPI()
     app.include_router(ibkr.router, prefix="/api")
     with TestClient(app) as client:
-        assert client.post("/api/ibkr/flex/sync", json={}).status_code == 200
+        first = client.post("/api/ibkr/flex/sync", json={})
+        assert first.status_code == 200, first.text
         with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE pams_holdings_snapshot SET market_value=123 WHERE symbol='TEST';
-                INSERT INTO pams_cashflow_fact (
-                    event_date,account_code,counter_account_code,amount,currency,amount_cny,
-                    cashflow_type,transfer_group_id,source_table,source_id,source_hash
-                ) VALUES ('2026-10-21','test_bank','ibkr',-100,'USD',-700,
-                    'internal_transfer','account_transfer:test','test','1','test_hash');
-                INSERT INTO pams_bank_transfer_matches (
-                    match_key,match_type,relation_code,from_account_code,to_account_code,
-                    amount,currency,note
-                ) VALUES ('account_transfer:test','internal_transfer','test',
-                    'test_bank','ibkr',100,'USD','keep user note');
-            """)
+            cur.execute("UPDATE pams_holdings_snapshot SET market_value=123 WHERE symbol='TEST'")
         conn.commit()
-        report["xml"] = XML
+        report["xml"] = fixture_xml
         conn.commit_calls = 0
         yield client, conn, report
     conn.close()
@@ -144,8 +123,16 @@ def rows(database, table):
     conn = database()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute(sql.SQL("SELECT row_to_json(t) FROM {} t ORDER BY row_to_json(t)::text")
-                        .format(sql.Identifier(table)))
+            if table == "pams_data_job_run":
+                cur.execute("SELECT to_regclass('public.pams_data_job_run')")
+                assert cur.fetchone()[0] is None
+                return []
+            if table in {"broker_publications", "broker_cash_progress"}:
+                kind = "publication" if table == "broker_publications" else "cash_progress"
+                cur.execute("SELECT row_to_json(t) FROM broker_processing_state t WHERE state_type=%s ORDER BY row_to_json(t)::text", (kind,))
+            else:
+                cur.execute(sql.SQL("SELECT row_to_json(t) FROM {} t ORDER BY row_to_json(t)::text")
+                            .format(sql.Identifier(table)))
             return [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
@@ -171,15 +158,24 @@ def test_late_confirmation_uses_official_transaction_and_recovers_ack(
                "history_gap_since": "2026-10-20", "history_coverage": "gap"}
     write_state(path, {"version": 1, "jobs": {"asia": history, "north_america": history}})
     calls = []
+    responses = []
     def probe():
-        response = client.get("/api/ibkr/flex/status")
-        assert response.status_code == 200
-        return response.json()
+        # Production GET and POST each obtain their own database connection.
+        read_conn = database()
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(ibkr, "get_conn", lambda: read_conn)
+                response = client.get("/api/ibkr/flex/status")
+            assert response.status_code == 200
+            return response.json()
+        finally:
+            read_conn.close()
     def sync(target):
         calls.append(target)
         response = client.post("/api/ibkr/flex/sync", json={
             "align_to_latest_snapshot": False, "expected_statement_reference": str(target),
         })
+        responses.append(response.json())
         assert response.status_code == 200
         result = response.json()
         if lose_response and result.get("success"):
@@ -190,32 +186,32 @@ def test_late_confirmation_uses_official_transaction_and_recovers_ack(
     assert not task.run(probe, sync, now=now)["success"]
     assert business_state(database) == before  # Delayed report must not mutate any business row.
     assert read_state(path)["jobs"]["ibkr_flex"]["last_success_date"] is None
-    report["xml"] = XML.replace("20261022", "20261023")
+    report["xml"] = report["xml"].replace("20261022", "20261023")
     result = task.run(probe, sync, now=now + timedelta(minutes=31))
-    assert result["success"] and result["publication_verified"]
+    assert result["success"] and result["publication_verified"], (result, responses)
     assert result["statement_as_of"] == "2026-10-23"
     after = business_state(database)
     stock = next(row for row in after["pams_holdings_snapshot"] if row["symbol"] == "TEST" and str(row["as_of"]) == "2026-10-23")
     assert (stock["market_value"], stock["cost"], stock["quantity"], stock["current_price"]) == (381, 340, 2, 190.5)
-    trade = next(row for row in after["pams_ibkr_trades"] if row["trade_id"] == "T1")
-    fact = next(row for row in after["pams_investment_trade_fact"] if row["source_id"] == str(trade["id"]))
-    assert (fact["gross_amount"], fact["fee_amount"], fact["net_cash"], fact["net_cash_cny"]) == (340, 1.25, -341.25, -2388.75)
+    fact = next(row for row in after["pams_investment_trade_fact"] if row["trade_date"] == "2026-10-23")
+    # The report is dated 10/23; the fixture only has a 10/22 USD rate.
+    assert (fact["gross_amount"], fact["fee_amount"], fact["net_cash"], fact["net_cash_cny"]) == (340, 1.25, -341.25, None)
     assert task.run(probe, sync, now=now + timedelta(hours=1))["success"]
     assert len(calls) == 2 and business_state(database) == after
     jobs = read_state(path)["jobs"]
     assert jobs["asia"] == jobs["north_america"] == history
 
 
-@pytest.mark.parametrize("stage", ["holdings", "history", "trades", "funding", "facts", "success_log"])
+@pytest.mark.parametrize("stage", ["holdings", "source_file", "source_item", "fact", "success_log"])
 def test_failure_rolls_back_all_business_rows_and_success_audit(sync_case, database, monkeypatch, stage):
     client, conn, _ = sync_case
     before = business_state(database)
+    from domain.brokers.ibkr import ibkr_report_batch
     module, name = {
         "holdings": (collector, "_write_holdings"),
-        "history": (collector, "_write_position_history"),
-        "trades": (collector, "_write_trades"),
-        "funding": (collector, "_confirm_investment_funding_cashflows"),
-        "facts": (ibkr, "backfill_investment_trade_facts"),
+        "source_file": (ibkr_report_batch, "attach_file"),
+        "source_item": (ibkr_report_batch, "add_item"),
+        "fact": (ibkr_report_batch, "insert_investment_trade_facts"),
         "success_log": (collector, "record_sync_run"),
     }[stage]
     original = getattr(module, name)
@@ -235,67 +231,47 @@ def test_failure_rolls_back_all_business_rows_and_success_audit(sync_case, datab
     assert response.status_code == 500
     assert "division by zero" in response.json()["detail"]
     assert business_state(database) == before
-    assert [row["status"] for row in rows(database, "pams_data_sync_runs")].count("success") == 1
-    for table in ("pams_data_sync_runs", "pams_data_job_run"):
-        assert sorted(row["status"] for row in rows(database, table)) == ["failed", "success"]
+    assert len(rows(database, "broker_publications")) == 1
+    assert rows(database, "pams_data_job_run") == []
 
 
 def test_success_keeps_fields_amounts_and_retry_is_idempotent(sync_case, database):
     client, conn, _ = sync_case
     response = client.post("/api/ibkr/flex/sync", json={})
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     result = response.json()
-    assert set(result) == {
-        "success", "status", "as_of", "statement_as_of", "row_count", "trade_count",
-        "history_row_count", "confirmed_funding_count", "confirmed_fundings", "raw_file",
-        "reference_code", "sync_run", "trade_fact_backfill",
-        "expected_statement_as_of",
-    }
+    assert result["source_mode"] == "unified"
     assert result["as_of"] == result["statement_as_of"] == "2026-10-22"
-    assert (result["row_count"], result["history_row_count"], result["trade_count"]) == (2, 2, 1)
-    assert result["trade_fact_backfill"] == {"source_count": 1, "inserted_count": 1, "skipped_count": 0}
-    assert result["confirmed_funding_count"] == 1
-    assert set(result["sync_run"]) == {
-        "id", "source", "asset_scope", "status", "started_at", "finished_at", "as_of",
-        "statement_as_of", "row_count", "trade_count", "history_row_count",
-        "confirmed_funding_count", "raw_file", "message", "error",
-        "publication",
-    }
+    assert result["history_row_count"] == result["confirmed_funding_count"] == 0
     assert conn.commit_calls == 1
     stock = next(row for row in rows(database, "pams_holdings_snapshot") if row["symbol"] == "TEST")
     assert (stock["market_value"], stock["cost"], stock["quantity"], stock["current_price"]) == (381, 340, 2, 190.5)
-    trade = next(row for row in rows(database, "pams_ibkr_trades") if row["trade_id"] == "T1")
-    fact = next(row for row in rows(database, "pams_investment_trade_fact") if row["source_id"] == str(trade["id"]))
-    assert (fact["gross_amount"], fact["fee_amount"], fact["net_cash"], fact["net_cash_cny"]) == (340, 1.25, -341.25, -2388.75)
-    funding = rows(database, "pams_cashflow_fact")[0]
-    assert funding["cashflow_type"] == "investment_funding"
-    assert funding["amount"] == -100 and funding["amount_cny"] == -700
-    assert rows(database, "pams_bank_transfer_matches")[0]["note"].startswith("keep user note")
-    counts = {table: len(rows(database, table)) for table in TABLES}
+    facts = rows(database, "pams_investment_trade_fact")
+    assert len(facts) == 2 and all(row["source_item_id"] for row in facts)
+    assert all((row["gross_amount"], row["fee_amount"], row["net_cash"], row["net_cash_cny"]) ==
+               (340, 1.25, -341.25, -2388.75) for row in facts)
+    before = business_state(database)
     repeated = client.post("/api/ibkr/flex/sync", json={}).json()
-    assert repeated["trade_fact_backfill"] == {}
-    assert repeated["confirmed_funding_count"] == 0
-    assert {table: len(rows(database, table)) for table in TABLES} == counts
-    assert all(row["net_cash_cny"] == fact["net_cash_cny"] for row in rows(database, "pams_investment_trade_fact"))
+    assert repeated["sync_run"]["publication"]["state"] == "unchanged"
+    assert business_state(database) == before
 
 
 def test_failure_then_retry_matches_success_amounts(sync_case, database, monkeypatch):
+    from domain.brokers.ibkr import ibkr_report_batch
     client, _, _ = sync_case
-    original = ibkr.backfill_investment_trade_facts
-
-    def fail(cur):
-        original(cur)
+    original = ibkr_report_batch.publish_report_batch
+    before = business_state(database)
+    def fail(*args, **kwargs):
+        original(*args, **kwargs)
         raise RuntimeError("injected after facts")
-
     with monkeypatch.context() as patch:
-        patch.setattr(ibkr, "backfill_investment_trade_facts", fail)
+        patch.setattr(ibkr_report_batch, "publish_report_batch", fail)
         assert client.post("/api/ibkr/flex/sync", json={}).status_code == 500
+    assert business_state(database) == before
     result = client.post("/api/ibkr/flex/sync", json={}).json()
-    assert result["trade_fact_backfill"]["inserted_count"] == 1
-    assert result["confirmed_funding_count"] == 1
+    assert result["success"] and result["source_mode"] == "unified"
     facts = rows(database, "pams_investment_trade_fact")
-    assert len(facts) == 2
-    assert all(Decimal(str(row["net_cash_cny"])) == Decimal("-2388.75") for row in facts)
+    assert len(facts) == 2 and all(Decimal(str(row["net_cash_cny"])) == Decimal("-2388.75") for row in facts)
 
 
 def test_commit_failure_rolls_back_and_records_failure(sync_case, database):
@@ -306,7 +282,7 @@ def test_commit_failure_rolls_back_and_records_failure(sync_case, database):
     assert response.status_code == 500
     assert response.json() == {"detail": "injected before commit"}
     assert business_state(database) == before
-    assert sorted(row["status"] for row in rows(database, "pams_data_sync_runs")) == ["failed", "success"]
+    assert len(rows(database, "broker_publications")) == 1
 
 
 def test_postgres_rejects_deferred_constraint_at_commit(sync_case, database):
@@ -325,8 +301,8 @@ def test_postgres_rejects_deferred_constraint_at_commit(sync_case, database):
     assert response.status_code == 500
     assert "test_deferred_source" in response.json()["detail"]
     assert business_state(database) == before
-    for table in ("pams_data_sync_runs", "pams_data_job_run"):
-        assert sorted(row["status"] for row in rows(database, table)) == ["failed", "success"]
+    assert len(rows(database, "broker_publications")) == 1
+    assert rows(database, "pams_data_job_run") == []
 
 
 @pytest.mark.parametrize("kind,status", [(collector.IBKRFlexError, 502), (RuntimeError, 500)])
@@ -362,27 +338,28 @@ def test_standalone_collector_retains_default_commit(sync_case, database):
     assert result["status"] == "success"
     assert "trade_fact_backfill" not in result
     assert conn.commit_calls == 1
-    assert len(rows(database, "pams_ibkr_trades")) == 2
+    assert len(rows(database, "pams_investment_trade_fact")) == 2
 
 
 def test_failed_audit_cannot_mask_original_error(sync_case, database, monkeypatch, caplog):
     client, _, _ = sync_case
     before = business_state(database)
 
-    def fail_facts(cur):
+    def fail_facts(*args, **kwargs):
         raise RuntimeError("original fact failure")
 
     def fail_audit(*args, **kwargs):
         raise RuntimeError("secondary audit failure")
 
-    monkeypatch.setattr(ibkr, "backfill_investment_trade_facts", fail_facts)
+    from domain.brokers.ibkr import ibkr_report_batch
+    monkeypatch.setattr(ibkr_report_batch, "publish_report_batch", fail_facts)
     monkeypatch.setattr(collector, "record_sync_run", fail_audit)
     response = client.post("/api/ibkr/flex/sync", json={})
     assert response.status_code == 500
     assert response.json() == {"detail": "original fact failure"}
     assert business_state(database) == before
-    assert "Could not persist failed IBKR Flex sync audit" in caplog.text
-    assert len(rows(database, "pams_data_sync_runs")) == 1
+    assert "ibkr_sync_commit_failed" in caplog.text
+    assert len(rows(database, "broker_publications")) == 1
 
 
 @pytest.mark.parametrize("options,expected", [
@@ -453,8 +430,11 @@ def test_cash_mode_cutoff_all_types_idempotency_and_no_balance_addition(sync_cas
     assert facts["fee"]["net_cash"] == -3 and facts["fee"]["fee_amount"] == 3
     assert facts["tax"]["net_cash"] == -1 and facts["tax"]["tax_amount"] == 1
     assert all(not row["affects_position"] and not row["affects_cost_basis"] for row in facts.values())
-    assert rows(database, "pams_cashflow_fact")[0]["cashflow_type"] == "internal_transfer"
-    assert rows(database, "pams_bank_transfer_matches")[0]["status"] == "auto"
+    assert rows(database, "pams_cashflow_fact") == []
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('pams_bank_transfer_matches')")
+        assert cur.fetchone()[0] is None
+    conn.rollback()
     balance = next(row for row in rows(database, "pams_holdings_snapshot") if row["symbol"] == "CASH_USD")
     assert balance["market_value"] == balance["quantity"] == -500
     before = business_state(database)
@@ -468,16 +448,16 @@ def test_cash_mode_ignores_summary_and_default_off_preserves_legacy_funding(sync
     report["xml"] = cash_report({})
     assert client.post("/api/ibkr/flex/sync", json={}).status_code == 200
     assert not cash_facts(database)
-    assert rows(database, "pams_cashflow_fact")[0]["cashflow_type"] == "investment_funding"
+    assert rows(database, "pams_cashflow_fact") == []
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
     report["xml"] = XML  # A CashReport deposits total is not a single event.
     assert client.post("/api/ibkr/flex/sync", json={}).status_code == 200
     assert not cash_facts(database)
 
 
-@pytest.mark.parametrize("stage", ["cash_writer", "dependent_facts", "success_log", "commit"])
+@pytest.mark.parametrize("stage", ["cash_writer", "source_fact", "success_log", "commit"])
 def test_cash_mode_failure_rolls_back_same_transaction(sync_case, database, monkeypatch, stage):
-    from domain.brokers.ibkr import ibkr_cash_events
+    from domain.brokers.ibkr import ibkr_cash_events, ibkr_report_batch
 
     client, conn, report = sync_case
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
@@ -488,7 +468,7 @@ def test_cash_mode_failure_rolls_back_same_transaction(sync_case, database, monk
     else:
         module, name = {
             "cash_writer": (ibkr_cash_events, "insert_investment_trade_facts"),
-            "dependent_facts": (ibkr, "backfill_investment_trade_facts"),
+            "source_fact": (ibkr_report_batch, "insert_investment_trade_facts"),
             "success_log": (collector, "record_sync_run"),
         }[stage]
         original = getattr(module, name)
@@ -502,16 +482,9 @@ def test_cash_mode_failure_rolls_back_same_transaction(sync_case, database, monk
             with conn.cursor() as cur:
                 cur.execute("SELECT 1/0")
         monkeypatch.setattr(module, name, fail)
-    if stage == "dependent_facts":
-        def dependent(sync_conn):
-            with sync_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                ibkr.backfill_investment_trade_facts(cur)
-        with pytest.raises(Exception, match="division by zero"):
-            collector.sync_ibkr_flex_to_db(conn, token="test-token", query_id="test-query", after_write=dependent)
-    else:
-        assert client.post("/api/ibkr/flex/sync", json={}).status_code == 500
+    assert client.post("/api/ibkr/flex/sync", json={}).status_code == 500
     assert business_state(database) == before
-    assert sorted(row["status"] for row in rows(database, "pams_data_sync_runs")) == ["failed", "success"]
+    assert len(rows(database, "broker_publications")) == 1
 
 
 @pytest.mark.parametrize("in_one_report", [False, True])
@@ -545,7 +518,7 @@ def test_cash_mode_pending_unknown_invalid_and_missing_fx_then_same_xml_retry(sy
     assert not cash_facts(database)
     assert len(response.json()["sync_run"]["publication"]["cash_events"]["pending"]) == 3
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('CNY','JPY',0.05,'2026-10-22')")
+        cur.execute("INSERT INTO pams_fx_rates_daily(base_currency,quote_currency,rate,as_of,source) VALUES ('CNY','JPY',0.05,'2026-10-22','synthetic')")
     conn.commit()
     # Reprocessing identical XML must allow a previously missing dated FX input to become available.
     assert client.post("/api/ibkr/flex/sync", json={}).status_code == 200
@@ -555,25 +528,20 @@ def test_cash_mode_pending_unknown_invalid_and_missing_fx_then_same_xml_retry(sy
 
 @pytest.mark.parametrize("candidate_count", [1, 2])
 def test_cash_mode_links_only_unique_confirmed_bank_identity(sync_case, database, monkeypatch, candidate_count):
-    from psycopg2.extras import Json
-
     client, conn, report = sync_case
     with conn.cursor() as cur:
-        if candidate_count == 2:
+        for i in range(candidate_count):
             cur.execute("""INSERT INTO pams_cashflow_fact
                 (event_date, account_code, counter_account_code, amount, currency, amount_cny,
-                 cashflow_type, source_table, source_id, source_hash)
+                 cashflow_type, source_table, source_id, source_hash, review_status)
                 VALUES ('2026-10-21','test_bank','ibkr',-100,'USD',-700,
-                        'investment_funding','test','2','test_hash2')""")
-        cur.execute("""UPDATE pams_cashflow_fact SET cashflow_type='investment_funding',
-            review_status='confirmed', raw_json=%s""", (Json({"ibkr_flex_confirmation": {
-                "raw": {"transactionID": "C1", "accountId": "U_TEST"}}}),))
+                        'investment_funding','test',%s,%s,'confirmed')""", (str(i), 'synthetic-'+str(i)))
     conn.commit()
     bank_before = rows(database, "pams_cashflow_fact")
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
     report["xml"] = cash_report({})
     assert client.post("/api/ibkr/flex/sync", json={}).status_code == 200
-    assert (cash_facts(database)[0]["cashflow_id"] is not None) == (candidate_count == 1)
+    assert cash_facts(database)[0]["cashflow_id"] is None
     assert rows(database, "pams_cashflow_fact") == bank_before
 
 
@@ -603,13 +571,14 @@ def test_published_cash_sync_source_hash_no_balance_writes_and_single_commit(syn
     assert result["confirmed_day"] == "2026-10-22" and result["source_sha256"] == digest
     assert result["broker_source"] == service.BROKER_SOURCE and conn.commit_calls == 1
     after = business_state(database)
-    assert all(after[table] == value for table, value in before.items() if table != "pams_investment_trade_fact")
+    assert all(after[table] == before[table] for table in ("pams_holdings_snapshot", "pams_cashflow_fact"))
+    assert all(row in after[table] for table in ("source_batches", "source_files", "source_items") for row in before[table])
     assert len(after["pams_investment_trade_fact"]) == len(before["pams_investment_trade_fact"]) + 2
     assert all(row["raw_json"]["source_row"]["source_evidence"]["source_sha256"] == digest for row in cash_facts(database))
-    audit = next(row for row in rows(database, "pams_data_sync_runs") if row["sync_key"] == service.SYNC_KEY)
-    assert audit["summary_json"]["source_sha256"] == digest
+    progress = rows(database, "broker_cash_progress")
+    assert len(progress) == 1 and progress[0]["report_sha256"] == digest
     current = independent_status(database)
-    assert current["confirmed_day"] == "2026-10-22" and current["waiting_evidence_count"] == 2
+    assert current["confirmed_day"] == "2026-10-22" and current["waiting_evidence_count"] == 3
     assert current["retryable_pending_count"] == 0 and not current["next_days"]
     assert service.sync(conn)["status"] == "idle" and conn.commit_calls == 1
     assert business_state(database) == after
@@ -640,7 +609,7 @@ def test_published_cash_sync_database_failure_rolls_back_audit_and_facts(sync_ca
     publish_cash_days(tmp_path, monkeypatch, {"2026-10-22": [{}]})
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
     before = business_state(database)
-    audit_before = rows(database, "pams_data_sync_runs")
+    audit_before = rows(database, "broker_cash_progress")
     if stage == "writer":
         original = service.cash.insert_investment_trade_facts
 
@@ -653,7 +622,7 @@ def test_published_cash_sync_database_failure_rolls_back_audit_and_facts(sync_ca
     with pytest.raises(Exception, match="division by zero|injected before commit"):
         service.sync(conn)
     assert business_state(database) == before
-    assert rows(database, "pams_data_sync_runs") == audit_before
+    assert rows(database, "broker_cash_progress") == audit_before
 
 
 def test_published_cash_retryable_fx_is_persistent_and_retries_same_day(sync_case, database, monkeypatch, tmp_path):
@@ -667,14 +636,14 @@ def test_published_cash_retryable_fx_is_persistent_and_retries_same_day(sync_cas
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
     assert service.sync(conn)["facts_written"] == 0
     current = independent_status(database)
-    assert current["retryable_pending_count"] == 1 and current["waiting_evidence_count"] == 1
+    assert current["retryable_pending_count"] == 1 and current["waiting_evidence_count"] == 2
     assert current["next_days"] == ["2026-10-22"]
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('CNY','JPY',0.05,'2026-10-22')")
+        cur.execute("INSERT INTO pams_fx_rates_daily(base_currency,quote_currency,rate,as_of,source) VALUES ('CNY','JPY',0.05,'2026-10-22','synthetic')")
     conn.commit()
     result = service.sync(conn)
     assert result["facts_written"] == 1 and result["retryable_pending_count"] == 0
-    assert result["waiting_evidence_count"] == 1 and cash_facts(database)[0]["net_cash_cny"] == 5
+    assert result["waiting_evidence_count"] == 2 and cash_facts(database)[0]["net_cash_cny"] == 5
     assert independent_status(database)["confirmed_day"] == "2026-10-22"
 
 
@@ -691,7 +660,7 @@ def test_published_cash_sync_is_bounded_progresses_and_does_not_retry_permanent_
     assert [day["day"] for day in first["days"]] == ["2026-10-19", "2026-10-20"]
     second = service.sync(conn, max_days=2)
     assert [day["day"] for day in second["days"]] == ["2026-10-21", "2026-10-22"]
-    assert second["facts_written"] == 2 and second["waiting_evidence_count"] == 1
+    assert second["facts_written"] == 2 and second["waiting_evidence_count"] == 5
     assert len(cash_facts(database)) == 3 and service.sync(conn)["status"] == "idle"
 
 
@@ -731,7 +700,7 @@ def test_published_cash_concurrent_syncs_are_serialized_and_idempotent(sync_case
         results = [first.result(timeout=15), second.result(timeout=15)]
     assert sorted(result["facts_written"] for result in results) == [0, 1]
     assert len(cash_facts(database)) == 1
-    assert len([row for row in rows(database, "pams_data_sync_runs") if row["sync_key"] == service.SYNC_KEY]) == 1
+    assert len(rows(database, "broker_cash_progress")) == 1
 
 
 def test_published_cash_tampered_source_is_rejected_before_writes(sync_case, database, monkeypatch, tmp_path):
@@ -762,12 +731,15 @@ def test_published_cash_explicit_empty_section_vs_missing_and_stable_status(sync
     assert set(ready) == set(disabled)
     before = business_state(database)
     result = service.sync(conn)
-    assert result["facts_written"] == 0 and business_state(database) == before
-    assert result["days"][0]["complete"] == (not missing)
+    after = business_state(database)
+    assert result["facts_written"] == 0
+    assert all(after[table] == before[table] for table in ("pams_holdings_snapshot", "pams_cashflow_fact", "pams_investment_trade_fact"))
+    assert all(row in after[table] for table in ("source_batches", "source_files", "source_items") for row in before[table])
+    assert result["days"][0]["complete"] is False  # The separate trade section is unavailable.
     assert result["days"][0]["cash_section_present"] == (not missing)
-    assert result["blocking_pending_count"] == int(missing)
+    assert result["blocking_pending_count"] == 1 + int(missing)
     assert result["retryable_pending_count"] == 0  # Missing sections require changed source, not an FX retry loop.
-    assert independent_status(database)["blocking_pending_count"] == int(missing)
+    assert independent_status(database)["blocking_pending_count"] == 1 + int(missing)
 
 
 def test_published_cash_changed_source_reports_revision_and_keeps_known_updates(sync_case, database, monkeypatch, tmp_path):
@@ -787,7 +759,7 @@ def test_published_cash_changed_source_reports_revision_and_keeps_known_updates(
     assert result["source_sha256"] == new_hash and result["facts_written"] == 1
     assert result["pending"][0]["reason"] == "conflicting_cash_transaction"
     assert saved in cash_facts(database)
-    assert result["blocking_pending_count"] == 1
+    assert result["blocking_pending_count"] == 2
 
 
 def test_cash_fact_consumers_preserve_balance_position_cost_and_official_accrual_nav(sync_case, database, monkeypatch, tmp_path):
@@ -797,19 +769,14 @@ def test_cash_fact_consumers_preserve_balance_position_cost_and_official_accrual
     from domain.accounts import account_balance
     from domain.investments import holdings_positions
     from domain.investments import investment_return_ibkr
-    from domain.investments import return_attribution
     from domain.brokers.ibkr import ibkr_cash_event_sync as service
     from domain.brokers.ibkr import ibkr_daily_close_read as daily
     from tests.brokers.ibkr.test_ibkr_cash_events import publish_cash_days
 
     _, conn, _ = sync_case
     with conn.cursor() as cur:
-        # Read-surface columns only in this disposable test DB, not a production migration.
-        cur.execute("""ALTER TABLE pams_holdings_snapshot ADD holding_pnl numeric DEFAULT 0;
-            ALTER TABLE pams_investment_trade_fact ADD asset_major_category text, ADD asset_minor_category text;
-            CREATE TABLE pams_ohlcv_daily (market text, symbol text, trade_date date, close numeric);
-            UPDATE pams_holdings_snapshot SET market_value=100, cost=100, quantity=100
-                WHERE symbol='CASH_USD';""")
+        cur.execute("""UPDATE pams_holdings_snapshot SET market_value=100, cost=100, quantity=100
+                WHERE symbol='CASH_USD'""")
     conn.commit()
     publish_cash_days(tmp_path, monkeypatch, {"2026-10-22": [
         {"type": "Broker Interest Received", "currency": "USD", "amount": "2"},
@@ -830,8 +797,7 @@ def test_cash_fact_consumers_preserve_balance_position_cost_and_official_accrual
                 equities = investment_return_ibkr._ibkr_full_trade_return_series(cur,
                     dates=[date(2026, 10, 22), date(2026, 10, 23)], base_currency="CNY",
                     fx_timelines={"USD": [(date(2026, 10, 21), Decimal(7))]})
-                attribution = return_attribution._load_realized_trade_fact_positions(cur, {}, date(2026, 10, 22))
-                return basis, [(h["symbol"], h["quantity"], h["cost"], h["market_value"]) for h in holdings], closed, equities, attribution
+                return basis, [(h["symbol"], h["quantity"], h["cost"], h["market_value"]) for h in holdings], closed, equities
         finally:
             read.close()
 
@@ -853,131 +819,56 @@ def test_enabling_cash_on_identical_xml_never_replays_old_business_rows(sync_cas
     identity = first.json()["sync_run"]["publication"]["data_sha256"]
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", cutoff)
 
-    def unexpected(*args, **kwargs):
-        pytest.fail("Enabling cash on unchanged XML must not replay holdings/history/trades")
-    for name in ("_write_holdings", "_write_position_history", "_write_trades"):
-        monkeypatch.setattr(collector, name, unexpected)
     response = client.post("/api/ibkr/flex/sync", json={})
     assert response.status_code == 200, response.text
     assert response.json()["sync_run"]["publication"]["data_sha256"] == identity
     after = business_state(database)
-    assert all(after[table] == value for table, value in before.items() if table != "pams_investment_trade_fact")
+    assert all(after[table] == before[table] for table in ("pams_holdings_snapshot", "pams_cashflow_fact"))
+    assert all(row in after[table] for table in ("source_batches", "source_files", "source_items") for row in before[table])
     assert all(row in after["pams_investment_trade_fact"] for row in before["pams_investment_trade_fact"])
     assert len(cash_facts(database)) == expected_cash
     if not expected_cash:
-        assert after == before
+        assert all(after[table] == before[table] for table in TABLES
+                   if table != "broker_publications")
+        assert all(row in after["broker_publications"]
+                   for row in before["broker_publications"])
+        new_publications = [row for row in after["broker_publications"]
+                            if row not in before["broker_publications"]]
+        assert len(new_publications) == 1
+        assert new_publications[0]["cash_state"]["cutoff"] == cutoff
 
 
-def test_cash_mode_changed_ytd_xml_cannot_rewrite_cutoff_holdings_history_or_trades(sync_case, database, monkeypatch):
+def test_cutoff_keeps_existing_facts_but_updates_current_report_holdings(sync_case, database, monkeypatch):
     client, _, report = sync_case
     before = business_state(database)
     monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-22")
     report["xml"] = cash_report({})
     response = client.post("/api/ibkr/flex/sync", json={})
-    assert response.status_code == 200
-    assert business_state(database) == before
+    assert response.status_code == 200, response.text
+    after = business_state(database)
+    assert all(after[table] == before[table] for table in ("pams_cashflow_fact", "pams_investment_trade_fact"))
+    assert next(row for row in after["pams_holdings_snapshot"] if row["symbol"] == "TEST")["market_value"] == 381
+    assert all(row in after[table] for table in ("source_batches", "source_files", "source_items") for row in before[table])
+    assert len(after["source_files"]) > len(before["source_files"])
 
 
-def insert_normal_trade(conn, currency):
-    from psycopg2.extras import Json
+def test_cash_event_waits_for_sourced_fx_and_replays_same_original(sync_case,database,monkeypatch):
+    client,conn,report=sync_case
+    monkeypatch.setenv('PAMS_IBKR_CASH_EVENTS_AFTER','2026-10-21')
+    report['xml']=cash_report({'transactionID':'JPY_SOURCE','currency':'JPY'})
     with conn.cursor() as cur:
-        # The fixture's existing business belongs to the pre-activation baseline.
-        cur.execute("UPDATE pams_ibkr_trades SET trade_date='2026-10-21' WHERE source_trade_key<>'new-normal-trade'")
-        cur.execute("""UPDATE pams_investment_trade_fact SET trade_date='2026-10-21'
-            WHERE source_table='pams_ibkr_trades' AND source_key<>'ibkr:new-normal-trade'""")
-        cur.execute("""INSERT INTO pams_ibkr_trades
-            (account_code, source_account_id, source_trade_key, symbol, name, currency,
-             asset_category, trade_date, side, quantity, price, gross_amount, commission,
-             net_cash, realized_pnl, raw_json)
-            VALUES ('ibkr','U_TEST','new-normal-trade','TEST','TEST',%s,'STK','2026-10-22',
-                    'BUY',1,10,10,0,-10,0,%s) RETURNING id""",
-            (currency, Json({"currency": currency, "ibCommission": "0", "ibCommissionCurrency": currency})))
-        source_id = str(cur.fetchone()[0])
+        cur.execute("INSERT INTO pams_fx_rates_daily(base_currency,quote_currency,rate,as_of,source) VALUES ('CNY','JPY',0.05,'2026-10-22','')")
     conn.commit()
-    return source_id
-
-
-@pytest.mark.parametrize("currency,rate", [("JPY", Decimal("0.05")), ("USD", Decimal("7"))])
-def test_confirmed_normal_trade_waits_for_exact_dated_fx_not_latest_or_one(sync_case, database, monkeypatch, tmp_path, currency, rate):
-    from domain.brokers.ibkr import ibkr_cash_event_sync as service
-    from tests.brokers.ibkr.test_ibkr_cash_events import publish_cash_days
-
-    _, conn, _ = sync_case
-    publish_cash_days(tmp_path, monkeypatch, {"2026-10-22": []})
-    monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
+    response=client.post('/api/ibkr/flex/sync',json={})
+    assert response.status_code==200,response.text
+    assert not cash_facts(database)
+    pending=response.json()['sync_run']['publication']['cash_events']['pending']
+    assert any(item['reason']=='missing_or_invalid_dated_fx' for item in pending)
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM pams_fx_rates_daily WHERE quote_currency=%s", (currency,))
-        cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('CNY',%s,99,'2026-10-23')", (currency,))
+        cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='JPY' AND as_of='2026-10-22'")
     conn.commit()
-    source_id = insert_normal_trade(conn, currency)
-    old = rows(database, "pams_investment_trade_fact")
-    first = service.sync(conn)
-    assert first["facts_written"] == 0 and first["retryable_pending_count"] == 1
-    assert rows(database, "pams_investment_trade_fact") == old
-    assert independent_status(database)["next_days"] == ["2026-10-22"]
-    with conn.cursor() as cur:
-        cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('CNY',%s,%s,'2026-10-22')", (currency, rate))
-    conn.commit()
-    second = service.sync(conn)
-    assert second["facts_written"] == 1 and second["days"][0]["trade_inserted_count"] == 1
-    saved = next(row for row in rows(database, "pams_investment_trade_fact") if row["source_id"] == source_id)
-    assert saved["source_table"] == "pams_ibkr_trades" and saved["source_key"] == "ibkr:new-normal-trade"
-    assert Decimal(str(saved["net_cash_cny"])) == -10 * rate
-    assert all(row in rows(database, "pams_investment_trade_fact") for row in old)
-    assert service.sync(conn)["status"] == "idle"
-
-
-def test_confirmed_day_reopens_only_for_late_raw_trade_and_stable_key_survives_new_physical_id(sync_case, database, monkeypatch, tmp_path):
-    from domain.brokers.ibkr import ibkr_cash_event_sync as service
-    from tests.brokers.ibkr.test_ibkr_cash_events import publish_cash_days
-
-    _, conn, _ = sync_case
-    publish_cash_days(tmp_path, monkeypatch, {"2026-10-22": []})
-    monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
-    assert service.sync(conn)["facts_written"] == 0
-    insert_normal_trade(conn, "USD")
-    assert independent_status(database)["next_days"] == ["2026-10-22"]
-    assert service.sync(conn)["facts_written"] == 1
-    saved = rows(database, "pams_investment_trade_fact")
-    with conn.cursor() as cur:
-        cur.execute("UPDATE pams_ibkr_trades SET id=id+10000, updated_at=now() WHERE source_trade_key='new-normal-trade'")
-    conn.commit()
-    assert service.sync(conn)["facts_written"] == 0
-    assert rows(database, "pams_investment_trade_fact") == saved
-
-
-def test_revised_existing_trade_is_flagged_not_silently_completed_or_repaired(sync_case, database, monkeypatch, tmp_path):
-    from domain.brokers.ibkr import ibkr_cash_event_sync as service
-    from tests.brokers.ibkr.test_ibkr_cash_events import publish_cash_days
-    _, conn, _ = sync_case
-    publish_cash_days(tmp_path, monkeypatch, {"2026-10-22": []})
-    monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
-    insert_normal_trade(conn, "USD")
-    assert service.sync(conn)["facts_written"] == 1
-    saved = rows(database, "pams_investment_trade_fact")
-    with conn.cursor() as cur:
-        cur.execute("UPDATE pams_ibkr_trades SET net_cash=-11,updated_at=now() WHERE source_trade_key='new-normal-trade'")
-    conn.commit()
-    result = service.sync(conn)
-    assert result["facts_written"] == 0 and result["blocking_pending_count"] == 1
-    assert result["pending"][0]["reason"] == "existing_trade_evidence_conflict"
-    assert rows(database, "pams_investment_trade_fact") == saved
-
-
-def test_trade_repeat_compares_actual_numeric_storage_precision(sync_case, database, monkeypatch, tmp_path):
-    from domain.brokers.ibkr import ibkr_cash_event_sync as service
-    from tests.brokers.ibkr.test_ibkr_cash_events import publish_cash_days
-    _, conn, _ = sync_case
-    publish_cash_days(tmp_path, monkeypatch, {"2026-10-22": []})
-    monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_AFTER", "2026-10-21")
-    insert_normal_trade(conn, "USD")
-    with conn.cursor() as cur:
-        cur.execute("UPDATE pams_ibkr_trades SET net_cash=-10.1234567891 WHERE source_trade_key='new-normal-trade'")
-        cur.execute("UPDATE pams_fx_rates_daily SET rate=6.712457 WHERE quote_currency='USD'")
-    conn.commit()
-    assert service.sync(conn)["facts_written"] == 1
-    with conn.cursor() as cur:
-        cur.execute("UPDATE pams_ibkr_trades SET updated_at=now() WHERE source_trade_key='new-normal-trade'")
-    conn.commit()
-    result = service.sync(conn)
-    assert result["facts_written"] == result["blocking_pending_count"] == 0
+    response=client.post('/api/ibkr/flex/sync',json={})
+    assert response.status_code==200,response.text
+    assert len(cash_facts(database))==1 and cash_facts(database)[0]['currency']=='JPY'
+    assert client.post('/api/ibkr/flex/sync',json={}).status_code==200
+    assert len(cash_facts(database))==1

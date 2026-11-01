@@ -383,6 +383,8 @@ def fetch_yfinance_history(
     end: Date,
 ) -> tuple[dict[str, dict[Date, Decimal]], list[str]]:
     """Fetch Yahoo close history for symbols that are not local A-share data."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     tickers = sorted({symbol for symbol in symbols if symbol})
     if not tickers:
         return {}, []

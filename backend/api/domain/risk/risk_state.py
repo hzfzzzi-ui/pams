@@ -5,9 +5,9 @@ assembly until the broader PortfolioState contract is introduced.
 """
 from __future__ import annotations
 
-import math
 import os
 import re
+import math
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -60,7 +60,9 @@ SYNTHETIC_ASSET_TYPES_BY_ACCOUNT_TYPE = {
 
 def get_conn():
     """Create a PostgreSQL connection using PAMS environment variables."""
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -70,6 +72,8 @@ def get_conn():
 
 
 def _norm(v: Any) -> Any:
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
     if hasattr(v, "isoformat"):
         return v.isoformat()
     if isinstance(v, Decimal):
@@ -119,12 +123,6 @@ def _owner_ratio(account_code: str, limits: dict[str, Any]) -> float:
     data_cfg = limits.get("data", {}) or {}
     ratios = data_cfg.get("account_owner_ratios", {}) or {}
     return float(ratios.get(account_code, data_cfg.get("default_owner_ratio", 1.0)))
-
-
-def _default_fx(currency: str, limits: dict[str, Any]) -> float:
-    data_cfg = limits.get("data", {}) or {}
-    rates = data_cfg.get("fx_rates_to_cny", {}) or {}
-    return float(rates.get(str(currency).upper(), 1.0))
 
 
 def _cn_symbol_keys(value: Any) -> dict[str, Any]:
@@ -244,22 +242,6 @@ def _load_db_industry_lookup(positions: pd.DataFrame) -> dict[str, str]:
         return lookup
 
     return lookup
-
-
-def _latest_fx_rates(cur, limits: dict[str, Any]) -> dict[str, float]:
-    cur.execute(
-        """
-        SELECT DISTINCT ON (quote_currency) quote_currency, rate
-        FROM pams_fx_rates_daily
-        WHERE base_currency = 'CNY'
-        ORDER BY quote_currency, as_of DESC
-        """
-    )
-    rates = {str(r["quote_currency"]).upper(): float(r["rate"]) for r in cur.fetchall()}
-    for currency, rate in ((limits.get("data", {}) or {}).get("fx_rates_to_cny", {}) or {}).items():
-        rates.setdefault(str(currency).upper(), float(rate))
-    rates.setdefault("CNY", 1.0)
-    return rates
 
 
 STYLE_EXPOSURE_GROUPS = {
@@ -1612,10 +1594,11 @@ def _account_balance_position(account: dict[str, Any], fx_rates: dict[str, float
     account_code = str(account.get("account_code") or "unknown")
     currency = str(account.get("currency") or account.get("base_currency") or "CNY").upper()
     amount = float(account.get("amount") or 0.0)
-    amount_cny = float(account.get("amount_cny") or 0.0)
+    raw_amount_cny = account.get("amount_cny")
+    amount_cny = float(raw_amount_cny) if raw_amount_cny not in (None, "") else (0.0 if amount == 0 else None)
     account_type = str(account.get("account_type") or "")
     display_name = account.get("display_name") or account_code
-    fx_rate = amount_cny / amount if amount else fx_rates.get(currency, 1.0)
+    fx_rate = amount_cny / amount if amount and amount_cny is not None else (fx_rates.get(currency) if amount == 0 else None)
     asset_type = _infer_asset_type(
         {
             "account_code": account_code,
@@ -1647,7 +1630,6 @@ def _account_balance_position(account: dict[str, Any], fx_rates: dict[str, float
 
 def load_latest_positions() -> pd.DataFrame:
     """Load current risk positions from the unified PortfolioState payload."""
-    limits = load_risk_limits()
     state = build_portfolio_state(base_currency="CNY")
     account_rows = [
         a
@@ -1664,11 +1646,23 @@ def load_latest_positions() -> pd.DataFrame:
         for code, account in accounts_by_code.items()
         if str(account.get("account_type") or "") in INVESTMENT_DETAIL_ACCOUNT_TYPES
     ]
-    fx_rates = {
-        str(r.get("quote_currency") or "").upper(): float(r.get("rate") or 1.0)
-        for r in (state.get("fx_rates") or [])
-    }
-    fx_rates.setdefault("CNY", 1.0)
+    for code in state.get('snapshot_scope_unavailable_accounts') or []:
+        if code not in detail_account_codes:
+            detail_account_codes.append(code)
+    for code in state.get('fx_unavailable_accounts') or []:
+        if code not in detail_account_codes:
+            detail_account_codes.append(code)
+    fx_rates: dict[str, float] = {"CNY": 1.0}
+    for entry in state.get("fx_rates") or []:
+        currency = str(entry.get("quote_currency") or "").upper()
+        if not currency or not str(entry.get("source") or "").strip():
+            continue
+        try:
+            rate = float(entry.get("rate"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(rate) and rate > 0:
+            fx_rates[currency] = rate
     rows = [
         dict(p)
         for p in (state.get("investment_positions") or [])
@@ -1680,10 +1674,10 @@ def load_latest_positions() -> pd.DataFrame:
     for row in rows:
         currency = str(row.get("currency") or "CNY").upper()
         native_market_value = float(row.get("market_value") or 0.0)
-        cny_market_value = float(row.get("market_value_cny") or 0.0)
-        native_cost = float(row.get("cost") or 0.0)
-        cny_cost = float(row.get("cost_cny") or 0.0)
-        fx = cny_market_value / native_market_value if native_market_value else fx_rates.get(currency, _default_fx(currency, limits))
+        cny_market_value = float(row['market_value_cny']) if row.get('market_value_cny') is not None else None
+        native_cost = float(row['cost']) if row.get('cost') is not None else None
+        cny_cost = float(row['cost_cny']) if row.get('cost_cny') is not None else None
+        fx = (cny_market_value / native_market_value if native_market_value else fx_rates.get(currency)) if cny_market_value is not None else None
         symbol = str(row.get("symbol") or "").strip()
         asset_name = str(row.get("asset_name") or symbol or "UNKNOWN").strip()
         asset_id = str(row.get("asset_id") or symbol or asset_name).strip()
@@ -1704,7 +1698,7 @@ def load_latest_positions() -> pd.DataFrame:
                 "quantity": float(row.get("quantity") or 1.0),
                 "price": native_market_value,
                 "market_value": native_market_value,
-                "cost": native_cost if native_cost else cny_cost / fx if fx else cny_cost,
+                "cost": native_cost if native_cost is not None else cny_cost / fx if cny_cost is not None and fx else cny_cost,
                 "fx_rate_to_cny": fx,
                 "market_value_cny": cny_market_value,
                 "cost_cny": cny_cost,
@@ -1716,7 +1710,15 @@ def load_latest_positions() -> pd.DataFrame:
         position = _account_balance_position(account, fx_rates)
         if position:
             out.append(position)
-    return pd.DataFrame(out)
+    positions = pd.DataFrame(out)
+    positions.attrs['snapshot_scope_status'] = state.get('snapshot_scope_status')
+    positions.attrs['snapshot_scope_unavailable_accounts'] = state.get('snapshot_scope_unavailable_accounts') or []
+    missing_fx_accounts = {str(item.get('account_code') or '') for item in out
+                           if item.get('market_value_cny') is None and item.get('market_value') is not None}
+    missing_fx_accounts.discard('')
+    positions.attrs['fx_status'] = 'incomplete' if missing_fx_accounts else state.get('fx_status')
+    positions.attrs['fx_unavailable_accounts'] = sorted(set(state.get('fx_unavailable_accounts') or []) | missing_fx_accounts)
+    return positions
 
 
 def _latest_published_valuation_state(base_currency: str = "CNY") -> dict[str, Any] | None:
@@ -1786,6 +1788,14 @@ def build_risk_state() -> dict[str, Any]:
     factor_map = load_factor_map()
     concentration_map = load_concentration_map()
     positions = load_latest_positions()
+    if positions.attrs.get('snapshot_scope_status') == 'incomplete':
+        return {'status': 'unavailable', 'reason': 'snapshot_scope_incomplete',
+                'snapshot_scope_unavailable_accounts': positions.attrs.get('snapshot_scope_unavailable_accounts', []),
+                'metrics': {'total_nav': None}, 'alerts': [], 'holdings': _records(positions)}
+    if positions.attrs.get('fx_status') == 'incomplete':
+        return {'status': 'unavailable', 'reason': 'missing_fx',
+                'fx_unavailable_accounts': positions.attrs.get('fx_unavailable_accounts', []),
+                'metrics': {'total_nav': None}, 'alerts': [], 'holdings': _records(positions)}
     if positions.empty:
         return {"status": "empty", "alerts": [], "holdings": []}
 

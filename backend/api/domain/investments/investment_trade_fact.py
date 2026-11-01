@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from typing import Any, Mapping, Sequence
 
@@ -15,9 +15,6 @@ from domain.brokers.ibkr.ibkr_fee_currency import explicit_ibkr_fee_currency
 logger = logging.getLogger(__name__)
 
 
-MANUAL_TABLE = "pams_investment_transactions"
-TRADINGVIEW_TABLE = "pams_tradingview_transactions"
-IBKR_TABLE = "pams_ibkr_trades"
 _STRICT_FACT_COLUMNS = (
     "trade_date", "trade_time", "settle_date", "account_code", "broker", "portfolio_code",
     "asset_id", "symbol", "name", "market", "currency", "trade_type", "side", "quantity",
@@ -70,6 +67,13 @@ def _optional_dec(value: Any) -> Decimal | None:
     if value in (None, ""):
         return None
     return _dec(value)
+
+
+def _cny_amount(amount: Decimal | None, rate: Decimal | None) -> Decimal | None:
+    """Match PostgreSQL NUMERIC(28,10) rounding for deterministic replay."""
+    if amount is None or rate is None:
+        return None
+    return (amount * rate).quantize(Decimal("0.0000000001"), rounding=ROUND_HALF_UP)
 
 
 def _contains(term: str, values: set[str]) -> bool:
@@ -163,22 +167,26 @@ def _net_cash(
     side: str,
     gross_amount: Decimal | None,
     fee_amount: Decimal,
-    tax_amount: Decimal,
+    tax_amount: Decimal | None,
 ) -> Decimal | None:
     source_net_cash = _optional_dec(row.get("net_cash"))
     if source_net_cash is not None:
         return source_net_cash
-    gross = gross_amount or Decimal("0")
-    if trade_type in {"buy", "fund_subscription"}:
-        return -(gross + fee_amount + tax_amount)
-    if trade_type in {"sell", "fund_redemption"}:
-        return gross - fee_amount - tax_amount
-    if trade_type in {"dividend", "interest", "coupon"}:
-        return gross - fee_amount - tax_amount
+    if gross_amount is None and trade_type not in {"fee", "tax"}:
+        return None
+    gross = gross_amount if gross_amount is not None else Decimal("0")
+    if trade_type in {"buy", "fund_subscription", "sell", "fund_redemption", "dividend", "interest", "coupon"}:
+        if tax_amount is None and row.get("fee_scope") != "total_charges":
+            return None
+        # Only a known total charge permits an unknown tax component here.
+        tax_for_total = tax_amount if tax_amount is not None else Decimal("0")
+        if trade_type in {"buy", "fund_subscription"}:
+            return -(gross + fee_amount + tax_for_total)
+        return gross - fee_amount - tax_for_total
     if trade_type == "fee":
         return -(gross or fee_amount)
     if trade_type == "tax":
-        return -(gross or tax_amount)
+        return -gross if gross else (-tax_amount if tax_amount is not None else None)
     if side == "deposit":
         return gross
     if side == "withdraw":
@@ -238,6 +246,9 @@ def _trade_flags(trade_type: str, side: str) -> dict[str, bool]:
 def build_investment_trade_fact(row: Mapping[str, Any], *, base_currency: str = "CNY") -> dict[str, Any]:
     """Normalize one raw investment transaction row into a trade fact."""
 
+    if str(base_currency).upper() != "CNY":
+        raise ValueError("trade fact CNY fields require CNY base currency")
+
     source_table = str(row["source_table"])
     source_id = str(row["source_id"])
     source_key = str(row.get("source_key") or source_id)
@@ -246,11 +257,23 @@ def build_investment_trade_fact(row: Mapping[str, Any], *, base_currency: str = 
     trade_type = classify_trade_type(row)
     side = "fx_conversion" if trade_type == "fx_conversion" else raw_side
     fee_amount = abs(_dec(row.get("fee_amount")))
-    tax_amount = abs(_dec(row.get("tax_amount")))
+    raw_tax = _optional_dec(row.get("tax_amount"))
+    tax_amount = abs(raw_tax) if raw_tax is not None else None
     gross = _gross_amount(row, side)
     net_cash = _net_cash(row, trade_type=trade_type, side=side, gross_amount=gross, fee_amount=fee_amount, tax_amount=tax_amount)
-    currency = str(row.get("currency") or base_currency)
-    fx_rate = _dec(row.get("fx_rate_to_cny", 1)) or Decimal("1")
+    currency = str(row.get("currency") or "").strip().upper()
+    if not currency:
+        raise ValueError("trade currency is required")
+    fx_rate = _optional_dec(row.get("fx_rate_to_cny"))
+    if currency == str(base_currency).upper():
+        if fx_rate is not None and fx_rate != Decimal("1"):
+            raise ValueError("base currency exchange rate must be one")
+        fx_rate = Decimal("1")
+    elif fx_rate is not None and (not fx_rate.is_finite() or fx_rate <= 0):
+        raise ValueError("trade exchange rate must be finite and positive")
+    if (side == "deposit" and net_cash is not None and net_cash < 0) or (
+            side == "withdraw" and net_cash is not None and net_cash > 0):
+        raise ValueError("trade cash direction conflicts with net cash")
     realized_pnl = _optional_dec(row.get("realized_pnl"))
     if realized_pnl is None and trade_type in {"dividend", "interest", "coupon", "fee", "tax"}:
         realized_pnl = net_cash
@@ -278,10 +301,10 @@ def build_investment_trade_fact(row: Mapping[str, Any], *, base_currency: str = 
         "tax_amount": tax_amount,
         "net_cash": net_cash,
         "fx_rate_to_cny": fx_rate,
-        "net_cash_cny": net_cash * fx_rate if net_cash is not None else None,
+        "net_cash_cny": _cny_amount(net_cash, fx_rate),
         **flags,
         "realized_pnl": realized_pnl,
-        "realized_pnl_cny": realized_pnl * fx_rate if realized_pnl is not None else None,
+        "realized_pnl_cny": _cny_amount(realized_pnl, fx_rate),
         "cashflow_id": row.get("cashflow_id"),
         "source_table": source_table,
         "source_id": source_id,
@@ -315,6 +338,41 @@ def insert_investment_trade_facts(
     inserted = 0
     for fact in facts:
         params = dict(fact)
+        currency = str(params.get("currency") or "").strip().upper()
+        if not currency:
+            raise ValueError("trade currency is required")
+        rate = _optional_dec(params.get("fx_rate_to_cny"))
+        if rate is not None and (not rate.is_finite() or rate <= 0):
+            raise ValueError("trade exchange rate must be finite and positive")
+        if currency == "CNY":
+            if rate != Decimal("1"):
+                raise ValueError("base currency exchange rate must be one")
+        elif rate is not None:
+            cur.execute("""SELECT rate,source FROM pams_fx_rates_daily WHERE base_currency='CNY'
+                AND quote_currency=%s AND as_of=%s AND rate > 0
+                AND rate::text NOT IN ('NaN', 'Infinity', '-Infinity') FOR SHARE""", (currency, params.get("trade_date")))
+            fx_row = cur.fetchone()
+            evidence_rate = (fx_row.get("rate") if isinstance(fx_row, Mapping) else fx_row[0]) if fx_row else None
+            source = (fx_row.get("source") if isinstance(fx_row, Mapping) else fx_row[1]) if fx_row else None
+            if evidence_rate is None or not isinstance(source, str) or not source.strip():
+                # Preserve the original-currency fact but never publish an
+                # unproven conversion as an exact CNY amount.
+                rate = None
+                params['fx_rate_to_cny'] = None
+                params['net_cash_cny'] = None
+                params['realized_pnl_cny'] = None
+            elif Decimal(str(evidence_rate)) != rate:
+                raise ValueError("trade exchange rate conflicts with business-day evidence")
+        for raw_key, converted_key in (("net_cash", "net_cash_cny"), ("realized_pnl", "realized_pnl_cny")):
+            raw, converted = _optional_dec(params.get(raw_key)), _optional_dec(params.get(converted_key))
+            expected = _cny_amount(raw, rate)
+            if converted != expected:
+                raise ValueError("converted trade amount conflicts with source and exchange rate")
+        side = params.get("trade_type")
+        net_cash = _optional_dec(params.get("net_cash"))
+        if (side == "deposit" and net_cash is not None and net_cash < 0) or (
+                side == "withdraw" and net_cash is not None and net_cash > 0):
+            raise ValueError("trade cash direction conflicts with net cash")
         params.setdefault('fee_currency', None)
         params["raw_json"] = psycopg2.extras.Json(_json_ready(params.get("raw_json") or {}))
         if strict_source:
@@ -367,230 +425,3 @@ def insert_investment_trade_facts(
         if strict_source and cur.rowcount != 1:
             raise ValueError(f"Concurrent immutable trade source conflict: {params['source_key']}")
     return inserted
-
-
-def _table_exists(cur, table_name: str) -> bool:
-    cur.execute("SELECT to_regclass(%s) IS NOT NULL AS exists", (f"public.{table_name}",))
-    row = cur.fetchone()
-    if isinstance(row, Mapping):
-        return bool(row.get("exists"))
-    return bool(row and row[0])
-
-
-def _fetch_manual_rows(cur, *, limit: int | None, base_currency: str) -> list[dict[str, Any]]:
-    limit_sql = "LIMIT %(limit)s" if limit else ""
-    params: dict[str, Any] = {"source_table": MANUAL_TABLE, "base": base_currency}
-    if limit:
-        params["limit"] = int(limit)
-    cur.execute(
-        f"""
-        SELECT
-            %(source_table)s AS source_table,
-            tx.id::text AS source_id,
-            tx.source || ':' || tx.source_key AS source_key,
-            tx.trade_date,
-            tx.trade_time,
-            NULL::date AS settle_date,
-            tx.account_code,
-            tx.source AS broker,
-            NULL::text AS portfolio_code,
-            NULL::text AS asset_id,
-            tx.symbol,
-            tx.name,
-            tx.minor_category AS market,
-            tx.currency,
-            tx.side,
-            tx.quantity,
-            tx.price,
-            tx.gross_amount,
-            tx.fees AS fee_amount,
-            0::numeric AS tax_amount,
-            NULL::numeric AS net_cash,
-            CASE
-                WHEN COALESCE(NULLIF(tx.currency, ''), %(base)s) = %(base)s THEN 1
-                ELSE COALESCE(fx_latest.rate, 1)
-            END AS fx_rate_to_cny,
-            NULL::numeric AS realized_pnl,
-            tx.raw_json
-        FROM pams_investment_transactions tx
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = COALESCE(NULLIF(tx.currency, ''), %(base)s)
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM pams_investment_trade_fact f
-            WHERE f.source_table = %(source_table)s
-              AND f.source_id = tx.id::text
-        )
-        ORDER BY tx.trade_date, tx.id
-        {limit_sql}
-        """,
-        params,
-    )
-    return [dict(row) for row in cur.fetchall()]
-
-
-def _fetch_tradingview_rows(cur, *, limit: int | None, base_currency: str) -> list[dict[str, Any]]:
-    limit_sql = "LIMIT %(limit)s" if limit else ""
-    params: dict[str, Any] = {"source_table": TRADINGVIEW_TABLE, "base": base_currency}
-    if limit:
-        params["limit"] = int(limit)
-    cur.execute(
-        f"""
-        SELECT
-            %(source_table)s AS source_table,
-            tv.id::text AS source_id,
-            tv.row_hash AS source_key,
-            tv.closing_time::date AS trade_date,
-            tv.closing_time AS trade_time,
-            NULL::date AS settle_date,
-            tv.account_code,
-            'tradingview'::text AS broker,
-            tv.portfolio_name AS portfolio_code,
-            NULL::text AS asset_id,
-            COALESCE(tv.normalized_symbol, tv.symbol) AS symbol,
-            tv.symbol AS name,
-            'CN_A'::text AS market,
-            tv.currency,
-            tv.side,
-            tv.quantity,
-            tv.fill_price AS price,
-            CASE
-                WHEN LOWER(tv.side) IN ('deposit', 'withdraw', 'dividend') THEN ABS(COALESCE(tv.quantity, 0))
-                ELSE ABS(COALESCE(tv.quantity, 0) * COALESCE(tv.fill_price, 0))
-            END AS gross_amount,
-            ABS(COALESCE(tv.commission, 0)) AS fee_amount,
-            0::numeric AS tax_amount,
-            NULL::numeric AS net_cash,
-            CASE
-                WHEN COALESCE(NULLIF(tv.currency, ''), %(base)s) = %(base)s THEN 1
-                ELSE COALESCE(fx_latest.rate, 1)
-            END AS fx_rate_to_cny,
-            NULL::numeric AS realized_pnl,
-            tv.raw AS raw_json
-        FROM pams_tradingview_transactions tv
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = COALESCE(NULLIF(tv.currency, ''), %(base)s)
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM pams_investment_trade_fact f
-            WHERE f.source_table = %(source_table)s
-              AND f.source_id = tv.id::text
-        )
-        ORDER BY tv.closing_time, tv.id
-        {limit_sql}
-        """,
-        params,
-    )
-    return [dict(row) for row in cur.fetchall()]
-
-
-def _fetch_ibkr_rows(cur, *, limit: int | None, base_currency: str) -> list[dict[str, Any]]:
-    limit_sql = "LIMIT %(limit)s" if limit else ""
-    params: dict[str, Any] = {"source_table": IBKR_TABLE, "base": base_currency}
-    if limit:
-        params["limit"] = int(limit)
-    cur.execute(
-        f"""
-        SELECT
-            %(source_table)s AS source_table,
-            ib.id::text AS source_id,
-            ib.account_code || ':' || ib.source_trade_key AS source_key,
-            ib.trade_date,
-            ib.trade_date::timestamp AS trade_time,
-            NULL::date AS settle_date,
-            ib.account_code,
-            'ibkr'::text AS broker,
-            NULL::text AS portfolio_code,
-            NULL::text AS asset_id,
-            ib.symbol,
-            ib.name,
-            ib.asset_category AS market,
-            ib.currency,
-            COALESCE(ib.side, CASE WHEN ib.quantity > 0 THEN 'buy' WHEN ib.quantity < 0 THEN 'sell' ELSE NULL END) AS side,
-            ib.quantity,
-            ib.price,
-            ABS(COALESCE(ib.gross_amount, COALESCE(ib.quantity, 0) * COALESCE(ib.price, 0))) AS gross_amount,
-            ABS(COALESCE(ib.commission, 0)) AS fee_amount,
-            0::numeric AS tax_amount,
-            ib.net_cash,
-            CASE
-                WHEN COALESCE(NULLIF(ib.currency, ''), %(base)s) = %(base)s THEN 1
-                ELSE COALESCE(fx_latest.rate, 1)
-            END AS fx_rate_to_cny,
-            ib.realized_pnl,
-            ib.raw_json
-        FROM pams_ibkr_trades ib
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = COALESCE(NULLIF(ib.currency, ''), %(base)s)
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM pams_investment_trade_fact f
-            WHERE f.source_table = %(source_table)s
-              AND f.source_id = ib.id::text
-        )
-          AND NOT (
-            COALESCE(ib.source_trade_key, '') LIKE 'manual_%%'
-            AND EXISTS (
-                SELECT 1
-                FROM pams_ibkr_trades official
-                WHERE official.id <> ib.id
-                  AND official.account_code = ib.account_code
-                  AND COALESCE(official.source_trade_key, '') NOT LIKE 'manual_%%'
-                  AND official.trade_date = ib.trade_date
-                  AND COALESCE(official.symbol, '') = COALESCE(ib.symbol, '')
-                  AND COALESCE(UPPER(official.side), '') = COALESCE(UPPER(ib.side), '')
-                  AND ROUND(COALESCE(official.quantity, 0)::numeric, 6) = ROUND(COALESCE(ib.quantity, 0)::numeric, 6)
-                  AND ROUND(COALESCE(official.price, 0)::numeric, 6) = ROUND(COALESCE(ib.price, 0)::numeric, 6)
-            )
-          )
-        ORDER BY ib.trade_date, ib.id
-        {limit_sql}
-        """,
-        params,
-    )
-    return [dict(row) for row in cur.fetchall()]
-
-
-def fetch_investment_trade_source_rows(cur, *, limit: int | None = None, base_currency: str = "CNY") -> list[dict[str, Any]]:
-    """Load raw investment transaction rows not yet materialized by source id."""
-
-    rows: list[dict[str, Any]] = []
-    if _table_exists(cur, MANUAL_TABLE):
-        rows.extend(_fetch_manual_rows(cur, limit=limit, base_currency=base_currency))
-    if _table_exists(cur, TRADINGVIEW_TABLE):
-        rows.extend(_fetch_tradingview_rows(cur, limit=limit, base_currency=base_currency))
-    if _table_exists(cur, IBKR_TABLE):
-        rows.extend(_fetch_ibkr_rows(cur, limit=limit, base_currency=base_currency))
-    rows.sort(key=lambda r: (r.get("trade_date") or date.min, str(r.get("source_table") or ""), str(r.get("source_id") or "")))
-    return rows[:limit] if limit else rows
-
-
-def backfill_investment_trade_facts(cur, *, limit: int | None = None, base_currency: str = "CNY") -> dict[str, int]:
-    """Backfill pams_investment_trade_fact from investment raw ledgers."""
-
-    source_rows = fetch_investment_trade_source_rows(cur, limit=limit, base_currency=base_currency)
-    facts = [build_investment_trade_fact(row, base_currency=base_currency) for row in source_rows]
-    inserted = insert_investment_trade_facts(cur, facts)
-    return {
-        "source_count": len(source_rows),
-        "inserted_count": inserted,
-        "skipped_count": len(source_rows) - inserted,
-    }

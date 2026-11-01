@@ -1,8 +1,8 @@
 """Lookthrough exposure assembly for the PAMS analysis module.
 
-This MVP is intentionally config-backed.  It separates product-level mapping
-from partial ETF/fund lookthrough data, so risk pages can distinguish real
-lookthrough coverage from product-tag estimates.
+Product-level mappings remain config-backed.  Stored fund positions take
+precedence; an explicitly marked configuration fallback preserves unseeded
+development databases without writing during read requests.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 from domain.assets.asset_master import (
+    _find_asset,
     build_asset_master_payload,
     enrich_positions_with_asset_master,
     enrich_units_with_asset_master,
@@ -466,6 +467,7 @@ def load_lookthrough_config(raw: dict[str, Any] | None = None) -> dict[str, Any]
 
     lookthrough_rows: list[dict[str, Any]] = []
     for parent in data.get("asset_lookthrough") or []:
+        parent = {**parent, "as_of": parent.get("as_of") or data.get("as_of")}
         holdings = parent.get("holdings")
         if holdings:
             lookthrough_rows.extend(_normalize_lookthrough(parent, h or {}) for h in holdings)
@@ -525,6 +527,68 @@ def _find_lookthrough(position: dict[str, Any], cfg: dict[str, Any]) -> list[dic
                 candidates.append(row)
     parents = {_key(row.get("parent_symbol") or row.get("parent_asset_name")) for row in candidates}
     return candidates if len(parents) <= 1 else []
+
+
+def _stored_lookthrough(position: dict[str, Any], lookup: dict[str, Any], as_of: Any) -> list[dict[str, Any]] | None:
+    """Return a single stored fund snapshot, or None when no fund data exists.
+
+    Returning [] when only future rows exist deliberately blocks the config
+    fallback: future observations must not leak into an earlier valuation.
+    """
+    asset = _find_asset(position, lookup)
+    if not asset:
+        return None
+    rows = (lookup.get("fund_underlyings_by_id") or {}).get(asset.get("asset_id"))
+    if not rows:
+        return None
+    cutoff = _parse_date(as_of)
+    if cutoff is None:
+        # Without a valuation date there is no safe way to choose a snapshot.
+        return []
+    candidates = []
+    for row in rows:
+        if row.get("coverage_type") == "residual":
+            continue
+        row_date = _parse_date(row.get("as_of"))
+        if row_date is None or row_date > cutoff:
+            continue
+        candidates.append(row)
+    if not candidates:
+        return []
+    # A manual snapshot is an explicit business decision and must not be
+    # displaced by automated synchronisation. Keep versions/sources apart.
+    priority = lambda row: (row.get("source") == "manual", _parse_date(row.get("as_of")) or Date.min)
+    selected = max(candidates, key=priority)
+    selected_key = (selected.get("source"), selected.get("as_of"), selected.get("coverage_type"))
+    types = {"full": "FULL_HOLDINGS", "top10": "TOP10", "index_proxy": "INDEX_PROXY", "manual": "MANUAL"}
+    result = []
+    for row in candidates:
+        if (row.get("source"), row.get("as_of"), row.get("coverage_type")) != selected_key:
+            continue
+        raw_value = row.get("raw_json")
+        raw = raw_value if isinstance(raw_value, dict) else {}
+        parent_value = raw.get("raw_parent")
+        parent = parent_value if isinstance(parent_value, dict) else {}
+        payload = {
+            **raw,
+            "parent_symbol": asset.get("primary_symbol"),
+            "parent_asset_name": asset.get("display_name") or asset.get("canonical_name"),
+            "parent_asset_type": asset.get("asset_type"),
+            "underlying_name": row.get("underlying_name"),
+            "underlying_symbol": row.get("underlying_symbol"),
+            "underlying_weight": row.get("underlying_weight"),
+            "underlying_asset_class": raw.get("underlying_asset_class") or row.get("underlying_asset_type"),
+            "lookthrough_type": raw.get("lookthrough_type") or types.get(row.get("coverage_type"), "MANUAL"),
+            "source_type": raw.get("source_type") or ("MANUAL" if row.get("source") == "manual" else "ESTIMATED"),
+            "confidence": row.get("confidence"),
+            "as_of": row.get("as_of"),
+            "note": raw.get("note") or parent.get("note"),
+        }
+        normalized = _normalize_lookthrough(payload, payload)
+        if not payload.get("underlying_currency"):
+            normalized["underlying_currency"] = "Unknown"
+        result.append(normalized)
+    return result
 
 
 def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
@@ -966,7 +1030,7 @@ def _low_confidence_assets(items: list[dict[str, Any]], total_value: float) -> l
                 "suggested_action": (
                     "核准资产分类"
                     if status == "FULL" and confidence == "LOW"
-                    else item.get("suggested_action") or _suggested_action(status, item.get("lookthrough_type"), coverage)
+                    else item.get("suggested_action") or _suggested_action(status, _norm_text(item.get("lookthrough_type")), coverage)
                 ),
             }
         )
@@ -1007,6 +1071,7 @@ def _units_for_position(
                     "underlying_weight": weight,
                     "coverage_ratio": quality.get("coverage_ratio") or 0.0,
                     "as_of": _date_str(position.get("as_of")),
+                    "source_as_of": _date_str(row.get("as_of")),
                     "quality_status": quality.get("quality_status") or "",
                     **{k: row.get(k) for k in [
                         "underlying_name",
@@ -1027,8 +1092,7 @@ def _units_for_position(
             )
         residual = max(1.0 - weight_sum, 0.0)
         if residual > 0.001:
-            units.append(
-                _mapped_unit(
+            residual_unit = _mapped_unit(
                     position=position,
                     mapping=mapping,
                     value_cny=value_cny,
@@ -1040,7 +1104,9 @@ def _units_for_position(
                     quality_status=quality.get("quality_status") or "",
                     note="穿透未覆盖的剩余权重，回落到产品标签。",
                 )
-            )
+            source_dates = {_date_str(row.get("as_of")) for row in lookthrough_rows}
+            residual_unit["source_as_of"] = source_dates.pop() if len(source_dates) == 1 else None
+            units.append(residual_unit)
         return units
     if mapping and _is_direct_asset(position, mapping):
         return [
@@ -1297,7 +1363,7 @@ def derive_lookthrough_payload(
 ) -> dict[str, Any]:
     """Derive lookthrough exposures from normalized investment positions."""
     cfg = load_lookthrough_config(config)
-    portfolio_as_of = as_of or max((_date_str(p.get("as_of")) for p in positions if p.get("as_of")), default=None)
+    portfolio_as_of = as_of or max((_date_str(p.get("as_of")) or "" for p in positions if p.get("as_of")), default=None)
     # Never trust the internal classification marker from input. Only this call's
     # read-only master verification may attach it to a copied position.
     positive_positions = [{k: v for k, v in p.items() if k != "_manual_direct_security"}
@@ -1326,9 +1392,24 @@ def derive_lookthrough_payload(
             position["asset_type"] = mapping.get("asset_class")
             position["mapped_asset_class"] = mapping.get("asset_class")
             position["asset_class"] = mapping.get("asset_class")
-        lookthrough_rows = _find_lookthrough(position, cfg)
-        quality = _quality_for_position(position, mapping, lookthrough_rows, portfolio_as_of)
+        position_as_of = position.get("as_of")
+        stored_rows = _stored_lookthrough(position, master_lookup, position_as_of) if master_lookup is not None else None
+        config_candidates = _find_lookthrough(position, cfg) if stored_rows is None else []
+        cutoff = _parse_date(position_as_of)
+        lookthrough_rows = ([row for row in config_candidates
+                             if cutoff is not None and (source_date := _parse_date(row.get("as_of"))) is not None
+                             and source_date <= cutoff]
+                            if stored_rows is None else stored_rows)
+        lookthrough_source = ("config_fallback" if lookthrough_rows else "config_unavailable") if config_candidates else (
+            "database" if stored_rows is not None else "none"
+        )
+        quality = _quality_for_position(position, mapping, lookthrough_rows, position_as_of)
+        quality["lookthrough_source"] = lookthrough_source
         quality_items.append(quality)
+        if lookthrough_source == "config_fallback" and asset_master_cur is not None and not sync_asset_master:
+            warnings.append(f"{quality['asset_name']} 尚无已保存的穿透数据，暂使用配置回退。")
+        elif lookthrough_source == "config_unavailable":
+            warnings.append(f"{quality['asset_name']} 穿透资料日期未知或晚于持仓日期，未使用该资料。")
         if quality["quality_status"] == "MISSING":
             warnings.append(f"{quality['asset_name']} 缺少资产映射，已归入 OTHER。")
         elif quality["quality_status"] == "PRODUCT_TAG_ONLY":

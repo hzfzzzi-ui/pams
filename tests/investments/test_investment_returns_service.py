@@ -29,6 +29,14 @@ from domain.investments.investment_returns import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def proven_account_scope(monkeypatch):
+    from domain.accounts import account_balance
+    monkeypatch.setattr(account_balance, 'load_account_snapshot_coverage',
+        lambda cur, pairs: {pair: {'status':'complete'} for pair in pairs})
+    monkeypatch.setattr(account_balance, '_cash_source_schema_available', lambda cur: True)
+
+
 class FakeCursor:
     def __init__(self, results):
         self.results = list(results)
@@ -96,7 +104,7 @@ def test_account_net_liquidation_anchor_uses_rolled_account_performance(monkeypa
 
     def fake_account_performance(cur, **kwargs):
         observed.update(kwargs)
-        return {"net_liquidation_cny": "247497.05625"}
+        return {"net_liquidation_cny": "247497.05625", "as_of": "2026-06-18"}
 
     monkeypatch.setattr(investment_returns, "build_account_performance_payload", fake_account_performance)
 
@@ -129,6 +137,21 @@ def test_account_net_liquidation_anchor_uses_rolled_account_performance(monkeypa
     assert observed["net_liquidation_as_of"] == "2026-06-09"
 
 
+def test_foreign_account_anchor_rejects_missing_or_future_fx_and_stale_balance():
+    day = date(2026, 6, 18)
+    account = {"account_code": "tonghuashun", "primary_balance": {
+        "amount": "100", "currency": "USD", "as_of": day.isoformat()}}
+    kw = dict(account_code="tonghuashun", overview_payload={"accounts": [account]},
+        account_owner_ratio=lambda _: Decimal(1), as_of=day, base_currency="CNY")
+    assert investment_returns._account_net_liquidation_anchor_cny(
+        None, fx_timelines={"USD": [(date(2026, 6, 19), Decimal(8))]}, **kw) is None
+    assert investment_returns._account_net_liquidation_anchor_cny(
+        None, fx_timelines={"USD": [(day, Decimal(7))]}, **kw) == Decimal(700)
+    account["primary_balance"]["as_of"] = "2026-06-17"
+    assert investment_returns._account_net_liquidation_anchor_cny(
+        None, fx_timelines={"USD": [(day, Decimal(7))]}, **kw) is None
+
+
 def test_build_account_performance_payload_preserves_legacy_shape():
     cur = FakeCursor(
         [
@@ -157,7 +180,8 @@ def test_build_account_performance_payload_preserves_legacy_shape():
     assert payload["as_of"] == "2026-05-31"
     assert payload["net_liquidation_cny"] == "237500.000"
     assert payload["initial_capital_cny"] == "250000.000"
-    assert payload["total_pnl_cny"] == "-12500.000"
+    assert payload["total_pnl_cny"] is None
+    assert payload["external_flow_coverage"] == "unknown"
     assert payload["rows_count"] == 1
 
 
@@ -188,9 +212,10 @@ def test_build_account_performance_payload_uses_account_net_liquidation_when_ava
     assert payload is not None
     assert payload["net_liquidation_gross_cny"] == "385539.56"
     assert payload["net_liquidation_cny"] == "240962.225"
-    assert payload["position_market_value_cny"] == "207439.375"
-    assert payload["cash_or_uninvested_cny"] == "33522.850"
-    assert payload["total_pnl_cny"] == "-9037.775"
+    assert payload["position_market_value_cny"] is None
+    assert payload["cash_or_uninvested_cny"] is None
+    assert payload["unexplained_anchor_difference_cny"] == "33522.850"
+    assert payload["total_pnl_cny"] is None
 
 
 def test_reported_account_performance_overlay_adds_cash_and_updates_return_ratio(monkeypatch: pytest.MonkeyPatch):
@@ -229,12 +254,14 @@ def test_reported_account_performance_overlay_adds_cash_and_updates_return_ratio
 
     out = api_main._apply_reported_account_performance(payload, "tonghuashun")
 
-    assert Decimal(out["net_liquidation_gross_cny"]) == Decimal("396031.3600")
-    assert Decimal(out["net_liquidation_cny"]) == Decimal("247519.600000")
-    assert Decimal(out["cash_or_uninvested_cny"]) == Decimal("5294.60000")
-    assert Decimal(out["economic_total_pnl_cny"]) == Decimal("-2480.400000")
-    assert out["total_pnl_cny"] == "-1964.58125"
-    assert Decimal(out["return_ratio"]).quantize(Decimal("0.000001")) == Decimal("-0.007858")
+    for key, value in payload.items():
+        assert out[key] == value
+    assert out["reported_performance"]["status"] == "unverified_configuration"
+    missing = {**payload, "net_liquidation_gross_cny": None, "net_liquidation_cny": None,
+               "total_pnl_cny": None, "return_ratio": None}
+    out_missing = api_main._apply_reported_account_performance(missing, "tonghuashun")
+    assert all(out_missing[key] is None for key in ("net_liquidation_gross_cny", "net_liquidation_cny",
+                                                     "total_pnl_cny", "return_ratio"))
 
 
 def test_holdings_category_today_window_uses_holdings_daily_total(monkeypatch: pytest.MonkeyPatch):
@@ -335,11 +362,11 @@ def test_build_account_performance_rolls_forward_stale_manual_net_liquidation():
                     "holding_pnl_cny": Decimal("-16693.0525"),
                 }
             ],
-            {"market_value": Decimal("366290")},
+            {"market_value": Decimal("366290"), "snapshot_as_of": date(2026, 6, 9)},
             {"cash_delta": Decimal("30749.22")},
             {"previous_as_of": date(2026, 6, 14)},
             {"market_value": Decimal("369308")},
-            {"cash_delta": Decimal("0")},
+            {"cash_delta": Decimal("0"), "fact_ids": []},
         ]
     )
 
@@ -355,12 +382,14 @@ def test_build_account_performance_rolls_forward_stale_manual_net_liquidation():
 
     assert payload is not None
     assert payload["net_liquidation_source"] == "rolled_forward_manual_balance"
-    assert payload["net_liquidation_gross_cny"] == "393661.86"
-    assert payload["net_liquidation_cny"] == "246038.66250"
-    assert payload["cash_or_uninvested_cny"] == "20070.53750"
-    assert payload["total_pnl_cny"] == "-3961.33750"
-    assert payload["daily_pnl_cny"] == "14368.88750"
-    assert payload["daily_pnl_source"] == "rolled_forward_net_liquidation_delta"
+    assert payload["net_liquidation_gross_cny"] == "362912.64"
+    assert payload["net_liquidation_cny"] == "226820.40000"
+    assert payload["cash_or_uninvested_cny"] is None
+    assert payload["unexplained_anchor_difference_cny"] == "852.27500"
+    assert payload["total_pnl_cny"] is None
+    assert payload["daily_pnl_cny"] is None
+    assert payload["daily_pnl_source"] is None
+    assert payload["external_flow_coverage"] == "unknown"
     assert payload["net_liquidation_rollforward"]["cash_delta_gross_cny"] == "30749.22"
 
 
@@ -376,11 +405,11 @@ def test_build_account_performance_masks_stale_daily_pnl_window():
                     "holding_pnl_cny": Decimal("-16693.0525"),
                 }
             ],
-            {"market_value": Decimal("366290")},
+            {"market_value": Decimal("366290"), "snapshot_as_of": date(2026, 6, 9)},
             {"cash_delta": Decimal("30749.22")},
             {"previous_as_of": date(2026, 6, 14)},
             {"market_value": Decimal("369308")},
-            {"cash_delta": Decimal("0")},
+            {"cash_delta": Decimal("0"), "fact_ids": []},
         ]
     )
 
@@ -399,7 +428,7 @@ def test_build_account_performance_masks_stale_daily_pnl_window():
     assert payload["daily_pnl_label_date"] == "2026-06-16"
     assert payload["daily_pnl_effective"] is False
     assert payload["daily_pnl_cny"] is None
-    assert payload["raw_daily_pnl_cny"] == "14368.88750"
+    assert payload["raw_daily_pnl_cny"] is None
 
 
 def _owner_ratio_case_sql(alias: str = "h"):
@@ -541,64 +570,48 @@ def test_snapshot_category_value_series_uses_complete_account_snapshots():
     assert params[1] == date(2026, 6, 19)
 
 
-def test_ibkr_full_trade_return_series_prefers_exact_position_history(monkeypatch: pytest.MonkeyPatch):
-    dates = [date(2026, 6, 2), date(2026, 6, 3)]
-    cur = FakeCursor(
-        [
-            {"exists": True},
-            [
-                {
-                    "sample_date": dates[0],
-                    "as_of": date(2026, 6, 1),
-                    "currency": "USD",
-                    "quantity": Decimal("1"),
-                    "visible_close": Decimal("100"),
-                    "market_value": Decimal("999"),
-                    "cost": Decimal("80"),
-                },
-                {
-                    "sample_date": dates[1],
-                    "as_of": date(2026, 6, 2),
-                    "currency": "USD",
-                    "quantity": Decimal("1"),
-                    "visible_close": Decimal("120"),
-                    "market_value": Decimal("999"),
-                    "cost": Decimal("80"),
-                },
-            ],
-        ]
-    )
-    yfinance_called = False
+def test_legacy_ibkr_estimate_exposes_source_date_and_missing_values():
+    payload = {"summary": {"total_return": "10"}, "today_window": {"amount": "10"}, "rows": [
+        {"date": "2026-06-02", "market_value": "700", "return_rate": "0.1"},
+        {"date": "2026-06-03", "market_value": "0", "return_rate": "0"}]}
+    investment_returns._apply_ibkr_history_coverage(payload, [
+        "ibkr_history_coverage_unverified", "ibkr_history_origins:2026-06-02=2026-06-01",
+        "ibkr_history_missing:2026-06-03"])
+    assert payload["status"] == "partial"
+    assert payload["rows"][0]["market_value"] == "700"
+    assert payload["rows"][0]["ibkr_history_evidence"]["source_as_of"] == "2026-06-01"
+    assert payload["rows"][0]["ibkr_history_evidence"]["status"] == "estimated"
+    assert payload["rows"][1]["market_value"] is None
+    assert all(row["return_rate"] is None for row in payload["rows"])
+    assert payload["summary"]["total_return"] is None and payload["today_window"] is None
 
-    def fake_fetch(*args, **kwargs):
-        nonlocal yfinance_called
-        yfinance_called = True
-        return {}, []
 
-    monkeypatch.setattr(investment_return_ibkr, "_fetch_yfinance_closes", fake_fetch)
-
+def test_ibkr_return_without_history_is_unavailable_without_assuming_zero():
+    day = date(2026, 6, 2)
+    cur = FakeCursor([[]])
     values, costs, warnings = investment_return_ibkr._ibkr_full_trade_return_series(
-        cur,
-        dates=dates,
-        base_currency="CNY",
-        fx_timelines={"USD": [(dates[0], Decimal("7"))]},
-    )
+        cur, dates=[day], base_currency="CNY", fx_timelines={})
+    assert values == {} and costs == {}
+    assert warnings == ["ibkr_position_history_unavailable"]
+    assert len(cur.executed) == 1
 
-    assert values == {dates[0]: Decimal("700"), dates[1]: Decimal("840")}
-    assert costs == {dates[0]: Decimal("560"), dates[1]: Decimal("560")}
-    assert warnings == []
-    assert not yfinance_called
+
+def test_ibkr_return_ignores_obsolete_position_history():
+    cur = FakeCursor([[]])
+    values, costs, warnings = investment_return_ibkr._ibkr_full_trade_return_series(
+        cur, dates=[date(2026, 6, 2)], base_currency="CNY", fx_timelines={})
+    assert values == {} and costs == {} and warnings == ["ibkr_position_history_unavailable"]
+    assert all('pams_ibkr_position_history' not in sql for sql, _ in cur.executed)
 
 
 def test_ibkr_full_trade_return_series_delays_usd_trade_to_beijing_bucket(monkeypatch: pytest.MonkeyPatch):
     dates = [date(2026, 6, 17), date(2026, 6, 18)]
     cur = FakeCursor(
         [
-            {"exists": True},
-            [],
             [{"symbol": "QQQ", "currency": "USD"}],
             [
                 {
+                    "trade_id": 1, "source_table": "ibkr_flex_trade",
                     "trade_date": date(2026, 6, 17),
                     "symbol": "QQQ",
                     "currency": "USD",
@@ -611,6 +624,8 @@ def test_ibkr_full_trade_return_series_delays_usd_trade_to_beijing_bucket(monkey
         ]
     )
 
+    from domain.brokers.ibkr import ibkr_fact_source_verification
+    monkeypatch.setattr(ibkr_fact_source_verification, 'verify_ibkr_fact', lambda *a, **k: {'status':'consistent','unknown_fields':[]})
     monkeypatch.setattr(
         investment_return_ibkr,
         "_fetch_yfinance_closes",
@@ -631,18 +646,33 @@ def test_ibkr_full_trade_return_series_delays_usd_trade_to_beijing_bucket(monkey
     assert costs[dates[0]] == Decimal("0")
     assert values[dates[1]] == Decimal("840")
     assert costs[dates[1]] == Decimal("700")
-    assert warnings == []
+    assert "ibkr_history_coverage_unverified" in warnings
+    assert "ibkr_history_missing:2026-06-17" in warnings
+
+
+def test_ibkr_unknown_trade_tax_marks_reconstructed_value_unavailable(monkeypatch: pytest.MonkeyPatch):
+    day = date(2026, 6, 18)
+    cur = FakeCursor([[{"symbol": "QQQ", "currency": "USD"}], [{"trade_id":1,"source_table":"ibkr_flex_trade",
+        "trade_date": date(2026, 6, 17), "symbol": "QQQ", "currency": "USD",
+        "quantity": Decimal("1"), "gross_amount": Decimal("100"), "commission": Decimal("0"),
+        "net_cash": Decimal("-100"), "tax_known": False}]])
+    from domain.brokers.ibkr import ibkr_fact_source_verification
+    monkeypatch.setattr(ibkr_fact_source_verification, 'verify_ibkr_fact', lambda *a, **k: {'status':'consistent','unknown_fields':[]})
+    monkeypatch.setattr(investment_return_ibkr, "_fetch_yfinance_closes",
+        lambda *args, **kwargs: ({"QQQ": {day: Decimal("120")}}, []))
+    _, _, warnings = investment_return_ibkr._ibkr_full_trade_return_series(
+        cur, dates=[day], base_currency="CNY", fx_timelines={"USD": [(day, Decimal("7"))]})
+    assert "ibkr_history_missing:2026-06-18" in warnings
 
 
 def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest.MonkeyPatch):
     dates = [date(2026, 5, 10), date(2026, 5, 11)]
     cur = FakeCursor(
         [
-            {"exists": True},
-            [],
             [{"symbol": "000660.KS", "currency": "KRW"}],
             [
                 {
+                    "trade_id": 1, "source_table": "ibkr_flex_trade",
                     "trade_date": date(2026, 5, 11),
                     "symbol": "000660.KS",
                     "currency": "KRW",
@@ -655,6 +685,8 @@ def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest
         ]
     )
 
+    from domain.brokers.ibkr import ibkr_fact_source_verification
+    monkeypatch.setattr(ibkr_fact_source_verification, 'verify_ibkr_fact', lambda *a, **k: {'status':'consistent','unknown_fields':[]})
     monkeypatch.setattr(
         investment_return_ibkr,
         "_fetch_yfinance_closes",
@@ -671,14 +703,15 @@ def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest
         fx_timelines={"KRW": [(dates[1], Decimal("0.00447"))]},
     )
 
-    symbol_query_markets = cur.executed[2][1][0]
-    trade_query_markets = cur.executed[3][1][2]
+    symbol_query_markets = cur.executed[0][1][0]
+    trade_query_markets = cur.executed[1][1][2]
     assert "\u97e9\u80a1" in symbol_query_markets
     assert "\u97e9\u80a1" in trade_query_markets
     assert values[dates[0]] == Decimal("0")
     assert values[dates[1]] == Decimal("8940.00000")
     assert costs[dates[1]] == Decimal("83907.51432")
-    assert warnings == []
+    assert "ibkr_history_coverage_unverified" in warnings
+    assert "ibkr_history_missing:2026-05-10" in warnings
 
 
 def test_overlay_exact_snapshot_values_replaces_only_confirmed_dates(monkeypatch: pytest.MonkeyPatch):
@@ -933,6 +966,22 @@ def test_build_section_return_series_payload_injects_us_stock_warning(monkeypatc
     assert "missing Yahoo close: TEST" in payload["coverage_notes"]
 
 
+def test_us_stock_return_missing_history_has_no_zero_curve(monkeypatch: pytest.MonkeyPatch):
+    day = date(2026, 1, 1)
+    monkeypatch.setattr(investment_returns, "_section_first_activity_date", lambda cur, section: day)
+    monkeypatch.setattr(investment_returns, "load_fx_timelines", lambda cur, base_currency: {})
+    payload = build_section_return_series_payload(
+        FakeCursor([[]]), section="us_stock", start_date=day,
+        interval="daily", base_currency="CNY", view_as_of=day, reported_returns_cfg={},
+        overview_payload={"accounts": []}, owner_ratio_case_sql=_owner_ratio_case_sql,
+        account_owner_ratio=_account_owner_ratio, excluded_holding_accounts=set(), today_label_date=day)
+    assert payload["status"] == "unavailable"
+    assert payload["reason"] == "ibkr_position_history_unavailable"
+    assert payload["rows"][0]["market_value"] is None
+    assert payload["rows"][0]["time_weighted_return_rate"] is None
+    assert payload["summary"]["total_return"] is None and payload["today_window"] is None
+
+
 def test_ibkr_today_window_uses_snapshot_price_against_latest_confirmed_close():
     cur = FakeCursor(
         [
@@ -986,8 +1035,10 @@ def test_ibkr_today_window_clears_after_daily_pnl_rollover_when_data_is_stale():
         "label_date": "2026-06-16",
         "baseline_date": "2026-06-15",
         "latest_date": "2026-06-15",
-        "total_return": "0",
-        "return_rate": "0",
+        "total_return": None,
+        "return_rate": None,
+        "status": "unavailable",
+        "reason": "stale_snapshot",
     }
 
 
@@ -1075,6 +1126,19 @@ def test_build_investment_return_series_payload_preserves_legacy_shape(monkeypat
     assert payload["end"] == "2026-01-02"
     assert payload["method"] == "coverage_adjusted_daily_return"
     assert {"date", "market_value", "cost", "position_pnl", "total_pnl", "return_rate"} <= set(payload["rows"][-1])
+
+
+def test_total_return_with_unknown_ibkr_history_is_not_partial_zero(monkeypatch: pytest.MonkeyPatch):
+    _patch_total_return_extras(monkeypatch, warning="ibkr_position_history_unavailable")
+    payload = build_investment_return_series_payload(
+        FakeCursor([_base_total_return_rows()]), start_date=date(2026, 1, 1), interval="daily",
+        base_currency="CNY", view_as_of=date(2026, 1, 2), overview_payload={"accounts": []},
+        reported_returns_cfg={}, owner_ratio_case_sql=_owner_ratio_case_sql,
+        account_owner_ratio=_account_owner_ratio, account_initial_capital_cny=lambda account: None,
+        today_label_date=date(2026, 1, 2))
+    assert payload["status"] == "unavailable" and payload["today_window"] is None
+    assert all(row["market_value"] is None and row["total_pnl"] is None
+               and row["time_weighted_return_rate"] is None for row in payload["rows"])
 
 
 def test_build_investment_return_series_payload_keeps_a_stock_net_liquidation(monkeypatch: pytest.MonkeyPatch):
@@ -1231,3 +1295,55 @@ def test_build_investment_return_series_payload_injects_ibkr_warning(monkeypatch
     )
 
     assert any(item.get("reason") == "missing Yahoo close: TEST" for item in payload["coverage_notes"])
+
+
+def test_esop_missing_same_day_fx_does_not_become_zero(monkeypatch):
+    _patch_total_return_extras(monkeypatch)
+    args=dict(start_date=date(2026,1,1),interval='daily',base_currency='CNY',view_as_of=date(2026,1,2),
+              overview_payload={'accounts':[{'account_code':'huawei_stock','include_in_nav':True,
+                  'primary_balance':{'amount':'100','currency':'USD'}}]},reported_returns_cfg={},
+              owner_ratio_case_sql=_owner_ratio_case_sql,account_owner_ratio=_account_owner_ratio,
+              account_initial_capital_cny=lambda account:None)
+    payload=build_investment_return_series_payload(FakeCursor([_base_total_return_rows()]),**args)
+    assert payload['status']=='unavailable' and payload['reason']=='fx_rate_unknown'
+    assert all(row['total_pnl'] is None for row in payload['rows'])
+    monkeypatch.setattr(investment_returns,'load_fx_timelines',lambda cur,base_currency:{'USD':[(date(2026,1,2),Decimal('7'))]})
+    payload=build_investment_return_series_payload(FakeCursor([_base_total_return_rows()]),**args)
+    assert payload.get('status')!='unavailable'
+
+
+def test_missing_ibkr_official_sources_allow_verified_generic_coverage(monkeypatch):
+    from domain.accounts import official_flow_coverage, flow_coverage
+    from domain.investments import investment_returns as service
+    from datetime import timedelta
+
+    end=date(2026,6,18); start=end-timedelta(days=1)
+    class Conn:
+        autocommit=False
+    class Cursor:
+        connection=Conn()
+        def execute(self,query,params=None):
+            self.query=query
+        def fetchone(self):
+            if 'MAX(as_of)' in self.query:
+                return {'previous_day':start}
+            return {'isolation':'repeatable read'}
+    monkeypatch.setattr(official_flow_coverage,'_source',lambda *_:None)
+    monkeypatch.setattr(official_flow_coverage,'_source_present',lambda *_:False)
+    monkeypatch.setattr(official_flow_coverage,'_view_date',lambda:end)
+    monkeypatch.setattr(flow_coverage,'has_unvalued_non_cash_transfer',lambda *_:False)
+    monkeypatch.setattr(service,'_cash_delta_cny',lambda *a,**kw:None)
+    monkeypatch.setattr(service,'load_account_balance_basis',lambda *a,**kw:{
+        'as_of':end,'rows':[],'position_value_gross':Decimal(110),'holding_pnl_gross':None,
+        'net_gross':Decimal(110),'net_personal':Decimal(110),'net_liquidation_source':'current_snapshot',
+        'net_liquidation_rollforward':None,'previous_net_gross':Decimal(100),'previous_as_of':start,
+        'cash_value_gross':Decimal(10),'securities_value_gross':Decimal(100),'other_liabilities_gross':Decimal(0)})
+    proof={'start':start,'end':end,'opening_gross_cny':Decimal(100),'closing_gross_cny':Decimal(110),
+           'external_flow_gross_cny':Decimal(0),'basis':'reviewed_source_reports'}
+    monkeypatch.setattr(flow_coverage,'latest_verified_period',lambda *a,**kw:proof)
+    monkeypatch.setattr(flow_coverage,'verified_period',lambda *a,**kw:proof)
+    result=service.build_account_performance_payload(Cursor(),account_code='ibkr',owner_ratio=Decimal(1),
+        initial_capital=Decimal(100),initial_capital_as_of=start)
+    assert Decimal(result['daily_pnl_cny'])==Decimal(10)
+    assert Decimal(result['total_pnl_cny'])==Decimal(10)
+    assert result['daily_pnl_source']=='verified_reviewed_source_period'

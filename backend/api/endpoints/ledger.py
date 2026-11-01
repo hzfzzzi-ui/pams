@@ -65,7 +65,9 @@ def _manual_category(cashflow_type: str, category: str | None, subcategory: str 
 
 def get_conn():
     """Create a Postgres connection using the same environment as the API."""
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -83,6 +85,7 @@ def ledger_workbench(
     """Return cashflow KPI, category, trend, and review rows for the ledger page."""
 
     with get_conn() as conn:
+        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return build_ledger_workbench_payload(cur, month=month, base_currency=baseCurrency.upper(), recent_days=recentDays)
 

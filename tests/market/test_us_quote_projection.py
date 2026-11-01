@@ -105,8 +105,9 @@ def pg_projection(monkeypatch):
                 )
             """)
             cur.execute("""
-                CREATE TEMP TABLE pams_market_quote_snapshot (
-                    quote_id BIGSERIAL PRIMARY KEY, quote_date DATE NOT NULL,
+                CREATE TEMP TABLE market_observations (
+                    quote_id BIGSERIAL PRIMARY KEY, observation_type TEXT NOT NULL,
+                    as_of DATE NOT NULL, quote_date DATE GENERATED ALWAYS AS (as_of) STORED,
                     asset_id VARCHAR(120), symbol TEXT, name TEXT, market TEXT,
                     currency VARCHAR(10) NOT NULL DEFAULT 'CNY', provider TEXT NOT NULL,
                     source TEXT NOT NULL, source_key TEXT NOT NULL,
@@ -118,10 +119,12 @@ def pg_projection(monkeypatch):
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     CHECK (quote_session IN ('open','close','premarket','intraday','afterhours','overnight','nav','unknown')),
-                    CHECK (return_status IN ('pending','estimated','confirmed')),
-                    UNIQUE (quote_date, provider, source_key, quote_session)
+                    CHECK (return_status IN ('pending','estimated','confirmed'))
                 )
             """)
+            cur.execute("""CREATE UNIQUE INDEX quote_test_key
+                ON market_observations (as_of, provider, source_key, quote_session)
+                WHERE observation_type = 'quote'""")
             cur.execute("""
                 CREATE TEMP TABLE pams_ohlcv_daily (
                     symbol TEXT, market TEXT, trade_date DATE, close NUMERIC(12,4),
@@ -131,7 +134,7 @@ def pg_projection(monkeypatch):
             cur.execute("""
                 SELECT count(*) FROM pg_class
                 WHERE oid IN ('pams_holdings_snapshot'::regclass,
-                              'pams_market_quote_snapshot'::regclass,
+                              'market_observations'::regclass,
                               'pams_ohlcv_daily'::regclass) AND relpersistence = 't'
             """)
             assert cur.fetchone()[0] == 3
@@ -175,7 +178,7 @@ def _holdings_bytes(conn):
 
 def _quote_rows(conn):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT * FROM pams_market_quote_snapshot ORDER BY quote_id")
+        cur.execute("SELECT * FROM market_observations WHERE observation_type='quote' ORDER BY quote_id")
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -209,14 +212,36 @@ def _business_rows(rows):
 def _project(conn, enabled=True, as_of=QUOTE_DAY):
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(f"""
-            WITH {holdings_view.COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
-                SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
-                  ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+            WITH {holdings_view.LATEST_KNOWN_HOLDINGS_CTE}, source_holdings AS (
+                SELECT * FROM latest_known_holding
             ), {quote_valuation_cte(enabled)}
             SELECT h.* FROM h ORDER BY id
         """, (as_of,))
         assert tuple(column.name for column in cur.description) == H_COLUMNS
         return {row["symbol"]: dict(row) for row in cur.fetchall()}
+
+
+def test_latest_known_members_do_not_collapse_different_currencies(pg_projection):
+    conn = pg_projection
+    older = _position("DUAL", "USD", 3, 10, day=BASE_DAY)
+    newer = _position("DUAL", "HKD", 4, 20, day=QUOTE_DAY)
+    newer["name"] = "DUAL HKD"
+    _insert(conn, "pams_holdings_snapshot", [older, newer])
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(f"WITH {holdings_view.LATEST_KNOWN_HOLDINGS_CTE} SELECT symbol, currency, quantity FROM latest_known_holding WHERE symbol = %s ORDER BY currency", (QUOTE_DAY, "DUAL"))
+        assert [(row["currency"], row["quantity"]) for row in cur.fetchall()] == [("HKD", Decimal(4)), ("USD", Decimal(3))]
+
+
+def test_latest_known_members_do_not_merge_distinct_names_with_same_symbol(pg_projection):
+    conn = pg_projection
+    older = _position("DUAL", "USD", 3, 10, day=BASE_DAY)
+    newer = _position("DUAL", "USD", 4, 20, day=QUOTE_DAY)
+    older["name"] = "DUAL first listing"
+    newer["name"] = "DUAL second listing"
+    _insert(conn, "pams_holdings_snapshot", [older, newer])
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(f"WITH {holdings_view.LATEST_KNOWN_HOLDINGS_CTE} SELECT name FROM latest_known_holding WHERE symbol = %s ORDER BY name", (QUOTE_DAY, "DUAL"))
+        assert [row["name"] for row in cur.fetchall()] == ["DUAL first listing", "DUAL second listing"]
 
 
 def _refresh(conn):
@@ -244,9 +269,8 @@ def test_pg16_account_date_never_confirms_other_markets_old_price(pg_projection,
     _refresh(conn)
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(f"""
-            WITH {holdings_view.COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
-                SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
-                  ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+            WITH {holdings_view.LATEST_KNOWN_HOLDINGS_CTE}, source_holdings AS (
+                SELECT * FROM latest_known_holding
             ), {quote_valuation_cte(enabled)}
             SELECT h.*, {quote_price_as_of(enabled)} AS snapshot_as_of,
                    99::numeric AS daily_pnl, 99::numeric AS daily_total_pnl_cny FROM h
@@ -256,12 +280,14 @@ def test_pg16_account_date_never_confirms_other_markets_old_price(pg_projection,
     output = holdings_view._suppress_stale_daily_pnl(rows, QUOTE_DAY)
     for row in output:
         quoted = enabled and row["symbol"] in US_SYMBOLS
-        assert row["snapshot_as_of"] == (QUOTE_DAY if quoted else BASE_DAY)
-        assert row["as_of"] == (QUOTE_DAY if enabled else BASE_DAY)
-        assert row["daily_pnl"] == (Decimal(99) if quoted else Decimal(0))
-        assert row["daily_total_pnl_cny"] == (Decimal(99) if quoted else Decimal(0))
-        assert row.get("daily_pnl_stale", False) is not quoted
-        if not quoted:
+        actual_current = row["symbol"] == "005930.KS"
+        fresh = quoted or actual_current
+        assert row["snapshot_as_of"] == (QUOTE_DAY if fresh else BASE_DAY)
+        assert row["as_of"] == (QUOTE_DAY if enabled or actual_current else BASE_DAY)
+        assert row["daily_pnl"] == (Decimal(99) if fresh else None)
+        assert row["daily_total_pnl_cny"] == (Decimal(99) if fresh else None)
+        assert row.get("daily_pnl_stale", False) is not fresh
+        if not fresh:
             assert row["daily_pnl_as_of"] == BASE_DAY
 
 
@@ -327,16 +353,16 @@ def _assert_marked(baseline, marked):
         assert row["as_of"] == QUOTE_DAY
     assert changed == set(US_SYMBOLS)
     assert len(CASH_SYMBOLS & marked.keys()) == 5
-    assert marked["005930.KS"]["quantity"] == Decimal(37)
-    assert marked["005930.KS"]["cost"] == baseline["005930.KS"]["cost"] != Decimal("777777.13")
+    assert marked["005930.KS"]["quantity"] == Decimal(999)
+    assert marked["005930.KS"]["cost"] == baseline["005930.KS"]["cost"] == Decimal("777777.13")
 
 
-def test_pg16_old_eight_holding_writes_flip_partial_into_complete(pg_projection, monkeypatch):
+def test_pg16_eight_holding_writes_preserve_other_known_members(pg_projection, monkeypatch):
     conn = pg_projection
     physical = _holdings_bytes(conn)
     baseline = _project(conn, enabled=False)
     assert len(baseline) == 16
-    assert {row["as_of"] for row in baseline.values()} == {BASE_DAY}
+    assert {row["as_of"] for row in baseline.values()} == {BASE_DAY, QUOTE_DAY}
 
     class SavepointConnection:
         def __enter__(self):
@@ -359,9 +385,9 @@ def test_pg16_old_eight_holding_writes_flip_partial_into_complete(pg_projection,
             patch.setattr(prices, "_get_conn", lambda: SavepointConnection())
             assert prices._upsert_price_snapshots(rows, MARKS, QUOTE_DAY) == 8
         flipped = _project(conn, enabled=False)
-        assert len(flipped) == 9
-        assert set(flipped) == set(US_SYMBOLS) | {"005930.KS"}
-        assert set(baseline) - set(flipped) == CASH_SYMBOLS | {"0700.HK", "VOLV-B.ST"}
+        assert len(flipped) == 16
+        assert set(flipped) == set(baseline)
+        assert CASH_SYMBOLS | {"0700.HK", "VOLV-B.ST"} <= set(flipped)
         assert flipped["005930.KS"]["quantity"] == Decimal(999)
         assert flipped["005930.KS"]["cost"] == Decimal("777777.13")
     finally:
@@ -506,7 +532,9 @@ def test_pg16_official_same_day_complete_snapshot_beats_old_estimate(pg_projecti
     physical = _holdings_bytes(conn)
     official = _project(conn, enabled=False)
     assert len(official) == 16
-    assert official["005930.KS"]["quantity"] == baseline["005930.KS"]["quantity"]
+    # This explicit same-day upsert replaces the prior 999-share row with
+    # the imported 37-share source; the reader must reflect that write.
+    assert official["005930.KS"]["quantity"] == Decimal(37)
     assert official["AAPL"]["quantity"] == baseline["AAPL"]["quantity"] + 2
     assert official["AAPL"]["cost"] == baseline["AAPL"]["cost"] + 13
     assert official["AAPL"]["current_price"] == Decimal("111.25")

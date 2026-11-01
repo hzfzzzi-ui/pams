@@ -10,7 +10,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import psycopg2
 
 from collectors.ibkr_flex import IBKRFlexError
 from domain.brokers.ibkr import ibkr_report_state as report_state
@@ -19,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[5]
 
 
 def get_conn():
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -54,7 +55,7 @@ def _ib_date(value: str | None) -> str | None:
     return text
 
 
-def _latest_flex_xml_path() -> Path | None:
+def _latest_flex_xml_path() -> Path | report_state.StoredReport | None:
     with get_conn() as conn:
         report, _ = report_state.select_report(conn, _raw_dir())
     return report.path if report else None
@@ -95,7 +96,7 @@ def read_published_performance() -> dict[str, Any] | None:
     return result
 
 
-def apply_daily_close(result: dict[str, Any], source_path: Path, *, cur=None,
+def apply_daily_close(result: dict[str, Any], source_path: Path | report_state.StoredReport, *, cur=None,
                       period_start: date | None = None) -> dict[str, Any]:
     """Use separately approved close evidence without importing it as transactions."""
     from domain.brokers.ibkr import ibkr_daily_close_read as daily
@@ -139,7 +140,9 @@ def _latest_usd_cny_rate() -> Decimal | None:
                 SELECT rate
                 FROM pams_fx_rates_daily
                 WHERE base_currency = 'CNY'
-                  AND quote_currency = 'USD'
+                  AND quote_currency = 'USD' AND as_of <= CURRENT_DATE
+                  AND NULLIF(BTRIM(source),'') IS NOT NULL AND rate > 0
+                  AND rate::text NOT IN ('NaN','Infinity','-Infinity')
                 ORDER BY as_of DESC
                 LIMIT 1
                 """
@@ -148,8 +151,8 @@ def _latest_usd_cny_rate() -> Decimal | None:
     return _dec(row[0]) if row else None
 
 
-def _parse_flex_performance(path: Path, *, include_display_fx: bool = True) -> dict[str, Any]:
-    root = ET.parse(path).getroot()
+def _parse_flex_performance(path: Path | report_state.StoredReport, *, include_display_fx: bool = True) -> dict[str, Any]:
+    root = ET.fromstring(path.read_bytes())
 
     cash_rows = [
         elem.attrib

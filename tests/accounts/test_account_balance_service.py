@@ -17,6 +17,13 @@ from domain.investments import portfolio_state  # noqa: E402
 from domain.investments.investment_returns import build_account_performance_payload  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def proven_scope(monkeypatch):
+    monkeypatch.setattr(account_balance, 'load_account_snapshot_coverage',
+        lambda cur, pairs: {pair: {'status':'complete'} for pair in pairs})
+    monkeypatch.setattr(account_balance, '_cash_source_schema_available', lambda cur: True)
+
+
 class Cursor:
     def __init__(self, rows):
         self.rows = list(rows)
@@ -37,12 +44,12 @@ def values(cash_delta, *, previous=True):
     rows = [
         {"as_of": date(2026, 10, 22)},
         [{"market_value_cny": Decimal("900"), "holding_pnl_cny": Decimal("50")}],
-        {"market_value": Decimal("800")},
+        {"market_value": Decimal("800"), "snapshot_as_of": date(2026,10,20)},
         {"cash_delta": cash_delta},
         {"previous_as_of": date(2026, 10, 21) if previous else None},
     ]
     if previous:
-        rows += [{"market_value": Decimal("850")}, {"cash_delta": Decimal("3")}]
+        rows += [{"market_value": Decimal("850")}]
     return rows
 
 
@@ -56,29 +63,28 @@ def test_balance_and_performance_share_exact_rollforward(delta, ratio):
                   net_liquidation_as_of=date(2026, 10, 20))
     cur = Cursor(values(delta))
     result = account_balance.load_account_balance_basis(cur, **kwargs)
-    expected_gross = Decimal("1000") + (Decimal("900") - Decimal("800")) + delta
+    expected_gross = Decimal("1000") + (Decimal("900") - Decimal("800"))
     assert result["net_gross"] == expected_gross
     assert result["net_personal"] == expected_gross * ratio
-    assert result["previous_net_gross"] == Decimal("1053")
+    assert result["previous_net_gross"] == Decimal("1050")
     assert result["net_liquidation_source"] == "rolled_forward_manual_balance"
     assert result["net_liquidation_rollforward"]["cash_delta_gross_cny"] == str(delta)
-    assert len(cur.executed) == 7
+    assert len(cur.executed) == 6
     sql, params = cur.executed[3]
-    assert "affects_cash" in sql and "net_cash_cny" in sql and "net_cash * fx_rate_to_cny" in sql
+    assert "affects_cash" in sql and "f.net_cash * fx.rate" in sql and "r.as_of=f.trade_date" in sql
     assert params == ("tonghuashun", date(2026, 10, 20), date(2026, 10, 22))
     assert cur.executed[4][1] == (date(2026, 10, 22), "tonghuashun", date(2026, 10, 22))
 
-    other = Cursor(values(delta))
+    other = Cursor(values(delta) + [{"cash_delta": Decimal("-5"), "fact_ids": []}])
     pnl = build_account_performance_payload(other, initial_capital=Decimal("2000"), **kwargs)
     assert pnl["net_liquidation_cny"] == str(expected_gross * ratio)
-    assert pnl["total_pnl_cny"] == str(expected_gross * ratio - Decimal("2000") * ratio)
-    assert pnl["raw_daily_pnl_cny"] == str((expected_gross - Decimal("1053")) * ratio)
-    assert pnl["return_ratio"] == (
-        str((expected_gross * ratio - Decimal("2000") * ratio) / (Decimal("2000") * ratio))
-        if ratio else None
-    )
+    assert pnl["total_pnl_cny"] is None and pnl["return_ratio"] is None
+    assert pnl["raw_daily_pnl_cny"] is None and pnl["daily_pnl_cny"] is None
+    assert pnl["external_flow_coverage"] == "unknown"
+    assert Decimal(pnl["observed_external_net_flow_cny"]) == Decimal("-5") * ratio
     assert pnl["net_liquidation_rollforward"] == result["net_liquidation_rollforward"]
-    assert cur.executed == other.executed
+    assert cur.executed == other.executed[:-1]
+    assert "f.trade_type IN ('deposit','withdraw')" in other.executed[-1][0]
 
 
 @pytest.mark.parametrize("anchor", [None, date(2026, 10, 22), date(2026, 10, 23), "2026-10-22"])
@@ -102,13 +108,13 @@ def test_missing_snapshot_empty_positions_and_no_previous_close():
     assert account_balance.load_account_balance_basis(cur, account_code="x", owner_ratio=Decimal("1")) is None
     cur = Cursor([{"as_of": date(2026, 10, 22)}, []])
     result = account_balance.load_account_balance_basis(cur, account_code="x", owner_ratio=Decimal("1"))
-    assert result["net_personal"] == 0 and result["rows"] == []
+    assert result is None
     cur = Cursor(values(Decimal("-2000"), previous=False))
     result = account_balance.load_account_balance_basis(
         cur, account_code="tonghuashun", owner_ratio=Decimal("0.625"),
         net_liquidation_gross=Decimal("1000"), net_liquidation_as_of="2026-10-20",
     )
-    assert result["net_personal"] == Decimal("-562.500")
+    assert result["net_personal"] == Decimal("687.500")
     assert result["previous_net_gross"] is None
     assert len(cur.executed) == 5
 
@@ -121,8 +127,8 @@ def test_balance_no_longer_imports_return_modules_and_preserves_shape(monkeypatc
         account_code="tonghuashun", owner_ratio=Decimal("0.625"),
         manual_balance={"amount": "1000", "currency": "CNY", "as_of": "2026-10-20"},
     )
-    assert result == {"amount": Decimal("681.250"), "currency": "CNY",
-                      "amount_cny": Decimal("681.250"), "as_of": "2026-10-22",
+    assert result == {"amount": Decimal("687.500"), "currency": "CNY",
+                      "amount_cny": Decimal("687.500"), "as_of": "2026-10-22",
                       "source": "rolled_forward_manual_balance"}
     for module in (account_balance, portfolio_state):
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
@@ -157,3 +163,20 @@ def test_balance_query_failure_still_falls_back():
         manual_balance={"amount": "1000", "currency": "CNY", "as_of": "2026-10-20"},
         owner_ratio=Decimal("1"),
     ) is None
+
+
+def test_rollforward_never_treats_missing_fx_cash_as_zero():
+    cur=Cursor(values(None))
+    result=account_balance.load_account_balance_basis(cur,account_code='tonghuashun',owner_ratio=Decimal(1),
+        net_liquidation_gross=Decimal(1000),net_liquidation_as_of=date(2026,10,20))
+    assert result['net_gross'] == Decimal('1100')
+    assert result['net_liquidation_rollforward']['cash_delta_gross_cny'] is None
+    assert 'f.net_cash * fx.rate' in cur.executed[3][0]
+    assert "r.as_of=f.trade_date" in cur.executed[3][0]
+
+
+def test_unverified_scope_does_not_claim_account_total(monkeypatch):
+    monkeypatch.setattr(account_balance,'load_account_snapshot_coverage',
+        lambda cur,pairs:{pair:{'status':'unknown'} for pair in pairs})
+    cur=Cursor([{'as_of':date(2026,10,22)}])
+    assert account_balance.load_account_balance_basis(cur,account_code='tonghuashun',owner_ratio=Decimal(1)) is None

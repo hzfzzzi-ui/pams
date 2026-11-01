@@ -10,9 +10,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 import hashlib
-import logging
-import tempfile
-from uuid import uuid4
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -20,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import psycopg2.extras
-from psycopg2.extras import Json
 import requests
 from domain.assets.alias_policy import identity_alias_sql
 from domain.brokers.ibkr import ibkr_report_state as report_state
@@ -29,7 +26,6 @@ from domain.brokers.ibkr import ibkr_cash_events
 FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 SYNC_SOURCE = "ibkr_flex"
 USER_AGENT = "PAMS-IBKR-Flex/1.0"
-logger = logging.getLogger(__name__)
 
 
 class IBKRFlexError(RuntimeError):
@@ -184,6 +180,8 @@ def request_flex_reference(
     timeout: int = 30,
 ) -> dict[str, str | None]:
     """Request generation of a configured Flex Query and return its reference code."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     response = requests.get(
         f"{base_url.rstrip('/')}/SendRequest",
         params={"t": token, "q": query_id, "v": flex_version},
@@ -231,6 +229,8 @@ def fetch_flex_statement(
     wait_seconds: float = 5.0,
 ) -> str:
     """Fetch the generated Flex XML report, retrying while IBKR is still preparing it."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     url = pickup_url or f"{base_url.rstrip('/')}/GetStatement"
     last_pending: str | None = None
     for attempt in range(1, attempts + 1):
@@ -284,6 +284,16 @@ def _position_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> 
     name = _safe_name(description if description.upper() == symbol else f"{symbol} - {description}")
 
     row_as_of = _parse_ib_date(_attr(attrs, "reportDate", "date")) or fallback_as_of
+    # Use the explicitly reported contract type; retain the existing stock path.
+    from domain.brokers.ibkr.ibkr_instrument_types import SECURITY_LABELS
+    contract_type = _attr(attrs, "assetCategory", default="")
+    minor = SECURITY_LABELS.get(contract_type)
+    if minor:
+        major_category, minor_category = "其他", minor
+    elif contract_type == "STK":
+        major_category, minor_category = "美股", "美股基金"
+    else:
+        major_category, minor_category = "其他", "待分类"
     return {
         "source_account_id": _attr(attrs, "accountId", "acctId", default=None),
         "symbol": symbol,
@@ -291,8 +301,8 @@ def _position_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> 
         "asset_liability": "资产" if market_value >= 0 else "负债",
         "currency": currency,
         "account_code": account_code,
-        "major_category": "美股",
-        "minor_category": "美股基金",
+        "major_category": major_category,
+        "minor_category": minor_category,
         "market_value": market_value,
         "cost": cost,
         "quantity": quantity,
@@ -312,8 +322,18 @@ def _cash_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> dict
         ["endingCash", "endingSettledCash", "totalCash", "settledCash", "cash"],
         None,
     )
-    if cash is None or abs(cash) < 1e-8:
+    if cash is None:
         return None
+    if cash == 0:
+        # Only an explicit report-date ending balance can prove a zero cash member.
+        from decimal import Decimal, InvalidOperation
+        values=[v for key,v in attrs.items() if key.lower()=='endingcash']
+        try:
+            if (len(values)!=1 or not Decimal(values[0]).is_finite() or Decimal(values[0])!=0
+                    or _parse_ib_date(_attr(attrs, 'toDate'))!=fallback_as_of):
+                return None
+        except (InvalidOperation,ValueError):
+            return None
 
     return {
         "source_account_id": _attr(attrs, "accountId", "acctId", default=None),
@@ -416,7 +436,7 @@ def _trade_row(elem: ET.Element, account_code: str, fallback_as_of: date) -> dic
     }
 
 
-def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParseResult:
+def parse_flex_report(xml_text: str, *, account_code: str = "ibkr", allow_empty_holdings: bool = False) -> FlexParseResult:
     """Parse IBKR Flex XML into PAMS holdings rows."""
     try:
         root = ET.fromstring(xml_text)
@@ -482,7 +502,14 @@ def parse_flex_report(xml_text: str, *, account_code: str = "ibkr") -> FlexParse
                 cash_events.append(envelope)
 
     if not history_rows:
-        raise IBKRFlexError("No holdings or cash rows were parsed from the IBKR Flex report")
+        if not allow_empty_holdings:
+            raise IBKRFlexError("No holdings or cash rows were parsed from the IBKR Flex report")
+        statement_dates=[_parse_ib_date(statement.get('toDate')) for statement in statements]
+        statement_dates=[day for day in statement_dates if day is not None]
+        if not statement_dates:
+            raise IBKRFlexError('No explicit statement date in IBKR cash report')
+        return FlexParseResult(rows=[],statement_as_of=max(statement_dates),source_account_ids=sorted(source_accounts),
+            trades=trades,history_rows=[],cash_movements=cash_movements,cash_events=cash_events)
 
     row_dates = [r["as_of"] for r in history_rows if isinstance(r.get("as_of"), date)]
     statement_as_of = max(row_dates)
@@ -506,144 +533,16 @@ def default_data_dir() -> Path:
     return Path(os.environ.get("PAMS_DATA_DIR", "/app/data"))
 
 
-def save_raw_flex_xml(xml_text: str, query_id: str, *, raw_dir: Path | None = None) -> Path:
-    """Persist a downloaded Flex XML report under `data/raw/ibkr`."""
-    directory = raw_dir or (default_data_dir() / "raw" / "ibkr")
-    directory.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    safe_query = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(query_id))[:80]
-    path = directory / f"{stamp}_query_{safe_query}_{uuid4().hex}.xml"
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=directory, suffix=".pending", delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(xml_text.encode("utf-8"))
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    return path
+def _require_schema_table(conn, table: str) -> None:
+    """Require provisioned schema; never run DDL from a sync request."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", ("public." + table,))
+        if not cur.fetchone()[0]:
+            raise IBKRFlexError(f"Required IBKR schema table is missing: {table}")
 
 
 def ensure_sync_table(conn) -> None:
-    """Create the generic sync run table used by collector status endpoints."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pams_data_sync_runs (
-                id BIGSERIAL PRIMARY KEY,
-                sync_key TEXT NOT NULL,
-                asset_scope TEXT NOT NULL,
-                target_trade_date DATE,
-                status TEXT NOT NULL,
-                started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                finished_at TIMESTAMPTZ,
-                latest_trade_date_before DATE,
-                latest_trade_date_after DATE,
-                rows_upserted INTEGER,
-                summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                error_text TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_pams_data_sync_runs_sync_key_started_at
-                ON pams_data_sync_runs (sync_key, started_at DESC)
-            """
-        )
-
-
-def ensure_ibkr_trade_table(conn) -> None:
-    """Create the local read-only IBKR trade ledger used for reconciliation."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pams_ibkr_trades (
-                id BIGSERIAL PRIMARY KEY,
-                account_code VARCHAR(50) NOT NULL REFERENCES pams_accounts(account_code),
-                source_account_id TEXT,
-                source_trade_key TEXT NOT NULL,
-                trade_id TEXT,
-                transaction_id TEXT,
-                order_id TEXT,
-                symbol VARCHAR(100) NOT NULL,
-                name VARCHAR(200) NOT NULL,
-                currency VARCHAR(10) NOT NULL,
-                asset_category TEXT,
-                trade_date DATE NOT NULL,
-                side VARCHAR(12),
-                quantity NUMERIC(28, 10),
-                price NUMERIC(28, 10),
-                gross_amount NUMERIC(28, 10),
-                commission NUMERIC(28, 10),
-                net_cash NUMERIC(28, 10),
-                realized_pnl NUMERIC(28, 10),
-                raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                UNIQUE (account_code, source_trade_key)
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_pams_ibkr_trades_trade_date
-                ON pams_ibkr_trades (trade_date DESC)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_pams_ibkr_trades_symbol_date
-                ON pams_ibkr_trades (symbol, trade_date DESC)
-            """
-        )
-
-
-def ensure_ibkr_position_history_table(conn) -> None:
-    """Create the local IBKR historical position ledger."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS pams_ibkr_position_history (
-                id BIGSERIAL PRIMARY KEY,
-                account_code VARCHAR(50) NOT NULL REFERENCES pams_accounts(account_code),
-                source_account_id TEXT,
-                symbol VARCHAR(100),
-                name VARCHAR(200) NOT NULL,
-                asset_liability VARCHAR(10) NOT NULL,
-                currency VARCHAR(10) NOT NULL,
-                major_category VARCHAR(50) NOT NULL,
-                minor_category VARCHAR(50) NOT NULL,
-                market_value NUMERIC(28, 10) NOT NULL,
-                cost NUMERIC(28, 10),
-                holding_pnl NUMERIC(28, 10)
-                    GENERATED ALWAYS AS (market_value - COALESCE(cost, 0)) STORED,
-                quantity NUMERIC(28, 10),
-                buy_price NUMERIC(28, 10),
-                current_price NUMERIC(28, 10),
-                as_of DATE NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                UNIQUE (account_code, name, as_of)
-            )
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_pams_ibkr_position_history_as_of
-                ON pams_ibkr_position_history (as_of DESC)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_pams_ibkr_position_history_symbol_asof
-                ON pams_ibkr_position_history (symbol, as_of DESC)
-            """
-        )
+    _require_schema_table(conn, "broker_processing_state")
 
 
 def _latest_portfolio_as_of(conn) -> date | None:
@@ -696,13 +595,65 @@ def _ensure_reference_data(conn, account_code: str) -> None:
             VALUES
                 ('美股', '美股基金'),
                 ('现金', '现金/活期'),
-                ('借款', '借款')
+                ('借款', '借款'),
+                ('其他', '期权'),
+                ('其他', '债券'),
+                ('其他', '基金'),
+                ('其他', '商品'),
+                ('其他', '待分类')
             ON CONFLICT (major_category, minor_category) DO NOTHING
             """
         )
 
 
-def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_of: date) -> int:
+def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_of: date,
+                    retirement_sources: dict | None = None, expected_report_sha256: str | None = None) -> int:
+    if any(row.get("as_of") != as_of for row in rows):
+        raise IBKRFlexError("Holdings row date does not match the report snapshot date")
+    named = [row['name'] for row in rows if isinstance(row.get('name'), str) and row['name']]
+    if len(set(named)) != len(named):
+        raise ValueError('holding result set is ambiguous: duplicate names')
+    from domain.investments import holding_write_evidence as evidence
+    isolated = evidence.enabled(conn)
+    evidence.lock_account(conn, account_code)
+    if not isolated:
+        raise ValueError('unified source synchronization requires isolated mode')
+    names = [row.get('name') for row in rows]
+    if any(not isinstance(name, str) or not name for name in names) or len(set(names)) != len(names):
+        raise ValueError('holding result set is empty or ambiguous')
+    if any(row.get('account_code') != account_code for row in rows):
+        raise ValueError('holding account conflicts with writer scope')
+    retirements, preserved = evidence.verify_ibkr_retirements(conn, account_code=account_code, business_date=as_of,
+                                                              incoming_names=names, sources=retirement_sources or {},
+                                                              expected_report_sha256=expected_report_sha256)
+    if not names and not retirements:
+        if preserved:
+            return 0
+        raise ValueError('holding result set is empty or ambiguous')
+    evidence.reject_identity_conflicts(conn, account_code=account_code, business_date=as_of, incoming=rows)
+    with conn.cursor() as cur:
+        cur.execute('SAVEPOINT ibkr_holding_evidence')
+    try:
+        evidence.capture_existing_holdings(conn, account_code=account_code, business_date=as_of,
+                                          names=names + [item['name'] for item in retirements],
+                                          source_by_name={item['name']: item['item_id'] for item in retirements})
+        evidence.apply_ibkr_retirements(conn, retirements)
+        count = _upsert_holdings(conn, rows, account_code=account_code, as_of=as_of)
+        if names:
+            evidence.capture_written_holdings(conn, account_code=account_code, business_date=as_of,
+                                              names=names, origin='ibkr_flex')
+        evidence.finish_ibkr_retirements(conn, retirements)
+        with conn.cursor() as cur:
+            cur.execute('RELEASE SAVEPOINT ibkr_holding_evidence')
+        return count
+    except Exception:
+        with conn.cursor() as cur:
+            cur.execute('ROLLBACK TO SAVEPOINT ibkr_holding_evidence')
+            cur.execute('RELEASE SAVEPOINT ibkr_holding_evidence')
+        raise
+
+
+def _upsert_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_of: date) -> int:
     if any(row.get("as_of") != as_of for row in rows):
         raise IBKRFlexError("Holdings row date does not match the report snapshot date")
     rows = [dict(row) for row in rows]
@@ -712,13 +663,15 @@ def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_o
         and _table_exists(conn, "pams_asset_master")
     )
     with conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM pams_holdings_snapshot WHERE account_code = %s AND as_of = %s",
-            (account_code, as_of),
-        )
+        unchanged_guard = """WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
+            pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
+            pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,
+            pams_holdings_snapshot.buy_price,pams_holdings_snapshot.current_price)
+            IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
+            EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,EXCLUDED.buy_price,EXCLUDED.current_price)"""
         psycopg2.extras.execute_batch(
             cur,
-            """
+            f"""
             INSERT INTO pams_holdings_snapshot (
                 symbol, name, asset_liability, currency, account_code,
                 major_category, minor_category, market_value, cost,
@@ -741,399 +694,288 @@ def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_o
                 buy_price = EXCLUDED.buy_price,
                 current_price = EXCLUDED.current_price,
                 updated_at = NOW()
+            {unchanged_guard}
             """,
             rows,
             page_size=200,
         )
         if can_backfill_asset_id:
-            cur.execute(
-                """
-                WITH primary_match AS (
-                    SELECT DISTINCT ON (h.id) h.id, am.asset_id
-                    FROM pams_holdings_snapshot h
-                    JOIN pams_asset_master am
-                      ON am.primary_symbol = h.symbol
-                     AND am.status = 'active'
-                    WHERE h.account_code = %s
-                      AND h.as_of = %s
-                      AND h.asset_id IS NULL
-                      AND h.symbol IS NOT NULL
-                    ORDER BY h.id, am.asset_id
-                )
-                UPDATE pams_holdings_snapshot h
-                SET asset_id = pm.asset_id,
-                    updated_at = NOW()
-                FROM primary_match pm
-                WHERE h.id = pm.id
-                """,
-                (account_code, as_of),
-            )
+            # A name or symbol match is usable only when every identity candidate
+            # resolves to the same asset. Priority ordering cannot prove identity.
+            alias_candidates = ""
             if _table_exists(conn, "pams_asset_alias"):
-                cur.execute(
-                    f"""
-                    WITH alias_match AS (
-                        SELECT DISTINCT ON (h.id) h.id, aa.asset_id
-                        FROM pams_holdings_snapshot h
-                        JOIN pams_asset_alias aa
-                          ON LOWER(aa.alias_value) = LOWER(COALESCE(NULLIF(h.symbol, ''), h.name))
-                         AND {identity_alias_sql('aa')}
-                        JOIN pams_asset_master am
-                          ON am.asset_id = aa.asset_id
-                         AND am.status = 'active'
-                        WHERE h.account_code = %s
-                          AND h.as_of = %s
-                          AND h.asset_id IS NULL
-                        ORDER BY h.id, aa.priority ASC, aa.asset_id ASC
-                    )
-                    UPDATE pams_holdings_snapshot h
-                    SET asset_id = am.asset_id,
-                        updated_at = NOW()
-                    FROM alias_match am
-                    WHERE h.id = am.id
-                    """,
-                    (account_code, as_of),
+                alias_candidates = f"""
+                    UNION
+                    SELECT h.id, aa.asset_id FROM targets h
+                    JOIN pams_asset_alias aa
+                      ON LOWER(aa.alias_value) = LOWER(COALESCE(NULLIF(h.symbol, ''), h.name))
+                     AND {identity_alias_sql('aa')}
+                    JOIN pams_asset_master am ON am.asset_id=aa.asset_id AND am.status='active'
+                """
+            cur.execute(
+                f"""
+                WITH targets AS (
+                    SELECT id,symbol,name FROM pams_holdings_snapshot
+                    WHERE account_code=%s AND as_of=%s AND asset_id IS NULL
+                ), candidates AS (
+                    SELECT h.id,am.asset_id FROM targets h
+                    JOIN pams_asset_master am ON am.primary_symbol=h.symbol AND am.status='active'
+                    {alias_candidates}
+                ), unique_match AS (
+                    SELECT id, MIN(asset_id) AS asset_id FROM candidates
+                    GROUP BY id HAVING COUNT(DISTINCT asset_id)=1
                 )
+                UPDATE pams_holdings_snapshot h SET asset_id=m.asset_id,updated_at=NOW()
+                FROM unique_match m WHERE h.id=m.id
+                """,
+                (account_code,as_of),
+            )
     return len(rows)
 
 
-def _write_trades(conn, trades: list[dict[str, Any]], *, account_code: str) -> int:
-    _ensure_reference_data(conn, account_code)
-    ensure_ibkr_trade_table(conn)
-    if not trades:
-        return 0
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(
-            cur,
-            """
-            INSERT INTO pams_ibkr_trades (
-                account_code, source_account_id, source_trade_key, trade_id,
-                transaction_id, order_id, symbol, name, currency, asset_category,
-                trade_date, side, quantity, price, gross_amount, commission,
-                net_cash, realized_pnl, raw_json
-            ) VALUES (
-                %(account_code)s, %(source_account_id)s, %(source_trade_key)s, %(trade_id)s,
-                %(transaction_id)s, %(order_id)s, %(symbol)s, %(name)s, %(currency)s, %(asset_category)s,
-                %(trade_date)s, %(side)s, %(quantity)s, %(price)s, %(gross_amount)s, %(commission)s,
-                %(net_cash)s, %(realized_pnl)s, %(raw)s
-            )
-            ON CONFLICT (account_code, source_trade_key)
-            DO UPDATE SET
-                source_account_id = EXCLUDED.source_account_id,
-                trade_id = EXCLUDED.trade_id,
-                transaction_id = EXCLUDED.transaction_id,
-                order_id = EXCLUDED.order_id,
-                symbol = EXCLUDED.symbol,
-                name = EXCLUDED.name,
-                currency = EXCLUDED.currency,
-                asset_category = EXCLUDED.asset_category,
-                trade_date = EXCLUDED.trade_date,
-                side = EXCLUDED.side,
-                quantity = EXCLUDED.quantity,
-                price = EXCLUDED.price,
-                gross_amount = EXCLUDED.gross_amount,
-                commission = EXCLUDED.commission,
-                net_cash = EXCLUDED.net_cash,
-                realized_pnl = EXCLUDED.realized_pnl,
-                raw_json = EXCLUDED.raw_json,
-                updated_at = NOW()
-            """,
-            [{**trade, "raw": Json(trade.get("raw") or {})} for trade in trades],
-            page_size=200,
-        )
-    return len(trades)
+def _validate_isolated_holding_inputs(parsed, observed, account_code, xml_text):
+    """Do not turn missing or unrepresentable report fields into holdings."""
+    from decimal import Decimal, InvalidOperation
+    from domain.imports.ibkr_holding_source import _extract, _number
+    if account_code!='ibkr' or len(parsed.source_account_ids)!=1:
+        raise ValueError('isolated holdings need one report account')
+    _,_,positions=_extract(xml_text.encode('utf8'),source_account_id=parsed.source_account_ids[0],
+                            business_date=observed,max_bytes=32*1024*1024)
+    identities=set()
+    # Match the original symbol and currency directly; classification is independent.
+    live=parsed.rows
+    for position in positions:
+        if set(position['unknown_fields'])-{'cost'}:
+            raise ValueError('IBKR holding source fields are incomplete')
+        attrs=position['raw_attributes']; identity=(position['symbol'].upper(),position['currency'])
+        if identity in identities:
+            raise ValueError('IBKR holding source identity is ambiguous')
+        identities.add(identity)
+        quantity=_number(attrs,('position','quantity','qty'))
+        value=_number(attrs,('marketValue','positionValue','value','markValue'))
+        cost=_number(attrs,('costBasisMoney','costBasis','cost'))
+        try:
+            if (quantity is None or value is None or quantity!=quantity.quantize(Decimal('0.000001'))
+                    or value!=value.quantize(Decimal('0.0001'))
+                    or (cost is not None and cost!=cost.quantize(Decimal('0.0001')))):
+                raise ValueError('IBKR holding source precision is unrepresentable')
+        except InvalidOperation as exc:
+            raise ValueError('IBKR holding source precision is unrepresentable') from exc
+        if quantity==0 and value==0:
+            continue
+        matches=[row for row in live if (row.get('symbol'),row.get('currency'))==identity]
+        if len(matches)!=1:
+            raise ValueError('IBKR holding parser and source do not match')
+        actual=matches[0]
+        for key,expected in (('quantity',quantity),('market_value',value),('cost',cost)):
+            if (expected is None and actual.get(key) is not None) or (expected is not None and
+                    (actual.get(key) is None or Decimal(str(actual[key]))!=expected)):
+                raise ValueError('IBKR holding parser changed source precision')
+        multiplier=_number(attrs,('multiplier',))
+        if 'multiplier' in attrs and (multiplier is None or multiplier<=0):
+            raise ValueError('IBKR holding multiplier is invalid')
+        for target,keys in (('current_price',('markPrice','closePrice','price')),
+                            ('buy_price',('costBasisPrice','avgCost','averageCost'))):
+            supplied=any(str(attrs.get(key) or '').strip() for key in keys)
+            price=_number(attrs,keys)
+            if supplied:
+                try:
+                    if (price is None or price!=price.quantize(Decimal('0.000001')) or
+                            actual.get(target) is None or Decimal(str(actual[target]))!=price):
+                        raise ValueError('IBKR holding price evidence is inconsistent')
+                except InvalidOperation as exc:
+                    raise ValueError('IBKR holding price evidence is inconsistent') from exc
+            elif multiplier is None:
+                # A contract multiplier cannot be inferred from symbol or asset type.
+                actual[target]=None
+        actual['ibkr_conid']=str(attrs.get('conid') or '').strip() or None
+        actual['ibkr_report_account']=parsed.source_account_ids[0]
+
+    # A source row, including zero, is never an absent or guessed cash balance.
+    from domain.brokers.ibkr.ibkr_daily_close import _document
+    from domain.brokers.ibkr.ibkr_cash_event_sync import _cash_scope_ok
+    evidence,_,error=_document(xml_text,parsed.source_account_ids[0],None)
+    if error or evidence is None:
+        raise ValueError('IBKR cash report is unsafe or invalid')
+    statements=[s for s in evidence.statements if _parse_ib_date(s.get('toDate'))==observed]
+    if len(statements)!=1:
+        raise ValueError('IBKR cash statement date is ambiguous')
+    seen_cash=set()
+    nodes=[n for n in statements[0].iter() if _local_name(n.tag).lower()=='cashreportcurrency']
+    for node in nodes:
+        attrs=dict(node.attrib); currency=attrs.get('currency')
+        if currency=='BASE_SUMMARY':
+            continue
+        if (not isinstance(currency,str) or not re.fullmatch(r'[A-Z]{3}',currency) or currency in seen_cash
+                or not _cash_scope_ok(node,evidence.parents,parsed.source_account_ids[0])
+                or _parse_ib_date(attrs.get('toDate'))!=observed):
+            raise ValueError('IBKR cash currency or scope is missing or ambiguous')
+        seen_cash.add(currency)
+        amount=_number(attrs,('endingCash',))
+        try:
+            if amount is None or amount!=amount.quantize(Decimal('0.0001')):
+                raise ValueError('IBKR cash amount is missing or unrepresentable')
+        except InvalidOperation as exc:
+            raise ValueError('IBKR cash amount is invalid') from exc
+        matches=[row for row in parsed.rows if row.get('symbol')=='CASH_'+currency and row.get('currency')==currency]
+        if (len(matches)!=1 or matches[0].get('market_value') is None or
+                Decimal(str(matches[0]['market_value']))!=amount):
+            raise ValueError('IBKR cash parser and source do not match')
+    parsed_cash={row.get('currency') for row in parsed.rows if row.get('symbol')=='CASH_'+str(row.get('currency') or '')}
+    if parsed_cash!=seen_cash:
+        raise ValueError('IBKR cash source is incomplete')
 
 
-def _write_position_history(conn, rows: list[dict[str, Any]], *, account_code: str) -> int:
-    _ensure_reference_data(conn, account_code)
-    ensure_ibkr_position_history_table(conn)
-    if not rows:
-        return 0
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(
-            cur,
-            """
-            INSERT INTO pams_ibkr_position_history (
-                account_code, source_account_id, symbol, name, asset_liability,
-                currency, major_category, minor_category, market_value, cost,
-                quantity, buy_price, current_price, as_of
-            ) VALUES (
-                %(account_code)s, %(source_account_id)s, %(symbol)s, %(name)s, %(asset_liability)s,
-                %(currency)s, %(major_category)s, %(minor_category)s, %(market_value)s, %(cost)s,
-                %(quantity)s, %(buy_price)s, %(current_price)s, %(as_of)s
-            )
-            ON CONFLICT (account_code, name, as_of)
-            DO UPDATE SET
-                source_account_id = EXCLUDED.source_account_id,
-                symbol = EXCLUDED.symbol,
-                asset_liability = EXCLUDED.asset_liability,
-                currency = EXCLUDED.currency,
-                major_category = EXCLUDED.major_category,
-                minor_category = EXCLUDED.minor_category,
-                market_value = EXCLUDED.market_value,
-                cost = EXCLUDED.cost,
-                quantity = EXCLUDED.quantity,
-                buy_price = EXCLUDED.buy_price,
-                current_price = EXCLUDED.current_price,
-                updated_at = NOW()
-            """,
-            rows,
-            page_size=300,
-        )
-    return len(rows)
+def _validated_isolated_report_trades(parsed, observed, account_code, xml_text, report_sha256):
+    """Select explicit current-day rows from the verified report only."""
+    if account_code != 'ibkr' or len(parsed.source_account_ids) != 1:
+        raise ValueError('isolated report needs one verified IBKR account')
+    official_account = parsed.source_account_ids[0]
+    from domain.brokers.ibkr.ibkr_daily_close import _document
+    from domain.brokers.ibkr.ibkr_cash_event_sync import _cash_scope_ok
+    report, _, error = _document(xml_text, official_account, report_sha256)
+    if error:
+        raise ValueError('current report trade source is unsafe or invalid')
+    statements = [statement for statement in report.statements if _parse_ib_date(statement.get('toDate')) == observed]
+    if len(statements) != 1:
+        raise ValueError('current report statement is ambiguous')
+    nodes = [node for node in statements[0].iter() if node.tag.rsplit('}', 1)[-1] == 'Trade']
+    if any(trade['trade_date'] > observed for trade in parsed.trades):
+        raise ValueError('current report contains a future trade')
+    current = [trade for trade in parsed.trades if trade['trade_date'] == observed]
+    if any(trade.get('source_account_id') != official_account for trade in current):
+        raise ValueError('current report trade account is missing or inconsistent')
+    for trade in current:
+        raw = trade.get('raw') or {}
+        if _parse_ib_date(raw.get('tradeDate')) != observed:
+            raise ValueError('current report trade lacks an explicit business date')
+        matches = [node for node in nodes if {str(k): str(v).strip() for k, v in node.attrib.items()} == raw]
+        if len(matches) != 1 or not _cash_scope_ok(matches[0], report.parents, official_account):
+            raise ValueError('current report trade source scope is ambiguous')
+        identifier = str(raw.get('tradeID') or raw.get('transactionID') or raw.get('ibExecID') or '').strip()
+        if not identifier or identifier.lower() in {'0', 'none', 'null', 'unknown'}:
+            raise ValueError('current report trade lacks official identity')
+    keys = [trade['source_trade_key'] for trade in current]
+    if len(keys) != len(set(keys)):
+        raise ValueError('current report trade identity is ambiguous')
+    return official_account, current, {'older_in_report_untouched': len(parsed.trades) - len(current)}
 
 
-def _confirm_investment_funding_cashflows(
-    conn,
-    cash_movements: list[dict[str, Any]],
-    *,
-    account_code: str,
-    date_window_days: int = 7,
-    amount_tolerance: float = 0.01,
-) -> list[dict[str, Any]]:
-    """Mark bank-side in-transit transfers as investment funding after broker confirmation."""
-    confirmed: list[dict[str, Any]] = []
-    deposit_movements = [
-        movement
-        for movement in cash_movements
-        if movement.get("movement_type") == "deposit" and float(movement.get("amount") or 0) > 0
-    ]
-    if not deposit_movements:
-        return confirmed
-
+def _verify_isolated_report_trade_replay(conn, parsed, observed, account_code, xml_text, report_sha256,
+                                         cash_entries=None, cash_pending_count=0, trade_cutoff=None):
+    from domain.brokers.ibkr.ibkr_report_batch import publish_report_batch
+    official, trades, stats = _validated_isolated_report_trades(parsed, observed, account_code, xml_text, report_sha256)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        for movement in deposit_movements:
-            confirmation = Json(
-                {
-                    "source": SYNC_SOURCE,
-                    "account_code": account_code,
-                    "movement_date": movement.get("movement_date").isoformat()
-                    if hasattr(movement.get("movement_date"), "isoformat")
-                    else movement.get("movement_date"),
-                    "currency": movement.get("currency"),
-                    "amount": movement.get("amount"),
-                    "source_key": movement.get("source_key"),
-                    "raw": movement.get("raw") or {},
-                }
-            )
-            cur.execute(
-                """
-                WITH candidate AS (
-                    SELECT
-                        cashflow_id,
-                        source_id,
-                        transfer_group_id AS old_transfer_group_id
-                    FROM pams_cashflow_fact
-                    WHERE counter_account_code = %(account_code)s
-                      AND account_code <> %(account_code)s
-                      AND cashflow_type = 'internal_transfer'
-                      AND amount < 0
-                      AND currency = %(currency)s
-                      AND ABS(ABS(amount) - %(amount)s) <= %(amount_tolerance)s
-                      AND event_date BETWEEN %(movement_date)s::date - (%(date_window_days)s || ' days')::interval
-                                         AND %(movement_date)s::date
-                      AND COALESCE(transfer_group_id, '') LIKE 'account_transfer:%%'
-                    ORDER BY event_date DESC, cashflow_id DESC
-                    LIMIT 1
-                ),
-                updated AS (
-                    UPDATE pams_cashflow_fact cf
-                    SET cashflow_type = 'investment_funding',
-                        category = '内部划转',
-                        subcategory = '投资入金',
-                        affects_spending = FALSE,
-                        affects_nav = FALSE,
-                        affects_investment_capital = TRUE,
-                        is_internal_transfer = FALSE,
-                        transfer_group_id = regexp_replace(
-                            COALESCE(cf.transfer_group_id, ''),
-                            '^account_transfer:',
-                            'investment_funding:'
-                        ),
-                        raw_json = jsonb_set(
-                            COALESCE(cf.raw_json, '{}'::jsonb),
-                            '{ibkr_flex_confirmation}',
-                            %(confirmation)s::jsonb,
-                            TRUE
-                        ),
-                        classification_source = 'ibkr_flex_confirmation',
-                        confidence = 0.9900,
-                        review_status = 'confirmed',
-                        updated_at = NOW()
-                    FROM candidate c
-                    WHERE cf.cashflow_id = c.cashflow_id
-                    RETURNING
-                        cf.cashflow_id,
-                        cf.source_id,
-                        cf.event_date,
-                        cf.amount,
-                        cf.amount_cny,
-                        cf.currency,
-                        cf.transfer_group_id,
-                        c.old_transfer_group_id
-                )
-                SELECT * FROM updated
-                """,
-                {
-                    "account_code": account_code,
-                    "currency": movement.get("currency"),
-                    "amount": movement.get("amount"),
-                    "movement_date": movement.get("movement_date"),
-                    "date_window_days": date_window_days,
-                    "amount_tolerance": amount_tolerance,
-                    "confirmation": confirmation,
-                },
-            )
-            row = cur.fetchone()
-            if not row:
-                continue
-            item = dict(row)
-            cur.execute(
-                """
-                UPDATE pams_bank_transfer_matches
-                SET match_type = 'investment_funding',
-                    status = 'confirmed',
-                    match_key = %(match_key)s,
-                    confidence = GREATEST(COALESCE(confidence, 0), 0.9900),
-                    note = CONCAT_WS(
-                        '; ',
-                        NULLIF(note, ''),
-                        'IBKR Flex deposit confirmed on ' || %(movement_date)s::text
-                    ),
-                    updated_at = NOW()
-                WHERE match_key = %(old_match_key)s
-                """,
-                {
-                    "match_key": item.get("transfer_group_id"),
-                    "old_match_key": item.get("old_transfer_group_id"),
-                    "movement_date": movement.get("movement_date"),
-                },
-            )
-            item["movement"] = {
-                "movement_date": movement.get("movement_date"),
-                "currency": movement.get("currency"),
-                "amount": movement.get("amount"),
-                "source_key": movement.get("source_key"),
-            }
-            confirmed.append(item)
-    return confirmed
+        result = publish_report_batch(cur, report_bytes=xml_text.encode('utf8'), source_account_id=official,
+                                      day=observed, report_sha256=report_sha256, replay=True,
+                                      cash_entries=cash_entries, cash_pending_count=cash_pending_count, trade_cutoff=trade_cutoff)
+    return {**result, 'replayed_verified': result['existing_verified'], 'historical_backfill': 'not_run',
+            'historical_positions': 'not_run', 'legacy_funding_confirmation': 'not_run', **stats}
 
 
 def record_sync_run(
-    conn,
-    *,
-    source: str = SYNC_SOURCE,
-    status: str,
-    started_at: datetime,
-    as_of: date | None = None,
-    statement_as_of: date | None = None,
-    row_count: int = 0,
-    trade_count: int = 0,
-    history_row_count: int = 0,
-    raw_file: str | None = None,
-    message: str | None = None,
-    confirmed_funding_count: int = 0,
-    error: str | None = None,
-    publication: dict[str, Any] | None = None,
+    conn, *, source: str = SYNC_SOURCE, status: str, started_at: datetime,
+    as_of: date | None = None, statement_as_of: date | None = None,
+    row_count: int = 0, trade_count: int = 0, history_row_count: int = 0,
+    raw_file: str | None = None, message: str | None = None,
+    confirmed_funding_count: int = 0, error: str | None = None,
+    publication: dict[str, Any] | None = None, exception: BaseException | None = None,
 ) -> dict[str, Any]:
-    """Persist one sync run status row and return it."""
-    ensure_sync_table(conn)
-    summary = {
-        "statement_as_of": statement_as_of.isoformat() if statement_as_of else None,
-        "row_count": row_count,
-        "trade_count": trade_count,
-        "history_row_count": history_row_count,
-        "confirmed_funding_count": confirmed_funding_count,
-        "raw_file": raw_file,
-        "message": message,
-    }
+    """Commit business publication only; emit technical outcome to structured logging."""
+    summary = {"statement_as_of": statement_as_of.isoformat() if statement_as_of else None,
+        "row_count":row_count,"trade_count":trade_count,"history_row_count":history_row_count,
+        "confirmed_funding_count":confirmed_funding_count,"raw_file":raw_file,"message":message}
     if publication is not None:
-        summary["publication"] = publication
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            INSERT INTO pams_data_sync_runs (
-                sync_key, asset_scope, target_trade_date, status, started_at,
-                finished_at, latest_trade_date_after, rows_upserted,
-                summary_json, error_text
-            ) VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s)
-            RETURNING *
-            """,
-            (source, "ibkr", as_of, status, started_at, as_of, row_count, Json(summary), error),
-        )
-        row = dict(cur.fetchone())
-        cur.execute("SELECT to_regclass('public.pams_data_job_run') IS NOT NULL AS exists")
-        has_job_run = bool(cur.fetchone()["exists"])
-        if has_job_run:
-            cur.execute(
-                """
-                INSERT INTO pams_data_job_run (
-                    job_key, job_type, source_table, source_id, asset_scope,
-                    target_date, data_as_of, status, started_at, finished_at,
-                    rows_affected, summary_json, error_text
-                ) VALUES (
-                    %s, 'data_sync', 'pams_data_sync_runs', %s, 'ibkr',
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s
-                )
-                ON CONFLICT (source_table, source_id)
-                DO UPDATE SET
-                    job_key = EXCLUDED.job_key,
-                    job_type = EXCLUDED.job_type,
-                    asset_scope = EXCLUDED.asset_scope,
-                    target_date = EXCLUDED.target_date,
-                    data_as_of = EXCLUDED.data_as_of,
-                    status = EXCLUDED.status,
-                    started_at = EXCLUDED.started_at,
-                    finished_at = EXCLUDED.finished_at,
-                    rows_affected = EXCLUDED.rows_affected,
-                    summary_json = EXCLUDED.summary_json,
-                    error_text = EXCLUDED.error_text
-                """,
-                (
-                    source,
-                    str(row.get("id")),
-                    as_of,
-                    statement_as_of or as_of,
-                    status,
-                    started_at,
-                    row.get("finished_at"),
-                    row_count,
-                    Json(summary),
-                    error,
-                ),
-            )
-    conn.commit()
-    return _sync_row_to_status(row)
+        summary['publication'] = publication
+    identifier = None
+    if status == 'success' and publication and publication.get('state') in {'published','unchanged'}:
+        source_batch_id = (publication.get('report_trade_sources') or {}).get('batch_id')
+        if not source_batch_id or not statement_as_of or not publication.get('sha256') or not publication.get('data_sha256'):
+            raise ValueError('published report identity is incomplete')
+        cash_state = None
+        if isinstance(publication.get('cash_events'), dict):
+            from domain.brokers.ibkr.ibkr_cash_event_sync import _pending_business_entries
+            pending = _pending_business_entries(publication['cash_events'].get('pending') or [])
+            cash_state = {'pending':pending, 'cutoff':publication['cash_events'].get('cutoff'),
+                'inserted_count':None,'duplicate_count':None,'historical_count':None,
+                'retryable_count':sum(1 for item in pending if item.get('retryable')),
+                'blocking_pending_count':sum(1 for item in pending if item.get('blocking')),
+                'bank_match_pending_count':sum(1 for item in pending if item.get('reason')=='bank_match_pending')}
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # The same lock serializes both first publication and state-only replay.
+            cur.execute("SELECT pg_advisory_xact_lock(7362198401)")
+            cur.execute("SELECT published_result::text AS result_text FROM source_batches WHERE batch_id=%s AND status='published'", (source_batch_id,))
+            source_result = cur.fetchone()
+            if not source_result or source_result['result_text'] is None:
+                raise ValueError('published source result is unavailable')
+            result_hash = hashlib.sha256(source_result['result_text'].encode('utf8')).hexdigest()
+            cur.execute("""SELECT * FROM broker_processing_state
+                WHERE state_type='publication' AND source_batch_id=%s AND replay_fingerprint=%s ORDER BY publication_id DESC LIMIT 1""",
+                (source_batch_id,publication['data_sha256']))
+            previous = cur.fetchone()
+            if previous:
+                if (previous['account_code']!=publication['account_code'] or previous['statement_date']!=statement_as_of
+                        or str(previous['source_sha256']).strip()!=publication['sha256']
+                        or str(previous['published_result_sha256']).strip()!=result_hash):
+                    raise ValueError('conflicting report publication identity')
+                row_count = previous['holding_count']
+                if cash_state is None:
+                    cash_state = previous['cash_state']
+            cash_hash = hashlib.sha256(json.dumps(cash_state,sort_keys=True,separators=(',', ':'),
+                ensure_ascii=False,allow_nan=False).encode('utf8')).hexdigest()
+            if previous and cash_state == previous['cash_state']:
+                if cash_hash != str(previous['cash_state_sha256']).strip():
+                    raise ValueError('previous cash publication state is inconsistent')
+                identifier = previous['publication_id']
+            else:
+                cur.execute("""INSERT INTO broker_processing_state
+                    (state_type,account_code,source_batch_id,statement_date,source_sha256,replay_fingerprint,published_result_sha256,
+                     holding_count,cash_state,cash_state_sha256)
+                    VALUES ('publication',%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING publication_id""",
+                    (publication['account_code'],source_batch_id,statement_as_of,publication['sha256'],
+                     publication['data_sha256'],result_hash,row_count,
+                     psycopg2.extras.Json(cash_state) if cash_state is not None else None,cash_hash))
+                identifier = cur.fetchone()['publication_id']
+    from domain.operations.runtime_events import emit_sync_attempt_result, emit_sync_commit_failed, emit_sync_run_committed
+    try:
+        conn.commit()
+    except Exception as exc:
+        emit_sync_commit_failed(exception=exc)
+        raise
+    if status == 'success':
+        emit_sync_run_committed(status)
+    else:
+        emit_sync_attempt_result(status, exception=exception)
+    return _sync_row_to_status({'id':identifier,'sync_key':source,'asset_scope':'ibkr','status':status,
+        'started_at':started_at,'finished_at':None,'target_trade_date':as_of,'rows_upserted':summary['row_count'],
+        'summary_json':summary,'error_text':error})
 
 
 def latest_sync_status(conn, *, source: str = SYNC_SOURCE) -> dict[str, Any] | None:
-    """Return the latest sync run for the requested source, or `None`."""
-    if not _table_exists(conn, "pams_data_sync_runs"):
+    """Return the latest business publication; the last technical attempt is unknown."""
+    if source != SYNC_SOURCE:
         return None
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT *
-            FROM pams_data_sync_runs
-            WHERE sync_key = %s
-            ORDER BY started_at DESC, id DESC
-            LIMIT 1
-            """,
-            (source,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        status = _sync_row_to_status(dict(row))
-        if "cash_events" not in status and os.environ.get("PAMS_IBKR_CASH_EVENTS_AFTER"):
-            cur.execute("""SELECT summary_json #> '{publication,cash_events}' AS cash_events
-                FROM pams_data_sync_runs WHERE sync_key = %s AND status = 'success'
-                  AND summary_json #> '{publication,cash_events}' IS NOT NULL
-                ORDER BY started_at DESC, id DESC LIMIT 1""", (source,))
-            previous = cur.fetchone()
-            if previous:
-                status["cash_events"] = previous["cash_events"]
-    return status
+    records = report_state._records(conn)
+    if not records:
+        return None
+    report, _ = report_state.select_report(conn, default_data_dir() / 'raw' / 'ibkr')
+    if report is None:
+        return {'source':source,'status':'unknown','publication':None,'cash_events':None,
+                'message':'published report evidence unavailable'}
+    selected = next((row for row in records if row['id']==report.run_id), None)
+    if selected is None:
+        return {'source':source,'status':'unknown','publication':None,'cash_events':None,
+                'message':'published report identity unavailable'}
+    result = _sync_row_to_status(selected)
+    state = (selected.get('summary_json') or {}).get('publication') or {}
+    if not state.get('cash_state_valid', False) or state.get('cash_events') is None:
+        result['cash_events'] = None
+        result['cash_evidence_status'] = 'unknown'
+    else:
+        result['cash_evidence_status'] = 'verified_publication_state'
+    result.update(source=source,asset_scope='ibkr',status='unknown',started_at=None,finished_at=None,error=None,
+                  message='latest technical attempt unavailable from business publication')
+    return result
 
 
 def _sync_row_to_status(row: dict[str, Any]) -> dict[str, Any]:
@@ -1149,10 +991,10 @@ def _sync_row_to_status(row: dict[str, Any]) -> dict[str, Any]:
         "finished_at": row.get("finished_at"),
         "as_of": row.get("target_trade_date"),
         "statement_as_of": summary.get("statement_as_of"),
-        "row_count": row.get("rows_upserted") or summary.get("row_count") or 0,
-        "trade_count": summary.get("trade_count") or 0,
-        "history_row_count": summary.get("history_row_count") or 0,
-        "confirmed_funding_count": summary.get("confirmed_funding_count") or 0,
+        "row_count": row.get("rows_upserted") if row.get("rows_upserted") is not None else summary.get("row_count"),
+        "trade_count": summary.get("trade_count"),
+        "history_row_count": summary.get("history_row_count"),
+        "confirmed_funding_count": summary.get("confirmed_funding_count"),
         "raw_file": summary.get("raw_file"),
         "message": summary.get("message"),
         "error": row.get("error_text"),
@@ -1176,14 +1018,23 @@ def sync_ibkr_flex_to_db(
     flex_version: int = 3,
     after_write: Callable[[Any], None] | None = None,
     expected_statement_reference: date | None = None,
+    holding_retirement_sources: dict | None = None,
 ) -> dict[str, Any]:
     """Sync a report atomically, including optional dependent writes.
 
     `after_write` shares this transaction and must not commit or roll back.
-    Raw XML retention is outside the database transaction.
+    In the isolated source path the original XML is stored transactionally.
     """
+    ensure_sync_table(conn)
+    if holding_retirement_sources is None:
+        holding_retirement_sources = {}
+    from domain.investments import holding_write_evidence as evidence
+    if not evidence.enabled(conn):
+        raise ValueError('unified source synchronization requires isolated mode')
+    for table in ('source_batches', 'source_items', 'pams_investment_trade_fact', 'pams_fx_rates_daily'):
+        _require_schema_table(conn, table)
     started_at = datetime.now(timezone.utc)
-    raw_path: Path | None = None
+    raw_reference: str | None = None
     publication: dict[str, Any] = {"version": 1, "state": "rejected", "account_code": account_code}
     observed: date | None = None
     try:
@@ -1194,8 +1045,7 @@ def sync_ibkr_flex_to_db(
             str(reference["reference_code"]),
             flex_version=flex_version,
         )
-        raw_path = save_raw_flex_xml(xml_text, query_id, raw_dir=raw_dir)
-        publication["sha256"] = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+        publication['sha256'] = hashlib.sha256(xml_text.encode('utf8')).hexdigest()
         observed = report_state.inspect_report(xml_text)
         parsed = parse_flex_report(xml_text, account_code=account_code)
         if observed != parsed.statement_as_of:
@@ -1209,7 +1059,7 @@ def sync_ibkr_flex_to_db(
         # Serialize publishers before selecting the active report or touching business rows.
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(7362198401)")
-        previous, _ = report_state.select_report(conn, raw_path.parent)
+        previous, _ = report_state.select_report(conn, raw_dir or default_data_dir() / 'raw' / 'ibkr')
         report_state.validate_candidate(observed, expected, previous, minimum=report_state.publication_floor(conn))
         # Exact XML identity includes performance-only fields not present in parsed holdings.
         # A standalone import must not suppress a later import with dependent fact writes.
@@ -1227,48 +1077,81 @@ def sync_ibkr_flex_to_db(
             statement_as_of=parsed.statement_as_of,
             align_to_latest_snapshot=align_to_latest_snapshot,
         )
+        if holding_retirement_sources is not None and target_date != observed:
+            raise ValueError('retirement source requires the current report date')
+        if holding_retirement_sources and cash_events_after is not None and target_date <= cash_events_after:
+            raise ValueError('retirement source is outside the active report cutoff')
+        if holding_retirement_sources is not None:
+            _validate_isolated_holding_inputs(parsed,observed,account_code,xml_text)
         if target_date == observed and previous and previous.data_sha256 == publication["data_sha256"]:
-            if cash_events_after is not None:
-                publication["cash_events"] = ibkr_cash_events.import_cash_events(
-                    conn, cash_events, account_code=account_code,
-                    cutoff=cash_events_after, statement_as_of=observed,
-                )
+            replay_cash_entries=[]
+            if holding_retirement_sources is not None:
+                _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date,
+                                retirement_sources=holding_retirement_sources,
+                                expected_report_sha256=publication['sha256'])
+                if cash_events_after is not None:
+                    publication["cash_events"] = ibkr_cash_events.import_cash_events(
+                        conn, cash_events, account_code=account_code, cutoff=cash_events_after,
+                        statement_as_of=observed, defer_source_link=True)
+                    replay_cash_entries=publication["cash_events"].pop('_deferred_source_events',[])
+                publication['report_trade_sources'] = _verify_isolated_report_trade_replay(
+                    conn, parsed, observed, account_code, xml_text, publication['sha256'],
+                    cash_entries=replay_cash_entries,
+                    cash_pending_count=publication.get('cash_events',{}).get('blocking_pending_count',0),
+                    trade_cutoff=cash_events_after)
+                replay_batch=publication['report_trade_sources'].get('batch_id')
+                if replay_batch:
+                    raw_reference='source:'+replay_batch
+                elif previous and isinstance(previous.path,Path):
+                    raw_reference=str(previous.path)
+                else:
+                    raise ValueError('replayed IBKR report source is unavailable')
             publication["state"] = "unchanged"
             record = record_sync_run(
                 conn, status="success", started_at=started_at, as_of=target_date,
-                statement_as_of=observed, raw_file=str(raw_path), publication=publication,
+                statement_as_of=observed, raw_file=raw_reference, publication=publication,
                 message="Identical report; active publication retained" if cash_events_after is not None
                 else "Identical report; active publication and business rows retained",
             )
             return {
                 "success": True, "status": "success", "as_of": target_date.isoformat(),
+                **({"source_mode": "unified"} if holding_retirement_sources is not None else {}),
                 "statement_as_of": observed.isoformat(), "row_count": 0, "trade_count": 0,
                 "history_row_count": 0, "confirmed_funding_count": 0, "confirmed_fundings": [],
-                "raw_file": str(raw_path), "reference_code": reference["reference_code"],
+                "raw_file": raw_reference, "reference_code": reference["reference_code"],
                 "sync_run": record, "expected_statement_as_of": expected.isoformat(),
             }
-        if cash_events_after is None:
-            row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date)
-            history_row_count = _write_position_history(conn, parsed.history_rows, account_code=account_code)
-            trade_count = _write_trades(conn, parsed.trades, account_code=account_code)
-        else:
-            history_floor = max(cash_events_after, previous.as_of) if previous else cash_events_after
-            row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date) if target_date > cash_events_after else 0
-            future_history = [row for row in parsed.history_rows if row["as_of"] > history_floor]
-            future_trades = [row for row in parsed.trades if row["trade_date"] > history_floor]
-            history_row_count = _write_position_history(conn, future_history, account_code=account_code) if future_history else 0
-            trade_count = _write_trades(conn, future_trades, account_code=account_code) if future_trades else 0
+        from domain.investments.holding_write_evidence import lock_account
+        lock_account(conn, account_code)
+        isolated_account, isolated_trades, isolated_trade_stats = _validated_isolated_report_trades(
+            parsed, observed, account_code, xml_text, publication['sha256'])
+        row_count = _write_holdings(conn, parsed.rows, account_code=account_code, as_of=target_date,
+                                    retirement_sources=holding_retirement_sources,
+                                    expected_report_sha256=publication['sha256'])
+        history_row_count = 0
         confirmed_fundings = []
-        if cash_events_after is None:
-            confirmed_fundings = _confirm_investment_funding_cashflows(
-                conn, parsed.cash_movements, account_code=account_code,
-            )
-        else:
-            publication["cash_events"] = ibkr_cash_events.import_cash_events(
-                conn, cash_events, account_code=account_code,
-                cutoff=cash_events_after, statement_as_of=observed,
-            )
-        if after_write is not None and (cash_events_after is None or row_count or history_row_count or trade_count):
+        deferred_cash = []
+        if cash_events_after is not None:
+            publication['cash_events'] = ibkr_cash_events.import_cash_events(
+                conn, cash_events, account_code=account_code, cutoff=cash_events_after,
+                statement_as_of=observed, defer_source_link=True)
+            deferred_cash = publication['cash_events'].pop('_deferred_source_events', [])
+        from domain.brokers.ibkr.ibkr_report_batch import publish_report_batch
+        selected = isolated_trades if cash_events_after is None else [
+            row for row in isolated_trades if row['trade_date'] > cash_events_after]
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if selected and len(selected) != len(isolated_trades):
+                raise ValueError('partial IBKR report trade selection is not a complete source batch')
+            trade_result = publish_report_batch(cur, report_bytes=xml_text.encode('utf8'), source_account_id=isolated_account,
+                day=observed, report_sha256=publication['sha256'], cash_entries=deferred_cash,
+                cash_pending_count=publication.get('cash_events', {}).get('blocking_pending_count', 0),
+                trade_cutoff=cash_events_after)
+        trade_count = trade_result['written']
+        publication['report_trade_sources'] = {**trade_result, 'selected': len(selected),
+            'historical_backfill': 'not_run', 'historical_positions': 'not_run',
+            'legacy_funding_confirmation': 'not_run', **isolated_trade_stats}
+        raw_reference = 'source:' + trade_result['batch_id']
+        if after_write is not None:
             after_write(conn)
         publication["state"] = "published" if target_date == observed else "historical"
         record = record_sync_run(
@@ -1280,7 +1163,7 @@ def sync_ibkr_flex_to_db(
             row_count=row_count,
             trade_count=trade_count,
             history_row_count=history_row_count,
-            raw_file=str(raw_path),
+            raw_file=raw_reference,
             message=(
                 f"reference={reference['reference_code']}; "
                 f"accounts={','.join(parsed.source_account_ids)}; "
@@ -1291,6 +1174,7 @@ def sync_ibkr_flex_to_db(
             publication=publication,
         )
         return {
+            **({"source_mode": "unified"} if holding_retirement_sources is not None else {}),
             "success": True,
             "status": "success",
             "as_of": target_date.isoformat(),
@@ -1314,7 +1198,7 @@ def sync_ibkr_flex_to_db(
                 }
                 for item in confirmed_fundings
             ],
-            "raw_file": str(raw_path),
+            "raw_file": raw_reference,
             "reference_code": reference["reference_code"],
             "sync_run": record,
             "expected_statement_as_of": expected.isoformat(),
@@ -1323,7 +1207,7 @@ def sync_ibkr_flex_to_db(
         conn.rollback()
         record = record_sync_run(
             conn, status="blocked", started_at=started_at, statement_as_of=observed,
-            raw_file=str(raw_path) if raw_path else None, publication=publication, error=str(exc),
+            raw_file=raw_reference, publication=publication, error=str(exc), exception=exc,
             message="Candidate rejected before business writes; previous publication retained",
         )
         return {
@@ -1339,10 +1223,11 @@ def sync_ibkr_flex_to_db(
                 conn,
                 status="failed",
                 started_at=started_at,
-                raw_file=str(raw_path) if raw_path else None,
-                error=str(exc),
+                raw_file=raw_reference,
+                error=str(exc), exception=exc,
                 publication=publication,
             )
-        except Exception:
-            logger.exception("Could not persist failed IBKR Flex sync audit")
+        except Exception as audit_exc:
+            from domain.operations.runtime_events import emit_sync_commit_failed
+            emit_sync_commit_failed(exception=audit_exc)
         raise

@@ -212,7 +212,9 @@ def get_conn():
     """Create a Postgres connection using the same environment as the API."""
     import os
 
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -607,23 +609,6 @@ def _asset_name_lookup(cur, symbols: set[str]) -> dict[str, str]:
             _put_asset_name(lookup, row.get("symbol"), row.get("name"))
             _put_asset_name(lookup, row.get("ts_code"), row.get("name"))
 
-    if _table_exists(cur, "pams_investment_transactions"):
-        cur.execute(
-            """
-            SELECT symbol, name
-            FROM pams_investment_transactions
-            WHERE COALESCE(name, '') <> ''
-              AND (
-                LOWER(symbol) = ANY(%s::text[])
-                OR regexp_replace(COALESCE(symbol, ''), '[^0-9]', '', 'g') = ANY(%s::text[])
-              )
-            ORDER BY trade_date DESC, id DESC
-            """,
-            (query_symbols, digits),
-        )
-        for row in cur.fetchall():
-            _put_asset_name(lookup, row.get("symbol"), row.get("name"))
-
     return lookup
 
 
@@ -712,25 +697,6 @@ def _fact_rows_available(cur) -> bool:
     return bool(row and row["has_rows"])
 
 
-def _latest_fx_rate_to_cny(cur, currency: str | None) -> Decimal:
-    quote_currency = (currency or "CNY").upper()
-    if quote_currency == "CNY" or not _table_exists(cur, "pams_fx_rates_daily"):
-        return Decimal("1")
-    cur.execute(
-        """
-        SELECT rate
-        FROM pams_fx_rates_daily
-        WHERE base_currency = 'CNY'
-          AND quote_currency = %s
-        ORDER BY as_of DESC
-        LIMIT 1
-        """,
-        (quote_currency,),
-    )
-    row = cur.fetchone()
-    return Decimal(str(row["rate"])) if row and row.get("rate") is not None else Decimal("1")
-
-
 def _dec_or_zero(value: Any) -> Decimal:
     if value in (None, ""):
         return Decimal("0")
@@ -742,16 +708,17 @@ def _apply_owner_amount_scope(rows: list[dict[str, Any]], account_cfg: dict[str,
     for row in rows:
         owner_ratio = _owner_ratio(account_cfg, str(row.get("account_code") or ""))
         row["owner_ratio"] = owner_ratio
-        row["gross_amount_personal_cny"] = _dec_or_zero(row.get("gross_amount_cny")) * owner_ratio
-        row["fees_personal_cny"] = _dec_or_zero(row.get("fees_cny")) * owner_ratio
+        row["gross_amount_personal_cny"] = None if row.get("gross_amount_cny") is None else _dec_or_zero(row["gross_amount_cny"]) * owner_ratio
+        row["fees_personal_cny"] = None if row.get("fees_cny") is None else _dec_or_zero(row["fees_cny"]) * owner_ratio
+        row["fees_status"] = "unknown" if row.get("fees_cny") is None else "known"
 
 
 def _transaction_summary(rows: list[dict[str, Any]], data_source: str) -> dict[str, Any]:
-    def total(field: str, side: str | None = None) -> Decimal:
-        return sum(
-            (_dec_or_zero(row.get(field)) for row in rows if side is None or row.get("side_normalized") == side),
-            Decimal("0"),
-        )
+    def total(field: str, side: str | None = None) -> float | None:
+        selected = [row for row in rows if side is None or row.get("side_normalized") == side]
+        if any(row.get(field) is None for row in selected):
+            return None
+        return float(sum((_dec_or_zero(row[field]) for row in selected), Decimal("0")))
 
     owner_adjusted_accounts = sorted(
         {
@@ -767,12 +734,12 @@ def _transaction_summary(rows: list[dict[str, Any]], data_source: str) -> dict[s
         "personal_amount_scope": "owner_ratio_adjusted",
         "has_owner_adjustments": bool(owner_adjusted_accounts),
         "owner_adjusted_accounts": owner_adjusted_accounts,
-        "buy_amount_cny": float(total("gross_amount_cny", "buy")),
-        "sell_amount_cny": float(total("gross_amount_cny", "sell")),
-        "fees_cny": float(total("fees_cny")),
-        "buy_amount_personal_cny": float(total("gross_amount_personal_cny", "buy")),
-        "sell_amount_personal_cny": float(total("gross_amount_personal_cny", "sell")),
-        "fees_personal_cny": float(total("fees_personal_cny")),
+        "buy_amount_cny": total("gross_amount_cny", "buy"),
+        "sell_amount_cny": total("gross_amount_cny", "sell"),
+        "fees_cny": total("fees_cny"),
+        "buy_amount_personal_cny": total("gross_amount_personal_cny", "buy"),
+        "sell_amount_personal_cny": total("gross_amount_personal_cny", "sell"),
+        "fees_personal_cny": total("fees_personal_cny"),
         "sources": sorted({row.get("source") for row in rows if row.get("source")}),
     }
 
@@ -780,9 +747,9 @@ def _transaction_summary(rows: list[dict[str, Any]], data_source: str) -> dict[s
 def _fact_source_expr() -> str:
     return """
         CASE
-            WHEN source_table IN ('pams_investment_transactions', 'manual_investment_trade') THEN COALESCE(NULLIF(broker, ''), 'manual')
-            WHEN source_table = 'pams_tradingview_transactions' THEN 'tradingview'
-            WHEN source_table = 'pams_ibkr_trades' THEN 'ibkr'
+            WHEN source_table = 'manual_investment_trade' THEN COALESCE(NULLIF(broker, ''), 'manual')
+            WHEN source_table = 'tradingview_csv' THEN 'tradingview'
+            WHEN source_table = 'ibkr_flex_trade' THEN 'ibkr'
             ELSE COALESCE(NULLIF(broker, ''), source_table)
         END
     """
@@ -849,8 +816,13 @@ def _fact_query(where_sql: str) -> str:
                 COALESCE(NULLIF(f.side, ''), f.trade_type) AS side,
                 f.quantity,
                 f.price,
-                ABS(COALESCE(f.gross_amount, f.net_cash, 0)) AS gross_amount,
-                ABS(COALESCE(f.fee_amount, 0) + COALESCE(f.tax_amount, 0)) AS fees,
+                f.tax_amount,
+                ABS(f.gross_amount) AS gross_amount,
+                f.net_cash,
+                CASE WHEN f.source_table='ibkr_flex_trade' AND f.fee_amount<>0
+                         AND UPPER(f.fee_currency) IS DISTINCT FROM UPPER(f.currency) THEN NULL
+                    WHEN f.tax_amount IS NULL AND f.raw_json #>> '{{source_row,fee_scope}}' = 'total_charges'
+                    THEN ABS(f.fee_amount) ELSE ABS(f.fee_amount + f.tax_amount) END AS fees,
                 f.currency,
                 CASE
                     WHEN f.review_status IN ('auto', 'needs_review', 'reviewed', 'ignored') THEN f.review_status
@@ -870,6 +842,11 @@ def _fact_query(where_sql: str) -> str:
                 f.reviewed_at,
                 f.initial_position_identity,
                 f.current_position_identity,
+                f.identity_transition_type,
+                f.identity_transition_triggers,
+                f.identity_transition_evidence,
+                f.identity_transition_quality,
+                f.identity_transition_at,
                 f.identity_confidence,
                 f.intended_holding_period,
                 f.buy_logic,
@@ -891,15 +868,28 @@ def _fact_query(where_sql: str) -> str:
                     WHEN f.trade_type = 'fx_conversion' THEN 'fx_conversion'
                     ELSE LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type))
                 END AS side_normalized,
-                COALESCE(f.fx_rate_to_cny, 1) AS fx_rate,
-                COALESCE(
-                    ABS(f.gross_amount) * COALESCE(f.fx_rate_to_cny, 1),
-                    ABS(f.net_cash_cny),
-                    0
-                ) AS gross_amount_cny,
-                ABS(COALESCE(f.fee_amount, 0) + COALESCE(f.tax_amount, 0)) * COALESCE(f.fx_rate_to_cny, 1) AS fees_cny
+                fx.rate AS fx_rate,
+                CASE WHEN f.gross_amount=0 THEN 0 ELSE ABS(f.gross_amount) * fx.rate END AS gross_amount_cny,
+                CASE WHEN f.net_cash=0 THEN 0 ELSE f.net_cash * fx.rate END AS net_cash_cny,
+                fee.amount * COALESCE(fx.rate, CASE WHEN fee.amount=0 THEN 0 END) AS fees_cny
             FROM pams_investment_trade_fact f
             LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN f.source_table='ibkr_flex_trade' AND f.fee_amount<>0
+                             AND UPPER(f.fee_currency) IS DISTINCT FROM UPPER(f.currency) THEN NULL
+                    WHEN f.tax_amount IS NULL AND f.raw_json #>> '{{source_row,fee_scope}}' = 'total_charges'
+                    THEN ABS(f.fee_amount) ELSE ABS(f.fee_amount + f.tax_amount) END AS amount
+            ) fee ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN UPPER(f.currency) = 'CNY' THEN 1::numeric ELSE (
+                    SELECT r.rate FROM pams_fx_rates_daily r
+                    WHERE r.base_currency = 'CNY' AND r.quote_currency = UPPER(f.currency)
+                      AND r.as_of = f.trade_date AND r.rate > 0
+                      AND r.rate::text NOT IN ('NaN', 'Infinity', '-Infinity')
+                      AND NULLIF(BTRIM(r.source),'') IS NOT NULL
+                    LIMIT 1
+                ) END AS rate
+            ) fx ON TRUE
         )
         SELECT *
         FROM base
@@ -907,116 +897,6 @@ def _fact_query(where_sql: str) -> str:
         ORDER BY trade_time DESC, row_id DESC
         LIMIT %s
     """
-
-
-def _union_parts(cur) -> list[str]:
-    parts = []
-    if _table_exists(cur, "pams_investment_transactions"):
-        parts.append(
-            """
-        SELECT
-            'ledger-' || id::text AS row_id,
-            id AS native_id,
-            source,
-            source_key,
-            account_code,
-            trade_date,
-            COALESCE(trade_time, trade_date::timestamp) AS trade_time,
-            major_category,
-            minor_category,
-            symbol,
-            name,
-            side,
-            quantity,
-            price,
-            ABS(COALESCE(gross_amount, COALESCE(quantity, 0) * COALESCE(price, 0))) AS gross_amount,
-            ABS(COALESCE(fees, 0)) AS fees,
-            currency,
-            status,
-            notes,
-            NULL::text AS buy_reason,
-            NULL::text AS sell_reason,
-            ARRAY[]::text[] AS review_tags,
-            NULL::text AS trade_intent,
-            NULL::text AS trade_plan,
-            NULL::text AS review_note,
-            NULL::date AS review_due_date,
-            NULL::timestamptz AS reviewed_at,
-            created_at
-        FROM pams_investment_transactions
-        """
-        )
-    if _table_exists(cur, "pams_tradingview_transactions"):
-        parts.append(
-            """
-            SELECT
-                'tradingview-' || id::text AS row_id,
-                id AS native_id,
-                'tradingview' AS source,
-                row_hash AS source_key,
-                account_code,
-                closing_time::date AS trade_date,
-                closing_time AS trade_time,
-                'A股' AS major_category,
-                'A股' AS minor_category,
-                normalized_symbol AS symbol,
-                symbol AS name,
-                side,
-                quantity,
-                fill_price AS price,
-                ABS(COALESCE(quantity, 0) * COALESCE(fill_price, 0)) AS gross_amount,
-                ABS(COALESCE(commission, 0)) AS fees,
-                currency,
-                'imported' AS status,
-                source_file AS notes,
-                NULL::text AS buy_reason,
-                NULL::text AS sell_reason,
-                ARRAY[]::text[] AS review_tags,
-                NULL::text AS trade_intent,
-                NULL::text AS trade_plan,
-                NULL::text AS review_note,
-                NULL::date AS review_due_date,
-                NULL::timestamptz AS reviewed_at,
-                created_at
-            FROM pams_tradingview_transactions
-            """
-        )
-    if _table_exists(cur, "pams_ibkr_trades"):
-        parts.append(
-            """
-            SELECT
-                'ibkr-' || id::text AS row_id,
-                id AS native_id,
-                'ibkr' AS source,
-                source_trade_key AS source_key,
-                account_code,
-                trade_date,
-                trade_date::timestamp AS trade_time,
-                '美股' AS major_category,
-                COALESCE(asset_category, '美股') AS minor_category,
-                symbol,
-                name,
-                COALESCE(side, '') AS side,
-                quantity,
-                price,
-                ABS(COALESCE(gross_amount, net_cash, COALESCE(quantity, 0) * COALESCE(price, 0))) AS gross_amount,
-                ABS(COALESCE(commission, 0)) AS fees,
-                currency,
-                'imported' AS status,
-                NULL::text AS notes,
-                NULL::text AS buy_reason,
-                NULL::text AS sell_reason,
-                ARRAY[]::text[] AS review_tags,
-                NULL::text AS trade_intent,
-                NULL::text AS trade_plan,
-                NULL::text AS review_note,
-                NULL::date AS review_due_date,
-                NULL::timestamptz AS reviewed_at,
-                created_at
-            FROM pams_ibkr_trades
-            """
-        )
-    return parts
 
 
 @router.get("/investment-transactions")
@@ -1087,43 +967,10 @@ def list_investment_transactions(
                 params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
 
             where_sql = "WHERE " + " AND ".join(where) if where else ""
-            parts = _union_parts(cur)
-            union_sql = "\nUNION ALL\n".join(parts)
-            query = f"""
-                WITH latest_fx AS (
-                    SELECT DISTINCT ON (quote_currency) quote_currency, rate
-                    FROM pams_fx_rates_daily
-                    WHERE base_currency = 'CNY'
-                    ORDER BY quote_currency, as_of DESC
-                ), base AS (
-                    {union_sql}
-                ), enriched AS (
-                    SELECT
-                        b.*,
-                        COALESCE(a.display_name, b.account_code) AS account_name,
-                        CASE
-                            WHEN lower(b.side) IN ('buy', 'bought', '买入', '定投') THEN 'buy'
-                            WHEN lower(b.side) IN ('sell', 'sold', '取出', '赎回') THEN 'sell'
-                            WHEN lower(b.side) IN ('dividend', '分红') THEN 'dividend'
-                            ELSE lower(b.side)
-                        END AS side_normalized,
-                        COALESCE(fx.rate, 1) AS fx_rate,
-                        b.gross_amount * COALESCE(fx.rate, 1) AS gross_amount_cny,
-                        b.fees * COALESCE(fx.rate, 1) AS fees_cny
-                    FROM base b
-                    LEFT JOIN pams_accounts a ON a.account_code = b.account_code
-                    LEFT JOIN latest_fx fx ON fx.quote_currency = b.currency
-                )
-                SELECT *
-                FROM enriched
-                {where_sql}
-                ORDER BY trade_time DESC, row_id DESC
-                LIMIT %s
-            """
-            data_source = "legacy_union"
-            if _fact_rows_available(cur):
-                data_source = "trade_fact"
-                query = _fact_query(where_sql)
+            if not _fact_rows_available(cur):
+                return {"summary": _transaction_summary([], "trade_fact"), "rows": []}
+            data_source = "trade_fact"
+            query = _fact_query(where_sql)
             cur.execute(query, params + [limit])
             rows = [dict(r) for r in cur.fetchall()]
             _enrich_transaction_names(cur, rows)
@@ -1303,6 +1150,7 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
     transition_triggers = _validate_transition_triggers(review.identity_transition_triggers)
     trade_intent_provided = _field_was_provided(review, "trade_intent")
     trade_plan_provided = _field_was_provided(review, "trade_plan")
+    review_note_provided = _field_was_provided(review, "review_note")
     review_due_date_provided = _field_was_provided(review, "review_due_date")
     identity_fields_provided = {
         field: _field_was_provided(review, field)
@@ -1356,15 +1204,29 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
             cur.execute(
                 """
-                SELECT current_position_identity
+                SELECT current_position_identity, review_status
                 FROM pams_investment_trade_fact
                 WHERE trade_id = %s
+                FOR UPDATE
                 """,
                 (trade_id,),
             )
             before_row = cur.fetchone()
             if not before_row:
                 raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}")
+            if (not _field_was_provided(review, "review_status")
+                    and before_row.get("review_status") in {"reviewed", "ignored"}):
+                review_status = before_row["review_status"]
+            old_identity = before_row.get("current_position_identity")
+            record_transition = bool(
+                identity_fields_provided["current_position_identity"]
+                and old_identity and current_position_identity and old_identity != current_position_identity
+            )
+            transition_quality = (
+                _infer_transition_quality(old_identity, current_position_identity, transition_type,
+                                          transition_triggers, transition_evidence)
+                if record_transition else None
+            )
             cur.execute(
                 """
                 UPDATE pams_investment_trade_fact
@@ -1374,10 +1236,15 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
                     review_tags = %s::text[],
                     trade_intent = CASE WHEN %s THEN %s ELSE trade_intent END,
                     trade_plan = CASE WHEN %s THEN %s ELSE trade_plan END,
-                    review_note = %s,
+                    review_note = CASE WHEN %s THEN %s ELSE review_note END,
                     review_due_date = CASE WHEN %s THEN %s ELSE review_due_date END,
                     initial_position_identity = CASE WHEN %s THEN %s ELSE initial_position_identity END,
                     current_position_identity = CASE WHEN %s THEN %s ELSE current_position_identity END,
+                    identity_transition_type = CASE WHEN %s THEN %s ELSE identity_transition_type END,
+                    identity_transition_triggers = CASE WHEN %s THEN %s::text[] ELSE identity_transition_triggers END,
+                    identity_transition_evidence = CASE WHEN %s THEN %s ELSE identity_transition_evidence END,
+                    identity_transition_quality = CASE WHEN %s THEN %s ELSE identity_transition_quality END,
+                    identity_transition_at = CASE WHEN %s THEN NOW() ELSE identity_transition_at END,
                     identity_confidence = CASE WHEN %s THEN %s ELSE identity_confidence END,
                     intended_holding_period = CASE WHEN %s THEN %s ELSE intended_holding_period END,
                     buy_logic = CASE WHEN %s THEN %s ELSE buy_logic END,
@@ -1404,6 +1271,11 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
                     review_due_date,
                     initial_position_identity,
                     current_position_identity,
+                    identity_transition_type,
+                    identity_transition_triggers,
+                    identity_transition_evidence,
+                    identity_transition_quality,
+                    identity_transition_at,
                     identity_confidence,
                     intended_holding_period,
                     buy_logic,
@@ -1424,6 +1296,7 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
                     trade_intent,
                     trade_plan_provided,
                     trade_plan,
+                    review_note_provided,
                     review_note,
                     review_due_date_provided,
                     review.review_due_date,
@@ -1431,6 +1304,15 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
                     initial_position_identity,
                     identity_fields_provided["current_position_identity"],
                     current_position_identity,
+                    record_transition,
+                    transition_type or "other",
+                    record_transition,
+                    transition_triggers,
+                    record_transition,
+                    transition_evidence,
+                    record_transition,
+                    transition_quality,
+                    record_transition,
                     identity_fields_provided["identity_confidence"],
                     identity_confidence,
                     identity_fields_provided["intended_holding_period"],
@@ -1459,51 +1341,6 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}")
-            old_identity = before_row.get("current_position_identity")
-            new_identity = row.get("current_position_identity")
-            if (
-                identity_fields_provided["current_position_identity"]
-                and old_identity
-                and new_identity
-                and old_identity != new_identity
-                and _table_exists(cur, "pams_trade_identity_transition_event")
-            ):
-                quality = _infer_transition_quality(
-                    old_identity,
-                    new_identity,
-                    transition_type,
-                    transition_triggers,
-                    transition_evidence,
-                )
-                cur.execute(
-                    """
-                    INSERT INTO pams_trade_identity_transition_event (
-                        trade_id,
-                        from_identity,
-                        to_identity,
-                        transition_type,
-                        transition_triggers,
-                        evidence_note,
-                        new_sell_condition,
-                        new_max_position_pct,
-                        new_review_date,
-                        transition_quality
-                    )
-                    VALUES (%s, %s, %s, %s, %s::text[], %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        trade_id,
-                        old_identity,
-                        new_identity,
-                        transition_type or "other",
-                        transition_triggers,
-                        transition_evidence,
-                        row.get("sell_condition"),
-                        row.get("max_position_pct"),
-                        row.get("next_review_date"),
-                        quality,
-                    ),
-                )
         conn.commit()
 
     return {"trade": {k: norm(v) for k, v in dict(row).items()}, "review_options": _review_options_payload()}
@@ -1554,9 +1391,9 @@ def investment_transaction_options():
                 WITH sources AS (
                     SELECT DISTINCT
                         CASE
-                            WHEN source_table IN ('pams_investment_transactions', 'manual_investment_trade') THEN COALESCE(NULLIF(broker, ''), 'manual')
-                            WHEN source_table = 'pams_tradingview_transactions' THEN 'tradingview'
-                            WHEN source_table = 'pams_ibkr_trades' THEN 'ibkr'
+                            WHEN source_table = 'manual_investment_trade' THEN COALESCE(NULLIF(broker, ''), 'manual')
+                            WHEN source_table = 'tradingview_csv' THEN 'tradingview'
+                            WHEN source_table = 'ibkr_flex_trade' THEN 'ibkr'
                             ELSE COALESCE(NULLIF(broker, ''), source_table)
                         END AS source
                     FROM pams_investment_trade_fact

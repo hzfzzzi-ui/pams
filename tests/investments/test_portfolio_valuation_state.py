@@ -130,7 +130,7 @@ def test_build_portfolio_valuation_state_marks_missing_sources_partial():
 def test_latest_published_portfolio_valuation_state_reads_latest_published_row():
     cur = FakeCursor(
         [
-            {"table_name": "pams_portfolio_valuation_state"},
+            {"table_name": "valuation_results"},
             {"valuation_date": date(2026, 6, 18), "net_liquidation_value": Decimal("260")},
         ]
     )
@@ -150,19 +150,19 @@ def test_publish_current_portfolio_valuation_state_requires_schema_table():
     try:
         publish_current_portfolio_valuation_state(cur, base_currency="CNY")
     except RuntimeError as exc:
-        assert "pams_portfolio_valuation_state is missing" in str(exc)
+        assert "valuation_results is missing" in str(exc)
     else:
         raise AssertionError("Expected missing schema table to fail")
 
 
 def test_portfolio_valuation_state_schema_is_idempotent_and_indexed():
-    schema = (ROOT / "database" / "postgres" / "schema" / "048_portfolio_valuation_state.sql").read_text(
+    schema = (ROOT / "database" / "postgres" / "schema" / "025_valuation_results.sql").read_text(
         encoding="utf-8"
     )
 
-    assert "CREATE TABLE IF NOT EXISTS public.pams_portfolio_valuation_state" in schema
-    assert "PRIMARY KEY (valuation_date, cycle, base_currency)" in schema
-    assert "idx_pams_portfolio_valuation_state_latest" in schema
+    assert "CREATE TABLE IF NOT EXISTS public.valuation_results" in schema
+    assert "ON public.valuation_results (valuation_date,cycle,base_currency)" in schema
+    assert "idx_valuation_results_portfolio_latest" in schema
 
 
 def test_build_portfolio_valuation_state_payload_ignores_stale_published_row(monkeypatch):
@@ -237,3 +237,46 @@ def test_build_portfolio_valuation_state_payload_keeps_matching_published_row(mo
     assert payload["source"] == "published"
     assert payload["net_liquidation_value"] == "120"
     assert "published_state" not in payload
+
+
+def test_daily_portfolio_requires_all_accounts_same_period_and_applies_ownership_once(monkeypatch):
+    from datetime import timedelta
+    from domain.accounts import flow_coverage, official_flow_coverage
+
+    class Cursor:
+        def execute(self, *_args):
+            pass
+        def fetchone(self):
+            return {'versions':True,'batches':True,'items':True,'files':True}
+
+    end=date(2026,6,18); start=end-timedelta(days=1)
+    accounts=[{'account_code':'a','amount_cny':Decimal(60),'include_in_nav':True,'as_of':end},
+              {'account_code':'b','amount_cny':Decimal(80),'include_in_nav':True,'as_of':end}]
+    state=build_portfolio_valuation_state_from_parts(account_balances=accounts,investment_positions=[])
+    cfg={'accounts':{'a':{'owner_ratio':'0.5'},'b':{'owner_ratio':'1'}}}
+    monkeypatch.setattr(official_flow_coverage,'latest_verified_ibkr_period',lambda *a,**kw:None)
+    def proof(cur,*,account_code,end,ending_gross_cny):
+        return {'start':start,'end':end,'opening_gross_cny':Decimal(100 if account_code=='a' else 90),
+                'closing_gross_cny':ending_gross_cny,'external_flow_gross_cny':Decimal(0)}
+    monkeypatch.setattr(flow_coverage,'latest_verified_period',proof)
+    aggregate=pvs._verified_portfolio_daily_pnl(Cursor(),state=state,account_cfg=cfg,
+        account_balances=accounts,investment_positions=[])
+    assert aggregate[0]==0  # +10 from half-owned a, -10 from b.
+    monkeypatch.setattr(flow_coverage,'latest_verified_period',lambda cur,**kw:
+        None if kw['account_code']=='b' else proof(cur,**kw))
+    assert pvs._verified_portfolio_daily_pnl(Cursor(),state=state,account_cfg=cfg,
+        account_balances=accounts,investment_positions=[]) is None
+    def shifted(cur,**kw):
+        result=proof(cur,**kw)
+        if kw['account_code']=='b': result['start']-=timedelta(days=1)
+        return result
+    monkeypatch.setattr(flow_coverage,'latest_verified_period',shifted)
+    assert pvs._verified_portfolio_daily_pnl(Cursor(),state=state,account_cfg=cfg,
+        account_balances=accounts,investment_positions=[]) is None
+
+
+def test_legacy_published_zero_without_daily_proof_is_unknown():
+    cur=FakeCursor([{'table_name':'valuation_results'},
+                    {'valuation_date':date(2026,6,18),'daily_pnl_cny':Decimal(0),'raw_json':{}}])
+    result=latest_published_portfolio_valuation_state(cur)
+    assert result['daily_pnl_cny'] is None

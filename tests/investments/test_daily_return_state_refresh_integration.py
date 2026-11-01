@@ -75,8 +75,8 @@ def test_fund_nav_estimate_is_mirrored_to_daily_quote_state() -> None:
     market_daily_sql, _market_daily_params = cur.calls[0]
     quote_sql, quote_params = cur.calls[1]
 
-    assert "pams_asset_market_daily" in market_daily_sql
-    assert "pams_market_quote_snapshot" in quote_sql
+    assert "market_observations" in market_daily_sql and "'daily'" in market_daily_sql
+    assert "market_observations" in quote_sql and "'quote'" in quote_sql
     assert quote_params is not None
     assert quote_params["source"] == "tiantian_fundgz_estimate"
     assert quote_params["return_status"] == RETURN_STATUS_ESTIMATED
@@ -109,7 +109,7 @@ def test_cn_a_refresh_is_mirrored_to_daily_quote_state(monkeypatch) -> None:
     assert len(cur.calls) == 1
     quote_sql, quote_params = cur.calls[0]
 
-    assert "pams_market_quote_snapshot" in quote_sql
+    assert "market_observations" in quote_sql and "'quote'" in quote_sql
     assert quote_params is not None
     assert quote_params["source"] == "tencent_a_stock_close"
     assert quote_params["source_key"] == "tencent_a_stock_close:sh601899:2026-06-25"

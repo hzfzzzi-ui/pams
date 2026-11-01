@@ -23,6 +23,7 @@ from domain.investments.portfolio_state import (
     _norm,
     _table_exists,
     get_conn,
+    _owner_ratio,
     load_account_balances,
     load_investment_positions,
 )
@@ -30,7 +31,10 @@ from domain.investments.valuation_nav import current_nav_bucket_from_parts
 from domain.investments.valuation_nav import current_nav_account_values_from_parts
 
 
-STATE_TABLE = "pams_portfolio_valuation_state"
+STATE_TABLE = "valuation_results"
+STATE_COLUMNS = """valuation_date,cycle,base_currency,status,data_completeness,
+    net_liquidation_value,assets_cny,liabilities_cny,gross_exposure_cny,investment_value_cny,
+    cash_cny,daily_pnl_cny,total_pnl_cny,source_run_id,source_hash,raw_json,published_at,created_at,updated_at"""
 VALID_STATUSES = {"draft", "published", "failed"}
 CASH_ACCOUNT_TYPES = {
     "benefit",
@@ -279,72 +283,6 @@ def apply_summary_pnl_to_return_series_payload(
     return _norm(out)
 
 
-def _annualized_return_rate(rate: Decimal, start_date: str, end_date: str) -> Decimal:
-    try:
-        start = Date.fromisoformat(start_date[:10])
-        end = Date.fromisoformat(end_date[:10])
-    except (TypeError, ValueError):
-        return Decimal("0")
-    days = max((end - start).days, 1)
-    if rate <= Decimal("-1"):
-        return Decimal("0")
-    return Decimal(str((float(Decimal("1") + rate) ** (365 / days)) - 1))
-
-
-def _row_return_rate(row: dict[str, Any]) -> Decimal:
-    for key in ("return_rate", "display_return_rate", "time_weighted_return_rate", "capital_return_rate"):
-        if row.get(key) not in (None, ""):
-            return _dec(row.get(key))
-    cost = _dec(row.get("cost"))
-    if cost > Decimal("0.0001") and row.get("total_pnl") not in (None, ""):
-        return _dec(row.get("total_pnl")) / cost
-    return Decimal("0")
-
-
-def _recalibrate_return_curve_to_terminal_rate(rows: list[dict[str, Any]], terminal_rate: Decimal) -> list[dict[str, Any]]:
-    """Keep a section curve continuous while aligning its latest return rate.
-
-    Historical section snapshots can be anchored to stale platform totals. When
-    the current holdings table becomes the terminal truth, only changing the
-    last row creates a visual step. Re-scaling the cumulative rate path preserves
-    the existing curve shape and makes every displayed rate field use one basis.
-    """
-    if not rows:
-        return rows
-    old_rates = [_row_return_rate(row) for row in rows]
-    old_terminal = old_rates[-1]
-    if abs(old_terminal) > Decimal("0.000000000001"):
-        factor = terminal_rate / old_terminal
-        new_rates = [rate * factor for rate in old_rates]
-    else:
-        denominator = Decimal(max(len(rows) - 1, 1))
-        new_rates = [terminal_rate * Decimal(index) / denominator for index, _ in enumerate(rows)]
-
-    out: list[dict[str, Any]] = []
-    previous_rate: Decimal | None = None
-    for index, row in enumerate(rows):
-        next_row = dict(row)
-        rate = terminal_rate if index == len(rows) - 1 else new_rates[index]
-        next_row["return_rate"] = rate
-        next_row["display_return_rate"] = rate
-        if previous_rate is None:
-            next_row["daily_return_rate"] = rate
-        else:
-            denominator = Decimal("1") + previous_rate
-            next_row["daily_return_rate"] = (
-                ((Decimal("1") + rate) / denominator) - Decimal("1")
-                if abs(denominator) > Decimal("0.000000000001")
-                else rate - previous_rate
-            )
-        if next_row.get("cost") not in (None, ""):
-            cost = _dec(next_row.get("cost"))
-            if cost > Decimal("0.0001"):
-                next_row["total_pnl"] = rate * cost
-        out.append(next_row)
-        previous_rate = rate
-    return out
-
-
 def apply_holdings_category_pnl_to_section_return_series_payload(
     payload: dict[str, Any],
     holdings_payload: dict[str, Any] | None,
@@ -373,16 +311,51 @@ def apply_holdings_category_pnl_to_section_return_series_payload(
         "as_of": holdings_date,
         "overlay_applied": False,
     }
+    try:
+        Date.fromisoformat(holdings_date)
+        Date.fromisoformat(latest_date)
+    except (TypeError, ValueError):
+        out = dict(payload)
+        out["section_pnl_state"] = {**meta, "overlay_reason": "date_unverified"}
+        return _norm(out)
     if holdings_date and latest_date and holdings_date != latest_date:
         out = dict(payload)
         out["section_pnl_state"] = {**meta, "overlay_reason": "date_mismatch"}
+        return _norm(out)
+
+    def known(value):
+        if value in (None, ""):
+            return None
+        try:
+            number = Decimal(str(value))
+            return number if number.is_finite() else None
+        except (TypeError, ValueError, ArithmeticError):
+            return None
+
+    daily_values = [known(holding.get("daily_total_pnl_cny", holding.get("daily_pnl_cny", holding.get("daily_pnl"))))
+                    for holding in holding_rows]
+    daily_pnl = sum(daily_values, Decimal(0)) if all(value is not None for value in daily_values) else None
+    values = [known(holding.get('market_value_cny', holding.get('market_value'))) for holding in holding_rows]
+    if (any(value is None for value in values) or
+        any(known(holding.get('cost_cny', holding.get('cost'))) is None or
+            known(holding.get('holding_pnl_cny', holding.get('holding_pnl'))) is None for holding in holding_rows)):
+        out = dict(payload)
+        out['section_pnl_state'] = {**meta, 'overlay_reason': 'holding_value_cost_or_pnl_unknown'}
+        out['summary'] = {**(payload.get('summary') or {}), 'total_return': None,
+                          'total_return_rate': None, 'annualized_return_rate': None}
+        out['rows'] = rows
+        out['rows'][-1] = {**rows[-1], **{key: None for key in ('cost', 'total_pnl', 'position_pnl',
+                            'realized_income', 'return_rate', 'display_return_rate',
+                            'time_weighted_return_rate', 'capital_return_rate')}}
+        out['rows'][-1]['market_value'] = sum(values, Decimal(0)) if all(value is not None for value in values) else None
+        out['rows'][-1]['daily_return_amount'] = daily_pnl
+        out['rows'][-1]['daily_return_rate'] = None
         return _norm(out)
 
     total_value = Decimal("0")
     total_cost = Decimal("0")
     total_pnl = Decimal("0")
     current_float_pnl = Decimal("0")
-    daily_pnl = Decimal("0")
     for holding in holding_rows:
         market_value = _dec(holding.get("market_value_cny", holding.get("market_value")))
         cost = _dec(holding.get("cost_cny", holding.get("cost")))
@@ -392,14 +365,19 @@ def apply_holdings_category_pnl_to_section_return_series_payload(
         total_pnl += pnl
         if not holding.get("is_closed"):
             current_float_pnl += market_value - cost
-        daily_pnl += _dec(holding.get("daily_total_pnl_cny", holding.get("daily_pnl_cny", holding.get("daily_pnl"))))
 
     realized_pnl = total_pnl - current_float_pnl
-    return_rate = total_pnl / total_cost if total_cost > Decimal("0.0001") else Decimal("0")
-    start_date = str((payload.get("start") or (rows[0].get("date") if rows else "")) or "")[:10]
-    annualized = _annualized_return_rate(return_rate, start_date, latest_date)
-
-    rows = _recalibrate_return_curve_to_terminal_rate(rows, return_rate)
+    return_rate = total_pnl / total_cost if total_cost > Decimal("0.0001") else None
+    # The holdings return is a current simple cost ratio. It does not establish
+    # the historical series' flow-adjusted basis, so neither old points nor an
+    # annualized/daily rate can be derived by scaling the original curve.
+    terminal_basis_unchanged = (
+        return_rate is not None and daily_pnl is not None and
+        all(known(latest.get(key)) == expected for key, expected in (
+            ('market_value', total_value), ('cost', total_cost), ('total_pnl', total_pnl),
+            ('return_rate', return_rate), ('daily_return_amount', daily_pnl),
+        ))
+    )
     latest = rows[-1]
     latest["market_value"] = total_value
     latest["total_pnl"] = total_pnl
@@ -409,13 +387,18 @@ def apply_holdings_category_pnl_to_section_return_series_payload(
     latest["return_rate"] = return_rate
     latest["display_return_rate"] = return_rate
     latest["daily_return_amount"] = daily_pnl
+    if not terminal_basis_unchanged:
+        latest["daily_return_rate"] = None
+        latest["time_weighted_return_rate"] = None
+        latest["capital_return_rate"] = None
     latest["return_pnl_source"] = source
     rows[-1] = latest
 
     summary = dict(payload.get("summary") or {})
     summary["total_return"] = total_pnl
     summary["total_return_rate"] = return_rate
-    summary["annualized_return_rate"] = annualized
+    if not terminal_basis_unchanged:
+        summary["annualized_return_rate"] = None
 
     out = dict(payload)
     out["summary"] = summary
@@ -429,6 +412,10 @@ def apply_holdings_category_pnl_to_section_return_series_payload(
         "current_float_pnl": current_float_pnl,
         "closed_realized_pnl": realized_pnl,
         "return_rate": return_rate,
+        "return_rate_basis": "current_holding_pnl_over_cost",
+        "historical_values_recalibrated": False,
+        "daily_and_annualized_rate_reason": ("original_rates_retained_basis_unverified" if terminal_basis_unchanged
+                                             else "historical_basis_and_cash_flows_unverified"),
         "row_count": len(holding_rows),
     }
     return _norm(out)
@@ -453,7 +440,7 @@ def build_portfolio_valuation_state_from_parts(
     represented_accounts = {
         str(row.get("account_code") or "")
         for row in investment_positions
-        if row.get("account_code")
+        if row.get("account_code") and row.get('include_in_nav', True)
     }
     nav_bucket = current_nav_bucket_from_parts(
         account_balances=account_balances,
@@ -468,8 +455,11 @@ def build_portfolio_valuation_state_from_parts(
     investment_value = Decimal("0")
     cash_value = Decimal("0")
     total_pnl = Decimal("0")
+    missing_pnl_positions = []
     position_counts = {"cash": 0, "liability": 0, "investment": 0}
     for row in investment_positions:
+        if not row.get('include_in_nav', True):
+            continue
         value = _dec(row.get("market_value_cny"))
         asset_type = str(row.get("asset_type") or "")
         if asset_type == "cash":
@@ -481,7 +471,10 @@ def build_portfolio_valuation_state_from_parts(
             investment_value += value
             gross_exposure += abs(value)
             position_counts["investment"] += 1
-        total_pnl += _dec(row.get("holding_pnl_cny"))
+        if row.get('holding_pnl_cny') is None:
+            missing_pnl_positions.append(str(row.get('asset_id') or row.get('symbol') or row.get('asset_name') or ''))
+        else:
+            total_pnl += _dec(row['holding_pnl_cny'])
 
     unrepresented_accounts = []
     for row in account_balances:
@@ -503,7 +496,11 @@ def build_portfolio_valuation_state_from_parts(
         for row in investment_positions
         if not row.get("as_of")
     ]
-    data_completeness = "complete" if not missing_accounts and not missing_positions else "partial"
+    incomplete_scope = sorted({str(row.get('account_code')) for row in [*account_balances, *investment_positions]
+                               if row.get('account_code') and row.get('include_in_nav', True)
+                               and (row.get('snapshot_scope_status') in {'partial', 'unknown'} or row.get('fx_status') == 'unavailable')})
+    has_nav_members = any(row.get("include_in_nav", True) for row in [*account_balances, *investment_positions])
+    data_completeness = "complete" if has_nav_members and not missing_accounts and not missing_positions and not missing_pnl_positions and not incomplete_scope else "partial"
     raw_json = {
         "formula": "net_liquidation_value = assets_cny - liabilities_cny",
         "source": "portfolio_state_parts/current_nav_bucket_from_parts",
@@ -514,6 +511,8 @@ def build_portfolio_valuation_state_from_parts(
         "unrepresented_accounts": sorted(unrepresented_accounts),
         "missing_accounts": missing_accounts,
         "missing_positions": missing_positions,
+        "missing_pnl_positions": missing_pnl_positions,
+        "snapshot_scope_unavailable_accounts": incomplete_scope,
         "nav_bucket": {
             "assets": nav_bucket["assets"],
             "liabilities": nav_bucket["liabilities"],
@@ -537,14 +536,14 @@ def build_portfolio_valuation_state_from_parts(
         "base_currency": base,
         "status": status_value,
         "data_completeness": data_completeness,
-        "net_liquidation_value": nav_bucket["net_worth"],
-        "assets_cny": nav_bucket["assets"],
-        "liabilities_cny": nav_bucket["liabilities"],
+        "net_liquidation_value": nav_bucket["net_worth"] if has_nav_members and not incomplete_scope else None,
+        "assets_cny": nav_bucket["assets"] if has_nav_members and not incomplete_scope else None,
+        "liabilities_cny": nav_bucket["liabilities"] if has_nav_members and not incomplete_scope else None,
         "gross_exposure_cny": gross_exposure,
         "investment_value_cny": investment_value,
         "cash_cny": cash_value,
-        "daily_pnl_cny": Decimal("0"),
-        "total_pnl_cny": total_pnl,
+        "daily_pnl_cny": None,
+        "total_pnl_cny": total_pnl if not missing_pnl_positions else None,
         "source_run_id": None,
         "source_hash": None,
         "raw_json": raw_json,
@@ -552,6 +551,60 @@ def build_portfolio_valuation_state_from_parts(
     }
     state["source_hash"] = _state_hash(state)
     return state
+
+
+def _verified_portfolio_daily_pnl(cur, *, state, account_cfg, account_balances, investment_positions):
+    """Aggregate only same-period, independently verified account returns."""
+    if state.get("base_currency") != "CNY" or state.get("net_liquidation_value") is None:
+        return None
+    members = [row for row in [*account_balances, *investment_positions] if row.get("include_in_nav", True)]
+    account_values = state["raw_json"]["account_values_cny"]
+    accounts = {str(row.get("account_code") or "") for row in members}
+    if not accounts or "" in accounts or set(account_values) != accounts:
+        return None
+    try:
+        if abs(sum((Decimal(str(value)) for value in account_values.values()), Decimal(0))
+               - Decimal(str(state["net_liquidation_value"]))) > Decimal("0.01"):
+            return None
+        cur.execute("""SELECT to_regclass('public.account_snapshot_version') AS versions,
+            to_regclass('public.source_batches') AS batches,
+            to_regclass('public.source_items') AS items,
+            to_regclass('public.source_files') AS files""")
+        available = cur.fetchone()
+        if not available or not all(available.get(key) for key in ('versions','batches','items','files')):
+            return None
+        end = Date.fromisoformat(str(state["valuation_date"]))
+        if any(_date_key(row.get("as_of")) != end.isoformat() for row in members):
+            return None
+        from domain.accounts.flow_coverage import latest_verified_period
+        from domain.accounts.official_flow_coverage import IBKRSourceConflict, latest_verified_ibkr_period
+        proofs: list[dict[str, Any]] = []
+        total = Decimal(0)
+        for code in sorted(accounts):
+            ratio = _owner_ratio(account_cfg, code)
+            personal = Decimal(str(account_values[code]))
+            if not ratio.is_finite() or ratio <= 0 or not personal.is_finite():
+                return None
+            gross = personal / ratio
+            try:
+                proof = latest_verified_ibkr_period(cur, account_code=code, end=end, ending_gross_cny=gross,
+                                                    raise_on_conflict=True)
+            except IBKRSourceConflict:
+                return None
+            if not proof:
+                proof = latest_verified_period(cur, account_code=code, end=end, ending_gross_cny=gross)
+            if not proof or abs(proof["closing_gross_cny"] - gross) > Decimal("0.01"):
+                return None
+            if proofs and proof["start"] != proofs[0]["proof"]["start"]:
+                return None
+            pnl = (gross - proof["opening_gross_cny"] - proof["external_flow_gross_cny"]) * ratio
+            if not pnl.is_finite():
+                return None
+            total += pnl
+            proofs.append({"account_code":code, "owner_ratio":ratio, "daily_pnl_cny":pnl, "proof":proof})
+        return total, proofs
+    except (KeyError, ValueError, TypeError, ArithmeticError):
+        return None
 
 
 def _build_current_state(
@@ -569,13 +622,21 @@ def _build_current_state(
         account_cfg,
         account_balances=account_balances,
     )
-    return build_portfolio_valuation_state_from_parts(
+    state = build_portfolio_valuation_state_from_parts(
         account_balances=account_balances,
         investment_positions=investment_positions,
         base_currency=base_currency,
         cycle=cycle,
         status=status,
     )
+    verified = _verified_portfolio_daily_pnl(cur, state=state, account_cfg=account_cfg,
+        account_balances=account_balances, investment_positions=investment_positions)
+    if verified:
+        state["daily_pnl_cny"], state["raw_json"]["daily_pnl_evidence"] = verified
+    else:
+        state["raw_json"]["daily_pnl_evidence"] = None
+    state["source_hash"] = _state_hash(state)
+    return state
 
 
 def latest_published_portfolio_valuation_state(
@@ -588,16 +649,22 @@ def latest_published_portfolio_valuation_state(
         return None
     cur.execute(
         f"""
-        SELECT *
+        SELECT {STATE_COLUMNS}
         FROM {STATE_TABLE}
-        WHERE base_currency = %s
+        WHERE result_type = 'portfolio_published' AND base_currency = %s
           AND status = 'published'
         ORDER BY valuation_date DESC, published_at DESC NULLS LAST, updated_at DESC
         LIMIT 1
         """,
         (str(base_currency or "CNY").upper(),),
     )
-    return cur.fetchone()
+    row = cur.fetchone()
+    if row:
+        row = dict(row)
+        # Older published records used a hard-coded zero. It is not evidence.
+        if not (row.get("raw_json") or {}).get("daily_pnl_evidence"):
+            row["daily_pnl_cny"] = None
+    return row
 
 
 def published_daily_close_compatible(row: dict[str, Any] | None, *,
@@ -671,23 +738,25 @@ def publish_current_portfolio_valuation_state(
         cycle=cycle,
         status="published",
     )
+    if state['net_liquidation_value'] is None:
+        raise ValueError('portfolio valuation cannot be published while account snapshot scope is incomplete')
     cur.execute(
         f"""
         INSERT INTO {STATE_TABLE} (
-            valuation_date, cycle, base_currency, status, data_completeness,
+            result_type, valuation_date, cycle, base_currency, status, data_completeness,
             net_liquidation_value, assets_cny, liabilities_cny,
             gross_exposure_cny, investment_value_cny, cash_cny,
             daily_pnl_cny, total_pnl_cny, source_run_id, source_hash,
             raw_json, published_at, updated_at
         )
         VALUES (
-            %s, %s, %s, %s, %s,
+            'portfolio_published', %s, %s, %s, %s, %s,
             %s, %s, %s,
             %s, %s, %s,
             %s, %s, %s, %s,
             %s, now(), now()
         )
-        ON CONFLICT (valuation_date, cycle, base_currency)
+        ON CONFLICT (valuation_date, cycle, base_currency) WHERE result_type='portfolio_published'
         DO UPDATE SET
             status = EXCLUDED.status,
             data_completeness = EXCLUDED.data_completeness,
@@ -704,7 +773,7 @@ def publish_current_portfolio_valuation_state(
             raw_json = EXCLUDED.raw_json,
             published_at = EXCLUDED.published_at,
             updated_at = now()
-        RETURNING *
+        RETURNING {STATE_COLUMNS}
         """,
         (
             state["valuation_date"],
@@ -738,6 +807,8 @@ def build_portfolio_valuation_state_payload(
     """Return the latest fresh published valuation state, or a computed read-only fallback."""
     base = str(base_currency or "CNY").upper()
     with conn_factory() as conn:
+        if hasattr(conn, "set_session"):
+            conn.set_session(isolation_level="REPEATABLE READ")
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             table_ready = _table_exists(cur, STATE_TABLE)
             row: dict[str, Any] | None
@@ -784,6 +855,8 @@ def publish_portfolio_valuation_state_payload(
     """Publish and return the current canonical valuation state."""
     base = str(base_currency or "CNY").upper()
     with conn_factory() as conn:
+        if hasattr(conn, "set_session"):
+            conn.set_session(isolation_level="REPEATABLE READ")
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             row = publish_current_portfolio_valuation_state(cur, base_currency=base, cycle=cycle)
             return {"table_ready": True, **(_normalize_db_row(row, source="published") or {})}

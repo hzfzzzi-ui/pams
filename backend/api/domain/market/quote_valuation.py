@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 def snapshot_tables(cur) -> dict:
-    cur.execute("SELECT to_regclass(%s) AS table_name, to_regclass('pams_market_quote_snapshot') IS NOT NULL AS quote_available",
+    cur.execute("SELECT to_regclass(%s) AS table_name, to_regclass('market_observations') IS NOT NULL AS quote_available",
                 ("pams_holdings_snapshot",))
     return dict(cur.fetchone() or {})
 
@@ -26,7 +26,7 @@ def quote_valuation_cte(enabled: bool) -> str:
         FROM source_holdings s
         JOIN LATERAL (
             SELECT q.price, q.quote_date, q.updated_at
-            FROM pams_market_quote_snapshot q
+            FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') q
             WHERE q.currency = s.currency AND q.symbol = s.symbol
               AND (q.market, q.currency) IN (
                   ('US', 'USD'), ('HK', 'HKD'), ('KR', 'KRW'), ('SE', 'SEK'), ('CH', 'CHF')

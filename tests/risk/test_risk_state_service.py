@@ -36,6 +36,66 @@ class FakeCursor:
         return self.results.pop(0)
 
 
+def test_risk_does_not_aggregate_foreign_holding_without_fx(monkeypatch):
+    from domain.risk import risk_state
+    state = {
+        "account_balances": [{"account_code": "broker", "account_type": "brokerage", "include_in_nav": True,
+                              "amount": "100", "amount_cny": None}],
+        "investment_positions": [{"account_code": "broker", "symbol": "ABC", "asset_name": "ABC",
+                                  "currency": "USD", "market_value": "100", "market_value_cny": None,
+                                  "cost_cny": None, "fx_status": "unavailable"}],
+        "fx_status": "incomplete", "fx_unavailable_accounts": ["broker"], "fx_rates": [],
+    }
+    monkeypatch.setattr(risk_state, "build_portfolio_state", lambda **kwargs: state)
+    result = risk_state.build_risk_state()
+    assert result['reason'] == 'missing_fx' and result['metrics']['total_nav'] is None
+    assert result['holdings'][0]['market_value'] == 100
+    assert result['holdings'][0]['market_value_cny'] is None
+
+
+def test_account_risk_amount_does_not_invent_fx_or_missing_cny(monkeypatch):
+    from domain.risk import risk_state
+    account = {"account_code": "wallet", "account_type": "funding", "currency": "USD", "include_in_nav": True,
+               "amount": "100", "amount_cny": None}
+    row = risk_state._account_balance_position(account, {})
+    assert row["market_value"] == 100 and row["market_value_cny"] is None and row["fx_rate_to_cny"] is None
+    zero = risk_state._account_balance_position({**account, "amount": 0}, {})
+    assert zero["market_value_cny"] == 0 and zero["fx_rate_to_cny"] is None
+    known = risk_state._account_balance_position({**account, "amount_cny": 700}, {})
+    assert known["market_value_cny"] == 700 and known["fx_rate_to_cny"] == 7
+    monkeypatch.setattr(risk_state, "build_portfolio_state", lambda **kwargs: {
+        "account_balances": [account], "investment_positions": [], "fx_rates": [], "fx_status": "ok"})
+    result = risk_state.build_risk_state()
+    assert result["reason"] == "missing_fx" and result["metrics"]["total_nav"] is None
+    assert result["holdings"][0]["market_value_cny"] is None
+
+
+def test_risk_report_marks_unexplained_published_nav_without_creating_cash(monkeypatch):
+    from domain.risk import risk_state
+    state = {
+        "account_balances": [{"account_code": "broker", "display_name": "Broker", "account_type": "brokerage",
+                              "include_in_nav": True, "amount": "100", "amount_cny": "100", "currency": "CNY"}],
+        "investment_positions": [{"account_code": "broker", "symbol": "TEST", "asset_name": "Test",
+                                  "currency": "CNY", "market_value": "100", "market_value_cny": "100",
+                                  "cost": "90", "cost_cny": "90", "as_of": "2026-10-22"}],
+        "fx_status": "complete", "snapshot_scope_status": "complete", "fx_rates": [],
+    }
+    monkeypatch.setattr(risk_state, "build_portfolio_state", lambda **kwargs: state)
+    monkeypatch.setattr(risk_state, "_latest_published_valuation_state", lambda *args: {
+        "valuation_date": date(2026, 10, 22), "status": "published", "data_completeness": "complete",
+        "net_liquidation_value": 150, "assets_cny": 150, "liabilities_cny": 0})
+    monkeypatch.setattr(risk_state, "_load_db_industry_lookup", lambda positions: {})
+    monkeypatch.setattr(risk_state, "_load_latest_exposure_payload", lambda *args: None)
+    monkeypatch.setattr(risk_state, "_latest_ibkr_performance", lambda: None)
+    result = risk_state.build_risk_state()
+    assert result["status"] == "review" and result["metrics"]["total_nav"] == 150
+    assert result["valuation_state"]["reconciliation_status"] == "unexplained"
+    assert result["valuation_state"]["nav_reconciliation_cny"] == 50
+    assert result["metrics"]["gross_exposure_ratio"] == 100 / 150
+    assert all(row.get("asset_id") != "VALUATION_STATE_ADJUSTMENT" for row in result["positions"])
+    assert result["data_quality"]["status"] == "NEEDS_REVIEW"
+
+
 def test_build_risk_latest_payload_handles_empty_snapshot():
     payload = build_risk_latest_payload(FakeCursor([{"as_of": None}]), limit=10)
 

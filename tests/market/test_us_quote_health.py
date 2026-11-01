@@ -178,13 +178,11 @@ def test_sql_contract_ranks_all_positions_before_excluding_closed_and_reads_only
     assert sync_health.read_overseas_quote_health(cur, NOW)["status"] == "ok"
     assert len(cur.calls) == 1
     query, params = cur.calls[0]
-    assert params == (NOW.date(), "美股", "美股")
-    assert "PARTITION BY account_code, currency, COALESCE(NULLIF(symbol, ''), name)" in query
-    assert "COALESCE(NULLIF(symbol, ''), name)" in query
-    assert "ORDER BY as_of DESC, updated_at DESC, id DESC" in query
-    assert "h.rn = 1 AND h.quantity IS DISTINCT FROM 0" in query
-    assert "complete_account_snapshot AS" in query and "JOIN current_members cm" in query
-    assert "pams_market_quote_snapshot" in query and "pams_asset_market_daily" in query
+    assert params == (NOW.date(), "美股")
+    assert "latest_known_holding" in query
+    assert "h.quantity IS DISTINCT FROM 0" in query
+    assert "market_observations" in query
+    assert "observation_type = 'quote'" in query and "observation_type = 'daily'" in query
     assert "o.market = 'YF'" in query
     assert "m.asset_id = h.asset_id OR m.primary_symbol = h.symbol" in query
     assert "s.currency = h.currency" in query and "d.currency = h.currency" in query
@@ -221,6 +219,9 @@ def test_center_changes_only_overseas_row_and_derived_health_counts(monkeypatch)
         def __exit__(self, *_):
             return False
 
+        def set_session(self, **kwargs):
+            assert kwargs == {"isolation_level": "REPEATABLE READ", "readonly": True}
+
         def cursor(self, **_):
             return CenterCursor([])
 
@@ -229,13 +230,15 @@ def test_center_changes_only_overseas_row_and_derived_health_counts(monkeypatch)
     monkeypatch.setattr(sync_center, "get_conn", Connection)
     monkeypatch.setattr(sync_center, "_now_local", lambda: NOW)
     monkeypatch.setattr(sync_center, "read_ibkr_reconciliation", lambda: dict(status="ok", label="正常", details=""))
-    monkeypatch.setattr(sync_center, "_latest_sync_run", lambda *_: None)
     monkeypatch.setattr(ibkr_performance, "published_report_status", lambda _: quality)
     monkeypatch.setattr(sync_center, "scheduler_health", lambda _: dict(status="ok", label="正常", jobs={}))
     healthy = sync_health.overseas_quote_health([holding()], NOW)
     partial = sync_health.overseas_quote_health([holding(quote_date="2026-10-23")], NOW)
     monkeypatch.setattr(sync_center, "read_overseas_quote_health", lambda *_: healthy)
     before = sync_center.sync_center()
+    published = next(row for row in before['rows'] if row['id'] == 'ibkr-flex')
+    assert published['latest_date'] == '2026-10-26' and published['rows'] == 4
+    assert published['latest_time'] is None and before['summary']['last_ibkr_sync'] is None
     monkeypatch.setattr(sync_center, "read_overseas_quote_health", lambda *_: partial)
     after = sync_center.sync_center()
     assert not any(row["id"] == "datahub-cn-a" or row.get("href") == "research.html" for row in after["rows"])
@@ -262,11 +265,10 @@ def pg_health():
             "as_of date, updated_at timestamptz, current_price numeric, quantity numeric, "
             "asset_liability text, major_category text, minor_category text",
         "pams_asset_master": "asset_id text, primary_symbol text, status text, market text, asset_type text, listing_region text",
-        "pams_market_quote_snapshot": "quote_id bigserial, quote_date date, price numeric, return_status text, source text, "
-            "quote_session text, raw_json jsonb, market text, price_time timestamptz, updated_at timestamptz, currency text, "
-            "asset_id text, symbol text",
-        "pams_asset_market_daily": "as_of date, estimated_unit_nav numeric, close_price numeric, unit_nav numeric, "
-            "source text, confidence text, market text, updated_at timestamptz, raw_json jsonb, source_key text, "
+        "market_observations": "quote_id bigserial, observation_type text, as_of date, "
+            "quote_date date GENERATED ALWAYS AS (as_of) STORED, price numeric, return_status text, source text, "
+            "quote_session text, raw_json jsonb, market text, price_time timestamptz, updated_at timestamptz, "
+            "estimated_unit_nav numeric, close_price numeric, unit_nav numeric, confidence text, source_key text, "
             "currency text, asset_id text, symbol text",
         "pams_ohlcv_daily": "trade_date date, close numeric, symbol text, market text",
     }
@@ -296,7 +298,7 @@ def pg_position(symbol="QQQ", day="2026-10-26", **changes):
 
 
 def pg_quote(symbol="QQQ", day="2026-10-26", **changes):
-    return {"asset_id": symbol, "symbol": symbol, "currency": "USD", "quote_date": day, "price": 123.45,
+    return {"observation_type": "quote", "asset_id": symbol, "symbol": symbol, "currency": "USD", "as_of": day, "price": 123.45,
             "return_status": "confirmed", "source": "yahoo_close", "quote_session": "close", "raw_json": {},
             "updated_at": NOW, **changes}
 
@@ -328,19 +330,20 @@ def test_postgres_complete_membership_partial_refresh_and_all_quote_sources(pg_h
     ])
     for symbol, day in (("QQQ", "2026-10-26"), ("005930.KS", "2026-10-23")):
         if provider == "snapshot":
-            insert_rows(conn, "pams_market_quote_snapshot", [pg_quote(symbol, day)])
+            insert_rows(conn, "market_observations", [pg_quote(symbol, day)])
         elif provider == "daily":
-            insert_rows(conn, "pams_asset_market_daily", [dict(symbol=symbol, asset_id=symbol, as_of=day,
+            insert_rows(conn, "market_observations", [dict(observation_type="daily", symbol=symbol, asset_id=symbol, as_of=day,
                 currency="USD", close_price=123.45, source="yahoo_close", source_key=symbol, raw_json={})])
         else:
             insert_rows(conn, "pams_ohlcv_daily", [dict(symbol=symbol, trade_date=day, market="YF", close=123.45)])
     if provider == "snapshot":
-        insert_rows(conn, "pams_market_quote_snapshot", [pg_quote("MU", currency="KRW")])
+        insert_rows(conn, "market_observations", [pg_quote("MU", currency="KRW")])
     result = pg_read_only_health(conn)
     coverage = result["coverage"]
     assert result["status"] == "review"
-    assert (coverage["expected"], coverage["covered"], coverage["missing"], coverage["stale"]) == (4, 1, 1, 3)
-    assert {item["symbol"] for item in coverage["items"]} == {"QQQ", "MU", "005930.KS"}
+    # Missing from a later partial snapshot is not evidence of an exit.
+    assert (coverage["expected"], coverage["covered"], coverage["missing"], coverage["stale"]) == (5, 1, 2, 4)
+    assert {item["symbol"] for item in coverage["items"]} == {"QQQ", "MU", "005930.KS", "SOLD"}
     assert sum(item["symbol"] == "QQQ" for item in coverage["items"]) == 2
 
 
@@ -368,7 +371,7 @@ def test_postgres_intraday_and_holiday_evidence(pg_health, stamp, symbol, curren
     now = datetime.fromisoformat(stamp)
     day = now.astimezone(ZoneInfo("Asia/Shanghai")).date()
     insert_rows(pg_health, "pams_holdings_snapshot", [pg_position(symbol, day, currency=currency)])
-    insert_rows(pg_health, "pams_market_quote_snapshot", [pg_quote(symbol, quote_day, currency=currency,
+    insert_rows(pg_health, "market_observations", [pg_quote(symbol, quote_day, currency=currency,
         source=source, quote_session=session, price_time=quote_time,
         return_status="estimated" if "estimate" in source else "confirmed")])
     result = pg_read_only_health(pg_health, now)

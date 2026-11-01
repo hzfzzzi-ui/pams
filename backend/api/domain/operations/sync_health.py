@@ -13,7 +13,7 @@ import exchange_calendars as xcals
 
 from domain.investments.daily_return_state import normalize_return_status
 from domain.assets.exposure_engine import _infer_stock_asset_class, resolve_market, resolveAssetType
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.investment_view_date import daily_pnl_window_date
 from domain.investments.portfolio_state import _is_cash_like_holding
 
@@ -22,28 +22,14 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
     """Read current positions and their latest quote evidence, never NAV/returns."""
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, current_members AS (
-            SELECT DISTINCT h.account_code, h.currency, COALESCE(NULLIF(h.symbol, ''), h.name) AS position_key
-            FROM pams_holdings_snapshot h
-            JOIN latest_account la ON la.account_code = h.account_code AND la.account_as_of = h.as_of
-            WHERE h.major_category = %s
-        ), ranked AS (
-            SELECT h.*, ROW_NUMBER() OVER (
-                PARTITION BY account_code, currency, COALESCE(NULLIF(symbol, ''), name)
-                ORDER BY as_of DESC, updated_at DESC, id DESC
-            ) AS rn
-            FROM pams_holdings_snapshot h
-            WHERE major_category = %s
-        )
+        WITH {LATEST_KNOWN_HOLDINGS_CTE}
         SELECT h.account_code, h.asset_id, h.symbol, h.name, h.currency,
                h.as_of, h.updated_at, h.current_price, h.quantity,
                h.asset_liability, h.major_category, h.minor_category,
                am.market, am.asset_type, am.listing_region,
                q.quote_date, q.price AS quote_price, q.return_status,
                q.source, q.quote_session, q.confidence, q.quote_market, q.quote_time, q.close_evidence, q.projection_only
-        FROM ranked h
-        JOIN current_members cm ON cm.account_code = h.account_code AND cm.currency = h.currency
-          AND cm.position_key = COALESCE(NULLIF(h.symbol, ''), h.name)
+        FROM latest_known_holding h
         LEFT JOIN LATERAL (
             SELECT m.market, m.asset_type, m.listing_region
             FROM pams_asset_master m
@@ -61,7 +47,7 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
                          AND source LIKE '%%close%%' AND source NOT LIKE '%%estimate%%') AS close_evidence,
                         (raw_json->>'valuation_projection_only' = 'true') AS projection_only,
                         updated_at, 0 AS priority
-                 FROM pams_market_quote_snapshot s
+                 FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') s
                  WHERE s.currency = h.currency
                    AND (s.asset_id = h.asset_id OR s.symbol = h.symbol)
                  ORDER BY quote_date DESC, updated_at DESC, quote_id DESC LIMIT 1)
@@ -69,7 +55,7 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
                 (SELECT as_of, COALESCE(estimated_unit_nav, close_price, unit_nav),
                         NULL, source, raw_json->>'session', confidence, market, raw_json->>'as_of_utc',
                         (source LIKE '%%close%%' AND source NOT LIKE '%%estimate%%'), FALSE, updated_at, 1
-                 FROM pams_asset_market_daily d
+                 FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') d
                  WHERE d.currency = h.currency
                    AND (d.asset_id = h.asset_id OR d.symbol = h.symbol)
                  ORDER BY as_of DESC, updated_at DESC, source, source_key LIMIT 1)
@@ -83,11 +69,11 @@ def read_overseas_quote_health(cur, now: datetime) -> dict[str, Any]:
             ORDER BY quote_date DESC, priority, updated_at DESC NULLS LAST
             LIMIT 1
         ) q ON TRUE
-        WHERE h.rn = 1 AND h.quantity IS DISTINCT FROM 0
+        WHERE h.major_category = %s AND h.quantity IS DISTINCT FROM 0
           AND h.asset_liability = '资产'
         ORDER BY h.account_code, h.symbol, h.name
         """,
-        (now.astimezone(ZoneInfo("Asia/Shanghai")).date(), "美股", "美股"),
+        (now.astimezone(ZoneInfo("Asia/Shanghai")).date(), "美股"),
     )
     rows = [dict(row) for row in cur.fetchall()]
     return overseas_quote_health(rows, now)

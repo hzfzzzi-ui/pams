@@ -41,13 +41,64 @@ def _business_snapshot(cur):
     for table, fields in (
         ("pams_asset_master", "asset_id,canonical_name,primary_symbol,asset_type,source,confidence,raw_json"),
         ("pams_asset_alias", "asset_id,alias_type,alias_value,source,priority"),
-        ("pams_asset_industry_map", "asset_id,industry_system,industry_leaf,industry_sub_bucket,industry_bucket,classification_scope,source,confidence,evidence,is_primary"),
-        ("pams_asset_theme_map", "asset_id,theme_id,theme_name,parent_theme_id,theme_level,family,score,role,source,confidence,evidence"),
+        ("asset_classifications", "asset_id,classification_type,industry_system,industry_leaf,industry_sub_bucket,industry_bucket,classification_scope,is_primary,theme_id,theme_name,parent_theme_id,theme_level,family,score,role,source,confidence,evidence"),
         ("pams_fund_underlying_position", "fund_asset_id,underlying_asset_id,underlying_name,underlying_symbol,underlying_weight,underlying_asset_type,effective_source,coverage_type,confidence,source,raw_json"),
     ):
         cur.execute(sql.SQL("SELECT {} FROM {}").format(sql.SQL(fields), sql.Identifier(table)))
         rows[table] = sorted((dict(row) for row in cur.fetchall()), key=repr)
     return rows
+
+
+def test_classification_table_keeps_industry_and_theme_separate(scratch_cursor):
+    cur = scratch_cursor
+    cur.execute("INSERT INTO pams_asset_master(asset_id,canonical_name,asset_type) VALUES ('CLASS_TEST','Example','stock_cn')")
+    cur.execute("""INSERT INTO asset_classifications
+        (asset_id,classification_type,industry_system,industry_bucket,classification_scope,is_primary)
+        VALUES ('CLASS_TEST','industry','SW','科技TMT','listed_equity',TRUE)""")
+    cur.execute("""INSERT INTO asset_classifications
+        (asset_id,classification_type,theme_id,theme_name,theme_level,score,role)
+        VALUES ('CLASS_TEST','theme','ai','人工智能','parent',1,'core')""")
+    cur.execute("SELECT classification_type FROM asset_classifications WHERE asset_id='CLASS_TEST' ORDER BY classification_type")
+    assert [row['classification_type'] for row in cur.fetchall()] == ['industry', 'theme']
+    cur.execute("SAVEPOINT invalid_cross_dimension")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        cur.execute("""INSERT INTO asset_classifications
+            (asset_id,classification_type,industry_system,industry_bucket,classification_scope,is_primary,theme_id)
+            VALUES ('CLASS_TEST','industry','manual','科技TMT','other',TRUE,'not-an-industry')""")
+    cur.execute("ROLLBACK TO SAVEPOINT invalid_cross_dimension")
+
+
+def test_fund_seed_is_read_from_database_without_read_side_writes(scratch_cursor):
+    cur = scratch_cursor
+    config = {
+        "asset_mapping": [{"symbol": "F1", "asset_name": "Fund", "asset_class": "fund_cn"}],
+        "asset_lookthrough": [{"parent_symbol": "F1", "parent_asset_name": "Fund", "parent_asset_type": "fund_cn",
+            "lookthrough_type": "TOP10", "source_type": "FUND_REPORT", "confidence": "HIGH", "as_of": "2026-01-01",
+            "holdings": [{"underlying_name": "Stock", "underlying_symbol": "AAA", "underlying_weight": 0.4}]}],
+    }
+    master.sync_asset_master_from_lookthrough_config(cur, config=config)
+    before = _business_snapshot(cur)
+    payload = lookthrough_state.derive_lookthrough_payload(
+        [{"symbol": "F1", "asset_name": "Fund", "asset_type": "fund_cn", "market_value_cny": 100, "as_of": "2026-01-02"}],
+        config, as_of="2026-01-02", asset_master_cur=cur,
+    )
+    assert payload['quality']['items'][0]['lookthrough_source'] == 'database'
+    assert payload['quality']['items'][0]['coverage_ratio'] == pytest.approx(0.4)
+    assert _business_snapshot(cur) == before
+
+
+def test_current_portfolio_sync_preserves_fund_source_date(scratch_cursor):
+    cur = scratch_cursor
+    config = {"asset_mapping": [{"symbol": "F1", "asset_name": "Fund", "asset_class": "fund_cn"}],
+              "asset_lookthrough": [{"parent_symbol": "F1", "parent_asset_name": "Fund", "parent_asset_type": "fund_cn",
+                 "lookthrough_type": "TOP10", "as_of": "2026-01-01", "holdings": [
+                     {"underlying_name": "Stock", "underlying_symbol": "AAA", "underlying_weight": 0.4}]}]}
+    lookthrough_state.derive_lookthrough_payload(
+        [{"symbol": "F1", "asset_name": "Fund", "asset_type": "fund_cn", "market_value_cny": 100,
+          "as_of": "2026-01-05"}], config, asset_master_cur=cur, sync_asset_master=True,
+    )
+    cur.execute("SELECT DISTINCT as_of::text AS as_of FROM pams_fund_underlying_position WHERE source='lookthrough_config'")
+    assert [row['as_of'] for row in cur.fetchall()] == ['2026-01-01']
 
 
 def test_manual_security_projection_preserves_all_master_tables(scratch_cursor):

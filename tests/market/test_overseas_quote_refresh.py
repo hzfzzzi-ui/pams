@@ -78,7 +78,7 @@ class NumericDB:
             self.closes[(symbol, day)] = close.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
     def execute(self, query, params):
-        if "FROM pams_market_quote_snapshot" in query:
+        if "FROM (SELECT * FROM market_observations WHERE observation_type = 'quote')" in query:
             for gate in ("quote_date = %s", "market = %s", "return_status = 'confirmed'",
                          "quote_session = 'close'", "price > 0", "'NaN', 'Infinity', '-Infinity'",
                          "valuation_projection_only", "provider = 'yahoo'", "source = 'yahoo_close'",
@@ -365,8 +365,10 @@ def test_pg16_quote_refresh_preserves_full_account_and_persisted_precision(overs
     assert result["found"] == result["updated"] and result["found"] > 0 and not result["errors"]
     after = _project(conn)
     assert set(after) == set(before) and len(after) == 18
-    assert after[symbol]["current_price"] == Decimal("712.2000")
-    assert after[symbol]["market_value"] == (Decimal("712.2000") * before[symbol]["quantity"]).quantize(Decimal("0.01"))
+    # An actual same-day holding takes precedence over a quote-only mark.
+    expected_price = before[symbol]["current_price"] if bucket == "kr" else Decimal("712.2000")
+    assert after[symbol]["current_price"] == expected_price
+    assert after[symbol]["market_value"] == (expected_price * before[symbol]["quantity"]).quantize(Decimal("0.01"))
     for key in after:
         for column in ("quantity", "cost", "buy_price", "account_code", "asset_id"):
             assert after[key][column] == before[key][column]

@@ -13,6 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 from domain.market.quote_valuation import quote_price_as_of, quote_valuation_cte
 from domain.market.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session
+from domain.investments.snapshot_coverage import annotate_snapshot_coverage
 
 from domain.investments.daily_return_state import (
     RETURN_STATUS_CONFIRMED,
@@ -32,7 +33,6 @@ from domain.investments.holdings_positions import (
     _holding_key,
     _ibkr_closed_position_rows,
     _norm,
-    _tradingview_closed_position_rows,
 )
 
 
@@ -44,21 +44,28 @@ account_snapshot_stats AS (
     WHERE as_of <= (SELECT as_of FROM snapshot_view_cutoff)
     GROUP BY account_code, as_of
 ), complete_account_snapshot AS (
-    SELECT s.account_code, s.as_of, s.row_count
-    FROM account_snapshot_stats s
-    LEFT JOIN LATERAL (
-        SELECT MAX(prev.row_count) AS reference_row_count
-        FROM account_snapshot_stats prev
-        WHERE prev.account_code = s.account_code
-          AND prev.as_of < s.as_of
-          AND prev.as_of >= s.as_of - INTERVAL '14 days'
-    ) ref ON TRUE
-    WHERE ref.reference_row_count IS NULL
-       OR s.row_count >= GREATEST(1, CEIL(ref.reference_row_count * 0.5)::int)
+    -- This selects observed snapshots only; scope completeness is checked
+    -- separately from immutable evidence, never inferred from row counts.
+    SELECT s.account_code, s.as_of, s.row_count FROM account_snapshot_stats s
 ), latest_account AS (
     SELECT account_code, MAX(as_of) AS account_as_of
     FROM complete_account_snapshot
     GROUP BY account_code
+)
+"""
+
+LATEST_KNOWN_HOLDINGS_CTE = COMPLETE_ACCOUNT_SNAPSHOT_CTE + """
+, latest_known_position AS (
+    SELECT hs.account_code, to_jsonb(hs)->>'currency' AS position_currency,
+           COALESCE(NULLIF(to_jsonb(hs)->>'name', ''), NULLIF(to_jsonb(hs)->>'symbol', ''), hs.ctid::text) AS position_key, MAX(hs.as_of) AS as_of
+    FROM pams_holdings_snapshot hs
+    WHERE as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+    GROUP BY hs.account_code, to_jsonb(hs)->>'currency', COALESCE(NULLIF(to_jsonb(hs)->>'name', ''), NULLIF(to_jsonb(hs)->>'symbol', ''), hs.ctid::text)
+), latest_known_holding AS (
+    SELECT hs.* FROM pams_holdings_snapshot hs JOIN latest_known_position p
+      ON p.account_code=hs.account_code AND p.position_key=COALESCE(NULLIF(to_jsonb(hs)->>'name', ''), NULLIF(to_jsonb(hs)->>'symbol', ''), hs.ctid::text)
+     AND p.position_currency IS NOT DISTINCT FROM to_jsonb(hs)->>'currency'
+     AND p.as_of=hs.as_of
 )
 """
 
@@ -73,13 +80,13 @@ def advance_overseas_view_date(cur, candidate, *, now: datetime | None = None):
     today = current.astimezone(ZoneInfo("Asia/Shanghai")).date()
     if candidate >= today:
         return candidate
-    cur.execute("SELECT to_regclass('public.pams_market_quote_snapshot') IS NOT NULL AS exists")
+    cur.execute("SELECT to_regclass('public.market_observations') IS NOT NULL AS exists")
     if not (cur.fetchone() or {}).get("exists"):
         return candidate
     cur.execute(f"""
         WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
         SELECT DISTINCT q.market, q.currency, q.quote_date
-        FROM pams_market_quote_snapshot q
+        FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') q
         JOIN pams_holdings_snapshot h ON h.symbol = q.symbol AND h.currency = q.currency
         JOIN latest_account la ON la.account_code = h.account_code AND la.account_as_of = h.as_of
         WHERE h.major_category = '美股' AND h.asset_liability = '资产' AND h.quantity > 0
@@ -130,7 +137,7 @@ FUND_NAV_STATUS_JOIN = """
                     e.estimate_time AS fund_nav_estimate_time,
                     e.estimated_unit_nav AS fund_nav_estimated_unit_nav,
                     e.status AS fund_nav_raw_status
-                FROM pams_fund_nav_estimates e
+                FROM (SELECT * FROM market_observations WHERE observation_type = 'fund') e
                 WHERE h.major_category = 'A股'
                   AND h.minor_category LIKE '%%基金%%'
                   AND e.as_of = h.as_of
@@ -159,7 +166,7 @@ MARKET_DAILY_STATUS_JOIN = """
                         THEN '预估收益'
                         ELSE NULL
                     END AS daily_pnl_status_label
-                FROM pams_asset_market_daily md
+                FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') md
                 WHERE h.major_category = '美股'
                   AND md.as_of = h.as_of
                   AND (
@@ -223,6 +230,65 @@ def _table_exists(cur, table_name: str) -> bool:
     return _bool_field(cur.fetchone(), "exists")
 
 
+def _ibkr_price_history_relation() -> str:
+    """Missing prior-price evidence remains unknown, not a zero-valued history."""
+    return """(SELECT NULL::text AS account_code, NULL::text AS symbol, NULL::text AS name,
+        NULL::numeric AS current_price, NULL::numeric AS quantity, NULL::numeric AS market_value,
+        NULL::date AS as_of WHERE FALSE)"""
+
+
+def _mark_missing_ibkr_daily_basis(rows: list[dict[str, Any]], *, history_available: bool) -> list[dict[str, Any]]:
+    """Do not turn an unavailable previous price into a confirmed zero return."""
+    if history_available:
+        return rows
+    for row in rows:
+        if (str(row.get("account") or row.get("account_code") or "") != "ibkr"
+                or row.get("is_closed") or row.get("previous_price") is not None):
+            continue
+        for name in ("daily_pnl", "daily_price_pnl", "daily_fx_pnl", "daily_total_pnl"):
+            for key in (name, name + "_cny", name + "_gross_cny"):
+                if key in row:
+                    row[key] = None
+        row["daily_return_status"] = RETURN_STATUS_PENDING
+        row["daily_return_status_label"] = return_status_label(RETURN_STATUS_PENDING)
+        row["daily_return_status_short_label"] = _return_status_short_label(RETURN_STATUS_PENDING)
+        row["daily_return_status_source"] = None
+        row["daily_pnl_status"] = RETURN_STATUS_PENDING
+        row["daily_pnl_status_label"] = return_status_label(RETURN_STATUS_PENDING)
+        row["daily_return_status_reason"] = "missing_previous_price_evidence"
+    return rows
+
+
+def _preserve_missing_cost(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for row in rows:
+        if "cost" not in row or row["cost"] is not None:
+            continue
+        for key in ("cost_cny", "cost_gross_cny", "buy_price", "holding_pnl", "holding_pnl_native",
+                    "holding_pnl_cny", "holding_pnl_gross_cny", "holding_pnl_before_realized_trade",
+                    "holding_pnl_before_realized_trade_native", "holding_pnl_before_realized_trade_cny"):
+            if key in row:
+                row[key] = None
+        row["cost_evidence"] = "unavailable"
+    return rows
+
+
+def _mark_missing_a_stock_daily_basis(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for row in rows:
+        if not row.pop("_daily_basis_unavailable", False):
+            continue
+        for name in ("daily_pnl", "daily_price_pnl", "daily_fx_pnl", "daily_total_pnl"):
+            for key in (name, name + "_native", name + "_cny", name + "_gross_cny"):
+                if key in row:
+                    row[key] = None
+        row["daily_return_status"] = RETURN_STATUS_PENDING
+        row["daily_return_status_label"] = return_status_label(RETURN_STATUS_PENDING)
+        row["daily_return_status_short_label"] = _return_status_short_label(RETURN_STATUS_PENDING)
+        row["daily_pnl_status"] = RETURN_STATUS_PENDING
+        row["daily_pnl_status_label"] = return_status_label(RETURN_STATUS_PENDING)
+        row["daily_return_status_reason"] = "missing_previous_price_or_confirmed_trade"
+    return rows
+
+
 def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Use trade cost, not previous close, for A-share positions opened today.
 
@@ -254,8 +320,20 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
     dates = sorted({as_of for _, _, as_of in keys if as_of is not None})
 
     if _trade_fact_rows_available(cur):
+        cur.execute("""SELECT to_regclass('public.source_items') IS NOT NULL AS item_exists,
+            to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
+        source_relations = cur.fetchone()
+        if source_relations and source_relations.get("item_exists") and source_relations.get("batch_exists"):
+            source_filter = """((source_item_id IS NULL AND source_table NOT IN
+                ('tradingview_csv', 'source_items', 'ibkr_flex_trade')) OR EXISTS (
+                SELECT 1 FROM source_items si JOIN source_batches sb ON sb.batch_id=si.batch_id
+                WHERE si.source_item_id=pams_investment_trade_fact.source_item_id
+                  AND si.review_status='confirmed' AND sb.status='published'
+                  AND sb.account_code=pams_investment_trade_fact.account_code))"""
+        else:
+            source_filter = "source_table NOT IN ('tradingview_csv', 'source_items', 'ibkr_flex_trade')"
         cur.execute(
-            """
+            f"""
             SELECT
                 account_code,
                 symbol AS normalized_symbol,
@@ -279,27 +357,18 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
               AND symbol = ANY(%s::text[])
               AND trade_date = ANY(%s::date[])
               AND COALESCE(quantity, 0) > 0
+              AND LOWER(review_status) IN ('auto','reviewed','confirmed')
+              AND {source_filter}
             GROUP BY account_code, symbol, trade_date
             """,
             (accounts, symbols, dates),
         )
     else:
-        cur.execute(
-            """
-            SELECT
-                account_code,
-                normalized_symbol,
-                closing_time::date AS as_of,
-                SUM(CASE WHEN LOWER(side) = 'buy' THEN quantity ELSE 0 END) AS buy_qty,
-                SUM(CASE WHEN LOWER(side) = 'buy' THEN quantity * fill_price ELSE 0 END) AS buy_value
-            FROM pams_tradingview_transactions
-            WHERE account_code = ANY(%s::text[])
-              AND normalized_symbol = ANY(%s::text[])
-              AND closing_time::date = ANY(%s::date[])
-            GROUP BY account_code, normalized_symbol, closing_time::date
-            """,
-            (accounts, symbols, dates),
-        )
+        for row in rows:
+            if (row.get("major_category") == "A股" and row.get("previous_price") is None
+                    and row.get("current_price") is not None and _dec(row.get("quantity")) > 0):
+                row["_daily_basis_unavailable"] = True
+        return rows
     trades = {
         (
             str(row["account_code"]),
@@ -317,6 +386,8 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
         )
         trade = trades.get(key)
         if not trade:
+            if row.get("major_category") == "A股" and row.get("previous_price") is None:
+                row["_daily_basis_unavailable"] = True
             continue
         buy_qty = _dec(trade.get("buy_qty"))
         if buy_qty <= 0:
@@ -340,20 +411,28 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
             )
 
         native_before = _dec(row.get("daily_pnl"))
-        cny_before = _dec(row.get("daily_pnl_cny"))
-        if native_before != 0:
-            fx_rate = cny_before / native_before
+        cny_before = row.get("daily_pnl_cny")
+        market_native = _dec(row.get("market_value"))
+        market_cny = row.get("market_value_cny")
+        if str(row.get("currency") or "").upper() == "CNY":
+            fx_rate = Decimal(1)
+        elif native_before != 0 and cny_before is not None:
+            fx_rate = _dec(cny_before) / native_before
+        elif market_native != 0 and market_cny is not None:
+            fx_rate = _dec(market_cny) / market_native
         else:
-            market_native = _dec(row.get("market_value"))
-            market_cny = _dec(row.get("market_value_cny"))
-            fx_rate = market_cny / market_native if market_native != 0 else Decimal("1")
+            fx_rate = None
 
         row["daily_pnl"] = native_daily_pnl
         row["daily_pnl_native"] = native_daily_pnl
-        cny_daily_pnl = native_daily_pnl * fx_rate
+        cny_daily_pnl = (native_daily_pnl * fx_rate if fx_rate is not None
+                         else Decimal(0) if native_daily_pnl == 0 else None)
         row["daily_pnl_cny"] = cny_daily_pnl
-        fx_daily_pnl_cny = _dec(row.get("daily_fx_pnl_cny"))
-        row["daily_total_pnl_cny"] = cny_daily_pnl + fx_daily_pnl_cny
+        fx_daily_pnl_cny = row.get("daily_fx_pnl_cny")
+        if fx_daily_pnl_cny is None and str(row.get("currency") or "").upper() == "CNY":
+            fx_daily_pnl_cny = Decimal(0)
+        row["daily_total_pnl_cny"] = (cny_daily_pnl + _dec(fx_daily_pnl_cny)
+                                      if cny_daily_pnl is not None and fx_daily_pnl_cny is not None else None)
         row["daily_total_pnl"] = native_daily_pnl + _dec(row.get("daily_fx_pnl"))
 
     return rows
@@ -393,7 +472,7 @@ def _latest_return_status_map(cur, rows: list[dict[str, Any]], view_as_of: Any) 
     status_by_key: dict[str, dict[str, Any]] = {}
     view_key = _date_key(view_as_of)
 
-    if _table_exists(cur, "pams_market_quote_snapshot"):
+    if _table_exists(cur, "market_observations"):
         cur.execute(
             """
             WITH latest AS (
@@ -405,7 +484,7 @@ def _latest_return_status_map(cur, rows: list[dict[str, Any]], view_as_of: Any) 
                         PARTITION BY COALESCE(NULLIF(asset_id, ''), NULLIF(symbol, ''), name)
                         ORDER BY quote_date DESC, updated_at DESC, quote_id DESC
                     ) AS rn
-                FROM pams_market_quote_snapshot
+                FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') AS observation_rows
                 WHERE quote_date <= %s
                   AND (
                       asset_id = ANY(%s::text[])
@@ -440,7 +519,7 @@ def _latest_return_status_map(cur, rows: list[dict[str, Any]], view_as_of: Any) 
                     status_by_key[asset_key] = status_info
 
     missing_keys = [key for key in keys if key not in status_by_key]
-    if missing_keys and _table_exists(cur, "pams_asset_market_daily"):
+    if missing_keys and _table_exists(cur, "market_observations"):
         cur.execute(
             """
             WITH latest AS (
@@ -452,7 +531,7 @@ def _latest_return_status_map(cur, rows: list[dict[str, Any]], view_as_of: Any) 
                         PARTITION BY COALESCE(NULLIF(asset_id, ''), NULLIF(symbol, ''), name)
                         ORDER BY as_of DESC, updated_at DESC
                     ) AS rn
-                FROM pams_asset_market_daily
+                FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') AS observation_rows
                 WHERE as_of <= %s
                   AND (
                       asset_id = ANY(%s::text[])
@@ -534,65 +613,6 @@ def _apply_daily_return_status(cur, rows: list[dict[str, Any]], view_as_of: Any)
     return rows
 
 
-def _drop_superseded_account_snapshot_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop stale rows superseded by a newer account-level position snapshot.
-
-    A-share brokers and fund platforms are imported as account snapshots. If a
-    later snapshot for the same account and bucket exists, symbols missing from
-    that snapshot should not be carried forward as current holdings.
-    """
-    latest_by_account: dict[str, str] = {}
-    latest_by_bucket: dict[tuple[str, str, str, str], str] = {}
-    for row in rows:
-        if not _is_account_snapshot_bucket(row):
-            continue
-        account = str(row.get("account") or row.get("account_code") or "")
-        row_key = _date_key(row.get("as_of") or row.get("snapshot_as_of"))
-        if account and row_key and row_key > latest_by_account.get(account, ""):
-            latest_by_account[account] = row_key
-        minor = row.get("minor_category") or row.get("type")
-        bucket = (
-            account,
-            str(row.get("asset_liability") or ""),
-            str(row.get("major_category") or ""),
-            str(minor or ""),
-        )
-        if row_key and row_key > latest_by_bucket.get(bucket, ""):
-            latest_by_bucket[bucket] = row_key
-
-    if not latest_by_account and not latest_by_bucket:
-        return rows
-
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if not _is_account_snapshot_bucket(row):
-            out.append(row)
-            continue
-        account = str(row.get("account") or row.get("account_code") or "")
-        row_key = _date_key(row.get("as_of") or row.get("snapshot_as_of"))
-        account_latest_key = latest_by_account.get(account)
-        if account_latest_key and row_key and row_key < account_latest_key:
-            row["is_superseded_snapshot"] = True
-            continue
-        minor = row.get("minor_category") or row.get("type")
-        bucket = (
-            account,
-            str(row.get("asset_liability") or ""),
-            str(row.get("major_category") or ""),
-            str(minor or ""),
-        )
-        latest_key = latest_by_bucket.get(bucket)
-        if latest_key and row_key and row_key < latest_key:
-            row["is_superseded_snapshot"] = True
-            continue
-        out.append(row)
-    return out
-
-
-def _is_account_snapshot_bucket(row: dict[str, Any]) -> bool:
-    return bool(row.get("account") or row.get("account_code"))
-
-
 def _suppress_stale_daily_pnl(
     rows: list[dict[str, Any]],
     view_as_of: Any,
@@ -612,7 +632,6 @@ def _suppress_stale_daily_pnl(
         return rows
     start_key = _date_key(daily_pnl_start_as_of) or view_key
 
-    zero = Decimal("0")
     daily_fields = (
         "daily_pnl",
         "daily_pnl_cny",
@@ -629,9 +648,8 @@ def _suppress_stale_daily_pnl(
         if not row_key or start_key <= row_key <= view_key:
             continue
         for field in daily_fields:
-            row[field] = zero
-        if row.get("current_price") is not None:
-            row["previous_price"] = row.get("current_price")
+            row[field] = None
+        row["previous_price"] = None
         row["daily_pnl_stale"] = True
         row["daily_pnl_as_of"] = row.get("snapshot_as_of") or row.get("as_of")
     return rows
@@ -683,7 +701,8 @@ def build_api_holdings_latest_payload(
         SELECT
             id, symbol, name, asset_liability, currency, account_code,
             asset_id,
-            major_category, minor_category, market_value, cost, holding_pnl,
+            major_category, minor_category, market_value, cost,
+            CASE WHEN cost IS NULL THEN NULL ELSE holding_pnl END AS holding_pnl,
             as_of, created_at, updated_at
         FROM pams_holdings_snapshot
         WHERE {where_sql} AND as_of = %s
@@ -692,7 +711,8 @@ def build_api_holdings_latest_payload(
         """,
         [*params, as_of, limit],
     )
-    rows = _apply_daily_return_status(cur, [dict(row) for row in cur.fetchall()], as_of)
+    rows = _preserve_missing_cost(_apply_daily_return_status(cur, [dict(row) for row in cur.fetchall()], as_of))
+    rows = annotate_snapshot_coverage(cur, rows)
 
     return {
         "as_of": as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of),
@@ -714,7 +734,7 @@ def build_holdings_by_category_payload(
     daily_pnl_start_as_of: Any | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /holdings/by-category/{category} payload."""
-    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('pams_market_quote_snapshot') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
+    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('market_observations') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
     row = cur.fetchone()
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
@@ -722,10 +742,12 @@ def build_holdings_by_category_payload(
 
     quote_overlay = quote_valuation_cte(bool(row.get("quote_available")))
     price_as_of = quote_price_as_of(bool(row.get("quote_available")))
+    ibkr_history_available = False
+    ibkr_price_history = _ibkr_price_history_relation()
     if category == "其他":
         cur.execute(
             f"""
-            WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, latest_position AS (
+            WITH {LATEST_KNOWN_HOLDINGS_CTE}, latest_position AS (
                 SELECT
                     hs.account_code,
                     COALESCE(NULLIF(hs.symbol, ''), hs.name) AS position_key,
@@ -737,33 +759,30 @@ def build_holdings_by_category_payload(
                 WHERE hs.as_of <= %s
                 GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
             ), source_holdings AS (
-                SELECT hs.*
-                FROM pams_holdings_snapshot hs
-                JOIN latest_account la
-                  ON la.account_code = hs.account_code
-                 AND la.account_as_of = hs.as_of
-                JOIN latest_position lp
-                  ON lp.account_code = hs.account_code
-                 AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
-                 AND lp.as_of = hs.as_of
+                SELECT * FROM latest_known_holding
             ), {quote_overlay}, fx AS (
-                SELECT DISTINCT ON (quote_currency) quote_currency, rate
+                SELECT quote_currency, rate, as_of
                 FROM pams_fx_rates_daily
                 WHERE base_currency = 'CNY'
-                ORDER BY quote_currency, as_of DESC
+                  AND as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+                  AND rate > 0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+                  AND NULLIF(BTRIM(source),'') IS NOT NULL
             )
-            SELECT account_code AS account, minor_category, symbol, name,
+            SELECT h.id AS holding_id, account_code AS account, minor_category, symbol, name,
                    h.asset_id,
                    h.asset_liability,
                    currency,
+                   fx.as_of AS fx_rate_as_of,
+                   CASE WHEN h.currency = 'CNY' THEN 'daily_exact' WHEN fx.rate IS NULL THEN 'unavailable'
+                        WHEN fx.as_of = {price_as_of}::date THEN 'daily_exact' ELSE 'estimated' END AS fx_precision,
                    market_value,
                    market_value AS market_value_native,
-                   market_value * COALESCE(fx.rate, 1) AS market_value_cny,
+                   CASE WHEN market_value=0 THEN 0 ELSE market_value * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) END AS market_value_cny,
                    cost,
-                   cost * COALESCE(fx.rate, 1) AS cost_cny,
-                   COALESCE(holding_pnl, 0) AS holding_pnl,
-                   COALESCE(holding_pnl, 0) AS holding_pnl_native,
-                   COALESCE(holding_pnl, 0) * COALESCE(fx.rate, 1) AS holding_pnl_cny,
+                   cost * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) AS cost_cny,
+                   CASE WHEN cost IS NULL THEN NULL ELSE holding_pnl END AS holding_pnl,
+                   CASE WHEN cost IS NULL THEN NULL ELSE holding_pnl END AS holding_pnl_native,
+                   CASE WHEN cost IS NULL THEN NULL ELSE holding_pnl * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) END AS holding_pnl_cny,
                    CASE
                        WHEN h.quantity IS NOT NULL
                         AND h.current_price IS NOT NULL
@@ -775,7 +794,7 @@ def build_holdings_by_category_payload(
                        WHEN h.quantity IS NOT NULL
                         AND h.current_price IS NOT NULL
                         AND prev_snap.current_price IS NOT NULL
-                       THEN (h.current_price - prev_snap.current_price) * h.quantity * COALESCE(fx.rate, 1)
+                       THEN (h.current_price - prev_snap.current_price) * h.quantity * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END)
                        ELSE 0
                    END AS daily_pnl_cny,
                    major_category,
@@ -798,7 +817,9 @@ def build_holdings_by_category_payload(
                    END AS price_change_amount,
                    {FUND_NAV_STATUS_COLUMNS}
             FROM h
-            LEFT JOIN fx ON fx.quote_currency = h.currency
+            LEFT JOIN LATERAL (SELECT available.rate, available.as_of FROM fx available
+                WHERE available.quote_currency=h.currency AND available.as_of <= {price_as_of}::date
+                ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
             {FUND_NAV_STATUS_JOIN}
             {MARKET_DAILY_STATUS_JOIN}
             LEFT JOIN LATERAL (
@@ -835,7 +856,7 @@ def build_holdings_by_category_payload(
         params.append(limit)
         cur.execute(
             f"""
-            WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, latest_position AS (
+            WITH {LATEST_KNOWN_HOLDINGS_CTE}, latest_position AS (
                 SELECT
                     hs.account_code,
                     COALESCE(NULLIF(hs.symbol, ''), hs.name) AS position_key,
@@ -847,33 +868,30 @@ def build_holdings_by_category_payload(
                 WHERE hs.as_of <= %s
                 GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
             ), source_holdings AS (
-                SELECT hs.*
-                FROM pams_holdings_snapshot hs
-                JOIN latest_account la
-                  ON la.account_code = hs.account_code
-                 AND la.account_as_of = hs.as_of
-                JOIN latest_position lp
-                  ON lp.account_code = hs.account_code
-                 AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
-                 AND lp.as_of = hs.as_of
+                SELECT * FROM latest_known_holding
             ), {quote_overlay}, fx AS (
-                SELECT DISTINCT ON (quote_currency) quote_currency, rate
+                SELECT quote_currency, rate, as_of
                 FROM pams_fx_rates_daily
                 WHERE base_currency = 'CNY'
-                ORDER BY quote_currency, as_of DESC
+                  AND as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+                  AND rate > 0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+                  AND NULLIF(BTRIM(source),'') IS NOT NULL
             )
-            SELECT account_code AS account, minor_category, symbol, name,
+            SELECT h.id AS holding_id, account_code AS account, minor_category, symbol, name,
                    h.asset_id,
                    h.asset_liability,
                    currency,
+                   fx.as_of AS fx_rate_as_of,
+                   CASE WHEN h.currency = 'CNY' THEN 'daily_exact' WHEN fx.rate IS NULL THEN 'unavailable'
+                        WHEN fx.as_of = {price_as_of}::date THEN 'daily_exact' ELSE 'estimated' END AS fx_precision,
                    eff.market_value AS market_value,
                    eff.market_value AS market_value_native,
-                   eff.market_value * COALESCE(fx.rate, 1) AS market_value_cny,
+                   CASE WHEN eff.market_value=0 THEN 0 ELSE eff.market_value * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) END AS market_value_cny,
                    cost,
-                   cost * COALESCE(fx.rate, 1) AS cost_cny,
-                   eff.market_value - COALESCE(cost, 0) AS holding_pnl,
-                   eff.market_value - COALESCE(cost, 0) AS holding_pnl_native,
-                   (eff.market_value - COALESCE(cost, 0)) * COALESCE(fx.rate, 1) AS holding_pnl_cny,
+                   cost * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) AS cost_cny,
+                   eff.market_value - cost AS holding_pnl,
+                   eff.market_value - cost AS holding_pnl_native,
+                   (eff.market_value - cost) * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) AS holding_pnl_cny,
                    CASE
                        WHEN h.quantity IS NOT NULL
                         AND eff.current_price IS NOT NULL
@@ -885,7 +903,7 @@ def build_holdings_by_category_payload(
                        WHEN h.quantity IS NOT NULL
                         AND eff.current_price IS NOT NULL
                         AND eff.previous_price IS NOT NULL
-                       THEN (eff.current_price - eff.previous_price) * h.quantity * COALESCE(fx.rate, 1)
+                       THEN (eff.current_price - eff.previous_price) * h.quantity * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END)
                        ELSE 0
                    END AS daily_pnl_cny,
                    CASE
@@ -899,21 +917,21 @@ def build_holdings_by_category_payload(
                        WHEN h.major_category = '美股'
                         AND h.quantity IS NOT NULL
                         AND eff.previous_price IS NOT NULL
-                       THEN eff.previous_price * h.quantity * (COALESCE(fx.rate, 1) - COALESCE(prev_overseas_fx.rate, fx.rate, 1))
+                       THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
                        ELSE 0
                    END AS daily_fx_pnl_cny,
                    CASE
                        WHEN h.quantity IS NOT NULL
                         AND eff.current_price IS NOT NULL
                         AND eff.previous_price IS NOT NULL
-                       THEN (eff.current_price - eff.previous_price) * h.quantity * COALESCE(fx.rate, 1)
+                       THEN (eff.current_price - eff.previous_price) * h.quantity * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END)
                        ELSE 0
                    END
                    + CASE
                        WHEN h.major_category = '美股'
                         AND h.quantity IS NOT NULL
                         AND eff.previous_price IS NOT NULL
-                       THEN eff.previous_price * h.quantity * (COALESCE(fx.rate, 1) - COALESCE(prev_overseas_fx.rate, fx.rate, 1))
+                       THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
                        ELSE 0
                    END AS daily_total_pnl_cny,
                    major_category,
@@ -936,7 +954,9 @@ def build_holdings_by_category_payload(
                    END AS price_change_amount,
                    {FUND_NAV_STATUS_COLUMNS}
             FROM h
-            LEFT JOIN fx ON fx.quote_currency = h.currency
+            LEFT JOIN LATERAL (SELECT available.rate, available.as_of FROM fx available
+                WHERE available.quote_currency=h.currency AND available.as_of <= {price_as_of}::date
+                ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
             {FUND_NAV_STATUS_JOIN}
             {MARKET_DAILY_STATUS_JOIN}
             LEFT JOIN LATERAL (
@@ -960,7 +980,7 @@ def build_holdings_by_category_payload(
             ) prev_snap ON TRUE
             LEFT JOIN LATERAL (
                 SELECT ph.current_price, ph.as_of
-                FROM pams_ibkr_position_history ph
+                FROM {ibkr_price_history} ph
                 WHERE h.account_code = 'ibkr'
                   AND ph.account_code = h.account_code
                   AND ph.as_of < h.as_of
@@ -1044,7 +1064,9 @@ def build_holdings_by_category_payload(
                 WHERE prev_fx.base_currency = 'CNY'
                   AND prev_fx.quote_currency = h.currency
                   AND prev_basis.previous_as_of IS NOT NULL
-                  AND prev_fx.as_of <= prev_basis.previous_as_of
+                  AND prev_fx.as_of = prev_basis.previous_as_of
+                  AND prev_fx.rate > 0 AND prev_fx.rate::text NOT IN ('NaN','Infinity','-Infinity')
+                  AND NULLIF(BTRIM(prev_fx.source),'') IS NOT NULL
                 ORDER BY prev_fx.as_of DESC
                 LIMIT 1
             ) prev_overseas_fx ON TRUE
@@ -1077,7 +1099,6 @@ def build_holdings_by_category_payload(
         _enrich_esop_realized_income(cur, [dict(row) for row in cur.fetchall()]),
         excluded_accounts=excluded_accounts,
     )
-    current_rows = _drop_superseded_account_snapshot_rows(current_rows)
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
     current_rows = _enrich_realized_trade_pnl(cur, current_rows)
     current_keys = {_holding_key(row) for row in current_rows}
@@ -1089,6 +1110,7 @@ def build_holdings_by_category_payload(
         )
         for row in current_rows
     ]
+    closed_evidence: dict[str, str] = {}
     if include_closed and category != "其他":
         closed_rows = _closed_position_rows(
             cur,
@@ -1098,22 +1120,11 @@ def build_holdings_by_category_payload(
             limit=limit,
         )
         if category == "A股" and minor_category in (None, "A股"):
-            cur.execute("SELECT to_regclass('public.pams_tradingview_transactions') IS NOT NULL AS exists")
-            has_tradingview_transactions = _bool_field(cur.fetchone(), "exists")
-            if has_tradingview_transactions:
-                closed_rows.extend(
-                    _tradingview_closed_position_rows(
-                        cur,
-                        current_keys=current_keys,
-                        daily_pnl_as_of=view_as_of,
-                        limit=limit,
-                    )
-                )
+            closed_evidence["tradingview"] = "unavailable_unverified_trade_coverage"
         if category == "美股" and minor_category in (None, "美股基金"):
-            cur.execute("SELECT to_regclass('public.pams_ibkr_trades') IS NOT NULL AS exists")
-            has_ibkr_trades = _bool_field(cur.fetchone(), "exists")
-            if has_ibkr_trades:
-                closed_rows.extend(_ibkr_closed_position_rows(cur, current_keys=current_keys, limit=limit))
+            closed_rows.extend(_ibkr_closed_position_rows(cur, current_keys=current_keys, limit=limit))
+            closed_evidence["ibkr"] = "confirmed_zero_only_coverage_unknown"
+        closed_evidence["other"] = "unavailable_unverified_exit_coverage"
         rows.extend(
             _apply_owner_ratio(
                 row,
@@ -1125,13 +1136,20 @@ def build_holdings_by_category_payload(
 
     rows = _suppress_stale_daily_pnl(rows, view_as_of, daily_pnl_start_as_of)
     rows = _apply_daily_return_status(cur, rows, view_as_of)
+    rows = _mark_missing_ibkr_daily_basis(rows, history_available=ibkr_history_available)
+    rows = _mark_missing_a_stock_daily_basis(rows)
+    rows = _preserve_missing_cost(rows)
+    rows = annotate_snapshot_coverage(cur, rows)
     snapshot_dates = [row["as_of"] for row in rows if row.get("as_of") is not None]
-    return {
+    payload = {
         "as_of": view_as_of.isoformat() if hasattr(view_as_of, "isoformat") else str(view_as_of),
         "data_as_of_min": min(snapshot_dates).isoformat() if snapshot_dates else None,
         "data_as_of_max": max(snapshot_dates).isoformat() if snapshot_dates else None,
         "rows": [{key: _norm(value) for key, value in dict(row).items()} for row in rows],
     }
+    if closed_evidence:
+        payload["closed_positions_evidence"] = closed_evidence
+    return payload
 
 
 def build_holdings_history_payload(
@@ -1149,8 +1167,6 @@ def build_holdings_history_payload(
     base_currency: str = "CNY",
 ) -> dict[str, Any]:
     """Return the legacy /holdings/history/{category} payload."""
-    date_expr = "DATE_TRUNC('week', h.date)::date" if interval == "weekly" else "h.date"
-
     cur.execute("SELECT MAX(as_of) AS as_of FROM pams_holdings_snapshot")
     row = cur.fetchone()
     max_snapshot_as_of = row["as_of"] if row else None
@@ -1167,10 +1183,32 @@ def build_holdings_history_payload(
 
     start_date = view_as_of - timedelta(days=days)
 
-    cur.execute("SELECT to_regclass('public.pams_ibkr_position_history') IS NOT NULL AS exists")
-    has_ibkr_position_history = bool(cur.fetchone()["exists"])
-    cur.execute("SELECT to_regclass('public.pams_tradingview_transactions') IS NOT NULL AS exists")
-    has_tradingview_transactions = bool(cur.fetchone()["exists"])
+    cur.execute("""SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS fact_exists,
+        to_regclass('public.source_items') IS NOT NULL AS item_exists,
+        to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
+    tradingview_relations = cur.fetchone()
+    fact_history = False
+    if (tradingview_relations.get("fact_exists") and tradingview_relations.get("item_exists")
+            and tradingview_relations.get("batch_exists")):
+        cur.execute("""SELECT EXISTS (SELECT 1 FROM pams_investment_trade_fact f
+            JOIN source_items si ON si.source_item_id=f.source_item_id
+            JOIN source_batches sb ON sb.batch_id=si.batch_id
+            WHERE f.source_table='tradingview_csv' AND f.account_code='tonghuashun'
+              AND LOWER(COALESCE(f.side, '')) IN ('buy','sell')
+              AND LOWER(f.review_status) IN ('auto','reviewed','confirmed')
+              AND sb.account_code=f.account_code
+              AND si.review_status='confirmed' AND sb.status='published') AS exists""")
+        fact_history = _bool_field(cur.fetchone(), "exists")
+
+    tv_history_relation = """(SELECT f.account_code, f.symbol AS normalized_symbol,
+            f.trade_date AS closing_time, INITCAP(f.side) AS side, ABS(f.quantity) AS quantity
+            FROM pams_investment_trade_fact f
+            JOIN source_items si ON si.source_item_id=f.source_item_id
+            JOIN source_batches sb ON sb.batch_id=si.batch_id
+            WHERE f.source_table='tradingview_csv' AND f.account_code='tonghuashun'
+              AND LOWER(f.review_status) IN ('auto','reviewed','confirmed')
+              AND sb.account_code=f.account_code
+              AND si.review_status='confirmed' AND sb.status='published')"""
 
     if category == "A股" and minor_category == "A股基金":
         cur.execute(
@@ -1237,26 +1275,16 @@ def build_holdings_history_payload(
         row = cur.fetchone()
         if row and row["start_date"]:
             start_date = row["start_date"]
-    elif category == "美股" and has_ibkr_position_history:
-        cur.execute(
-            """
-            SELECT MIN(as_of) AS start_date
-            FROM pams_ibkr_position_history
-            WHERE account_code = 'ibkr'
-              AND major_category = '美股'
-            """
-        )
-        row = cur.fetchone()
-        if row and row["start_date"]:
-            start_date = row["start_date"]
 
-    if category == "A股" and (minor_category in (None, "A股")) and has_tradingview_transactions:
+    if category == "A股" and (minor_category in (None, "A股")) and fact_history:
         tv_date_expr = "DATE_TRUNC('week', p.date)::date" if interval == "weekly" else "p.date"
+        value_expression = ("CASE WHEN COUNT(*) FILTER (WHERE p.price IS NULL) > 0 THEN NULL "
+                            "ELSE SUM(p.quantity * p.price) * %s END")
         cur.execute(
             f"""
             WITH bounds AS (
                 SELECT MIN(closing_time::date) AS start_date
-                FROM pams_tradingview_transactions
+                FROM {tv_history_relation} tv
                 WHERE account_code = 'tonghuashun'
                   AND side IN ('Buy', 'Sell')
             ), txn_symbols AS (
@@ -1266,7 +1294,7 @@ def build_holdings_history_payload(
                          THEN 'sh' || normalized_symbol
                          ELSE 'sz' || normalized_symbol
                     END AS internal_symbol
-                FROM pams_tradingview_transactions
+                FROM {tv_history_relation} tv
                 WHERE account_code = 'tonghuashun'
                   AND normalized_symbol IS NOT NULL
             ), series_dates AS (
@@ -1288,7 +1316,7 @@ def build_holdings_history_payload(
                         WHEN side = 'Sell' THEN -quantity
                         ELSE 0
                     END AS quantity_delta
-                FROM pams_tradingview_transactions
+                FROM {tv_history_relation} tv
                 WHERE account_code = 'tonghuashun'
                   AND side IN ('Buy', 'Sell')
                   AND normalized_symbol IS NOT NULL
@@ -1320,9 +1348,7 @@ def build_holdings_history_payload(
                     dp.quantity,
                     COALESCE(
                         CASE WHEN dp.date = %s::date THEN cm.current_price END,
-                        px.close,
-                        cm.current_price,
-                        0
+                        px.close
                     ) AS price
                 FROM daily_positions dp
                 LEFT JOIN current_marks cm ON cm.symbol = dp.normalized_symbol
@@ -1339,149 +1365,100 @@ def build_holdings_history_payload(
                     LIMIT 1
                 ) px ON TRUE
             )
-            SELECT {tv_date_expr} AS date, SUM(p.quantity * p.price) * %s AS value
+            SELECT {tv_date_expr} AS date, {value_expression} AS value
             FROM priced_positions p
             GROUP BY {tv_date_expr}
             ORDER BY date
             """,
             (view_as_of, view_as_of, view_as_of, float(tonghuashun_owner_ratio)),
         )
-    elif category == "美股" and has_ibkr_position_history:
-        cur.execute(
-            f"""
-            WITH series_dates AS (
-                SELECT DISTINCT as_of AS date
-                FROM pams_ibkr_position_history
-                WHERE as_of >= %s AND as_of <= %s
-                  AND account_code = 'ibkr'
-                  AND NOT (account_code = ANY(%s::text[]))
-                UNION
-                SELECT %s::date AS date
-            ), account_latest AS (
-                SELECT d.date, ph.account_code, MAX(ph.as_of) AS as_of
-                FROM series_dates d
-                JOIN pams_ibkr_position_history ph ON ph.as_of <= d.date
-                WHERE ph.account_code = 'ibkr'
-                  AND NOT (ph.account_code = ANY(%s::text[]))
-                GROUP BY d.date, ph.account_code
-            ), h AS (
-                SELECT al.date, ph.*
-                FROM account_latest al
-                JOIN pams_ibkr_position_history ph
-                  ON ph.account_code = al.account_code
-                 AND ph.as_of = al.as_of
-            ), fx AS (
-                SELECT DISTINCT ON (quote_currency) quote_currency, rate
-                FROM pams_fx_rates_daily
-                WHERE base_currency = 'CNY'
-                ORDER BY quote_currency, as_of DESC
-            )
-            SELECT {date_expr} AS date, SUM(h.market_value * COALESCE(fx.rate, 1) * {owner_ratio_sql}) AS value
-            FROM h
-            LEFT JOIN fx ON fx.quote_currency = h.currency
-            WHERE h.major_category = '美股'
-              AND h.asset_liability = '资产'
-              AND NOT (h.account_code = ANY(%s::text[]))
-            GROUP BY {date_expr}
-            ORDER BY date
-            """,
-            (start_date, view_as_of, excluded_accounts, view_as_of, excluded_accounts, *owner_ratio_params, excluded_accounts),
-        )
-    elif category == "其他":
-        cur.execute(
-            f"""
-            WITH series_dates AS (
-                SELECT DISTINCT hs.as_of AS date
-                FROM pams_holdings_snapshot hs
-                WHERE hs.as_of >= %s AND hs.as_of <= %s
-                  AND NOT (hs.account_code = ANY(%s::text[]))
-                UNION
-                SELECT %s::date AS date
-            ), account_latest AS (
-                SELECT d.date, hs.account_code, MAX(hs.as_of) AS as_of
-                FROM series_dates d
-                JOIN pams_holdings_snapshot hs ON hs.as_of <= d.date
-                WHERE NOT (hs.account_code = ANY(%s::text[]))
-                GROUP BY d.date, hs.account_code
-            ), h AS (
-                SELECT al.date, hs.*
-                FROM account_latest al
-                JOIN pams_holdings_snapshot hs
-                  ON hs.account_code = al.account_code
-                 AND hs.as_of = al.as_of
-            ), fx AS (
-                SELECT DISTINCT ON (quote_currency) quote_currency, rate
-                FROM pams_fx_rates_daily
-                WHERE base_currency = 'CNY'
-                ORDER BY quote_currency, as_of DESC
-            )
-            SELECT {date_expr} AS date, SUM(h.market_value * COALESCE(fx.rate, 1) * {owner_ratio_sql}) AS value
-            FROM h
-            LEFT JOIN fx ON fx.quote_currency = h.currency
-            WHERE h.asset_liability = '资产'
-              AND h.major_category NOT IN ('A股', '美股', '加密', '贵金属')
-              AND NOT (h.account_code = ANY(%s::text[]))
-            GROUP BY {date_expr}
-            ORDER BY date
-            """,
-            (start_date, view_as_of, excluded_accounts, view_as_of, excluded_accounts, *owner_ratio_params, excluded_accounts),
-        )
     else:
-        minor_filter_sql = "AND h.minor_category = %s" if minor_category else ""
-        params = [
-            start_date,
-            view_as_of,
-            excluded_accounts,
-            view_as_of,
-            excluded_accounts,
-            *owner_ratio_params,
-            category,
-        ]
-        if minor_category:
-            params.append(minor_category)
-        params.append(excluded_accounts)
+        # A partial refresh must not erase older, still-known positions.  Scope
+        # and FX are validated separately before this observed value is called
+        # complete; an omitted row never proves an exit.
+        if category == "其他":
+            category_filter = "h.asset_liability = '资产' AND h.major_category NOT IN ('A股','美股','加密','贵金属')"
+            category_params: list[Any] = []
+        else:
+            category_filter = "h.major_category = %s"
+            category_params = [category]
+            if minor_category:
+                category_filter += " AND h.minor_category = %s"
+                category_params.append(minor_category)
         cur.execute(
             f"""
             WITH series_dates AS (
-                SELECT DISTINCT hs.as_of AS date
-                FROM pams_holdings_snapshot hs
-                WHERE hs.as_of >= %s AND hs.as_of <= %s
-                  AND NOT (hs.account_code = ANY(%s::text[]))
-                UNION
-                SELECT %s::date AS date
-            ), account_latest AS (
-                SELECT d.date, hs.account_code, MAX(hs.as_of) AS as_of
-                FROM series_dates d
-                JOIN pams_holdings_snapshot hs ON hs.as_of <= d.date
+                SELECT DISTINCT as_of AS date FROM pams_holdings_snapshot
+                WHERE as_of >= %s AND as_of <= %s AND NOT (account_code = ANY(%s::text[]))
+                UNION SELECT %s::date
+            ), config AS (SELECT %s::text AS base_currency), h AS (
+                SELECT DISTINCT ON (d.date, hs.account_code, hs.name, hs.currency)
+                       d.date, hs.*
+                FROM series_dates d JOIN pams_holdings_snapshot hs ON hs.as_of <= d.date
                 WHERE NOT (hs.account_code = ANY(%s::text[]))
-                GROUP BY d.date, hs.account_code
-            ), h AS (
-                SELECT al.date, hs.*
-                FROM account_latest al
-                JOIN pams_holdings_snapshot hs
-                  ON hs.account_code = al.account_code
-                 AND hs.as_of = al.as_of
-            ), fx AS (
-                SELECT DISTINCT ON (quote_currency) quote_currency, rate
-                FROM pams_fx_rates_daily
-                WHERE base_currency = 'CNY'
-                ORDER BY quote_currency, as_of DESC
+                ORDER BY d.date, hs.account_code, hs.name, hs.currency, hs.as_of DESC, hs.id DESC
             )
-            SELECT {date_expr} AS date, SUM(h.market_value * COALESCE(fx.rate, 1) * {owner_ratio_sql}) AS value
-            FROM h
-            LEFT JOIN fx ON fx.quote_currency = h.currency
-            WHERE h.major_category = %s
-              {minor_filter_sql}
-              AND NOT (h.account_code = ANY(%s::text[]))
-            GROUP BY {date_expr}
-            ORDER BY date
+            SELECT h.date,h.as_of,h.account_code,h.market_value,
+              CASE WHEN h.market_value=0 THEN 0 WHEN h.currency=config.base_currency
+                     THEN h.market_value * {owner_ratio_sql}
+                   WHEN fx.rate IS NOT NULL THEN h.market_value * fx.rate * {owner_ratio_sql}
+                   WHEN h.currency='CNY' THEN h.market_value / NULLIF(base_fx.rate,0) * {owner_ratio_sql}
+                   WHEN config.base_currency='CNY' THEN h.market_value * source_fx.rate * {owner_ratio_sql}
+                   ELSE h.market_value * source_fx.rate / NULLIF(base_fx.rate,0) * {owner_ratio_sql}
+              END AS value
+            FROM h CROSS JOIN config
+            LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r
+              WHERE r.base_currency=config.base_currency AND r.quote_currency=h.currency AND r.as_of=h.date
+                AND r.rate>0 AND r.rate::text NOT IN ('NaN','Infinity','-Infinity')
+                AND NULLIF(BTRIM(r.source),'') IS NOT NULL LIMIT 1) fx ON TRUE
+            LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r
+              WHERE r.base_currency='CNY' AND r.quote_currency=h.currency AND r.as_of=h.date
+                AND r.rate>0 AND r.rate::text NOT IN ('NaN','Infinity','-Infinity')
+                AND NULLIF(BTRIM(r.source),'') IS NOT NULL LIMIT 1) source_fx ON TRUE
+            LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r
+              WHERE r.base_currency='CNY' AND r.quote_currency=config.base_currency AND r.as_of=h.date
+                AND r.rate>0 AND r.rate::text NOT IN ('NaN','Infinity','-Infinity')
+                AND NULLIF(BTRIM(r.source),'') IS NOT NULL LIMIT 1) base_fx ON TRUE
+            WHERE {category_filter}
+            ORDER BY h.date,h.account_code,h.name,h.currency
             """,
-            params,
+            (start_date, view_as_of, excluded_accounts, view_as_of, base_currency, excluded_accounts,
+             *owner_ratio_params, *owner_ratio_params, *owner_ratio_params, *owner_ratio_params,
+             *owner_ratio_params, *category_params),
         )
-    rows = cur.fetchall()
-    series = [{"date": _norm(row["date"]), "value": float(row["value"] or 0)} for row in rows]
+        observed = [dict(row) for row in cur.fetchall()]
+        from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+        pairs = {(str(row['account_code']), row['as_of']) for row in observed}
+        coverage = load_account_snapshot_coverage(cur, pairs)
+        groups: dict[Any, dict[str, Any]] = {}
+        for row in observed:
+            day = row['date']
+            bucket = groups.setdefault(day, {'known_value': Decimal(0), 'incomplete': False})
+            if row['value'] is None:
+                bucket['incomplete'] = True
+            else:
+                bucket['known_value'] += Decimal(str(row['value']))
+            if (row['as_of'] != day or coverage.get((str(row['account_code']),row['as_of']), {}).get('status') != 'complete'):
+                bucket['incomplete'] = True
+        if interval == 'weekly':
+            weekly: dict[Any, tuple[Any, dict[str, Any]]] = {}
+            for day, bucket in sorted(groups.items()):
+                week = day - timedelta(days=day.weekday())
+                weekly[week] = (day, bucket)
+            groups = {week: bucket for week, (_, bucket) in weekly.items()}
+        series = [{"date": _norm(day), "value": None if data['incomplete'] else float(data['known_value']),
+                   "known_value": float(data['known_value']),
+                   "scope_status": "incomplete" if data['incomplete'] else "complete_for_observed_accounts"}
+                  for day, data in sorted(groups.items())]
+    if category == "A股" and (minor_category in (None, "A股")) and fact_history:
+        rows = cur.fetchall()
+        series = [{"date": _norm(row["date"]),
+                   "value": None if row["value"] is None or base_currency != "CNY" else float(row["value"]),
+                   **({"known_value": float(row["value"]), "known_value_currency": "CNY",
+                       "fx_status": "unavailable"} if row["value"] is not None and base_currency != "CNY" else {})}
+                  for row in rows]
 
-    return {
+    payload = {
         "category": category,
         "start": start_date.isoformat() if hasattr(start_date, "isoformat") else str(start_date),
         "end": view_as_of.isoformat() if hasattr(view_as_of, "isoformat") else str(view_as_of),
@@ -1490,6 +1467,16 @@ def build_holdings_history_payload(
         "rows": series,
         "series": series,
     }
+    if category == "美股":
+        payload["history_evidence"] = {
+            "status": "snapshot_based" if series else "unavailable",
+            "coverage": "unknown",
+            "reason": "ibkr_position_history_unavailable",
+        }
+    if category == "A股" and minor_category in (None, "A股") and fact_history:
+        payload["history_evidence"] = {"status": "estimated", "coverage": "unknown",
+                                       "reason": "tradingview_report_coverage_unverified"}
+    return payload
 
 
 def build_holdings_latest_payload(
@@ -1504,17 +1491,19 @@ def build_holdings_latest_payload(
     daily_pnl_start_as_of: Any | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /holdings/latest payload for the investments page."""
-    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('pams_market_quote_snapshot') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
+    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('market_observations') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
     row = cur.fetchone()
     quote_overlay = quote_valuation_cte(bool(row and row.get("quote_available")))
     price_as_of = quote_price_as_of(bool(row and row.get("quote_available")))
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
+    ibkr_history_available = False
+    ibkr_price_history = _ibkr_price_history_relation()
 
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, latest_position AS (
+        WITH {LATEST_KNOWN_HOLDINGS_CTE}, latest_position AS (
             SELECT
                 hs.account_code,
                 COALESCE(NULLIF(hs.symbol, ''), hs.name) AS position_key,
@@ -1526,33 +1515,30 @@ def build_holdings_latest_payload(
             WHERE hs.as_of <= %s
             GROUP BY hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
         ), source_holdings AS (
-            SELECT hs.*
-            FROM pams_holdings_snapshot hs
-            JOIN latest_account la
-              ON la.account_code = hs.account_code
-             AND la.account_as_of = hs.as_of
-            JOIN latest_position lp
-              ON lp.account_code = hs.account_code
-             AND lp.position_key = COALESCE(NULLIF(hs.symbol, ''), hs.name)
-             AND lp.as_of = hs.as_of
+            SELECT * FROM latest_known_holding
         ), {quote_overlay}, fx AS (
-            SELECT DISTINCT ON (quote_currency) quote_currency, rate
+            SELECT quote_currency, rate, as_of
             FROM pams_fx_rates_daily
             WHERE base_currency = 'CNY'
-            ORDER BY quote_currency, as_of DESC
+              AND as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+              AND rate > 0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+              AND NULLIF(BTRIM(source),'') IS NOT NULL
         )
         SELECT
-            h.account_code AS account,
+            h.id AS holding_id, h.account_code AS account,
             h.minor_category AS type,
             h.symbol, h.name, h.asset_id, h.asset_liability, h.currency,
+            fx.as_of AS fx_rate_as_of,
+            CASE WHEN h.currency = 'CNY' THEN 'daily_exact' WHEN fx.rate IS NULL THEN 'unavailable'
+                 WHEN fx.as_of = {price_as_of}::date THEN 'daily_exact' ELSE 'estimated' END AS fx_precision,
             eff.market_value AS market_value,
             eff.market_value AS market_value_native,
-            eff.market_value * COALESCE(fx.rate, 1) AS market_value_cny,
+            CASE WHEN eff.market_value=0 THEN 0 ELSE eff.market_value * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) END AS market_value_cny,
             h.cost,
-            h.cost * COALESCE(fx.rate, 1) AS cost_cny,
-            eff.market_value - COALESCE(h.cost, 0) AS holding_pnl,
-            eff.market_value - COALESCE(h.cost, 0) AS holding_pnl_native,
-            (eff.market_value - COALESCE(h.cost, 0)) * COALESCE(fx.rate, 1) AS holding_pnl_cny,
+            h.cost * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) AS cost_cny,
+            eff.market_value - h.cost AS holding_pnl,
+            eff.market_value - h.cost AS holding_pnl_native,
+            (eff.market_value - h.cost) * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) AS holding_pnl_cny,
             CASE
                 WHEN h.quantity IS NOT NULL
                  AND eff.current_price IS NOT NULL
@@ -1564,7 +1550,7 @@ def build_holdings_latest_payload(
                 WHEN h.quantity IS NOT NULL
                  AND eff.current_price IS NOT NULL
                  AND eff.previous_price IS NOT NULL
-                THEN (eff.current_price - eff.previous_price) * h.quantity * COALESCE(fx.rate, 1)
+                THEN (eff.current_price - eff.previous_price) * h.quantity * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END)
                 ELSE 0
             END AS daily_pnl_cny,
             CASE
@@ -1578,21 +1564,21 @@ def build_holdings_latest_payload(
                 WHEN h.major_category = '美股'
                  AND h.quantity IS NOT NULL
                  AND eff.previous_price IS NOT NULL
-                THEN eff.previous_price * h.quantity * (COALESCE(fx.rate, 1) - COALESCE(prev_overseas_fx.rate, fx.rate, 1))
+                THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
                 ELSE 0
             END AS daily_fx_pnl_cny,
             CASE
                 WHEN h.quantity IS NOT NULL
                  AND eff.current_price IS NOT NULL
                  AND eff.previous_price IS NOT NULL
-                THEN (eff.current_price - eff.previous_price) * h.quantity * COALESCE(fx.rate, 1)
+                THEN (eff.current_price - eff.previous_price) * h.quantity * (CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END)
                 ELSE 0
             END
             + CASE
                 WHEN h.major_category = '美股'
                  AND h.quantity IS NOT NULL
                  AND eff.previous_price IS NOT NULL
-                THEN eff.previous_price * h.quantity * (COALESCE(fx.rate, 1) - COALESCE(prev_overseas_fx.rate, fx.rate, 1))
+                THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
                 ELSE 0
             END AS daily_total_pnl_cny,
             h.major_category, h.minor_category, h.as_of,
@@ -1614,7 +1600,9 @@ def build_holdings_latest_payload(
             END AS price_change_amount,
             {FUND_NAV_STATUS_COLUMNS}
         FROM h
-        LEFT JOIN fx ON fx.quote_currency = h.currency
+        LEFT JOIN LATERAL (SELECT available.rate, available.as_of FROM fx available
+                WHERE available.quote_currency=h.currency AND available.as_of <= {price_as_of}::date
+                ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
         {FUND_NAV_STATUS_JOIN}
         {MARKET_DAILY_STATUS_JOIN}
         LEFT JOIN LATERAL (
@@ -1638,7 +1626,7 @@ def build_holdings_latest_payload(
         ) prev_snap ON TRUE
         LEFT JOIN LATERAL (
             SELECT ph.current_price, ph.as_of
-            FROM pams_ibkr_position_history ph
+            FROM {ibkr_price_history} ph
             WHERE h.account_code = 'ibkr'
               AND ph.account_code = h.account_code
               AND ph.as_of < h.as_of
@@ -1722,7 +1710,9 @@ def build_holdings_latest_payload(
             WHERE prev_fx.base_currency = 'CNY'
               AND prev_fx.quote_currency = h.currency
               AND prev_basis.previous_as_of IS NOT NULL
-              AND prev_fx.as_of <= prev_basis.previous_as_of
+              AND prev_fx.as_of = prev_basis.previous_as_of
+              AND prev_fx.rate > 0 AND prev_fx.rate::text NOT IN ('NaN','Infinity','-Infinity')
+                  AND NULLIF(BTRIM(prev_fx.source),'') IS NOT NULL
             ORDER BY prev_fx.as_of DESC
             LIMIT 1
         ) prev_overseas_fx ON TRUE
@@ -1752,7 +1742,6 @@ def build_holdings_latest_payload(
         _enrich_esop_realized_income(cur, [dict(r) for r in cur.fetchall()]),
         excluded_accounts=excluded_accounts,
     )
-    current_rows = _drop_superseded_account_snapshot_rows(current_rows)
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
     current_rows = _enrich_realized_trade_pnl(cur, current_rows)
     current_keys = {_holding_key(r) for r in current_rows}
@@ -1764,6 +1753,7 @@ def build_holdings_latest_payload(
         )
         for r in current_rows
     ]
+    closed_evidence: dict[str, str] = {}
     if include_closed:
         rows.extend(
             _apply_owner_ratio(
@@ -1773,24 +1763,31 @@ def build_holdings_latest_payload(
             )
             for r in _closed_position_rows(cur, current_keys=current_keys, limit=limit)
         )
-        cur.execute("SELECT to_regclass('public.pams_ibkr_trades') IS NOT NULL AS exists")
-        has_ibkr_trades = _bool_field(cur.fetchone(), "exists")
-        if has_ibkr_trades:
-            rows.extend(
-                _apply_owner_ratio(
-                    r,
-                    owner_ratios=owner_ratios,
-                    default_owner_ratio=default_owner_ratio,
+        closed_evidence["tradingview"] = "unavailable_unverified_trade_coverage"
+        rows.extend(
+            _apply_owner_ratio(
+                r,
+                owner_ratios=owner_ratios,
+                default_owner_ratio=default_owner_ratio,
             )
-                for r in _ibkr_closed_position_rows(cur, current_keys=current_keys, limit=limit)
-            )
+            for r in _ibkr_closed_position_rows(cur, current_keys=current_keys, limit=limit)
+        )
+        closed_evidence["ibkr"] = "confirmed_zero_only_coverage_unknown"
+        closed_evidence["other"] = "unavailable_unverified_exit_coverage"
 
     rows = _suppress_stale_daily_pnl(rows, view_as_of, daily_pnl_start_as_of)
     rows = _apply_daily_return_status(cur, rows, view_as_of)
+    rows = _mark_missing_ibkr_daily_basis(rows, history_available=ibkr_history_available)
+    rows = _mark_missing_a_stock_daily_basis(rows)
+    rows = _preserve_missing_cost(rows)
+    rows = annotate_snapshot_coverage(cur, rows)
     snapshot_dates = [r["as_of"] for r in rows if r.get("as_of") is not None]
-    return {
+    payload = {
         "as_of": view_as_of.isoformat() if hasattr(view_as_of, "isoformat") else str(view_as_of),
         "data_as_of_min": min(snapshot_dates).isoformat() if snapshot_dates else None,
         "data_as_of_max": max(snapshot_dates).isoformat() if snapshot_dates else None,
         "rows": [{k: _norm(v) for k, v in dict(r).items()} for r in rows],
     }
+    if closed_evidence:
+        payload["closed_positions_evidence"] = closed_evidence
+    return payload

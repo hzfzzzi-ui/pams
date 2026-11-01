@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Mapping, Sequence
 
 import psycopg2.extras
 
 
-SOURCE_TABLE = "pams_bank_statement_rows"
+SOURCE_TABLE = "source_items"
 
 TRANSFER_MATCH_TYPES = {
     "account_transfer",
@@ -198,14 +198,33 @@ def build_cashflow_fact(
 ) -> dict[str, Any]:
     """Normalize one raw bank/payment statement row into a cashflow fact."""
 
+    if base_currency.upper() != 'CNY':
+        raise ValueError('cashflow fact CNY fields require CNY base currency')
+
     source_id = str(row["id"])
     source_uid = _first_text(row, "source_uid") or source_id
     source_hash = make_source_hash(SOURCE_TABLE, {"source_uid": source_uid, "source_id": source_id})
     cashflow_type = classify_cashflow_type(row, transfer_match)
     amount = _dec(row.get("amount"))
     currency = _first_text(row, "currency") or base_currency
-    fx_rate = _dec(row.get("fx_rate_to_cny", row.get("fx_rate", 1))) or Decimal("1")
+    if currency.upper() == base_currency.upper():
+        fx_rate = Decimal("1")
+        raw_rate = row.get("fx_rate_to_cny", row.get("fx_rate"))
+        if raw_rate not in (None, "") and _dec(raw_rate) != fx_rate:
+            raise ValueError("CNY cashflow exchange rate must equal one")
+    else:
+        raw_rate = row.get("fx_rate_to_cny", row.get("fx_rate"))
+        if raw_rate in (None, ""):
+            raise ValueError("foreign cashflow requires an evidenced transaction-day exchange rate")
+        fx_rate = _dec(raw_rate)
+        if not fx_rate.is_finite() or fx_rate <= 0:
+            raise ValueError("foreign cashflow exchange rate must be positive and finite")
     amount_cny = _dec(row.get("amount_cny")) if row.get("amount_cny") is not None else amount * fx_rate
+    if not amount.is_finite() or not amount_cny.is_finite():
+        raise ValueError("cashflow amounts must be finite")
+    precision = Decimal('0.0001')
+    if amount_cny.quantize(precision, rounding=ROUND_HALF_UP) != (amount * fx_rate).quantize(precision, rounding=ROUND_HALF_UP):
+        raise ValueError("cashflow amount conflicts with the stated exchange rate")
     flags = _cashflow_flags(cashflow_type)
     match_key = transfer_match.get("match_key") if transfer_match else None
     match_id = transfer_match.get("id") if transfer_match else None
@@ -247,6 +266,38 @@ def insert_cashflow_facts(cur, facts: Sequence[Mapping[str, Any]]) -> int:
     inserted = 0
     for fact in facts:
         params = dict(fact)
+        currency = str(params.get('currency') or '').upper()
+        amount, rate, converted = (_dec(params.get(key)) for key in ('amount','fx_rate_to_cny','amount_cny'))
+        if (not currency or not amount.is_finite() or not converted.is_finite() or not rate.is_finite()
+                or rate <= 0 or (currency == 'CNY' and rate != 1)):
+            raise ValueError('cashflow fact requires valid currency, amounts and exchange rate')
+        precision = Decimal('0.0001')
+        if converted.quantize(precision, rounding=ROUND_HALF_UP) != (amount * rate).quantize(precision, rounding=ROUND_HALF_UP):
+            raise ValueError('cashflow amount conflicts with the stated exchange rate')
+        if currency != 'CNY':
+            cur.execute("SELECT to_regclass('public.pams_fx_rates_daily') AS relation")
+            found = cur.fetchone()
+            relation = found.get('relation') if isinstance(found, dict) else found[0] if found else None
+            if not relation:
+                raise ValueError('foreign cashflow requires a transaction-day exchange rate')
+            cur.execute("""SELECT rate,source,as_of FROM pams_fx_rates_daily WHERE base_currency='CNY'
+                           AND quote_currency=%s AND as_of=%s FOR SHARE""", (currency, params.get('event_date')))
+            found = cur.fetchone()
+            recorded_rate = found.get('rate') if isinstance(found, dict) else found[0] if found else None
+            source = found.get('source') if isinstance(found, dict) else found[1] if found else None
+            if recorded_rate is None or _dec(recorded_rate) != rate or not isinstance(source,str) or not source.strip():
+                raise ValueError('foreign cashflow exchange rate has no matching transaction-day evidence')
+            fx_day = found.get('as_of') if isinstance(found, dict) else found[2]
+            raw = dict(params.get('raw_json') or {})
+            preview_fx = raw.get('fx_evidence')
+            if preview_fx is not None and (not isinstance(preview_fx, dict) or preview_fx.get('source') != source
+                    or preview_fx.get('as_of') != fx_day.isoformat() or preview_fx.get('quote_currency') != currency
+                    or preview_fx.get('base_currency') != 'CNY' or preview_fx.get('basis') != 'daily_market_projection'
+                    or _dec(preview_fx.get('rate')) != rate):
+                raise ValueError('foreign cashflow exchange rate evidence changed after preview')
+            raw['fx_evidence'] = {'basis':'daily_market_projection','base_currency':'CNY',
+                                  'quote_currency':currency,'as_of':fx_day,'rate':rate,'source':source}
+            params['raw_json'] = raw
         params["raw_json"] = psycopg2.extras.Json(_json_ready(params.get("raw_json") or {}))
         cur.execute(
             """
@@ -273,141 +324,3 @@ def insert_cashflow_facts(cur, facts: Sequence[Mapping[str, Any]]) -> int:
         )
         inserted += max(int(getattr(cur, "rowcount", 0) or 0), 0)
     return inserted
-
-
-def fetch_cashflow_source_rows(cur, *, limit: int | None = None, base_currency: str = "CNY") -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
-    """Load source statement rows that have not been materialized by source id."""
-
-    limit_sql = "LIMIT %(limit)s" if limit else ""
-    params: dict[str, Any] = {"base": base_currency}
-    if limit:
-        params["limit"] = int(limit)
-    cur.execute(
-        f"""
-        WITH source_rows AS (
-            SELECT r.*
-            FROM pams_bank_statement_rows r
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM pams_cashflow_fact f
-                WHERE f.source_table = %(source_table)s
-                  AND f.source_id = r.id::text
-            )
-              AND NOT EXISTS (
-                SELECT 1
-                FROM pams_cashflow_fact f
-                WHERE f.source_table = %(source_table)s
-                  AND f.source_uid = r.source_uid
-            )
-            ORDER BY r.transaction_date, r.id
-            {limit_sql}
-        )
-        SELECT
-            r.id,
-            r.import_id,
-            r.source_uid,
-            r.profile_code,
-            r.bank,
-            r.account_code,
-            r.account_kind,
-            r.transaction_date,
-            r.posting_date,
-            r.amount,
-            r.currency,
-            r.balance,
-            r.original_amount,
-            r.original_currency,
-            r.category,
-            r.subcategory,
-            r.auto_classified,
-            r.summary,
-            r.description,
-            r.counterparty,
-            r.raw_json,
-            CASE
-                WHEN COALESCE(NULLIF(r.currency, ''), %(base)s) = %(base)s THEN 1
-                ELSE COALESCE(fx_hist.rate, fx_latest.rate, 1)
-            END AS fx_rate_to_cny,
-            r.amount * CASE
-                WHEN COALESCE(NULLIF(r.currency, ''), %(base)s) = %(base)s THEN 1
-                ELSE COALESCE(fx_hist.rate, fx_latest.rate, 1)
-            END AS amount_cny,
-            m.id AS transfer_match_id,
-            m.match_key,
-            m.match_type,
-            m.relation_code,
-            m.from_account_code,
-            m.to_account_code,
-            m.source_row_id,
-            m.target_row_id,
-            m.amount AS transfer_amount,
-            m.currency AS transfer_currency,
-            m.match_date,
-            m.confidence AS transfer_confidence,
-            m.status AS transfer_status
-        FROM source_rows r
-        LEFT JOIN LATERAL (
-            SELECT *
-            FROM pams_bank_transfer_matches tm
-            WHERE (tm.source_row_id = r.id OR tm.target_row_id = r.id)
-              AND COALESCE(tm.status, 'confirmed') <> 'rejected'
-            ORDER BY tm.confidence DESC, tm.id DESC
-            LIMIT 1
-        ) m ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = COALESCE(NULLIF(r.currency, ''), %(base)s)
-              AND fx.as_of <= r.transaction_date
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_hist ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = COALESCE(NULLIF(r.currency, ''), %(base)s)
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
-        ORDER BY r.transaction_date, r.id
-        """,
-        {**params, "source_table": SOURCE_TABLE},
-    )
-
-    rows: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
-    for raw in cur.fetchall():
-        row = dict(raw)
-        match = None
-        if row.get("transfer_match_id") is not None:
-            match = {
-                "id": row.get("transfer_match_id"),
-                "match_key": row.get("match_key"),
-                "match_type": row.get("match_type"),
-                "relation_code": row.get("relation_code"),
-                "from_account_code": row.get("from_account_code"),
-                "to_account_code": row.get("to_account_code"),
-                "source_row_id": row.get("source_row_id"),
-                "target_row_id": row.get("target_row_id"),
-                "amount": row.get("transfer_amount"),
-                "currency": row.get("transfer_currency"),
-                "match_date": row.get("match_date"),
-                "confidence": row.get("transfer_confidence"),
-                "status": row.get("transfer_status"),
-            }
-        rows.append((row, match))
-    return rows
-
-
-def backfill_cashflow_facts(cur, *, limit: int | None = None, base_currency: str = "CNY") -> dict[str, int]:
-    """Backfill pams_cashflow_fact from raw statement rows."""
-
-    source_rows = fetch_cashflow_source_rows(cur, limit=limit, base_currency=base_currency)
-    facts = [build_cashflow_fact(row, match, base_currency=base_currency) for row, match in source_rows]
-    inserted = insert_cashflow_facts(cur, facts)
-    return {
-        "source_count": len(source_rows),
-        "inserted_count": inserted,
-        "skipped_count": len(source_rows) - inserted,
-    }
