@@ -32,6 +32,12 @@ export function mount(root, context = {}) {
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
   const editable = () => !state.batch || state.batch.status === 'draft';
+  const emptyDraft = () => state.batch?.status === 'draft' && Array.isArray(state.batch.rows) && !state.batch.rows.length && Array.isArray(state.batch.files) && !state.batch.files.length && !state.dirty && !state.suspended && !mappingDirty() && !$('editor').open;
+  function detachEmptyDraft() {
+    if (!emptyDraft()) return;
+    state.batch = null; state.preview = null; state.mappings.clear();
+    message('已切换账户或资料类别；原空草稿仍保留在最近批次。');
+  }
   const images = () => (state.batch?.files || []).filter(file => file.content_type?.startsWith('image/'));
   const issues = list => (list || []).map(item => typeof item === 'string' ? item : item.message || item.code || JSON.stringify(item)).join('；');
   const button = (text, action) => { const node = el('button', text); node.type = 'button'; node.addEventListener('click', event => { if (scope.isActive()) action(event); }); return node; };
@@ -98,8 +104,9 @@ export function mount(root, context = {}) {
     $('workspace').inert = state.busy;
     $('record-form').inert = state.busy;
     $('retry').disabled = state.busy;
-    $('account').disabled = !!state.batch || state.busy;
-    $('kind').disabled = !!state.batch || state.busy;
+    const identityLocked = (!!state.batch && !emptyDraft()) || state.busy || state.conflict || state.needsRefresh;
+    $('account').disabled = identityLocked;
+    $('kind').disabled = identityLocked;
     for (const id of ['completeness', 'files', 'images', 'add-row', 'save-draft', 'confirm-image', 'previous-image']) $(id).disabled = locked;
     $('file-list').querySelectorAll('.import-mapping button, .import-mapping select').forEach(control => { control.disabled = locked; });
     $('next').disabled = locked || !(state.batch?.rows?.length || images().length) || !!state.suspended;
@@ -333,7 +340,8 @@ export function mount(root, context = {}) {
     if (state.batch?.rows?.length && mode !== state.mode) { message('请先保留当前草稿并新建批次，再选择另一种输入方式。'); return; }
     state.mode = mode; render();
   });
-  listen($('kind'), 'change', () => { renderAccounts(); render(); });
+  listen($('account'), 'change', () => { detachEmptyDraft(); render(); });
+  listen($('kind'), 'change', () => { detachEmptyDraft(); renderAccounts(); render(); });
   listen($('completeness'), 'change', () => { if (state.batch) dirty(); render(); });
   listen($('files'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
   listen($('images'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
@@ -500,3 +508,4 @@ export function mount(root, context = {}) {
 }
 
 export function dispose(root) { return mounted.get(root)?.dispose(); }
+

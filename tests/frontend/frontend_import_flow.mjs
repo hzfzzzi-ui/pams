@@ -7,10 +7,10 @@ const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const root=path.resolve('frontend/public'), output=process.env.PAMS_FRONTEND_ARTIFACT_DIR;
 if(output) await mkdir(output,{recursive:true});
-let batch,caps,publishes,calls,failPreview,uploads;
+let batch,caps,publishes,calls,failPreview,failUpload,uploads;
 const defaults={authentication_required:false,schema_ready:true,publish_enabled:false,ocr_available:true,limits:{files:10,file_bytes:10485760}};
 const fields=(kind='trade')=>({kind,business_date:'2026-10-20',asset_type:'stock',symbol:'600001',name:'合成标的',currency:'CNY',action:'buy',status:'confirmed',quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_scope:'separate',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'});
-const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;};
+const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;failUpload=false;};
 const accounts=[{account_code:'ths',profile:'tonghuashun',label:'同花顺',currency:'CNY',default_asset_type:'stock',kinds:['trade','holding'],trade_actions:{stock:['buy','sell','dividend','fee'],fund:['buy','sell','dividend','fee']}},
  {account_code:'licai',profile:'tencent_licaitong',label:'理财通',currency:'CNY',default_asset_type:'fund',kinds:['trade','holding'],trade_actions:{fund:['subscribe','redeem','dividend','fee']}},
  {account_code:'bank',profile:'statement',label:'银行账户',currency:'CNY',default_asset_type:'cash',kinds:['cash'],trade_actions:{cash:['income','expense','transfer','balance']}}];
@@ -39,6 +39,7 @@ await context.route('**/*',async route=>{
    }); batch.revision++;return send(batch);
   }
   if(p.endsWith('/files') && req.method()==='POST') {
+   if(failUpload) return send({detail:{code:'invalid_file',message:'文件与账户不匹配'}},400);
    const name=url.searchParams.get('filename'), image=/\.(png|jpe?g)$/i.test(name), id='f'+(batch.files.length+1);
    uploads.push(name); assert.ok(req.postDataBuffer().length);
    batch.files.push({file_id:id,filename:name,content_type:image?'image/png':'text/plain',metadata:{headers:image?[]:['日期','代码','净收付'],suggested_mapping:image?{}:{business_date:'日期',symbol:'代码',net_cash:'净收付'}}});
@@ -75,6 +76,14 @@ try {
  reset();caps.schema_ready=false;await page.goto('http://import.invalid/account_import.html');await page.getByText('账户导入暂不可用',{exact:false}).waitFor();assert.equal(calls.length,1);
  caps.schema_ready=true;await page.locator('#retry').click();await page.locator('#workspace').waitFor();await ready();
  assert.equal(await page.locator('#unlock-form, input[type=password]').count(),0);assert.equal(calls.some(([,p])=>p.endsWith('/unlock')),false);
+ reset();await open();await page.locator('#account').selectOption('licai');failUpload=true;
+ await page.locator('#files').setInputFiles({name:'table.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from('synthetic')});
+ await page.getByText('文件与账户不匹配',{exact:true}).waitFor();await ready();
+ assert.equal(batch.account_code,'licai');assert.equal(batch.files.length,0);assert.equal(await page.locator('#account').isDisabled(),false);
+ await page.locator('#account').selectOption('ths');assert.equal(await page.locator('#account').inputValue(),'ths');
+ assert.equal(batch.account_code,'licai');failUpload=false;
+ await page.locator('#files').setInputFiles({name:'table.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from('synthetic')});await ready();
+ assert.equal(batch.account_code,'ths');assert.equal(batch.files.length,1);assert.equal(await page.locator('#account').isDisabled(),true);
  for(const width of [320,390,1280]) {
   await page.setViewportSize({width,height:844});reset();await open();
   assert.equal(await page.locator('nav').count(),0);
@@ -120,3 +129,4 @@ try {
  await page.locator('#next').click();await page.locator('#review').waitFor();await ready();await page.locator('#publish').click();await page.waitForFunction(()=>document.getElementById('batch-meta').textContent.includes('已发布'));assert.equal(publishes,1);assert.equal(await page.locator('#add-row').isDisabled(),true);
  assert.deepEqual(errors,[]);console.log(JSON.stringify({reports,errors,productionRequests:0}));
 } finally {await browser.close();}
+
