@@ -82,6 +82,47 @@ class FakeCursor:
         self.executed_payload = payload
 
 
+class EmptyHistoryCursor:
+    def __init__(self):
+        self.queries = []
+
+    def execute(self, query, params):
+        self.queries.append((query, params))
+
+    def fetchall(self):
+        return []
+
+
+def test_missing_instrument_history_remains_missing():
+    cur = EmptyHistoryCursor()
+    instrument = price_history.normalize_price_instrument('SYNTH', market='YF')
+    payload = price_history.build_price_series_payload(
+        cur, instruments=[instrument], start=date(2025, 1, 1), end=date(2025, 1, 2))
+    assert payload['series'][0]['coverage'] == 'missing'
+    assert payload['series'][0]['rows'] == []
+    assert len(cur.queries) == 1
+
+
+def test_missing_index_history_checks_both_sources():
+    cur = EmptyHistoryCursor()
+    instrument = price_history.normalize_price_instrument('000001.SH', benchmark=True)
+    payload = price_history.build_price_series_payload(
+        cur, instruments=[instrument], start=date(2025, 1, 1), end=date(2025, 1, 2))
+    assert payload['series'][0]['coverage'] == 'missing'
+    assert payload['series'][0]['rows'] == []
+    assert len(cur.queries) == 2
+
+
+def test_ambiguous_etf_market_is_not_inferred_as_cn_stock():
+    instrument = price_history.normalize_price_instrument('SYNTH', market='ETF')
+    assert (instrument.market, instrument.symbol) == ('ETF', 'SYNTH')
+
+
+def test_malformed_suffixed_symbol_is_not_inferred_as_cn_stock():
+    instrument = price_history.normalize_price_instrument('123456extra.SH')
+    assert instrument.market == 'YF'
+
+
 def test_index_history_fills_missing_dates_without_overwriting_pit():
     class Cursor:
         def __init__(self):
