@@ -204,6 +204,7 @@ export function mount(root, context = {}) {
           if (useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) message('');
         })));
         if (item.status === 'draft') node.append(button('删除草稿', () => run(async () => {
+          if (state.conflict || state.needsRefresh) { message('请先刷新并确认服务器批次状态，再删除草稿。'); return; }
           if (!window.confirm('删除此草稿后将从列表移除；原始凭证和已建立的资产来源仍会保留。继续？')) return;
           if (!abandon()) return;
           if (state.batch?.batch_id !== item.batch_id && !useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) return;

@@ -100,6 +100,9 @@ try {
  reset();await open();await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
  voidLostResponse=true;page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'删除草稿'}).click();
  await page.locator('#pending-result').waitFor();assert.equal(batch.status,'voided');
+ await page.getByRole('button',{name:'删除草稿'}).click();
+ await page.getByText('请先刷新并确认服务器批次状态，再删除草稿。',{exact:true}).waitFor();
+ assert.equal(calls.filter(([method,path])=>method==='POST'&&path.endsWith('/void')).length,1);
  page.once('dialog',dialog=>dialog.accept());await page.locator('#refresh-result').click();await ready();
  await page.getByText('已确认草稿删除，原始凭证已保留。',{exact:true}).waitFor();
  assert.equal(calls.filter(([method,path])=>method==='POST'&&path.endsWith('/void')).length,1);
