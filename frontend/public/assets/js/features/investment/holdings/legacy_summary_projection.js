@@ -5,7 +5,7 @@ import {
   confirmedIbkrAccountSummary, summarizeRows, holdingReturnRateFromSummary, withReportedPnlRows,
   withEsopDisplayRows, applyReportedReturnTotal, categoryMetric, buildContributionRows,
   deriveDataQualityIssues
-} from './summary_legacy_model.js?v=20261031-modules-v1';
+} from './summary_legacy_model.js?v=20261102-incomplete-scope-v1';
 import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
 import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
 import { accountCashBreakdown } from '../../../account_cash.js?v=20261031-modules-v1';
@@ -330,6 +330,7 @@ export function applyLegacySummaryPayload(payloads, context) {
     }
 
     const dashboardSummary = {
+      scopeIncomplete: canonicalSummary.scopeIncomplete,
       marketValue: grandValue,
       totalPnl: grandPnl,
       currentFloatPnl,

@@ -60,7 +60,7 @@ const heroContext = load('holdings_categories.js', {
   accountCashBreakdown: () => ({netCash: 0, cashAssets: 0, cashLiabilities: 0}),
 });
 const profileInput = {
-  summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1},
+  summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1, scopeIncomplete: input.scopeIncomplete === true},
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
   recentUsReturn: input.recent,
@@ -92,18 +92,25 @@ def holding(**fields):
     }
 
 
-def render(rows, *, daily=0, aggregate_rows=(), recent=None):
+def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
-        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent}),
+        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent, "scopeIncomplete": scope_incomplete}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["unchanged"], "Display rendering must not change input amounts or status fields"
     return data
+
+
+def test_incomplete_account_scope_never_displays_partial_value_as_total():
+    output = render([], scope_incomplete=True)
+    assert '待核验' in output['allHtml']
+    assert '账户资产资料未完整' in output['allHtml']
+    assert '900' not in output['allHtml']
 
 
 def recent_return():

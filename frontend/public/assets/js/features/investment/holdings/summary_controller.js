@@ -1,13 +1,13 @@
 import {
   fmtCny, fmtSignedCny, formatNumber, formatPercentRate,
   esc, fmtSignedPctFromRate
-} from './summary_legacy_model.js?v=20261031-modules-v1';
+} from './summary_legacy_model.js?v=20261102-incomplete-scope-v1';
 import {
   createSummaryView
-} from './summary_view.js?v=20261031-modules-v1';
+} from './summary_view.js?v=20261102-incomplete-scope-v1';
 import {
   applyLegacySummaryPayload
-} from './legacy_summary_projection.js?v=20261031-modules-v1';
+} from './legacy_summary_projection.js?v=20261102-incomplete-scope-v1';
 import {
   readSummaryInputs
 } from './requests.js?v=20261031-modules-v1';

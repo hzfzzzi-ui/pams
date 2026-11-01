@@ -277,6 +277,7 @@ export function canonicalPortfolioDashboardSummary({
     safeNum(accountCash?.cashLiabilities)
   );
   return {
+    scopeIncomplete: portfolioSummary?.snapshot_scope_status === 'incomplete',
     marketValue,
     totalPnl,
     currentFloatPnl,
@@ -403,6 +404,7 @@ export function makeMobileHeroProfiles({
   const allProfile = {
     key: '全部',
     hideHeader: true,
+    scopeIncomplete: summary.scopeIncomplete,
     valueLabel: '投资组合价值',
     value: summary.marketValue,
     dailyLabel: '今日盈亏',
@@ -425,6 +427,7 @@ export function makeMobileHeroProfiles({
     '全部': allProfile,
     'A股个股': {
       key: 'A股个股',
+      scopeIncomplete: summary.scopeIncomplete,
       icon: '🇨🇳',
       identity: 'CNY · 同花顺',
       valueLabel: '账户净值',
@@ -441,7 +444,9 @@ export function makeMobileHeroProfiles({
         categoryByLabel(categories, 'A股个股').totalReturnRate
       ),
       share: aStockValue / portfolioValue,
-      miniMetrics: [
+      miniMetrics: summary.scopeIncomplete ? [
+        { label: '现金余额', value: '待核验' },
+      ] : [
         { label: '总市值', value: formatOptionalMoney(aStockMarket) },
         { label: '可用现金', value: formatOptionalMoney(aStockCash), tone: aStockCash < 0 ? 'down' : '' },
         { label: '仓位占比', value: `${Math.max(0, pctFromAmount(aStockMarket, aStockValue) * 100).toFixed(1)}%` },
