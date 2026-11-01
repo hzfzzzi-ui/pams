@@ -80,9 +80,32 @@ def list_batches(cur, limit):
     native._require(cur)
     cur.execute("""SELECT b.batch_id,b.account_code,b.acquisition_method AS mode,b.business_type AS kind,
         b.completeness,b.status,b.revision,b.created_at,b.updated_at,count(i.source_item_id) AS row_count
-        FROM source_batches b LEFT JOIN source_items i ON i.batch_id=b.batch_id WHERE b.workflow='account_import'
+        FROM source_batches b LEFT JOIN source_items i ON i.batch_id=b.batch_id
+        WHERE b.workflow='account_import' AND b.status <> 'voided'
         GROUP BY b.batch_id ORDER BY b.created_at DESC LIMIT %s""", (limit,))
     return {'rows': store.norm([dict(row) for row in cur.fetchall()])}
+
+
+def void_draft(cur, batch_id, revision):
+    """Remove an unpublished draft from the list while retaining its source evidence."""
+    native._require(cur)
+    native.lock_publication_accounts(cur, batch_id)
+    current = batch(cur, batch_id, lock=True)
+    store.editable(current, revision)
+    cur.execute('''SELECT EXISTS (
+        SELECT 1 FROM source_items i WHERE i.batch_id=%s AND (
+            EXISTS (SELECT 1 FROM pams_investment_trade_fact f WHERE f.source_item_id=i.source_item_id) OR
+            EXISTS (SELECT 1 FROM pams_cashflow_fact f WHERE f.source_item_id=i.source_item_id) OR
+            EXISTS (SELECT 1 FROM pams_holdings_snapshot f WHERE f.source_item_id=i.source_item_id) OR
+            EXISTS (SELECT 1 FROM evidence_confirmation e WHERE e.source_item_id=i.source_item_id) OR
+            EXISTS (SELECT 1 FROM account_snapshot_member m WHERE m.source_item_id=i.source_item_id)
+        )) OR EXISTS (SELECT 1 FROM account_snapshot_version v WHERE v.source_batch_id=%s) AS linked''',
+        (str(batch_id), str(batch_id)))
+    if cur.fetchone()['linked']:
+        raise store.ImportProblem('draft_has_evidence', '批次已关联账务或核准证据，不能删除', 409)
+    cur.execute("UPDATE source_batches SET status='voided',revision=revision+1,updated_at=now() WHERE batch_id=%s",
+                (str(batch_id),))
+    return batch(cur, batch_id)
 
 
 def get_file(cur, batch_id, file_id):

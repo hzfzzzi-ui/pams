@@ -188,6 +188,12 @@ def get_batch(batch_id: UUID, request: Request):
     return execute(request, lambda cur: source_http.batch(cur, batch_id))
 
 
+@router.post("/batches/{batch_id}/void")
+def void_draft(batch_id: UUID, body: Revision, request: Request):
+    return execute(request, lambda cur: source_http.void_draft(cur, batch_id, body.revision),
+                   write=True, serializable=True)
+
+
 @router.put("/batches/{batch_id}")
 def save(batch_id: UUID, body: Save, request: Request):
     return execute(request, lambda cur: source_http.save(cur, batch_id, **body.model_dump()), write=True)
