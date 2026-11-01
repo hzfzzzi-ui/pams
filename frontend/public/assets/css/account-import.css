@@ -32,8 +32,9 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 0 12px; }
 .page-account-import .import-grid .full { grid-column: 1 / -1; }
 .page-account-import #upload-area { padding: 12px 0; }
-.page-account-import .import-file-label { color: var(--pams-text-primary); }
-.page-account-import input[type="file"] { font-size: 14px; padding: 8px; }
+.page-account-import .import-file-label { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 14px; color: var(--pams-text-primary); border: 1px solid var(--pams-line-subtle); border-radius: 10px; cursor: pointer; }
+.page-account-import #files { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.page-account-import #upload-area:has(#files:focus-visible) .import-file-label { outline: 2px solid currentColor; outline-offset: 2px; }
 .page-account-import input::file-selector-button { min-height: 44px; background: var(--pams-bg-panel); border: 0; color: var(--pams-text-primary); }
 .page-account-import .import-meta { font-size: 12px; color: var(--pams-text-secondary); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .page-account-import .import-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 20px; }
