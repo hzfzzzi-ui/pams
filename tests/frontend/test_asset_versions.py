@@ -58,6 +58,20 @@ def test_revision_is_deterministic_and_includes_generated_css(tmp_path):
     assert (one / 'index.html').read_bytes() == (two / 'index.html').read_bytes()
 
 
+def test_builder_change_invalidates_unchanged_assets(tmp_path):
+    source = tmp_path / 'source'
+    fixture(source)
+    one, two = tmp_path / 'one', tmp_path / 'two'
+    shutil.copytree(source, one)
+    shutil.copytree(source, two)
+    builder = tmp_path / 'changed_builder.py'
+    builder.write_text(Path(module.__file__).read_text(encoding='utf-8') + '\n# changed builder\n', encoding='utf-8')
+    changed_spec = importlib.util.spec_from_file_location('changed_builder', builder)
+    changed_module = importlib.util.module_from_spec(changed_spec)
+    changed_spec.loader.exec_module(changed_module)
+    assert module.stamp(one) != changed_module.stamp(two)
+
+
 def test_real_frontend_references_share_one_revision(tmp_path):
     build = tmp_path / 'public'
     shutil.copytree(ROOT / 'frontend/public', build)
@@ -77,3 +91,4 @@ def test_real_frontend_references_share_one_revision(tmp_path):
                 assert re.search(r'(?:\?|&)v=' + revision + r'(?:&|#|$)', url), (file, url)
                 checked += 1
     assert checked > 0
+
