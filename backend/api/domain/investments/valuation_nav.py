@@ -23,11 +23,12 @@ INVESTMENT_SNAPSHOT_EXCLUDE = {"tonghuashun", "ibkr", *STABLE_ANCHOR_ACCOUNTS}
 
 class ValuationEvidenceSeries(dict):
     """Values plus dates where an input is missing; consumers must honor the latter."""
-    def __init__(self, values=(), *, unknown_dates=(), estimated_dates=(), missing_price_dates=()):
+    def __init__(self, values=(), *, unknown_dates=(), estimated_dates=(), missing_price_dates=(), cash_scope_unverified=False):
         super().__init__(values)
         self.unknown_dates = set(unknown_dates)
         self.estimated_dates = set(estimated_dates)
         self.missing_price_dates = set(missing_price_dates)
+        self.cash_scope_unverified = cash_scope_unverified
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
 
 
@@ -199,7 +200,8 @@ def scale_series_to_terminal_anchor(
     """Scale a reconstructed curve so the terminal value matches a confirmed account anchor."""
     adjusted = ValuationEvidenceSeries(series, unknown_dates=getattr(series, "unknown_dates", ()),
                                        estimated_dates=getattr(series, "estimated_dates", ()),
-                                       missing_price_dates=getattr(series, "missing_price_dates", ()))
+                                       missing_price_dates=getattr(series, "missing_price_dates", ()),
+                                       cash_scope_unverified=getattr(series, "cash_scope_unverified", False))
     if target_value is None:
         return adjusted
     terminal_value = series.get(terminal_date, Decimal("0"))
@@ -211,7 +213,8 @@ def scale_series_to_terminal_anchor(
     scale = target_value / terminal_value
     return ValuationEvidenceSeries(((date, value * scale) for date, value in adjusted.items()),
                                    unknown_dates=adjusted.unknown_dates, estimated_dates=adjusted.estimated_dates,
-                                   missing_price_dates=adjusted.missing_price_dates)
+                                   missing_price_dates=adjusted.missing_price_dates,
+                                   cash_scope_unverified=adjusted.cash_scope_unverified)
 
 
 def add_nav_amount(bucket: dict[str, Decimal], amount_cny: Decimal) -> None:
@@ -836,6 +839,13 @@ def _tonghuashun_series_from_trade_fact(
         return values
 
     if exists.get("item_exists") and exists.get("batch_exists"):
+        cur.execute("""SELECT scope_attestation FROM source_batches WHERE account_code='tonghuashun'
+            AND workflow='trade_snapshot' AND status='published' ORDER BY created_at DESC LIMIT 1""")
+        scope = cur.fetchone()
+        attestation = (scope or {}).get('scope_attestation') or {}
+        if attestation.get('cash_coverage') == 'unknown':
+            values.cash_scope_unverified = True
+            values.unknown_dates.update(dates)
         source_filter = """((source_item_id IS NULL AND source_table NOT IN
             ('tradingview_csv','source_items','ibkr_flex_trade')) OR EXISTS (
             SELECT 1 FROM source_items si JOIN source_batches sb ON sb.batch_id=si.batch_id
