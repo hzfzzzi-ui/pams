@@ -224,6 +224,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const labels = chartData?.labels || [];
     const visibleDatasets = (chartData?.datasets || [])
       .filter(dataset => !dataset.hidden && dataset.returnSeriesKey !== 'events')
+      .filter(dataset => !(dataset.data || []).some(value => value == null))
       .map(dataset => ({
         ...dataset,
         values: (dataset.data || []).filter(value => value != null).map(value => Number(value)).filter(value => Number.isFinite(value)),
@@ -754,3 +755,4 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     },
   };
 }
+
