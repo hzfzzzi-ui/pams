@@ -95,7 +95,7 @@ try {
  await page.getByRole('heading',{name:'批次草稿'}).waitFor();await page.getByRole('heading',{name:'已录入批次'}).waitFor();
  assert.equal(await page.getByRole('button',{name:'删除草稿'}).count(),1);
  page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'删除草稿'}).click();await ready();
- assert.equal(batch.status,'voided');assert.equal(await page.getByRole('heading',{name:'批次草稿'}).count(),0);
+ assert.equal(batch.status,'voided');await page.getByText('暂无批次草稿',{exact:true}).waitFor();
  assert.equal(await page.getByRole('heading',{name:'已录入批次'}).count(),1);assert.equal(publishes,0);
  reset();await open();await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
  voidLostResponse=true;page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'删除草稿'}).click();

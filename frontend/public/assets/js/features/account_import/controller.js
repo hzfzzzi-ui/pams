@@ -187,13 +187,14 @@ export function mount(root, context = {}) {
   function renderHistory() {
     const rows = state.historyRows || []; $('batch-list').replaceChildren();
     const groups = [
-      { title: '批次草稿', rows: rows.filter(batch => batch.status === 'draft') },
-      { title: '已录入批次', rows: rows.filter(batch => batch.status === 'published') },
+      { title: '批次草稿', empty: '暂无批次草稿', rows: rows.filter(batch => batch.status === 'draft') },
+      { title: '已录入批次', empty: '暂无已录入批次', rows: rows.filter(batch => batch.status === 'published') },
       { title: '其他状态', rows: rows.filter(batch => !['draft', 'published', 'voided'].includes(batch.status)) },
     ];
     for (const group of groups) {
-      if (!group.rows.length) continue;
+      if (!group.rows.length && !group.empty) continue;
       const section = el('section'); section.append(el('h3', group.title));
+      if (!group.rows.length) section.append(el('p', group.empty, 'import-meta'));
       for (const item of group.rows) {
         const node = el('div', undefined, 'import-row');
         node.append(el('strong', state.accounts.find(a => a.account_code === item.account_code)?.label || item.account_code));
@@ -214,7 +215,6 @@ export function mount(root, context = {}) {
       }
       $('batch-list').append(section);
     }
-    if (!groups.some(group => group.rows.length)) $('batch-list').append(el('p', '暂无历史批次', 'import-meta'));
   }
 
   function abandon() { return !(state.dirty || state.suspended || mappingDirty()) || window.confirm('有未保存输入，放弃本地修改？'); }
