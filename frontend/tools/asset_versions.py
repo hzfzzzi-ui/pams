@@ -19,6 +19,8 @@ def stamp(root: Path) -> str:
     root = root.resolve()
     files = sorted(p for p in root.rglob('*') if p.is_file())
     digest = hashlib.sha256()
+    # A change in the transformation must invalidate its previous output too.
+    digest.update(Path(__file__).read_bytes())
     for file in files:
         path = file.relative_to(root).as_posix().encode('utf-8')
         content = file.read_bytes()
@@ -52,3 +54,4 @@ if __name__ == '__main__':
     if len(sys.argv) != 2:
         raise SystemExit('usage: asset_versions.py BUILD_ROOT')
     print('frontend asset revision:', stamp(Path(sys.argv[1])))
+
