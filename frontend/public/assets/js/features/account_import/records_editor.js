@@ -5,14 +5,14 @@ import { KIND_TEXT, DECIMALS, LABELS, TEXT, decimalString, displayAssetType, rec
 export function createRecordsEditor(context) {
   const { $, state, api, el, button, account, editable, images, issues, evidence,
     render, run, dirty, saveDraft, makePreview, Option } = context;
-  let active = true;
+  let active = true, editorCandidates = [];
   const isActive = () => active && context.isActive();
   const listeners = [];
   function listen(target, type, callback, options) {
     listeners.push(context.listen(target, type, event => { if (isActive()) callback(event); }, options));
   }
   function field(group, key, options, type = 'text', full = false) {
-    const label = el('label', LABELS[key]); if (full) label.className = 'full';
+    const label = el('label', LABELS[key] || (key === 'bank_cashflow_id' ? '银行流水' : key)); if (full) label.className = 'full';
     const input = el(options ? 'select' : 'input'); input.name = key; input.id = `field-${key}`;
     if (options) {
       input.append(new Option('请选择', ''));
@@ -46,6 +46,7 @@ export function createRecordsEditor(context) {
     const row = state.batch.rows[index];
     state.buffer = { ...(saved?.fields || row?.fields || { kind: $('kind').value, asset_type: account()?.default_asset_type || '', currency: account()?.currency || '', status: 'confirmed' }) };
     const checked = state.preview?.batch_id === state.batch.batch_id && state.preview?.revision === state.batch.revision ? state.preview.rows?.find(item => item.row_id === row?.row_id) : null;
+    editorCandidates = checked?.bank_candidates || [];
     if (!saved && row && !state.buffer.asset_type && checked?.fields?.asset_type) state.buffer.asset_type = checked.fields.asset_type;
     $('editor-title').textContent = recordEditable(row) ? '编辑记录' : '查看 / 处理记录';
     $('editor-guidance').textContent = recordEditable(row) ? '可修改记录，或选择不发布此条。' :
@@ -84,12 +85,26 @@ export function createRecordsEditor(context) {
     keys.filter(key => key !== 'tax_amount' || f.fee_scope === 'separate').forEach(key => field('value-fields', key));
     if (holding && !cash) field('value-fields', 'cost_basis_type', ['holding_cost', 'diluted_cost', 'unknown']);
     if (['deposit', 'withdraw', 'transfer'].includes(f.action)) field('handling-fields', 'counter_account_code', state.counterAccounts.filter(a => a.account_code !== state.batch.account_code).map(a => a.account_code));
+    if (row?.source?.deferred_from) {
+      $('handling-fields').append(el('p', editorCandidates.length ? '请选择已导入且核验通过的同日银行流水，保存即表示你已核对。' : '尚无同日同额的银行划转流水；请先导入并核对为划转，再返回预检。', 'import-warning'));
+      if (editorCandidates.length) {
+        const select = field('handling-fields', 'bank_cashflow_id', editorCandidates.map(candidate => candidate.cashflow_id));
+        for (const option of select.options) {
+          const candidate = editorCandidates.find(item => item.cashflow_id === option.value);
+          if (candidate) option.textContent = `${state.counterAccounts.find(a => a.account_code === candidate.account_code)?.display_name || candidate.account_code} · ${candidate.business_date} · ${candidate.amount} ${candidate.currency}`;
+        }
+        select.addEventListener('change', () => {
+          const candidate = editorCandidates.find(item => item.cashflow_id === select.value);
+          if ($('field-counter_account_code')) $('field-counter_account_code').value = candidate?.account_code || '';
+        });
+      }
+    }
     field('source-fields', 'source_ref', null, 'text', true);
     field('source-fields', 'note', null, 'text', true);
     const rowIssues = [...(row?.issues || []), ...(state.preview?.rows?.find(item => item.row_id === row?.row_id)?.issues || [])];
     if (f.duplicate_decision || rowIssues.some(issue => issue.code === 'possible_duplicate' || issue === 'possible_duplicate')) field('handling-fields', 'duplicate_decision', ['distinct', 'skip']);
     if (!recordEditable(row)) {
-      $('record-form').querySelectorAll('[name]').forEach(input => { if (!['duplicate_decision','counter_account_code'].includes(input.name)) input.disabled = true; });
+      $('record-form').querySelectorAll('[name]').forEach(input => { if (!['duplicate_decision','counter_account_code','bank_cashflow_id'].includes(input.name)) input.disabled = true; });
     }
     $('asset-search').disabled = cash || !editable() || !recordEditable(row);
     $('asset-lookup').hidden = cash;
@@ -109,7 +124,7 @@ export function createRecordsEditor(context) {
     const row = state.batch.rows[state.edit];
     if (!recordEditable(row)) {
       const fields = { ...row.fields };
-      for (const key of ['duplicate_decision','counter_account_code']) if ($(`field-${key}`)) fields[key] = state.buffer[key] || null;
+      for (const key of ['duplicate_decision','counter_account_code','bank_cashflow_id']) if ($(`field-${key}`)) fields[key] = state.buffer[key] || null;
       return fields;
     }
     const visible = [...$('record-form').querySelectorAll('[name]')].map(input => input.name);

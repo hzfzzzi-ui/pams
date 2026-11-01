@@ -263,3 +263,10 @@ def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request
 def publish(batch_id: UUID, body: Publish, request: Request):
     return execute(request, lambda cur: source_http.publish(cur, batch_id, body.revision, body.preview_token),
                    write=True, serializable=True)
+
+
+@router.post('/batches/{batch_id}/publish-ready')
+def publish_ready(batch_id: UUID, body: Publish, request: Request):
+    from domain.imports.account_import_partial import publish_ready as publish_ready_domain
+    return execute(request, lambda cur: publish_ready_domain(cur, batch_id, body.revision, body.preview_token),
+                   write=True, serializable=True)

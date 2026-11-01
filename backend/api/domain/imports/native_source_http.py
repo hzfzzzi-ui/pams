@@ -266,6 +266,9 @@ def reparse(cur, batch_id, file_id, mapping, kind=None):
     native._require(cur)
     result = batch(cur, batch_id, lock=True)
     store.editable(result)
+    if any(row.get('source', {}).get('file_id') == str(file_id) and row.get('source', {}).get('deferred_from')
+           for row in result['rows']):
+        raise store.ImportProblem('deferred_reparse_forbidden', '待关联草稿保留原始来源，不能重新解析整份文件', 409)
     if kind is not None and kind != result['kind']:
         raise store.ImportProblem('kind_mismatch', '重新解析不能改变批次资料类型')
     file = get_file(cur, batch_id, file_id)

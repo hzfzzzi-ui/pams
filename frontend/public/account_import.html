@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/css/tokens.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/style.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20261031-modules-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-review-identity" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-partial-funding" />
   <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-modules-v1" />
 </head>
 <body class="page-account-import app-shell">
@@ -48,6 +48,7 @@
         <div id="screenshot-area" hidden><label for="images">选择截图</label><input id="images" type="file" multiple accept="image/png,image/jpeg" /><p id="ocr-status" class="import-meta"></p></div>
         <div id="manual-records-head" class="import-section-head"><h2>暂存记录</h2><button id="add-row" type="button">＋ 新增记录</button></div>
         <p id="batch-meta" class="import-meta"></p>
+        <p id="deferred-notice" class="import-warning" hidden>待关联的资金记录尚未入账；补充并匹配银行流水前，账户现金与资金流可能不完整。</p>
         <div id="rows"></div>
         <section id="originals" aria-label="原始凭证"><h2>原始凭证</h2><div id="file-list"></div></section>
         <details id="history"><summary>最近批次</summary><div id="batch-list"></div><button id="refresh-history" type="button">刷新批次</button></details>
@@ -65,7 +66,7 @@
     </main>
     <footer id="actions" class="import-actions" hidden>
       <button id="save-draft" type="button">保存草稿</button><button id="next" type="button" class="primary">继续 →</button>
-      <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认入库</button>
+      <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认入库</button><button id="publish-ready" type="button" class="primary" hidden disabled>录入已核对记录</button>
       <button id="previous-image" type="button" hidden>← 上一张</button><button id="confirm-image" type="button" class="primary" hidden>确认本图并继续</button>
     </footer>
   </div>
@@ -93,6 +94,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261101-review-identity"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261101-partial-funding"></script>
 </body>
 </html>
