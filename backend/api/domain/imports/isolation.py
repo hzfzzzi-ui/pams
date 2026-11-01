@@ -3,6 +3,8 @@ from collections.abc import Mapping
 import os
 import re
 import socket
+from contextlib import contextmanager
+from contextvars import ContextVar
 from ipaddress import ip_address
 
 import psycopg2
@@ -17,6 +19,21 @@ _TEST_NAME = re.compile(r'pams_import_test_[0-9a-f]{32}')
 _DEV_NAME = re.compile(r'pams_dev_[0-9a-f]{32}')
 _HOSTS = {'127.0.0.1', 'localhost', '::1'}
 _LIBPQ_OVERRIDES = ('PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS')
+_account_import_scope = ContextVar('account_import_scope', default=False)
+
+
+@contextmanager
+def account_import_scope():
+    """Limit runtime source access to an account-import request."""
+    token = _account_import_scope.set(True)
+    try:
+        yield
+    finally:
+        _account_import_scope.reset(token)
+
+
+def runtime_import_active() -> bool:
+    return _account_import_scope.get() and os.environ.get('PAMS_IMPORT_RUNTIME_ENABLED', '').lower() == 'true'
 
 
 def source_mode() -> str | None:
@@ -54,7 +71,18 @@ def validate_target(params: Mapping[str, object], *, mode: str) -> None:
 def source_enabled(cur) -> bool:
     mode = source_mode()
     if mode is None:
-        return False
+        if not runtime_import_active():
+            return False
+        expected_db = os.environ.get('PAMS_IMPORT_RUNTIME_DATABASE', '').strip()
+        params = cur.connection.get_dsn_parameters()
+        if not expected_db or params.get('dbname') != expected_db or cur.connection.server_version // 10000 != 16:
+            raise IsolationError('account import runtime target does not match')
+        cur.execute("SELECT shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname=current_database()")
+        row = cur.fetchone()
+        marker = row.get('marker') if isinstance(row, Mapping) else row[0] if row else None
+        if marker != 'pams-empty-bootstrap':
+            raise IsolationError('account import runtime database marker does not match')
+        return True
     params = cur.connection.get_dsn_parameters()
     validate_target(params, mode=mode)
     if cur.connection.server_version // 10000 != 16:
@@ -96,3 +124,4 @@ def require_external_access():
     """Fail closed before contacting live brokers or market providers in development."""
     if source_mode() == "development":
         raise IsolationError("External synchronization is disabled in development mode")
+

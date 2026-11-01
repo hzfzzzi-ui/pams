@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from functools import wraps
 from uuid import UUID
 
 import psycopg2
@@ -23,6 +24,14 @@ def private_response(response: Response):
 
 
 router = APIRouter(prefix="/account-import", tags=["account-import"], dependencies=[Depends(private_response)])
+
+
+def import_scope(fn):
+    @wraps(fn)
+    def scoped(*args, **kwargs):
+        with isolation.account_import_scope():
+            return fn(*args, **kwargs)
+    return scoped
 
 
 class StrictRequest(BaseModel):
@@ -82,6 +91,7 @@ def _schema_ready(cur):
     return bool(cur.fetchone()['ready'])
 
 
+@import_scope
 def execute(request: Request, fn, *, write=False, serializable=False):
     if write:
         access.same_origin(request)
@@ -108,6 +118,7 @@ def execute(request: Request, fn, *, write=False, serializable=False):
 
 
 @router.get("/capabilities")
+@import_scope
 def capabilities():
     ready = False
     try:
@@ -226,3 +237,4 @@ def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request
 def publish(batch_id: UUID, body: Publish, request: Request):
     return execute(request, lambda cur: source_http.publish(cur, batch_id, body.revision, body.preview_token),
                    write=True, serializable=True)
+

@@ -41,6 +41,8 @@ IBKR 新库隔离同步以报表原文、明细和交易事实写入，持仓更
 
 ## 格式与访问
 
+账户导入可通过显式运行库开关与数据库身份检查启用，访问范围限定账户导入请求；预检密钥与测试密钥分开，发布开关仍独立控制。配置和运行身份见 [配置来源](CONFIGURATION.md)，启用前应验证 schema、来源证据与并发写入路径。
+
 以下为当前源码支持的格式；实际运行能力仍须核对部署版本与开关。
 
 - CSV、TSV、XLSX、PNG、JPEG、账单 PDF 及同花顺原始文本型 XLS；二进制 XLS 和 WebP 不支持。
@@ -117,3 +119,4 @@ PAMS_IBKR_CASH_EVENTS_AFTER 为空时保持既有同步行为；启用后只接�
 普通账户期间资金流使用统一来源批次、原件和来源明细，不增加独立过程表。隔离环境中以 `POST /api/account-import/flow-coverage/stage` 提交 UTF-8 CSV，字段依次为 `account_code,period_start,period_end,event_date,side,currency,net_amount,external_id`。每行声明同一账户和完整期间；事件方向为 `deposit` 或 `withdraw`，金额带方向符号、标识对应已核验事实。无外部流时须用唯一 `side=none` 行明确声明空期间。
 
 通过 `GET /api/account-import/flow-coverage/{batch_id}` 查看，再以 `POST /api/account-import/flow-coverage/{batch_id}/publish` 明确确认、填写备注与来源标识到事实 ID 的逐笔映射；系统验证版本、原件哈希、账户、范围、逐笔事实及来源。范围声明是人工核对，不代表系统认证了来源身份。多个连续批次可以共同覆盖期间；缺失、冲突、额外事实、非现金转移未核实或汇率缺失时不得推断收益。
+
