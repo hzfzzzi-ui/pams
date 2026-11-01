@@ -167,6 +167,9 @@ try {
   await page.locator('#mode-ocr').click();await page.getByText('请先继续并保存未完成的记录编辑，再切换输入方式。',{exact:true}).waitFor();assert.equal(await page.locator('#mode-manual').getAttribute('aria-pressed'),'true');
   await page.locator('#save-draft').click();assert.equal(await page.locator('#field-note').inputValue(),'未保存输入');await save();
   await page.locator('#step-two-link').click();await page.locator('#review').waitFor();await ready();assert.equal(await page.locator('#publish').isDisabled(),true);assert.equal(publishes,0);
+  assert.equal(await page.locator('#counts [data-count="new"]').getAttribute('data-active'),'true');
+  assert.equal(await page.locator('#counts [data-count="blocked"]').getAttribute('data-active'),'false');
+  assert.equal(await page.locator('#preview-rows [data-status="ready"] .import-status').first().innerText(),'可发布');
   const previewsBefore=calls.filter(([,p])=>p.endsWith('/preview')).length;
   await page.locator('#step-two-link').click();await ready();assert.equal(calls.filter(([,p])=>p.endsWith('/preview')).length,previewsBefore);
   await page.locator('#step-one-link').click();await page.locator('#intake').waitFor();await ready();assert.equal(batch.rows[0].fields.note,'未保存输入');

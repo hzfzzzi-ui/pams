@@ -404,7 +404,8 @@ export function mount(root, context = {}) {
     const p = state.preview;
     $('review-meta').textContent = `${account()?.label || state.batch.account_code} · ${TEXT[state.batch.completeness]} · 版本 ${p.revision}${p.write_count != null ? ` · 待写入 ${p.write_count} 条` : ''}`;
     $('counts').replaceChildren(...['new', 'duplicates', 'blocked', 'pending'].map(key => {
-      const node = el('div'); node.append(el('dt', { new: '新增', duplicates: '重复', blocked: '阻断', pending: '待确认' }[key]), el('dd', p.counts?.[key] ?? '未知')); return node;
+      const node = el('div'); node.dataset.count = key; node.dataset.active = String(Number(p.counts?.[key]) > 0);
+      node.append(el('dt', { new: '新增', duplicates: '重复', blocked: '阻断', pending: '待确认' }[key]), el('dd', p.counts?.[key] ?? '未知')); return node;
     }));
     const impact = p.impact || {};
     const knownImpact = impact.nav_estimate_status === 'known' && impact.nav_change != null;
@@ -419,7 +420,7 @@ export function mount(root, context = {}) {
       const node = el('article', undefined, 'import-row'); node.dataset.status = row.status;
       const record = row.fields || state.batch.rows.find(item => item.row_id === row.row_id)?.fields || {};
       node.dataset.recordRole = record.action === 'balance' ? 'balance' : 'transaction';
-      node.append(el('strong', `${record.symbol || '现金'} · ${record.name || ''}`), el('p', row.status === 'excluded' ? '已排除' : TEXT[row.status] || row.status, 'import-meta'));
+      node.append(el('strong', `${record.symbol || '现金'} · ${record.name || ''}`), el('p', row.status === 'excluded' ? '已排除' : TEXT[row.status] || row.status, 'import-status'));
       if (row.issues?.length) node.append(el('p', issues(row.issues), 'import-warning'));
       node.append(el('p',[record.business_date, TEXT[record.action] || ({income:'收入',expense:'支出'})[record.action],record.market_value ?? record.gross_amount ?? record.net_cash,record.currency].filter(value=>value!=null&&value!=='').join(' · '),'import-meta'));
       const allValues=el('details'); allValues.append(el('summary','前后值与底表条目'));
