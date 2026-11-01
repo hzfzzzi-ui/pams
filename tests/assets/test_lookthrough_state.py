@@ -37,6 +37,29 @@ def _assert_read_only_sql(statements: list[str]) -> None:
     assert not any(re.search(rf"(?:^|[^A-Z0-9_]){token}(?:$|[^A-Z0-9_])", joined) for token in forbidden)
 
 
+def test_exposure_alias_does_not_become_asset_identity() -> None:
+    from domain.assets.asset_master import _aliases_for_raw
+
+    mapping = {'symbol': 'SYNTH_PROXY', 'asset_name': 'Proxy',
+               'aliases': ['Proxy Identity'], 'lookthrough_aliases': ['Separate Fund']}
+    config = lookthrough_state.load_lookthrough_config({'asset_mapping': [mapping]})
+    matched = lookthrough_state._find_mapping({'symbol': 'SYNTH_FUND', 'asset_name': 'Separate Fund'}, config)
+    assert matched is not None and matched['symbol'] == 'SYNTH_PROXY'
+    asset = {'primary_symbol': 'SYNTH_PROXY', 'canonical_name': 'Proxy', 'display_name': 'Proxy'}
+    aliases = {value for _, value, _ in _aliases_for_raw(mapping, asset)}
+    assert 'Proxy Identity' in aliases
+    assert 'Separate Fund' not in aliases
+
+
+def test_ambiguous_exposure_alias_requires_exact_identity() -> None:
+    config = lookthrough_state.load_lookthrough_config({'asset_mapping': [
+        {'symbol': 'SYNTH_A', 'asset_name': 'Fund A', 'lookthrough_aliases': ['Shared Proxy']},
+        {'symbol': 'SYNTH_B', 'asset_name': 'Fund B', 'lookthrough_aliases': ['Shared Proxy']},
+    ]})
+    assert lookthrough_state._find_mapping({'symbol': 'UNKNOWN', 'asset_name': 'Shared Proxy'}, config) is None
+    assert lookthrough_state._find_mapping({'symbol': 'SYNTH_A', 'asset_name': 'Shared Proxy'}, config)['symbol'] == 'SYNTH_A'
+
+
 def test_conflicting_generated_aliases_do_not_choose_an_asset() -> None:
     cfg = lookthrough_state.load_lookthrough_config({
         "asset_mapping": [
