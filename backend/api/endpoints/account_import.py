@@ -12,7 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from domain.imports import account_import_access as access
 from domain.imports import account_import_store as store
-from domain.imports import account_import_publish as publisher
+from domain.imports import native_source as source
+from domain.imports import native_source_http as source_http
+from domain.imports import isolation
 from domain.imports.account_import_ocr import ocr_available
 
 def private_response(response: Response):
@@ -49,8 +51,35 @@ class Revision(StrictRequest):
     revision: int = Field(strict=True, gt=0)
 
 
+class CompleteScope(Revision):
+    as_of: str
+    member_count: int = Field(strict=True, gt=0, le=store.MAX_ROWS)
+    cash_amount: str = Field(min_length=1, max_length=40)
+    note: str = Field(min_length=1, max_length=500)
+    confirmed: bool = False
+
+
 class Publish(Revision):
     preview_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
+
+
+class ConfirmFlowCoverage(Revision):
+    mappings: dict[str, int] = Field(max_length=store.MAX_ROWS)
+    note: str = Field(min_length=1, max_length=500)
+    confirmed: bool = False
+
+
+def _schema_ready(cur):
+    try:
+        if not isolation.source_enabled(cur):
+            raise store.ImportProblem('isolated_only', '统一来源仅允许隔离测试库', 403)
+    except isolation.IsolationError as exc:
+        raise store.ImportProblem('isolated_only', '统一来源仅允许隔离测试库', 403) from exc
+    cur.execute("SELECT to_regclass('public.source_batches') IS NOT NULL AND "
+                "to_regclass('public.source_files') IS NOT NULL AND "
+                "to_regclass('public.source_items') IS NOT NULL AND "
+                "to_regclass('public.source_templates') IS NOT NULL AS ready")
+    return bool(cur.fetchone()['ready'])
 
 
 def execute(request: Request, fn, *, write=False, serializable=False):
@@ -65,7 +94,7 @@ def execute(request: Request, fn, *, write=False, serializable=False):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SET LOCAL statement_timeout='10s'")
                 cur.execute("SET LOCAL lock_timeout='3s'")
-                if not store.schema_ready(cur):
+                if not _schema_ready(cur):
                     raise store.ImportProblem("schema_unavailable", "导入暂存结构尚未启用", 503)
                 return fn(cur)
     except store.ImportProblem as error:
@@ -85,12 +114,12 @@ def capabilities():
         with store.get_conn() as conn:
             conn.set_session(readonly=True)
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                ready = store.schema_ready(cur)
-    except psycopg2.Error:
+                ready = _schema_ready(cur)
+    except (psycopg2.Error, store.ImportProblem):
         pass
-    # Legacy capability keys mean access is available, not a verified user session.
+    # Capability keys mean access is available, not a verified user session.
     return {"configured": True, "authenticated": True, "authentication_required": False,
-            "schema_ready": ready, "publish_enabled": ready and publisher.enabled(),
+            "schema_ready": ready, "publish_enabled": ready and source.enabled(),
             "ocr_available": ready and ocr_available(),
             "limits": {"file_bytes": store.MAX_FILE_BYTES, "batch_bytes": store.MAX_BATCH_BYTES,
                        "files": store.MAX_FILES, "rows": store.MAX_ROWS}}
@@ -108,22 +137,49 @@ def assets(request: Request, q: str = Query("", max_length=80)):
 
 @router.get("/batches")
 def list_batches(request: Request, limit: int = Query(20, ge=1, le=50)):
-    return execute(request, lambda cur: store.list_batches(cur, limit))
+    return execute(request, lambda cur: source_http.list_batches(cur, limit))
+
+
+@router.post("/flow-coverage/stage")
+async def stage_flow_coverage(request: Request, account_code: str = Query(..., max_length=50),
+                              filename: str = Query(..., max_length=180)):
+    access.same_origin(request)
+    content = bytearray()
+    async for part in request.stream():
+        content.extend(part)
+        if len(content) > store.MAX_FILE_BYTES:
+            raise HTTPException(413, detail={"code":"file_size", "message":"文件超过10MB"})
+    from domain.accounts import flow_coverage
+    return await run_in_threadpool(execute, request, lambda cur: flow_coverage.stage(
+        cur, account_code=account_code, filename=filename, content=bytes(content)), write=True, serializable=True)
+
+
+@router.get("/flow-coverage/{batch_id}")
+def get_flow_coverage(batch_id: UUID, request: Request):
+    from domain.accounts import flow_coverage
+    return execute(request, lambda cur: flow_coverage.inspect(cur, batch_id))
+
+
+@router.post("/flow-coverage/{batch_id}/publish")
+def publish_flow_coverage(batch_id: UUID, body: ConfirmFlowCoverage, request: Request):
+    from domain.accounts import flow_coverage
+    return execute(request, lambda cur: flow_coverage.publish(cur, batch_id=batch_id, **body.model_dump()),
+                   write=True, serializable=True)
 
 
 @router.post("/batches")
 def create(body: Create, request: Request):
-    return execute(request, lambda cur: store.create(cur, **body.model_dump()), write=True)
+    return execute(request, lambda cur: source_http.create(cur, **body.model_dump()), write=True)
 
 
 @router.get("/batches/{batch_id}")
 def get_batch(batch_id: UUID, request: Request):
-    return execute(request, lambda cur: store.batch(cur, str(batch_id)))
+    return execute(request, lambda cur: source_http.batch(cur, batch_id))
 
 
 @router.put("/batches/{batch_id}")
 def save(batch_id: UUID, body: Save, request: Request):
-    return execute(request, lambda cur: store.save(cur, str(batch_id), **body.model_dump()), write=True)
+    return execute(request, lambda cur: source_http.save(cur, batch_id, **body.model_dump()), write=True)
 
 
 @router.post("/batches/{batch_id}/files")
@@ -134,13 +190,13 @@ async def upload(batch_id: UUID, request: Request, filename: str = Query(..., ma
         content.extend(part)
         if len(content) > store.MAX_FILE_BYTES:
             raise HTTPException(413, detail={"code": "file_size", "message": "文件超过10MB"})
-    return await run_in_threadpool(execute, request, lambda cur: store.upload(
-        cur, str(batch_id), filename, bytes(content), request.headers.get("content-type", "")), write=True)
+    return await run_in_threadpool(execute, request, lambda cur: source_http.upload(
+        cur, batch_id, filename, bytes(content), request.headers.get('content-type', '')), write=True)
 
 
 @router.get("/batches/{batch_id}/files/{file_id}")
 def evidence(batch_id: UUID, file_id: UUID, request: Request):
-    file = execute(request, lambda cur: store.get_file(cur, str(batch_id), str(file_id)))
+    file = execute(request, lambda cur: source_http.get_file(cur, batch_id, file_id))
     return Response(bytes(file["content"]), media_type=file["content_type"],
                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                              "Content-Disposition": "inline"})
@@ -148,20 +204,25 @@ def evidence(batch_id: UUID, file_id: UUID, request: Request):
 
 @router.post("/batches/{batch_id}/files/{file_id}/parse")
 def reparse(batch_id: UUID, file_id: UUID, body: Mapping, request: Request):
-    return execute(request, lambda cur: store.reparse(cur, str(batch_id), str(file_id), body.mapping, body.kind), write=True)
+    return execute(request, lambda cur: source_http.reparse(cur, batch_id, file_id, body.mapping, body.kind), write=True)
+
+
+@router.post("/batches/{batch_id}/confirm-scope")
+def confirm_complete_scope(batch_id: UUID, body: CompleteScope, request: Request):
+    return execute(request, lambda cur: source.attest_complete_scope(cur, batch_id=batch_id, **body.model_dump()), write=True)
 
 
 @router.post("/batches/{batch_id}/preview")
 def preview(batch_id: UUID, body: Revision, request: Request):
-    return execute(request, lambda cur: publisher.preview(cur, str(batch_id), body.revision), write=True)
+    return execute(request, lambda cur: source_http.preview(cur, batch_id, body.revision), write=True)
 
 
 @router.post("/batches/{batch_id}/files/{file_id}/review")
 def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request):
-    return execute(request, lambda cur: store.review_image(cur, str(batch_id), str(file_id), body.revision), write=True)
+    return execute(request, lambda cur: source_http.review_image(cur, batch_id, file_id, body.revision), write=True)
 
 
 @router.post("/batches/{batch_id}/publish")
 def publish(batch_id: UUID, body: Publish, request: Request):
-    return execute(request, lambda cur: publisher.publish(cur, str(batch_id), body.revision, body.preview_token),
+    return execute(request, lambda cur: source_http.publish(cur, batch_id, body.revision, body.preview_token),
                    write=True, serializable=True)

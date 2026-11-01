@@ -31,6 +31,8 @@ def client(monkeypatch):
 @pytest.fixture
 def db_client(client, monkeypatch):
     with scratch_database() as params:
+        monkeypatch.setenv("PAMS_UNIFIED_SOURCE_ISOLATED", "true")
+        monkeypatch.setenv("PAMS_SOURCE_TEST_TOKEN_KEY", "a1"*32)
         monkeypatch.setattr(store, "get_conn", lambda: psycopg2.connect(**params))
         yield client, params
 
@@ -39,7 +41,7 @@ def test_missing_schema_stays_unavailable_without_a_passphrase(client, monkeypat
     conn = MagicMock()
     conn.__enter__.return_value = conn
     monkeypatch.setattr(store, "get_conn", lambda: conn)
-    monkeypatch.setattr(store, "schema_ready", lambda cur: False)
+    monkeypatch.setattr(api, "_schema_ready", lambda cur: False)
     result = client.get(BASE + "/capabilities")
     assert result.status_code == 200
     assert result.headers["cache-control"] == "no-store"
@@ -69,7 +71,7 @@ def test_no_cookie_or_legacy_secret_is_required(client, monkeypatch, legacy_toke
     conn = MagicMock()
     conn.__enter__.return_value = conn
     monkeypatch.setattr(store, "get_conn", lambda: conn)
-    monkeypatch.setattr(store, "schema_ready", lambda cur: True)
+    monkeypatch.setattr(api, "_schema_ready", lambda cur: True)
     monkeypatch.setattr(store, "context", lambda cur: {"accounts": []})
     for cookies in [{}, {"pams_import_session": "0.bad.signature"}]:
         client.cookies.clear()
@@ -119,11 +121,12 @@ def test_draft_revision_provenance_and_account_scope(db_client):
         {"fields": {"quantity": "20.010", "symbol": "000001", "kind": "holding"}, "acknowledged": True}]}
     result = client.put(BASE + "/batches/" + b["batch_id"], json=body)
     assert result.status_code == 200, result.text
-    assert result.json()["revision"] == 2
+    assert result.json()["revision"] > b["revision"]
+    new_revision = result.json()["revision"]
     row = result.json()["rows"][0]
     assert row["fields"]["quantity"] == "20.010" and row["source"] == {"origin": "manual"}
     assert client.put(BASE + "/batches/" + b["batch_id"], json=body).status_code == 409
-    body["revision"] = 2
+    body["revision"] = new_revision
     body["rows"][0]["fields"]["quantity"] = 20.01
     assert client.put(BASE + "/batches/" + b["batch_id"], json=body).status_code == 400
     body["rows"][0]["fields"]["quantity"] = "20.01"
@@ -132,10 +135,9 @@ def test_draft_revision_provenance_and_account_scope(db_client):
     unsupported = client.post(BASE + "/batches", json={"account_code": "ibkr", "mode": "manual", "kind": "trade"})
     assert unsupported.status_code == 400
     with psycopg2.connect(**params) as conn, conn.cursor() as cur:
-        cur.execute("SELECT event,details FROM pams_account_import_audit ORDER BY created_at")
-        audits = cur.fetchall()
-        assert [r[0] for r in audits] == ["created", "draft_saved"]
-        assert audits[-1][1]["changes"][0]["after"]["fields"]["quantity"] == "20.010"
+        cur.execute("SELECT parsed_fields->'fields'->>'quantity' FROM source_items")
+        assert cur.fetchone()[0] == '20.010'
+
 
 
 def test_private_file_duplicate_idempotence_mapping_and_cross_batch_denial(db_client):

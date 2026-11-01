@@ -109,6 +109,24 @@ class RateCursor:
         return [{"source_account_id": value} for value in self.identities]
 
 
+@pytest.fixture(autouse=True)
+def simulate_reviewed_identity_for_pure_cursor(monkeypatch):
+    """Only the small pure cursor substitutes the separately tested source verifier."""
+    real = nav.daily_close_account_identity
+    def resolve(cur, *, source_account_id, as_of):
+        if not isinstance(cur, RateCursor):
+            return real(cur, source_account_id=source_account_id, as_of=as_of)
+        values=cur.identities
+        if not values or any(not isinstance(v,str) or not v.strip() for v in values):
+            return {'status':'unconfirmed','reasons':['missing_native_account_identity']}
+        if len(set(values))!=1:
+            return {'status':'unconfirmed','reasons':['ambiguous_native_account_identity']}
+        if values[0]!=source_account_id:
+            return {'status':'unconfirmed','reasons':['native_account_identity_mismatch']}
+        return {'status':'ok','basis':'synthetic_review','as_of':as_of.isoformat(),'authentication':'unknown'}
+    monkeypatch.setattr(nav,'daily_close_account_identity',resolve)
+
+
 def test_unset_preserves_legacy_without_evidence_reads(monkeypatch):
     monkeypatch.delenv(reader.MANIFEST_ENV, raising=False)
     monkeypatch.setattr(reader, "load_evidence", lambda: pytest.fail("must not read supplemental evidence"))
@@ -417,33 +435,45 @@ def test_manifest_label_cannot_substitute_native_account_mapping(tmp_path, monke
 
 
 @pytest.fixture
-def consumer_database(database):
+def consumer_database(database, monkeypatch):
+    from scripts.bootstrap_isolated_sources import initialize_isolated_sources
     conn = database()
-    with conn, conn.cursor() as cur:
-        cur.execute("""DROP SCHEMA public CASCADE; CREATE SCHEMA public;
-            CREATE TABLE pams_fx_rates_daily (base_currency text, quote_currency text, rate numeric, as_of date,
-                source text DEFAULT 'synthetic_internal_fx');
-            CREATE TABLE pams_holdings_snapshot (id int, account_code text, as_of date, currency text,
-                market_value numeric, cost numeric, holding_pnl numeric, asset_liability text,
-                major_category text, minor_category text, symbol text, name text, quantity numeric);
-            CREATE TABLE pams_ibkr_position_history (account_code text, as_of date, currency text,
-                market_value numeric, asset_liability text, source_account_id text);
-        """)
-        cur.execute("INSERT INTO pams_fx_rates_daily(base_currency,quote_currency,rate,as_of) VALUES ('CNY','USD',7,%s),('CNY','EUR',9,%s),('CNY','USD',99,%s)",
+    monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED','true')
+    initialize_isolated_sources(conn)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO pams_fx_rates_daily(base_currency,quote_currency,rate,as_of,source) VALUES ('CNY','USD',7,%s,'synthetic'),('CNY','EUR',9,%s,'synthetic'),('CNY','USD',99,%s,'synthetic')",
                     (DAY, DAY, DAY + timedelta(days=1)))
-        cur.execute("""INSERT INTO pams_holdings_snapshot VALUES
-            (1,'ibkr',%s,'USD',-20,-20,0,'liability','cash','cash','CASH_USD','Cash USD',-20),
-            (2,'ibkr',%s,'EUR',100,80,20,'asset','stock','stock','SYNTHETIC','Synthetic',2);
-        """, (DAY, DAY))
-        cur.execute("""INSERT INTO pams_ibkr_position_history SELECT account_code,as_of,currency,market_value,
-            CASE WHEN market_value < 0 THEN %s ELSE %s END,%s FROM pams_holdings_snapshot""", ("\u8d1f\u503a", "\u8d44\u4ea7", ACCOUNT))
+        cur.execute("""INSERT INTO pams_holdings_snapshot(account_code,as_of,currency,market_value,cost,
+            asset_liability,major_category,minor_category,symbol,name,quantity) VALUES
+            ('ibkr',%s,'USD',-20,-20,'负债','现金','现金/活期','CASH_USD','Cash USD',-20),
+            ('ibkr',%s,'EUR',100,80,'资产','股票','股票','SYNTHETIC','Synthetic',2)""", (DAY, DAY))
+    conn.commit()
     yield conn
     conn.close()
+
+
+def publish_account_binding(conn, account=ACCOUNT):
+    from uuid import uuid4
+    from psycopg2.extras import RealDictCursor
+    from domain.imports.ibkr_holding_source import stage_report
+    from domain.brokers.ibkr.ibkr_holding_review import review, review_account_binding, publish as publish_source
+    from tests.database.test_ibkr_holding_identity_review import XML
+    content=XML.replace(b'U_TEST',account.encode()).replace(b'20261022',DAY.strftime('%Y%m%d').encode())
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        source=stage_report(cur,batch_id=uuid4(),account_code='ibkr',source_account_id=account,business_date=DAY,content=content)
+        cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s',(source['batch_id'],))
+        revision=cur.fetchone()['revision']
+        revision=review(cur,batch_id=source['batch_id'],item_id=source['position_item_ids'][0],expected_revision=revision,note='synthetic row')['revision']
+        revision=review(cur,batch_id=source['batch_id'],item_id=source['scope_item_id'],expected_revision=revision,note='synthetic scope',scope_complete=True)['revision']
+        revision=review_account_binding(cur,batch_id=source['batch_id'],source_account_id=account,expected_revision=revision,note='synthetic account')['revision']
+        publish_source(cur,batch_id=source['batch_id'],expected_revision=revision)
+    conn.commit()
 
 
 def test_real_pg_consumers_are_readonly_ownerratio_exact_and_native_positions_unchanged(consumer_database, tmp_path, monkeypatch):
     publish(tmp_path, monkeypatch)
     conn = consumer_database
+    publish_account_binding(conn)
     cfg = {"accounts": {"ibkr": {"account_type": "brokerage", "truth_source": "ibkr_flex",
                                 "owner_ratio": "0.4", "base_currency": "USD"}}}
     monkeypatch.setattr(portfolio, "_view_as_of", lambda: DAY)
@@ -453,8 +483,12 @@ def test_real_pg_consumers_are_readonly_ownerratio_exact_and_native_positions_un
         balances = portfolio.load_account_balances(cur, "CNY", cfg)
         after = portfolio.load_investment_positions(cur, "CNY", cfg, account_balances=balances)
         assert before == after
+        row=balance()
+        portfolio._apply_daily_close_balance(cur,row,base_currency="CNY",owner_ratio=D("0.4"))
+        assert row["amount_cny"] == D("221.2")
+        assert D(row["daily_close"]["fx_rate"]) == D("7")
         assert balances[0]["amount_cny"] == D("221.2")
-        assert balances[0]["daily_close"]["fx_rate"] == "7"
+        assert balances[0]["snapshot_scope_status"] == "unknown"
         values = nav._ibkr_nav_series(cur, dates=[DAY], base_currency="CNY",
             owner_ratio_case_sql=lambda alias: ("%s", [D("0.4")]), account_owner_ratio=lambda account: D("0.4"))
         assert values[DAY]["net_worth"] == D("221.2")
@@ -466,6 +500,7 @@ def test_real_pg_consumers_are_readonly_ownerratio_exact_and_native_positions_un
 def test_real_pg_future_only_fx_is_not_used_for_official_close(consumer_database, tmp_path, monkeypatch):
     publish(tmp_path, monkeypatch)
     conn = consumer_database
+    publish_account_binding(conn)
     with conn, conn.cursor() as cur:
         cur.execute('DELETE FROM pams_fx_rates_daily WHERE as_of <= %s', (DAY,))
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -481,8 +516,8 @@ def test_real_pg_future_only_fx_is_not_used_for_official_close(consumer_database
 def test_real_pg_missing_or_cross_account_native_identity_blocks_override(consumer_database, tmp_path, monkeypatch, native):
     publish(tmp_path, monkeypatch)
     conn = consumer_database
-    with conn, conn.cursor() as cur:
-        cur.execute('UPDATE pams_ibkr_position_history SET source_account_id=%s', (native,))
+    if native is not None:
+        publish_account_binding(conn,native)
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute('SET TRANSACTION READ ONLY')
         row = balance()

@@ -41,7 +41,7 @@ VALUES
         'active',
         'migration_033_benchmark_assets',
         'high',
-        '{"role":"benchmark","is_holding":false,"proxy_for":["CCB_GOLD_ACCUM","ASSET_CCB_GOLD_ACCUM"],"price_source":"pams_asset_market_daily:518880.SH"}'::jsonb,
+        '{"role":"benchmark","is_holding":false,"proxy_for":["CCB_GOLD_ACCUM","ASSET_CCB_GOLD_ACCUM"],"price_source":"market_observations:518880.SH"}'::jsonb,
         NOW()
     ),
     (

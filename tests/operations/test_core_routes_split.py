@@ -26,6 +26,8 @@ class Conn:
         return self
     def __exit__(self, *args):
         return False
+    def set_session(self, **kwargs):
+        assert kwargs == {'readonly': True, 'isolation_level': 'REPEATABLE READ'}
     def cursor(self, **kwargs):
         return Cursor(self.statements)
     def commit(self):

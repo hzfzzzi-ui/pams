@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend" / "api"))
 from backend.api.collectors import ibkr_flex as collector  # noqa: E402
+from tests.brokers.ibkr.test_ibkr_sync_transaction import database as database, sync_case as sync_case  # noqa: E402
 
 
 @pytest.mark.parametrize("requested,latest,align", [
@@ -66,28 +67,23 @@ def test_writer_rejects_date_mismatch_before_any_database_write(monkeypatch, row
     assert rows == before
 
 
-def test_writer_leaves_input_and_values_unchanged(monkeypatch):
-    class Cursor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def execute(self, *args):
-            pass
-
-    class Connection:
-        def cursor(self):
-            return Cursor()
-
-    captured = []
-    monkeypatch.setattr(collector, "_ensure_reference_data", lambda *args: None)
-    monkeypatch.setattr(collector, "_column_exists", lambda *args: False)
-    monkeypatch.setattr(collector.psycopg2.extras, "execute_batch",
-        lambda cur, statement, rows, **kwargs: captured.extend(rows))
-    rows = [{"as_of": date(2024, 2, 6), "market_value": 33, "quantity": 3}]
+def test_writer_leaves_input_and_values_unchanged(sync_case):
+    _, conn, report = sync_case
+    parsed = collector.parse_flex_report(report['xml'])
+    rows = parsed.rows
     before = deepcopy(rows)
-    assert collector._write_holdings(Connection(), rows, account_code="example", as_of=date(2024, 2, 6)) == 1
-    assert rows == before == captured
-    assert rows[0] is not captured[0]
+    assert collector._write_holdings(conn, rows, account_code='ibkr', as_of=date(2026, 10, 22)) == len(rows)
+    assert rows == before
+    with conn.cursor() as cur:
+        cur.execute("SELECT as_of,quantity,market_value FROM pams_holdings_snapshot WHERE account_code='ibkr' AND symbol='TEST'")
+        assert cur.fetchone() == (date(2026, 10, 22), 2, 381)
+    conn.rollback()
+
+
+def test_duplicate_names_rejected_before_any_database_write():
+    day=date(2024,2,6)
+    rows=[{'as_of':day,'name':'Same','symbol':'A'},{'as_of':day,'name':'Same','symbol':'B'}]
+    before=deepcopy(rows)
+    with pytest.raises(ValueError,match='duplicate names'):
+        collector._write_holdings(None,rows,account_code='example',as_of=day)
+    assert rows==before

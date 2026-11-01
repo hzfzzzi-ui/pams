@@ -32,6 +32,8 @@ import psycopg2.extras
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from domain.imports.isolation import source_enabled
+from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
 from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from domain.market.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
 from domain.investments.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
@@ -85,7 +87,9 @@ class PriceHistoryBackfillRequest(BaseModel):
 # ---------- DB helpers ----------
 
 def _get_conn():
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -323,11 +327,34 @@ def _update_prices(updates: List[Tuple[float, float, int]]) -> int:
 
     with _get_conn() as conn:
         with conn.cursor() as cur:
-            cur.executemany("""
-                UPDATE pams_holdings_snapshot
-                SET current_price = %s, market_value = %s
-                WHERE id = %s
-            """, updates)
+            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s)',
+                        ([row[2] for row in updates],))
+            rows = cur.fetchall()
+            holdings = {(row['id'] if isinstance(row, dict) else row[0]): row for row in rows}
+            lock_holding_accounts(cur, [(row['account_code'] if isinstance(row, dict) else row[1]) for row in rows])
+            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s) FOR UPDATE',
+                        (list(holdings),))
+            locked = {(row['id'] if isinstance(row, dict) else row[0]): row for row in cur.fetchall()}
+            if locked != holdings:
+                raise ValueError('holding identity changed while acquiring account locks')
+            isolated = source_enabled(cur)
+            if isolated:
+                for price, value, identifier in updates:
+                    holding = holdings.get(identifier)
+                    if not holding:
+                        continue
+                    account, name, as_of = ((holding['account_code'],holding['name'],holding['as_of'])
+                                            if isinstance(holding, dict) else (holding[1],holding[2],holding[3]))
+                    prepare_holding_change(cur, account_code=account, name=name, as_of=as_of, source_item_id=None)
+                    cur.execute("""UPDATE pams_holdings_snapshot SET current_price=%s,market_value=%s
+                        WHERE id=%s AND (current_price,market_value) IS DISTINCT FROM (%s,%s) RETURNING id""",
+                        (price, value, identifier, price, value))
+                    if cur.fetchone():
+                        finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                            input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
+            else:
+                cur.executemany("""UPDATE pams_holdings_snapshot SET current_price=%s,market_value=%s WHERE id=%s""",
+                                [row for row in updates if row[2] in holdings])
             conn.commit()
             return len(updates)
 
@@ -369,26 +396,35 @@ def _trade_gross_amount(trade: dict, quantity: Decimal) -> Decimal:
     return abs(quantity * price)
 
 
-def _roll_forward_a_stock_position(base_row: dict, trades: list[dict]) -> dict[str, Decimal]:
+def _roll_forward_a_stock_position(base_row: dict, trades: list[dict]) -> dict[str, Decimal | None]:
     """Replay same-day A-share trades over one position snapshot."""
     quantity = _dec(base_row.get("quantity"))
-    cost = _dec(base_row.get("cost"))
+    cost = None if base_row.get("cost") is None else _dec(base_row.get("cost"))
 
     for trade in trades:
         trade_qty = abs(_dec(trade.get("quantity")))
         if trade_qty <= 0:
             continue
         if _is_a_stock_buy_trade(trade):
-            fees = abs(_dec(trade.get("fee_amount"))) + abs(_dec(trade.get("tax_amount")))
+            from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
+            fees = known_trade_charges(trade)
             quantity += trade_qty
-            cost += _trade_gross_amount(trade, trade_qty) + fees
+            if unconverted_ibkr_fee(trade) or (fees is None and (trade.get("net_cash") is None or _dec(trade.get("net_cash")) >= 0)):
+                cost = None
+            elif cost is None:
+                pass
+            elif fees is None:
+                cost += -_dec(trade["net_cash"])
+            else:
+                cost += _trade_gross_amount(trade, trade_qty) + fees
             continue
         if _is_a_stock_sell_trade(trade):
             if quantity <= 0:
                 continue
             sell_qty = min(trade_qty, quantity)
-            avg_cost = cost / quantity if quantity else Decimal("0")
-            cost -= avg_cost * sell_qty
+            if cost is not None:
+                avg_cost = cost / quantity
+                cost -= avg_cost * sell_qty
             quantity -= sell_qty
             if quantity <= Decimal("0.0000001"):
                 quantity = Decimal("0")
@@ -397,17 +433,19 @@ def _roll_forward_a_stock_position(base_row: dict, trades: list[dict]) -> dict[s
     return {
         "quantity": quantity,
         "cost": cost,
-        "buy_price": cost / quantity if quantity > 0 else Decimal("0"),
+        "buy_price": cost / quantity if quantity > 0 and cost is not None else None,
     }
 
 
-def _row_matches_rollforward(row: dict, expected: dict[str, Decimal]) -> bool:
+def _row_matches_rollforward(row: dict, expected: dict[str, Decimal | None]) -> bool:
     qty_delta = abs(_dec(row.get("quantity")) - expected["quantity"])
+    if expected["cost"] is None:
+        return qty_delta <= Decimal("0.0001") and row.get("cost") is None
     cost_delta = abs(_dec(row.get("cost")) - expected["cost"])
     return qty_delta <= Decimal("0.0001") and cost_delta <= Decimal("0.01")
 
 
-def _apply_rollforward_to_row(row: dict, expected: dict[str, Decimal]) -> dict:
+def _apply_rollforward_to_row(row: dict, expected: dict[str, Decimal | None]) -> dict:
     adjusted = dict(row)
     adjusted["quantity"] = expected["quantity"]
     adjusted["cost"] = expected["cost"]
@@ -446,20 +484,42 @@ def _previous_a_stock_snapshot_rows(cur, keys: set[tuple[str, str]], as_of) -> d
     }
 
 
+def _eligible_trade_source_filter(cur) -> str | None:
+    cur.execute("""SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS exists,
+        to_regclass('public.source_items') IS NOT NULL AS item_exists,
+        to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
+    relations = cur.fetchone()
+    if not relations or not relations.get("exists"):
+        return None
+    if not relations.get("item_exists") or not relations.get("batch_exists"):
+        return "source_table NOT IN ('tradingview_csv','source_items','ibkr_flex_trade')"
+    return """((source_item_id IS NULL AND source_table NOT IN
+        ('tradingview_csv','source_items','ibkr_flex_trade')) OR EXISTS (
+        SELECT 1 FROM source_items si JOIN source_batches sb ON sb.batch_id=si.batch_id
+        WHERE si.source_item_id=pams_investment_trade_fact.source_item_id
+          AND si.review_status='confirmed' AND sb.status='published'
+          AND sb.account_code=pams_investment_trade_fact.account_code))"""
+
+
+class _TradeQuantities(dict):
+    def __init__(self, values=(), *, unverified_keys=()):
+        super().__init__(values)
+        self.unverified_keys = set(unverified_keys)
+
+
 def _a_stock_trade_net_quantities_before(cur, keys: set[tuple[str, str]], as_of) -> dict[tuple[str, str], Decimal]:
     """Return pre-day net share quantities from confirmed trade facts."""
     if not keys:
         return {}
-    cur.execute("SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS exists")
-    exists_row = cur.fetchone()
-    exists = bool(exists_row.get("exists") if isinstance(exists_row, dict) else exists_row and exists_row[0])
-    if not exists:
+    source_filter = _eligible_trade_source_filter(cur)
+    if source_filter is None:
         return {}
+    linked_source = "source_item_id IS NOT NULL" if "source_item_id" in source_filter else "FALSE"
 
     accounts = sorted({account for account, _ in keys})
     symbols = sorted({symbol for _, symbol in keys})
     cur.execute(
-        """
+        f"""
         SELECT
             account_code,
             symbol,
@@ -473,12 +533,15 @@ def _a_stock_trade_net_quantities_before(cur, keys: set[tuple[str, str]], as_of)
                         THEN -ABS(COALESCE(quantity, 0))
                     ELSE 0
                 END
-            ) AS net_quantity
+            ) AS net_quantity,
+            BOOL_OR(source_table IN ('tradingview_csv','source_items','ibkr_flex_trade') OR {linked_source}) AS coverage_unverified
         FROM pams_investment_trade_fact
         WHERE trade_date < %s
           AND account_code = ANY(%s::text[])
           AND symbol = ANY(%s::text[])
           AND COALESCE(quantity, 0) > 0
+          AND LOWER(review_status) IN ('auto','reviewed','confirmed')
+          AND {source_filter}
           AND (
               trade_type IN ('buy', 'sell', 'fund_subscription', 'fund_redemption')
               OR LOWER(COALESCE(side, '')) IN ('buy', 'sell')
@@ -487,25 +550,25 @@ def _a_stock_trade_net_quantities_before(cur, keys: set[tuple[str, str]], as_of)
         """,
         (as_of, accounts, symbols),
     )
-    return {
+    values = [dict(row) for row in cur.fetchall()]
+    return _TradeQuantities({
         (str(row["account_code"]), _same_day_trade_symbol(row["symbol"])): _dec(row["net_quantity"])
-        for row in cur.fetchall()
-    }
+        for row in values
+    }, unverified_keys={(str(row["account_code"]), _same_day_trade_symbol(row["symbol"]))
+                        for row in values if row.get("coverage_unverified")})
 
 
 def _same_day_a_stock_trades(cur, keys: set[tuple[str, str]], as_of) -> dict[tuple[str, str], list[dict]]:
     if not keys:
         return {}
-    cur.execute("SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS exists")
-    exists_row = cur.fetchone()
-    exists = bool(exists_row.get("exists") if isinstance(exists_row, dict) else exists_row and exists_row[0])
-    if not exists:
+    source_filter = _eligible_trade_source_filter(cur)
+    if source_filter is None:
         return {}
 
     accounts = sorted({account for account, _ in keys})
     symbols = sorted({symbol for _, symbol in keys})
     cur.execute(
-        """
+        f"""
         SELECT
             trade_id,
             account_code,
@@ -516,12 +579,19 @@ def _same_day_a_stock_trades(cur, keys: set[tuple[str, str]], as_of) -> dict[tup
             price,
             gross_amount,
             fee_amount,
-            tax_amount
+            fee_currency,
+            tax_amount,
+            net_cash,
+            currency,
+            source_table,
+            raw_json
         FROM pams_investment_trade_fact
         WHERE trade_date = %s
           AND account_code = ANY(%s::text[])
           AND symbol = ANY(%s::text[])
           AND COALESCE(quantity, 0) > 0
+          AND LOWER(review_status) IN ('auto','reviewed','confirmed')
+          AND {source_filter}
           AND (
               trade_type IN ('buy', 'sell', 'fund_subscription', 'fund_redemption')
               OR LOWER(COALESCE(side, '')) IN ('buy', 'sell')
@@ -570,7 +640,8 @@ def _apply_same_day_a_stock_trades(rows: list[dict], as_of) -> list[dict]:
             continue
 
         pre_day_quantity = pre_day_quantities.get(key)
-        if pre_day_quantity is not None and pre_day_quantity <= 0:
+        if (pre_day_quantity is not None and pre_day_quantity <= 0
+                and key not in getattr(pre_day_quantities, "unverified_keys", set())):
             base_row = {"quantity": Decimal("0"), "cost": Decimal("0")}
         else:
             base_row = previous_rows.get(key)
@@ -590,7 +661,7 @@ def _apply_same_day_a_stock_trades(rows: list[dict], as_of) -> list[dict]:
 
 def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -> int:
     """Copy the latest category snapshot to `as_of` with refreshed prices."""
-    payload = []
+    payload, origins = [], []
     for row in rows:
         symbol = row["symbol"]
         if symbol not in prices:
@@ -613,13 +684,35 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
             row.get("buy_price"),
             current_price,
         ))
+        origins.append(row)
 
     if not payload:
         return 0
 
     with _get_conn() as conn:
         with conn.cursor() as cur:
-            cur.executemany("""
+            lock_holding_accounts(cur, [row[4] for row in payload])
+            isolated = source_enabled(cur)
+            if isolated:
+                keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price')
+                for original, target in zip(origins, payload):
+                    if not original.get('id'):
+                        raise ValueError('price source holding identity missing')
+                    cur.execute('SELECT ' + ','.join(keys) + ' FROM pams_holdings_snapshot WHERE id=%s FOR UPDATE', (original['id'],))
+                    stored = cur.fetchone()
+                    if not stored or any((stored[key] if isinstance(stored, dict) else stored[index]) != original.get(key)
+                                         for index,key in enumerate(keys)):
+                        raise ValueError('price source holding changed; refresh the input')
+                    cur.execute('SELECT id,quantity,cost FROM pams_holdings_snapshot WHERE account_code=%s AND name=%s AND as_of=%s FOR UPDATE',
+                                (target[4], target[1], target[9]))
+                    existing = cur.fetchone()
+                    if existing:
+                        stored_id = existing['id'] if isinstance(existing, dict) else existing[0]
+                        stored_qty = existing['quantity'] if isinstance(existing, dict) else existing[1]
+                        stored_cost = existing['cost'] if isinstance(existing, dict) else existing[2]
+                        if stored_id != original['id'] and (stored_qty != original.get('quantity') or stored_cost != original.get('cost')):
+                            raise ValueError('newer holding input conflicts with price refresh')
+            statement = """
                 INSERT INTO pams_holdings_snapshot (
                     symbol, name, asset_liability, currency, account_code,
                     major_category, minor_category, market_value, cost, as_of,
@@ -639,7 +732,25 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
                     buy_price = EXCLUDED.buy_price,
                     current_price = EXCLUDED.current_price,
                     updated_at = now()
-            """, payload)
+            """
+            if isolated:
+                statement += """ WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
+                    pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
+                    pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,
+                    pams_holdings_snapshot.buy_price,pams_holdings_snapshot.current_price)
+                    IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
+                    EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,
+                    EXCLUDED.buy_price,EXCLUDED.current_price) RETURNING id"""
+                for row in payload:
+                    prepare_holding_change(cur, account_code=row[4], name=row[1], as_of=row[9], source_item_id=None)
+                    cur.execute(statement, row)
+                    written = cur.fetchone()
+                    if written:
+                        identifier = written['id'] if isinstance(written, dict) else written[0]
+                        finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                            input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
+            else:
+                cur.executemany(statement, payload)
             conn.commit()
             return len(payload)
 
@@ -842,7 +953,7 @@ def _has_completed_overseas_quotes(rows: list[dict], bucket: str, as_of: date) -
     previous_session = market_calendar(bucket).previous_session(as_of.isoformat()).date()
     with _get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT DISTINCT q.symbol, q.currency FROM pams_market_quote_snapshot q
+            SELECT DISTINCT q.symbol, q.currency FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') q
             JOIN pams_ohlcv_daily current_close ON current_close.symbol = q.symbol
               AND current_close.market = 'YF' AND current_close.trade_date = q.quote_date
             JOIN pams_ohlcv_daily previous_close ON previous_close.symbol = q.symbol
@@ -984,12 +1095,12 @@ def _upsert_us_estimate_market_daily(rows: List[dict], prices: Dict[str, float],
         with conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO pams_asset_market_daily (
+                INSERT INTO market_observations (
+            observation_type,
                     as_of, source, source_key, asset_id, symbol, name, market,
                     currency, close_price, confidence, raw_json
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (as_of, source, source_key)
+                ) VALUES ('daily', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (as_of, source, source_key) WHERE observation_type = 'daily'
                 DO UPDATE SET
                     asset_id = EXCLUDED.asset_id,
                     symbol = EXCLUDED.symbol,
@@ -998,7 +1109,7 @@ def _upsert_us_estimate_market_daily(rows: List[dict], prices: Dict[str, float],
                     currency = EXCLUDED.currency,
                     close_price = EXCLUDED.close_price,
                     confidence = EXCLUDED.confidence,
-                    raw_json = pams_asset_market_daily.raw_json || EXCLUDED.raw_json,
+                    raw_json = market_observations.raw_json || EXCLUDED.raw_json,
                     updated_at = now()
                 """,
                 payload,
@@ -1176,6 +1287,8 @@ def _fetch_stock_prices_tencent(symbols: List[str]) -> Dict[str, float]:
     symbols: ['sh600519', 'sz000858', ...]
     返回: {'sh600519': 1855.02, ...}
     """
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     if not symbols:
         return {}
 
@@ -1219,6 +1332,8 @@ def _fetch_fund_navs(codes: List[str]) -> Dict[str, float]:
     使用 F10DataApi 获取最新一期的累计净值(ljjz)
     响应格式: var apidata={content:"<table>...<td>日期</td><td>单位净值</td><td>累计净值</td>...",records:N,...}
     """
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     if not codes:
         return {}
 
@@ -1450,6 +1565,8 @@ def _databento_prices_from_frame(frame: Any, requested_symbols: list[str]) -> di
 
 def _fetch_databento_us_estimate_prices(symbols: List[str]) -> Dict[str, float]:
     """Fetch recent US all-hours marks from Databento for estimate PnL."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     wanted = [str(sym).strip().upper() for sym in symbols if _looks_like_us_stock_symbol(str(sym))]
     if not wanted or not _databento_enabled():
         return {}
@@ -1547,6 +1664,8 @@ def _ibkr_client_portal_request_json(
     params: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
 ) -> Any:
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     base_url = _ibkr_client_portal_base_url()
     if not base_url:
         raise RuntimeError("IBKR Client Portal base URL is not configured")
@@ -1835,6 +1954,8 @@ def _get_ibkr_tws_connection(
     client_id: int,
     timeout: float,
 ):
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     global _IBKR_TWS_CONNECTION, _IBKR_TWS_CONNECTION_KEY
 
     if _ibkr_tws_persistent_enabled() and _IBKR_TWS_CONNECTION is not None:
@@ -2082,6 +2203,8 @@ def _fetch_us_stock_prices_yf(symbols: List[str], *, prefer_live_quote: bool = F
     symbols: ['AAPL', 'VOO', ...]
     返回: {'AAPL': 189.50, ...}
     """
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     if not symbols:
         return {}
 
@@ -2213,6 +2336,8 @@ def _fetch_crypto_prices(symbols: List[str]) -> Dict[str, float]:
     symbols: ['bitcoin', 'ethereum', ...]
     返回: {'bitcoin': 97000.0, ...}
     """
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     if not symbols:
         return {}
 
@@ -2276,7 +2401,7 @@ def _latest_gold_proxy_price(as_of=None, *, exact: bool = False) -> float | None
             cur.execute(
                 f"""
                 SELECT COALESCE(close_price, unit_nav, estimated_unit_nav) AS close_price
-                FROM pams_asset_market_daily
+                FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') AS observation_rows
                 WHERE (
                     asset_id = 'BENCH_GOLD_SPOT_AU9999'
                     OR symbol IN ('Au99.99.SGE', 'Au99.99')
@@ -2304,6 +2429,8 @@ def _latest_gold_proxy_price(as_of=None, *, exact: bool = False) -> float | None
 
 
 def _fetch_sge_au9999_history(as_of) -> List[Tuple[date, float | None, float | None, float | None, float]]:
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     try:
         import akshare as ak
     except ImportError:
@@ -2334,6 +2461,8 @@ def _fetch_sge_au9999_history(as_of) -> List[Tuple[date, float | None, float | N
 
 
 def _fetch_sge_au9999_realtime(as_of) -> Tuple[date, float] | None:
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     try:
         import akshare as ak
     except ImportError:
@@ -2388,18 +2517,18 @@ def _upsert_gold_spot_closes(
         with conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO pams_asset_market_daily (
+                INSERT INTO market_observations (
+            observation_type,
                     as_of, source, source_key, asset_id, symbol, name, market, currency,
                     open_price, high_price, low_price, close_price,
                     confidence, raw_json, updated_at
-                )
-                VALUES (
+                ) VALUES ('daily',
                     %s, %s, %s,
                     'BENCH_GOLD_SPOT_AU9999', 'Au99.99.SGE', '上海黄金Au99.99',
                     'SGE', 'CNY', %s, %s, %s, %s,
                     'high', %s::jsonb, now()
                 )
-                ON CONFLICT (as_of, source, source_key)
+                ON CONFLICT (as_of, source, source_key) WHERE observation_type = 'daily'
                 DO UPDATE SET
                     asset_id = EXCLUDED.asset_id,
                     symbol = EXCLUDED.symbol,
@@ -2411,7 +2540,7 @@ def _upsert_gold_spot_closes(
                     low_price = EXCLUDED.low_price,
                     close_price = EXCLUDED.close_price,
                     confidence = EXCLUDED.confidence,
-                    raw_json = pams_asset_market_daily.raw_json || EXCLUDED.raw_json,
+                    raw_json = market_observations.raw_json || EXCLUDED.raw_json,
                     updated_at = now()
                 """,
                 payload,
@@ -2423,11 +2552,29 @@ def _upsert_gold_spot_closes(
 def _sync_gold_accum_snapshots_from_spot(start: date, end: date) -> int:
     with _get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute("""SELECT id,account_code,name,as_of FROM pams_holdings_snapshot
+                WHERE as_of BETWEEN %s AND %s AND major_category='贵金属' AND quantity IS NOT NULL
+                  AND (UPPER(COALESCE(symbol,'')) IN ('CCB_GOLD_ACCUM','GOLD','XAU')
+                       OR UPPER(COALESCE(symbol,'')) LIKE '%%GOLD%%')""", (start, end))
+            targets = cur.fetchall()
+            lock_holding_accounts(cur, [(row['account_code'] if isinstance(row, dict) else row[1]) for row in targets])
+            isolated = source_enabled(cur)
+            target_ids = [row['id'] if isinstance(row, dict) else row[0] for row in targets]
+            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s) FOR UPDATE', (target_ids,))
+            locked = cur.fetchall()
+            keyed = lambda row: row['id'] if isinstance(row, dict) else row[0]
+            if {keyed(row): row for row in locked} != {keyed(row): row for row in targets}:
+                raise ValueError('gold holding identity changed while acquiring account locks')
+            if isolated:
+                for row in targets:
+                    account, name, as_of = ((row['account_code'],row['name'],row['as_of']) if isinstance(row, dict)
+                                            else (row[1],row[2],row[3]))
+                    prepare_holding_change(cur, account_code=account, name=name, as_of=as_of, source_item_id=None)
             cur.execute(
                 """
                 WITH spot AS (
                     SELECT DISTINCT ON (as_of) as_of, close_price
-                    FROM pams_asset_market_daily
+                    FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') AS observation_rows
                     WHERE as_of BETWEEN %s AND %s
                       AND asset_id = 'BENCH_GOLD_SPOT_AU9999'
                       AND close_price IS NOT NULL
@@ -2448,14 +2595,24 @@ def _sync_gold_accum_snapshots_from_spot(start: date, end: date) -> int:
                 WHERE h.as_of = spot.as_of
                   AND h.major_category = '贵金属'
                   AND h.quantity IS NOT NULL
+                  AND h.id=ANY(%s)
                   AND (
                       UPPER(COALESCE(h.symbol, '')) IN ('CCB_GOLD_ACCUM', 'GOLD', 'XAU')
                       OR UPPER(COALESCE(h.symbol, '')) LIKE '%%GOLD%%'
                   )
-                """,
-                (start, end),
+                """ + (""" AND (h.current_price,h.market_value) IS DISTINCT FROM
+                    (spot.close_price,ROUND((h.quantity * spot.close_price)::numeric,2)) RETURNING h.id""" if isolated else ""),
+                (start, end, target_ids),
             )
-            updated = cur.rowcount
+            if isolated:
+                changed = cur.fetchall()
+                for row in changed:
+                    identifier = row['id'] if isinstance(row, dict) else row[0]
+                    finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                        input_refs=[{'kind':'quote', 'key':None, 'role':'gold_valuation_quote'}])
+                updated = len(changed)
+            else:
+                updated = cur.rowcount
             conn.commit()
             return updated
 
@@ -2666,6 +2823,10 @@ def get_price_series(
 @router.post("/prices/history/backfill")
 def backfill_price_history(body: PriceHistoryBackfillRequest):
     """Persist supported external price history into local OHLCV storage."""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     end_date = body.end or _today_cst()
     try:
         instruments = _price_request_instruments(
@@ -2726,6 +2887,10 @@ def get_trade_price_context(
 @router.post("/prices/refresh/a-stock")
 def refresh_a_stock():
     """刷新A股价格"""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     result = _refresh_category("A股", _fetch_a_stock_prices, exclude_minor_categories=("A股基金",))
     return _json(result)
 
@@ -2737,6 +2902,10 @@ def refresh_us_stock(
     scheduled: bool = Query(False),
 ):
     """刷新美股价格"""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     if not isinstance(market, str):
         market = None
     if not isinstance(price_basis, str):
@@ -2775,6 +2944,10 @@ def refresh_us_stock(
 @router.post("/prices/refresh/crypto")
 def refresh_crypto():
     """刷新加密货币价格"""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     result = _refresh_category("加密", _fetch_crypto_prices)
     return _json(result)
 
@@ -2782,6 +2955,10 @@ def refresh_crypto():
 @router.post("/prices/refresh/precious-metal")
 def refresh_precious_metal():
     """刷新贵金属价格（黄金积存金优先使用本地 SGE 现货金价）"""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     result = _refresh_category("贵金属", _fetch_precious_metal_prices)
     return _json(result)
 
@@ -2791,6 +2968,10 @@ def refresh_fund_nav_estimates(
     use_intraday_estimate: Optional[bool] = Query(None, alias="useIntradayEstimate"),
 ):
     """Fetch A-share fund confirmed NAVs and post-close estimated NAVs."""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     if not isinstance(use_intraday_estimate, bool):
         use_intraday_estimate = None
     with _get_conn() as conn:
@@ -2839,6 +3020,10 @@ def refresh_investment_prices(body: InvestmentPriceRefreshRequest | None = None)
     sources. It does not connect to brokers, place orders, exchange currency, or
     change transactions.
     """
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     req = body or InvestmentPriceRefreshRequest()
     requested_scopes = _normalize_investment_refresh_scopes(req.scopes)
     results: List[dict] = []
@@ -2929,6 +3114,10 @@ def refresh_investment_prices(body: InvestmentPriceRefreshRequest | None = None)
 @router.post("/prices/refresh")
 def refresh_all():
     """刷新全部价格（FX + A股 + 美股 + 加密）"""
+    from domain.imports.isolation import source_mode
+    from fastapi import HTTPException
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     results = []
 
     # FX rates (调用已有端点逻辑)

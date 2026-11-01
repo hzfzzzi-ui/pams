@@ -73,6 +73,9 @@ def _retry_after(value):
 
 
 def _request_json(method: str, url: str, label: str, *, failure_details=False, max_attempts=3, **kwargs):
+    if os.environ.get("PAMS_SOURCE_MODE", "").strip().lower() == "development":
+        logger.warning("Scheduler network calls are disabled in development mode")
+        return {"success": False, "status": "disabled", "reason": "development_mode"} if failure_details else None
     failure = None
     for attempt in range(max_attempts):
         try:
@@ -99,6 +102,9 @@ def _request_json(method: str, url: str, label: str, *, failure_details=False, m
 
 def _get(endpoint: str, label: str):
     """Call a root-level read endpoint."""
+    if os.environ.get("PAMS_SOURCE_MODE", "").strip().lower() == "development":
+        logger.warning("Scheduler network calls are disabled in development mode")
+        return None
     url = f"{APP_BASE}/{endpoint}"
     try:
         resp = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -510,6 +516,9 @@ def should_catch_up_north_america_investments(now_utc: datetime | None = None) -
 
 
 def main():
+    if os.environ.get("PAMS_SOURCE_MODE", "").strip().lower() == "development":
+        logger.warning("Scheduler is disabled in development mode")
+        return
     logger.info("PAMS Scheduler started")
     logger.info("API base: %s", API_BASE)
     logger.info("App base: %s", APP_BASE)

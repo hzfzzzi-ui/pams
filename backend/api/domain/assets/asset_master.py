@@ -74,10 +74,14 @@ ASSET_MASTER_FIELD_PRIORITY = {
         "holdings/imported system rows",
         "exposure_engine rule fallback",
     ],
+    "fund_source_precedence": [
+        "manual fund underlying rows",
+        "stored fund underlying snapshot",
+        "lookthrough.yaml explicitly marked fallback",
+    ],
     "ownership": {
         "pams_asset_master": "identity, asset type, market, region, currency, valuation and liquidity",
-        "pams_asset_industry_map": "industry only; never market, region, currency, or theme labels",
-        "pams_asset_theme_map": "theme only; multi-label and may overlap",
+        "asset_classifications": "separate industry and theme records; themes are multi-label and may overlap",
         "pams_fund_underlying_position": "fund-to-underlying weights including residual rows",
     },
 }
@@ -91,16 +95,13 @@ ASSET_MASTER_REQUIRED_COLUMNS = {
         "confidence", "raw_json", "last_verified_at", "created_at", "updated_at",
     }),
     "pams_asset_alias": frozenset({"asset_id", "alias_type", "alias_value", "source", "priority"}),
-    "pams_asset_industry_map": frozenset({
-        "asset_id", "industry_system", "industry_leaf", "industry_sub_bucket", "industry_bucket",
+    "asset_classifications": frozenset({
+        "asset_id", "classification_type", "industry_system", "industry_leaf", "industry_sub_bucket", "industry_bucket",
         "classification_scope", "source", "confidence", "evidence", "as_of", "is_primary", "updated_at",
-    }),
-    "pams_asset_theme_map": frozenset({
-        "asset_id", "theme_id", "theme_name", "parent_theme_id", "theme_level", "family", "score", "role",
-        "source", "confidence", "evidence", "as_of",
+        "theme_id", "theme_name", "parent_theme_id", "theme_level", "family", "score", "role",
     }),
     "pams_fund_underlying_position": frozenset({
-        "fund_asset_id", "underlying_asset_id", "underlying_name", "underlying_symbol", "underlying_weight",
+        "id", "fund_asset_id", "underlying_asset_id", "underlying_name", "underlying_symbol", "underlying_weight",
         "underlying_asset_type", "as_of", "effective_source", "coverage_type", "confidence", "source", "raw_json",
     }),
 }
@@ -109,7 +110,7 @@ ASSET_MASTER_REQUIRED_COLUMNS = {
 ASSET_MASTER_REQUIRED_UNIQUE_KEYS = {
     "pams_asset_master": ("asset_id",),
     "pams_asset_alias": ("asset_id", "alias_type", "alias_value"),
-    "pams_asset_industry_map": ("asset_id", "industry_system", "classification_scope", "is_primary"),
+    "asset_classifications": ("asset_id", "classification_type", "industry_system", "classification_scope", "is_primary"),
 }
 
 
@@ -516,12 +517,12 @@ def _upsert_industry(cur, asset_id: str, raw: dict[str, Any], asset: dict[str, A
     scope = "fund_underlying_equity" if raw.get("parent_symbol") else _exposure_policy(asset["asset_type"])
     cur.execute(
         """
-        INSERT INTO pams_asset_industry_map (
-            asset_id, industry_system, industry_leaf, industry_sub_bucket, industry_bucket,
+        INSERT INTO asset_classifications (
+            classification_type, asset_id, industry_system, industry_leaf, industry_sub_bucket, industry_bucket,
             classification_scope, source, confidence, evidence, as_of, is_primary
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
-        ON CONFLICT (asset_id, industry_system, classification_scope, is_primary) DO UPDATE SET
+        VALUES ('industry', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+        ON CONFLICT (asset_id, classification_type, industry_system, classification_scope, is_primary) DO UPDATE SET
             industry_leaf = EXCLUDED.industry_leaf,
             industry_sub_bucket = EXCLUDED.industry_sub_bucket,
             industry_bucket = EXCLUDED.industry_bucket,
@@ -530,7 +531,7 @@ def _upsert_industry(cur, asset_id: str, raw: dict[str, Any], asset: dict[str, A
             evidence = EXCLUDED.evidence,
             as_of = EXCLUDED.as_of,
             updated_at = NOW()
-        WHERE pams_asset_industry_map.source IS DISTINCT FROM 'manual' OR EXCLUDED.source = 'manual'
+        WHERE asset_classifications.source IS DISTINCT FROM 'manual' OR EXCLUDED.source = 'manual'
         """,
         (
             asset_id,
@@ -549,7 +550,7 @@ def _upsert_industry(cur, asset_id: str, raw: dict[str, Any], asset: dict[str, A
 
 def _replace_system_themes(cur, asset_id: str, raw: dict[str, Any], asset: dict[str, Any], *, source: str) -> None:
     cur.execute(
-        "DELETE FROM pams_asset_theme_map WHERE asset_id = %s AND source IN ('system', 'config', 'lookthrough_config', 'rule')",
+        "DELETE FROM asset_classifications WHERE classification_type = 'theme' AND asset_id = %s AND source IN ('system', 'config', 'lookthrough_config', 'rule')",
         (asset_id,),
     )
     if asset["asset_type"] in NON_THEME_TYPES:
@@ -557,11 +558,11 @@ def _replace_system_themes(cur, asset_id: str, raw: dict[str, Any], asset: dict[
     for theme in resolveThemeExposures({**raw, "assetType": asset["asset_type"]}):
         cur.execute(
             """
-            INSERT INTO pams_asset_theme_map (
-                asset_id, theme_id, theme_name, parent_theme_id, theme_level, family,
+            INSERT INTO asset_classifications (
+                classification_type, asset_id, theme_id, theme_name, parent_theme_id, theme_level, family,
                 score, role, source, confidence, evidence, as_of
             )
-            VALUES (%s, %s, %s, NULL, 'parent', %s, %s, %s, %s, %s, %s, %s)
+            VALUES ('theme', %s, %s, %s, NULL, 'parent', %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 asset_id,
@@ -579,11 +580,11 @@ def _replace_system_themes(cur, asset_id: str, raw: dict[str, Any], asset: dict[
     for sub_id, score in _ai_sub_theme_rules({**raw, "assetType": asset["asset_type"]}):
         cur.execute(
             """
-            INSERT INTO pams_asset_theme_map (
-                asset_id, theme_id, theme_name, parent_theme_id, theme_level, family,
+            INSERT INTO asset_classifications (
+                classification_type, asset_id, theme_id, theme_name, parent_theme_id, theme_level, family,
                 score, role, source, confidence, evidence, as_of
             )
-            VALUES (%s, %s, %s, 'ai_compute', 'child', '科技成长', %s, %s, %s, %s, %s, %s)
+            VALUES ('theme', %s, %s, %s, 'ai_compute', 'child', '科技成长', %s, %s, %s, %s, %s, %s)
             """,
             (
                 asset_id,
@@ -897,7 +898,7 @@ def _sync_asset_master_seed(
                 "" if is_residual else _text(unit.get("underlying_symbol")),
                 _num(unit.get("underlying_weight")),
                 underlying_asset_type,
-                _date_or_none(unit.get("as_of")),
+                _date_or_none(unit.get("source_as_of") if "source_as_of" in unit else unit.get("as_of")),
                 _lookthrough_source(lookthrough_type),
                 _coverage_type(lookthrough_type),
                 _text(unit.get("confidence") or "medium").lower(),
@@ -989,8 +990,8 @@ def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, An
     cur.execute(
         """
         SELECT DISTINCT ON (asset_id) *
-        FROM pams_asset_industry_map
-        WHERE is_primary = TRUE
+        FROM asset_classifications
+        WHERE classification_type = 'industry' AND is_primary = TRUE
         ORDER BY asset_id, (source = 'manual') DESC NULLS LAST, updated_at DESC
         """
     )
@@ -999,13 +1000,22 @@ def load_asset_master_lookup(cur, *, ensure_schema: bool = True) -> dict[str, An
         if asset:
             asset["industry"] = {k: _jsonable(v) for k, v in row.items()}
 
-    cur.execute("SELECT * FROM pams_asset_theme_map ORDER BY theme_level, score DESC")
+    cur.execute("SELECT * FROM asset_classifications WHERE classification_type = 'theme' ORDER BY theme_level, score DESC")
     for row in cur.fetchall():
         asset = by_id.get(row["asset_id"])
         if asset:
             asset["themes"].append({k: _jsonable(v) for k, v in row.items()})
 
+    # Load stored fund members once with the rest of the master snapshot.  The
+    # read path never seeds or alters data; explicit sync remains the writer.
+    cur.execute("SELECT * FROM pams_fund_underlying_position ORDER BY fund_asset_id, as_of DESC NULLS LAST, id")
+    fund_underlyings: dict[str, list[dict[str, Any]]] = {}
+    for row in cur.fetchall():
+        record = {k: _jsonable(v) for k, v in row.items()}
+        fund_underlyings.setdefault(record["fund_asset_id"], []).append(record)
     result = {"assets": by_id, "alias_to_id": alias_to_id}
+    if fund_underlyings:
+        result["fund_underlyings_by_id"] = fund_underlyings
     if ambiguous_aliases:
         result["ambiguous_aliases"] = ambiguous_aliases
     return result
@@ -1292,11 +1302,8 @@ def build_asset_master_payload(
         "tables": [
             "pams_asset_master",
             "pams_asset_alias",
-            "pams_asset_industry_map",
-            "pams_asset_theme_map",
+            "asset_classifications",
             "pams_fund_underlying_position",
-            "pams_asset_fixed_income_profile",
-            "pams_asset_real_asset_profile",
         ],
         "total_assets": len(assets),
         "current_assets": len(current),
@@ -1313,8 +1320,8 @@ def build_asset_master_payload(
         "field_contract": [
             {"table": "asset_master", "meaning": "标的身份、资产类型、市种、地区、币种、估值和流动性口径"},
             {"table": "asset_alias", "meaning": "同花顺、IBKR、腾讯理财通、基金代码、展示名等别名统一到 asset_id"},
-            {"table": "asset_industry_map", "meaning": "一级行业、二级行业和原始行业留痕；只服务行业维度"},
-            {"table": "asset_theme_map", "meaning": "父主题/子主题、score、role、confidence；主题允许重叠"},
+            {"table": "asset_industry_map", "storage_table": "asset_classifications", "meaning": "一级行业、二级行业和原始行业留痕；只服务行业维度"},
+            {"table": "asset_theme_map", "storage_table": "asset_classifications", "meaning": "父主题/子主题、score、role、confidence；主题允许重叠"},
             {"table": "fund_underlying_position", "meaning": "基金到底层股票、债券、现金、商品或残差的权重连接"},
         ],
     }

@@ -88,10 +88,13 @@ def test_nav_endpoint_rebuilds_terminal_bucket_when_projection_basis_is_old(enab
     import main
     balances, positions = parts()
     class Connection:
+        def set_session(self, **kwargs):
+            assert kwargs == {'isolation_level':'REPEATABLE READ', 'readonly':True}
+
         def cursor(self, **kwargs):
             return nullcontext(object())
     monkeypatch.setattr(main, "get_conn", lambda: nullcontext(Connection()))
-    monkeypatch.setattr(main.accounts_endpoint, "_overview_payload", lambda: {})
+    monkeypatch.setattr(main.accounts_endpoint, "_overview_payload", lambda cur=None: {})
     monkeypatch.setattr(main, "_investment_return_view_as_of", lambda cur: DAY)
     monkeypatch.setattr(main, "_latest_published_portfolio_valuation_state", lambda *args, **kwargs:
                         {"valuation_date": DAY, "net_liquidation_value": "99999"})
@@ -217,13 +220,13 @@ def test_final_assembler_does_not_infer_missing_terminal_proof_fields(monkeypatc
     assert Decimal(row["netWorth"]) == 140
 
 
-@pytest.mark.parametrize("change", [{"assets": "NaN"}, {"liabilities": "-1"}, {"net_worth": "0"},
-                                    {"assets": "99", "liabilities": "10", "net_worth": "89"}])
-def test_final_assembler_rejects_invalid_terminal_totals_even_with_matching_marker(monkeypatch, change):
+@pytest.mark.parametrize("change,expected", [({"assets": "NaN"}, None), ({"liabilities": "-1"}, None),
+    ({"net_worth": "0"}, None), ({"assets": "99", "liabilities": "10", "net_worth": "89"}, Decimal(140))])
+def test_final_assembler_rejects_invalid_terminal_totals_even_with_matching_marker(monkeypatch, change, expected):
     terminal = {"assets": Decimal(170), "liabilities": Decimal(10), "net_worth": Decimal(160),
                 "ibkr_daily_close": {**proof(), "net_worth_cny": "90"}, **change}
     row, _ = final_assembler(monkeypatch, terminal)
-    assert Decimal(row["netWorth"]) == 140
+    assert (Decimal(row["netWorth"]) if row["netWorth"] is not None else None) == expected
 
 
 def test_final_assembler_crosschecks_actual_terminal_account_value(monkeypatch):

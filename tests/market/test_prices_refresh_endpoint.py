@@ -62,6 +62,20 @@ def test_a_stock_same_day_rollforward_applies_buy_once():
     )
 
 
+def test_a_stock_rollforward_requires_known_cost_or_net_cash():
+    previous = {"quantity": Decimal("1"), "cost": Decimal("10")}
+    trade = {"trade_type": "buy", "quantity": Decimal("2"), "price": Decimal("10"),
+             "gross_amount": Decimal("20"), "fee_amount": Decimal("1"), "tax_amount": None,
+             "net_cash": None}
+    unknown = prices._roll_forward_a_stock_position(previous, [trade])
+    assert unknown["quantity"] == Decimal("3")
+    assert unknown["cost"] is None and unknown["buy_price"] is None
+    adjusted = prices._apply_rollforward_to_row({"current_price": Decimal("12")}, unknown)
+    assert adjusted["market_value"] == Decimal("36") and adjusted["cost"] is None
+    result = prices._roll_forward_a_stock_position(previous, [{**trade, "net_cash": Decimal("-21.5")}])
+    assert result["quantity"] == Decimal("3") and result["cost"] == Decimal("31.5")
+
+
 def test_a_stock_same_day_rollforward_reduces_sell_by_average_cost():
     previous = {
         "quantity": Decimal("8300"),
@@ -151,6 +165,29 @@ def test_a_stock_same_day_rollforward_does_not_resurrect_closed_prior_lot(monkey
     assert adjusted[0]["quantity"] == Decimal("300")
     assert adjusted[0]["cost"] == Decimal("22952.47")
     assert adjusted[0]["market_value"] == Decimal("23424.00")
+
+
+def test_incomplete_unified_trades_do_not_erase_previous_snapshot(monkeypatch):
+    class FakeConn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def cursor(self, **kwargs): return self
+
+    key = ("tonghuashun", "601138")
+    monkeypatch.setattr(prices, "_get_conn", lambda: FakeConn())
+    monkeypatch.setattr(prices, "_previous_a_stock_snapshot_rows", lambda *args: {
+        key: {"quantity": Decimal("400"), "cost": Decimal("4000")}})
+    monkeypatch.setattr(prices, "_a_stock_trade_net_quantities_before", lambda *args:
+        prices._TradeQuantities({key: Decimal("0")}, unverified_keys={key}))
+    monkeypatch.setattr(prices, "_same_day_a_stock_trades", lambda *args: {key: [{
+        "trade_type": "buy", "quantity": Decimal("300"), "gross_amount": Decimal("3000"),
+        "fee_amount": Decimal("0"), "tax_amount": Decimal("0")}]})
+    row = {"account_code": key[0], "symbol": key[1], "major_category": prices._A_STOCK_MAJOR_CATEGORY,
+           "minor_category": prices._A_STOCK_MINOR_CATEGORY, "quantity": Decimal("700"),
+           "cost": Decimal("7000"), "current_price": Decimal("10"), "market_value": Decimal("7000"),
+           "as_of": date(2026, 6, 18)}
+    result = prices._apply_same_day_a_stock_trades([row], date(2026, 6, 18))[0]
+    assert result['quantity'] == Decimal('700') and result['cost'] == Decimal('7000')
 
 
 def test_a_stock_refresh_uses_latest_account_snapshot_bucket():
@@ -867,7 +904,7 @@ def test_upsert_us_estimate_market_daily_writes_quote_source(monkeypatch):
 
     assert count == 1
     assert committed == [True]
-    assert "pams_asset_market_daily" in executed[0][0]
+    assert "market_observations" in executed[0][0] and "'daily'" in executed[0][0]
     payload = executed[0][1][0]
     assert payload[1] == "ibkr_client_portal_estimate"
     assert payload[6] == "US_EXTENDED"
@@ -948,3 +985,14 @@ def test_gold_proxy_refresh_falls_back_to_stored_spot_when_sge_unavailable(monke
 
     assert quote == 974.41
     assert calls == [(date(2026, 6, 3), True)]
+
+
+def test_ibkr_cross_or_unknown_fee_keeps_quantity_but_not_cost():
+    for fee_currency in (None,'EUR'):
+        base={'quantity':Decimal('2'),'cost':Decimal('20')}
+        trade={'side':'buy','trade_type':'buy','quantity':Decimal('1'),'gross_amount':Decimal('10'),
+               'fee_amount':Decimal('1'),'tax_amount':Decimal('0'),'net_cash':Decimal('-11'),
+               'currency':'USD','source_table':'ibkr_flex_trade','fee_currency':fee_currency}
+        result=prices._roll_forward_a_stock_position(base,[trade])
+        assert result['quantity']==Decimal('3')
+        assert result['cost'] is None and result['buy_price'] is None

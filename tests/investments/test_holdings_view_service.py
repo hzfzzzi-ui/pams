@@ -14,7 +14,6 @@ if str(API_ROOT) not in sys.path:
 from domain.investments.holdings_view import (  # noqa: E402
     _adjust_a_stock_daily_pnl_for_same_day_buys,
     _apply_daily_return_status,
-    _drop_superseded_account_snapshot_rows,
     _suppress_stale_daily_pnl,
     build_api_holdings_latest_payload,
     build_holdings_by_category_payload,
@@ -23,9 +22,9 @@ from domain.investments.holdings_view import (  # noqa: E402
     latest_complete_snapshot_date,
 )
 from domain.investments.holdings_positions import (  # noqa: E402
+    _apply_owner_ratio,
     _enrich_realized_trade_pnl,
     _filter_current_holding_rows,
-    _tradingview_closed_position_rows,
 )
 
 
@@ -46,7 +45,7 @@ class FakeCursor:
         return self.results.pop(0)
 
 
-def test_latest_complete_snapshot_date_uses_account_completeness_guard():
+def test_latest_snapshot_date_does_not_infer_scope_from_row_count():
     cur = FakeCursor([{"as_of": date(2026, 6, 18)}])
 
     result = latest_complete_snapshot_date(
@@ -58,7 +57,7 @@ def test_latest_complete_snapshot_date_uses_account_completeness_guard():
     assert result == date(2026, 6, 18)
     sql, params = cur.executed[0]
     assert "complete_account_snapshot" in sql
-    assert "reference_row_count" in sql
+    assert "reference_row_count" not in sql
     assert params == [date(2026, 6, 19), date(2026, 6, 19), ["美股"]]
 
 
@@ -190,8 +189,9 @@ def test_build_holdings_latest_payload_uses_latest_close_for_estimate_baseline()
     assert "h.current_price IS DISTINCT FROM curr_overseas_px.close" in query
     assert "THEN curr_overseas_px.close" in query
     assert "prev_basis.previous_price AS previous_price" in query
-    assert "pams_fund_nav_estimates" in query
-    assert "pams_asset_market_daily" in query
+    assert "market_observations" in query
+    assert "observation_type = 'fund'" in query
+    assert "observation_type = 'daily'" in query
     assert "databento_estimate" in query
     assert "ibkr_tws_estimate" in query
     assert "US_OVERNIGHT" in query
@@ -200,54 +200,13 @@ def test_build_holdings_latest_payload_uses_latest_close_for_estimate_baseline()
     assert "fund_nav_estimated_unit_nav" in query
 
 
-def test_build_holdings_latest_payload_includes_closed_rows_when_requested():
-    cur = FakeCursor(
-        [
-            {"as_of": date(2026, 5, 31)},
-            [],
-            [
-                {
-                    "account": "tencent_licaitong",
-                    "type": "基金",
-                    "symbol": "fund-a",
-                    "name": "已平仓基金",
-                    "currency": "CNY",
-                    "market_value": Decimal("0"),
-                    "market_value_native": Decimal("0"),
-                    "market_value_cny": Decimal("0"),
-                    "cost": Decimal("1000"),
-                    "cost_cny": Decimal("1000"),
-                    "holding_pnl": Decimal("50"),
-                    "holding_pnl_native": Decimal("50"),
-                    "holding_pnl_cny": Decimal("50"),
-                    "daily_pnl": Decimal("0"),
-                    "daily_pnl_cny": Decimal("0"),
-                    "major_category": "基金",
-                    "minor_category": "基金",
-                    "as_of": date(2026, 5, 20),
-                    "snapshot_as_of": date(2026, 5, 20),
-                    "is_closed": True,
-                }
-            ],
-            [],
-        ]
-    )
-
-    payload = build_holdings_latest_payload(
-        cur,
-        limit=100,
-        include_closed=True,
-        view_as_of=date(2026, 6, 1),
-        excluded_accounts=set(),
-        owner_ratios={},
-        default_owner_ratio=Decimal("1"),
-    )
-
-    assert payload["as_of"] == "2026-06-01"
-    assert payload["data_as_of_min"] == "2026-05-20"
-    assert payload["data_as_of_max"] == "2026-05-20"
-    assert payload["rows"][0]["is_closed"] is True
-    assert payload["rows"][0]["holding_pnl_cny"] == "50"
+def test_build_holdings_latest_payload_marks_unverified_exits_unknown():
+    cur = FakeCursor([{'as_of': date(2026, 5, 31)}, [], {'tradingview_exists': False},
+                      {'readonly': True, 'level': 'repeatable read'}, {'present': False}])
+    payload = build_holdings_latest_payload(cur, limit=100, include_closed=True,
+        view_as_of=date(2026, 6, 1), excluded_accounts=set(), owner_ratios={}, default_owner_ratio=Decimal('1'))
+    assert payload['rows'] == []
+    assert payload['closed_positions_evidence']['other']=='unavailable_unverified_exit_coverage'
 
 
 def test_build_holdings_latest_payload_handles_empty_snapshot():
@@ -363,15 +322,17 @@ def test_build_api_holdings_latest_payload_handles_empty_snapshot():
     assert payload == {"as_of": None, "rows": []}
 
 
-def test_build_holdings_history_payload_preserves_series_and_metadata():
+def test_build_holdings_history_payload_preserves_series_and_metadata(monkeypatch):
+    from domain.investments import snapshot_coverage
+    monkeypatch.setattr(snapshot_coverage, 'load_account_snapshot_coverage',
+                        lambda cur, pairs: {pair: {'status': 'complete'} for pair in pairs})
     cur = FakeCursor(
         [
             {"as_of": date(2026, 5, 31)},
-            {"exists": False},
-            {"exists": False},
+            {"fact_exists": False, "item_exists": False, "batch_exists": False},
             [
-                {"date": date(2026, 5, 25), "value": Decimal("100.50")},
-                {"date": date(2026, 6, 1), "value": Decimal("120.00")},
+                {"date": date(2026, 5, 25), "as_of": date(2026, 5, 25), "account_code": "test", "value": Decimal("100.50")},
+                {"date": date(2026, 6, 1), "as_of": date(2026, 6, 1), "account_code": "test", "value": Decimal("120.00")},
             ],
         ]
     )
@@ -397,7 +358,8 @@ def test_build_holdings_history_payload_preserves_series_and_metadata():
     assert payload["interval"] == "weekly"
     assert payload["base_currency"] == "CNY"
     assert payload["rows"] == payload["series"]
-    assert payload["series"][0] == {"date": "2026-05-25", "value": 100.5}
+    assert payload["series"][0] == {"date": "2026-05-25", "value": 100.5,
+                                    "known_value": 100.5, "scope_status": "complete_for_observed_accounts"}
 
 
 def test_build_holdings_history_payload_handles_empty_snapshot():
@@ -511,40 +473,6 @@ def test_build_holdings_by_category_payload_preserves_minor_category_filter():
     assert "AND h.minor_category = %s" in cur.executed[1][0]
 
 
-def test_drop_superseded_account_snapshot_rows_uses_account_latest_date():
-    rows = [
-        _current_holding_row(
-            account="tonghuashun",
-            major_category="现金",
-            minor_category="现金/活期",
-            symbol="$CASH",
-            as_of=date(2026, 6, 3),
-            snapshot_as_of=date(2026, 6, 3),
-        ),
-        _current_holding_row(
-            account="tonghuashun",
-            major_category="A股",
-            minor_category="A股",
-            symbol="601899",
-            as_of=date(2026, 6, 16),
-            snapshot_as_of=date(2026, 6, 16),
-        ),
-        _current_holding_row(
-            account="static_cash",
-            major_category="现金",
-            minor_category="现金/活期",
-            symbol="$CASH",
-            as_of=date(2026, 2, 19),
-            snapshot_as_of=date(2026, 2, 19),
-        ),
-    ]
-
-    out = _drop_superseded_account_snapshot_rows(rows)
-
-    assert [row["account"] for row in out] == ["tonghuashun", "static_cash"]
-    assert out[0]["symbol"] == "601899"
-
-
 def test_filter_current_holding_rows_keeps_negative_liabilities():
     rows = [
         {
@@ -653,10 +581,10 @@ def test_build_holdings_by_category_payload_suppresses_stale_daily_pnl():
 
     row = payload["rows"][0]
     assert row["market_value_cny"] == "1000.00"
-    assert row["daily_pnl_cny"] == "0"
-    assert row["daily_total_pnl_cny"] == "0"
-    assert row["price_change_pct"] == "0"
-    assert row["previous_price"] == row["current_price"]
+    assert row["daily_pnl_cny"] is None
+    assert row["daily_total_pnl_cny"] is None
+    assert row["price_change_pct"] is None
+    assert row["previous_price"] is None
     assert row["daily_pnl_stale"] is True
     assert row["daily_pnl_as_of"] == "2026-06-05"
 
@@ -674,7 +602,7 @@ def test_suppress_stale_daily_pnl_keeps_rows_inside_rollover_window():
         daily_pnl_start_as_of=date(2026, 6, 15),
     )
 
-    assert out[0]["daily_total_pnl_cny"] == Decimal("0")
+    assert out[0]["daily_total_pnl_cny"] is None
     assert out[0]["daily_pnl_stale"] is True
     assert out[1]["daily_total_pnl_cny"] == Decimal("2")
     assert out[1].get("daily_pnl_stale") is None
@@ -787,52 +715,13 @@ def test_apply_daily_return_status_marks_stale_daily_pnl_pending():
     assert out[0]["daily_return_status_as_of"] == date(2026, 6, 23)
 
 
-def test_build_holdings_by_category_payload_includes_closed_rows_when_requested():
-    cur = FakeCursor(
-        [
-            {"as_of": date(2026, 5, 31)},
-            [],
-            [
-                {
-                    "account": "tencent_licaitong",
-                    "type": "基金",
-                    "symbol": "fund-a",
-                    "name": "已平仓基金",
-                    "currency": "CNY",
-                    "market_value": Decimal("0"),
-                    "market_value_native": Decimal("0"),
-                    "market_value_cny": Decimal("0"),
-                    "cost": Decimal("1000"),
-                    "cost_cny": Decimal("1000"),
-                    "holding_pnl": Decimal("50"),
-                    "holding_pnl_native": Decimal("50"),
-                    "holding_pnl_cny": Decimal("50"),
-                    "daily_pnl": Decimal("0"),
-                    "daily_pnl_cny": Decimal("0"),
-                    "major_category": "基金",
-                    "minor_category": "基金",
-                    "as_of": date(2026, 5, 20),
-                    "snapshot_as_of": date(2026, 5, 20),
-                    "is_closed": True,
-                }
-            ],
-        ]
-    )
-
-    payload = build_holdings_by_category_payload(
-        cur,
-        category="基金",
-        limit=10,
-        minor_category=None,
-        include_closed=True,
-        view_as_of=date(2026, 6, 1),
-        excluded_accounts=set(),
-        owner_ratios={},
-        default_owner_ratio=Decimal("1"),
-    )
-
-    assert payload["rows"][0]["is_closed"] is True
-    assert cur.executed[2][1] == ["基金", 10]
+def test_build_holdings_by_category_payload_marks_unverified_exits_unknown():
+    cur = FakeCursor([{'as_of': date(2026, 5, 31)}, []])
+    payload = build_holdings_by_category_payload(cur, category='\u57fa\u91d1', limit=10, minor_category=None,
+        include_closed=True, view_as_of=date(2026, 6, 1), excluded_accounts=set(),
+        owner_ratios={}, default_owner_ratio=Decimal('1'))
+    assert payload['rows'] == []
+    assert payload['closed_positions_evidence']['other']=='unavailable_unverified_exit_coverage'
 
 
 def test_build_holdings_by_category_payload_uses_other_category_branch():
@@ -860,50 +749,12 @@ def test_build_holdings_by_category_payload_uses_other_category_branch():
     assert cur.executed[1][1] == (date(2026, 6, 1), date(2026, 6, 1), 10)
 
 
-def test_adjust_a_stock_daily_pnl_uses_cost_for_same_day_opened_position():
-    cur = FakeCursor(
-        [
-            {"exists": False},
-            [
-                {
-                    "account_code": "tonghuashun",
-                    "normalized_symbol": "601138",
-                    "as_of": date(2026, 6, 2),
-                    "buy_qty": Decimal("400"),
-                    "buy_value": Decimal("31200"),
-                }
-            ]
-        ]
-    )
-    rows = [
-        _current_holding_row(
-            symbol="601138",
-            name="工业富联",
-            quantity=Decimal("400"),
-            current_price=Decimal("80.01"),
-            previous_price=Decimal("73.75"),
-            market_value=Decimal("32004"),
-            market_value_cny=Decimal("32004"),
-            holding_pnl=Decimal("794.01"),
-            holding_pnl_cny=Decimal("794.01"),
-            daily_pnl=Decimal("2504"),
-            daily_pnl_cny=Decimal("2504"),
-            as_of=date(2026, 6, 2),
-        )
-    ]
-
-    adjusted = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows)
-
-    assert adjusted[0]["daily_pnl"] == Decimal("804.00")
-    assert adjusted[0]["daily_pnl_cny"] == Decimal("804.00")
-    assert adjusted[0]["daily_total_pnl_cny"] == Decimal("804.00")
-
-
 def test_adjust_a_stock_daily_pnl_uses_trade_fact_execution_amount_when_available():
     cur = FakeCursor(
         [
             {"exists": True},
             {"has_rows": True},
+            {"item_exists": False, "batch_exists": False},
             [
                 {
                     "account_code": "tonghuashun",
@@ -948,7 +799,7 @@ def test_enrich_realized_trade_pnl_merges_partial_sell_into_open_holding():
                     "account_code": "tonghuashun",
                     "symbol": "600487",
                     "trade_date": date(2026, 6, 4),
-                    "realized_pnl": Decimal("7831.455"),
+                    "currency": "CNY", "realized_pnl": Decimal("7831.455"),
                     "realized_pnl_cny": Decimal("7831.455"),
                 }
             ],
@@ -1000,7 +851,7 @@ def test_enrich_realized_trade_pnl_normalizes_net_invested_cost_snapshot():
                     "fee_amount": Decimal("0"),
                     "tax_amount": Decimal("0"),
                     "net_cash": Decimal("-1000"),
-                    "fx_rate_to_cny": Decimal("1"),
+                    "currency": "CNY", "effective_fx_rate": Decimal("1"),
                 },
                 {
                     "trade_id": 2,
@@ -1014,7 +865,7 @@ def test_enrich_realized_trade_pnl_normalizes_net_invested_cost_snapshot():
                     "fee_amount": Decimal("0"),
                     "tax_amount": Decimal("0"),
                     "net_cash": Decimal("480"),
-                    "fx_rate_to_cny": Decimal("1"),
+                    "currency": "CNY", "effective_fx_rate": Decimal("1"),
                 },
             ],
         ]
@@ -1055,7 +906,7 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
                     "account_code": "tonghuashun",
                     "symbol": "601899",
                     "trade_date": date(2026, 5, 10),
-                    "realized_pnl": Decimal("80"),
+                    "currency": "CNY", "realized_pnl": Decimal("80"),
                     "realized_pnl_cny": Decimal("80"),
                     "missing_realized_count": Decimal("0"),
                 },
@@ -1063,7 +914,7 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
                     "account_code": "tonghuashun",
                     "symbol": "601899",
                     "trade_date": date(2026, 5, 11),
-                    "realized_pnl": Decimal("0"),
+                    "currency": "CNY", "realized_pnl": Decimal("0"),
                     "realized_pnl_cny": Decimal("0"),
                     "missing_realized_count": Decimal("1"),
                 },
@@ -1081,7 +932,7 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
                     "fee_amount": Decimal("0"),
                     "tax_amount": Decimal("0"),
                     "net_cash": Decimal("-2000"),
-                    "fx_rate_to_cny": Decimal("1"),
+                    "currency": "CNY", "effective_fx_rate": Decimal("1"),
                 },
                 {
                     "trade_id": 2,
@@ -1095,7 +946,7 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
                     "fee_amount": Decimal("0"),
                     "tax_amount": Decimal("0"),
                     "net_cash": Decimal("480"),
-                    "fx_rate_to_cny": Decimal("1"),
+                    "currency": "CNY", "effective_fx_rate": Decimal("1"),
                 },
                 {
                     "trade_id": 3,
@@ -1109,7 +960,7 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
                     "fee_amount": Decimal("0"),
                     "tax_amount": Decimal("0"),
                     "net_cash": Decimal("260"),
-                    "fx_rate_to_cny": Decimal("1"),
+                    "currency": "CNY", "effective_fx_rate": Decimal("1"),
                 },
             ],
         ]
@@ -1137,38 +988,65 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
     assert enriched[0]["holding_pnl_cny"] == Decimal("280")
 
 
-def test_tradingview_closed_position_rows_include_same_day_realized_pnl():
-    cur = FakeCursor(
-        [
-            [
-                {
-                    "account": "tonghuashun",
-                    "type": "A股",
-                    "symbol": "601138",
-                    "name": "工业富联",
-                    "currency": "CNY",
-                    "market_value": Decimal("0"),
-                    "market_value_native": Decimal("0"),
-                    "market_value_cny": Decimal("0"),
-                    "cost": Decimal("31215.60"),
-                    "cost_cny": Decimal("31215.60"),
-                    "holding_pnl": Decimal("1000.15"),
-                    "holding_pnl_native": Decimal("1000.15"),
-                    "holding_pnl_cny": Decimal("1000.15"),
-                    "daily_pnl": Decimal("211.75"),
-                    "daily_pnl_cny": Decimal("211.75"),
-                    "major_category": "A股",
-                    "minor_category": "A股",
-                    "as_of": date(2026, 6, 3),
-                    "snapshot_as_of": date(2026, 6, 3),
-                    "is_closed": True,
-                }
-            ]
-        ]
-    )
+def test_unavailable_tax_does_not_become_zero_realized_profit():
+    cur = FakeCursor([{"exists": True}, [], [{"trade_id": 1, "account_code": "tonghuashun",
+        "symbol": "601899", "trade_date": date(2026, 5, 1), "trade_type": "buy",
+        "quantity": Decimal("10"), "gross_amount": Decimal("100"), "fee_amount": Decimal("0"),
+        "tax_amount": None, "net_cash": None, "currency": "CNY", "effective_fx_rate": Decimal("1")} ]])
+    row = _current_holding_row(symbol="601899", name="synthetic", quantity=Decimal("10"),
+        current_price=Decimal("11"), market_value=Decimal("110"), market_value_cny=Decimal("110"),
+        cost=Decimal("100"), cost_cny=Decimal("100"), holding_pnl=Decimal("10"),
+        holding_pnl_cny=Decimal("10"), as_of=date(2026, 6, 12))
+    result = _enrich_realized_trade_pnl(cur, [row])[0]
+    assert result["market_value_cny"] == Decimal("110")
+    assert result["realized_trade_pnl_cny"] is None
+    assert result["realized_trade_pnl_source"] == "unavailable_missing_tax"
+    owned = _apply_owner_ratio(result, owner_ratios={}, default_owner_ratio=Decimal("1"))
+    assert owned["realized_trade_pnl_cny"] is None
 
-    rows = _tradingview_closed_position_rows(cur, daily_pnl_as_of=date(2026, 6, 3))
 
-    assert rows[0]["symbol"] == "601138"
-    assert rows[0]["holding_pnl_cny"] == Decimal("1000.15")
-    assert rows[0]["daily_pnl_cny"] == Decimal("211.75")
+def test_known_net_cash_allows_unknown_tax_component():
+    common = {"account_code": "tonghuashun", "symbol": "601899", "fee_amount": Decimal("2"),
+              "tax_amount": None, "currency": "CNY", "effective_fx_rate": Decimal("1")}
+    cur = FakeCursor([{"exists": True}, [], [
+        {**common, "trade_id": 1, "trade_date": date(2026, 5, 1), "trade_type": "buy",
+         "quantity": Decimal("10"), "gross_amount": Decimal("100"), "net_cash": Decimal("-102")},
+        {**common, "trade_id": 2, "trade_date": date(2026, 5, 2), "trade_type": "sell",
+         "quantity": Decimal("5"), "gross_amount": Decimal("70"), "net_cash": Decimal("68")}]])
+    row = _current_holding_row(symbol="601899", name="synthetic", quantity=Decimal("5"),
+        current_price=Decimal("14"), market_value=Decimal("70"), market_value_cny=Decimal("70"),
+        cost=Decimal("51"), cost_cny=Decimal("51"), holding_pnl=Decimal("19"),
+        holding_pnl_cny=Decimal("19"), as_of=date(2026, 6, 12))
+    result = _enrich_realized_trade_pnl(cur, [row])[0]
+    assert result["realized_trade_pnl_cny"] == Decimal("17")
+    assert result["realized_trade_pnl_source"] == "weighted_average_trade_replay"
+
+
+def test_same_day_trade_preserves_missing_fx_in_daily_pnl():
+    cur=FakeCursor([
+        {'exists':True}, {'has_rows':True}, {'item_exists':False,'batch_exists':False},
+        [{'account_code':'tonghuashun','normalized_symbol':'603986','as_of':date(2026,6,4),
+          'buy_qty':Decimal('50'),'buy_value':Decimal('450')}],
+    ])
+    rows=[_current_holding_row(symbol='603986',currency='USD',quantity=Decimal('100'),
+        current_price=Decimal('10'),previous_price=Decimal('9'),market_value=Decimal('1000'),
+        market_value_cny=None,daily_pnl=Decimal('100'),daily_pnl_cny=None,daily_fx_pnl_cny=None,
+        as_of=date(2026,6,4))]
+    row=_adjust_a_stock_daily_pnl_for_same_day_buys(cur,rows)[0]
+    assert row['daily_pnl']==Decimal('100')
+    assert row['daily_pnl_cny'] is None and row['daily_total_pnl_cny'] is None
+
+
+def test_tradingview_history_does_not_label_cny_estimate_as_foreign_currency():
+    cur = FakeCursor([
+        {'as_of': date(2026, 5, 31)},
+        {'fact_exists': True, 'item_exists': True, 'batch_exists': True},
+        {'exists': True},
+        [{'date': date(2026, 5, 31), 'value': Decimal('100')}],
+    ])
+    payload = build_holdings_history_payload(cur, category='A股', days=7, interval='daily', minor_category=None,
+        view_as_of=date(2026, 5, 31), tonghuashun_owner_ratio=Decimal(1), owner_ratio_sql='1',
+        owner_ratio_params=[], excluded_accounts=[], base_currency='USD')
+    assert payload['rows'][0]['value'] is None
+    assert payload['rows'][0]['known_value'] == 100
+    assert payload['rows'][0]['known_value_currency'] == 'CNY'

@@ -92,9 +92,9 @@ CREATE TABLE IF NOT EXISTS pams_investment_trade_fact (
     price NUMERIC(28, 10),
     gross_amount NUMERIC(28, 10),
     fee_amount NUMERIC(28, 10) NOT NULL DEFAULT 0,
-    tax_amount NUMERIC(28, 10) NOT NULL DEFAULT 0,
+    tax_amount NUMERIC(28, 10),
     net_cash NUMERIC(28, 10),
-    fx_rate_to_cny NUMERIC(20, 10) NOT NULL DEFAULT 1,
+    fx_rate_to_cny NUMERIC(20, 10),
     net_cash_cny NUMERIC(28, 10),
 
     affects_position BOOLEAN NOT NULL DEFAULT FALSE,

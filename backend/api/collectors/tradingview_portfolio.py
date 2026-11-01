@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -20,11 +20,9 @@ from typing import Any, Iterable
 
 import psycopg2
 import psycopg2.extras
-from psycopg2.extras import Json
 
 
 DEFAULT_ACCOUNT_CODE = "tonghuashun"
-DEFAULT_PORTFOLIO_NAME = "A股"
 DEFAULT_RAW_SUBDIR = Path("raw") / "tradingview" / "a_share"
 DEFAULT_ACCOUNT_LEDGER_ROOT = Path("/host/account-ledger")
 DEFAULT_TONGHUASHUN_LEDGER_NAME = "\u540c\u82b1\u987a"
@@ -82,9 +80,9 @@ class PortfolioPosition:
     quantity: Decimal
     current_price: Decimal
     market_value: Decimal
-    cost: Decimal
-    buy_price: Decimal
-    holding_pnl: Decimal
+    cost: Decimal | None
+    buy_price: Decimal | None
+    holding_pnl: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -94,14 +92,14 @@ class PortfolioCalcResult:
     as_of: date
     account_code: str
     positions: list[PortfolioPosition]
-    cash: Decimal
+    cash: Decimal | None
     total_deposits: Decimal
-    total_dividends: Decimal
+    total_dividends: Decimal | None
     holdings_market_value: Decimal
-    holdings_cost: Decimal
-    holding_pnl: Decimal
-    total_nav: Decimal
-    realized_pnl: Decimal
+    holdings_cost: Decimal | None
+    holding_pnl: Decimal | None
+    total_nav: Decimal | None
+    realized_pnl: Decimal | None
     raw_transaction_count: int
     deduped_transaction_count: int
 
@@ -302,6 +300,7 @@ def calculate_portfolio(
     *,
     as_of: date,
     account_code: str = DEFAULT_ACCOUNT_CODE,
+    require_explicit_tax: bool = False,
 ) -> PortfolioCalcResult:
     """Calculate cash, open holdings, NAV, and PnL from transactions and marks."""
 
@@ -310,15 +309,37 @@ def calculate_portfolio(
     deposits = Decimal("0")
     dividends = Decimal("0")
     fifo_realized = Decimal("0")
+    unknown_tax_symbols: set[str] = set()
 
     for tx in transactions:
+        tax = Decimal('0')
+        if require_explicit_tax and tx.side in {'Buy', 'Sell', 'Dividend'}:
+            text = str(tx.raw.get('Tax') or '').strip()
+            tax_value = _to_decimal(text, default=None) if text else None
+            if tax_value is None:
+                tax = None
+                cash = None
+                fifo_realized = None
+                if tx.normalized_symbol and tx.side in {'Buy','Sell'}:
+                    unknown_tax_symbols.add(tx.normalized_symbol)
+                if tx.side == 'Dividend':
+                    dividends = None
+            elif not tax_value.is_finite() or tax_value < 0:
+                raise TradingViewImportError('TradingView tax is invalid')
+            else:
+                tax = tax_value
         if tx.side == "Deposit":
-            cash += tx.quantity
+            if cash is not None:
+                cash += tx.quantity
             deposits += tx.quantity
             continue
         if tx.side == "Dividend":
-            cash += tx.quantity
-            dividends += tx.quantity
+            if tax is not None:
+                dividend_net = tx.quantity - tax - (tx.commission if require_explicit_tax else Decimal('0'))
+                if cash is not None:
+                    cash += dividend_net
+                if dividends is not None:
+                    dividends += dividend_net
             continue
         if tx.fill_price is None:
             raise TradingViewImportError(f"{tx.side} row is missing Fill Price for {tx.symbol}")
@@ -328,12 +349,15 @@ def calculate_portfolio(
         gross = tx.quantity * tx.fill_price
         symbol = tx.normalized_symbol
         if tx.side == "Buy":
-            cash -= gross + tx.commission
+            if cash is not None and tax is not None:
+                cash -= gross + tx.commission + tax
             lots.setdefault(symbol, []).append([tx.quantity, tx.fill_price])
         elif tx.side == "Sell":
-            cash += gross - tx.commission
+            if cash is not None and tax is not None:
+                cash += gross - tx.commission - tax
             closed_cost = _pop_lot(lots.setdefault(symbol, []), tx.quantity)
-            fifo_realized += gross - tx.commission - closed_cost
+            if fifo_realized is not None and tax is not None:
+                fifo_realized += gross - tx.commission - tax - closed_cost
 
     positions: list[PortfolioPosition] = []
     for symbol, symbol_lots in lots.items():
@@ -349,8 +373,8 @@ def calculate_portfolio(
             raise TradingViewImportError(f"Missing current market mark for open position {symbol}")
 
         market_value = quantity * mark.price
-        cost = market_value - mark.unrealized_pnl if mark.unrealized_pnl is not None else lot_cost
-        buy_price = cost / quantity if quantity else Decimal("0")
+        cost = None if symbol in unknown_tax_symbols else (market_value - mark.unrealized_pnl if mark.unrealized_pnl is not None else lot_cost)
+        buy_price = cost / quantity if cost is not None and quantity else None
         tradingview_symbol = f"SSE:{symbol}" if symbol.startswith("6") else f"SZSE:{symbol}"
         positions.append(
             PortfolioPosition(
@@ -362,16 +386,16 @@ def calculate_portfolio(
                 market_value=market_value,
                 cost=cost,
                 buy_price=buy_price,
-                holding_pnl=market_value - cost,
+                holding_pnl=market_value - cost if cost is not None else None,
             )
         )
 
     positions.sort(key=lambda p: p.market_value, reverse=True)
     holdings_market_value = sum((p.market_value for p in positions), Decimal("0"))
-    holdings_cost = sum((p.cost for p in positions), Decimal("0"))
-    holding_pnl = holdings_market_value - holdings_cost
-    total_nav = holdings_market_value + cash
-    realized = total_nav - deposits - holding_pnl if positions else fifo_realized
+    holdings_cost = None if any(p.cost is None for p in positions) else sum((p.cost for p in positions), Decimal("0"))
+    holding_pnl = holdings_market_value - holdings_cost if holdings_cost is not None else None
+    total_nav = holdings_market_value + cash if cash is not None else None
+    realized = (total_nav - deposits - holding_pnl if total_nav is not None and holding_pnl is not None else None) if positions else fifo_realized
 
     return PortfolioCalcResult(
         as_of=as_of,
@@ -390,18 +414,20 @@ def calculate_portfolio(
     )
 
 
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.0001"))
+def _money(value: Decimal | None) -> Decimal | None:
+    return value.quantize(Decimal("0.0001")) if value is not None else None
 
 
-def _price(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.000001"))
+def _price(value: Decimal | None) -> Decimal | None:
+    return value.quantize(Decimal("0.000001")) if value is not None else None
 
 
 def get_conn():
     """Create a database connection using the same environment variables as pams-api."""
 
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -414,11 +440,105 @@ def sync_portfolio_to_db(
     conn,
     result: PortfolioCalcResult,
     transactions: list[TradingViewTransaction],
-    *,
-    portfolio_name: str = DEFAULT_PORTFOLIO_NAME,
 ) -> None:
-    """Persist normalized trades and the current A-share account snapshot."""
+    """Write holdings only after each input trade has a verified source fact."""
 
+    from domain.investments import holding_write_evidence as evidence
+    if not evidence.enabled(conn):
+        raise TradingViewImportError('TradingView sync requires isolated source evidence')
+    evidence.lock_account(conn, result.account_code)
+    names = [position.name for position in result.positions]
+    if result.cash is not None and result.cash != 0:
+        names.append('同花顺现金')
+    if not names or len(set(names)) != len(names):
+        raise ValueError('holding result set is empty or ambiguous')
+    evidence.reject_unproven_retirements(conn, account_code=result.account_code, business_date=result.as_of,
+                                         names=names, origin='tradingview', cash_unknown=result.cash is None)
+    identities = [{'name': position.name, 'symbol': position.symbol, 'currency': 'CNY'} for position in result.positions]
+    if result.cash is not None and result.cash != 0:
+        identities.append({'name': '同花顺现金', 'symbol': '$CASH', 'currency': 'CNY'})
+    evidence.reject_identity_conflicts(conn, account_code=result.account_code, business_date=result.as_of, incoming=identities)
+    proven_trade_ids = evidence.reject_unproven_tradingview_collisions(conn, account_code=result.account_code, transactions=transactions)
+    from domain.imports.tradingview_source_publish import source_row_from_item
+    expected_cash: Decimal | None = Decimal('0')
+    expected_quantities: dict[str, Decimal] = {}
+    for tx in transactions:
+        fact = source_row_from_item({'account_code': result.account_code},
+            {'source_item_id': '00000000-0000-0000-0000-000000000000', 'source_uid': 'validation'},
+            {'filename': tx.source_file}, tx.raw)
+        tax = fact['tax_amount']
+        if tx.side in {'Buy','Sell'}:
+            if tx.fill_price is None:
+                raise TradingViewImportError('TradingView price is unknown')
+            symbol = tx.normalized_symbol
+            if not symbol:
+                raise TradingViewImportError('TradingView security identity is unknown')
+            prior = expected_quantities.get(symbol, Decimal('0'))
+            current = prior + (tx.quantity if tx.side == 'Buy' else -tx.quantity)
+            if current < 0:
+                raise TradingViewImportError('TradingView sale exceeds proven holdings')
+            expected_quantities[symbol] = current
+        if tx.side in {'Buy', 'Sell', 'Dividend'} and tax is None:
+            expected_cash = None
+            if tx.normalized_symbol and tx.side in {'Buy','Sell'}:
+                affected = [position for position in result.positions if position.symbol == tx.normalized_symbol]
+                if any(position.cost is not None or position.buy_price is not None or position.holding_pnl is not None
+                       for position in affected):
+                    raise TradingViewImportError('TradingView holding cost requires confirmed taxes')
+        if expected_cash is not None:
+            if tx.side == 'Deposit':
+                expected_cash += tx.quantity
+            elif tx.side == 'Dividend':
+                expected_cash += tx.quantity - tx.commission - tax
+            elif tx.side == 'Buy':
+                expected_cash -= tx.quantity * tx.fill_price + tx.commission + tax
+            elif tx.side == 'Sell':
+                expected_cash += tx.quantity * tx.fill_price - tx.commission - tax
+    expected_open = {symbol:quantity for symbol,quantity in expected_quantities.items() if quantity != 0}
+    if expected_open:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT trade_id FROM pams_investment_trade_fact WHERE account_code=%s
+                AND trade_date<=%s AND symbol=ANY(%s::text[])
+                AND trade_type IN ('buy','sell','fund_subscription','fund_redemption')
+                AND COALESCE(review_status,'') NOT IN ('ignored','cancelled','canceled','void','duplicate')""",
+                (result.account_code,result.as_of,list(expected_open)))
+            existing_trade_ids = {row[0] for row in cur.fetchall()}
+        if not existing_trade_ids.issubset(proven_trade_ids):
+            raise TradingViewImportError('TradingView holding has other recorded trade inputs requiring review')
+    actual_open = {position.symbol:position.quantity for position in result.positions}
+    if (len(actual_open) != len(result.positions) or actual_open != expected_open or
+        any(not position.current_price.is_finite() or position.current_price <= 0 or
+            position.market_value != position.quantity * position.current_price for position in result.positions)):
+        raise TradingViewImportError('TradingView holding quantity or valuation differs from proven inputs')
+    if result.cash != expected_cash:
+        raise TradingViewImportError('TradingView calculated cash does not include confirmed taxes')
+    if expected_cash is None and (result.total_nav is not None or result.realized_pnl is not None):
+        raise TradingViewImportError('TradingView account totals require confirmed taxes')
+    try:
+        evidence.capture_existing_holdings(conn, account_code=result.account_code, business_date=result.as_of, names=names)
+        def finish():
+            evidence.capture_written_holdings(conn, account_code=result.account_code, business_date=result.as_of,
+                                              names=names, origin='tradingview', transactions=transactions)
+            from domain.investments.account_snapshot_evidence import record_partial
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM pams_holdings_snapshot WHERE account_code=%s AND as_of=%s AND name=ANY(%s::text[]) ORDER BY id",
+                            (result.account_code,result.as_of,names))
+                identifiers = [row[0] for row in cur.fetchall()]
+            record_partial(conn, account_code=result.account_code, as_of=result.as_of, holding_ids=identifiers,
+                           reason='tradingview input coverage and account cash are not independently complete',
+                           calculation_version='tradingview-partial-v1')
+        return _write_portfolio_holdings(conn, result, before_commit=finish)
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _write_portfolio_holdings(conn, result: PortfolioCalcResult, *, before_commit) -> None:
+    """Write verified holdings without recreating a legacy transaction source."""
+    from domain.investments import holding_write_evidence as evidence
+    if not evidence.enabled(conn):
+        raise TradingViewImportError('TradingView sync requires isolated source evidence')
+    evidence.lock_account(conn, result.account_code)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -432,13 +552,15 @@ def sync_portfolio_to_db(
             """,
             (result.account_code, "同花顺"),
         )
-        cur.execute(
-            """
-            INSERT INTO pams_asset_categories (major_category, minor_category)
-            VALUES ('A股', 'A股'), ('现金', '现金/活期')
-            ON CONFLICT (major_category, minor_category) DO NOTHING
-            """
-        )
+        cur.execute("SELECT to_regclass('public.pams_asset_categories')")
+        if cur.fetchone()[0] is not None:
+            cur.execute(
+                """
+                INSERT INTO pams_asset_categories (major_category, minor_category)
+                VALUES ('A股', 'A股'), ('现金', '现金/活期')
+                ON CONFLICT (major_category, minor_category) DO NOTHING
+                """
+            )
         cur.execute(
             """
             INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source)
@@ -447,63 +569,6 @@ def sync_portfolio_to_db(
             DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source
             """,
             (result.as_of,),
-        )
-
-        trade_rows = [
-            (
-                result.account_code,
-                portfolio_name,
-                tx.source_file,
-                tx.source_hash,
-                tx.row_hash,
-                tx.symbol,
-                tx.normalized_symbol,
-                tx.side,
-                _price(tx.quantity),
-                _price(tx.fill_price) if tx.fill_price is not None else None,
-                _price(tx.commission),
-                "CNY",
-                tx.closing_time,
-                Json(tx.raw),
-            )
-            for tx in transactions
-        ]
-        if trade_rows:
-            psycopg2.extras.execute_values(
-                cur,
-                """
-                INSERT INTO pams_tradingview_transactions (
-                    account_code, portfolio_name, source_file, source_hash, row_hash,
-                    symbol, normalized_symbol, side, quantity, fill_price,
-                    commission, currency, closing_time, raw
-                )
-                VALUES %s
-                ON CONFLICT (row_hash) DO UPDATE SET
-                    account_code = EXCLUDED.account_code,
-                    portfolio_name = EXCLUDED.portfolio_name,
-                    source_file = EXCLUDED.source_file,
-                    source_hash = EXCLUDED.source_hash,
-                    symbol = EXCLUDED.symbol,
-                    normalized_symbol = EXCLUDED.normalized_symbol,
-                    side = EXCLUDED.side,
-                    quantity = EXCLUDED.quantity,
-                    fill_price = EXCLUDED.fill_price,
-                    commission = EXCLUDED.commission,
-                    currency = EXCLUDED.currency,
-                    closing_time = EXCLUDED.closing_time,
-                    raw = EXCLUDED.raw
-                """,
-                trade_rows,
-            )
-
-        cur.execute(
-            """
-            DELETE FROM pams_holdings_snapshot
-            WHERE account_code = %s
-              AND as_of = %s
-              AND (major_category = 'A股' OR (major_category = '现金' AND symbol = '$CASH'))
-            """,
-            (result.account_code, result.as_of),
         )
 
         holding_rows = [
@@ -524,7 +589,7 @@ def sync_portfolio_to_db(
             )
             for p in result.positions
         ]
-        if result.cash != 0:
+        if result.cash is not None and result.cash != 0:
             holding_rows.append(
                 (
                     "$CASH",
@@ -542,9 +607,15 @@ def sync_portfolio_to_db(
                     Decimal("1.000000"),
                 )
             )
+        unchanged_guard = """WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
+            pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
+            pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,
+            pams_holdings_snapshot.buy_price,pams_holdings_snapshot.current_price)
+            IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
+            EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,EXCLUDED.buy_price,EXCLUDED.current_price)"""
         psycopg2.extras.execute_values(
             cur,
-            """
+            f"""
             INSERT INTO pams_holdings_snapshot (
                 symbol, name, asset_liability, currency, account_code,
                 major_category, minor_category, market_value, cost, as_of,
@@ -563,37 +634,42 @@ def sync_portfolio_to_db(
                 buy_price = EXCLUDED.buy_price,
                 current_price = EXCLUDED.current_price,
                 updated_at = NOW()
+            {unchanged_guard}
             """,
             holding_rows,
         )
+    before_commit()
     conn.commit()
 
 
 def summarize_result(result: PortfolioCalcResult) -> dict[str, Any]:
     """Return a JSON-serializable summary of a TradingView portfolio valuation."""
 
+    def money(value):
+        return str(value.quantize(Decimal("0.01"))) if value is not None else None
+
     return {
         "as_of": result.as_of.isoformat(),
         "account_code": result.account_code,
         "positions_count": len(result.positions),
-        "cash": str(result.cash.quantize(Decimal("0.01"))),
-        "holdings_market_value": str(result.holdings_market_value.quantize(Decimal("0.01"))),
-        "holdings_cost": str(result.holdings_cost.quantize(Decimal("0.01"))),
-        "holding_pnl": str(result.holding_pnl.quantize(Decimal("0.01"))),
-        "total_nav": str(result.total_nav.quantize(Decimal("0.01"))),
-        "realized_pnl": str(result.realized_pnl.quantize(Decimal("0.01"))),
-        "total_deposits": str(result.total_deposits.quantize(Decimal("0.01"))),
-        "total_dividends": str(result.total_dividends.quantize(Decimal("0.01"))),
+        "cash": money(result.cash),
+        "holdings_market_value": money(result.holdings_market_value),
+        "holdings_cost": money(result.holdings_cost),
+        "holding_pnl": money(result.holding_pnl),
+        "total_nav": money(result.total_nav),
+        "realized_pnl": money(result.realized_pnl),
+        "total_deposits": money(result.total_deposits),
+        "total_dividends": money(result.total_dividends),
         "positions": [
             {
                 "symbol": p.symbol,
                 "name": p.name,
                 "quantity": str(p.quantity.normalize()),
-                "buy_price": str(p.buy_price.quantize(Decimal("0.0001"))),
+                "buy_price": str(p.buy_price.quantize(Decimal("0.0001"))) if p.buy_price is not None else None,
                 "current_price": str(p.current_price.quantize(Decimal("0.0001"))),
                 "market_value": str(p.market_value.quantize(Decimal("0.01"))),
-                "cost": str(p.cost.quantize(Decimal("0.01"))),
-                "holding_pnl": str(p.holding_pnl.quantize(Decimal("0.01"))),
+                "cost": money(p.cost),
+                "holding_pnl": money(p.holding_pnl),
             }
             for p in result.positions
         ],
@@ -636,21 +712,23 @@ def main(argv: list[str] | None = None) -> int:
     marks_as_of, marks = load_market_marks(marks_path)
     as_of = date.fromisoformat(args.as_of) if args.as_of else marks_as_of or date.today()
     transactions, raw_count = read_transactions(input_paths)
-    result = calculate_portfolio(transactions, marks, as_of=as_of, account_code=args.account_code)
-    result = PortfolioCalcResult(
-        **{**result.__dict__, "raw_transaction_count": raw_count, "deduped_transaction_count": len(transactions)}
-    )
-
-    summary = summarize_result(result)
-    summary["raw_transaction_count"] = raw_count
-    summary["deduped_transaction_count"] = len(transactions)
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-
-    if not args.dry_run:
-        conn = get_conn()
-        try:
+    conn = None
+    try:
+        if not args.dry_run:
+            conn = get_conn()
+        result = calculate_portfolio(transactions, marks, as_of=as_of, account_code=args.account_code,
+                                     require_explicit_tax=True)
+        result = PortfolioCalcResult(
+            **{**result.__dict__, "raw_transaction_count": raw_count, "deduped_transaction_count": len(transactions)}
+        )
+        if conn is not None:
             sync_portfolio_to_db(conn, result, transactions)
-        finally:
+        summary = summarize_result(result)
+        summary["raw_transaction_count"] = raw_count
+        summary["deduped_transaction_count"] = len(transactions)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    finally:
+        if conn is not None:
             conn.close()
     return 0
 

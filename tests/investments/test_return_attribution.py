@@ -17,7 +17,6 @@ from domain.investments.return_attribution import (  # noqa: E402
     _daily_row_to_position,
     _is_return_attribution_row,
     _merge_daily_positions,
-    _merge_realized_trade_positions,
     _return_reconciliation_units,
     build_return_attribution_from_positions,
 )
@@ -479,6 +478,7 @@ def test_fund_pnl_is_allocated_to_top_underlyings_and_residual() -> None:
                 "market_value_cny": 1000.0,
                 "holding_pnl_cny": 100.0,
                 "daily_pnl_cny": 5.0,
+                "as_of": "2026-06-02",
             }
         ],
         config,
@@ -520,85 +520,6 @@ def test_closed_zero_value_holding_can_still_contribute_to_pnl_attribution() -> 
     assert _row(payload["dimensions"]["holding"], "工业富联")["pnl_cny"] == pytest.approx(30.0)
     assert _row(payload["dimensions"]["industry"], "科技TMT")["pnl_cny"] == pytest.approx(30.0)
     assert _row(payload["dimensions"]["theme"], "AI / 算力")["pnl_cny"] == pytest.approx(30.0)
-
-
-def test_realized_trade_fact_positions_merge_partial_and_append_closed() -> None:
-    merged = _merge_realized_trade_positions(
-        [
-            {
-                "account_code": "tonghuashun",
-                "symbol": "600487",
-                "asset_name": "亨通光电",
-                "market_value_cny": 100.0,
-                "holding_pnl_cny": 10.0,
-                "daily_pnl_cny": 1.0,
-            }
-        ],
-        [
-            {
-                "account_code": "tonghuashun",
-                "symbol": "600487",
-                "asset_name": "亨通光电",
-                "market_value_cny": 0.0,
-                "holding_pnl_cny": 7.0,
-                "daily_pnl_cny": 7.0,
-                "daily_price_pnl_cny": 7.0,
-                "daily_total_pnl_cny": 7.0,
-            },
-            {
-                "account_code": "tonghuashun",
-                "symbol": "600550",
-                "asset_name": "保变电气",
-                "market_value_cny": 0.0,
-                "holding_pnl_cny": -4.0,
-                "daily_pnl_cny": -4.0,
-            },
-        ],
-    )
-
-    assert len(merged) == 2
-    assert merged[0]["symbol"] == "600487"
-    assert merged[0]["holding_pnl_cny"] == pytest.approx(17.0)
-    assert merged[0]["daily_pnl_cny"] == pytest.approx(8.0)
-    assert merged[1]["symbol"] == "600550"
-    assert merged[1]["holding_pnl_cny"] == pytest.approx(-4.0)
-
-
-def test_realized_trade_merge_keeps_daily_when_daily_view_already_includes_realized() -> None:
-    merged = _merge_realized_trade_positions(
-        [
-            {
-                "account_code": "tonghuashun",
-                "symbol": "600487",
-                "asset_name": "Hengtong",
-                "market_value_cny": 100.0,
-                "holding_pnl_cny": 10.0,
-                "daily_pnl_cny": 8.0,
-                "daily_price_pnl_cny": 8.0,
-                "daily_total_pnl_cny": 8.0,
-                "daily_realized_trade_pnl_cny": 7.0,
-                "daily_includes_realized_trade_pnl": True,
-            }
-        ],
-        [
-            {
-                "account_code": "tonghuashun",
-                "symbol": "600487",
-                "asset_name": "Hengtong",
-                "market_value_cny": 0.0,
-                "holding_pnl_cny": 7.0,
-                "daily_pnl_cny": 7.0,
-                "daily_price_pnl_cny": 7.0,
-                "daily_total_pnl_cny": 7.0,
-                "realized_pnl_cny": 7.0,
-            }
-        ],
-    )
-
-    assert merged[0]["holding_pnl_cny"] == pytest.approx(17.0)
-    assert merged[0]["daily_pnl_cny"] == pytest.approx(8.0)
-    assert merged[0]["daily_total_pnl_cny"] == pytest.approx(8.0)
-    assert merged[0]["realized_pnl_cny"] == pytest.approx(7.0)
 
 
 def test_closed_zero_value_index_fund_uses_lookthrough_proxy_for_pnl_attribution() -> None:
@@ -739,19 +660,19 @@ def test_ambiguous_fund_identity_does_not_borrow_another_fund_return_attribution
             {"symbol": "sz600000", "asset_name": "Shared Fund", "asset_class": "fund", "currency": "CNY"},
         ],
         "asset_lookthrough": [
-            {"parent_symbol": "sh600000", "parent_asset_name": "Shared Fund", "lookthrough_type": "TOP10",
+            {"parent_symbol": "sh600000", "parent_asset_name": "Shared Fund", "lookthrough_type": "TOP10", "as_of": "2026-06-01",
              "holdings": [{"underlying_symbol": "NVDA", "underlying_name": "NVIDIA", "underlying_weight": 0.6,
                            "underlying_industry": "半导体", "underlying_currency": "USD"}]},
-            {"parent_symbol": "sz600000", "parent_asset_name": "Shared Fund", "lookthrough_type": "TOP10",
+            {"parent_symbol": "sz600000", "parent_asset_name": "Shared Fund", "lookthrough_type": "TOP10", "as_of": "2026-06-01",
              "holdings": [{"underlying_symbol": "JPM", "underlying_name": "JPMorgan", "underlying_weight": 0.8,
                            "underlying_industry": "银行", "underlying_currency": "USD"}]},
         ],
     }
     positions = [
         {"symbol": "sh600000", "asset_name": "Shared Fund", "asset_type": "fund", "currency": "CNY",
-         "account_code": "account-a", "market_value_cny": 100.0, "holding_pnl_cny": 10.0},
+         "account_code": "account-a", "market_value_cny": 100.0, "holding_pnl_cny": 10.0, "as_of": "2026-06-02"},
         {"symbol": "600000", "asset_name": "Shared Fund", "asset_type": "fund", "currency": "CNY",
-         "account_code": "account-b", "market_value_cny": 50.0, "holding_pnl_cny": 5.0},
+         "account_code": "account-b", "market_value_cny": 50.0, "holding_pnl_cny": 5.0, "as_of": "2026-06-02"},
     ]
     payload = build_return_attribution_from_positions(positions, config, as_of="2026-06-02")
     assert payload["total_pnl_cny"] == pytest.approx(15.0)
@@ -759,3 +680,40 @@ def test_ambiguous_fund_identity_does_not_borrow_another_fund_return_attribution
     assert _row(underlying, "NVIDIA")["pnl_cny"] == pytest.approx(6.0)
     assert not any(row["name"] == "JPMorgan" for row in underlying)
     assert sum(row["pnl_cny"] for row in payload["dimensions"]["holding"]) == pytest.approx(15.0)
+
+
+@pytest.mark.parametrize('source_as_of,holding_as_of', [
+    (None, '2026-06-02'),
+    ('2026-06-03', '2026-06-02'),
+    ('2026-06-01', None),
+])
+def test_fund_attribution_does_not_guess_missing_or_future_dates(source_as_of, holding_as_of):
+    config = {
+        'asset_mapping': [{'symbol': 'F1', 'asset_name': 'Fund', 'asset_class': 'fund', 'currency': 'CNY'}],
+        'asset_lookthrough': [{'parent_symbol': 'F1', 'parent_asset_name': 'Fund', 'lookthrough_type': 'TOP10',
+                               'as_of': source_as_of, 'holdings': [
+                                   {'underlying_symbol': 'SYN', 'underlying_name': 'Synthetic stock',
+                                    'underlying_weight': 0.6, 'underlying_currency': 'CNY'}]}],
+    }
+    position = {'symbol': 'F1', 'asset_name': 'Fund', 'asset_type': 'fund', 'currency': 'CNY',
+                'market_value_cny': 100, 'holding_pnl_cny': 10, 'as_of': holding_as_of}
+    payload = build_return_attribution_from_positions([position], config, as_of='2026-06-02')
+    assert payload['total_pnl_cny'] == pytest.approx(10)
+    assert not any(row['name'] == 'Synthetic stock' for row in payload['dimensions']['underlying'])
+    assert sum(row['pnl_cny'] for row in payload['dimensions']['underlying']) == pytest.approx(10)
+    assert payload['quality']['items'][0]['lookthrough_source'] == 'config_unavailable'
+    assert payload['quality']['items'][0]['coverage_ratio'] == 0
+
+
+def test_missing_daily_trade_evidence_does_not_fabricate_zero_attribution():
+    from domain.investments.return_attribution import _daily_row_to_position
+    position = _daily_row_to_position({'account_code':'test','symbol':'SYN','name':'Synthetic',
+        'major_category':'A股','minor_category':'A股','currency':'CNY','market_value':100,
+        'market_value_cny':100,'cost_cny':90,'holding_pnl_cny':10,'daily_pnl_cny':2,
+        'daily_realized_trade_pnl_only':True,'daily_realized_trade_pnl_cny':None})
+    assert position['daily_total_pnl_cny'] is None
+    result=build_return_attribution_from_positions([position], {'asset_mapping':[], 'asset_lookthrough':[]})
+    assert result['total_pnl_cny'] == pytest.approx(10)
+    assert result['daily_pnl_cny'] is None and result['canonical_daily_pnl_cny'] is None
+    assert result['quality']['daily_pnl_status']=='incomplete'
+    assert all(row['daily_pnl_cny'] is None for row in result['dimensions']['holding'])

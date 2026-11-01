@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -20,6 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.imports.source_row_read import source_row_relation
 
 router = APIRouter()
 
@@ -81,7 +83,7 @@ ACCOUNT_NATURE_LABELS = {
     "ibkr_in_transit_mxn": "入金在途",
 }
 
-REVIEW_ACTIONS = {"approve", "defer_missing"}
+REVIEW_ACTIONS = {"approve", "defer_missing", "revoke"}
 
 
 class AccountReviewRequest(BaseModel):
@@ -92,7 +94,9 @@ class AccountReviewRequest(BaseModel):
 
 
 def get_conn():
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -176,6 +180,8 @@ def _apply_owner_ratio_to_money(balance: dict[str, Any] | None, owner_ratio: Dec
     gross_amount = Decimal(str(balance.get("amount") or "0"))
     adjusted = dict(balance)
     adjusted["amount"] = gross_amount * owner_ratio
+    if adjusted.get("amount_cny") is not None:
+        adjusted["amount_cny"] = Decimal(str(adjusted["amount_cny"])) * owner_ratio
     adjusted["gross_amount"] = gross_amount
     adjusted["owner_ratio"] = owner_ratio
     adjusted["source_amount_basis"] = "owner_adjusted"
@@ -214,8 +220,15 @@ def _bind_daily_close_primary(account: dict[str, Any], canonical: dict[str, Any]
     raw_proof = canonical.get("daily_close")
     proof = raw_proof if isinstance(raw_proof, dict) else {}
     primary = account.get("primary_balance") or {}
+    # An independently proven broker close can supply an otherwise absent
+    # account balance; never replace a selected manual or statement balance.
+    official_fallback = (not primary and account.get("truth_source") == "ibkr_flex"
+                         and not account.get("platform_balances") and account.get("manual_balance") is None
+                         and account.get("statement_balance") is None)
+    if official_fallback:
+        primary = {"as_of": proof.get("as_of"), "currency": account.get("base_currency")}
     try:
-        if not selected_platform:
+        if not selected_platform and not official_fallback:
             raise ValueError("non_platform_primary_preserved")
         if proof.get("status") != "ok":
             raise ValueError("unproven_canonical_balance")
@@ -261,6 +274,10 @@ def _bind_daily_close_primary(account: dict[str, Any], canonical: dict[str, Any]
     account["primary_balance"] = {"amount": amount, "currency": base, "as_of": day,
                                   "source": "ibkr_flex", "amount_cny": amount_cny}
     account["daily_close"] = dict(proof)
+    if official_fallback:
+        account["status"] = "ready_for_review"
+        account["status_label"] = _status_label("ready_for_review")
+        account["review_hint"] = _review_hint("ready_for_review", "ibkr_flex", str(account.get("account_type") or ""))
 
 
 def _ensure_review_table(cur) -> None:
@@ -270,46 +287,32 @@ def _ensure_review_table(cur) -> None:
 
 def _fetch_latest_reviews(cur) -> dict[str, dict[str, Any]]:
     _ensure_review_table(cur)
-    cur.execute(
-        """
-        SELECT DISTINCT ON (account_code)
-               case_id AS id,
-               account_code,
-               review_action,
-               source_status,
-               review_fingerprint,
-               reviewed_balance,
-               currency,
-               balance_as_of,
-               note,
-               reviewed_by,
-               reviewed_at
-        FROM (
-            SELECT
-                c.case_id,
-                COALESCE(NULLIF(c.raw_json->>'account_code', ''), NULLIF(c.relation_code, '')) AS account_code,
-                c.review_action,
-                COALESCE(NULLIF(c.raw_json->>'source_status', ''), c.status) AS source_status,
-                c.raw_json->>'review_fingerprint' AS review_fingerprint,
-                COALESCE(NULLIF(c.raw_json->>'reviewed_balance', '')::numeric, c.amount) AS reviewed_balance,
-                c.currency,
-                COALESCE(NULLIF(c.raw_json->>'balance_as_of', '')::date, c.case_date) AS balance_as_of,
-                c.note,
-                c.reviewed_by,
-                c.reviewed_at
-            FROM pams_reconciliation_case c
-            WHERE c.case_type = 'account_review'
-        ) reviews
-        WHERE account_code IS NOT NULL
-        ORDER BY account_code, reviewed_at DESC NULLS LAST, id DESC
-        """
-    )
+    cur.execute("""
+        SELECT DISTINCT ON (c.from_account_code)
+               c.confirmation_id::text AS id, c.from_account_code AS account_code,
+               c.evidence->>'review_action' AS review_action,
+               c.evidence->>'source_status' AS source_status,
+               c.evidence->>'review_fingerprint' AS review_fingerprint,
+               NULLIF(c.evidence->>'reviewed_balance','')::numeric AS reviewed_balance,
+               c.evidence->>'currency' AS currency,
+               NULLIF(c.evidence->>'balance_as_of','')::date AS balance_as_of,
+               c.note, c.evidence->>'reviewed_by' AS reviewed_by, c.confirmed_at AS reviewed_at,
+               c.revoked_at, c.revocation_note
+        FROM evidence_confirmation c
+        WHERE c.confirmation_type='account_review'
+        ORDER BY c.from_account_code,c.confirmation_order DESC
+    """)
     return {str(r["account_code"]): dict(r) for r in cur.fetchall()}
 
 
 def _apply_review(account: dict[str, Any], review: dict[str, Any] | None) -> dict[str, Any]:
     if not review:
         account["review_status"] = "unreviewed"
+        return account
+
+    if review.get("revoked_at") is not None:
+        account["review_status"] = "unreviewed"
+        account["latest_review"] = review
         return account
 
     original_status = str(account.get("status") or "")
@@ -393,9 +396,21 @@ def _fetch_db_accounts(cur) -> dict[str, dict[str, Any]]:
     return {str(r["account_code"]): dict(r) for r in cur.fetchall()}
 
 
+class StatementBalanceGroups(defaultdict):
+    def __init__(self, *, source_status='available'):
+        super().__init__(list)
+        self.source_status = source_status
+
+
 def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
+    source_rows = source_row_relation(cur)
+    cur.execute(f"""SELECT count(*) FILTER (WHERE source_projection_origin='schema_unavailable') AS unavailable,
+        count(*) FILTER (WHERE source_projection_origin <> 'schema_unavailable' AND source_evidence_status <> 'verified') AS unverified
+        FROM {source_rows} AS s""")
+    status = cur.fetchone()
+    source_status = 'unavailable' if status['unavailable'] else 'needs_review' if status['unverified'] else 'available'
     cur.execute(
-        """
+        f"""
         SELECT
             account_code AS profile_code,
             COALESCE(NULLIF(source_system, ''), source_table) AS bank,
@@ -403,56 +418,20 @@ def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
             NULL::text AS account_kind,
             NULL::numeric AS statement_balance,
             MAX(event_date) AS statement_end,
-            COUNT(*) AS row_count,
+            CASE WHEN bool_or(source_evidence_status <> 'verified') THEN NULL ELSE COUNT(*) END AS row_count,
+            CASE WHEN bool_or(source_evidence_status <> 'verified') THEN 'unknown' ELSE 'verified' END AS source_evidence_status,
             MAX(imported_at) AS imported_at,
             MAX(event_date) AS latest_balance_date,
             NULL::numeric AS latest_balance
-        FROM pams_source_row
-        WHERE source_table = 'pams_bank_statement_rows'
+        FROM {source_rows} AS source_rows
+        WHERE is_bank_statement
           AND account_code IS NOT NULL
         GROUP BY account_code, COALESCE(NULLIF(source_system, ''), source_table)
         ORDER BY account_code
         """
     )
-    by_account: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_account: dict[str, list[dict[str, Any]]] = StatementBalanceGroups(source_status=source_status)
     rows = list(cur.fetchall())
-    cur.execute(
-        """
-        WITH fact_balance AS (
-            SELECT DISTINCT ON (f.account_code)
-                   f.account_code AS profile_code,
-                   'pams_cashflow_fact'::text AS bank,
-                   f.account_code,
-                   CASE
-                       WHEN COALESCE(a.account_type, '') = 'liability' OR a.is_asset IS FALSE THEN 'credit_card'
-                       ELSE COALESCE(a.account_type, '')
-                   END AS account_kind,
-                   NULL::numeric AS statement_balance,
-                   f.event_date AS statement_end,
-                   1::bigint AS row_count,
-                   f.updated_at AS imported_at,
-                   f.event_date AS latest_balance_date,
-                   NULLIF(COALESCE(
-                       f.raw_json #>> '{statement_row,balance}',
-                       f.raw_json #>> '{statement_row,raw_json,balance}',
-                       f.raw_json #>> '{balance}'
-                   ), '')::numeric AS latest_balance
-            FROM pams_cashflow_fact f
-            LEFT JOIN pams_accounts a ON a.account_code = f.account_code
-            WHERE NULLIF(COALESCE(
-                      f.raw_json #>> '{statement_row,balance}',
-                      f.raw_json #>> '{statement_row,raw_json,balance}',
-                      f.raw_json #>> '{balance}'
-                  ), '') IS NOT NULL
-              AND COALESCE(LOWER(f.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'duplicate')
-            ORDER BY f.account_code, f.event_date DESC, f.cashflow_id DESC
-        )
-        SELECT *
-        FROM fact_balance
-        ORDER BY account_code
-        """
-    )
-    rows.extend(cur.fetchall())
     for row in rows:
         item = dict(row)
         raw_balance = item.get("latest_balance")
@@ -472,7 +451,8 @@ def _fetch_holding_balances(cur) -> dict[str, list[dict[str, Any]]]:
         f"""
         WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
         SELECT h.account_code, h.currency, h.asset_liability, la.account_as_of AS as_of,
-               SUM(h.market_value) AS market_value,
+               CASE WHEN COUNT(*) FILTER (WHERE h.market_value IS NULL) > 0
+                    THEN NULL ELSE SUM(CASE WHEN h.asset_liability = '负债' THEN -ABS(h.market_value) ELSE h.market_value END) END AS market_value,
                SUM(h.cost) AS cost,
                SUM(h.holding_pnl) AS holding_pnl,
                COUNT(*) AS rows
@@ -485,104 +465,105 @@ def _fetch_holding_balances(cur) -> dict[str, list[dict[str, Any]]]:
         """,
         (_view_as_of(),),
     )
+    rows = [dict(row) for row in cur.fetchall()]
+    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+    coverage = load_account_snapshot_coverage(cur, {(str(row['account_code']), row['as_of']) for row in rows if row['as_of']})
     by_account: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in cur.fetchall():
-        item = dict(row)
-        by_account[str(item["account_code"])].append(item)
+    for item in rows:
+        proof = coverage.get((str(item['account_code']), item['as_of']), {})
+        if proof.get('status') == 'complete':
+            by_account[str(item['account_code'])].append(item)
     return by_account
 
 
-def _fetch_latest_fx_rates_by_base(cur) -> dict[str, dict[str, Decimal]]:
-    cur.execute(
-        """
-        SELECT DISTINCT ON (base_currency, quote_currency)
-               base_currency, quote_currency, rate
-        FROM pams_fx_rates_daily
-        ORDER BY base_currency, quote_currency, as_of DESC
-        """
-    )
+def _fetch_daily_fx_rates_by_date(cur, holding_balances: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, Decimal]]:
+    days = sorted({row['as_of'] for rows in holding_balances.values() for row in rows if row.get('as_of')})
+    if not days:
+        return {}
+    cur.execute("""SELECT as_of,quote_currency,rate FROM pams_fx_rates_daily
+        WHERE base_currency='CNY' AND as_of=ANY(%s) AND rate > 0
+          AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+          AND NULLIF(BTRIM(source),'') IS NOT NULL""", (days,))
     rates: dict[str, dict[str, Decimal]] = defaultdict(dict)
     for row in cur.fetchall():
-        base = str(row["base_currency"] or "").upper()
-        quote = str(row["quote_currency"] or "").upper()
-        rates[base][quote] = Decimal(str(row["rate"] or "1"))
+        rates[str(row['as_of'])][str(row['quote_currency']).upper()] = Decimal(str(row['rate']))
     return rates
 
 
 def _fetch_transfer_rollups(cur) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    cur.execute(
-        """
-        SELECT from_account_code, to_account_code, relation_code, case_type AS match_type, currency,
-               COUNT(*) AS match_count,
-               SUM(amount) AS total_amount,
-               MAX(case_date) AS latest_match_date
-        FROM pams_reconciliation_case
-        WHERE COALESCE(status, 'auto') <> 'rejected'
-          AND case_type <> 'account_review'
-        GROUP BY from_account_code, to_account_code, relation_code, case_type, currency
-        ORDER BY latest_match_date DESC NULLS LAST, relation_code
-        """
-    )
+    from domain.ledger import confirmed_transfers
+    grouped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for record in confirmed_transfers.read(cur, limit=None):
+        if record['evidence_status'] != 'confirmed':
+            continue
+        left, right = record['from_evidence'], record['to_evidence']
+        kind = ('investment_funding' if right['kind'] == 'trade' else
+                'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
+        key = (record['from_account_code'], record['to_account_code'], kind, record['currency'])
+        item = grouped.setdefault(key, {'from_account_code': key[0], 'to_account_code': key[1],
+            'relation_code': None, 'match_type': kind, 'currency': key[3], 'match_count': 0,
+            'total_amount': Decimal(0), 'latest_match_date': None})
+        item['match_count'] += 1
+        item['total_amount'] += record['amount']
+        day = left['day'] if left['day'] == right['day'] else None
+        if day and (item['latest_match_date'] is None or day > item['latest_match_date']):
+            item['latest_match_date'] = day
     rollups: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: {"in": [], "out": []})
-    for row in cur.fetchall():
-        item = dict(row)
-        from_code = str(item.get("from_account_code") or "")
-        to_code = str(item.get("to_account_code") or "")
-        if from_code:
-            rollups[from_code]["out"].append(item)
-        if to_code:
-            rollups[to_code]["in"].append(item)
+    for item in grouped.values():
+        rollups[item['from_account_code']]['out'].append(item)
+        rollups[item['to_account_code']]['in'].append(item)
+
     return rollups
 
 
 def _primary_platform_balance(
     platform_balances: list[dict[str, Any]],
     base_currency: str,
-    fx_rates_by_base: dict[str, dict[str, Decimal]] | None = None,
+    fx_rates_by_date: dict[str, dict[str, Decimal]] | None = None,
 ) -> dict[str, Any] | None:
     if not platform_balances:
         return None
     base = base_currency.upper()
+    dates = {str(row.get('as_of')) for row in platform_balances if row.get('as_of')}
+    if len(dates) != 1 or any(not row.get('as_of') for row in platform_balances):
+        return None
+    day = platform_balances[0]['as_of']
+    rates = (fx_rates_by_date or {}).get(str(day), {})
     currency_totals: dict[str, Decimal] = defaultdict(Decimal)
-    currency_as_of: dict[str, Any] = {}
-    latest_as_of = None
     for row in platform_balances:
-        currency = str(row.get("currency") or base).upper()
-        currency_totals[currency] += Decimal(str(row.get("market_value") or "0"))
-        row_as_of = row.get("as_of")
-        if row_as_of is not None:
-            if latest_as_of is None or str(row_as_of) > str(latest_as_of):
-                latest_as_of = row_as_of
-            if currency not in currency_as_of or str(row_as_of) > str(currency_as_of[currency]):
-                currency_as_of[currency] = row_as_of
-    if len(currency_totals) == 1:
-        currency, amount = next(iter(currency_totals.items()))
-        return _money(amount, currency, currency_as_of.get(currency) or latest_as_of, "platform_snapshot")
-
-    fx_rates = (fx_rates_by_base or {}).get(base, {})
-    if fx_rates or base in currency_totals:
-        converted = currency_totals.get(base, Decimal("0"))
-        converted_any = base in currency_totals
-        missing_material_fx = []
-        # Tiny residual cash/rounding balances must not make IBKR fall back to USD-only.
-        immaterial_native_balance = Decimal("10")
-        for currency, amount in currency_totals.items():
-            if currency == base or amount == 0:
-                continue
-            rate = fx_rates.get(currency)
-            if rate is None:
-                if abs(amount) <= immaterial_native_balance:
-                    continue
-                missing_material_fx.append(currency)
-                continue
-            converted += amount * rate
-            converted_any = True
-        if converted_any and not missing_material_fx:
-            return _money(converted, base_currency, latest_as_of, "platform_snapshot")
-
-    if base in currency_totals:
-        return _money(currency_totals[base], base_currency, currency_as_of.get(base) or latest_as_of, "platform_snapshot")
-    return None
+        if not row.get('currency') or row.get('market_value') is None:
+            return None
+        try:
+            value = Decimal(str(row['market_value']))
+        except (InvalidOperation, ValueError):
+            return None
+        if not value.is_finite():
+            return None
+        currency_totals[str(row['currency']).upper()] += value
+    total_cny = Decimal(0)
+    for currency, amount in currency_totals.items():
+        rate = Decimal(1) if currency == 'CNY' else rates.get(currency)
+        if amount and (rate is None or not rate.is_finite() or rate <= 0):
+            # A single original-currency amount is still visible; an incomplete
+            # multi-currency sum must never be reported as the account total.
+            if len(currency_totals) == 1 and currency == base:
+                result = _money(amount, base, day, 'platform_snapshot')
+                if result is None:
+                    return None
+                result['amount_cny'] = None
+                result['fx_status'] = 'unknown'
+                return result
+            return None
+        total_cny += amount * (rate or Decimal(0))
+    base_rate = Decimal(1) if base == 'CNY' else rates.get(base)
+    if base_rate is None or not base_rate.is_finite() or base_rate <= 0:
+        return None
+    result = _money(total_cny / base_rate, base, day, 'platform_snapshot')
+    if result is None:
+        return None
+    result['amount_cny'] = total_cny
+    result['fx_status'] = 'daily_reference'
+    return result
 
 
 def _manual_balance(config: dict[str, Any], base_currency: str) -> dict[str, Any] | None:
@@ -794,30 +775,34 @@ def _build_accounts_overview(
     )
 
 
-def _overview_payload() -> dict[str, Any]:
+def _overview_payload(cur=None) -> dict[str, Any]:
+    """Use the caller's transaction when composing account and asset responses."""
+    if cur is None:
+        with get_conn() as conn:
+            conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as shared_cur:
+                return _overview_payload(cur=shared_cur)
     from domain.brokers.ibkr import ibkr_daily_close_read
     from domain.investments import portfolio_state
 
     account_cfg = _load_accounts_config()
     bank_cfg = _load_bank_config()
     canonical_balances = None
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            db_accounts = _fetch_db_accounts(cur)
-            statement_balances = _fetch_statement_balances(cur)
-            holding_balances = _fetch_holding_balances(cur)
-            fx_rates_by_base = _fetch_latest_fx_rates_by_base(cur)
-            transfer_rollups = _fetch_transfer_rollups(cur)
-            latest_reviews = _fetch_latest_reviews(cur)
-            if ibkr_daily_close_read.configured():
-                canonical_balances = {}
-                for row in portfolio_state.load_account_balances(cur, "CNY", account_cfg):
-                    code = row["account_code"]
-                    if code in canonical_balances:
-                        canonical_balances[code] = {"daily_close": {"status": "unconfirmed",
-                                                                  "reasons": ["duplicate_canonical_account"]}}
-                    else:
-                        canonical_balances[code] = row
+    db_accounts = _fetch_db_accounts(cur)
+    statement_balances = _fetch_statement_balances(cur)
+    holding_balances = _fetch_holding_balances(cur)
+    fx_rates_by_base = _fetch_daily_fx_rates_by_date(cur, holding_balances)
+    transfer_rollups = _fetch_transfer_rollups(cur)
+    latest_reviews = _fetch_latest_reviews(cur)
+    if ibkr_daily_close_read.configured():
+        canonical_balances = {}
+        for row in portfolio_state.load_account_balances(cur, "CNY", account_cfg):
+            code = row["account_code"]
+            if code in canonical_balances:
+                canonical_balances[code] = {"daily_close": {"status": "unconfirmed",
+                                                          "reasons": ["duplicate_canonical_account"]}}
+            else:
+                canonical_balances[code] = row
 
     accounts = _build_accounts_overview(
         account_cfg,
@@ -847,6 +832,7 @@ def _overview_payload() -> dict[str, Any]:
     return {
         "as_of": datetime.utcnow(),
         "summary": summary,
+        "statement_source_status": getattr(statement_balances, "source_status", "unknown"),
         "accounts": accounts,
         "account_relationships": bank_cfg.get("account_relationships", []) or [],
         "account_entities": bank_cfg.get("account_entities", {}) or {},
@@ -866,66 +852,45 @@ def review_account(account_code: str, req: AccountReviewRequest):
     if action not in REVIEW_ACTIONS:
         raise HTTPException(status_code=400, detail="Unsupported account review action")
 
-    payload = _overview_payload()
-    account = next((a for a in payload["accounts"] if a["account_code"] == account_code), None)
-    if not account:
-        raise HTTPException(status_code=404, detail=f"Account {account_code} is not in reconciliation scope")
-
-    status = str(account.get("status") or "")
-    primary = account.get("primary_balance") or {}
-    if action == "approve":
-        if status != "ready_for_review":
-            raise HTTPException(status_code=400, detail="Only ready-for-review accounts can be approved")
-        if primary.get("amount") in (None, ""):
-            raise HTTPException(status_code=400, detail="Account has no balance to approve")
-    elif action == "defer_missing" and not status.startswith("missing"):
-        raise HTTPException(status_code=400, detail="Only missing-data accounts can be deferred")
-
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            _ensure_review_table(cur)
-            cur.execute(
-                """
-                INSERT INTO pams_reconciliation_case (
-                    case_type, relation_code, target_ref_table, target_ref_id,
-                    amount, currency, case_date, status, review_action,
-                    reviewed_by, reviewed_at, note, raw_json
-                )
-                VALUES (
-                    'account_review', %s, 'pams_accounts', %s,
-                    %s, %s, COALESCE(%s::date, CURRENT_DATE), %s, %s,
-                    'user', now(), %s,
-                    jsonb_build_object(
-                        'account_code', %s,
-                        'review_action', %s,
-                        'source_status', %s,
-                        'review_fingerprint', %s,
-                        'reviewed_balance', %s,
-                        'currency', %s,
-                        'balance_as_of', %s,
-                        'reviewed_by', 'user',
-                        'reviewed_at', now()
-                    )
-                )
-                """,
-                (
-                    account_code,
-                    account_code,
-                    primary.get("amount") or 0,
-                    primary.get("currency") or account.get("base_currency"),
-                    primary.get("as_of"),
-                    status,
-                    action,
-                    req.note,
-                    account_code,
-                    action,
-                    status,
-                    _review_fingerprint(account),
-                    primary.get("amount"),
-                    primary.get("currency") or account.get("base_currency"),
-                    primary.get("as_of"),
-                ),
-            )
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account_code,))
+            payload = _overview_payload(cur)
+            account = next((a for a in payload["accounts"] if a["account_code"] == account_code), None)
+            if not account:
+                raise HTTPException(status_code=404, detail=f"Account {account_code} is not in reconciliation scope")
+            status = str(account.get("status") or "")
+            primary = account.get("primary_balance") or {}
+            if action == "revoke":
+                note = (req.note or '').strip()
+                if not note:
+                    raise HTTPException(status_code=400, detail="Revocation requires a note")
+                latest = _fetch_latest_reviews(cur).get(account_code)
+                if not latest or latest.get('revoked_at'):
+                    raise HTTPException(status_code=400, detail="No active account review")
+                cur.execute("UPDATE evidence_confirmation SET revoked_at=now(),revocation_note=%s WHERE confirmation_id=%s AND revoked_at IS NULL RETURNING confirmation_id",
+                            (note, latest['id']))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail="No active account review")
+            else:
+                if action == "approve":
+                    if status != "ready_for_review":
+                        raise HTTPException(status_code=400, detail="Only ready-for-review accounts can be approved")
+                    if primary.get("amount") in (None, ""):
+                        raise HTTPException(status_code=400, detail="Account has no balance to approve")
+                elif not status.startswith("missing"):
+                    raise HTTPException(status_code=400, detail="Only missing-data accounts can be deferred")
+                evidence = {
+                    "account_code": account_code, "review_action": action, "source_status": status,
+                    "review_fingerprint": _review_fingerprint(account),
+                    "reviewed_balance": _norm(primary.get("amount")),
+                    "currency": primary.get("currency") or account.get("base_currency"),
+                    "balance_as_of": _norm(primary.get("as_of")), "reviewed_by": "user",
+                }
+                cur.execute("""INSERT INTO evidence_confirmation
+                    (confirmation_id,confirmation_type,from_account_code,evidence,note,confirmed_at)
+                    VALUES (%s,'account_review',%s,%s,%s,clock_timestamp())""",
+                    (str(uuid4()), account_code, psycopg2.extras.Json(evidence), req.note or ''))
         conn.commit()
 
     return _norm(_overview_payload())

@@ -4,6 +4,7 @@ import sys
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,7 +12,7 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from domain.ledger.cashflow_fact import build_cashflow_fact, fetch_cashflow_source_rows, insert_cashflow_facts  # noqa: E402
+from domain.ledger.cashflow_fact import build_cashflow_fact, insert_cashflow_facts  # noqa: E402
 
 
 class FakeInsertCursor:
@@ -31,18 +32,6 @@ class FakeInsertCursor:
         self.source_hashes.add(source_hash)
         self.source_keys.add(source_key)
         self.rowcount = 1
-
-
-class FakeFetchCursor:
-    def __init__(self) -> None:
-        self.last_sql = ""
-        self.fetchall_rows: list[dict] = []
-
-    def execute(self, sql: str, params=None) -> None:
-        self.last_sql = sql
-
-    def fetchall(self):
-        return self.fetchall_rows
 
 
 def _statement_row(**overrides):
@@ -67,6 +56,23 @@ def _statement_row(**overrides):
     return row
 
 
+def test_foreign_cashflow_requires_valid_explicit_exchange_rate():
+    row = _statement_row(currency='USD', amount=Decimal('100'), amount_cny=None, fx_rate_to_cny=None)
+    with pytest.raises(ValueError, match='transaction-day exchange rate'):
+        build_cashflow_fact(row)
+    for invalid in (Decimal('0'), Decimal('-1'), Decimal('NaN')):
+        with pytest.raises(ValueError, match='positive and finite'):
+            build_cashflow_fact(dict(row, fx_rate_to_cny=invalid))
+    fact = build_cashflow_fact(dict(row, fx_rate_to_cny=Decimal('7')))
+    assert fact['amount'] == Decimal('100') and fact['amount_cny'] == Decimal('700')
+    with pytest.raises(ValueError, match='conflicts'):
+        build_cashflow_fact(dict(row, fx_rate_to_cny=Decimal('7'), amount_cny=Decimal('100')))
+    with pytest.raises(ValueError, match='conflicts'):
+        build_cashflow_fact(_statement_row(amount_cny=Decimal('999')))
+    with pytest.raises(ValueError, match='CNY fields'):
+        build_cashflow_fact(row, base_currency='USD')
+
+
 def test_credit_card_repayment_is_not_spending() -> None:
     fact = build_cashflow_fact(
         _statement_row(description="credit card repayment"),
@@ -84,13 +90,6 @@ def test_credit_card_repayment_is_not_spending() -> None:
     assert fact["affects_spending"] is False
     assert fact["affects_nav"] is False
     assert fact["counter_account_code"] == "credit_card"
-
-
-def test_cashflow_source_rows_skip_reimported_source_uid() -> None:
-    cur = FakeFetchCursor()
-
-    assert fetch_cashflow_source_rows(cur) == []
-    assert "f.source_uid = r.source_uid" in cur.last_sql
 
 
 def test_investment_funding_is_not_operating_expense() -> None:
@@ -120,6 +119,7 @@ def test_source_only_investment_transfer_is_pending_internal_flow() -> None:
             account_code="santander",
             amount=Decimal("-29000"),
             currency="MXN",
+            fx_rate_to_cny=Decimal("0.5"),
             amount_cny=Decimal("-14500"),
             summary="TRANSFERENCIA A INTERACTIVE BROKERS LLC",
             description="TRANSFERENCIA A INTERACTIVE BROKERS LLC",
@@ -210,6 +210,7 @@ def test_personal_bridge_transfer_requires_transfer_match() -> None:
             account_code="santander",
             amount=Decimal("-40000"),
             currency="MXN",
+            fx_rate_to_cny=Decimal("0.4016"),
             amount_cny=Decimal("-16064"),
             summary="TRANSFERENCIA A ZHAO GUANYU",
             description="TRANSFERENCIA A ZHAO GUANYU",
@@ -242,6 +243,7 @@ def test_confirmed_peer_fx_transfer_is_not_spending() -> None:
             account_code="santander",
             amount=Decimal("-40000"),
             currency="MXN",
+            fx_rate_to_cny=Decimal("0.4016"),
             amount_cny=Decimal("-16064"),
             summary="TRANSFERENCIA A ZHAO GUANYU",
             description="TRANSFERENCIA A ZHAO GUANYU",

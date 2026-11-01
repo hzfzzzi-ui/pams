@@ -12,8 +12,6 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from domain.investments.investment_trade_fact import (  # noqa: E402
-    MANUAL_TABLE,
-    TRADINGVIEW_TABLE,
     build_investment_trade_fact,
     insert_investment_trade_facts,
 )
@@ -105,7 +103,7 @@ class FakeQqqAliasCursor:
 
 def _manual_trade(**overrides):
     row = {
-        "source_table": MANUAL_TABLE,
+        "source_table": "manual_investment_trade",
         "source_id": "1",
         "source_key": "manual:trade-001",
         "trade_date": date(2026, 5, 8),
@@ -352,7 +350,7 @@ def test_transaction_summary_keeps_raw_amounts_and_adds_personal_scope() -> None
 def test_tradingview_buy_maps_to_trade_fact_buy() -> None:
     fact = build_investment_trade_fact(
         {
-            "source_table": TRADINGVIEW_TABLE,
+            "source_table": "tradingview_csv",
             "source_id": "9",
             "source_key": "row-hash-9",
             "trade_date": date(2026, 5, 9),

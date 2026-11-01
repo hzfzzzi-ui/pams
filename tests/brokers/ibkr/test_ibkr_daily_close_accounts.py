@@ -50,7 +50,7 @@ def test_default_without_metadata_keeps_legacy_values_shape_and_review_fingerpri
     assert "daily_close" not in row
     assert row["primary_balance"] is row["platform_balance"]
     assert row["primary_balance"] == {"amount": D(80), "currency": "USD", "as_of": DAY,
-                                      "source": "platform_snapshot"}
+        "source": "platform_snapshot", "amount_cny": None, "fx_status": "unknown"}
     assert accounts._review_fingerprint(row) == f"ready_for_review|80|USD|{DAY}|platform_snapshot"
     approved = build(reviews={"ibkr": {"review_action": "approve",
                                      "review_fingerprint": accounts._review_fingerprint(row)}})
@@ -136,7 +136,10 @@ def test_missing_shared_balance_is_unconfirmed(shared):
 @pytest.mark.parametrize("holding_day,holding_currency", [(DAY + timedelta(days=1), "USD"), (DAY, "EUR")])
 def test_primary_date_and_currency_must_match(holding_day, holding_currency):
     row = build(shared={"ibkr": canonical()}, holding_day=holding_day, holding_currency=holding_currency)
-    assert row["primary_balance"]["amount"] == 80
+    if holding_currency == "USD":
+        assert row["primary_balance"]["amount"] == 80
+    else:
+        assert row["primary_balance"] is None  # EUR has no same-day conversion proof.
     assert row["daily_close"]["status"] == "unconfirmed"
 
 
@@ -176,6 +179,9 @@ def setup_payload(monkeypatch, *, configured=True, rows=None):
         def __exit__(self, *args):
             pass
 
+        def set_session(self, **kwargs):
+            assert kwargs == {'isolation_level':'REPEATABLE READ', 'readonly':True}
+
         def cursor(self, **kwargs):
             return self
 
@@ -184,9 +190,9 @@ def setup_payload(monkeypatch, *, configured=True, rows=None):
     monkeypatch.setattr(accounts, "get_conn", lambda: cur)
     monkeypatch.setattr(accounts, "_load_accounts_config", lambda: cfg)
     monkeypatch.setattr(accounts, "_load_bank_config", lambda: {})
-    for name in ("_fetch_db_accounts", "_fetch_statement_balances", "_fetch_latest_fx_rates_by_base",
-                 "_fetch_transfer_rollups", "_fetch_latest_reviews"):
+    for name in ("_fetch_db_accounts", "_fetch_statement_balances", "_fetch_transfer_rollups", "_fetch_latest_reviews"):
         monkeypatch.setattr(accounts, name, lambda _: {})
+    monkeypatch.setattr(accounts, "_fetch_daily_fx_rates_by_date", lambda cur, balances: {str(DAY): {"USD": D(7)}})
     monkeypatch.setattr(accounts, "_fetch_holding_balances", lambda _: {"ibkr": [
         {"currency": "USD", "market_value": D(80), "as_of": DAY}]})
     monkeypatch.setattr(reader, "configured", lambda: configured)
@@ -237,28 +243,27 @@ def test_postgres_actual_readonly_overview_uses_shared_metadata_without_writes(
             CREATE TABLE pams_accounts (account_code text, display_name text, base_currency text,
                                        is_asset boolean, active boolean, account_type text);
             INSERT INTO pams_accounts VALUES ('ibkr','Synthetic broker','USD',true,true,'brokerage');
-            CREATE TABLE pams_source_row (source_table text, account_code text, source_system text,
-                                          event_date date, imported_at timestamptz);
             CREATE TABLE pams_cashflow_fact (cashflow_id bigint, account_code text, event_date date,
                                              updated_at timestamptz, raw_json jsonb, review_status text);
             CREATE TABLE pams_holdings_snapshot (account_code text, currency text, asset_liability text,
                                                  as_of date, market_value numeric, cost numeric, holding_pnl numeric);
             CREATE TABLE pams_fx_rates_daily (base_currency text, quote_currency text, rate numeric,
                                               as_of date, source text);
-            CREATE TABLE pams_ibkr_position_history (account_code text, as_of date, source_account_id text);
-            CREATE TABLE pams_reconciliation_case (case_id bigint, raw_json jsonb, relation_code text,
-                review_action text, status text, amount numeric, currency text, case_date date, note text,
-                reviewed_by text, reviewed_at timestamptz, from_account_code text, to_account_code text, case_type text);
+            CREATE TABLE evidence_confirmation (confirmation_id uuid, confirmation_order bigint GENERATED ALWAYS AS IDENTITY, confirmation_type text,
+                from_account_code text, evidence jsonb, note text, confirmed_at timestamptz,
+                revoked_at timestamptz, revocation_note text);
         """)
         cur.execute("INSERT INTO pams_holdings_snapshot VALUES ('ibkr','USD','asset',%s,100,90,10),"
                     "('ibkr','USD','liability',%s,-20,0,0)", (DAY, DAY))
-        cur.execute("INSERT INTO pams_ibkr_position_history VALUES ('ibkr',%s,%s)", (DAY, ACCOUNT))
         if not missing_fx:
             cur.execute("INSERT INTO pams_fx_rates_daily VALUES ('CNY','USD',7,%s,'synthetic_internal_fx')", (DAY,))
         legacy_fingerprint = accounts._review_fingerprint(build(cfg=cfg))
-        cur.execute("""INSERT INTO pams_reconciliation_case (case_id,case_type,review_action,status,raw_json,reviewed_at)
-            VALUES (1,'account_review','approve','ready_for_review',%s,now())""",
-            (psycopg2.extras.Json({"account_code": "ibkr", "review_fingerprint": legacy_fingerprint}),))
+        cur.execute("""INSERT INTO evidence_confirmation
+            (confirmation_id,confirmation_type,from_account_code,evidence,note,confirmed_at)
+            VALUES ('00000000-0000-0000-0000-000000000001','account_review','ibkr',%s,'',now())""",
+            (psycopg2.extras.Json({"review_action":"approve", "source_status":"ready_for_review",
+                                   "review_fingerprint": legacy_fingerprint}),))
+
     monkeypatch.setattr(accounts, "_load_accounts_config", lambda: cfg)
     monkeypatch.setattr(accounts, "_load_bank_config", lambda: {})
     connections = []
@@ -282,22 +287,26 @@ def test_postgres_actual_readonly_overview_uses_shared_metadata_without_writes(
 
     monkeypatch.setattr(portfolio_state, "load_account_balances", observed)
     try:
-        row = accounts._overview_payload()["accounts"][0]
+        payload = accounts._overview_payload()
+        row = payload["accounts"][0]
         assert len(seen) == 1 and len(connections) == 1
-        if manual_offset is not None:
-            assert row["primary_balance"] is row["manual_balance"]
-            assert row["primary_balance"]["amount"] == D(90) * D(ratio)
-            assert row["daily_close"]["status"] == "unconfirmed"
-        elif missing_fx:
-            assert row["primary_balance"]["amount"] == 80
-            assert row["daily_close"]["status"] == "unconfirmed"
+        # No reviewed account mapping or complete holding scope has been published;
+        # independently unproven values must stay unknown.
+        assert payload['statement_source_status'] == 'unavailable'
+        assert row['platform_balance'] is None
+        if manual_offset is None or manual_offset == 0:
+            assert seen[0]['amount_cny'] is None
+        assert row['daily_close']['status'] == 'unconfirmed'
+        if manual_offset != 1:
+            assert 'missing_native_account_identity' in row['daily_close']['reasons']
         else:
-            assert row["primary_balance"]["amount"] == D(79) * D(ratio)
-            assert row["primary_balance"]["amount_cny"] == seen[0]["amount_cny"] == D(553) * D(ratio)
-            assert row["daily_close"]["owned_nav_base"] == str(D(79) * D(ratio))
-            assert row["daily_close"]["status"] == "ok"
-        assert row["platform_balance"]["amount"] == D(80) * D(ratio)
-        assert accounts._norm(row)["primary_balance"]["currency"] == "USD"
+            assert 'non_platform_primary_preserved' in row['daily_close']['reasons']
+        if manual_offset is not None:
+            assert row['primary_balance'] is row['manual_balance']
+            assert row['primary_balance']['amount'] == D(90) * D(ratio)
+            assert accounts._norm(row)['primary_balance']['currency'] == 'USD'
+        else:
+            assert row['primary_balance'] is None
         assert row["review_status"] == "stale"
     finally:
         for connection in connections:

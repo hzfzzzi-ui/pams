@@ -77,7 +77,7 @@ def test_missing_conflicting_or_non_stock_evidence_does_not_create_direct(monkey
 
 def test_explicit_fund_mapping_and_lookthrough_take_precedence(monkeypatch):
     config = {"asset_mapping": [{"symbol": "TEST", "asset_name": "Example Fund", "asset_class": "etf_us"}],
-              "asset_lookthrough": [{"parent_symbol": "TEST", "underlying_symbol": "CHILD",
+              "asset_lookthrough": [{"parent_symbol": "TEST", "as_of": "2025-12-31", "underlying_symbol": "CHILD",
                                      "underlying_name": "Child", "underlying_weight": 0.4,
                                      "lookthrough_type": "TOP10"}]}
     result = _derive(monkeypatch, _position(), [_asset()], config)

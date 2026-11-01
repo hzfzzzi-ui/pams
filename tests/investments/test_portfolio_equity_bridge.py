@@ -308,3 +308,42 @@ def test_tonghuashun_personal_capital_checks_cashflow_source_side() -> None:
     assert ths["investment_trade_deposit_personal_cny"] == Decimal("250000.000")
     assert ths["cashflow_source_personal_cny"] == Decimal("250000")
     assert ths["source_cashflow_count"] == 6
+
+
+def test_equity_bridge_keeps_unknown_net_worth_and_known_cashflows(monkeypatch):
+    from domain.investments import portfolio_equity_bridge as bridge
+    from contextlib import contextmanager
+    class Conn:
+        @contextmanager
+        def cursor(self, **kwargs):
+            yield object()
+    @contextmanager
+    def connection():
+        yield Conn()
+    monkeypatch.setattr(bridge, '_load_accounts_config', lambda:{})
+    monkeypatch.setattr(bridge, '_build_current_state', lambda *a,**kw:{'net_liquidation_value':None,'as_of':date(2026,10,22)})
+    monkeypatch.setattr(bridge, '_cashflow_breakdown', lambda *a,**kw:{'external_net_cny':Decimal('50'),'buckets':{},'details':[]})
+    result=bridge.build_equity_bridge_payload(start_date=date(2026,1,1), overview_payload={}, conn_factory=connection)
+    assert result['status']=='unavailable' and result['ending_nav_cny'] is None
+    assert result['reconciliation'] is None and float(result['cashflows']['external_net_cny'])==50
+
+
+def test_equity_bridge_does_not_turn_unavailable_attribution_to_zero(monkeypatch):
+    from domain.investments import portfolio_equity_bridge as bridge
+    from contextlib import contextmanager
+    class Conn:
+        @contextmanager
+        def cursor(self, **kwargs):
+            yield object()
+    @contextmanager
+    def connection():
+        yield Conn()
+    monkeypatch.setattr(bridge,'_load_accounts_config',lambda:{})
+    monkeypatch.setattr(bridge,'_build_current_state',lambda *a,**kw:{'net_liquidation_value':100,
+        'as_of':date(2026,10,22),'raw_json':{'account_values_cny':{'synthetic':100}}})
+    monkeypatch.setattr(bridge,'build_nav_weekly_payload',lambda *a,**kw:{'rows':[{'netWorth':80},{'netWorth':100}]})
+    monkeypatch.setattr(bridge,'_cashflow_breakdown',lambda *a,**kw:{'external_net_cny':Decimal(0),'buckets':{},'details':[]})
+    monkeypatch.setattr(bridge,'build_return_attribution_payload',lambda *a,**kw:{'status':'unavailable','total_pnl_cny':None})
+    result=bridge.build_equity_bridge_payload(start_date=date(2026,1,1),overview_payload={},conn_factory=connection)
+    assert result['status']=='unavailable' and result['reason']=='attribution_evidence_unknown'
+    assert float(result['ending_nav_cny'])==100 and result['investment'] is None

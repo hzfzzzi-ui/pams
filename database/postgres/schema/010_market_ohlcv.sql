@@ -1,5 +1,6 @@
 -- Shared daily market prices used by asset valuation and benchmark history.
--- 026 moves the physical table to pams_external_market and leaves a public view.
+-- New databases retain the shared physical table in public. Older databases
+-- may instead expose an existing compatibility view over pams_external_market.
 DO $market$
 DECLARE
     physical_table regclass;

@@ -20,7 +20,9 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
+from domain.investments.snapshot_coverage import annotate_snapshot_coverage, load_account_snapshot_coverage
+from domain.investments.valuation_state_reader import valuation_series_evidence, valuation_series_rows
 from domain.market.quote_valuation import quote_valuation_cte, snapshot_tables
 
 
@@ -139,7 +141,9 @@ NON_INVESTMENT_ACCOUNT_TYPES = {
 
 def get_conn():
     """Create a PostgreSQL connection using PAMS environment variables."""
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -188,28 +192,51 @@ def _table_exists(cur, table_name: str) -> bool:
     return bool(row and row.get("table_name"))
 
 
+class _FxRates(dict):
+    def __init__(self, *args, rate_dates=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rate_dates = rate_dates or {}
+
+
 def _latest_fx_rates(cur, base_currency: str) -> dict[str, Decimal]:
     if not _table_exists(cur, "pams_fx_rates_daily"):
-        return {base_currency.upper(): Decimal("1")}
+        return _FxRates({base_currency.upper(): Decimal("1")})
     cur.execute(
         """
-        SELECT DISTINCT ON (quote_currency) quote_currency, rate
+        SELECT DISTINCT ON (quote_currency) quote_currency, rate, as_of
         FROM pams_fx_rates_daily
-        WHERE base_currency = %s
+        WHERE base_currency = %s AND as_of <= %s
+          AND rate > 0 AND rate::text NOT IN ('NaN', 'Infinity', '-Infinity')
+          AND NULLIF(BTRIM(source), '') IS NOT NULL
         ORDER BY quote_currency, as_of DESC
         """,
-        (base_currency,),
+        (base_currency, _view_as_of()),
     )
-    rates = {str(r["quote_currency"]).upper(): _dec(r["rate"]) for r in cur.fetchall()}
+    rows = cur.fetchall()
+    rates = _FxRates({str(r["quote_currency"]).upper(): _dec(r["rate"]) for r in rows},
+                     rate_dates={str(r["quote_currency"]).upper(): r.get("as_of") for r in rows})
     rates[base_currency.upper()] = Decimal("1")
     return rates
 
 
-def _fx_rate(rates: dict[str, Decimal], currency: str, base_currency: str) -> Decimal:
+def _known_fx_rate(rates: dict[str, Decimal], currency: str, base_currency: str) -> Decimal | None:
     quote = str(currency or base_currency).upper()
     if quote == base_currency.upper():
         return Decimal("1")
-    return rates.get(quote, Decimal("1"))
+    rate = rates.get(quote)
+    return rate if rate is not None and rate.is_finite() and rate > 0 else None
+
+
+def _fx_precision(rates: dict[str, Decimal], currency: str, base_currency: str, valuation_day: Any) -> tuple[str, Any]:
+    quote = str(currency or base_currency).upper()
+    if quote == base_currency.upper():
+        return 'daily_exact', valuation_day
+    if _known_fx_rate(rates, quote, base_currency) is None:
+        return 'unavailable', None
+    rate_day = getattr(rates, 'rate_dates', {}).get(quote)
+    if rate_day is None or valuation_day is None:
+        return 'unknown', rate_day
+    return ('daily_exact' if str(rate_day)[:10] == str(valuation_day)[:10] else 'estimated'), rate_day
 
 
 def _excluded_accounts(account_cfg: dict[str, Any]) -> set[str]:
@@ -257,98 +284,9 @@ def _net_statement_balance(value: Any, account_kind: str | None) -> Decimal | No
 
 
 def _statement_balances(cur) -> dict[str, dict[str, Any]]:
-    if not (
-        _table_exists(cur, "pams_bank_statement_imports")
-        and _table_exists(cur, "pams_bank_statement_rows")
-    ):
-        return {}
-
-    balances: dict[str, dict[str, Any]] = {}
-    cur.execute(
-        """
-        WITH latest_import AS (
-            SELECT DISTINCT ON (profile_code)
-                   profile_code, account_code, account_kind, statement_end,
-                   statement_balance, imported_at
-            FROM pams_bank_statement_imports
-            ORDER BY profile_code, imported_at DESC, id DESC
-        ),
-        latest_balance_row AS (
-            SELECT DISTINCT ON (profile_code)
-                   profile_code, transaction_date, balance
-            FROM pams_bank_statement_rows
-            WHERE balance IS NOT NULL
-            ORDER BY profile_code, transaction_date DESC, id DESC
-        )
-        SELECT i.profile_code, i.account_code, i.account_kind,
-               i.statement_balance, i.statement_end, i.imported_at,
-               r.transaction_date AS latest_balance_date,
-               r.balance AS latest_balance
-        FROM latest_import i
-        LEFT JOIN latest_balance_row r ON r.profile_code = i.profile_code
-        ORDER BY i.account_code, i.profile_code
-        """
-    )
-    rows = cur.fetchall()
-
-    if _table_exists(cur, "pams_cashflow_fact"):
-        cur.execute(
-            """
-            WITH fact_balance AS (
-                SELECT DISTINCT ON (f.account_code)
-                       f.account_code,
-                       CASE
-                           WHEN COALESCE(a.account_type, '') = 'liability' OR a.is_asset IS FALSE THEN 'credit_card'
-                           ELSE COALESCE(a.account_type, '')
-                       END AS account_kind,
-                       f.event_date AS latest_balance_date,
-                       NULLIF(COALESCE(
-                           f.raw_json #>> '{statement_row,balance}',
-                           f.raw_json #>> '{statement_row,raw_json,balance}',
-                           f.raw_json #>> '{balance}'
-                       ), '')::numeric AS latest_balance
-                FROM pams_cashflow_fact f
-                LEFT JOIN pams_accounts a ON a.account_code = f.account_code
-                WHERE NULLIF(COALESCE(
-                          f.raw_json #>> '{statement_row,balance}',
-                          f.raw_json #>> '{statement_row,raw_json,balance}',
-                          f.raw_json #>> '{balance}'
-                      ), '') IS NOT NULL
-                  AND COALESCE(LOWER(f.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'duplicate')
-                ORDER BY f.account_code, f.event_date DESC, f.cashflow_id DESC
-            )
-            SELECT account_code AS profile_code,
-                   account_code,
-                   account_kind,
-                   NULL::numeric AS statement_balance,
-                   latest_balance_date AS statement_end,
-                   NULL::timestamp AS imported_at,
-                   latest_balance_date,
-                   latest_balance
-            FROM fact_balance
-            ORDER BY account_code
-            """
-        )
-        rows = [*rows, *cur.fetchall()]
-
-    for row in rows:
-        amount = _net_statement_balance(
-            row.get("latest_balance") if row.get("latest_balance") is not None else row.get("statement_balance"),
-            row.get("account_kind"),
-        )
-        if amount is None:
-            continue
-        account_code = str(row["account_code"])
-        as_of = row.get("latest_balance_date") or row.get("statement_end")
-        current = balances.get(account_code)
-        if current and str(current.get("as_of") or "") >= str(as_of or ""):
-            continue
-        balances[account_code] = {
-            "amount": amount,
-            "as_of": as_of,
-            "source": "statement",
-        }
-    return balances
+    # A running balance in an individual statement row is not an approved
+    # account balance or evidence of complete account coverage.
+    return {}
 
 
 def _platform_balances(cur, base_currency: str, fx_rates: dict[str, Decimal]) -> dict[str, dict[str, Any]]:
@@ -358,9 +296,8 @@ def _platform_balances(cur, base_currency: str, fx_rates: dict[str, Decimal]) ->
     quote_overlay = quote_valuation_cte(bool(tables.get("quote_available")))
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
-            SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
-              ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+        WITH {LATEST_KNOWN_HOLDINGS_CTE}, source_holdings AS (
+            SELECT * FROM latest_known_holding
         ), {quote_overlay}
         SELECT h.account_code, h.currency, h.as_of,
                SUM(CASE WHEN h.asset_liability = '负债' THEN -ABS(h.market_value) ELSE h.market_value END) AS market_value
@@ -370,17 +307,49 @@ def _platform_balances(cur, base_currency: str, fx_rates: dict[str, Decimal]) ->
         """,
         (_view_as_of(),),
     )
+    snapshot_rows = [dict(row) for row in cur.fetchall()]
+    pairs = {(str(row["account_code"]), row["as_of"]) for row in snapshot_rows if row.get("as_of")}
+    coverage = load_account_snapshot_coverage(cur, pairs)
+    days = sorted({row['as_of'] for row in snapshot_rows if row.get('as_of')
+                   and str(row.get('currency') or base_currency).upper() != base_currency.upper()
+                   and _dec(row.get('market_value')) != 0})
+    daily_rates = {}
+    if days and _table_exists(cur, 'pams_fx_rates_daily'):
+        cur.execute("""SELECT as_of,quote_currency,rate FROM pams_fx_rates_daily
+            WHERE base_currency=%s AND as_of=ANY(%s) AND rate>0
+              AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+              AND NULLIF(BTRIM(source),'') IS NOT NULL""", (base_currency,days))
+        daily_rates = {(r['as_of'],str(r['quote_currency']).upper()): Decimal(str(r['rate'])) for r in cur.fetchall()}
     grouped: dict[str, dict[str, Any]] = {}
-    for row in cur.fetchall():
+    for row in snapshot_rows:
         account_code = str(row["account_code"])
         currency = str(row.get("currency") or base_currency).upper()
-        amount_cny = _dec(row.get("market_value")) * _fx_rate(fx_rates, currency, base_currency)
+        value = _dec(row.get("market_value"))
+        rate = Decimal(1) if currency == base_currency.upper() else daily_rates.get((row.get('as_of'),currency))
+        # A proven zero contributes zero regardless of conversion. All nonzero
+        # members require the exact same-day rate, including its provenance.
+        if rate is None and value == 0:
+            rate = Decimal(1)
+        precision, rate_day = ('daily_exact',row.get('as_of')) if rate is not None else ('unavailable',None)
+        amount_cny = value * rate if rate is not None else None
         item = grouped.setdefault(
             account_code,
             {"amount": Decimal("0"), "currency": base_currency, "as_of": row.get("as_of"), "source": "platform_snapshot"},
         )
-        item["amount"] += amount_cny
-        item["as_of"] = max(item.get("as_of"), row.get("as_of")) if item.get("as_of") and row.get("as_of") else row.get("as_of")
+        item["amount"] = item["amount"] + amount_cny if item["amount"] is not None and amount_cny is not None else None
+        if rate is None:
+            item["fx_status"] = "unavailable"
+            item["fx_precision"] = "unavailable"
+        elif precision in {'estimated', 'unknown'} and item.get('fx_precision') != 'unavailable':
+            item["fx_precision"] = precision
+        elif 'fx_precision' not in item:
+            item["fx_precision"] = 'daily_exact'
+        if rate_day is not None and currency != base_currency.upper():
+            item.setdefault('fx_rate_dates', {})[currency] = rate_day
+        previous_as_of = item.get("as_of")
+        row_as_of = row.get("as_of")
+        item["as_of"] = max(previous_as_of, row_as_of) if previous_as_of and row_as_of else row_as_of
+        item["snapshot_scope_status"] = coverage.get((account_code, row.get("as_of")), {}).get("status", "unknown")
     return grouped
 
 
@@ -475,10 +444,15 @@ def _apply_daily_close_balance(cur, row: dict[str, Any], *, base_currency: str, 
         return
     metadata = daily_close_value_metadata(close, rate=rate, owner_ratio=owner_ratio,
                                          legacy_value=_dec(row["amount_cny"]), fx_evidence=fx)
+    if row.get("amount_cny") is None:
+        for field in ("legacy_native_value_cny", "native_fx_vs_base_fx_bridge_cny", "nav_adjustment_cny"):
+            metadata[field] = None
+        metadata["bridge_basis"] = "legacy_valuation_unavailable"
     metadata.update({"valuation_currency": base_currency, "assets_cny": str(bucket["assets"]),
                      "liabilities_cny": str(bucket["liabilities"]), "identity_evidence": identity})
     row.update(amount=bucket["net_worth"], currency=base_currency, amount_cny=bucket["net_worth"],
-               daily_close=metadata)
+               daily_close=metadata, review_status='ready_for_review', fx_status='available',
+               fx_precision='daily_exact', fx_rate_as_of=close['as_of'])
 
 
 def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -527,11 +501,11 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
             if selected and "currency" not in selected:
                 selected = {**selected, "currency": account_base}
 
-        if not selected:
-            amount = Decimal("0")
+        if not selected or selected.get('amount') in (None, ''):
+            amount = None
             currency = account_base
-            amount_cny = Decimal("0")
-            as_of = None
+            amount_cny = None
+            as_of = selected.get("as_of") if selected else None
             review_status = "missing_data"
         else:
             amount = _dec(selected.get("amount"))
@@ -539,9 +513,10 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
             if account_type == "liability":
                 amount = -abs(amount)
             amount *= owner_ratio
-            amount_cny = amount * _fx_rate(fx_rates, currency, base_currency)
+            rate = _known_fx_rate(fx_rates, currency, base_currency)
+            amount_cny = amount * rate if rate is not None else None
             as_of = selected.get("as_of")
-            review_status = "ready_for_review"
+            review_status = "ready_for_review" if rate is not None else "missing_fx"
             rolled = _rolled_forward_account_balance(
                 cur,
                 account_cfg=account_cfg,
@@ -569,6 +544,22 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
             "review_status": review_status,
             "include_in_nav": include_in_nav,
         }
+        if selected and selected.get('source') == 'platform_snapshot':
+            row['fx_precision'] = selected.get('fx_precision', 'unknown')
+            row['fx_rate_dates'] = selected.get('fx_rate_dates', {})
+        elif amount is not None:
+            row['fx_precision'], row['fx_rate_as_of'] = _fx_precision(fx_rates, currency, base_currency, as_of)
+        if selected and (selected.get("fx_status") == "unavailable" or (amount is not None and amount_cny is None)):
+            row["fx_status"] = "unavailable"
+            row["review_status"] = "missing_fx"
+        if selected and selected.get("source") == "platform_snapshot":
+            row["snapshot_scope_status"] = selected.get("snapshot_scope_status", "unknown")
+            if row["snapshot_scope_status"] != "complete":
+                row["amount"] = None
+                row["amount_cny"] = None
+                row["review_status"] = "incomplete_snapshot_scope"
+        elif amount is None and include_in_nav:
+            row["snapshot_scope_status"] = "unknown"
         _apply_daily_close_balance(cur, row, base_currency=base_currency, owner_ratio=owner_ratio,
                                   selected_source=selected.get("source") if selected else None)
         rows.append(row)
@@ -714,9 +705,8 @@ def load_investment_positions(
     quote_overlay = quote_valuation_cte(bool(tables.get("quote_available")))
     cur.execute(
         f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, source_holdings AS (
-            SELECT s.* FROM pams_holdings_snapshot s JOIN latest_account la
-              ON la.account_code = s.account_code AND la.account_as_of = s.as_of
+        WITH {LATEST_KNOWN_HOLDINGS_CTE}, source_holdings AS (
+            SELECT * FROM latest_known_holding
         ), {quote_overlay}
         SELECT h.* FROM h
         WHERE NOT (h.account_code = ANY(%s::text[]))
@@ -724,7 +714,9 @@ def load_investment_positions(
         """,
         (_view_as_of(), sorted(excluded)),
     )
-    snapshot_rows = [dict(row) for row in cur.fetchall()]
+    snapshot_rows = annotate_snapshot_coverage(cur, [dict(row) for row in cur.fetchall()])
+    unverified_snapshot_accounts = {str(row.get("account_code")) for row in snapshot_rows
+                                    if row.get("account_code") and row.get("snapshot_scope_status") != "complete"}
     carried_cash_rows = _cash_like_carry_forward_rows(
         cur,
         account_cfg=account_cfg,
@@ -743,15 +735,22 @@ def load_investment_positions(
         if not _is_investment_account(account_cfg, account_code):
             continue
         owner_ratio = _owner_ratio(account_cfg, account_code)
+        account_options = (account_cfg.get('accounts') or {}).get(account_code) or {}
+        include_in_nav = bool(account_options.get('include_in_nav', (account_cfg.get('defaults') or {}).get('include_in_nav', True)))
         currency = str(item.get("currency") or base_currency).upper()
-        rate = _fx_rate(fx_rates, currency, base_currency)
-        market_value = _dec(item.get("market_value")) * owner_ratio
-        cost = _dec(item.get("cost")) * owner_ratio
-        pnl = _dec(item.get("holding_pnl")) * owner_ratio
+        rate = _known_fx_rate(fx_rates, currency, base_currency)
+        precision, rate_day = _fx_precision(fx_rates, currency, base_currency, item.get('as_of'))
+        market_value = _dec(item.get("market_value"))
+        if item.get("asset_liability") == "负债":
+            market_value = -abs(market_value)
+        market_value *= owner_ratio
+        cost = _dec(item['cost']) * owner_ratio if item.get('cost') is not None else None
+        pnl = _dec(item['holding_pnl']) * owner_ratio if item.get('holding_pnl') is not None else None
         symbol = item.get("symbol")
         rows.append(
             {
                 "account_code": account_code,
+                "include_in_nav": include_in_nav,
                 "asset_id": symbol or item.get("name") or account_code,
                 "holding_snapshot_asset_id": item.get("asset_id"),
                 "holding_snapshot_currency": item.get("currency"),
@@ -761,18 +760,29 @@ def load_investment_positions(
                 "quantity": item.get("quantity"),
                 "market_value": market_value,
                 "currency": currency,
-                "market_value_cny": market_value * rate,
-                "cost_cny": cost * rate,
-                "holding_pnl_cny": pnl * rate,
+                "market_value_cny": market_value * rate if rate is not None else (Decimal(0) if market_value == 0 else None),
+                "cost_cny": cost * rate if cost is not None and rate is not None else None,
+                "holding_pnl_cny": pnl * rate if pnl is not None and rate is not None else None,
+                "fx_status": "available" if rate is not None else "not_required" if market_value == 0 else "unavailable",
+                "fx_precision": "not_required" if rate is None and market_value == 0 else precision,
+                "fx_rate_as_of": rate_day,
                 "as_of": item.get("as_of"),
                 "source_type": "holdings_snapshot_cash_carry_forward"
                 if item.get("__cash_carry_forward")
                 else "holdings_snapshot",
+                "snapshot_scope_status": item.get("snapshot_scope_status", "unknown"),
+                "snapshot_scope_member": item.get("snapshot_scope_member", "unverified"),
+                "snapshot_scope_cash_status": item.get("snapshot_scope_cash_status", "unknown"),
+                "snapshot_scope_version_id": item.get("snapshot_scope_version_id"),
+                "snapshot_market_evidence": item.get("snapshot_market_evidence", "unknown"),
             }
         )
-        account_position_value_cny[account_code] = (
-            account_position_value_cny.get(account_code, Decimal("0")) + market_value * rate
-        )
+        if rate is None and market_value != 0:
+            unverified_snapshot_accounts.add(account_code)
+        elif rate is not None:
+            account_position_value_cny[account_code] = (
+                account_position_value_cny.get(account_code, Decimal("0")) + market_value * rate
+            )
         row_as_of = item.get("as_of")
         current_as_of = account_position_as_of.get(account_code)
         if row_as_of and (not current_as_of or str(row_as_of) > str(current_as_of)):
@@ -785,7 +795,7 @@ def load_investment_positions(
             account_position_value_cny=account_position_value_cny,
             account_position_as_of=account_position_as_of,
             account_balances=account_balances,
-            skip_accounts=cash_carry_forward_accounts,
+            skip_accounts=cash_carry_forward_accounts | unverified_snapshot_accounts,
         )
     )
     return rows
@@ -833,7 +843,9 @@ def _synthetic_broker_cash_positions(
         source_as_of = balance.get("as_of") if balance else None
         if balance:
             currency = str(balance.get("currency") or cfg.get("base_currency") or base_currency).upper()
-            rate = _fx_rate(fx_rates, currency, base_currency)
+            rate = _known_fx_rate(fx_rates, currency, base_currency)
+            if rate is None:
+                continue
             net_value_cny = _dec(balance.get("amount_cny"))
         else:
             manual = _manual_balance(
@@ -847,7 +859,9 @@ def _synthetic_broker_cash_positions(
                 continue
             owner_ratio = _owner_ratio(account_cfg, account_code)
             currency = str(manual.get("currency") or cfg.get("base_currency") or base_currency).upper()
-            rate = _fx_rate(fx_rates, currency, base_currency)
+            rate = _known_fx_rate(fx_rates, currency, base_currency)
+            if rate is None:
+                continue
             net_value_cny = _dec(manual.get("amount")) * owner_ratio * rate
         if balance and positions_as_of and str(source_as_of or "") < str(positions_as_of):
             continue
@@ -860,6 +874,7 @@ def _synthetic_broker_cash_positions(
         out.append(
             {
                 "account_code": account_code,
+                "include_in_nav": bool(cfg.get('include_in_nav', defaults.get('include_in_nav', True))),
                 "asset_id": f"{account_code}:CASH_{currency}",
                 "symbol": f"CASH_{currency}",
                 "asset_name": f"{display_name} \u73b0\u91d1/\u6d3b\u671f",
@@ -878,96 +893,90 @@ def _synthetic_broker_cash_positions(
 
 
 def load_investment_transactions(cur, base_currency: str, limit: int = 5000) -> list[dict[str, Any]]:
-    """Load normalized investment transactions used by return and cost calculations."""
-    if _table_exists(cur, "pams_investment_trade_fact"):
-        fx_rates = _latest_fx_rates(cur, base_currency)
-        cur.execute(
-            """
-            SELECT account_code,
-                   trade_date,
-                   symbol,
-                   name,
-                   COALESCE(side, trade_type) AS side,
-                   quantity,
-                   price,
-                   gross_amount,
-                   (COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0)) AS fees,
-                   currency,
-                   COALESCE(source_table, 'pams_investment_trade_fact') AS source,
-                   COALESCE(source_key, trade_id::text) AS source_key,
-                   trade_type,
-                   net_cash,
-                   net_cash_cny,
-                   realized_pnl_cny
-            FROM pams_investment_trade_fact
-            WHERE COALESCE(review_status, '') <> 'deleted'
-            ORDER BY trade_date DESC, trade_time DESC NULLS LAST, trade_id DESC
-            LIMIT %s
-            """,
-            (limit,),
-        )
-        rows = []
-        for row in cur.fetchall():
-            item = dict(row)
-            currency = str(item.get("currency") or base_currency).upper()
-            item["gross_amount_cny"] = _dec(item.get("gross_amount")) * _fx_rate(fx_rates, currency, base_currency)
-            rows.append(item)
-        return rows
-
-    if not _table_exists(cur, "pams_investment_transactions"):
+    """Load transactions with CNY amounts based on their own trade-day FX."""
+    if not _table_exists(cur, "pams_investment_trade_fact"):
         return []
-    fx_rates = _latest_fx_rates(cur, base_currency)
+    fx_available = _table_exists(cur, "pams_fx_rates_daily")
+    fx_join = """LEFT JOIN LATERAL (
+        SELECT rate FROM pams_fx_rates_daily
+        WHERE base_currency='CNY' AND quote_currency=tx.currency AND as_of=tx.trade_date
+          AND NULLIF(BTRIM(source),'') IS NOT NULL AND rate > 0 AND rate::text NOT IN ('NaN', 'Infinity', '-Infinity')
+        ORDER BY as_of DESC LIMIT 1
+    ) fx ON TRUE""" if fx_available else "LEFT JOIN LATERAL (SELECT NULL::numeric AS rate) fx ON TRUE"
     cur.execute(
-        """
-        SELECT account_code, trade_date, symbol, name, side, quantity, price,
-               gross_amount, fees, currency, source, source_key
-        FROM pams_investment_transactions
-        ORDER BY trade_date DESC, id DESC
-        LIMIT %s
-        """,
-        (limit,),
+        f"""
+        SELECT tx.account_code, tx.trade_date, tx.symbol, tx.name,
+               COALESCE(tx.side, tx.trade_type) AS side, tx.quantity, tx.price, tx.gross_amount,
+               CASE WHEN tx.fee_amount IS NULL THEN NULL
+                    WHEN tx.source_table='ibkr_flex_trade' AND tx.fee_amount<>0
+                         AND UPPER(tx.fee_currency) IS DISTINCT FROM UPPER(tx.currency) THEN NULL
+                    WHEN tx.raw_json->'source_row'->>'fee_scope' = 'total_charges' THEN ABS(tx.fee_amount)
+                    WHEN tx.tax_amount IS NULL THEN NULL
+                    ELSE ABS(tx.fee_amount) + ABS(tx.tax_amount) END AS fees,
+               tx.currency, COALESCE(tx.source_table, 'pams_investment_trade_fact') AS source,
+               COALESCE(tx.source_key, tx.trade_id::text) AS source_key,
+               tx.trade_type, tx.net_cash, tx.net_cash_cny, tx.realized_pnl_cny,
+               CASE WHEN tx.currency = 'CNY' THEN 1 ELSE fx.rate END AS gross_fx_rate_cny
+        FROM pams_investment_trade_fact tx {fx_join}
+        WHERE COALESCE(tx.review_status, '') <> 'deleted'
+        ORDER BY tx.trade_date DESC, tx.trade_time DESC NULLS LAST, tx.trade_id DESC LIMIT %s
+        """, (limit,),
     )
     rows = []
     for row in cur.fetchall():
         item = dict(row)
-        currency = str(item.get("currency") or base_currency).upper()
-        item["gross_amount_cny"] = _dec(item.get("gross_amount")) * _fx_rate(fx_rates, currency, base_currency)
+        rate = item.pop('gross_fx_rate_cny', None)
+        amount = item.get('gross_amount')
+        item['gross_amount_cny'] = (_dec(amount) * _dec(rate) if amount is not None and rate is not None else None)
+        if rate is None:
+            item['fx_status'] = 'unavailable'
         rows.append(item)
     return rows
 
 
 def load_cash_transactions(cur, limit: int = 5000) -> list[dict[str, Any]]:
-    """Load bank/payment statement rows as cash ledger inputs."""
-    if not _table_exists(cur, "pams_bank_statement_rows"):
+    """Load independent bank statement facts from unified sources."""
+    if not all(_table_exists(cur, table) for table in ('source_items', 'source_batches',
+                                                        'evidence_confirmation')):
         return []
-    cur.execute(
-        """
-        SELECT id, account_code, transaction_date, amount, currency, balance,
-               category, subcategory, summary, description, counterparty, source_uid
-        FROM pams_bank_statement_rows
-        ORDER BY transaction_date DESC, id DESC
-        LIMIT %s
-        """,
-        (limit,),
-    )
-    return [dict(r) for r in cur.fetchall()]
+    from domain.ledger import bank_source_read
+    result = []
+    for item in bank_source_read.rows(cur, limit=limit):
+        source = item.get('source') or {}
+        source = source if isinstance(source, dict) else {}
+        original = source.get('statement_row') or {}
+        original = original if isinstance(original, dict) else {}
+        result.append({
+            'id': item['cashflow_id'], 'account_code': item['account_code'],
+            'transaction_date': item['event_date'], 'amount': item['amount'], 'currency': item['currency'],
+            'balance': original.get('balance'), 'category': item.get('category'),
+            'subcategory': item.get('subcategory'), 'summary': item.get('summary'),
+            'description': item.get('description'), 'counterparty': item.get('counterparty'),
+            'source_uid': original.get('source_uid'), 'source_item_id': str(item['source_item_id']),
+            'coverage_status': 'unknown', 'source_evidence_status': item.get('source_evidence_status', 'unknown'),
+        })
+    return result
 
 
 def load_transfer_matches(cur, limit: int = 5000) -> list[dict[str, Any]]:
-    """Load matched internal transfers across cash and investment accounts."""
-    if not _table_exists(cur, "pams_bank_transfer_matches"):
+    """Load immutable, explicitly confirmed transfer decisions."""
+    if not _table_exists(cur, 'evidence_confirmation'):
         return []
-    cur.execute(
-        """
-        SELECT id, match_key, match_type, relation_code, from_account_code,
-               to_account_code, amount, currency, match_date, confidence, status
-        FROM pams_bank_transfer_matches
-        ORDER BY match_date DESC NULLS LAST, id DESC
-        LIMIT %s
-        """,
-        (limit,),
-    )
-    return [dict(r) for r in cur.fetchall()]
+    from domain.ledger import confirmed_transfers
+    result = []
+    for item in confirmed_transfers.read(cur, limit=limit):
+        left, right = item['from_evidence'], item['to_evidence']
+        kind = ('investment_funding' if right['kind'] == 'trade' else
+                'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
+        result.append({
+            'id': str(item['transfer_id']), 'match_key': str(item['transfer_id']), 'match_type': kind,
+            'relation_code': None, 'from_account_code': item['from_account_code'],
+            'to_account_code': item['to_account_code'], 'amount': item['amount'], 'currency': item['currency'],
+            'match_date': left['day'] if left['day'] == right['day'] else None,
+            'from_date': left['day'], 'to_date': right['day'], 'confidence': None,
+            'status': item['evidence_status'],
+        })
+    return result
 
 
 def load_fx_rates(cur, base_currency: str) -> list[dict[str, Any]]:
@@ -979,7 +988,9 @@ def load_fx_rates(cur, base_currency: str) -> list[dict[str, Any]]:
         SELECT DISTINCT ON (base_currency, quote_currency)
                base_currency, quote_currency, rate, as_of, source
         FROM pams_fx_rates_daily
-        WHERE base_currency = %s
+        WHERE base_currency = %s AND as_of <= CURRENT_DATE
+          AND NULLIF(BTRIM(source),'') IS NOT NULL AND rate > 0
+          AND rate::text NOT IN ('NaN','Infinity','-Infinity')
         ORDER BY base_currency, quote_currency, as_of DESC
         """,
         (base_currency,),
@@ -992,35 +1003,8 @@ def load_fx_rates(cur, base_currency: str) -> list[dict[str, Any]]:
 
 def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> list[dict[str, Any]]:
     """Load available valuation rows and project them to the valuation series contract."""
-    if _table_exists(cur, "pams_portfolio_valuation_state"):
-        cur.execute(
-            """
-            WITH ranked AS (
-                SELECT *,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY valuation_date
-                           ORDER BY
-                               CASE WHEN status = 'published' THEN 0 ELSE 1 END,
-                               published_at DESC NULLS LAST,
-                               updated_at DESC NULLS LAST
-                       ) AS rn
-                FROM pams_portfolio_valuation_state
-                WHERE base_currency = %s
-            )
-            SELECT valuation_date,
-                   assets_cny,
-                   liabilities_cny,
-                   net_liquidation_value,
-                   investment_value_cny,
-                   total_pnl_cny
-            FROM ranked
-            WHERE rn = 1
-            ORDER BY valuation_date DESC
-            LIMIT %s
-            """,
-            (base_currency, limit),
-        )
-        raw_rows = list(reversed([dict(r) for r in cur.fetchall()]))
+    if _table_exists(cur, "valuation_results"):
+        raw_rows = valuation_series_rows(cur, base_currency=base_currency, limit=limit)
         rows: list[dict[str, Any]] = []
         for raw in raw_rows:
             investment_value = raw.get("investment_value_cny")
@@ -1041,6 +1025,7 @@ def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> 
                     "investment_cost_cny": investment_cost,
                     "investment_pnl_cny": investment_pnl,
                     "investment_return_rate": return_rate,
+                    "valuation_meta": valuation_series_evidence(raw, source_table="valuation_results"),
                 }
             )
         return rows
@@ -1070,6 +1055,7 @@ def load_valuation_series(cur, limit: int = 370, base_currency: str = "CNY") -> 
                 "investment_cost_cny": raw.get("investment_cost_cny"),
                 "investment_pnl_cny": raw.get("investment_pnl_cny"),
                 "investment_return_rate": raw.get("investment_return_rate"),
+                "valuation_meta": valuation_series_evidence(raw, source_table="pams_nav_daily"),
             }
         )
     return rows
@@ -1080,16 +1066,24 @@ def build_risk_snapshot(
     investment_positions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Build a lightweight risk snapshot from normalized state fields."""
+    incomplete = sorted({str(p.get("account_code")) for p in [*account_balances, *investment_positions]
+                         if p.get("account_code") and p.get("include_in_nav", True)
+                         and (p.get("snapshot_scope_status") in {"partial", "unknown"} or p.get("fx_status") == "unavailable")})
+    if incomplete:
+        return {"status": "incomplete", "unavailable_accounts": incomplete,
+                "total_nav": None, "gross_exposure_ratio": None, "negative_cash_ratio": None,
+                "account_exposure": [], "position_exposure": [], "industry_exposure": [],
+                "style_exposure": [], "factor_exposure": {}, "stress_loss": {}, "rebalance_suggestions": []}
     total_nav = sum(
         (_dec(a.get("amount_cny")) for a in account_balances if a.get("include_in_nav")),
         Decimal("0"),
     )
     gross_exposure = sum(
-        (abs(_dec(p.get("market_value_cny"))) for p in investment_positions if p.get("asset_type") != "liability"),
+        (abs(_dec(p.get("market_value_cny"))) for p in investment_positions if p.get("asset_type") != "liability" and p.get('include_in_nav', True)),
         Decimal("0"),
     )
     negative_cash = sum(
-        (_dec(a.get("amount_cny")) for a in account_balances if _dec(a.get("amount_cny")) < 0),
+        (_dec(a.get("amount_cny")) for a in account_balances if a.get('include_in_nav', True) and _dec(a.get("amount_cny")) < 0),
         Decimal("0"),
     )
     denominator = total_nav if total_nav else Decimal("1")
@@ -1317,7 +1311,7 @@ def build_portfolio_state_from_parts(
     """Assemble a JSON-serializable PortfolioState from normalized components."""
     balances = account_balances or []
     positions = investment_positions or []
-    state = {
+    state: dict[str, Any] = {
         "as_of": as_of or _view_as_of(),
         "base_currency": str(base_currency or "CNY").upper(),
         "account_balances": balances,
@@ -1338,6 +1332,26 @@ def build_portfolio_state_from_parts(
             valuation_series=valuation_series or [],
         ),
     }
+    incomplete = sorted({str(row.get("account_code")) for row in [*balances, *positions]
+                         if row.get("account_code") and row.get("include_in_nav", True)
+                         and row.get("snapshot_scope_status") in {"partial", "unknown"}})
+    if incomplete:
+        state["snapshot_scope_status"] = "incomplete"
+        state["snapshot_scope_unavailable_accounts"] = incomplete
+        risk = dict(state.get("risk_snapshot") or {})
+        risk.update(status="incomplete", unavailable_accounts=incomplete,
+                    total_nav=None, gross_exposure_ratio=None, negative_cash_ratio=None)
+        state["risk_snapshot"] = risk
+    fx_unavailable = sorted({str(row.get("account_code")) for row in [*balances, *positions]
+                             if row.get("account_code") and row.get("include_in_nav", True)
+                             and row.get("fx_status") == "unavailable"})
+    if fx_unavailable:
+        state["fx_status"] = "incomplete"
+        state["fx_unavailable_accounts"] = fx_unavailable
+        risk = dict(state.get("risk_snapshot") or {})
+        risk.update(status="incomplete", unavailable_accounts=sorted(set(risk.get("unavailable_accounts") or []) | set(fx_unavailable)),
+                    total_nav=None, gross_exposure_ratio=None, negative_cash_ratio=None)
+        state["risk_snapshot"] = risk
     return _norm(state)
 
 
@@ -1380,6 +1394,7 @@ def load_portfolio_state_parts(
     base = str(base_currency or "CNY").upper()
     account_cfg = _load_accounts_config()
     with conn_factory() as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             account_balances = load_account_balances(cur, base, account_cfg)
             investment_positions = load_investment_positions(

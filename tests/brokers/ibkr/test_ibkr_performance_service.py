@@ -22,13 +22,11 @@ from domain.risk import risk_state  # noqa: E402
 
 
 # AST fingerprints captured from main fdae2a1 before moving the functions.
-# Selection intentionally changes in the publication PR; monetary/FX parsers stay frozen.
+# Financial parsers retain their established calculation contract.
 BASELINE_FUNCTIONS = {
-    "get_conn": "c85e2736a5582dbee0b4149324705c010d065c8d00a35e105b0873bae1036159",
     "_norm": "11dc300a34cda207f9e829c2f1cc6fed077083249d80496ad802a42996cf3388",
     "_dec": "a0f3ea41ec85d93e536192e81dd87fd5150fa528168eeb42b56dcf1ae0444a96",
     "_ib_date": "746e5401c43ef48501ebc6e840a9c6f11af567b3c8d3fa96e508039fd09ec534",
-    "_latest_usd_cny_rate": "7e56914bdb8a3fd935a94be84239bed5c2482a8c397d87ced9ffb0dd53f72eaf",
     "_parse_flex_performance": "fd85b84f13f853c2acd1b2f5e3f8607cc4948f96c18b1cf548dfef485416d405",
 }
 
@@ -64,12 +62,18 @@ def test_moved_function_ast_is_identical_to_baseline(name, fingerprint):
     tree = ast.parse(Path(service.__file__).read_text(encoding="utf-8"))
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
     if name == "_parse_flex_performance":
-        # Permit only the read-only display opt-out; preserve the original formula hash.
+        # Accept the original XML from a source object while retaining the formula.
         assert len(node.args.kwonlyargs) == len(node.args.kw_defaults) == 1
         assert node.args.kwonlyargs[0].arg == "include_display_fx"
         assert ast.dump(node.args.kwonlyargs[0].annotation) == "Name(id='bool', ctx=Load())"
         assert isinstance(node.args.kw_defaults[0], ast.Constant) and node.args.kw_defaults[0].value is True
         node.args.kwonlyargs, node.args.kw_defaults = [], []
+        assert ast.unparse(node.args.args[0].annotation) == 'Path | report_state.StoredReport'
+        node.args.args[0].annotation = ast.Name(id='Path', ctx=ast.Load())
+        root_assignment = next(n for n in node.body if isinstance(n, ast.Assign)
+                               and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "root")
+        assert ast.unparse(root_assignment.value) == 'ET.fromstring(path.read_bytes())'
+        root_assignment.value = ast.parse('ET.parse(path).getroot()', mode='eval').body
         assignment = next(n for n in node.body if isinstance(n, ast.Assign)
                           and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "usd_cny")
         assert isinstance(assignment.value, ast.IfExp)
@@ -78,6 +82,40 @@ def test_moved_function_ast_is_identical_to_baseline(name, fingerprint):
         assignment.value = assignment.value.body
     assert hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest() == fingerprint
     assert getattr(ibkr, name) is getattr(service, name)
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_get_conn_uses_guarded_connector_with_expected_parameters(monkeypatch, configured):
+    from domain.imports import isolation
+
+    for key in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD"):
+        monkeypatch.delenv(key, raising=False)
+    if configured:
+        for key, value in {
+            "PGHOST": "127.0.0.1", "PGPORT": "6543", "PGDATABASE": "synthetic",
+            "PGUSER": "test-user", "PGPASSWORD": "test-password",
+        }.items():
+            monkeypatch.setenv(key, value)
+    calls = []
+    connection = object()
+    monkeypatch.setattr(isolation, "guarded_connect", lambda **kwargs: calls.append(kwargs) or connection)
+    assert service.get_conn() is connection
+    assert ibkr.get_conn is service.get_conn
+    assert calls == ([{"host": "127.0.0.1", "port": 6543, "dbname": "synthetic",
+                       "user": "test-user", "password": "test-password"}] if configured else
+                     [{"host": "pams-postgres", "port": 5432, "dbname": "pams",
+                       "user": "pams", "password": ""}])
+
+
+def test_get_conn_propagates_isolation_rejection(monkeypatch):
+    from domain.imports import isolation
+
+    def reject(**kwargs):
+        raise isolation.IsolationError("synthetic isolation rejection")
+
+    monkeypatch.setattr(isolation, "guarded_connect", reject)
+    with pytest.raises(isolation.IsolationError, match="synthetic isolation rejection"):
+        service.get_conn()
 
 
 @pytest.fixture

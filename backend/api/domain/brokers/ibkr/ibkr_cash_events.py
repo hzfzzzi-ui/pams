@@ -12,6 +12,7 @@ from typing import Any, Mapping
 import psycopg2.extras
 
 from domain.investments.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
+from domain.imports import isolation
 
 SOURCE_TABLE = "ibkr_flex_cash_transaction"
 
@@ -134,7 +135,8 @@ def dated_fx_rate(cur, currency: str, event_date: date) -> Decimal | None:
     if currency == "CNY":
         return Decimal("1")
     cur.execute("""SELECT rate FROM pams_fx_rates_daily WHERE base_currency = 'CNY'
-        AND quote_currency = %s AND as_of = %s""", (currency, event_date))
+        AND quote_currency = %s AND as_of = %s
+        AND NULLIF(BTRIM(source),'') IS NOT NULL""", (currency, event_date))
     rates = cur.fetchall()
     rate = Decimal(str(rates[0]["rate"])) if len(rates) == 1 and rates[0]["rate"] is not None else Decimal("NaN")
     if not rate.is_finite() or rate <= 0 or rate >= Decimal("1e10") or rate != rate.quantize(Decimal("0.0000000001")):
@@ -144,9 +146,13 @@ def dated_fx_rate(cur, currency: str, event_date: date) -> Decimal | None:
 
 def import_cash_events(
     conn, envelopes: list[dict[str, Any]], *, account_code: str, cutoff: date, statement_as_of: date,
+    defer_source_link: bool = False,
 ) -> dict[str, Any]:
+    if not defer_source_link:
+        raise ValueError('IBKR cash events require same-transaction original report publication')
     result: dict[str, Any] = {"cutoff": cutoff.isoformat(), "inserted_count": 0,
                               "duplicate_count": 0, "historical_count": 0, "pending": []}
+    deferred: list[dict[str, Any]] = []
     events: dict[str, dict[str, Any]] = {}
     conflicts: set[str] = set()
     for envelope in envelopes:
@@ -175,10 +181,13 @@ def import_cash_events(
             result["duplicate_count"] += 1
         events[event["source_key"]] = event
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        isolated=isolation.source_enabled(cur)
+        if not isolated or cur.connection.autocommit:
+            raise ValueError('deferred IBKR cash source requires isolated transaction')
         for event in events.values():
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                         (f"{SOURCE_TABLE}:{event['source_key']}",))
-            cur.execute("""SELECT raw_json FROM pams_investment_trade_fact
+            cur.execute("""SELECT raw_json,trade_id,source_item_id FROM pams_investment_trade_fact
                 WHERE source_table = %s AND (source_key = %s OR source_id = %s) FOR UPDATE""",
                         (SOURCE_TABLE, event["source_key"], event["source_id"]))
             existing = cur.fetchall()
@@ -189,6 +198,7 @@ def import_cash_events(
                         "fact_imported": False, "blocking": True})
                     continue
                 result["duplicate_count"] += 1
+                deferred.append({'event':event,'fact_id':existing[0]['trade_id'],'created':False})
                 if event["side"] in {"deposit", "withdraw"} and not existing[0]["raw_json"].get("source_row", {}).get("cashflow_id"):
                     result["pending"].append({"transaction_id": event["transaction_id"],
                         "reason": "bank_match_pending", "retryable": False, "state": "waiting_evidence",
@@ -213,9 +223,14 @@ def import_cash_events(
                 fact["fee_currency"] = event["currency"]
             elif event["side"] == "tax":
                 fact["tax_amount"] = abs(event["net_cash"])
-            result["inserted_count"] += insert_investment_trade_facts(cur, [fact], strict_source=True)
+            inserted = insert_investment_trade_facts(cur, [fact], strict_source=True)
+            if inserted:
+                cur.execute("SELECT trade_id FROM pams_investment_trade_fact WHERE source_table=%s AND source_key=%s",(SOURCE_TABLE,event['source_key']))
+                deferred.append({'event':event,'fact_id':cur.fetchone()['trade_id'],'created':True})
+            result["inserted_count"] += inserted
     result["retryable_count"] = sum(item["retryable"] for item in result["pending"])
     result["waiting_evidence_count"] = len(result["pending"]) - result["retryable_count"]
     result["blocking_pending_count"] = sum(item["blocking"] for item in result["pending"])
     result["bank_match_pending_count"] = sum(item["reason"] == "bank_match_pending" for item in result["pending"])
+    result['_deferred_source_events']=deferred
     return result

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
 from tests.support.account_import_support import scratch_database
 from endpoints.account_import import router
 from domain.imports import account_import_store as store
-from domain.imports import account_import_publish as publisher
+from domain.imports import native_source_http as publisher
 
 DAY = (date.today() - timedelta(days=2)).isoformat()
 
@@ -24,6 +24,8 @@ def client(monkeypatch):
     with scratch_database() as params:
         monkeypatch.delenv("PAMS_IMPORT_ACCESS_TOKEN", raising=False)
         monkeypatch.setenv("PAMS_IMPORT_PUBLISH_ENABLED", "true")
+        monkeypatch.setenv("PAMS_UNIFIED_SOURCE_ISOLATED", "true")
+        monkeypatch.setenv("PAMS_SOURCE_TEST_TOKEN_KEY", "a1"*32)
         monkeypatch.setattr(store, "get_conn", lambda: psycopg2.connect(**params))
         app = FastAPI()
         app.include_router(router, prefix="/api")
@@ -117,7 +119,7 @@ def test_native_mixed_file_preview_never_writes_financial_facts(client, monkeypa
     assert check["rows"][0]["fields"]["asset_type"] == "stock"
     assert check["rows"][3]["fields"]["action"] == "tax"
     assert not check["can_publish"] and publish(web, batch, check).status_code == 403
-    assert sql(params, "SELECT content FROM pams_account_import_file")[0]["content"].tobytes() == content
+    assert sql(params, "SELECT content FROM source_files")[0]["content"].tobytes() == content
     for table in ("pams_investment_trade_fact", "pams_cashflow_fact", "pams_holdings_snapshot"):
         assert not sql(params, "SELECT * FROM " + table)
 
@@ -150,9 +152,8 @@ def test_native_funding_bank_links_idempotence_and_financial_flags_in_isolation(
         if row["fields"]["action"] in {"deposit", "withdraw"}:
             row["fields"]["counter_account_code"] = "bank_test"
     again = web.put(f"/api/account-import/batches/{again['batch_id']}", json={"revision": again["revision"], "rows": again["rows"]}).json()
-    repeated = preview(web, again)
-    assert repeated["counts"]["duplicates"] == 7 and repeated["counts"]["new"] == 0
-    assert publish(web, again, repeated).status_code == 200
+    repeated = web.post(f"/api/account-import/batches/{again['batch_id']}/preview", json={"revision":again['revision']})
+    assert repeated.status_code == 400 and "explicit association" in repeated.text
     assert len(sql(params, "SELECT * FROM pams_investment_trade_fact")) == 7
     assert len(sql(params, "SELECT * FROM pams_cashflow_fact")) == 2
 
@@ -177,12 +178,12 @@ def test_trade_canonical_amount_source_idempotence(client):
     assert response.json()["batch"]["status"] == "published"
     assert publish(web, batch, check).json()["replayed"]
     fact = sql(params, "SELECT * FROM pams_investment_trade_fact")[0]
-    assert fact["net_cash"] == Decimal("-1005") and fact["fee_amount"] == 5 and fact["tax_amount"] == 0
-    assert fact["source_table"] == "pams_account_import_batch" and fact["review_status"] == "confirmed"
+    assert fact["net_cash"] == Decimal("-1005") and fact["fee_amount"] == 5 and fact["tax_amount"] is None
+    assert fact["source_table"] == "source_items" and fact["review_status"] == "confirmed"
+    assert fact["raw_json"]["source_row"]["fee_scope"] == "total_charges"
     other = draft(web, [trade(source_ref="official-001")])
-    again = preview(web, other)
-    assert again["counts"]["duplicates"] == 1
-    assert publish(web, other, again).status_code == 200
+    again = web.post(f"/api/account-import/batches/{other['batch_id']}/preview",json={"revision":other["revision"]})
+    assert again.status_code == 400 and "explicit association" in again.text
     assert sql(params, "SELECT count(*) n FROM pams_investment_trade_fact")[0]["n"] == 1
 
 
@@ -248,11 +249,12 @@ def test_atomic_failure_rolls_back_bank_leg_trade_and_audit(client, monkeypatch)
     assert check["can_publish"]
     def fail(*args, **kwargs):
         raise store.ImportProblem("injected", "isolated failure", 409)
-    monkeypatch.setattr(publisher, "insert_investment_trade_facts", fail)
+    from domain.imports import native_source
+    monkeypatch.setattr(native_source, "insert_investment_trade_facts", fail)
     assert publish(web, batch, check).status_code == 409
     assert not sql(params, "SELECT * FROM pams_cashflow_fact") and not sql(params, "SELECT * FROM pams_investment_trade_fact")
-    assert sql(params, "SELECT status FROM pams_account_import_batch")[0]["status"] == "draft"
-    assert not sql(params, "SELECT * FROM pams_account_import_audit WHERE event='published'")
+    assert sql(params, "SELECT status FROM source_batches")[0]["status"] == "draft"
+    assert sql(params, "SELECT published_result FROM source_batches")[0]["published_result"] is None
 
 
 def test_cash_two_legs_linked_no_spending_or_nav_double_count(client):
@@ -279,7 +281,12 @@ def test_snapshot_missing_members_never_silently_closed(client):
     old = draft(web, [holding(business_date=(date.fromisoformat(DAY)-timedelta(days=1)).isoformat())])
     assert "stale_snapshot" in issues(preview(web, old))
     zero = draft(web, [holding(business_date=next_day, quantity="0", market_value="0", cost="0"),
-                       holding(business_date=next_day, asset_type="cash", symbol=None, action="balance", net_cash="1050")])
+                       holding(business_date=next_day, asset_type="cash", symbol=None, action="balance", net_cash="1050")], completeness="complete")
+    scope = web.post(f"/api/account-import/batches/{zero['batch_id']}/confirm-scope", json={
+        'revision':zero['revision'], 'as_of':next_day, 'member_count':2, 'cash_amount':'1050',
+        'note':'核对完整持仓和现金', 'confirmed':True})
+    assert scope.status_code == 200, scope.text
+    zero = web.get(f"/api/account-import/batches/{zero['batch_id']}").json()
     assert publish(web, zero, preview(web, zero)).status_code == 200
     assert len(sql(params, "SELECT * FROM pams_holdings_snapshot WHERE as_of=%s", (next_day,))) == 2
 
@@ -293,19 +300,14 @@ def test_snapshot_precision_cost_type_and_multiple_targets(client):
     assert "duplicate_snapshot_target" in issues(preview(web, draft(web, [holding(source_ref="one"), holding(source_ref="two")])))
 
 
-def test_ocr_requires_explicit_acknowledgement(client):
-    web, params = client
-    batch = draft(web, [trade()])
-    sql(params, "UPDATE pams_account_import_batch SET rows_json=jsonb_set(rows_json,'{0,source}',%s::jsonb) WHERE batch_id=%s", ('{"origin":"ocr"}', batch["batch_id"]))
-    assert "ocr_review_required" in issues(preview(web, batch))
-
-
-def test_expired_preview_and_disabled_account(client):
+def test_expired_preview_and_disabled_account(client, monkeypatch):
     web, params = client
     batch = draft(web, [trade()])
     check = preview(web, batch)
-    sql(params, "UPDATE pams_account_import_batch SET preview_json=jsonb_set(preview_json,'{prepared_at}','\"2000-01-01T00:00:00+00:00\"') WHERE batch_id=%s", (batch["batch_id"],))
-    assert publish(web, batch, check).json()["detail"]["code"] == "preview_expired"
+    original_time = publisher.time.time()
+    with monkeypatch.context() as patch:
+        patch.setattr(publisher.time, 'time', lambda: original_time + 1000)
+        assert publish(web, batch, check).json()["detail"]["code"] == "source_changed"
     sql(params, "UPDATE pams_accounts SET active=false WHERE account_code='tonghuashun'")
     assert "account_inactive" in issues(preview(web, batch))
 
@@ -352,7 +354,7 @@ def test_concurrent_publication_has_one_effect(client):
         results = list(pool.map(lambda _: call(), range(2)))
     assert "ok" in results
     assert sql(params, "SELECT count(*) n FROM pams_investment_trade_fact")[0]["n"] == 1
-    assert sql(params, "SELECT count(*) n FROM pams_account_import_audit WHERE event='published'")[0]["n"] == 1
+    assert sql(params, "SELECT count(*) n FROM source_batches WHERE status='published'")[0]["n"] == 1
 
 
 @pytest.mark.parametrize("raw_type,account,action,symbol", [

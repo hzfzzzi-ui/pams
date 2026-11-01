@@ -40,95 +40,47 @@ class FakeCursor:
         return result
 
 
-def test_build_nav_series_payload_preserves_legacy_shape_and_latest_append():
-    cur = FakeCursor(
-        [
-            {"exists": True},
-            {"as_of": date(2026, 5, 31)},
-            [
-                {"as_of": date(2026, 5, 20), "total_market_value": Decimal("100.50")},
-                {"as_of": date(2026, 5, 10), "total_market_value": Decimal("90.25")},
-            ],
-            {"total_mv": Decimal("123.45")},
-        ]
-    )
+def test_bank_nav_requires_fx_on_the_valuation_day():
+    from domain.investments.valuation_nav import build_weekly_nav_rows, fx_rate_at
+    day = date(2026, 6, 4)
+    accounts = [{"account_code": "bank_usd", "account_type": "funding", "base_currency": "USD",
+                 "primary_balance": {"amount": "100", "currency": "USD", "as_of": day}}]
+    rates = {"USD": [(date(2026, 6, 3), Decimal("7")), (date(2026, 6, 5), Decimal("8"))]}
+    assert fx_rate_at(rates, "USD", day, "CNY") is None
+    args = dict(accounts=accounts, rows_by_account={}, dates=[day], terminal_date=day, base_currency="CNY")
+    bank = _bank_backcast_series(fx_timelines=rates, **args)
+    values = build_weekly_nav_rows(dates=[day], bank_series=bank, snapshot_series={}, a_share_series={}, ibkr_values={})
+    assert values[0]["net_worth"] is None and values[0]["unavailable_accounts"] == ["bank_usd"]
+    bank = _bank_backcast_series(fx_timelines={"USD": [(day, Decimal("7"))]}, **args)
+    values = build_weekly_nav_rows(dates=[day], bank_series=bank, snapshot_series={}, a_share_series={}, ibkr_values={})
+    assert values[0]["net_worth"] == Decimal("700")
 
-    payload = build_nav_series_payload(cur, limit=2, base_currency="CNY")
 
-    assert set(payload) == {"rows"}
-    assert payload["rows"] == [
-        {"asOfDate": "2026-05-10", "netWorth": 90.25},
-        {"asOfDate": "2026-05-20", "netWorth": 100.5},
-        {"asOfDate": "2026-05-31", "netWorth": 123.45},
+def test_nav_series_and_drawdown_propagate_missing_history():
+    rows = [
+        {"asOfDate": "2026-05-10", "netWorth": "100"},
+        {"asOfDate": "2026-05-11", "netWorth": None, "unavailable_accounts": ["ibkr"]},
+        {"asOfDate": "2026-05-12", "netWorth": "90"},
     ]
-    assert len(cur.executed) == 4
+    series = build_nav_series_payload(rows)
+    assert series["rows"][0]["netWorth"] == 100
+    assert series["rows"][1]["netWorth"] is None
+    drawdown = build_nav_drawdown_payload(rows)
+    assert drawdown["max_drawdown"] is None
+    assert drawdown["rows"][0]["drawdown"] == "0"
+    assert drawdown["rows"][1]["drawdown"] is None
+    assert drawdown["rows"][2]["drawdown"] is None
 
 
-def test_build_nav_series_payload_falls_back_to_holdings_when_nav_table_missing():
-    cur = FakeCursor(
-        [
-            {"exists": False},
-            [
-                {"as_of": date(2026, 5, 20), "total_market_value": Decimal("100.50")},
-                {"as_of": date(2026, 5, 31), "total_market_value": Decimal("123.45")},
-            ],
-        ]
-    )
-
-    payload = build_nav_series_payload(cur, limit=2, base_currency="CNY")
-
-    assert payload["rows"] == [
-        {"asOfDate": "2026-05-20", "netWorth": 100.5},
-        {"asOfDate": "2026-05-31", "netWorth": 123.45},
-    ]
-
-
-def test_build_nav_drawdown_payload_preserves_legacy_shape():
-    cur = FakeCursor(
-        [
-            {"exists": True},
-            [
-                {
-                    "as_of": date(2026, 5, 10),
-                    "total_market_value": Decimal("100"),
-                    "completeness": Decimal("1"),
-                    "peak": Decimal("100"),
-                    "drawdown": Decimal("0"),
-                },
-                {
-                    "as_of": date(2026, 5, 20),
-                    "total_market_value": Decimal("90"),
-                    "completeness": Decimal("1"),
-                    "peak": Decimal("100"),
-                    "drawdown": Decimal("-0.1"),
-                },
-            ]
-        ]
-    )
-
-    payload = build_nav_drawdown_payload(cur, limit=2)
-
+def test_nav_drawdown_preserves_proven_zero_and_known_history():
+    rows = [{"asOfDate": "2026-05-10", "netWorth": "100"},
+            {"asOfDate": "2026-05-11", "netWorth": "90"}]
+    payload = build_nav_drawdown_payload(rows)
     assert payload["max_drawdown"] == "-0.1"
-    assert payload["rows"][0]["as_of"] == "2026-05-10"
     assert payload["rows"][1]["drawdown"] == "-0.1"
-
-
-def test_build_nav_drawdown_payload_falls_back_to_holdings_when_nav_table_missing():
-    cur = FakeCursor(
-        [
-            {"exists": False},
-            [
-                {"as_of": date(2026, 5, 10), "total_market_value": Decimal("100")},
-                {"as_of": date(2026, 5, 20), "total_market_value": Decimal("90")},
-            ],
-        ]
-    )
-
-    payload = build_nav_drawdown_payload(cur, limit=2)
-
-    assert payload["max_drawdown"] == "-0.1"
-    assert payload["rows"][0]["peak"] == "100"
-    assert payload["rows"][1]["drawdown"] == "-0.1"
+    zero = [{"asOfDate": "2026-05-10", "netWorth": "0"}]
+    assert build_nav_series_payload(zero)["rows"][0]["netWorth"] == 0
+    assert build_nav_drawdown_payload(zero)["rows"][0]["drawdown"] == "0"
 
 
 def _owner_ratio_case_sql(alias: str = "h"):
@@ -191,12 +143,11 @@ def test_build_nav_weekly_payload_preserves_legacy_shape_and_row_fields():
     cur = FakeCursor(
         [
             [],
-            {"bank_rows_exists": True, "cashflow_fact_exists": True},
-            [],
+            {"item_exists": True, "batch_exists": True, "cashflow_fact_exists": True},
             [],
             {"fact_exists": False, "px_exists": False},
-            {"tv_exists": False, "px_exists": False},
-            {"exists": False},
+            {"exists": True},
+            [],
         ]
     )
     overview_payload = {
@@ -217,6 +168,7 @@ def test_build_nav_weekly_payload_preserves_legacy_shape_and_row_fields():
         overview_payload=overview_payload,
         owner_ratio_case_sql=_owner_ratio_case_sql,
         account_owner_ratio=_account_owner_ratio,
+        include_ibkr=False,
     )
 
     assert set(payload) == {"start", "end", "base_currency", "interval", "method", "anchor_date", "rows"}
@@ -231,11 +183,9 @@ def test_build_nav_weekly_payload_accepts_current_terminal_date():
     cur = FakeCursor(
         [
             [],
-            {"bank_rows_exists": True, "cashflow_fact_exists": True},
-            [],
+            {"item_exists": True, "batch_exists": True, "cashflow_fact_exists": True},
             [],
             {"fact_exists": False, "px_exists": False},
-            {"tv_exists": False, "px_exists": False},
             {"exists": False},
         ]
     )
@@ -270,11 +220,9 @@ def test_build_nav_weekly_payload_can_sample_daily_dates():
     cur = FakeCursor(
         [
             [],
-            {"bank_rows_exists": True, "cashflow_fact_exists": True},
-            [],
+            {"item_exists": True, "batch_exists": True, "cashflow_fact_exists": True},
             [],
             {"fact_exists": False, "px_exists": False},
-            {"tv_exists": False, "px_exists": False},
             {"exists": False},
         ]
     )
@@ -311,12 +259,11 @@ def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state
     cur = FakeCursor(
         [
             [],
-            {"bank_rows_exists": True, "cashflow_fact_exists": True},
-            [],
+            {"item_exists": True, "batch_exists": True, "cashflow_fact_exists": True},
             [],
             {"fact_exists": False, "px_exists": False},
-            {"tv_exists": False, "px_exists": False},
-            {"exists": False},
+            {"exists": True},
+            [],
         ]
     )
 
@@ -336,6 +283,7 @@ def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state
         },
         owner_ratio_case_sql=_owner_ratio_case_sql,
         account_owner_ratio=_account_owner_ratio,
+        include_ibkr=False,
         terminal_date=date(2026, 6, 16),
         terminal_nav_bucket={"assets": Decimal("250"), "liabilities": Decimal("40"), "net_worth": Decimal("210")},
     )
@@ -345,16 +293,19 @@ def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state
     assert payload["rows"][-1]["netWorth"] == "210"
 
 
-def test_build_nav_weekly_payload_uses_account_value_anchor_before_overview_balance():
+def test_build_nav_weekly_payload_does_not_scale_unproven_account_history():
     cur = FakeCursor(
         [
             [],
-            {"fact_exists": True, "px_exists": True},
+            {"fact_exists": True, "px_exists": True, "item_exists": True, "batch_exists": True},
+            [],
             [
                 {"date": date(2026, 6, 10), "gross_value_cny": Decimal("100")},
                 {"date": date(2026, 6, 17), "gross_value_cny": Decimal("110")},
             ],
-            {"exists": False},
+            [],
+            {"exists": True},
+            [],
         ]
     )
 
@@ -374,11 +325,13 @@ def test_build_nav_weekly_payload_uses_account_value_anchor_before_overview_bala
         },
         owner_ratio_case_sql=_owner_ratio_case_sql,
         account_owner_ratio=_account_owner_ratio,
+        include_ibkr=False,
         terminal_date=date(2026, 6, 17),
         terminal_account_values_cny={"tonghuashun": Decimal("130")},
     )
 
-    assert Decimal(payload["rows"][-1]["netWorth"]) == Decimal("130")
+    assert payload["rows"][-1]["netWorth"] is None
+    assert payload["rows"][-1]["unavailable_accounts"] == ["tonghuashun"]
 
 
 def test_current_nav_bucket_from_parts_uses_positions_and_unrepresented_accounts():
@@ -422,212 +375,33 @@ def test_current_nav_account_values_from_parts_groups_positions_and_unrepresente
     }
 
 
-def test_statement_rows_by_account_falls_back_to_cashflow_fact() -> None:
-    cur = FakeCursor(
-        [
-            {"bank_rows_exists": False, "cashflow_fact_exists": True},
-            [
-                {
-                    "id": 11,
-                    "account_code": "ccb",
-                    "transaction_date": date(2026, 5, 25),
-                    "amount": Decimal("-10"),
-                    "currency": "CNY",
-                    "category": "daily",
-                    "subcategory": None,
-                    "summary": "测试",
-                    "description": None,
-                    "counterparty": None,
-                }
-            ],
-        ]
-    )
+def test_statement_rows_by_account_requires_source_proof(monkeypatch) -> None:
+    from domain.imports import source_fact_evidence
 
-    rows = _statement_rows_by_account(
-        cur,
-        ["ccb"],
-        date(2026, 5, 24),
-        date(2026, 5, 31),
-    )
+    class Verifier:
+        def __init__(self, cur):
+            pass
 
+        def verify(self, *, table, fact_id):
+            return {"status": "verified" if fact_id == 11 else "inconsistent"}
+
+    monkeypatch.setattr(source_fact_evidence, "NativeFactVerifier", Verifier)
+    cur = FakeCursor([
+        {"cashflow_fact_exists": True, "item_exists": True, "batch_exists": True},
+        [{"id": 11, "account_code": "ccb", "amount": Decimal("-10"), "statement_balance": "999"},
+         {"id": 12, "account_code": "ccb", "amount": Decimal("-20")}],
+    ])
+    rows = _statement_rows_by_account(cur, ["ccb"], date(2026, 5, 24), date(2026, 5, 31))
     assert rows["ccb"][0]["amount"] == Decimal("-10")
-    assert "pams_cashflow_fact" in cur.executed[1][0]
-    assert "affects_nav IS TRUE" not in cur.executed[1][0]
+    assert rows["ccb"][0]["statement_balance"] is None
+    assert rows.evidence_problems["ccb"]
 
 
-def test_statement_rows_by_account_includes_prior_statement_balance() -> None:
-    cur = FakeCursor(
-        [
-            {"bank_rows_exists": False, "cashflow_fact_exists": True},
-            [
-                {
-                    "id": 10,
-                    "account_code": "ccb",
-                    "transaction_date": date(2025, 12, 31),
-                    "amount": Decimal("-35"),
-                    "currency": "CNY",
-                    "category": "daily",
-                    "subcategory": None,
-                    "summary": "消费",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": "104031.82",
-                },
-                {
-                    "id": 11,
-                    "account_code": "ccb",
-                    "transaction_date": date(2026, 1, 5),
-                    "amount": Decimal("-1000"),
-                    "currency": "CNY",
-                    "category": "investment",
-                    "subcategory": None,
-                    "summary": "基金下账",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": "103031.82",
-                },
-            ],
-        ]
-    )
-
-    rows = _statement_rows_by_account(
-        cur,
-        ["ccb"],
-        date(2026, 1, 1),
-        date(2026, 1, 31),
-    )
-
-    sql, params = cur.executed[1]
-    assert "event_date < %s" in sql
-    assert params == (["ccb"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
-    assert rows["ccb"][0]["transaction_date"] == date(2025, 12, 31)
-    assert rows["ccb"][0]["statement_balance"] == "104031.82"
-
-
-def test_statement_rows_by_account_merges_cashflow_for_legacy_uncovered_accounts() -> None:
-    cur = FakeCursor(
-        [
-            {"bank_rows_exists": True, "cashflow_fact_exists": True},
-            [
-                {
-                    "id": 1,
-                    "account_code": "santander",
-                    "transaction_date": date(2026, 1, 8),
-                    "amount": Decimal("40000"),
-                    "currency": "MXN",
-                    "category": "internal_transfer",
-                    "subcategory": None,
-                    "summary": "transfer",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": "40000",
-                }
-            ],
-            [
-                {
-                    "id": 10,
-                    "account_code": "ccb_7332",
-                    "transaction_date": date(2025, 12, 31),
-                    "amount": Decimal("-35"),
-                    "currency": "CNY",
-                    "category": "daily",
-                    "subcategory": None,
-                    "summary": "消费",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": "104031.82",
-                }
-            ],
-        ]
-    )
-
-    rows = _statement_rows_by_account(
-        cur,
-        ["santander", "ccb_7332"],
-        date(2026, 1, 1),
-        date(2026, 1, 31),
-    )
-
-    assert rows["santander"][0]["statement_balance"] == "40000"
-    assert rows["ccb_7332"][0]["statement_balance"] == "104031.82"
-    assert cur.executed[2][1] == (["santander", "ccb_7332"], date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31))
-
-
-def test_statement_rows_by_account_merges_cashflow_for_partially_staged_account() -> None:
-    cur = FakeCursor(
-        [
-            {"bank_rows_exists": True, "cashflow_fact_exists": True},
-            [
-                {
-                    "id": 1148,
-                    "source_uid": "future-bank-row",
-                    "account_code": "ccb_credit_0453",
-                    "transaction_date": date(2026, 5, 22),
-                    "amount": Decimal("-40.53"),
-                    "currency": "CNY",
-                    "category": "餐饮",
-                    "subcategory": "日常餐饮",
-                    "summary": "信用卡消费",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": "40.53",
-                }
-            ],
-            [
-                {
-                    "id": 51,
-                    "source_uid": "old-fact-row",
-                    "account_code": "ccb_credit_0453",
-                    "transaction_date": date(2026, 1, 1),
-                    "amount": Decimal("-80.12"),
-                    "currency": "CNY",
-                    "category": "交通出行",
-                    "subcategory": "打车",
-                    "summary": "信用卡交易",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": None,
-                },
-                {
-                    "id": 999,
-                    "source_uid": "future-bank-row",
-                    "account_code": "ccb_credit_0453",
-                    "transaction_date": date(2026, 5, 22),
-                    "amount": Decimal("-40.53"),
-                    "currency": "CNY",
-                    "category": "餐饮",
-                    "subcategory": "日常餐饮",
-                    "summary": "重复 fact",
-                    "description": None,
-                    "counterparty": None,
-                    "statement_balance": None,
-                },
-            ],
-        ]
-    )
-
-    rows = _statement_rows_by_account(
-        cur,
-        ["ccb_credit_0453"],
-        date(2026, 1, 1),
-        date(2026, 6, 21),
-    )
-
-    assert [row["source_uid"] for row in rows["ccb_credit_0453"]] == ["future-bank-row", "old-fact-row"]
-
-
-def test_statement_rows_by_account_tolerates_missing_legacy_and_fact_tables() -> None:
-    cur = FakeCursor([{"bank_rows_exists": False, "cashflow_fact_exists": False}])
-
-    rows = _statement_rows_by_account(
-        cur,
-        ["ccb"],
-        date(2026, 5, 24),
-        date(2026, 5, 31),
-    )
-
+def test_statement_rows_by_account_missing_schema_is_unknown() -> None:
+    cur = FakeCursor([{"cashflow_fact_exists": False}])
+    rows = _statement_rows_by_account(cur, ["ccb"], date(2026, 5, 24), date(2026, 5, 31))
     assert rows == {}
-    assert len(cur.executed) == 1
+    assert rows.evidence_problems["ccb"] == {"cash_source_schema_unavailable"}
 
 
 def test_bank_backcast_prefers_statement_running_balance_for_opening_nav() -> None:
@@ -791,9 +565,7 @@ def test_bank_backcast_reconstructs_zero_anchor_account_from_cashflow_rows() -> 
         base_currency="CNY",
     )
 
-    assert values[date(2026, 1, 1)]["net_worth"] == Decimal("100")
-    assert values[date(2026, 1, 31)]["net_worth"] == Decimal("81")
-    assert values[date(2026, 2, 28)]["net_worth"] == Decimal("0")
+    assert all("alipay" in value["unavailable_accounts"] for value in values.values())
 
 
 def test_bank_backcast_does_not_infer_unanchored_liability_without_statement_balance() -> None:
@@ -835,7 +607,6 @@ def test_build_nav_weekly_payload_clamps_start_after_anchor():
         [
             [],
             {"fact_exists": False, "px_exists": False},
-            {"tv_exists": False, "px_exists": False},
             {"exists": False},
         ]
     )
@@ -851,3 +622,33 @@ def test_build_nav_weekly_payload_clamps_start_after_anchor():
 
     assert payload["start"] == "2026-05-31"
     assert len(payload["rows"]) == 1
+
+
+def test_current_nav_ignores_positions_of_excluded_account():
+    from domain.investments.valuation_nav import current_nav_bucket_from_parts, current_nav_account_values_from_parts
+    accounts=[{'account_code':'kept','include_in_nav':True,'amount_cny':Decimal('1050')},
+              {'account_code':'ibkr','include_in_nav':False,'amount_cny':None,'snapshot_scope_status':'unknown'}]
+    positions=[{'account_code':'kept','market_value_cny':Decimal('1050'),'snapshot_scope_status':'complete'},
+               {'account_code':'ibkr','market_value_cny':Decimal('999'),'snapshot_scope_status':'unknown'}]
+    bucket=current_nav_bucket_from_parts(account_balances=accounts,investment_positions=positions)
+    assert bucket['net_worth']==Decimal('1050')
+    assert current_nav_account_values_from_parts(account_balances=accounts,investment_positions=positions)=={'kept':Decimal('1050')}
+    accounts[1]['include_in_nav']=True
+    assert current_nav_bucket_from_parts(account_balances=accounts,investment_positions=positions)['net_worth'] is None
+
+
+def test_weekly_nav_does_not_include_disabled_tonghuashun(monkeypatch):
+    from domain.investments import valuation_nav as nav
+    day = date(2026, 10, 30)
+    def excluded(*args, **kwargs):
+        raise AssertionError('disabled account was calculated')
+    monkeypatch.setattr(nav, '_tonghuashun_series', excluded)
+    monkeypatch.setattr(nav, 'load_fx_timelines', lambda *args, **kwargs: {})
+    monkeypatch.setattr(nav, '_statement_rows_by_account', lambda *args, **kwargs: {})
+    monkeypatch.setattr(nav, '_bank_backcast_series', lambda **kwargs: {})
+    monkeypatch.setattr(nav, '_investment_snapshot_series', lambda *args, **kwargs: {})
+    payload = nav.build_nav_weekly_payload(object(), start_date=day, terminal_date=day,
+        base_currency='CNY', overview_payload={'accounts':[{'account_code':'tonghuashun','include_in_nav':False}]},
+        owner_ratio_case_sql=lambda alias:('1',[]),account_owner_ratio=lambda _:Decimal(1),
+        include_ibkr=False,interval='daily')
+    assert payload['rows'][0]['netWorth']=='0'

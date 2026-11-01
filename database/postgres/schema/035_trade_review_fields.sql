@@ -1,3 +1,4 @@
+-- Empty-database definition; no historical data migration.
 -- Add manual trade-review fields directly to the investment trade fact.
 -- These fields are user annotations and must not change imported trade facts.
 
@@ -10,65 +11,6 @@ ALTER TABLE public.pams_investment_trade_fact
     ADD COLUMN IF NOT EXISTS review_note TEXT,
     ADD COLUMN IF NOT EXISTS review_due_date DATE,
     ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
-
-UPDATE public.pams_investment_trade_fact
-SET review_status = 'auto'
-WHERE review_status IS NULL
-   OR review_status NOT IN ('auto', 'needs_review', 'reviewed', 'ignored');
-
-UPDATE public.pams_investment_trade_fact
-SET buy_reason = CASE buy_reason
-    WHEN 'rebalance' THEN 'allocation'
-    WHEN 'core_allocation' THEN 'allocation'
-    WHEN 'fund_core_allocation' THEN 'allocation'
-    WHEN 'index_beta' THEN 'allocation'
-    WHEN 'fund_index_beta' THEN 'allocation'
-    WHEN 'sector_theme' THEN 'thesis'
-    WHEN 'fund_sector_theme' THEN 'thesis'
-    WHEN 'manager_alpha' THEN 'thesis'
-    WHEN 'fund_manager_alpha' THEN 'thesis'
-    WHEN 'valuation' THEN 'value_pullback'
-    WHEN 'pullback' THEN 'value_pullback'
-    WHEN 'average_down' THEN 'value_pullback'
-    WHEN 'fund_drawdown_add' THEN 'value_pullback'
-    WHEN 'fundamental' THEN 'thesis'
-    WHEN 'momentum' THEN 'trend'
-    WHEN 'income' THEN 'cash_defense'
-    WHEN 'cash_management' THEN 'cash_defense'
-    WHEN 'hedge' THEN 'cash_defense'
-    WHEN 'fund_cash_parking' THEN 'cash_defense'
-    WHEN 'dca' THEN 'plan_dca'
-    WHEN 'fund_dca' THEN 'plan_dca'
-    WHEN 'discount_arbitrage' THEN 'arbitrage'
-    WHEN 'fund_discount_arbitrage' THEN 'arbitrage'
-    WHEN 'fund_replacement' THEN 'product_replacement'
-    ELSE buy_reason
-END
-WHERE buy_reason IS NOT NULL;
-
-UPDATE public.pams_investment_trade_fact
-SET sell_reason = CASE sell_reason
-    WHEN 'fund_take_profit' THEN 'take_profit'
-    WHEN 'fund_stop_loss' THEN 'stop_loss'
-    WHEN 'risk_reduce' THEN 'risk_rebalance'
-    WHEN 'rebalance_trim' THEN 'risk_rebalance'
-    WHEN 'fund_rebalance_trim' THEN 'risk_rebalance'
-    WHEN 'fund_risk_reduce' THEN 'risk_rebalance'
-    WHEN 'switch' THEN 'product_replacement'
-    WHEN 'fund_switch' THEN 'product_replacement'
-    WHEN 'underperform_benchmark' THEN 'underperform'
-    WHEN 'fund_underperform_benchmark' THEN 'underperform'
-    WHEN 'strategy_change' THEN 'thesis_invalidated'
-    WHEN 'fund_manager_change' THEN 'thesis_invalidated'
-    WHEN 'fund_thesis_invalidated' THEN 'thesis_invalidated'
-    WHEN 'discount_arbitrage_done' THEN 'event_done'
-    WHEN 'fund_discount_done' THEN 'event_done'
-    WHEN 'fund_liquidity_need' THEN 'liquidity_need'
-    WHEN 'data_or_liquidity' THEN 'liquidity_need'
-    WHEN 'discipline' THEN 'risk_rebalance'
-    ELSE sell_reason
-END
-WHERE sell_reason IS NOT NULL;
 
 ALTER TABLE public.pams_investment_trade_fact
     DROP CONSTRAINT IF EXISTS ck_pams_investment_trade_fact_buy_reason,
@@ -126,7 +68,7 @@ ALTER TABLE public.pams_investment_trade_fact
         ]::TEXT[]
     ),
     ADD CONSTRAINT ck_pams_investment_trade_fact_review_status CHECK (
-        review_status IN ('auto', 'needs_review', 'reviewed', 'ignored')
+        review_status IN ('auto', 'needs_review', 'reviewed', 'ignored', 'confirmed')
     );
 
 CREATE INDEX IF NOT EXISTS idx_trade_fact_review_due

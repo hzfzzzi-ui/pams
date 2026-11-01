@@ -63,11 +63,8 @@ def test_asset_master_schema_declares_core_tables() -> None:
     for table_name in [
         "pams_asset_master",
         "pams_asset_alias",
-        "pams_asset_industry_map",
-        "pams_asset_theme_map",
+        "asset_classifications",
         "pams_fund_underlying_position",
-        "pams_asset_fixed_income_profile",
-        "pams_asset_real_asset_profile",
     ]:
         assert f"CREATE TABLE IF NOT EXISTS {table_name}" in schema_sql
 
@@ -77,8 +74,6 @@ def test_asset_master_schema_declares_core_tables() -> None:
         "industry_sub_bucket",
         "parent_theme_id",
         "underlying_weight",
-        "credit_risk_bucket",
-        "rental_income_annual",
     ]:
         assert column_name in schema_sql
 

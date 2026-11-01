@@ -59,11 +59,11 @@ def attach_recent_us_returns(
                (r.get("daily_pnl_stale") is True or r.get("daily_return_status") == "pending")]
     if not pending:
         return payload
-    cur.execute("SELECT to_regclass('public.pams_market_quote_snapshot') IS NOT NULL AS exists")
+    cur.execute("SELECT to_regclass('public.market_observations') IS NOT NULL AS exists")
     if not (cur.fetchone() or {}).get("exists"):
         return payload
     cur.execute("""
-        SELECT MAX(quote_date) AS as_of FROM pams_market_quote_snapshot
+        SELECT MAX(quote_date) AS as_of FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') AS observation_rows
         WHERE market = 'US' AND currency = 'USD' AND return_status = 'confirmed'
           AND quote_date < %s AND symbol = ANY(%s::text[])
           AND price > 0 AND price::text NOT IN ('NaN', 'Infinity', '-Infinity')

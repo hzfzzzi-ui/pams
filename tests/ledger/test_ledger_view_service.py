@@ -95,6 +95,7 @@ def test_payment_proxy_target_side_counts_as_expense_not_transfer() -> None:
         "counterparty": "🥇yi",
         "cashflow_type": "internal_transfer",
         "is_internal_transfer": True,
+        "confirmed_payment_proxy_role": "target",
         "transfer_group_id": "payment_proxy:ccb_wechat_payment_proxy:1132:486:441.00",
     }
 
@@ -116,6 +117,7 @@ def test_payment_proxy_source_side_is_dedup_transfer_row() -> None:
         "counterparty": "Z******0010/*收款",
         "cashflow_type": "internal_transfer",
         "is_internal_transfer": True,
+        "confirmed_payment_proxy_role": "source",
         "transfer_group_id": "payment_proxy:ccb_wechat_payment_proxy:1132:486:441.00",
     }
 
@@ -277,6 +279,16 @@ def test_summarize_period_uses_one_way_transfer_matches() -> None:
     assert summary["internal_transfer"] == 1000.0
 
 
+def test_missing_transfer_fx_does_not_erase_known_operating_income():
+    day=date(2026,5,1)
+    rows=[{'transaction_date_obj':day,'amount_cny':1000.0,'flow_type':'income','needs_review':False},
+          {'transaction_date_obj':day,'amount_cny':None,'flow_type':'transfer','needs_review':False}]
+    result=summarize_period(rows,[],day,day)
+    assert result['income']==1000.0 and result['expense']==0 and result['net']==1000.0
+    assert result['internal_transfer'] is None and result['cash_net'] is None
+    assert result['pending_count']==1 and result['fx_missing_count']==1
+
+
 def test_summarize_period_separates_disposable_and_cash_net() -> None:
     rows = [
         {"transaction_date_obj": date(2026, 5, 1), "amount_cny": 2000.0, "flow_type": "income", "needs_review": False},
@@ -430,8 +442,11 @@ def test_investment_account_rows_prefer_bank_cashflow_over_importer_cash_event()
 
     result = _merge_investment_account_rows([cash_row], [trade_row, unmatched_trade_row])
 
-    assert [row["id"] for row in result] == ["investment-inflow-855", "investment-trade-98"]
-    assert result[0]["counterparty"] == "ccb_7332"
+    assert {row["id"] for row in result} == {"investment-inflow-855", "investment-trade-259", "investment-trade-98"}
+    assert next(row for row in result if row['id'] == 'investment-inflow-855')["counterparty"] == "ccb_7332"
+    linked = dict(trade_row, linked_cashflow_id='855')
+    assert {row['id'] for row in _merge_investment_account_rows([cash_row], [linked, unmatched_trade_row])} == {
+        'investment-inflow-855', 'investment-trade-98'}
 
 
 def test_account_summary_filters_unconfigured_accounts_when_provided() -> None:

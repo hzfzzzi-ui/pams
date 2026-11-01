@@ -116,8 +116,10 @@ def test_default_disabled_explicit_cutoff_and_invalid_config(monkeypatch):
 
 class CashCursor:
     def __init__(self):
+        self.connection = self
+        self.autocommit = False
         self.facts = {}
-        self.rates = [{"rate": Decimal("7")}]
+        self.rates = [{"rate": Decimal("7"), "source": "synthetic"}]
         self.candidates = []
         self.statements = []
         self.result = []
@@ -133,9 +135,12 @@ class CashCursor:
         self.statements.append(query)
         self.result = []
         self.rowcount = 0
-        if "SELECT raw_json FROM" in query:
-            self.result = [{"raw_json": fact["raw_json"]} for key, fact in self.facts.items() if key == params[1]]
-        elif "SELECT rate FROM" in query:
+        if "SELECT raw_json,trade_id,source_item_id FROM" in query:
+            self.result = [{"raw_json": fact["raw_json"], "trade_id": list(self.facts).index(key)+1,
+                            "source_item_id": None} for key, fact in self.facts.items() if key == params[1]]
+        elif "SELECT trade_id FROM pams_investment_trade_fact" in query:
+            self.result = [{"trade_id": list(self.facts).index(params[1])+1}]
+        elif "SELECT rate FROM" in query or "SELECT rate,source FROM" in query:
             self.result = self.rates
         elif "SELECT cashflow_id FROM" in query:
             self.result = self.candidates
@@ -165,7 +170,17 @@ class CashCursor:
 
 
 def import_events(conn, events):
-    return cash.import_cash_events(conn, events, account_code="ibkr", cutoff=CUTOFF, statement_as_of=AS_OF)
+    from unittest.mock import patch
+    with patch.object(cash.isolation, 'source_enabled', return_value=True):
+        return cash.import_cash_events(conn, events, account_code="ibkr", cutoff=CUTOFF,
+                                       statement_as_of=AS_OF, defer_source_link=True)
+
+
+def test_cash_import_requires_same_transaction_report_publication():
+    conn = CashCursor()
+    with pytest.raises(ValueError, match='same-transaction original report publication'):
+        cash.import_cash_events(conn, [envelope()], account_code='ibkr', cutoff=CUTOFF, statement_as_of=AS_OF)
+    assert conn.statements == [] and conn.facts == {}
 
 
 def test_import_retry_and_source_key_survive_reconstructed_fact_id():
@@ -233,7 +248,7 @@ def test_strict_writer_rejects_source_collision_but_default_keeps_skip_contract(
     fact = build_investment_trade_fact({**normalize(envelope()), "fx_rate_to_cny": Decimal("7")})
     assert insert_investment_trade_facts(conn, [fact], strict_source=True) == 1
     assert insert_investment_trade_facts(conn, [fact], strict_source=True) == 0
-    revised = {**fact, "net_cash": Decimal("101")}
+    revised = {**fact, "net_cash": Decimal("101"), "net_cash_cny": Decimal("707")}
     with pytest.raises(ValueError, match="Conflicting immutable"):
         insert_investment_trade_facts(conn, [revised], strict_source=True)
     assert insert_investment_trade_facts(conn, [revised]) == 0
@@ -256,7 +271,10 @@ def test_latest_status_is_read_only_and_missing_table_is_none(monkeypatch, exist
             self.capability = "to_regclass" in query
 
         def fetchone(self):
-            return (exists,) if self.capability else None
+            return {'exists': exists} if self.capability else None
+
+        def fetchall(self):
+            return []
 
     def unexpected(*args):
         pytest.fail("A status read must not issue DDL")

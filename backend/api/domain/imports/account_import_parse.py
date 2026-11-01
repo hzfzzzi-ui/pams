@@ -31,6 +31,7 @@ ALIASES = {
     "net_cash": "净收付 净发生额 现金发生额",
     "market_value": "市值 持仓市值 资产市值", "cost": "成本金额 持仓成本 报表成本 摊薄成本金额",
     "cost_basis_type": "成本类型 成本口径", "counter_account_code": "对方账户 对方账号",
+    "bank_cashflow_id": "已核准银行流水ID", "derived_cashflow_id": "已核准派生流水ID",
     "source_ref": "成交编号 成交序号 流水号 交易流水号 申请编号 订单号",
     "asset_id": "标的ID 资产ID", "note": "备注 说明", "duplicate_decision": "重复处理",
 }

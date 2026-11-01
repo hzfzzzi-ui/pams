@@ -159,9 +159,12 @@ def _keys_for_position(position: dict[str, Any]) -> set[str]:
 
 
 def _daily_row_to_position(row: dict[str, Any]) -> dict[str, Any]:
-    daily_price = _num(row.get("daily_pnl_cny"))
-    daily_fx = _num(row.get("daily_fx_pnl_cny"))
-    daily_total = daily_price + daily_fx
+    daily_price = None if row.get("daily_pnl_cny") in (None, "") else _num(row["daily_pnl_cny"])
+    currency = str(row.get("currency") or "").upper()
+    daily_fx = (_num(row["daily_fx_pnl_cny"]) if row.get("daily_fx_pnl_cny") not in (None, "")
+                else 0.0 if currency == "CNY" else None)
+    missing_realized = (row.get("daily_realized_trade_pnl_only") and row.get("daily_realized_trade_pnl_cny") is None)
+    daily_total = (daily_price + daily_fx if daily_price is not None and daily_fx is not None and not missing_realized else None)
     major = _repair_mojibake_text(row.get("major_category"))
     minor = _repair_mojibake_text(row.get("minor_category"))
     symbol = row.get("symbol")
@@ -294,23 +297,6 @@ def _asset_name_lookup(cur, symbols: set[str]) -> dict[str, str]:
         for row in cur.fetchall():
             _put_asset_name(lookup, row.get("symbol"), row.get("name"))
             _put_asset_name(lookup, row.get("ts_code"), row.get("name"))
-
-    if _table_exists(cur, "pams_investment_transactions"):
-        cur.execute(
-            """
-            SELECT symbol, name
-            FROM pams_investment_transactions
-            WHERE COALESCE(name, '') <> ''
-              AND (
-                LOWER(symbol) = ANY(%s::text[])
-                OR regexp_replace(COALESCE(symbol, ''), '[^0-9]', '', 'g') = ANY(%s::text[])
-              )
-            ORDER BY trade_date DESC, id DESC
-            """,
-            (query_symbols, digits),
-        )
-        for row in cur.fetchall():
-            _put_asset_name(lookup, row.get("symbol"), row.get("name"))
 
     for symbol, name in A_SHARE_NAME_FALLBACK.items():
         if not digits or symbol in digits:
@@ -637,6 +623,9 @@ def _merge_daily_positions(base_positions: list[dict[str, Any]], daily_positions
             ):
                 if daily.get(field) not in (None, ""):
                     item[field] = daily[field]
+            if daily.get("daily_total_pnl_cny") is None:
+                item["daily_total_pnl_cny"] = None
+                item["daily_pnl_evidence_missing"] = True
             if daily.get("daily_includes_realized_trade_pnl"):
                 item["daily_includes_realized_trade_pnl"] = True
             merged.append(item)
@@ -652,125 +641,8 @@ def _merge_daily_positions(base_positions: list[dict[str, Any]], daily_positions
         if abs(_num(position.get("market_value_cny"))) <= 1e-9 and (
             abs(_num(position.get("holding_pnl_cny"))) > 1e-9
             or abs(_num(position.get("daily_total_pnl_cny"))) > 1e-9
+            or position.get("holding_pnl_cny") is None
         ):
-            merged.append(position)
-    return merged
-
-
-def _load_realized_trade_fact_positions(
-    cur,
-    account_cfg: dict[str, Any],
-    view_as_of: Date,
-) -> list[dict[str, Any]]:
-    if not _table_exists(cur, "pams_investment_trade_fact"):
-        return []
-
-    owner_ratios, default_owner_ratio = _owner_ratios(account_cfg)
-    excluded = _excluded_accounts(account_cfg)
-    cur.execute(
-        """
-        SELECT
-            account_code,
-            symbol,
-            MAX(name) AS name,
-            MAX(market) AS market,
-            MAX(currency) AS currency,
-            MAX(trade_date) AS as_of,
-            SUM(COALESCE(realized_pnl_cny, realized_pnl, 0)) AS realized_pnl_cny,
-            SUM(
-                CASE
-                    WHEN trade_date = %s::date THEN COALESCE(realized_pnl_cny, realized_pnl, 0)
-                    ELSE 0
-                END
-            ) AS daily_realized_pnl_cny
-        FROM pams_investment_trade_fact
-        WHERE source_table = 'pams_investment_transactions'
-          AND realized_pnl IS NOT NULL
-          AND trade_date <= %s::date
-          AND COALESCE(LOWER(review_status), 'auto') NOT IN ('cancelled', 'canceled', 'void')
-        GROUP BY account_code, symbol
-        HAVING ABS(SUM(COALESCE(realized_pnl_cny, realized_pnl, 0))) > 0.000001
-        """,
-        (view_as_of, view_as_of),
-    )
-    positions: list[dict[str, Any]] = []
-    for row in cur.fetchall():
-        account = _text(row.get("account_code"))
-        if account in excluded:
-            continue
-        ratio = _owner_ratio(account_cfg, account) if account else default_owner_ratio
-        pnl = _num(row.get("realized_pnl_cny")) * float(ratio)
-        daily = _num(row.get("daily_realized_pnl_cny")) * float(ratio)
-        market = row.get("market") or "A股"
-        positions.append(
-            {
-                "account_code": account,
-                "asset_id": row.get("symbol") or row.get("name"),
-                "symbol": row.get("symbol"),
-                "asset_name": row.get("name") or row.get("symbol"),
-                "major_category": market,
-                "minor_category": market,
-                "asset_type": "stock_cn" if market == "A股" else None,
-                "quantity": 0,
-                "market_value": 0,
-                "market_value_cny": 0,
-                "cost_cny": 0,
-                "holding_pnl_cny": pnl,
-                "daily_pnl_cny": daily,
-                "daily_price_pnl_cny": daily,
-                "daily_fx_pnl_cny": 0,
-                "daily_total_pnl_cny": daily,
-                "realized_pnl_cny": pnl,
-                "currency": row.get("currency") or "CNY",
-                "as_of": row.get("as_of"),
-                "is_closed": True,
-                "source_type": "trade_fact_realized",
-            }
-        )
-    return positions
-
-
-def _merge_realized_trade_positions(
-    base_positions: list[dict[str, Any]],
-    realized_positions: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    if not realized_positions:
-        return base_positions
-
-    by_key: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for position in realized_positions:
-        by_key[_position_key(position)].append(position)
-
-    used: set[int] = set()
-    merged: list[dict[str, Any]] = []
-    for position in base_positions:
-        item = dict(position)
-        key = _position_key(item)
-        matches = by_key.get(key) or []
-        daily_already_has_realized = bool(item.get("daily_includes_realized_trade_pnl")) or (
-            abs(_metric_value(item, "daily_realized_trade_pnl_cny")) > 1e-9
-        )
-        for realized in matches:
-            used.add(id(realized))
-            for field in (
-                "holding_pnl_cny",
-                "daily_pnl_cny",
-                "daily_price_pnl_cny",
-                "daily_total_pnl_cny",
-                "realized_pnl_cny",
-            ):
-                if daily_already_has_realized and field in (
-                    "daily_pnl_cny",
-                    "daily_price_pnl_cny",
-                    "daily_total_pnl_cny",
-                ):
-                    continue
-                item[field] = _metric_value(item, field) + _metric_value(realized, field)
-            item["source_type"] = "holdings_view+trade_fact_realized"
-        merged.append(item)
-
-    for position in realized_positions:
-        if id(position) not in used:
             merged.append(position)
     return merged
 
@@ -1373,6 +1245,28 @@ def build_return_attribution_from_positions(
     portfolio_nav_cny: float | Decimal | None = None,
 ) -> dict[str, Any]:
     """Build return attribution from normalized investment positions."""
+    pnl_keys = ('holding_pnl_cny', 'total_pnl_cny', 'pnl_cny', 'holding_pnl')
+    missing_pnl = [position for position in positions
+                   if any(key in position for key in pnl_keys)
+                   and all(position.get(key) in (None, '') for key in pnl_keys)]
+    if missing_pnl:
+        total_value = sum(_num(position.get('market_value_cny', position.get('market_value'))) for position in positions)
+        return {
+            'status': 'unavailable', 'reason': 'holding_pnl_evidence_missing', 'as_of': as_of,
+            'portfolio_nav_cny': portfolio_nav_cny, 'gross_exposure_cny': total_value,
+            'total_market_value_cny': total_value, 'total_pnl_cny': None, 'canonical_total_pnl_cny': None,
+            'daily_pnl_cny': None, 'canonical_daily_pnl_cny': None,
+            'daily_price_pnl_cny': None, 'daily_fx_pnl_cny': None,
+            'dimensions': {key: [] for key in ('holding', 'asset_type', 'industry', 'theme', 'region', 'market', 'currency', 'underlying')},
+            'quality': {'missing_pnl_positions': [str(position.get('asset_id') or position.get('symbol') or
+                                                       position.get('asset_name') or position.get('name') or '')
+                                                 for position in missing_pnl]},
+            'notes': ['部分持仓成本或盈亏证据缺失，无法计算完整收益归因。'],
+            'model_version': 'return_attribution_v1',
+        }
+    missing_daily = any(position.get('daily_pnl_evidence_missing') or
+                        ('daily_total_pnl_cny' in position and position.get('daily_total_pnl_cny') is None)
+                        for position in positions)
     enriched_positions = _attach_sw_l1(positions, industry_l1_by_symbol)
     cfg = load_lookthrough_config(config)
     lookthrough = derive_lookthrough_payload(
@@ -1521,6 +1415,27 @@ def build_return_attribution_from_positions(
         "notes": notes,
         "model_version": "return_attribution_v1",
     }
+    if missing_daily:
+        # The cumulative attribution remains usable.  Daily totals and their
+        # component shares cannot omit an unknown member and claim completeness.
+        daily_fields = {"daily_pnl_cny", "canonical_daily_pnl_cny", "daily_price_pnl_cny",
+                        "daily_fx_pnl_cny", "daily_pnl_contribution", "daily_total_pnl_cny",
+                        "actual_daily_pnl_cny", "target_daily_pnl_cny", "daily_pnl_delta_cny"}
+        def mask_daily(value):
+            if isinstance(value, dict):
+                for key in value:
+                    if key in daily_fields:
+                        value[key] = None
+                    elif key == "fx_display" and isinstance(value[key], dict):
+                        value[key].update(status="pending", value_cny=None)
+                    else:
+                        mask_daily(value[key])
+            elif isinstance(value, list):
+                for item in value:
+                    mask_daily(item)
+        mask_daily(payload)
+        payload["quality"]["daily_pnl_status"] = "incomplete"
+        payload["notes"].append("部分日收益或汇率证据未知，日收益合计和贡献不可用。")
     return payload
 
 
@@ -1551,15 +1466,45 @@ def build_return_attribution_payload(
         default_owner_ratio=default_owner_ratio,
         daily_pnl_start_as_of=daily_pnl_window_date(),
     )
+    excluded_from_nav = {str(row.get('account_code')) for row in account_balances
+                         if row.get('account_code') and not row.get('include_in_nav', True)}
+    incomplete_accounts = sorted({str(row.get('account_code') or row.get('account'))
+                                  for row in [*account_balances, *investment_positions, *(holdings.get('rows') or [])]
+                                  if (row.get('account_code') or row.get('account')) and row.get('include_in_nav', True)
+                                  and str(row.get('account_code') or row.get('account')) not in excluded_from_nav
+                                  and row.get('snapshot_scope_status') in {'partial', 'unknown'}})
+    missing_fx_accounts = sorted({str(row.get('account_code') or row.get('account'))
+                                  for row in [*account_balances, *investment_positions, *(holdings.get('rows') or [])]
+                                  if (row.get('account_code') or row.get('account')) and row.get('include_in_nav', True)
+                                  and str(row.get('account_code') or row.get('account')) not in excluded_from_nav
+                                  and (row.get('fx_status') == 'unavailable' or
+                                       ('market_value_cny' in row and row.get('market_value_cny') is None and
+                                        str(row.get('currency') or base_currency).upper() != base_currency.upper()))})
+    if incomplete_accounts or missing_fx_accounts:
+        return {
+            'status': 'unavailable', 'reason': 'snapshot_scope_incomplete' if incomplete_accounts else 'missing_fx',
+            'snapshot_scope_unavailable_accounts': incomplete_accounts,
+            'fx_unavailable_accounts': missing_fx_accounts,
+            'as_of': holdings.get('as_of') or view_as_of, 'portfolio_nav_cny': None,
+            'total_market_value_cny': None, 'gross_exposure_cny': None,
+            'total_pnl_cny': None, 'canonical_total_pnl_cny': None,
+            'daily_pnl_cny': None, 'canonical_daily_pnl_cny': None,
+            'daily_price_pnl_cny': None, 'daily_fx_pnl_cny': None,
+            'dimensions': {key: [] for key in ('holding', 'asset_type', 'industry', 'theme', 'region', 'market', 'currency', 'underlying')},
+            'quality': {'snapshot_scope_status': 'incomplete' if incomplete_accounts else 'complete',
+                        'fx_status': 'incomplete' if missing_fx_accounts else 'available'},
+            'notes': ['账户快照范围、现金或汇率缺少完整证明，无法计算完整收益归因。'],
+            'model_version': 'return_attribution_v1',
+        }
     positions = [
         _daily_row_to_position(row)
         for row in holdings.get("rows") or []
-        if _is_return_attribution_row(row)
+        if _is_return_attribution_row(row) and str(row.get('account_code') or row.get('account') or '') not in excluded_from_nav
     ]
     daily_positions = [
         position
         for position in _load_daily_attribution_positions(cur, account_cfg)
-        if _is_return_attribution_row(position)
+        if _is_return_attribution_row(position) and str(position.get('account_code') or position.get('account') or '') not in excluded_from_nav
     ]
     positions = _merge_daily_positions(positions, daily_positions)
     portfolio_nav_cny = sum(

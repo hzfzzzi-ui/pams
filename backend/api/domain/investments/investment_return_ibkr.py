@@ -11,9 +11,8 @@ from datetime import date as Date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from domain.investments.investment_return_data import IBKR_EQUITY_MARKETS
+from domain.investments.investment_return_data import IBKR_EQUITY_MARKETS, exact_fx_rate_at
 from domain.investments.investment_return_math import dec, ibkr_return_effective_date
-from domain.investments.valuation_nav import fx_rate_at
 
 
 _YFINANCE_CLOSE_CACHE: dict[
@@ -46,6 +45,9 @@ def _fetch_yfinance_closes(
     end_date: Date,
 ) -> tuple[dict[str, dict[Date, Decimal]], list[str]]:
     """Fetch daily closes from Yahoo Finance for externally traded symbols."""
+    from domain.imports.isolation import source_mode
+    if source_mode() == "development":
+        return {}, ["External market data is unavailable in development mode"]
     tickers = sorted({s for s in symbols if s})
     if not tickers:
         return {}, []
@@ -133,109 +135,20 @@ def _close_on_or_before(series: dict[Date, Decimal], day: Date) -> Decimal | Non
     return None
 
 
-def _ibkr_exact_position_history_series(
-    cur,
-    *,
-    dates: list[Date],
-    base_currency: str,
-    fx_timelines: dict[str, list[tuple[Date, Decimal]]],
-) -> tuple[dict[Date, Decimal], dict[Date, Decimal], set[Date]]:
-    """Return exact IBKR Flex position-history values for sampled dates."""
-    values = {d: Decimal("0") for d in dates}
-    costs = {d: Decimal("0") for d in dates}
-    exact_dates: set[Date] = set()
-    if not dates:
-        return values, costs, exact_dates
-
-    cur.execute("SELECT to_regclass('public.pams_ibkr_position_history') IS NOT NULL AS exists")
-    row = cur.fetchone()
-    if not row or not bool(row.get("exists")):
-        return values, costs, exact_dates
-
+def _local_exact_closes(cur, symbols: list[str], dates: list[Date]) -> dict[str, dict[Date, Decimal]]:
+    """Load recorded Yahoo-market closes only for the requested business dates."""
+    if not symbols or not dates:
+        return {}
     cur.execute(
-        """
-        WITH series_dates AS (
-            SELECT unnest(%s::date[]) AS sample_date
-        ), currencies AS (
-            SELECT DISTINCT UPPER(currency) AS currency
-            FROM pams_ibkr_position_history
-            WHERE account_code = 'ibkr'
-              AND asset_liability = %s
-              AND major_category = %s
-        ), latest_dates AS (
-            SELECT
-                d.sample_date,
-                c.currency,
-                MAX(ph.as_of) AS as_of
-            FROM series_dates d
-            CROSS JOIN currencies c
-            JOIN pams_ibkr_position_history ph
-              ON ph.account_code = 'ibkr'
-             AND ph.asset_liability = %s
-             AND ph.major_category = %s
-             AND UPPER(ph.currency) = c.currency
-             AND ph.as_of <= (
-                 d.sample_date
-                 - CASE WHEN c.currency = 'USD' THEN INTERVAL '1 day' ELSE INTERVAL '0 day' END
-             )::date
-            GROUP BY d.sample_date, c.currency
-        ), holdings AS (
-            SELECT ld.sample_date, ph.*
-            FROM latest_dates ld
-            JOIN pams_ibkr_position_history ph
-              ON ph.account_code = 'ibkr'
-             AND ph.asset_liability = %s
-             AND ph.major_category = %s
-             AND ph.as_of = ld.as_of
-             AND UPPER(ph.currency) = ld.currency
-        )
-        SELECT
-            h.sample_date,
-            h.as_of,
-            h.symbol,
-            h.currency,
-            h.quantity,
-            h.market_value,
-            h.cost,
-            visible_px.close AS visible_close
-        FROM holdings h
-        LEFT JOIN LATERAL (
-            SELECT o.close
-            FROM pams_ohlcv_daily o
-            WHERE o.market = 'YF'
-              AND o.symbol = h.symbol
-              AND o.trade_date <= h.as_of
-            ORDER BY o.trade_date DESC
-            LIMIT 1
-        ) visible_px ON TRUE
-        """,
-        (
-            [d.isoformat() for d in dates],
-            _ASSET_CATEGORY,
-            _US_STOCK_CATEGORY,
-            _ASSET_CATEGORY,
-            _US_STOCK_CATEGORY,
-            _ASSET_CATEGORY,
-            _US_STOCK_CATEGORY,
-        ),
+        """SELECT symbol, trade_date, close FROM pams_ohlcv_daily
+           WHERE market = 'YF' AND symbol = ANY(%s::text[])
+             AND trade_date = ANY(%s::date[]) AND close > 0""",
+        (symbols, dates),
     )
+    closes: dict[str, dict[Date, Decimal]] = {}
     for row in cur.fetchall():
-        sample_date = row["sample_date"]
-        if sample_date not in values:
-            continue
-        currency = str(row.get("currency") or base_currency).upper()
-        fx = fx_rate_at(fx_timelines, currency, sample_date, base_currency)
-        visible_close = dec(row.get("visible_close"))
-        quantity = dec(row.get("quantity"))
-        native_value = (
-            visible_close * quantity
-            if visible_close > 0 and quantity != 0
-            else dec(row.get("market_value"))
-        )
-        values[sample_date] += native_value * fx
-        costs[sample_date] += dec(row.get("cost")) * fx
-        exact_dates.add(sample_date)
-    return values, costs, exact_dates
+        closes.setdefault(row['symbol'], {})[row['trade_date']] = row['close']
+    return closes
 
 
 def _ibkr_full_trade_return_series(
@@ -251,27 +164,20 @@ def _ibkr_full_trade_return_series(
     if not dates:
         return values, costs, []
 
-    exact_values, exact_costs, exact_dates = _ibkr_exact_position_history_series(
-        cur,
-        dates=dates,
-        base_currency=base_currency,
-        fx_timelines=fx_timelines,
-    )
-    if exact_dates == set(dates):
-        return exact_values, exact_costs, []
-
     cur.execute(
         """
         SELECT
           symbol,
-          COALESCE(MAX(NULLIF(currency, '')), 'USD') AS currency
+          MAX(NULLIF(currency, '')) AS currency,
+          COUNT(DISTINCT NULLIF(currency, '')) AS currency_count,
+          COUNT(*) FILTER (WHERE NULLIF(currency, '') IS NULL) AS missing_currency_count
         FROM pams_investment_trade_fact
         WHERE account_code = 'ibkr'
           AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
           AND symbol IS NOT NULL
           AND trade_date <= %s
           AND quantity IS NOT NULL
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+          AND COALESCE(LOWER(review_status), 'confirmed') IN ('auto', 'reviewed', 'confirmed')
         GROUP BY symbol
         ORDER BY symbol
         """,
@@ -279,29 +185,40 @@ def _ibkr_full_trade_return_series(
     )
     traded = [dict(r) for r in cur.fetchall()]
     if not traded:
-        return exact_values, exact_costs, []
+        return {}, {}, ["ibkr_position_history_unavailable"]
 
     symbol_map = {
-        str(item["symbol"]): _ibkr_yfinance_symbol(str(item["symbol"]), str(item["currency"]))
+        str(item["symbol"]): (_ibkr_yfinance_symbol(str(item["symbol"]), str(item["currency"]))
+            if item.get("currency") and item.get("currency_count",1)==1 and not item.get("missing_currency_count",0) else None)
         for item in traded
     }
     yahoo_symbols = [s for s in symbol_map.values() if s]
-    closes, warnings = _fetch_yfinance_closes(
-        yahoo_symbols,
-        start_date=dates[0],
-        end_date=dates[-1],
-    )
+    from domain.imports.isolation import source_mode
+    local_only = source_mode() == 'development'
+    if local_only:
+        closes, warnings = _local_exact_closes(cur, yahoo_symbols, dates), []
+    else:
+        closes, warnings = _fetch_yfinance_closes(
+            yahoo_symbols,
+            start_date=dates[0],
+            end_date=dates[-1],
+        )
+    warnings.append("ibkr_history_coverage_unverified")
 
     active_symbols = sorted(symbol_map.keys())
     cur.execute(
         """
         SELECT
+            trade_id,
+            source_table,
             trade_date,
             symbol,
             currency,
             quantity,
             gross_amount,
             COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0) AS commission,
+            COALESCE((fee_amount=0 OR UPPER(fee_currency)=UPPER(currency)) AND
+                (net_cash IS NOT NULL OR tax_amount IS NOT NULL), FALSE) AS tax_known,
             net_cash
         FROM pams_investment_trade_fact
         WHERE account_code = 'ibkr'
@@ -309,58 +226,109 @@ def _ibkr_full_trade_return_series(
           AND trade_date <= %s
           AND quantity IS NOT NULL
           AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+          AND COALESCE(LOWER(review_status), 'confirmed') IN ('auto', 'reviewed', 'confirmed')
         ORDER BY trade_date, trade_id
         """,
         (active_symbols, dates[-1], list(IBKR_EQUITY_MARKETS)),
     )
     trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
-    for row in cur.fetchall():
-        item = dict(row)
+    candidates = [dict(row) for row in cur.fetchall()]
+    from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
+    from domain.imports.source_fact_evidence import NativeFactVerifier
+    source_cache, native_verifier = EvidenceCache(), NativeFactVerifier(cur)
+    unverified_from: list[Date] = []
+    for item in candidates:
         item["return_effective_date"] = ibkr_return_effective_date(item["trade_date"], item.get("currency"))
+        try:
+            if item.get('source_table') == 'ibkr_flex_trade':
+                evidence = verify_ibkr_fact(cur, trade_id=item['trade_id'], cache=source_cache)
+                required = {'trade_date','symbol','currency','side','quantity','gross_amount','net_cash'}
+                proven = (evidence.get('status') in {'consistent','partial'} and
+                          not required.intersection(evidence.get('unknown_fields', [])))
+            else:
+                evidence = native_verifier.verify(table='pams_investment_trade_fact', fact_id=item['trade_id'])
+                proven = evidence.get('status') == 'verified'
+        except (KeyError, TypeError, ValueError):
+            proven = False
+        if not proven:
+            unverified_from.append(item['return_effective_date'])
+            continue
         trades_by_symbol.setdefault(str(item["symbol"]), []).append(item)
     for symbol_trades in trades_by_symbol.values():
         symbol_trades.sort(key=lambda item: (item["return_effective_date"], item["trade_date"]))
 
-    symbol_currency = {str(item["symbol"]): str(item["currency"] or "USD").upper() for item in traded}
+    symbol_currency = {str(item["symbol"]): (str(item["currency"]).upper()
+                       if item.get("currency") and item.get("currency_count",1)==1 and not item.get("missing_currency_count",0) else None)
+                       for item in traded}
     quantity_eps = Decimal("0.0000001")
     amount_eps = Decimal("0.0001")
+    missing_prices: set[Date] = {day for day in dates if any(day >= start for start in unverified_from)}
+    missing_costs: set[Date] = set(missing_prices)
+    missing_fx: set[Date] = set()
     for sample_date in dates:
         for symbol in active_symbols:
             ticker = symbol_map.get(symbol)
-            close = _close_on_or_before(closes.get(ticker or "", {}), sample_date) if ticker else None
+            series = closes.get(ticker or "", {})
+            close = (series.get(sample_date) if local_only else _close_on_or_before(series, sample_date)) if ticker else None
 
             quantity = Decimal("0")
             native_cost = Decimal("0")
             for trade in trades_by_symbol.get(symbol, []):
                 if trade["return_effective_date"] > sample_date:
                     break
+                if trade.get("tax_known") is False:
+                    missing_prices.add(sample_date)
+                    missing_costs.add(sample_date)
                 qty = dec(trade.get("quantity"))
                 gross = abs(dec(trade.get("gross_amount")))
                 commission = abs(dec(trade.get("commission")))
                 net_cash = dec(trade.get("net_cash"))
                 quantity += qty
                 if qty > 0:
-                    native_cost += abs(net_cash) if net_cash != 0 else gross + commission
+                    native_cost += -net_cash if trade.get('net_cash') is not None else gross + commission
                 elif qty < 0:
-                    native_cost -= net_cash if net_cash > 0 else max(gross - commission, Decimal("0"))
+                    native_cost -= net_cash if trade.get('net_cash') is not None else max(gross - commission, Decimal("0"))
             if abs(quantity) <= quantity_eps and abs(native_cost) <= amount_eps:
                 continue
 
+            if not symbol_currency.get(symbol):
+                missing_fx.add(sample_date)
+                continue
             if abs(quantity) > quantity_eps:
                 if close is None:
+                    missing_prices.add(sample_date)
+                    if local_only:
+                        fx = exact_fx_rate_at(fx_timelines, symbol_currency.get(symbol), sample_date, base_currency)
+                        if fx is None:
+                            missing_fx.add(sample_date)
+                        else:
+                            costs[sample_date] += native_cost * fx
                     continue
                 native_value = quantity * close
             else:
                 native_value = Decimal("0")
 
-            currency = symbol_currency.get(symbol, "USD")
-            fx = fx_rate_at(fx_timelines, currency, sample_date, base_currency)
+            currency = symbol_currency.get(symbol)
+            fx = exact_fx_rate_at(fx_timelines, currency, sample_date, base_currency)
+            if fx is None:
+                missing_fx.add(sample_date)
+                continue
             values[sample_date] += native_value * fx
             costs[sample_date] += native_cost * fx
 
-    for sample_date in exact_dates:
-        values[sample_date] = exact_values[sample_date]
-        costs[sample_date] = exact_costs[sample_date]
+    for sample_date in missing_fx:
+        values[sample_date] = None
+        costs[sample_date] = None
+    if local_only:
+        for sample_date in missing_prices:
+            values[sample_date] = None
+        for sample_date in missing_costs:
+            costs[sample_date] = None
+    missing_fx_days = [day.isoformat() for day in dates if day in missing_fx] if local_only else [day.isoformat() for day in dates if values.get(day) is None]
+    if missing_fx_days:
+        warnings.append("ibkr_fx_missing:" + ",".join(missing_fx_days))
+    missing = [day.isoformat() for day in dates if day in missing_prices or values[day] == 0]
+    if missing:
+        warnings.append("ibkr_history_missing:" + ",".join(missing))
 
     return values, costs, warnings

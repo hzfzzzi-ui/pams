@@ -10,6 +10,7 @@ from psycopg2 import sql
 from psycopg2.extensions import parse_dsn
 from psycopg2.extras import RealDictCursor
 import pytest
+from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -58,6 +59,9 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                         cur.execute("""CREATE TABLE public.pams_transaction_sync_log
                             (id text PRIMARY KEY)""")
                         cur.execute("INSERT INTO public.pams_transaction_lifecycle VALUES ('existing', 'before')")
+                        for table in ("pams_ohlcv_daily_v2", "pams_ohlcv_daily_v2_audit_daily", "pams_ohlcv_daily_v2_exceptions"):
+                            cur.execute(sql.SQL("CREATE TABLE public.{} (id integer PRIMARY KEY, payload text)").format(sql.Identifier(table)))
+                            cur.execute(sql.SQL("INSERT INTO public.{} VALUES (1, 'market-data')").format(sql.Identifier(table)))
                         for table in ("pams_task_queue", "pams_notifications", "pams_strategy_state", "pams_watchlist", "pams_sim_accounts", "pams_policy"):
                             cur.execute(sql.SQL("CREATE TABLE public.{} (id integer PRIMARY KEY, payload text)").format(sql.Identifier(table)))
                             cur.execute(sql.SQL("INSERT INTO public.{} VALUES (1, 'existing')").format(sql.Identifier(table)))
@@ -71,7 +75,7 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                         cur.execute(sql.SQL("SELECT payload FROM public.{} WHERE id=1").format(sql.Identifier(table)))
                         assert cur.fetchone()[0] == "existing"
                 for table in ("pams_ohlcv_daily", "pams_fx_rates_daily",
-                              "pams_holdings_snapshot", "pams_asset_market_daily",
+                              "pams_holdings_snapshot", "market_observations",
                               "pams_data_version"):
                     cur.execute("SELECT to_regclass(%s)", ("public." + table,))
                     assert cur.fetchone()[0], table
@@ -80,19 +84,24 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                 assert cur.fetchone()[0] == 'r'
                 cur.execute("INSERT INTO public.pams_data_version (as_of_date, rows_ohlcv) VALUES ('2026-01-01', 1) ON CONFLICT (as_of_date) DO UPDATE SET rows_ohlcv = EXCLUDED.rows_ohlcv")
                 cur.execute("CREATE INDEX idx_test_shared_data_version ON public.pams_data_version (checksum)")
-                # 026 moves the physical table and leaves a compatibility view.
+                # Shared consumers need a physical public relation for DDL and upserts.
+                cur.execute("SELECT oid, relkind FROM pg_class WHERE oid = 'public.pams_ohlcv_daily'::regclass")
+                market_oid, relkind = cur.fetchone()
+                assert relkind == 'r'
+                cur.execute("CREATE INDEX idx_test_shared_market ON public.pams_ohlcv_daily (close)")
                 cur.execute("INSERT INTO public.pams_ohlcv_daily (symbol, trade_date, close) VALUES ('TEST', '2026-01-01', 123.45)")
                 for filename in ("010_market_ohlcv.sql", "013a_alter_ohlcv.sql"):
                     cur.execute((ROOT / "database/postgres/schema" / filename).read_text(encoding="utf-8"))
                 cur.execute("SELECT close FROM public.pams_ohlcv_daily WHERE symbol = 'TEST'")
                 assert str(cur.fetchone()[0]) == '123.4500'
-                cur.execute("DROP VIEW public.pams_ohlcv_daily")
                 # An older physical table can also lack the newer market columns.
-                cur.execute("ALTER TABLE pams_external_market.pams_ohlcv_daily DROP COLUMN adj_factor, DROP COLUMN limit_up, DROP COLUMN limit_down, DROP COLUMN is_suspended")
+                cur.execute("ALTER TABLE public.pams_ohlcv_daily DROP COLUMN adj_factor, DROP COLUMN limit_up, DROP COLUMN limit_down, DROP COLUMN is_suspended")
                 for filename in ("010_market_ohlcv.sql", "013a_alter_ohlcv.sql"):
                     cur.execute((ROOT / "database/postgres/schema" / filename).read_text(encoding="utf-8"))
                 cur.execute("SELECT close, adj_factor FROM public.pams_ohlcv_daily WHERE symbol = 'TEST'")
                 assert str(cur.fetchone()[0]) == '123.4500'
+                cur.execute("SELECT oid FROM pg_class WHERE oid = 'public.pams_ohlcv_daily'::regclass")
+                assert cur.fetchone()[0] == market_oid
                 cur.execute("""SELECT COUNT(*) FROM pg_constraint
                     WHERE conrelid = 'public.pams_holdings_snapshot'::regclass
                     AND confrelid = 'public.pams_asset_master'::regclass AND contype = 'f'""")
@@ -103,14 +112,14 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                     FROM public.pams_asset_master
                     WHERE asset_id IN ('BENCH_GOLD_ETF_518880', 'BENCH_SSE_COMPOSITE')""")
                 assert {asset: (is_holding, source) for asset, is_holding, source in cur.fetchall()} == {
-                    'BENCH_GOLD_ETF_518880': ('false', 'pams_asset_market_daily:518880.SH'),
+                    'BENCH_GOLD_ETF_518880': ('false', 'market_observations:518880.SH'),
                     'BENCH_SSE_COMPOSITE': ('false', 'pit_index_daily:000001.SH'),
                 }
                 cur.execute("""SELECT COUNT(*) FROM information_schema.columns
-                    WHERE table_schema='pams_external_market' AND table_name='pams_ohlcv_daily'
+                    WHERE table_schema='public' AND table_name='pams_ohlcv_daily'
                     AND column_name IN ('adj_factor','limit_up','limit_down','is_suspended','turnover_rate','turnover_rate_f','volume_ratio','float_share','free_share','circ_mv')""")
                 assert cur.fetchone()[0] == 10
-                for schema_name in ("public", "pams_external_market"):
+                for schema_name in ("public",):
                     cur.execute("""SELECT COUNT(*) FROM information_schema.columns
                         WHERE table_schema=%s AND table_name='pams_ohlcv_daily'
                         AND column_name IN ('turnover_rate','turnover_rate_f','volume_ratio','float_share','free_share','circ_mv')
@@ -124,7 +133,7 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                     (symbol,market,trade_date,close,turnover_rate,turnover_rate_f,volume_ratio,float_share,free_share,circ_mv)
                     VALUES ('SHARED','CN_A','2026-01-01',8,2,3,4,5,6,9)
                     ON CONFLICT(symbol,market,trade_date) DO UPDATE SET close=excluded.close, circ_mv=excluded.circ_mv""")
-                cur.execute("SELECT close,circ_mv FROM pams_external_market.pams_ohlcv_daily WHERE symbol='SHARED'")
+                cur.execute("SELECT close,circ_mv FROM public.pams_ohlcv_daily WHERE symbol='SHARED'")
                 assert cur.fetchone() == (8, 9)
                 cur.execute("INSERT INTO public.pams_fx_rates_daily(as_of,base_currency,quote_currency,rate) VALUES ('2026-01-01','CNY','USD',7.2)")
                 for legacy in ("pams_transactions", "pams_budgets", "pams_category_rules", "v_transactions_cny"):
@@ -143,8 +152,8 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                 monkeypatch.setattr(risk_state, "get_conn", lambda: psycopg2.connect(**{**params, "dbname": name}))
                 assert risk_state._load_db_industry_lookup(pd.DataFrame([{"symbol": "600000.SH"}]))["600000.SH"] == "industry-evidence"
                 if optional_etf_source:
-                    cur.execute("SELECT close_price FROM public.pams_asset_market_daily WHERE source = 'test'")
-                    assert cur.fetchone()[0] == 2
+                    cur.execute("SELECT close_price FROM public.market_observations WHERE observation_type = 'daily' AND source = 'test'")
+                    assert cur.fetchone() is None  # Initialization never backfills unrelated existing data.
                     for shared_table_name in ("pams_transaction_lifecycle", "pams_transaction_sync_log"):
                         cur.execute("""SELECT c.relkind FROM pg_class c
                             JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -155,18 +164,24 @@ def test_empty_database_initializes_shared_market_and_asset_tables(optional_etf_
                     cur.execute("SELECT payload FROM public.pams_transaction_lifecycle WHERE id='existing'")
                     assert cur.fetchone()[0] == 'after'
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_shared_lifecycle_payload ON public.pams_transaction_lifecycle (payload)")
+                    for shared_market_table in ("pams_ohlcv_daily_v2", "pams_ohlcv_daily_v2_audit_daily", "pams_ohlcv_daily_v2_exceptions"):
+                        cur.execute("SELECT relkind FROM pg_class WHERE oid = %s::regclass", ("public." + shared_market_table,))
+                        assert cur.fetchone()[0] == 'r'
+                        cur.execute(sql.SQL("SELECT payload FROM public.{} WHERE id = 1").format(sql.Identifier(shared_market_table)))
+                        assert cur.fetchone()[0] == 'market-data'
+                        cur.execute(sql.SQL("CREATE INDEX {} ON public.{} (payload)").format(
+                            sql.Identifier("idx_test_" + shared_market_table), sql.Identifier(shared_market_table)))
                 # Both independently executable market scripts must refuse ambiguous ownership.
-                cur.execute("DROP VIEW public.pams_ohlcv_daily")
-                cur.execute("CREATE TABLE public.pams_ohlcv_daily (symbol text, trade_date date, close numeric)")
-                cur.execute("INSERT INTO public.pams_ohlcv_daily VALUES ('OTHER', '2026-01-01', 99)")
+                cur.execute("CREATE TABLE pams_external_market.pams_ohlcv_daily (symbol text, trade_date date, close numeric)")
+                cur.execute("INSERT INTO pams_external_market.pams_ohlcv_daily VALUES ('OTHER', '2026-01-01', 99)")
                 conn.commit()
                 for filename in ("010_market_ohlcv.sql", "013a_alter_ohlcv.sql"):
                     with pytest.raises(psycopg2.errors.RaiseException, match="Two physical"):
                         cur.execute((ROOT / "database/postgres/schema" / filename).read_text(encoding="utf-8"))
                     conn.rollback()
-                cur.execute("SELECT close FROM public.pams_ohlcv_daily WHERE symbol = 'OTHER'")
+                cur.execute("SELECT close FROM pams_external_market.pams_ohlcv_daily WHERE symbol = 'OTHER'")
                 assert cur.fetchone()[0] == 99
-                cur.execute("SELECT close FROM pams_external_market.pams_ohlcv_daily WHERE symbol = 'TEST'")
+                cur.execute("SELECT close FROM public.pams_ohlcv_daily WHERE symbol = 'TEST'")
                 assert str(cur.fetchone()[0]) == '123.4500'
     finally:
         with admin.cursor() as cur:
@@ -361,10 +376,32 @@ def test_empty_bootstrap_supports_all_pams_ohlcv_writers(bootstrap_database, mon
             assert ("NVDA", Decimal("101.5000")) in rows
             assert ("sh600000", Decimal("10.5000")) in rows
             assert ("SIVE", Decimal("102.0000")) in rows
-            cur.execute("SELECT count(*) FROM pams_external_market.pams_ohlcv_daily")
+            cur.execute("SELECT count(*) FROM public.pams_ohlcv_daily")
             assert cur.fetchone()[0] == len(rows)
     finally:
         conn.close()
+
+
+def test_existing_external_market_physical_table_is_preserved(bootstrap_database):
+    with psycopg2.connect(**bootstrap_database) as conn:
+        with conn.cursor() as cur:
+            cur.execute('CREATE SCHEMA pams_external_market')
+            cur.execute('''CREATE TABLE pams_external_market.pams_ohlcv_daily (
+                symbol text NOT NULL, market text NOT NULL, trade_date date NOT NULL,
+                close numeric, PRIMARY KEY(symbol,market,trade_date))''')
+            cur.execute("INSERT INTO pams_external_market.pams_ohlcv_daily VALUES ('TEST','YF','2026-01-01',12)")
+            cur.execute("SELECT 'pams_external_market.pams_ohlcv_daily'::regclass::oid")
+            oid = cur.fetchone()[0]
+            for _ in range(2):
+                for filename in ('010_market_ohlcv.sql', '013a_alter_ohlcv.sql'):
+                    cur.execute((ROOT / 'database/postgres/schema' / filename).read_text(encoding='utf-8'))
+            cur.execute("SELECT 'pams_external_market.pams_ohlcv_daily'::regclass::oid, relkind FROM pg_class WHERE oid='public.pams_ohlcv_daily'::regclass")
+            assert cur.fetchone() == (oid, 'v')
+            cur.execute("SELECT close FROM public.pams_ohlcv_daily WHERE symbol='TEST'")
+            assert cur.fetchone()[0] == 12
+            cur.execute("UPDATE public.pams_ohlcv_daily SET close=13 WHERE symbol='TEST'")
+            cur.execute("SELECT close FROM pams_external_market.pams_ohlcv_daily WHERE symbol='TEST'")
+            assert cur.fetchone()[0] == 13
 
 
 def test_stale_market_view_fails_without_partial_column_changes(bootstrap_database):
@@ -405,7 +442,7 @@ def test_bootstrap_manifest_uses_schema_files_without_historical_backfills():
                 "033_benchmark_assets_and_gold_proxy.sql"} & names
 
 
-def test_legacy_qdii_alias_is_not_used_by_pams_consumers(bootstrap_database):
+def test_legacy_qdii_alias_is_not_used_by_pams_consumers(empty_source_db, monkeypatch):  # noqa: F811
     """Keep incorrect rows intact while rejecting their use as QQQ identities."""
     from datetime import date
     from domain.assets.alias_policy import QQQ_FEEDER_NAMES, identity_alias_sql, is_identity_alias
@@ -415,10 +452,11 @@ def test_legacy_qdii_alias_is_not_used_by_pams_consumers(bootstrap_database):
     from domain.risk import portfolio_config
     from endpoints import investment_transactions
     from collectors import ibkr_flex
-    from scripts.bootstrap_empty_database import initialize_empty_database
+    from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 
-    with psycopg2.connect(**bootstrap_database) as conn:
-        initialize_empty_database(conn)
+    monkeypatch.setenv("PAMS_HOLDING_EVIDENCE_ISOLATED", "true")
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cases = [
                 ('ETF_QQQ', 'alias', QQQ_FEEDER_NAMES[0], False),

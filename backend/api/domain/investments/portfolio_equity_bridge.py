@@ -470,7 +470,7 @@ def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
     details: list[dict[str, Any]] = []
     for row in rows:
-        amount = _dec(row.get("amount_cny"))
+        amount = None if row.get("amount_cny") is None else _dec(row["amount_cny"])
         count = int(row.get("count") or 0)
         cashflow_type = str(row.get("cashflow_type") or "")
         subcategory = str(row.get("subcategory") or "")
@@ -487,7 +487,10 @@ def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             key = "fees_tax_cash_income"
         else:
             key = "other_affects_nav"
-        buckets[key]["amount_cny"] += amount
+        if amount is None:
+            buckets[key]["amount_cny"] = None
+        elif buckets[key]["amount_cny"] is not None:
+            buckets[key]["amount_cny"] += amount
         buckets[key]["count"] += count
         details.append(
             {
@@ -501,11 +504,11 @@ def _cashflow_breakdown_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             }
         )
 
-    external_net = sum(
+    external_buckets = [item for item in buckets.values() if not item.get("excluded_from_external_cashflow")]
+    external_net = None if any(item["amount_cny"] is None for item in external_buckets) else sum(
         (
             _dec(item["amount_cny"])
-            for item in buckets.values()
-            if not item.get("excluded_from_external_cashflow")
+            for item in external_buckets
         ),
         Decimal("0"),
     )
@@ -558,8 +561,12 @@ def _cashflow_breakdown(
                COALESCE(cf.subcategory, '') AS subcategory,
                (linked.cashflow_id IS NOT NULL) AS is_linked_investment_return,
                COUNT(*) AS count,
-               COALESCE(SUM(cf.amount_cny), 0) AS amount_cny
+               CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
+                    ELSE SUM(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END) END AS amount_cny
         FROM pams_cashflow_fact cf
+        LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+            AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
+            AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
         LEFT JOIN linked_investment_return_cashflows linked
                ON linked.cashflow_id = cf.cashflow_id
         WHERE cf.event_date >= %s
@@ -580,13 +587,11 @@ def _cashflow_breakdown(
 
 def _trade_cash_amount_sql() -> str:
     return """
-        ABS(COALESCE(
-            NULLIF(net_cash_cny, 0),
-            NULLIF(net_cash * fx_rate_to_cny, 0),
-            NULLIF(gross_amount * fx_rate_to_cny, 0),
-            gross_amount * fx_rate_to_cny,
-            0
-        ))
+        ABS(net_cash * CASE WHEN currency='CNY' THEN 1 ELSE (
+            SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+            AND r.quote_currency=currency AND r.as_of=trade_date AND r.rate > 0
+            AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1
+        ) END)
     """
 
 
@@ -596,14 +601,18 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
     cur.execute(
         """
         SELECT COUNT(*) AS count,
-               COALESCE(SUM(ABS(amount_cny)), 0) AS amount_cny,
+               CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
+                    ELSE COALESCE(SUM(ABS(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END)), 0) END AS amount_cny,
                MIN(event_date) AS first_date,
                MAX(event_date) AS last_date
-        FROM pams_cashflow_fact
+        FROM pams_cashflow_fact cf
+        LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+            AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
+            AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
         WHERE event_date >= %s
           AND event_date <= %s
           AND counter_account_code = 'ibkr'
-          AND amount_cny < 0
+          AND amount < 0
           AND cashflow_type IN ('investment_funding', 'internal_transfer')
           AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
         """,
@@ -613,7 +622,8 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
     cur.execute(
         f"""
         SELECT COUNT(*) AS count,
-               COALESCE(SUM({_trade_cash_amount_sql()}), 0) AS amount_cny,
+               CASE WHEN COUNT(*) FILTER (WHERE {_trade_cash_amount_sql()} IS NULL) > 0 THEN NULL
+                    ELSE COALESCE(SUM({_trade_cash_amount_sql()}), 0) END AS amount_cny,
                MIN(trade_date) AS first_date,
                MAX(trade_date) AS last_date
         FROM pams_investment_trade_fact
@@ -626,14 +636,15 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
         (start_date, end_date),
     )
     ibkr_trade = cur.fetchone() or {}
-    ibkr_gap = _dec(ibkr_cashflow.get("amount_cny")) - _dec(ibkr_trade.get("amount_cny"))
+    ibkr_unknown = ibkr_cashflow.get("amount_cny") is None or ibkr_trade.get("amount_cny") is None
+    ibkr_gap = None if ibkr_unknown else _dec(ibkr_cashflow["amount_cny"]) - _dec(ibkr_trade["amount_cny"])
     issues.append(
         {
             "code": "ibkr_funding_closure",
             "label": "IBKR入金双边闭环",
-            "status": "ok" if abs(ibkr_gap) < Decimal("100") else "mismatch",
-            "cashflow_side_cny": _dec(ibkr_cashflow.get("amount_cny")),
-            "investment_trade_side_cny": _dec(ibkr_trade.get("amount_cny")),
+            "status": "unknown" if ibkr_unknown else "ok" if abs(ibkr_gap) < Decimal("100") else "mismatch",
+            "cashflow_side_cny": None if ibkr_cashflow.get("amount_cny") is None else _dec(ibkr_cashflow["amount_cny"]),
+            "investment_trade_side_cny": None if ibkr_trade.get("amount_cny") is None else _dec(ibkr_trade["amount_cny"]),
             "gap_cny": ibkr_gap,
             "cashflow_count": int(ibkr_cashflow.get("count") or 0),
             "trade_count": int(ibkr_trade.get("count") or 0),
@@ -650,13 +661,13 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
     cur.execute(
         f"""
         SELECT COUNT(*) AS count,
-               COALESCE(SUM(
+               CASE WHEN COUNT(*) FILTER (WHERE {_trade_cash_amount_sql()} IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(
                    CASE
                        WHEN trade_type = 'deposit' THEN {_trade_cash_amount_sql()}
                        WHEN trade_type = 'withdraw' THEN -{_trade_cash_amount_sql()}
                        ELSE 0
                    END
-               ), 0) AS amount_cny
+               ), 0) END AS amount_cny
         FROM pams_investment_trade_fact
         WHERE trade_date <= %s
           AND account_code = 'tonghuashun'
@@ -669,14 +680,18 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
     cur.execute(
         """
         SELECT COUNT(*) AS count,
-               COALESCE(SUM(ABS(amount_cny)), 0) AS amount_cny,
+               CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
+                    ELSE COALESCE(SUM(ABS(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END)), 0) END AS amount_cny,
                MIN(event_date) AS first_date,
                MAX(event_date) AS last_date
-        FROM pams_cashflow_fact
+        FROM pams_cashflow_fact cf
+        LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+            AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
+            AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
         WHERE event_date <= %s
           AND account_code = 'ccb_7332'
           AND counter_account_code = 'tonghuashun'
-          AND amount_cny < 0
+          AND amount < 0
           AND cashflow_type IN ('investment_funding', 'internal_transfer')
           AND (
               counterparty ILIKE '%%沈钰棋%%'
@@ -691,13 +706,14 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
     ths_cfg = (account_cfg.get("accounts") or {}).get("tonghuashun") or {}
     expected_personal = _dec(ths_cfg.get("personal_capital"))
     owner_ratio = _owner_ratio(account_cfg, "tonghuashun")
-    actual_deposit_gross = _dec(ths_trade.get("amount_cny"))
-    actual_deposit_personal = actual_deposit_gross * owner_ratio
-    source_personal = _dec(ths_cashflow.get("amount_cny"))
-    ths_gap = actual_deposit_personal - expected_personal if expected_personal else Decimal("0")
-    ths_source_gap = source_personal - expected_personal if expected_personal else Decimal("0")
+    actual_deposit_gross = None if ths_trade.get("amount_cny") is None else _dec(ths_trade["amount_cny"])
+    actual_deposit_personal = actual_deposit_gross * owner_ratio if actual_deposit_gross is not None else None
+    source_personal = None if ths_cashflow.get("amount_cny") is None else _dec(ths_cashflow["amount_cny"])
+    ths_unknown = actual_deposit_personal is None or source_personal is None
+    ths_gap = None if ths_unknown else actual_deposit_personal - expected_personal if expected_personal else Decimal("0")
+    ths_source_gap = None if ths_unknown else source_personal - expected_personal if expected_personal else Decimal("0")
     ths_status = (
-        "ok"
+        "unknown" if ths_unknown else "ok"
         if (
             not expected_personal
             or (
@@ -759,6 +775,16 @@ def build_equity_bridge_payload(
                 cycle="equity_bridge",
                 status="draft",
             )
+            if valuation_state.get("net_liquidation_value") is None:
+                terminal_date = _date(valuation_state.get("valuation_date") or valuation_state.get("as_of")) or Date.today()
+                cashflows = _cashflow_breakdown(cur, start_date=start_date, end_date=terminal_date,
+                    excluded_accounts=_bridge_cashflow_excluded_accounts(account_cfg))
+                return _norm({"start": start_date, "end": terminal_date, "base_currency": base,
+                    "status": "unavailable", "reason": "nav_or_cashflow_evidence_unknown",
+                    "beginning_nav_cny": None, "ending_nav_cny": None, "cashflows": cashflows,
+                    "reconciliation": None, "reconciliation_steps": [], "investment": None,
+                    "data_checks": [], "growth_explanation": None,
+                    "quality": {"status": "incomplete", "note": "账户净值缺少可核验证据。"}})
             raw_json = valuation_state.get("raw_json") or {}
             terminal_account_values = raw_json.get("account_values_cny") or {}
             terminal_date, terminal_nav_bucket, ending_nav = _terminal_nav_payload(valuation_state)
@@ -802,11 +828,27 @@ def build_equity_bridge_payload(
                 end_date=terminal_date,
                 excluded_accounts=_bridge_cashflow_excluded_accounts(account_cfg),
             )
+            if (not rows or rows[0].get("netWorth") is None or rows[-1].get("netWorth") is None
+                    or cashflows["external_net_cny"] is None):
+                return _norm({"start": start_date, "end": terminal_date, "base_currency": base,
+                    "status": "unavailable", "reason": "nav_or_cashflow_evidence_unknown",
+                    "beginning_nav_cny": rows[0].get("netWorth") if rows else None,
+                    "ending_nav_cny": rows[-1].get("netWorth") if rows else None,
+                    "cashflows": cashflows, "reconciliation": None, "reconciliation_steps": [],
+                    "investment": None, "data_checks": [], "growth_explanation": None,
+                    "quality": {"status": "incomplete", "note": "净值或外部现金流缺少可核验金额。"}})
             attribution = build_return_attribution_payload(cur, base_currency=base)
-            attribution_pnl = _dec(
-                attribution.get("canonical_total_pnl_cny")
-                or attribution.get("total_pnl_cny")
-            )
+            attribution_value = attribution.get("canonical_total_pnl_cny")
+            if attribution_value is None:
+                attribution_value = attribution.get("total_pnl_cny")
+            if attribution_value is None:
+                return _norm({"start": start_date, "end": terminal_date, "base_currency": base,
+                    "status": "unavailable", "reason": "attribution_evidence_unknown",
+                    "beginning_nav_cny": beginning_nav, "ending_nav_cny": ending_nav, "cashflows": cashflows,
+                    "reconciliation": None, "reconciliation_steps": [], "investment": None,
+                    "data_checks": [], "growth_explanation": None,
+                    "quality": {"status": "incomplete", "note": "投资收益归因缺少可核验证据。"}})
+            attribution_pnl = _dec(attribution_value)
             attribution_current_float_pnl, attribution_closed_realized_pnl = _attribution_pnl_basis(
                 attribution,
                 attribution_pnl,

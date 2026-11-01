@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
+from domain.imports.source_row_read import source_row_relation
 
 
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
@@ -210,18 +211,8 @@ def _income_display_category(category: str, subcategory: str, text: str) -> str:
 
 
 def _payment_proxy_role(row: Mapping[str, Any]) -> str | None:
-    transfer_group_id = str(row.get("transfer_group_id") or "")
-    if not transfer_group_id.startswith("payment_proxy:"):
-        return None
-    parts = transfer_group_id.split(":")
-    if len(parts) < 5:
-        return None
-    source_id = str(row.get("source_id") or row.get("id") or "")
-    if source_id == parts[2]:
-        return "source"
-    if source_id == parts[3]:
-        return "target"
-    return None
+    # Roles are supplied only by verified immutable user confirmations.
+    return row.get('confirmed_payment_proxy_role')
 
 
 def _is_configured_transfer_match(match: Mapping[str, Any], configured_accounts: set[str]) -> bool:
@@ -244,7 +235,8 @@ def _is_configured_transfer_match(match: Mapping[str, Any], configured_accounts:
 def _is_transfer_like(row: Mapping[str, Any], transfer_row_ids: set[int], payment_proxy_source_row_ids: set[int] | None = None) -> bool:
     payment_proxy_source_row_ids = payment_proxy_source_row_ids or set()
     row_id = row.get("id")
-    source_row_id = int(row.get("source_id")) if str(row.get("source_id") or "").isdigit() else None
+    source_id = str(row.get("source_id") or "")
+    source_row_id = int(source_id) if source_id.isdigit() else None
     payment_proxy_role = _payment_proxy_role(row)
     if payment_proxy_role == "target":
         return False
@@ -286,7 +278,7 @@ def classify_ledger_row(
     """
 
     transfer_row_ids = transfer_row_ids or set()
-    amount = _to_float(row.get("amount_cny", row.get("amount")))
+    amount = _to_float(row.get("amount") if row.get("amount_cny") is None else row.get("amount_cny"))
     category = str(row.get("category") or "")
     subcategory = str(row.get("subcategory") or "")
     cashflow_type = str(row.get("cashflow_type") or "")
@@ -371,15 +363,25 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
 
     period_rows = [r for r in rows if (r.get("transaction_date_obj") and start <= r["transaction_date_obj"] <= end)]
     period_transfers = [t for t in transfers if (t.get("match_date_obj") and start <= t["match_date_obj"] <= end)]
-    income = sum(r["amount_cny"] for r in period_rows if r["flow_type"] == "income" and r["amount_cny"] > 0)
-    expense = sum(abs(r["amount_cny"]) for r in period_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0)
-    transfer = sum(abs(t["amount_cny"]) for t in period_transfers)
-    investment_transfer = sum(abs(t["amount_cny"]) for t in period_transfers if _investment_transfer_sign(t))
-    investment_transfer_net = sum(abs(t["amount_cny"]) * _investment_transfer_sign(t) for t in period_transfers)
+    known_rows = [r for r in period_rows if r.get("amount_cny") is not None]
+    missing_source = sum(1 for r in period_rows if r.get('amount_cny') is None
+                         and str(r.get('source_issue') or '').startswith('source_evidence_'))
+    missing_row_fx = sum(1 for r in period_rows if r.get('amount_cny') is None
+                         and not str(r.get('source_issue') or '').startswith('source_evidence_'))
+    missing_income_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "income" for r in period_rows)
+    missing_expense_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "expense" for r in period_rows)
+    missing_transfer_row_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "transfer" for r in period_rows)
+    income = sum(r["amount_cny"] for r in known_rows if r["flow_type"] == "income" and r["amount_cny"] > 0)
+    expense = sum(abs(r["amount_cny"]) for r in known_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0)
+    known_transfers = [t for t in period_transfers if t.get("amount_cny") is not None]
+    missing_fx = len(period_transfers) - len(known_transfers)
+    transfer = sum(abs(t["amount_cny"]) for t in known_transfers)
+    investment_transfer = sum(abs(t["amount_cny"]) for t in known_transfers if _investment_transfer_sign(t))
+    investment_transfer_net = sum(abs(t["amount_cny"]) * _investment_transfer_sign(t) for t in known_transfers)
     disposable_net = income - expense
     cash_net = disposable_net + investment_transfer_net
     other_transfer = max(transfer - investment_transfer, 0.0)
-    return {
+    result = {
         "income": round(income, 2),
         "expense": round(expense, 2),
         "net": round(disposable_net, 2),
@@ -389,11 +391,28 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         "investment_transfer_net": round(investment_transfer_net, 2),
         "other_transfer": round(other_transfer, 2),
         "internal_transfer": round(transfer, 2),
-        "pending_count": sum(1 for r in period_rows if r.get("needs_review")),
+        "pending_count": sum(1 for r in period_rows if r.get("needs_review") or r.get("amount_cny") is None),
         "row_count": len(period_rows),
         "income_count": sum(1 for r in period_rows if r["flow_type"] == "income"),
         "expense_count": sum(1 for r in period_rows if r["flow_type"] == "expense"),
     }
+    if missing_fx or missing_transfer_row_fx:
+        for key in ("cash_net", "investment_transfer", "investment_transfer_net", "other_transfer", "internal_transfer"):
+            result[key] = None
+    if missing_income_fx or missing_expense_fx:
+        if missing_income_fx:
+            result['income'] = None
+        if missing_expense_fx:
+            result['expense'] = None
+        for key in ("net", "disposable_net", "cash_net"):
+            result[key] = None
+    if missing_fx or missing_row_fx:
+        result.update(fx_status="incomplete", fx_missing_count=missing_fx + missing_row_fx)
+    elif any(row.get('fx_basis') == 'daily_market_projection' for row in period_rows):
+        result['fx_status'] = 'estimated'
+    if missing_source:
+        result.update(source_status='incomplete', source_unverified_count=missing_source)
+    return result
 
 
 def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str, Any]]:
@@ -402,22 +421,26 @@ def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str,
         if row["flow_type"] != flow_type:
             continue
         label = row["coarse_category"]
-        item = grouped.setdefault(label, {"category": label, "amount": 0.0, "count": 0})
-        item["amount"] += abs(row["amount_cny"])
+        item = grouped.setdefault(label, {"category": label, "amount": 0.0, "count": 0, "fx_missing": False})
+        if row.get("amount_cny") is None:
+            item["fx_missing"] = True
+        else:
+            item["amount"] += abs(row["amount_cny"])
         item["count"] += 1
     total = sum(item["amount"] for item in grouped.values())
+    missing_fx = any(item["fx_missing"] for item in grouped.values())
     result = []
     for item in grouped.values():
         amount = round(item["amount"], 2)
         result.append(
             {
                 "category": item["category"],
-                "amount": amount,
+                "amount": None if item["fx_missing"] else amount,
                 "count": item["count"],
-                "share": round(amount / total, 4) if total else 0,
+                "share": None if missing_fx else round(amount / total, 4) if total else 0,
             }
         )
-    return sorted(result, key=lambda item: item["amount"], reverse=True)
+    return sorted(result, key=lambda item: item["amount"] if item["amount"] is not None else -1, reverse=True)
 
 
 def _load_accounts_config() -> dict[str, Any]:
@@ -473,6 +496,7 @@ def _account_summary(
     rows: list[dict[str, Any]],
     configured_accounts: set[str] | None = None,
     account_config: Mapping[str, Any] | None = None,
+    base_currency: str = 'CNY',
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -495,6 +519,10 @@ def _account_summary(
                 "row_count": 0,
                 "pending_count": 0,
                 "latest_sync_at": None,
+                "fx_missing_count": 0,
+                "fx_missing_flows": set(),
+                "direction_conflict_count": 0,
+                "source_unverified_count": 0,
             },
         )
         if row.get("account_kind") == "investment":
@@ -502,9 +530,19 @@ def _account_summary(
         sync_at = row.get("latest_sync_at") or row.get("imported_at") or row.get("updated_at") or row.get("created_at")
         if sync_at and (item["latest_sync_at"] is None or str(sync_at) > str(item["latest_sync_at"])):
             item["latest_sync_at"] = sync_at
-        amount = _to_float(row.get("amount_cny"))
         flow_type = row.get("flow_type")
         item["row_count"] += 1
+        if row.get("amount_cny") is None:
+            if row.get('source_issue') == 'direction_conflict':
+                item["direction_conflict_count"] += 1
+            elif str(row.get('source_issue') or '').startswith('source_evidence_'):
+                item["source_unverified_count"] += 1
+            else:
+                item["fx_missing_count"] += 1
+            item["fx_missing_flows"].add(str(flow_type or "unknown"))
+            item["pending_count"] += 1
+            continue
+        amount = _to_float(row.get("amount_cny"))
         item["net"] += amount
         if row.get("needs_review"):
             item["pending_count"] += 1
@@ -525,7 +563,15 @@ def _account_summary(
 
     result = []
     for item in grouped.values():
-        _apply_personal_capital_override(item, account_config)
+        capital = _account_capital_config(account_config, str(item.get('account_code') or ''))
+        capital_unavailable = base_currency != 'CNY' and item.get('account_kind') == 'investment' and capital['personal_capital'] is not None
+        if capital_unavailable:
+            item['owner_ratio']=capital['owner_ratio']
+            item['personal_capital']=None
+            item['capital_base']=None
+            item['funding_scope']='personal_capital'
+        else:
+            _apply_personal_capital_override(item, account_config)
         activity = (
             item["income"]
             + item["expense"]
@@ -535,8 +581,7 @@ def _account_summary(
             + item["investment_return"]
             + item["investment_fee"]
         )
-        result.append(
-            {
+        result_item = {
                 "account_code": item["account_code"],
                 "account_kind": item["account_kind"],
                 "income": round(item["income"], 2),
@@ -560,8 +605,23 @@ def _account_summary(
                 ),
                 "funding_scope": item.get("funding_scope"),
             }
-        )
-    return sorted(result, key=lambda item: item["activity"], reverse=True)
+        if item["fx_missing_count"] or item["direction_conflict_count"] or item["source_unverified_count"]:
+            for field in ("income", "expense", "transfer", "investment_inflow", "investment_outflow",
+                          "investment_return", "investment_fee"):
+                if field in item["fx_missing_flows"]:
+                    result_item[field] = None
+            for field in ("net", "activity"):
+                result_item[field] = None
+            if item["fx_missing_count"]:
+                result_item.update(fx_status="incomplete", fx_missing_count=item["fx_missing_count"])
+            if item["direction_conflict_count"]:
+                result_item.update(source_status="inconsistent", direction_conflict_count=item["direction_conflict_count"])
+            if item["source_unverified_count"]:
+                result_item.update(source_status="incomplete", source_unverified_count=item["source_unverified_count"])
+        if capital_unavailable:
+            result_item.update(investment_inflow=None,net=None,activity=None,capital_status='unavailable')
+        result.append(result_item)
+    return sorted(result, key=lambda item: item["activity"] if item["activity"] is not None else -1, reverse=True)
 
 
 def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> list[dict[str, Any]]:
@@ -575,6 +635,9 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
             key = key_date.isoformat()
         else:
             key = d.strftime("%Y-%m")
+        if row.get("amount_cny") is None and row["flow_type"] in {"income", "expense"}:
+            buckets[key]["fx_missing_" + row["flow_type"]] = True
+            continue
         if row["flow_type"] == "income" and row["amount_cny"] > 0:
             buckets[key]["income"] += row["amount_cny"]
         elif row["flow_type"] == "expense" and row["amount_cny"] < 0:
@@ -584,14 +647,26 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
     for key in sorted(buckets):
         income = round(buckets[key]["income"], 2)
         expense = round(buckets[key]["expense"], 2)
-        result.append({"period": key, "income": income, "expense": expense, "net": round(income - expense, 2)})
+        missing_income = buckets[key].get("fx_missing_income")
+        missing_expense = buckets[key].get("fx_missing_expense")
+        result.append({"period": key, "income": None if missing_income else income,
+                       "expense": None if missing_expense else expense,
+                       "net": None if missing_income or missing_expense else round(income - expense, 2)})
     return result
 
 
-def _load_latest_statement_date(cur) -> date | None:
-    cur.execute("SELECT max(event_date) AS latest_date FROM pams_cashflow_fact")
-    row = cur.fetchone()
-    return _as_date(row.get("latest_date") if row else None)
+def _load_latest_statement_date(cur, verifier=None) -> date | None:
+    visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
+    cur.execute(f"""SELECT cf.cashflow_id,cf.event_date,cf.source_table,to_jsonb(cf)->>'source_item_id' AS source_item_id
+                    FROM pams_cashflow_fact cf WHERE {visibility} ORDER BY cf.event_date DESC,cf.cashflow_id DESC""")
+    rows = [dict(row) for row in cur.fetchall()]
+    verifier = verifier or _source_fact_verifier(cur)
+    for row in rows:
+        if not row.get('source_item_id') and row.get('source_table') not in {'source_items'}:
+            return _as_date(row['event_date'])
+        if row.get('source_item_id') and verifier.verify(table='pams_cashflow_fact',fact_id=row['cashflow_id']).get('status') == 'verified':
+            return _as_date(row['event_date'])
+    return None
 
 
 def _table_exists(cur, table_name: str) -> bool:
@@ -602,19 +677,127 @@ def _table_exists(cur, table_name: str) -> bool:
     return bool(row and row[0])
 
 
-def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+def _daily_fx_join(cur, *, currency_sql: str, date_sql: str, alias: str = 'fx') -> str:
+    if not _table_exists(cur, 'pams_fx_rates_daily'):
+        return f'LEFT JOIN LATERAL (SELECT NULL::numeric AS rate) {alias} ON TRUE'
+    return f"""LEFT JOIN LATERAL (
+        SELECT CASE WHEN {currency_sql}=%(base)s THEN 1::numeric
+          WHEN {currency_sql}='CNY' THEN 1::numeric / NULLIF(base_fx.rate,0)
+          WHEN %(base)s='CNY' THEN input_fx.rate
+          ELSE input_fx.rate / NULLIF(base_fx.rate,0) END AS rate
+        FROM (SELECT 1) seed
+        LEFT JOIN pams_fx_rates_daily input_fx ON input_fx.base_currency='CNY'
+          AND input_fx.quote_currency={currency_sql} AND input_fx.as_of={date_sql}
+          AND input_fx.rate>0 AND input_fx.rate::text NOT IN ('NaN','Infinity','-Infinity') AND NULLIF(BTRIM(input_fx.source),'') IS NOT NULL
+        LEFT JOIN pams_fx_rates_daily base_fx ON base_fx.base_currency='CNY'
+          AND base_fx.quote_currency=%(base)s AND base_fx.as_of={date_sql}
+          AND base_fx.rate>0 AND base_fx.rate::text NOT IN ('NaN','Infinity','-Infinity') AND NULLIF(BTRIM(base_fx.source),'') IS NOT NULL
+    ) {alias} ON TRUE"""
+
+
+def _visible_fact_sql(cur, *, alias: str, cashflow: bool) -> str:
+    """Keep unresolved linked facts visible for explicit source verification."""
+    active = f"LOWER(COALESCE(to_jsonb({alias})->>'review_status','')) NOT IN ('ignored','rejected','cancelled','canceled','void','duplicate')"
+    if not _table_exists(cur, 'source_items'):
+        return f"({active})"
+    item = f"to_jsonb({alias})->>'source_item_id'"
+    return f"({active} AND NOT EXISTS (SELECT 1 FROM source_items i WHERE i.source_item_id::text={item} AND i.review_status='excluded'))"
+
+
+def _source_fact_verifier(cur):
+    from domain.imports.source_fact_evidence import NativeFactVerifier
+    native=NativeFactVerifier(cur)
+    from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
+
+    class LedgerSourceVerifier:
+        def __init__(self):
+            self.cache=EvidenceCache()
+            cur.execute("""SELECT to_regclass('public.source_files') IS NOT NULL AND
+                to_regclass('public.source_batches') IS NOT NULL AND to_regclass('public.source_items') IS NOT NULL AND
+                EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.source_items')
+                    AND attname='origin_file_id' AND NOT attisdropped) AND
+                EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.pams_investment_trade_fact')
+                    AND attname='source_item_id' AND NOT attisdropped) AS available""")
+            self.available=bool(cur.fetchone()['available'])
+
+        def verify_many(self, *, table, fact_ids):
+            if table == 'pams_cashflow_fact':
+                return native.verify_many(table=table, fact_ids=fact_ids)
+            return {fact_id:self.verify(table=table,fact_id=fact_id) for fact_id in fact_ids}
+
+        def verify(self, *, table, fact_id):
+            if table!='pams_investment_trade_fact':
+                return native.verify(table=table,fact_id=fact_id)
+            cur.execute('SELECT source_table FROM pams_investment_trade_fact WHERE trade_id=%s',(fact_id,))
+            row=cur.fetchone()
+            if not row or row['source_table']!='ibkr_flex_cash_transaction':
+                return native.verify(table=table,fact_id=fact_id)
+            if not self.available:
+                return {'status':'unknown','reason':'ibkr_source_schema_unavailable',
+                        'source_role':'ibkr_report_cash','external_authority_verified':False}
+            result=verify_ibkr_fact(cur,trade_id=fact_id,cache=self.cache)
+            # Cash ledger needs account, date, currency, direction, native amount
+            # and dated conversion. Other absent fields remain explicitly unknown.
+            required={'trade_date','account_code','currency','side','gross_amount','net_cash',
+                      'source_key','source_id','fx_rate_to_cny','net_cash_cny','fx_evidence','fx_source','cashflow_association'}
+            known=result.get('status') in {'consistent','partial'} and not required.intersection(result.get('unknown_fields',[]))
+            return {'status':'verified' if known else 'unknown',
+                    'reason':'ibkr_report_cash_consistent' if known else result.get('reason','ibkr_cash_evidence_incomplete'),
+                    'source_role':'ibkr_report_cash','external_authority_verified':False,
+                    'unknown_fields':result.get('unknown_fields',[])}
+    return LedgerSourceVerifier()
+
+
+def _mark_fact_source(cur, rows, *, table: str, verifier=None):
+    verifier = verifier or _source_fact_verifier(cur)
+    ids = [int(row['fact_id']) for row in rows if row.get('source_item_id')]
+    bulk = (verifier.verify_many(table=table,fact_ids=ids)
+            if table == 'pams_cashflow_fact' and hasattr(verifier,'verify_many') else {})
+    for row in rows:
+        if not row.get('source_item_id'):
+            if row.get('source_table') in {'source_items','ibkr_flex_cash_transaction'}:
+                proof = {'status':'unknown','reason':'source_link_missing'}
+            else:
+                continue
+        else:
+            fact_id = int(row['fact_id'])
+            proof = bulk.get(fact_id) or verifier.verify(table=table, fact_id=fact_id)
+        row['source_evidence_status'] = proof.get('status', 'unknown')
+        row['source_evidence_reason'] = proof.get('reason')
+        if proof.get('source_role')=='ibkr_report_cash':
+            row['source_evidence_role']='ibkr_report_cash'
+            row['source_authority_verified']=False
+            # Cash report evidence does not establish a separate bank leg.
+            row['linked_cashflow_id']=None
+        if row['source_evidence_status'] != 'verified':
+            row['amount_cny'] = None
+            row['source_issue'] = 'source_evidence_' + row['source_evidence_status']
+            row['needs_review'] = True
+    return rows
+
+
+def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
+    source_rows = source_row_relation(cur, verifier=verifier)
+    fx_join = _daily_fx_join(cur, currency_sql='cf.currency', date_sql='cf.event_date')
+    visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
     cur.execute(
-        """
+        f"""
         SELECT
             cf.cashflow_id AS id,
+            cf.cashflow_id AS fact_id,
+            to_jsonb(cf)->>'source_item_id' AS source_item_id,
             cf.account_code,
             cf.counter_account_code,
             NULL::text AS account_kind,
             COALESCE(NULLIF(cf.source_channel, ''), NULLIF(cf.source_table, ''), '') AS bank,
             cf.event_date AS transaction_date,
             cf.amount,
-            COALESCE(cf.amount_cny, cf.amount * COALESCE(cf.fx_rate_to_cny, 1), cf.amount) AS amount_cny,
-            COALESCE(NULLIF(cf.currency, ''), %(base)s) AS currency,
+            cf.amount * CASE WHEN NULLIF(cf.currency, '') = %(base)s THEN 1 ELSE fx.rate END AS amount_cny,
+            cf.amount_cny AS recorded_amount_cny,
+            cf.fx_rate_to_cny AS recorded_fx_rate_to_cny,
+            CASE WHEN NULLIF(cf.currency, '') = %(base)s THEN 'native_base'
+                 WHEN fx.rate IS NULL THEN 'unavailable' ELSE 'daily_market_projection' END AS fx_basis,
+            NULLIF(cf.currency, '') AS currency,
             cf.category,
             cf.subcategory,
             cf.summary,
@@ -629,25 +812,18 @@ def _load_cash_rows(cur, *, start: date, end: date, base_currency: str) -> list[
             cf.source_id,
             COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
         FROM pams_cashflow_fact cf
-        LEFT JOIN pams_source_row sr
+        {fx_join}
+        LEFT JOIN {source_rows} sr
           ON sr.source_table = cf.source_table
          AND sr.source_id = cf.source_id
         WHERE cf.event_date >= %(start)s
           AND cf.event_date <= %(end)s
+          AND {visibility}
         ORDER BY cf.event_date DESC, cf.cashflow_id DESC
         """,
         {"start": start, "end": end, "base": base_currency},
     )
-    return [dict(row) for row in cur.fetchall()]
-
-
-def _investment_row_dedupe_key(row: Mapping[str, Any]) -> tuple[str, str, date | None, float]:
-    return (
-        str(row.get("account_code") or ""),
-        str(row.get("flow_type") or ""),
-        _as_date(row.get("transaction_date_obj") or row.get("transaction_date")),
-        round(abs(_to_float(row.get("amount_cny"))), 2),
-    )
+    return _mark_fact_source(cur, [dict(row) for row in cur.fetchall()], table='pams_cashflow_fact', verifier=verifier)
 
 
 def _merge_investment_account_rows(
@@ -655,7 +831,6 @@ def _merge_investment_account_rows(
     trade_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Prefer bank cashflow funding rows over broker/importer cash events."""
-    cash_keys = {_investment_row_dedupe_key(row) for row in cash_rows}
     cashflow_ids = {
         str(row.get("linked_cashflow_id"))
         for row in cash_rows
@@ -664,8 +839,7 @@ def _merge_investment_account_rows(
     filtered_trade_rows = [
         row
         for row in trade_rows
-        if _investment_row_dedupe_key(row) not in cash_keys
-        and str(row.get("linked_cashflow_id") or "") not in cashflow_ids
+        if str(row.get("linked_cashflow_id") or "") not in cashflow_ids
     ]
     return sorted(
         cash_rows + filtered_trade_rows,
@@ -674,34 +848,49 @@ def _merge_investment_account_rows(
     )
 
 
-def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
     if not _table_exists(cur, "pams_investment_trade_fact"):
         return []
+    fx_join = _daily_fx_join(cur, currency_sql='f.currency', date_sql='f.trade_date')
+    visibility = _visible_fact_sql(cur, alias='f', cashflow=False)
     cur.execute(
-        """
+        f"""
         WITH cash_events AS (
             SELECT
                 f.trade_id AS id,
+                to_jsonb(f)->>'source_item_id' AS source_item_id,
                 f.account_code,
                 f.trade_date AS transaction_date,
                 LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type)) AS side_norm,
-                COALESCE(NULLIF(f.currency, ''), %(base)s) AS currency,
-                ABS(COALESCE(f.gross_amount, f.net_cash, f.net_cash_cny, 0)) AS native_amount,
-                ABS(COALESCE(
-                    f.gross_amount * COALESCE(f.fx_rate_to_cny, 1),
-                    f.net_cash_cny,
-                    f.net_cash * COALESCE(f.fx_rate_to_cny, 1),
-                    f.gross_amount,
-                    0
-                )) AS amount_cny,
+                NULLIF(f.currency, '') AS currency,
+                f.net_cash AS native_signed_cash,
+                (f.net_cash IS NOT NULL AND (
+                  (LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type)) IN ('deposit','cash_deposit','transfer_in') AND f.net_cash < 0)
+                  OR (LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type)) IN ('withdraw','withdrawal','cash_withdrawal','transfer_out') AND f.net_cash > 0))) AS direction_conflict,
+                ABS(COALESCE(f.net_cash, f.gross_amount, 0)) AS native_amount,
+                ABS(COALESCE(f.net_cash, f.gross_amount) * CASE
+                    WHEN NULLIF(f.currency, '') = %(base)s THEN 1
+                    ELSE fx.rate END) AS amount_cny,
                 COALESCE(NULLIF(f.name, ''), NULLIF(f.symbol, ''), '投资现金') AS name,
                 COALESCE(NULLIF(f.broker, ''), NULLIF(f.source_table, ''), 'investment') AS source_label,
                 f.source_table,
                 f.source_id,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM pams_cashflow_fact linked
+                    WHERE linked.cashflow_id::text = COALESCE(to_jsonb(f)->>'cashflow_id',
+                          CASE WHEN f.source_table='pams_cashflow_fact' THEN f.source_id END)
+                      AND linked.counter_account_code=f.account_code AND linked.event_date=f.trade_date
+                      AND linked.currency=f.currency AND linked.amount=-f.net_cash
+                      AND LOWER(COALESCE(to_jsonb(linked)->>'review_status','')) NOT IN ('ignored','rejected')
+                ) THEN COALESCE(to_jsonb(f)->>'cashflow_id',
+                                CASE WHEN f.source_table='pams_cashflow_fact' THEN f.source_id END)
+                  ELSE NULL END AS verified_cashflow_id,
                 f.created_at
             FROM pams_investment_trade_fact f
+            {fx_join}
             WHERE f.trade_date >= %(start)s
               AND f.trade_date <= %(end)s
+              AND {visibility}
               AND f.account_code = ANY(%(accounts)s)
               AND LOWER(COALESCE(NULLIF(f.side, ''), f.trade_type)) IN (
                   'deposit', 'cash_deposit', 'transfer_in',
@@ -710,15 +899,19 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
         )
         SELECT
             ('investment-trade-' || id::text) AS id,
+            id AS fact_id,
+            source_item_id,
             account_code,
             'investment'::text AS account_kind,
             source_label AS bank,
             transaction_date,
             CASE
+                WHEN direction_conflict THEN native_signed_cash
                 WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN -native_amount
                 ELSE native_amount
             END AS amount,
             CASE
+                WHEN direction_conflict THEN NULL
                 WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN -amount_cny
                 ELSE amount_cny
             END AS amount_cny,
@@ -740,10 +933,7 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
             END AS cashflow_type,
             TRUE AS is_internal_transfer,
             ('investment-trade-' || id::text) AS transfer_group_id,
-            CASE
-                WHEN source_table = 'pams_cashflow_fact' THEN source_id
-                ELSE NULL
-            END AS linked_cashflow_id,
+            verified_cashflow_id AS linked_cashflow_id,
             'auto'::text AS review_status,
             source_table,
             source_id,
@@ -752,10 +942,11 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
                 WHEN side_norm IN ('withdraw', 'withdrawal', 'cash_withdrawal', 'transfer_out') THEN 'investment_outflow'
                 ELSE 'investment_inflow'
             END AS flow_type,
-            FALSE AS needs_review,
+            direction_conflict AS needs_review,
+            CASE WHEN direction_conflict THEN 'direction_conflict' ELSE NULL END AS source_issue,
             FALSE AS is_operating
         FROM cash_events
-        WHERE amount_cny > 0.0001
+        WHERE native_amount > 0.0001
         ORDER BY transaction_date DESC, id DESC
         """,
         {
@@ -769,18 +960,26 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
     for raw in cur.fetchall():
         row = dict(raw)
         row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
-        row["amount_cny"] = _to_float(row.get("amount_cny"))
+        row["amount_cny"] = _to_float(row["amount_cny"]) if row.get("amount_cny") is not None else None
+        if row["amount_cny"] is None:
+            if row.get('source_issue') != 'direction_conflict':
+                row["fx_status"] = "unavailable"
+            row["needs_review"] = True
         row["coarse_category"] = row.get("subcategory") or "投资现金流"
         rows.append(row)
-    return rows
+    return _mark_fact_source(cur, rows, table='pams_investment_trade_fact', verifier=verifier)
 
 
-def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
+    source_rows = source_row_relation(cur, verifier=verifier)
+    fx_join = _daily_fx_join(cur, currency_sql='cf.currency', date_sql='cf.event_date')
+    visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
     cur.execute(
-        """
+        f"""
         WITH funding AS (
             SELECT
                 cf.cashflow_id AS id,
+                to_jsonb(cf)->>'source_item_id' AS source_item_id,
                 CASE
                     WHEN cf.counter_account_code = 'direct_investment'
                      AND cf.account_code = 'ccb_7332'
@@ -793,28 +992,32 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
                 END AS investment_account_code,
                 cf.account_code AS funding_account_code,
                 cf.event_date AS transaction_date,
-                COALESCE(NULLIF(cf.currency, ''), %(base)s) AS currency,
+                NULLIF(cf.currency, '') AS currency,
                 ABS(cf.amount) AS amount,
-                ABS(COALESCE(cf.amount_cny, cf.amount * COALESCE(cf.fx_rate_to_cny, 1), cf.amount)) AS amount_cny,
+                ABS(cf.amount * CASE WHEN NULLIF(cf.currency, '') = %(base)s THEN 1 ELSE fx.rate END) AS amount_cny,
                 cf.summary,
                 cf.description,
                 cf.source_table,
                 cf.source_id,
                 COALESCE(sr.imported_at, cf.updated_at, cf.created_at) AS imported_at
             FROM pams_cashflow_fact cf
-            LEFT JOIN pams_source_row sr
+            {fx_join}
+            LEFT JOIN {source_rows} sr
               ON sr.source_table = cf.source_table
              AND sr.source_id = cf.source_id
             WHERE cf.event_date >= %(start)s
               AND cf.event_date <= %(end)s
+              AND {visibility}
               AND (
                 cf.cashflow_type = 'investment_funding'
                 OR cf.transfer_group_id LIKE 'investment_funding:%%'
               )
-              AND COALESCE(cf.amount_cny, cf.amount * COALESCE(cf.fx_rate_to_cny, 1), cf.amount) < 0
+              AND cf.amount < 0
         )
         SELECT
             ('investment-inflow-' || id::text) AS id,
+            id AS fact_id,
+            source_item_id,
             investment_account_code AS account_code,
             'investment'::text AS account_kind,
             ''::text AS bank,
@@ -840,7 +1043,7 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
             FALSE AS is_operating
         FROM funding
         WHERE investment_account_code = ANY(%(accounts)s)
-          AND amount_cny > 0.0001
+          AND amount > 0.0001
         ORDER BY transaction_date DESC, id DESC
         """,
         {
@@ -854,71 +1057,129 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
     for raw in cur.fetchall():
         row = dict(raw)
         row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
-        row["amount_cny"] = _to_float(row.get("amount_cny"))
+        row["amount_cny"] = _to_float(row["amount_cny"]) if row.get("amount_cny") is not None else None
+        if row["amount_cny"] is None and not row.get('source_issue'):
+            row["fx_status"] = "unavailable"
+            row["needs_review"] = True
         row["coarse_category"] = row.get("subcategory") or "投资现金流"
         rows.append(row)
-    trade_rows = _load_investment_trade_account_rows(cur, start=start, end=end, base_currency=base_currency)
+    rows = _mark_fact_source(cur, rows, table='pams_cashflow_fact', verifier=verifier)
+    trade_rows = _load_investment_trade_account_rows(cur, start=start, end=end, base_currency=base_currency, verifier=verifier)
     return _merge_investment_account_rows(rows, trade_rows)
 
 
+def _confirmed_transfer_records(cur, *, start: date, end: date):
+    """Read immutable decisions and recheck both source-backed facts."""
+    from domain.ledger import confirmed_transfers
+    result = []
+    for item in confirmed_transfers.read(cur, limit=None):
+        left, right = item['from_evidence'], item['to_evidence']
+        left_day = _as_date(left.get('day'))
+        right_day = _as_date(right.get('day'))
+        if not any(day and start <= day <= end for day in (left_day, right_day)):
+            continue
+        kind = ('investment_funding' if right.get('kind') == 'trade' else
+                'investment_withdrawal' if left.get('kind') == 'trade' else 'internal_transfer')
+        result.append((item, left, right, left_day, right_day, kind))
+    return result
+
+
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
-    cur.execute(
-        """
-        WITH matches AS (
-            SELECT
-                m.case_id AS id,
-                m.relation_code,
-                m.case_type AS match_type,
-                m.case_date AS match_date,
-                m.from_account_code,
-                m.to_account_code,
-                CASE WHEN m.source_ref_id ~ '^[0-9]+$' THEN m.source_ref_id::bigint ELSE NULL END AS source_row_id,
-                CASE WHEN m.target_ref_id ~ '^[0-9]+$' THEN m.target_ref_id::bigint ELSE NULL END AS target_row_id,
-                m.amount,
-                COALESCE(NULLIF(m.currency, ''), %(base)s) AS currency_norm,
-                m.status
-            FROM pams_reconciliation_case m
-            WHERE m.case_date >= %(start)s
-              AND m.case_date <= %(end)s
-              AND m.case_type = ANY(%(match_types)s)
-              AND COALESCE(m.status, 'confirmed') <> 'rejected'
-        )
-        SELECT
-            matches.*,
-            CASE
-                WHEN matches.currency_norm = %(base)s THEN 1
-                ELSE COALESCE(fx_hist.rate, fx_latest.rate, 1)
-            END AS fx_rate,
-            matches.amount * CASE
-                WHEN matches.currency_norm = %(base)s THEN 1
-                ELSE COALESCE(fx_hist.rate, fx_latest.rate, 1)
-            END AS amount_cny
-        FROM matches
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = matches.currency_norm
-              AND fx.as_of <= matches.match_date
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_hist ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %(base)s
-              AND fx.quote_currency = matches.currency_norm
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_latest ON TRUE
-        ORDER BY matches.match_date DESC, matches.id DESC
-        """,
-        {"start": start, "end": end, "base": base_currency, "match_types": list(TRANSFER_MATCH_TYPES)},
-    )
-    return [dict(row) for row in cur.fetchall()]
+    result = []
+    for item, left, right, left_day, right_day, kind in _confirmed_transfer_records(cur, start=start, end=end):
+        if item['evidence_status'] != 'confirmed' or left_day != right_day or not left_day:
+            continue
+        fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
+        cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
+            SELECT CASE WHEN matches.currency_norm = %(base)s THEN 1 ELSE fx_hist.rate END AS fx_rate
+            FROM matches {fx_join}""",
+            {'currency': item['currency'], 'day': left_day, 'base': base_currency})
+        fx = cur.fetchone()['fx_rate']
+        result.append({'id': str(item['transfer_id']), 'relation_code': None, 'match_type': kind,
+            'match_date': left_day, 'from_account_code': item['from_account_code'],
+            'to_account_code': item['to_account_code'],
+            'source_row_id': left['id'] if left['kind'] == 'cashflow' else None,
+            'target_row_id': right['id'] if right['kind'] == 'cashflow' else None,
+            'amount': item['amount'], 'currency_norm': item['currency'], 'status': 'confirmed',
+            'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
+    return result
 
 
-def _serialize_row(row: Mapping[str, Any]) -> dict[str, Any]:
+def _load_pending_transfer_cases(cur, *, start: date, end: date) -> list[dict[str, Any]]:
+    """Expose known open bank facts and invalidated decisions without confirming them."""
+    from domain.ledger import bank_source_read
+
+    decisions = _confirmed_transfer_records(cur, start=start, end=end)
+    pending = []
+    linked: set[int] = set()
+    for item, left, right, left_day, right_day, kind in decisions:
+        if item['evidence_status'] == 'confirmed':
+            linked.update(leg['id'] for leg in (left, right) if leg.get('kind') == 'cashflow')
+        if item['evidence_status'] == 'revoked' or (item['evidence_status'] == 'confirmed' and left_day == right_day and left_day):
+            continue
+        pending.append({'case_id': str(item['transfer_id']), 'case_type': kind, 'relation_code': None,
+            'from_account_code': item['from_account_code'], 'to_account_code': item['to_account_code'],
+            'case_date': _serialize_date(left_day), 'amount': None, 'currency': item['currency'],
+            'status': item['evidence_status'] if item['evidence_status'] != 'confirmed' else 'date_unknown'})
+    # A bounded scan makes the response usable even for large ledgers.  The
+    # count is explicitly the known subset, never a claim of full coverage.
+    rows_by_id: dict[int, dict[str, Any]] = {}
+    for row in bank_source_read.rows(cur, since=start, limit=10000):
+        if (row['event_date'] > end or row['cashflow_id'] in linked or
+                row['cashflow_type'] not in {'internal_transfer', 'investment_funding', 'investment_withdrawal'}):
+            continue
+        previous = rows_by_id.get(row['cashflow_id'])
+        if previous is None or row.get('source_evidence_status') == 'verified':
+            rows_by_id[row['cashflow_id']] = row
+    known = list(rows_by_id.values())
+    groups = defaultdict(list)
+    for row in known:
+        amount = row.get('amount')
+        if row.get('source_evidence_status') == 'verified' and amount is not None and amount != 0:
+            groups[(row.get('event_date'), row.get('currency'), abs(amount), amount > 0)].append(row)
+    candidate_cache: dict[int, list[int]] = {}
+
+    def candidates_for(row):
+        ident = row['cashflow_id']
+        if ident in candidate_cache:
+            return candidate_cache[ident]
+        amount = row.get('amount')
+        if row.get('source_evidence_status') != 'verified' or amount is None or amount == 0:
+            return []
+        candidates = []
+        for other in groups.get((row.get('event_date'), row.get('currency'), abs(amount), amount < 0), []):
+            if (other.get('account_code') == row.get('account_code')
+                    or (row.get('counter_account_code') and row['counter_account_code'] != other.get('account_code'))
+                    or (other.get('counter_account_code') and other['counter_account_code'] != row.get('account_code'))):
+                continue
+            candidates.append(other['cashflow_id'])
+        candidate_cache[ident] = candidates
+        return candidates
+
+    total_count = len(pending) + len(known)
+    for row in known[:max(0, 200 - len(pending))]:
+        verified = row.get('source_evidence_status') == 'verified'
+        amount = row.get('amount')
+        day = row.get('event_date')
+        currency = row.get('currency')
+        candidates = candidates_for(row) if currency and day else []
+        status = ('source_unknown' if not verified or amount is None or not currency or not day else
+                  'unmatched' if not candidates else
+                  'unique_candidate' if len(candidates) == 1 and len(candidates_for(rows_by_id[candidates[0]])) == 1
+                  else 'ambiguous')
+        pending.append({'case_id': 'cashflow:' + str(row['cashflow_id']), 'case_type': row['cashflow_type'],
+            'relation_code': None, 'from_account_code': row['account_code'] if amount is not None and amount < 0 else None,
+            'to_account_code': row['account_code'] if amount is not None and amount > 0 else None,
+            'case_date': _serialize_date(day), 'amount': _to_float(amount) if verified and amount is not None else None,
+            'currency': currency, 'status': status, 'source_evidence_status': row.get('source_evidence_status', 'unknown'),
+            'candidate_count': len(candidates) if status != 'source_unknown' else None,
+            'candidate_ids': sorted(candidates)[:20]})
+    for item in pending:
+        item['total_count'] = total_count
+    return pending[:200]
+
+
+def _serialize_row(row: Mapping[str, Any], *, base_currency: str = 'CNY') -> dict[str, Any]:
     keys = [
         "id",
         "account_code",
@@ -928,6 +1189,14 @@ def _serialize_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "transaction_date",
         "amount",
         "amount_cny",
+        "recorded_amount_cny",
+        "recorded_fx_rate_to_cny",
+        "fx_basis",
+        "source_issue",
+        "source_evidence_status",
+        "source_evidence_reason",
+        "source_evidence_role",
+        "source_authority_verified",
         "currency",
         "category",
         "subcategory",
@@ -944,10 +1213,23 @@ def _serialize_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "classification_source",
     ]
     out = {key: row.get(key) for key in keys}
-    if isinstance(out.get("transaction_date"), (date, datetime)):
-        out["transaction_date"] = out["transaction_date"].isoformat()[:10]
+    transaction_date = out.get("transaction_date")
+    if isinstance(transaction_date, (date, datetime)):
+        out["transaction_date"] = transaction_date.isoformat()[:10]
     out["amount"] = round(_to_float(out.get("amount")), 2)
-    out["amount_cny"] = round(_to_float(out.get("amount_cny")), 2)
+    out["amount_cny"] = round(_to_float(out["amount_cny"]), 2) if out.get("amount_cny") is not None else None
+    out['amount_base'] = out['amount_cny']
+    out['base_currency'] = base_currency
+    if base_currency != 'CNY':
+        out['amount_cny'] = None
+    if out.get("recorded_amount_cny") is not None:
+        out["recorded_amount_cny"] = round(_to_float(out["recorded_amount_cny"]), 2)
+        if out.get("fx_basis") != 'native_base':
+            out["recorded_fx_status"] = 'unverified'
+    if out.get("recorded_fx_rate_to_cny") is not None:
+        out["recorded_fx_rate_to_cny"] = _to_float(out["recorded_fx_rate_to_cny"])
+    if row.get("fx_status"):
+        out["fx_status"] = row["fx_status"]
     return out
 
 
@@ -962,13 +1244,18 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "relation_code": key[1],
                 "amount": 0.0,
                 "count": 0,
+                "fx_missing_count": 0,
             },
         )
-        item["amount"] += abs(_to_float(match.get("amount_cny")))
+        if match.get("amount_cny") is None:
+            item["fx_missing_count"] += 1
+        else:
+            item["amount"] += abs(_to_float(match["amount_cny"]))
         item["count"] += 1
     return sorted(
-        ({**item, "amount": round(item["amount"], 2)} for item in grouped.values()),
-        key=lambda item: item["amount"],
+        ({**item, "amount": None if item["fx_missing_count"] else round(item["amount"], 2),
+          **({"fx_status": "incomplete"} if item["fx_missing_count"] else {})} for item in grouped.values()),
+        key=lambda item: item["amount"] if item["amount"] is not None else -1,
         reverse=True,
     )
 
@@ -976,13 +1263,15 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
-    latest_date = _load_latest_statement_date(cur)
+    verifier = _source_fact_verifier(cur)
+    latest_date = _load_latest_statement_date(cur, verifier=verifier)
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
     account_config = _load_accounts_config()
     configured_accounts = _load_configured_account_codes(account_config)
-    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier)
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    pending_transfer_cases = _load_pending_transfer_cases(cur, start=ytd_start, end=month_end)
     payment_proxy_source_row_ids = {
         row_id
         for match in all_transfer_matches
@@ -1000,20 +1289,35 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if isinstance(row_id, int)
     }
 
+    confirmed_proxy_roles = {}
+    if _table_exists(cur, 'evidence_confirmation'):
+        from domain.ledger.payment_proxy_confirmation import decisions
+        for decision in decisions(cur):
+            if decision['evidence_status'] == 'confirmed':
+                confirmed_proxy_roles[decision['from_cashflow_id']] = 'source'
+                confirmed_proxy_roles[decision['to_cashflow_id']] = 'target'
     enriched_rows: list[dict[str, Any]] = []
     for raw in cash_rows:
         row = dict(raw)
+        if row.get("id") in confirmed_proxy_roles:
+            row["confirmed_payment_proxy_role"] = confirmed_proxy_roles[row["id"]]
         row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
-        row["amount_cny"] = _to_float(row.get("amount_cny"))
+        row["amount_cny"] = _to_float(row["amount_cny"]) if row.get("amount_cny") is not None else None
+        if row["amount_cny"] is None and not row.get('source_issue'):
+            row["fx_status"] = "unavailable"
         row.update(classify_ledger_row(row, transfer_row_ids, payment_proxy_source_row_ids))
+        if row.get("fx_status") == "unavailable":
+            row["needs_review"] = True
+        if str(row.get('source_issue') or '').startswith('source_evidence_'):
+            row["needs_review"] = True
         enriched_rows.append(row)
     display_rows = [row for row in enriched_rows if row.get("flow_type") != "payment_proxy_dedup"]
 
     for match in transfer_matches:
         match["match_date_obj"] = _as_date(match.get("match_date"))
-        match["amount_cny"] = _to_float(match.get("amount_cny"))
+        match["amount_cny"] = _to_float(match["amount_cny"]) if match.get("amount_cny") is not None else None
 
-    investment_rows = _load_investment_account_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    investment_rows = _load_investment_account_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier)
     account_rows = display_rows + investment_rows
     month_rows = [r for r in display_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
     ytd_rows = [r for r in display_rows if r.get("transaction_date_obj") and ytd_start <= r["transaction_date_obj"] <= month_end]
@@ -1027,13 +1331,13 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     ]
     recent_start = _recent_start_for_account_window(month_start, month_end, recent_days)
     recent_rows = [
-        _serialize_row(r)
+        _serialize_row(r,base_currency=base_currency)
         for r in account_rows
         if r.get("transaction_date_obj") and recent_start <= r["transaction_date_obj"] <= month_end
     ][:300]
-    recent_rows_month = [_serialize_row(r) for r in month_account_rows]
-    recent_rows_ytd = [_serialize_row(r) for r in ytd_account_rows]
-    review_rows = [_serialize_row(r) for r in display_rows if r.get("needs_review")][:100]
+    recent_rows_month = [_serialize_row(r,base_currency=base_currency) for r in month_account_rows]
+    recent_rows_ytd = [_serialize_row(r,base_currency=base_currency) for r in ytd_account_rows]
+    review_rows = [_serialize_row(r,base_currency=base_currency) for r in display_rows if r.get("needs_review")][:100]
     month_transfer_matches = [
         match for match in transfer_matches if match.get("match_date_obj") and month_start <= match["match_date_obj"] <= month_end
     ]
@@ -1045,6 +1349,11 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "as_of": latest_date.isoformat() if latest_date else None,
         "month": month_start.strftime("%Y-%m"),
         "base_currency": base_currency,
+        "pending_transfer_count": pending_transfer_cases[0]['total_count'] if pending_transfer_cases else 0,
+        "known_pending_transfer_count": pending_transfer_cases[0]['total_count'] if pending_transfer_cases else 0,
+        "pending_transfer_coverage": "partial",
+        "pending_transfer_count_status": "known_subset",
+        "pending_transfer_cases": pending_transfer_cases,
         "periods": {
             "month": summarize_period(display_rows, transfer_matches, month_start, month_end),
             "ytd": summarize_period(display_rows, transfer_matches, ytd_start, month_end),
@@ -1055,8 +1364,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "income_categories_month": _group_amounts(month_rows, "income"),
         "expense_categories_ytd": _group_amounts(ytd_rows, "expense"),
         "income_categories_ytd": _group_amounts(ytd_rows, "income"),
-        "account_summary": _account_summary(month_account_rows, configured_accounts),
-        "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts, account_config),
+        "account_summary": _account_summary(month_account_rows, configured_accounts,base_currency=base_currency),
+        "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts, account_config,base_currency=base_currency),
         "monthly_trend": _trend(display_rows, ytd_start, month_end, "monthly"),
         "weekly_trend": _trend(display_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,

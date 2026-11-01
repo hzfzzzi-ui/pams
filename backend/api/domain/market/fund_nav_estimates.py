@@ -27,6 +27,8 @@ from zoneinfo import ZoneInfo
 import psycopg2.extras
 import requests
 from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
+from domain.imports.isolation import source_enabled
+from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
 
 
 MONEY = Decimal("0.01")
@@ -247,6 +249,8 @@ def is_cash_like_fund_holding(holding: dict[str, Any]) -> bool:
 
 def fetch_confirmed_nav(symbol: str, session: requests.Session | None = None) -> ConfirmedNav | None:
     """Fetch latest confirmed unit NAV for a fund code."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     http = session or requests.Session()
     response = http.get(
         "https://fund.eastmoney.com/f10/F10DataApi.aspx",
@@ -261,6 +265,8 @@ def fetch_confirmed_nav(symbol: str, session: requests.Session | None = None) ->
 
 def fetch_confirmed_nav_tushare(symbol: str, pro: Any | None = None) -> ConfirmedNav | None:
     """Fetch latest confirmed OTC fund unit NAV from Tushare fund_nav."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     token = os.environ.get("TUSHARE_TOKEN", "")
     if pro is None and not token:
         return None
@@ -315,6 +321,8 @@ def fetch_confirmed_nav_prefer_tushare(
 
 def fetch_intraday_estimate(symbol: str, session: requests.Session | None = None) -> IntradayEstimate | None:
     """Fetch current intraday estimated unit NAV for a fund code."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     http = session or requests.Session()
     response = http.get(
         f"http://fundgz.1234567.com.cn/js/{symbol}.js",
@@ -329,37 +337,12 @@ def fetch_intraday_estimate(symbol: str, session: requests.Session | None = None
 
 
 def ensure_fund_nav_estimate_table(cur) -> None:
-    """Create the local fund NAV estimate table if it is missing."""
-    cur.execute("SELECT pg_advisory_xact_lock(hashtext('pams_fund_nav_estimates_schema'))")
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS pams_fund_nav_estimates (
-            id BIGSERIAL PRIMARY KEY,
-            as_of DATE NOT NULL,
-            account_code VARCHAR(50) NOT NULL,
-            symbol VARCHAR(100) NOT NULL,
-            name VARCHAR(200) NOT NULL,
-            confirmed_nav_date DATE,
-            confirmed_unit_nav NUMERIC(20, 8),
-            confirmed_growth_pct NUMERIC(12, 6),
-            estimate_time TIMESTAMP,
-            estimated_unit_nav NUMERIC(20, 8),
-            estimated_growth_pct NUMERIC(12, 6),
-            anchor_as_of DATE,
-            anchor_market_value NUMERIC(20, 4),
-            anchor_unit_nav NUMERIC(20, 8),
-            estimated_market_value NUMERIC(20, 4),
-            estimated_delta NUMERIC(20, 4),
-            estimated_delta_pct NUMERIC(12, 6),
-            status VARCHAR(40) NOT NULL,
-            note TEXT,
-            raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            UNIQUE (as_of, account_code, symbol, name)
-        )
-        """
-    )
+    """Require the preinstalled schema without changing database structure."""
+    cur.execute("SELECT to_regclass('public.market_observations') AS table_name")
+    row = cur.fetchone()
+    table = row.get('table_name') if isinstance(row, dict) else row[0] if row else None
+    if table is None:
+        raise RuntimeError('fund NAV schema unavailable; initialize database schema before refresh')
 
 
 def load_latest_active_fund_holdings(cur) -> list[dict[str, Any]]:
@@ -422,7 +405,7 @@ def existing_estimate(cur, *, as_of: date, account_code: str, symbol: str, name:
     cur.execute(
         """
         SELECT *
-        FROM pams_fund_nav_estimates
+        FROM (SELECT * FROM market_observations WHERE observation_type = 'fund') AS observation_rows
         WHERE as_of = %s
           AND account_code = %s
           AND symbol = %s
@@ -438,14 +421,15 @@ def upsert_estimate_row(cur, row: dict[str, Any]) -> None:
     """Insert or update one fund NAV estimate record."""
     cur.execute(
         """
-        INSERT INTO pams_fund_nav_estimates (
+        INSERT INTO market_observations (
+            observation_type,
             as_of, account_code, symbol, name,
             confirmed_nav_date, confirmed_unit_nav, confirmed_growth_pct,
             estimate_time, estimated_unit_nav, estimated_growth_pct,
             anchor_as_of, anchor_market_value, anchor_unit_nav,
             estimated_market_value, estimated_delta, estimated_delta_pct,
             status, note, raw_json
-        ) VALUES (
+        ) VALUES ('fund',
             %(as_of)s, %(account_code)s, %(symbol)s, %(name)s,
             %(confirmed_nav_date)s, %(confirmed_unit_nav)s, %(confirmed_growth_pct)s,
             %(estimate_time)s, %(estimated_unit_nav)s, %(estimated_growth_pct)s,
@@ -453,7 +437,7 @@ def upsert_estimate_row(cur, row: dict[str, Any]) -> None:
             %(estimated_market_value)s, %(estimated_delta)s, %(estimated_delta_pct)s,
             %(status)s, %(note)s, %(raw_json)s
         )
-        ON CONFLICT (as_of, account_code, symbol, name) DO UPDATE SET
+        ON CONFLICT (as_of, account_code, symbol, name) WHERE observation_type = 'fund' DO UPDATE SET
             confirmed_nav_date = EXCLUDED.confirmed_nav_date,
             confirmed_unit_nav = EXCLUDED.confirmed_unit_nav,
             confirmed_growth_pct = EXCLUDED.confirmed_growth_pct,
@@ -490,14 +474,15 @@ def upsert_asset_market_daily_nav(
     source_key = f"{source}:{symbol}:{as_of.isoformat()}"
     cur.execute(
         """
-        INSERT INTO pams_asset_market_daily (
+        INSERT INTO market_observations (
+            observation_type,
             as_of, source, source_key, asset_id, symbol, name, market, currency,
             unit_nav, estimated_unit_nav, confidence, raw_json
-        ) VALUES (
+        ) VALUES ('daily',
             %(as_of)s, %(source)s, %(source_key)s, %(asset_id)s, %(symbol)s, %(name)s,
             '基金', 'CNY', %(unit_nav)s, %(estimated_unit_nav)s, %(confidence)s, %(raw_json)s
         )
-        ON CONFLICT (as_of, source, source_key) DO UPDATE SET
+        ON CONFLICT (as_of, source, source_key) WHERE observation_type = 'daily' DO UPDATE SET
             asset_id = EXCLUDED.asset_id,
             symbol = EXCLUDED.symbol,
             name = EXCLUDED.name,
@@ -554,6 +539,31 @@ def insert_or_update_generated_snapshot(
     update_existing: bool,
 ) -> bool:
     """Write a generated holding snapshot for estimated/confirmed fund valuation."""
+    lock_holding_accounts(cur, [holding['account_code']])
+    isolated = source_enabled(cur)
+    if isolated:
+        keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price')
+        if not holding.get('id'):
+            raise ValueError('fund source holding identity missing')
+        cur.execute('SELECT ' + ','.join(keys) + ',xmin::text=pg_current_xact_id()::text AS own_write '
+                    'FROM pams_holdings_snapshot WHERE id=%s FOR UPDATE', (holding['id'],))
+        stored = cur.fetchone()
+        own_write = (stored['own_write'] if isinstance(stored, dict) else stored[len(keys)]) if stored else False
+        compared = keys[:7] if own_write else keys
+        if not stored or any((stored[key] if isinstance(stored, dict) else stored[index]) != holding.get(key)
+                             for index,key in enumerate(compared)):
+            raise ValueError('fund source holding changed; refresh the input')
+        cur.execute('SELECT id,quantity,cost FROM pams_holdings_snapshot WHERE account_code=%s AND name=%s AND as_of=%s FOR UPDATE',
+                    (holding['account_code'], holding['name'], as_of))
+        target = cur.fetchone()
+        if target:
+            target_id = target['id'] if isinstance(target, dict) else target[0]
+            target_quantity = target['quantity'] if isinstance(target, dict) else target[1]
+            target_cost = target['cost'] if isinstance(target, dict) else target[2]
+            if target_id != holding['id'] and (target_quantity != holding.get('quantity') or target_cost != holding.get('cost')):
+                raise ValueError('newer holding input conflicts with fund valuation')
+        prepare_holding_change(cur, account_code=holding['account_code'], name=holding['name'],
+                               as_of=as_of, source_item_id=None)
     cost = dec(holding.get("cost"), MONEY)
     buy_price = (cost / units).quantize(PRICE, rounding=ROUND_HALF_UP) if units > 0 and cost > 0 else None
     if update_existing:
@@ -577,7 +587,12 @@ def insert_or_update_generated_snapshot(
                 current_price = EXCLUDED.current_price,
                 asset_id = COALESCE(EXCLUDED.asset_id, pams_holdings_snapshot.asset_id),
                 updated_at = now()
-            """,
+            """ + (""" WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.market_value,
+                pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,pams_holdings_snapshot.buy_price,
+                pams_holdings_snapshot.current_price,pams_holdings_snapshot.asset_id)
+                IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,
+                EXCLUDED.buy_price,EXCLUDED.current_price,COALESCE(EXCLUDED.asset_id,pams_holdings_snapshot.asset_id))
+                RETURNING id""" if isolated else ""),
             {
                 "symbol": holding["symbol"],
                 "name": holding["name"],
@@ -591,6 +606,12 @@ def insert_or_update_generated_snapshot(
                 "asset_id": holding.get("asset_id"),
             },
         )
+        if isolated:
+            row = cur.fetchone()
+            if row:
+                identifier = row['id'] if isinstance(row, dict) else row[0]
+                finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                                      input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
         return True
 
     cur.execute(
@@ -605,7 +626,7 @@ def insert_or_update_generated_snapshot(
             %(quantity)s, %(buy_price)s, %(current_price)s, %(asset_id)s
         )
         ON CONFLICT (account_code, name, as_of) DO NOTHING
-        """,
+        """ + (" RETURNING id" if isolated else ""),
         {
             "symbol": holding["symbol"],
             "name": holding["name"],
@@ -619,6 +640,13 @@ def insert_or_update_generated_snapshot(
             "asset_id": holding.get("asset_id"),
         },
     )
+    if isolated:
+        row = cur.fetchone()
+        if row:
+            identifier = row['id'] if isinstance(row, dict) else row[0]
+            finish_holding_change(cur, holding_id=identifier, source_item_id=None,
+                                  input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
+        return bool(row)
     return cur.rowcount > 0
 
 
@@ -645,6 +673,8 @@ def refresh_fund_nav_estimates(
     use_intraday_estimates: bool | None = None,
 ) -> dict[str, Any]:
     """Fetch fund NAVs, correct confirmed estimates, and write current snapshots."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
     pct_threshold, amount_threshold = review_thresholds()
     session = requests.Session()
     processed: list[dict[str, Any]] = []
@@ -669,6 +699,8 @@ def refresh_fund_nav_estimates(
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         ensure_fund_nav_estimate_table(cur)
         holdings = load_latest_active_fund_holdings(cur)
+        # Writers retain transaction locks until commit; use one account order.
+        holdings.sort(key=lambda row: (str(row.get('account_code') or ''), str(row.get('name') or ''), str(row.get('id') or '')))
         for holding in holdings:
             symbol = str(holding["symbol"]).zfill(6)
             market_value = dec(holding.get("market_value"), MONEY)

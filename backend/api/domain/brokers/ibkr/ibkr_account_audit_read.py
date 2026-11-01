@@ -23,16 +23,9 @@ def _original_scope(content: bytes, as_of: date) -> tuple[str, str]:
     return production_scope(content, as_of)
 
 def _history_dates(conn, account: str) -> tuple[list[date], str]:
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT to_regclass('public.pams_ibkr_position_history') IS NOT NULL AS present")
-        if not cur.fetchone()["present"]:
-            return [], "missing_table"
-        cur.execute("""
-            SELECT DISTINCT as_of FROM pams_ibkr_position_history
-            WHERE account_code = 'ibkr' AND source_account_id = %s AND as_of IS NOT NULL
-            ORDER BY as_of
-        """, (account,))
-        return [row["as_of"] for row in cur.fetchall()], "stored_position_dates_not_verified_nav_history"
+    # Holding versions record individual changes, not proof of complete official
+    # daily history. No old position table is consulted or reconstructed.
+    return [], "unavailable_without_official_daily_coverage"
 
 
 def read_ibkr_account_audit(*, connection_factory=None, raw_dir: Path | None = None,

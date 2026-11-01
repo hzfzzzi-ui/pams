@@ -47,7 +47,7 @@ def test_automatic_sync_preserves_explicit_manual_asset_and_industry_evidence(sc
         (asset["asset_id"], "manual name", "sh600000", asset["asset_type"], Json({"industry": "manual industry", "note": "user evidence"})),
     )
     cur.execute(
-        "INSERT INTO pams_asset_industry_map(asset_id,industry_system,industry_leaf,industry_bucket,classification_scope,source,confidence,evidence,is_primary) VALUES (%s,'manual','manual industry','金融地产','listed_equity','manual','high','user evidence',TRUE)",
+        "INSERT INTO asset_classifications(classification_type,asset_id,industry_system,industry_leaf,industry_bucket,classification_scope,source,confidence,evidence,is_primary) VALUES ('industry',%s,'manual','manual industry','金融地产','listed_equity','manual','high','user evidence',TRUE)",
         (asset["asset_id"],),
     )
     for _ in range(2):
@@ -58,7 +58,7 @@ def test_automatic_sync_preserves_explicit_manual_asset_and_industry_evidence(sc
         assert stored["canonical_name"] == "manual name"
         assert stored["raw_json"]["industry"] == "manual industry"
         assert stored["raw_json"]["note"] == "user evidence"
-        cur.execute("SELECT source,industry_leaf,industry_bucket,confidence,evidence FROM pams_asset_industry_map WHERE asset_id=%s AND industry_system='manual' AND classification_scope='listed_equity' AND is_primary", (asset["asset_id"],))
+        cur.execute("SELECT source,industry_leaf,industry_bucket,confidence,evidence FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s AND industry_system='manual' AND classification_scope='listed_equity' AND is_primary", (asset["asset_id"],))
         assert dict(cur.fetchone()) == {"source": "manual", "industry_leaf": "manual industry", "industry_bucket": "金融地产", "confidence": "high", "evidence": "user evidence"}
 
 
@@ -67,12 +67,12 @@ def test_automatic_industry_records_still_update_with_new_evidence(scratch_curso
     raw = {"symbol": "sh600001", "asset_name": "automatic stock", "asset_type": "stock_cn", "currency": "CNY", "industry": "银行"}
     master.sync_asset_master_from_analysis(cur, positions=[raw], units=[], config={})
     asset_id = master._asset_record_from_raw(master._raw_from_position(raw), source="system")["asset_id"]
-    cur.execute("SELECT source,industry_bucket FROM pams_asset_industry_map WHERE asset_id=%s", (asset_id,))
+    cur.execute("SELECT source,industry_bucket FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s", (asset_id,))
     assert dict(cur.fetchone()) == {"source": "system", "industry_bucket": "金融地产"}
     updated = {**raw, "industry": "半导体"}
     cur.execute("UPDATE pams_asset_master SET last_verified_at='2001-01-01 00:00:00+00' WHERE asset_id=%s", (asset_id,))
     master.sync_asset_master_from_analysis(cur, positions=[updated], units=[], config={})
-    cur.execute("SELECT source,industry_leaf,industry_bucket FROM pams_asset_industry_map WHERE asset_id=%s", (asset_id,))
+    cur.execute("SELECT source,industry_leaf,industry_bucket FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s", (asset_id,))
     assert dict(cur.fetchone()) == {"source": "system", "industry_leaf": "半导体", "industry_bucket": "科技TMT"}
     cur.execute("SELECT raw_json FROM pams_asset_master WHERE asset_id=%s", (asset_id,))
     assert cur.fetchone()["raw_json"]["industry"] == "半导体"
@@ -86,7 +86,7 @@ def test_explicit_manual_industry_update_remains_possible(scratch_cursor):
     asset_id = master._upsert_asset(cur, raw, source="manual")
     asset = master._asset_record_from_raw(raw, source="manual")
     master._upsert_industry(cur, asset_id, {**raw, "industry": "半导体", "evidence": "manual correction"}, asset, source="manual")
-    cur.execute("SELECT source,industry_leaf,industry_bucket,evidence FROM pams_asset_industry_map WHERE asset_id=%s", (asset_id,))
+    cur.execute("SELECT source,industry_leaf,industry_bucket,evidence FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s", (asset_id,))
     assert dict(cur.fetchone()) == {"source": "manual", "industry_leaf": "半导体", "industry_bucket": "科技TMT", "evidence": "manual correction"}
 
 
@@ -98,9 +98,9 @@ def test_manual_primary_industry_wins_over_newer_auto_classification(scratch_cur
     asset = master._asset_record_from_raw(master._raw_from_position(raw), source="system")
     cur.execute("INSERT INTO pams_asset_master(asset_id,canonical_name,primary_symbol,asset_type,source,raw_json) VALUES (%s,%s,%s,%s,'manual',%s)",
                 (asset["asset_id"], "manual stock", "sh600003", asset["asset_type"], Json({"note": "manual evidence"})))
-    cur.execute("INSERT INTO pams_asset_industry_map(asset_id,industry_system,industry_leaf,industry_bucket,classification_scope,source,evidence,is_primary) VALUES (%s,'manual','银行','金融地产','listed_equity','manual','manual evidence',TRUE)", (asset["asset_id"],))
+    cur.execute("INSERT INTO asset_classifications(classification_type,asset_id,industry_system,industry_leaf,industry_bucket,classification_scope,source,evidence,is_primary) VALUES ('industry',%s,'manual','银行','金融地产','listed_equity','manual','manual evidence',TRUE)", (asset["asset_id"],))
     lookup = master.sync_asset_master_from_analysis(cur, positions=[raw], units=[], config={})
-    cur.execute("SELECT source,industry_system,industry_bucket FROM pams_asset_industry_map WHERE asset_id=%s ORDER BY source", (asset["asset_id"],))
+    cur.execute("SELECT source,industry_system,industry_bucket FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s ORDER BY source", (asset["asset_id"],))
     assert [dict(row) for row in cur.fetchall()] == [
         {"source": "manual", "industry_system": "manual", "industry_bucket": "金融地产"},
         {"source": "system", "industry_system": "SW", "industry_bucket": "科技TMT"},
@@ -112,20 +112,20 @@ def test_manual_primary_industry_wins_over_newer_auto_classification(scratch_cur
 
 def test_nullable_legacy_source_does_not_override_manual_or_block_auto_update(scratch_cursor):
     cur = scratch_cursor
-    cur.execute("ALTER TABLE pams_asset_industry_map ALTER COLUMN source DROP NOT NULL")
+    cur.execute("ALTER TABLE asset_classifications ALTER COLUMN source DROP NOT NULL")
     raw = {"symbol": "sh600004", "asset_name": "nullable source", "asset_type": "stock_cn",
            "currency": "CNY", "industry": "半导体", "sw_l1": "电子"}
     master.sync_asset_master_from_analysis(cur, positions=[raw], units=[], config={})
     asset_id = master._asset_record_from_raw(master._raw_from_position(raw), source="system")["asset_id"]
-    cur.execute("UPDATE pams_asset_industry_map SET source=NULL WHERE asset_id=%s", (asset_id,))
-    cur.execute("INSERT INTO pams_asset_industry_map(asset_id,industry_system,industry_leaf,industry_bucket,classification_scope,source,evidence,is_primary) VALUES (%s,'manual','银行','金融地产','listed_equity','manual','user evidence',TRUE)", (asset_id,))
+    cur.execute("UPDATE asset_classifications SET source=NULL WHERE classification_type='industry' AND asset_id=%s", (asset_id,))
+    cur.execute("INSERT INTO asset_classifications(classification_type,asset_id,industry_system,industry_leaf,industry_bucket,classification_scope,source,evidence,is_primary) VALUES ('industry',%s,'manual','银行','金融地产','listed_equity','manual','user evidence',TRUE)", (asset_id,))
     lookup = master.load_asset_master_lookup(cur)
     assert lookup["assets"][asset_id]["industry"]["source"] == "manual"
     assert lookup["assets"][asset_id]["industry"]["evidence"] == "user evidence"
     master.sync_asset_master_from_analysis(cur, positions=[{**raw, "industry": "银行"}], units=[], config={})
-    cur.execute("SELECT source,industry_leaf FROM pams_asset_industry_map WHERE asset_id=%s AND industry_system='SW'", (asset_id,))
+    cur.execute("SELECT source,industry_leaf FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s AND industry_system='SW'", (asset_id,))
     assert dict(cur.fetchone()) == {"source": "system", "industry_leaf": "银行"}
-    cur.execute("SELECT source,evidence FROM pams_asset_industry_map WHERE asset_id=%s AND industry_system='manual'", (asset_id,))
+    cur.execute("SELECT source,evidence FROM asset_classifications WHERE classification_type='industry' AND asset_id=%s AND industry_system='manual'", (asset_id,))
     assert dict(cur.fetchone()) == {"source": "manual", "evidence": "user evidence"}
 
 

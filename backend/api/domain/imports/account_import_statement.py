@@ -1,7 +1,7 @@
 """Statement source adapter. No legacy import, balance sync or global backfill."""
 from dataclasses import asdict
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
 import os
 from pathlib import Path
@@ -105,7 +105,7 @@ def parse(content, filename, account, kind, mapping=None):
     return result
 
 
-def prepare(result, batch, state, decimal, issue):
+def prepare(cur, result, batch, state, decimal, issue, input_row):
     fields, errors = result["fields"], result["issues"]
     amount = decimal(fields.get("net_cash"), "net_cash", errors, scale=4)
     action = fields.get("action")
@@ -114,7 +114,10 @@ def prepare(result, batch, state, decimal, issue):
     if amount is not None and ((action == "income" and amount < 0) or (action == "expense" and amount > 0)):
         errors.append(issue("net_cash", "cash_sign", "账单方向与原始带符号发生额不一致"))
     if action == "transfer":
-        errors.append(issue("counter_account_code", "transfer_evidence_required", "内部转账须核准两侧来源关联，本轮不猜测或补造另一侧"))
+        counter = fields.get("counter_account_code")
+        account = next((a for a in state["accounts"] if a["account_code"] == counter and a["active"]), None)
+        if not batch.get("unified_source") or not account or counter == batch["account_code"] or account["base_currency"] != fields.get("currency") or not amount:
+            errors.append(issue("counter_account_code", "transfer_evidence_required", "请明确核对不同的同币种对方账户和非零金额；另一侧仍须独立核准"))
     if errors:
         result["status"] = "blocked"
         return result
@@ -127,30 +130,74 @@ def prepare(result, batch, state, decimal, issue):
         result["status"] = "blocked"
         errors.append(issue("net_cash", "neutral_statement_evidence", "中性平台记录须先核准资金映射，不将原始金额补零或视为收入"))
         return result
+    day = date.fromisoformat(fields['business_date'])
+    currency = fields['currency']
+    rate, fx_evidence = Decimal(1), None
+    if currency != 'CNY':
+        cur.execute("SELECT to_regclass('public.pams_fx_rates_daily') AS relation")
+        if not cur.fetchone()['relation']:
+            errors.append(issue('currency','fx_rate_missing','缺少业务日汇率，原始资料保留待核对'))
+        else:
+            cur.execute("""SELECT rate,source FROM pams_fx_rates_daily
+                WHERE as_of=%s AND base_currency='CNY' AND quote_currency=%s""", (day,currency))
+            fx = cur.fetchone()
+            if not fx or not isinstance(fx.get('source'),str) or not fx['source'].strip() or fx['rate'] is None or not Decimal(fx['rate']).is_finite() or fx['rate'] <= 0:
+                errors.append(issue('currency','fx_rate_missing','缺少业务日有来源的有效汇率，原始资料保留待核对'))
+            else:
+                rate = Decimal(fx['rate'])
+                fx_evidence = {'basis':'daily_market_projection','base_currency':'CNY',
+                               'quote_currency':currency,'as_of':day.isoformat(),'rate':str(rate),'source':fx['source']}
+    if errors:
+        result['status']='blocked'
+        return result
+    try:
+        amount_cny = (amount * rate).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        result['status']='blocked'
+        errors.append(issue('net_cash','amount_out_of_range','金额或汇率超过可表示范围'))
+        return result
     raw = {**source, "id": result["key"], "account_code": batch["account_code"],
-        "transaction_date": date.fromisoformat(fields["business_date"]), "amount": amount,
-        "currency": fields["currency"], "fx_rate_to_cny": Decimal(1), "amount_cny": amount,
+        "transaction_date": day, "amount": amount, "currency": currency,
+        "fx_rate_to_cny": rate, "amount_cny": amount_cny,
         "summary": source.get("summary") if source else fields.get("note")}
     rules = state.get("_statement_config", {})
     raw["category"], raw["subcategory"], _ = _classify_statement_row(raw, rules.get("rules") or [], rules.get("amount_rules") or [])
-    if raw["category"] in {"内部划转", "支付通道"}:
+    if raw["category"] in {"内部划转", "支付通道"} and action != "transfer":
         result["status"] = "blocked"
         errors.append(issue("counter_account_code", "transfer_evidence_required", "此条账单需要核准关联资金证据，不自动当作生活收支或补造资金腿"))
         return result
-    value = build_cashflow_fact(raw)
-    value.update(source_table="pams_account_import_batch", source_id=result["key"], source_uid=result["key"],
-        source_hash=make_source_hash("pams_account_import_batch", {"source_id": result["key"]}),
+    match = None
+    if action == "transfer":
+        counter = fields["counter_account_code"]
+        match = {"match_type": "internal_transfer", "from_account_code": batch["account_code"] if amount < 0 else counter,
+                 "to_account_code": counter if amount < 0 else batch["account_code"]}
+    value = build_cashflow_fact(raw, transfer_match=match)
+    value.update(source_table="source_items", source_id=result["key"], source_uid=result["key"],
+        source_hash=make_source_hash("source_items", {"source_id": result["key"]}),
         review_status="confirmed", classification_source="user_confirmed_import")
     value["raw_json"] = {"batch_id": batch["batch_id"], "row_id": result["row_id"], "source": result["source"], "fields": fields}
+    if fx_evidence:
+        value["raw_json"]["fx_evidence"] = fx_evidence
     for old in state["cashflows"]:
         if old.get("source_table") == value["source_table"] and old.get("source_id") == value["source_id"]:
             result["status"] = "duplicate" if same_cashflow(old, value) else "blocked"
             if result["status"] == "blocked":
                 errors.append(issue("source_ref", "source_conflict", "来源已入账但内容不同，不能覆盖"))
             break
-        if same_cashflow(old, value, economic=True) and not fields.get("duplicate_decision") == "distinct":
-            result["status"] = "blocked"
-            errors.append(issue("source_ref", "possible_duplicate", "存在同日同额同类流水，请核对来源或明确排除"))
+        if same_cashflow(old, value, economic=True):
+            prior_raw = old.get('raw_json') if isinstance(old.get('raw_json'), dict) else {}
+            if prior_raw.get('evidence_role') == 'derived_bank_leg':
+                candidates = [entry for entry in state['cashflows'] if same_cashflow(entry, value, economic=True)]
+                selected = str(fields.get('derived_cashflow_id') or '')
+                if (batch.get('unified_source') and action == 'transfer' and input_row.get('acknowledged') is True
+                    and len(candidates) == 1 and selected.isdigit() and int(selected) == old['cashflow_id']):
+                    result['cashflow_confirmation'] = old['cashflow_id']
+                else:
+                    result["status"] = "blocked"
+                    errors.append(issue("source_ref", "derived_leg_requires_reconciliation", "该流水可能对应已有同源派生银行腿；须唯一且人工核准独立银行来源，不能再次记账"))
+            elif fields.get("duplicate_decision") != "distinct":
+                result["status"] = "blocked"
+                errors.append(issue("source_ref", "possible_duplicate", "存在同日同额同类流水，请核对来源或明确排除"))
     result.update(cashflow=value, before=None, after=_serial(value))
     return result
 

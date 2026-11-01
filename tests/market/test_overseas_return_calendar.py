@@ -225,8 +225,8 @@ def test_pg16_early_market_cutoff_requires_current_member_and_completed_price(re
         def execute(self, query, params=None):
             # Only adapt the production table-existence probe to the isolated
             # session's TEMP schema; execute all membership/price SQL verbatim.
-            return self.cur.execute(query.replace("to_regclass('public.pams_market_quote_snapshot')",
-                                                  "to_regclass('pams_market_quote_snapshot')"), params)
+            return self.cur.execute(query.replace("to_regclass('public.market_observations')",
+                                                  "to_regclass('market_observations')"), params)
         def fetchone(self):
             return self.cur.fetchone()
         def fetchall(self):

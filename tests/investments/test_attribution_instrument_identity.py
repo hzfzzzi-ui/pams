@@ -142,9 +142,9 @@ def test_fund_lookthrough_keeps_same_name_ah_rows_and_total_pnl():
     ]}
     positions = [
         {"asset_name": "基金一", "symbol": "FUND_A", "account_code": "one", "asset_type": "fund",
-         "currency": "CNY", "market_value_cny": 100, "holding_pnl_cny": 10},
+         "currency": "CNY", "market_value_cny": 100, "holding_pnl_cny": 10, "as_of": "2026-10-30"},
         {"asset_name": "基金二", "symbol": "FUND_B", "account_code": "two", "asset_type": "fund",
-         "currency": "CNY", "market_value_cny": 200, "holding_pnl_cny": 20},
+         "currency": "CNY", "market_value_cny": 200, "holding_pnl_cny": 20, "as_of": "2026-10-30"},
     ]
     for ordered in (positions, list(reversed(positions))):
         payload = build_return_attribution_from_positions(ordered, config, as_of="2026-10-30")

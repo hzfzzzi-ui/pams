@@ -17,13 +17,16 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
 from domain.operations.sync_health import read_overseas_quote_health, scheduler_health
+from domain.imports.source_row_read import source_row_relation
 from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
 def get_conn():
-    return psycopg2.connect(
+    from domain.imports.isolation import guarded_connect
+
+    return guarded_connect(
         host=os.environ.get("PGHOST", "pams-postgres"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "pams"),
@@ -50,34 +53,6 @@ def _now_local() -> datetime:
         return datetime.now(ZoneInfo(tz_name))
     except Exception:
         return datetime.now(ZoneInfo("Asia/Shanghai"))
-
-
-def _latest_sync_run(cur, sync_key: str, asset_scope: str | None = None) -> dict[str, Any] | None:
-    where = ["job_key = %s"]
-    params: list[Any] = [sync_key]
-    if asset_scope:
-        where.append("asset_scope = %s")
-        params.append(asset_scope)
-    cur.execute(
-        f"""
-        SELECT job_key AS sync_key,
-               asset_scope,
-               status,
-               started_at,
-               finished_at,
-               target_date AS target_trade_date,
-               data_as_of AS latest_trade_date_after,
-               rows_affected AS rows_upserted,
-               summary_json, error_text
-        FROM pams_data_job_run
-        WHERE {' AND '.join(where)}
-        ORDER BY started_at DESC
-        LIMIT 1
-        """,
-        params,
-    )
-    row = cur.fetchone()
-    return dict(row) if row else None
 
 
 def _holding_summary(
@@ -178,7 +153,7 @@ def _row(
         "sync_type": sync_type,
         "latest_date": _norm(latest_date),
         "latest_time": _norm(latest_time),
-        "rows": int(rows or 0),
+        "rows": None if rows is None and status == "needs_review" else int(rows or 0),
         "status": status,
         "status_label": status_label,
         "action": action,
@@ -195,11 +170,11 @@ def sync_center() -> dict[str, Any]:
     now = _now_local()
     reconciliation = read_ibkr_reconciliation()
     with get_conn() as conn:
+        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         from domain.brokers.ibkr.ibkr_performance import published_report_status
 
         ibkr_quality = published_report_status(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            ibkr_run = _latest_sync_run(cur, "ibkr_flex", "ibkr")
             a_stock = _holding_summary(cur, major_category="A股", minor_category="A股")
             a_fund = _holding_summary(cur, major_category="A股", minor_category="A股基金")
             us_stock = read_overseas_quote_health(cur, now)
@@ -216,24 +191,22 @@ def sync_center() -> dict[str, Any]:
                 """
                 WITH latest AS (
                   SELECT MAX(as_of) AS as_of
-                  FROM pams_asset_market_daily
+                  FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') AS observation_rows
                   WHERE source IN (
                     'tushare_fund_nav',
                     'eastmoney_f10',
-                    'tiantian_fundgz_estimate',
-                    'pams_fund_nav_estimates'
+                    'tiantian_fundgz_estimate'
                   )
                 )
                 SELECT l.as_of, MAX(e.updated_at) AS updated_at, COUNT(*) AS rows,
                        COUNT(*) FILTER (WHERE e.confidence = 'needs_review') AS review_rows
                 FROM latest l
-                LEFT JOIN pams_asset_market_daily e
+                LEFT JOIN (SELECT * FROM market_observations WHERE observation_type = 'daily') e
                   ON e.as_of = l.as_of
                  AND e.source IN (
                     'tushare_fund_nav',
                     'eastmoney_f10',
-                    'tiantian_fundgz_estimate',
-                    'pams_fund_nav_estimates'
+                    'tiantian_fundgz_estimate'
                  )
                 GROUP BY l.as_of
                 """,
@@ -247,10 +220,12 @@ def sync_center() -> dict[str, Any]:
             )
             bank_rows = _count_query(
                 cur,
-                """
-                SELECT MAX(event_date) AS as_of, MAX(created_at) AS updated_at, COUNT(*) AS rows
-                FROM pams_source_row
-                WHERE source_table = 'pams_bank_statement_rows'
+                f"""
+                SELECT MAX(event_date) AS as_of, MAX(created_at) AS updated_at,
+                       CASE WHEN bool_or(source_evidence_status <> 'verified') THEN NULL ELSE COUNT(*) END AS rows,
+                       COUNT(*) FILTER (WHERE source_evidence_status <> 'verified') AS unverified_rows
+                FROM {source_row_relation(cur)} AS source_rows
+                WHERE is_bank_statement
                 """,
             )
             cash_tx = _count_query(
@@ -338,14 +313,14 @@ def sync_center() -> dict[str, Any]:
             source="IBKR Flex",
             sync_type="账户真值同步",
             latest_date=ibkr_quality["statement_as_of"],
-            latest_time=ibkr_run.get("finished_at") if ibkr_run else None,
+            latest_time=None,
             rows=ibkr_quality["active_row_count"],
             status=ibkr_status,
             status_label=ibkr_label,
             action="后台自动同步，失败自动重试",
             href="data_sources.html#syncMatrix",
             details=(f"{ibkr_label}；应有报告日期 {ibkr_quality['expected_statement_as_of'] or '待核准'}；"
-                     f"最近尝试 {ibkr_quality['last_attempt_status'] or '无'}。"
+                     f"最近尝试 {ibkr_quality['last_attempt_status'] or '未知'}。"
                      "失败、过期或未提交的原始文件不替代有效报告。"
                      "正常同步无需逐次确认；历史账目诊断独立保留。" + reconciliation['details']),
             trigger_endpoint="/api/ibkr/flex/sync",
@@ -371,8 +346,8 @@ def sync_center() -> dict[str, Any]:
             latest_date=bank_rows.get("as_of"),
             latest_time=bank_rows.get("updated_at"),
             rows=bank_rows.get("rows"),
-            status="ok" if bank_rows.get("as_of") else "missing",
-            status_label="正常" if bank_rows.get("as_of") else "缺数据",
+            status="needs_review" if bank_rows.get("unverified_rows") else ("ok" if bank_rows.get("as_of") else "missing"),
+            status_label="待核对" if bank_rows.get("unverified_rows") else ("正常" if bank_rows.get("as_of") else "缺数据"),
             action="导入账单后做流水匹配和余额核准",
             href="ledger.html#accountIssueStrip",
             details="银行、微信、支付宝、Santander、工行等账单负责现金余额、负债、内部转账和投资入出金核准。",
@@ -427,7 +402,7 @@ def sync_center() -> dict[str, Any]:
         "manual_required": sum(1 for row in rows if row["status"] in {"review", "missing", "error", "stale"}),
         "errors": sum(1 for row in rows if row["status"] == "error"),
         "reviews": sum(1 for row in rows if row["status"] == "review"),
-        "last_ibkr_sync": _norm(ibkr_run.get("finished_at")) if ibkr_run else None,
+        "last_ibkr_sync": None,
         "last_investment_date": _norm(max(
             [v for v in [a_stock.get("as_of"), a_fund.get("as_of"), us_stock.get("as_of"), metal.get("as_of")] if v],
             default=None,

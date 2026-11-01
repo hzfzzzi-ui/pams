@@ -21,6 +21,8 @@ from domain.brokers.ibkr import ibkr_report_state as report_state
 from domain.brokers.ibkr.ibkr_daily_close import MAX_XML_BYTES, TOLERANCE, parse_daily_close_evidence, parse_daily_close_series
 
 MANIFEST_ENV = "PAMS_IBKR_DAILY_CLOSE_MANIFEST"
+DEV_EVIDENCE_DIR_ENV = "PAMS_DEV_EVIDENCE_DIR"
+DEV_EVIDENCE_MARKER = ".pams-development-sandbox"
 MAX_MANIFEST_BYTES = 16384
 CACHE_MAX_REPORTS = 2
 CACHE_MAX_PERIODS = 4
@@ -104,13 +106,42 @@ def _parse(text: str, account: str, as_of: date, start: date | None, digest: str
         return periods[key]
 
 
+def _path_is_link(path: Path) -> bool:
+    """Reject symlinks and Windows directory junctions in development paths."""
+    junction = getattr(path, "is_junction", None)
+    return path.is_symlink() or bool(junction and junction())
+
+
+def _development_manifest(setting: str) -> Path:
+    """Restrict development evidence to a directory bound to the dev database."""
+    from domain.imports.isolation import validate_target
+    target = {"host": os.environ.get("PGHOST"), "dbname": os.environ.get("PGDATABASE")}
+    validate_target(target, mode="development")
+    directory_setting = os.environ.get(DEV_EVIDENCE_DIR_ENV)
+    if not directory_setting:
+        raise ValueError("development evidence directory is required")
+    root = Path(directory_setting).absolute()
+    if any(_path_is_link(path) for path in (root, *root.parents)) or not root.is_dir():
+        raise ValueError("invalid development evidence directory")
+    root = root.resolve(strict=True)
+    marker = root / DEV_EVIDENCE_MARKER
+    if _path_is_link(marker) or read_bounded(marker, 128).decode("utf-8").strip() != target["dbname"]:
+        raise ValueError("development evidence marker mismatch")
+    manifest = Path(setting).absolute()
+    if _path_is_link(manifest) or manifest.resolve(strict=True).parent != root:
+        raise ValueError("development manifest outside evidence directory")
+    return manifest.resolve(strict=True)
+
+
 def load_evidence() -> dict[str, Any]:
     """Verify the exact bytes on every read; cached parsing is hash-addressed."""
     setting = os.environ.get(MANIFEST_ENV)
     if not setting:
         return _unavailable("not_configured")
     try:
-        manifest_path = Path(setting).resolve(strict=True)
+        from domain.imports.isolation import source_mode
+        development = source_mode() == "development"
+        manifest_path = _development_manifest(setting) if development else Path(setting).resolve(strict=True)
         if manifest_path.stat().st_size > MAX_MANIFEST_BYTES:
             return _unavailable("manifest_size_limit")
         manifest = json.loads(read_bounded(manifest_path, MAX_MANIFEST_BYTES).decode("utf-8"))
@@ -121,7 +152,10 @@ def load_evidence() -> dict[str, Any]:
         name = manifest["source_file"]
         if not isinstance(name, str) or Path(name).name != name or name in {".", ".."}:
             return _unavailable("invalid_source_path")
-        path = (manifest_path.parent / name).resolve(strict=True)
+        source_path = manifest_path.parent / name
+        if development and _path_is_link(source_path):
+            return _unavailable("invalid_source_path")
+        path = source_path.resolve(strict=True)
         if path.parent != manifest_path.parent or path.stat().st_size > MAX_XML_BYTES:
             return _unavailable("invalid_source_path")
         content = read_bounded(path, MAX_XML_BYTES)
