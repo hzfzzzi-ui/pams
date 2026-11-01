@@ -85,7 +85,7 @@ const ready=async()=>page.waitForFunction(()=>!document.getElementById('workspac
 const open=async()=>{await page.goto('http://import.invalid/account_import.html');await page.waitForFunction(()=>!document.getElementById('workspace').hidden);await ready();};
 const save=async()=>{await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});await ready();};
 const capture=async name=>{await page.evaluate(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);const head=await page.locator('.import-head').boundingBox();assert.ok(head.y>=0&&head.y<100,JSON.stringify({name,head,metrics:await page.evaluate(()=>({scroll:scrollY,height:innerHeight,doc:document.documentElement.scrollHeight,body:document.body.getBoundingClientRect().toJSON(),active:document.activeElement.id}))}));if(output)await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});};
-const controllerURL='/assets/js/features/account_import/controller.js?v=20261101-draft-modes';
+const controllerURL='/assets/js/features/account_import/controller.js?v=20261101-draft-row';
 const mounted=()=>page.evaluate(async url=>{const m=await import(url);return !!m.mount(document.body);},controllerURL);
 const suspendRestore=()=>page.evaluate(()=>{
  window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));
@@ -165,7 +165,7 @@ try {
  assert.equal(await page.locator('#pending-result').isVisible(),true);
  assert.equal(calls.filter(([method,p])=>method==='POST'&&p.endsWith('/batches')).length,1);
  assert.equal(calls.some(([,p])=>p.includes('/undefined')||p.includes('/null')),false);
- await page.getByRole('button',{name:'打开批次',exact:true}).click();await ready();
+ await page.locator('.import-history-open').click();await ready();
  await page.locator('#pending-result').waitFor({state:'hidden'});
 
  // A rejected create has no batch ID to read. An explicit history refresh may
@@ -217,7 +217,7 @@ try {
 
  // A published record remains a read-only view after history restoration.
  reset();batch={batch_id:'b',revision:3,status:'published',account_code:'ths',kind:'trade',mode:'manual',completeness:'partial',rows:[{row_id:'r',fields:fields(),source:{origin:'manual'},acknowledged:true}],files:[]};
- await open();await page.locator('#history summary').click();await page.getByRole('button',{name:'打开批次',exact:true}).click();await ready();
+ await open();await page.locator('#history summary').click();await page.locator('.import-history-open').click();await ready();
  await page.getByRole('button',{name:'查看记录',exact:true}).click();
  await suspendRestore();await page.locator('#editor').waitFor({state:'visible'});
  assert.equal(await page.locator('#field-price').isDisabled(),true);
