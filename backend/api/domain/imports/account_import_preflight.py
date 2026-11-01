@@ -215,10 +215,50 @@ def _asset(fields: dict, state: dict, errors: list, *, infer_type=False, source=
     return asset
 
 
+def deferred_source_verified(cur, batch: dict, row: dict, cache: dict) -> bool:
+    """Verify the frozen parent, original row and unchanged file-backed fields."""
+    source = row.get('source') or {}
+    origin = source.get('deferred_from') or {}
+    parent_id, row_id, file_id = (origin.get(key) for key in ('batch_id', 'row_id', 'file_id'))
+    if not all(isinstance(value, str) and value for value in (parent_id, row_id, file_id)):
+        return False
+    try:
+        from uuid import UUID
+        parent_id, row_id, file_id = (str(UUID(value)) for value in (parent_id, row_id, file_id))
+    except ValueError:
+        return False
+    cur.execute('SELECT * FROM source_batches WHERE batch_id=%s', (parent_id,))
+    parent = cur.fetchone()
+    if not parent or parent['status'] != 'published' or parent['account_code'] != batch['account_code']:
+        return False
+    partial = (parent.get('published_result') or {}).get('partial') or {}
+    if partial.get('deferred_batch_id') != str(batch['batch_id']):
+        return False
+    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    if not _reviewed_snapshot(cur, parent, parent_id, locking=False, snapshot_cache=cache):
+        return False
+    cur.execute('SELECT raw_fields,parsed_fields,review_status,file_id FROM source_items WHERE batch_id=%s AND source_item_id=%s',
+                (parent_id, row_id))
+    original = cur.fetchone()
+    if not original or original['review_status'] != 'excluded' or str(original['file_id']) != file_id:
+        return False
+    original_source = (original['raw_fields'] or {}).get('source') or {}
+    if ({key: value for key, value in source.items() if key not in {'file_id', 'deferred_from'}} !=
+            {key: value for key, value in original_source.items() if key != 'file_id'}):
+        return False
+    from domain.imports.account_import_review import DECISIONS
+    old_fields = (original['parsed_fields'] or {}).get('fields') or {}
+    return all((row.get('fields') or {}).get(key) == old_fields.get(key)
+               for key in (set(row.get('fields') or {}) | set(old_fields)) - DECISIONS)
+
+
 def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
     fields = dict(row["fields"])
     errors: list = []
     native = ths.native_row(batch, row)
+    if native and row.get('source', {}).get('deferred_from') and not deferred_source_verified(
+            cur, batch, row, state.setdefault('_deferred_snapshot_cache', {})):
+        errors.append(issue(None, 'deferred_source_unverified', '待关联记录的原始批次或来源证据无法核验，请人工检查'))
     if native:
         source_errors = {"broker_mapping_conflict", "missing_fee_component", "invalid_fee_component", "negative_fee_component",
                          "standalone_tax_components", "unsupported_broker_action", "invalid_value", "scope_conflict", "row_shape"}
@@ -361,6 +401,10 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
                     errors.append(issue("counter_account_code", "counter_required", "资金划转须关联不同的真实对方账户"))
             if counter in store.PROFILES:
                 errors.append(issue("counter_account_code", "investment_counter", "投资账户间划转需要双账户资料，本轮不自动补另一投资账户流水"))
+            if native and row.get('source', {}).get('deferred_from') and not fields.get('bank_cashflow_id'):
+                result['status'] = 'pending'
+                errors.append({**issue('bank_cashflow_id', 'bank_confirmation_required',
+                    '请导入并核对独立银行流水后选择匹配记录；不会自动生成银行流水'), 'severity': 'warning'})
             if net is not None and (net == 0 or action == "deposit" and net < 0 or action == "withdraw" and net > 0):
                 errors.append(issue("net_cash", "cash_sign", "入金为正、出金为负；划转金额不能为零"))
             action = "deposit" if net is not None and net > 0 else "withdraw"
@@ -392,6 +436,38 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
     return result
 
 
+def deferred_bank_candidates(cur, batch: dict, row: dict) -> list[dict]:
+    """Suggest independently verified same-day bank facts; never auto-confirm."""
+    fields, source = row.get('fields') or {}, row.get('source') or {}
+    if not source.get('deferred_from') or fields.get('action') not in {'deposit', 'withdraw'}:
+        return []
+    try:
+        day = date.fromisoformat(fields.get('business_date') or '')
+        amount = Decimal(fields.get('net_cash') or '')
+        if not amount.is_finite() or not amount:
+            return []
+    except (ValueError, InvalidOperation):
+        return []
+    cur.execute("""SELECT cashflow_id FROM pams_cashflow_fact
+        WHERE event_date=%s AND currency='CNY' AND amount=%s AND account_code<>%s
+        ORDER BY cashflow_id LIMIT 101""", (day, -amount, batch['account_code']))
+    matches = [record['cashflow_id'] for record in cur.fetchall()]
+    if len(matches) > 100:
+        return []
+    from domain.ledger.confirmed_transfers import _leg
+    candidates = []
+    for identifier in matches:
+        try:
+            leg = _leg(cur, 'cashflow', identifier)
+        except ValueError:
+            continue
+        if leg['counter_account_code'] not in (None, batch['account_code']):
+            continue
+        candidates.append({'cashflow_id': str(identifier), 'account_code': leg['account_code'],
+                           'business_date': leg['day'], 'amount': leg['signed_amount'], 'currency': leg['currency']})
+    return candidates
+
+
 def preview(cur, batch: dict) -> dict:
     state = current_state(cur, batch["account_code"])
     if batch.get("unified_source"):
@@ -408,6 +484,10 @@ def preview(cur, batch: dict) -> dict:
     state["_statement_config"] = statement.config()
     state["_statement_sources"] = statement.profiles(state["_statement_config"])
     rows = [prepare_row(cur, batch, row, state) for row in batch["rows"]]
+    for row in rows:
+        if row['status'] != 'excluded' and row.get('source', {}).get('deferred_from') and not any(
+                item['code'] == 'deferred_source_unverified' for item in row['issues']):
+            row['bank_candidates'] = deferred_bank_candidates(cur, batch, row)
     seen_keys: dict = {}
     seen_economic: list = []
     seen_cashflows: list = []

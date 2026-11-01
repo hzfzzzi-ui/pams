@@ -85,7 +85,7 @@ const ready=async()=>page.waitForFunction(()=>!document.getElementById('workspac
 const open=async()=>{await page.goto('http://import.invalid/account_import.html');await page.waitForFunction(()=>!document.getElementById('workspace').hidden);await ready();};
 const save=async()=>{await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});await ready();};
 const capture=async name=>{await page.evaluate(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);const head=await page.locator('.import-head').boundingBox();assert.ok(head.y>=0&&head.y<100,JSON.stringify({name,head,metrics:await page.evaluate(()=>({scroll:scrollY,height:innerHeight,doc:document.documentElement.scrollHeight,body:document.body.getBoundingClientRect().toJSON(),active:document.activeElement.id}))}));if(output)await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});};
-const controllerURL='/assets/js/features/account_import/controller.js?v=20261101-review-identity';
+const controllerURL='/assets/js/features/account_import/controller.js?v=20261101-partial-funding';
 const mounted=()=>page.evaluate(async url=>{const m=await import(url);return !!m.mount(document.body);},controllerURL);
 const suspendRestore=()=>page.evaluate(()=>{
  window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));

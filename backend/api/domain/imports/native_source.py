@@ -168,6 +168,20 @@ def preview_native(cur, *, batch_id: UUID, revision: int, locked_accounts=None):
     if locked_accounts != actual_accounts:
         raise ValueError('native account set changed')
     result = preflight.preview(cur, batch)
+    pending = [row for row in result['_prepared'] if row['status'] == 'pending']
+    result['can_publish_ready'] = bool(
+        batch['account_code'] == 'tonghuashun' and batch['kind'] == 'trade'
+        and set(source['snapshot']['blockers']) <= {'pending_items', 'no_confirmed_items'}
+        and result['counts']['new'] > 0 and pending
+        and all(row['status'] in {'ready', 'pending', 'excluded'} for row in result['_prepared'])
+        and all(row['source'].get('profile') == 'ths_broker_ledger_v1' and row['source'].get('origin') == 'file'
+                for row in result['_prepared'] if row['status'] == 'ready')
+        and all(row['fields'].get('action') in {'deposit', 'withdraw'}
+                and row['source'].get('profile') == 'ths_broker_ledger_v1'
+                and row['source'].get('origin') == 'file'
+                and row['source'].get('file_id')
+                and {issue.get('code') for issue in row['issues']} == {'counter_required'}
+                for row in pending))
     for row in result['_prepared']:
         if row['status'] == 'ready' and row.get('fact') and _existing_source(cur, 'pams_investment_trade_fact', row['key']):
             raise ValueError('trade source identity already exists')
@@ -343,7 +357,8 @@ def _replay(cur, batch_id, revision, source_sha256):
         if sorted(records) != sorted(recorded):
             raise ValueError('published source result differs from facts')
         return {'records': records, 'details': saved['records'], 'counts': saved['counts'],
-                'published_at': saved['published_at'], 'replayed': True}
+                'published_at': saved['published_at'], 'replayed': True,
+                **({'deferred_batch_id': saved['partial']['deferred_batch_id']} if saved.get('partial') else {})}
 
 
 def _verified_holding_update(cur, item_id, holding_id, *, snapshot_cache=None):
@@ -371,7 +386,8 @@ def lock_publication_accounts(cur, batch_id):
     return accounts
 
 def publish_native(cur, *, batch_id: UUID, revision: int, source_sha256: str,
-                   preview_token: str, prepared_at: str, published_token: str | None = None, locked_accounts=None):
+                   preview_token: str, prepared_at: str, published_token: str | None = None, locked_accounts=None,
+                   partial_info: dict | None = None):
     _require(cur)
     if not enabled() or cur.connection.isolation_level != ISOLATION_LEVEL_SERIALIZABLE:
         raise ValueError('native publication disabled or not serializable')
@@ -488,6 +504,8 @@ def publish_native(cur, *, batch_id: UUID, revision: int, source_sha256: str,
         saved = {'counts': result['counts'], 'records': store.norm(details), 'confirmed_pairs': confirmed_pairs,
                  'bank_source_confirmations': bank_source_confirmations, 'account_scope_version_id': scope_version_id,
                  'published_at': datetime.now(UTC).isoformat()}
+        if partial_info is not None:
+            saved['partial'] = partial_info
         cur.execute("UPDATE source_batches SET status='published',published_source_hash=%s,published_preview_token=%s,published_result=%s,updated_at=now() WHERE batch_id=%s",
                     (source_sha256, published_token, Json(saved), str(batch_id)))
         if bank_source_confirmations:
@@ -517,7 +535,8 @@ def publish_native(cur, *, batch_id: UUID, revision: int, source_sha256: str,
                 source_batch_id=batch_id, source_revision=revision, source_sha256=source_sha256, version_id=scope_version_id)
         cur.execute('RELEASE SAVEPOINT native_source_publish')
         return {'records': records, 'details': saved['records'], 'counts': saved['counts'],
-                'published_at': saved['published_at'], 'replayed': False}
+                'published_at': saved['published_at'], 'replayed': False,
+                **({'deferred_batch_id': partial_info['deferred_batch_id']} if partial_info else {})}
     except Exception:
         cur.execute('ROLLBACK TO SAVEPOINT native_source_publish')
         cur.execute('RELEASE SAVEPOINT native_source_publish')

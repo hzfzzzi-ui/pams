@@ -7,10 +7,10 @@ const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const root=path.resolve('frontend/public'), output=process.env.PAMS_FRONTEND_ARTIFACT_DIR;
 if(output) await mkdir(output,{recursive:true});
-let batch,caps,publishes,calls,failPreview,failUpload,uploads,extraHistory,voidLostResponse,mismatchTemplate;
+let batch,caps,publishes,calls,failPreview,failUpload,uploads,extraHistory,voidLostResponse,mismatchTemplate,partialParent,bankAvailable;
 const defaults={authentication_required:false,schema_ready:true,publish_enabled:false,ocr_available:true,limits:{files:10,file_bytes:10485760}};
 const fields=(kind='trade')=>({kind,business_date:'2026-10-20',asset_type:'stock',symbol:'600001',name:'合成标的',currency:'CNY',action:'buy',status:'confirmed',quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_scope:'separate',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'});
-const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;failUpload=false;extraHistory=[];voidLostResponse=false;mismatchTemplate=false;};
+const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;failUpload=false;extraHistory=[];voidLostResponse=false;mismatchTemplate=false;partialParent=null;bankAvailable=false;};
 const accounts=[{account_code:'ths',profile:'tonghuashun',label:'同花顺',currency:'CNY',default_asset_type:'stock',kinds:['trade','holding'],trade_actions:{stock:['buy','sell','dividend','fee'],fund:['buy','sell','dividend','fee']}},
  {account_code:'licai',profile:'tencent_licaitong',label:'理财通',currency:'CNY',default_asset_type:'fund',kinds:['trade','holding'],trade_actions:{fund:['subscribe','redeem','dividend','fee']}},
  {account_code:'bank',profile:'statement',label:'银行账户',currency:'CNY',default_asset_type:'cash',kinds:['cash'],trade_actions:{cash:['income','expense','transfer','balance']}}];
@@ -33,21 +33,21 @@ await context.route('**/*',async route=>{
    return send({kind:account==='bank'?'cash':name==='holding.xlsx'?'holding':'trade',status:'detected'});
   }
   if(p.endsWith('/assets')) return send({rows:[{asset_id:'a',symbol:'600001',name:'合成标的',asset_type:'stock',currency:'CNY'}]});
-  if(p.endsWith('/batches') && req.method()==='GET') return send({rows:[...extraHistory,...(batch&&batch.status!=='voided'?[batch]:[])]});
+  if(p.endsWith('/batches') && req.method()==='GET') return send({rows:[...extraHistory,...(partialParent?[partialParent]:[]),...(batch&&batch.status!=='voided'?[batch]:[])]});
   if(p.endsWith('/batches') && req.method()==='POST') {batch={batch_id:'b',revision:1,status:'draft',rows:[],files:[],...req.postDataJSON()};return send(batch);}
-  if(p==='/api/account-import/batches/b' && req.method()==='GET') return send(batch);
+  if(p===`/api/account-import/batches/${batch?.batch_id}` && req.method()==='GET') return send(batch);
   if(p==='/api/account-import/batches/b/void' && req.method()==='POST') {
    assert.equal(req.postDataJSON().revision,batch.revision);assert.equal(batch.status,'draft');
    batch.status='voided';batch.revision++;
    if(voidLostResponse) return route.abort('failed');
    return send(batch);
   }
-  if(p==='/api/account-import/batches/b' && req.method()==='PUT') {
+  if(p===`/api/account-import/batches/${batch?.batch_id}` && req.method()==='PUT') {
    const body=req.postDataJSON(); assert.equal(body.revision,batch.revision);
    batch.rows=body.rows.map((row,index)=>{
     const old=batch.rows.find(item=>item.row_id===row.row_id), source=old?.source || (row.image_file_id?{origin:'ocr',file_id:row.image_file_id}:{origin:'manual'});
     if(old?.can_edit_fields===false) {
-     const immutable=f=>Object.fromEntries(Object.entries(f).filter(([k])=>!['counter_account_code','duplicate_decision'].includes(k)));
+     const immutable=f=>Object.fromEntries(Object.entries(f).filter(([k])=>!['counter_account_code','duplicate_decision','bank_cashflow_id'].includes(k)));
      assert.deepEqual(immutable(row.fields),immutable(old.fields));
     }
     return {...row,row_id:row.row_id||'r'+index,source,can_edit_fields:!source.file_id||source.origin==='ocr'};
@@ -58,8 +58,9 @@ await context.route('**/*',async route=>{
    const name=url.searchParams.get('filename'), image=/\.(png|jpe?g)$/i.test(name), id='f'+(batch.files.length+1);
    uploads.push(name); assert.ok(req.postDataBuffer().length);
    batch.files.push({file_id:id,filename:name,content_type:image?'image/png':'text/plain',metadata:{template_status:mismatchTemplate?'needs_mapping':'matched',headers:image?[]:['日期','代码','净收付'],suggested_mapping:image?{}:{business_date:'日期',symbol:'代码',net_cash:'净收付'}}});
-   const count=image?(caps.ocr_available?2:0):batch.kind==='cash'?2:1;
+   const count=image?(caps.ocr_available?2:0):batch.kind==='cash'||name==='partial.xls'?2:1;
    for(let n=0;n<count;n++) batch.rows.push({row_id:id+'r'+n,fields:{...fields(batch.kind),name:`${name}记录${n+1}`,...(batch.kind==='cash'?{asset_type:'cash',action:n?'balance':'income',net_cash:'100.05'}:{}),...(name==='funding.xls'?{asset_type:'cash',symbol:'CASH_CNY',action:'deposit',gross_amount:'100.00',net_cash:'100.00',counter_account_code:null}:{})},source:{origin:image?'ocr':'file',file_id:id,raw_text:'合成原始记录',row:n+1},can_edit_fields:image,acknowledged:false,excluded:batch.kind==='cash'&&n===1});
+   if(name==='partial.xls') Object.assign(batch.rows[1].fields,{asset_type:'cash',symbol:'CASH_CNY',action:'deposit',gross_amount:'100.00',net_cash:'100.00',counter_account_code:null});
    batch.revision++;return send(batch);
   }
   if(/\/files\/[^/]+$/.test(p) && req.method()==='GET') return route.fulfill({contentType:'image/png',body:process.env.PAMS_FRONTEND_TEST_IMAGE?await readFile(process.env.PAMS_FRONTEND_TEST_IMAGE):Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6xkAAAAASUVORK5CYII=','base64')});
@@ -69,13 +70,20 @@ await context.route('**/*',async route=>{
    if(failPreview) return send({detail:{code:'source_changed',message:'来源资料已变化'}},409);
    assert.equal(req.postDataJSON().revision,batch.revision);
    const blocked=batch.rows.some(r=>r.source.origin==='ocr'&&!r.acknowledged&&!r.excluded);
-   const rows=batch.rows.map(r=>({row_id:r.row_id,fields:r.fields,status:r.excluded?'excluded':blocked?'blocked':'ready',issues:[],before:null,after:r.fields,asset_created_first_row:r.fields.name==='原始.xls记录1'}));
-   return send({batch_id:'b',revision:batch.revision,preview_token:'p'.repeat(64),can_publish:!blocked,
-    counts:{new:batch.rows.filter(r=>!r.excluded).length,duplicates:0,blocked:blocked?1:0,pending:0},rows,
+   const rows=batch.rows.map(r=>({row_id:r.row_id,fields:r.fields,status:r.excluded?'excluded':blocked?'blocked':r.fields.action==='deposit'&&!r.fields.bank_cashflow_id?'pending':'ready',issues:[],before:null,after:r.fields,asset_created_first_row:r.fields.name==='原始.xls记录1',bank_candidates:r.source.deferred_from&&bankAvailable?[{cashflow_id:'9',account_code:'bank',business_date:'2026-10-20',amount:'-100.00',currency:'CNY'}]:[]}));
+   const pending=rows.filter(r=>r.status==='pending').length, readyCount=rows.filter(r=>r.status==='ready').length;
+   return send({batch_id:batch.batch_id,revision:batch.revision,preview_token:'p'.repeat(64),can_publish:!blocked&&!pending,can_publish_ready:!blocked&&pending>0&&readyCount>0,
+    counts:{new:readyCount,duplicates:0,blocked:blocked?1:0,pending},rows,
     write_count:rows.filter(r=>r.status==='ready').length,write_plan:rows.filter(r=>r.status==='ready').map(r=>({row_id:r.row_id,table:batch.kind==='cash'?'pams_cashflow_fact':'pams_investment_trade_fact',operation:'insert',before:null,after:r.fields})),
     impact:{nav_estimate_status:'unavailable',nav_change:null,message:'测试不应展示'},
     warnings:['持仓、交易、现金独立核对；未上传部分不视为零。','资产底表待补充/核准：000001','以下标的类型及币种使用待核对默认值，请在更多页资产管理补充：000001','已识别的券商入出金缺少银行对手账户证据','其他来源异常'],
     issue_groups:[{code:'counter_required',message:'券商入出金缺少银行对手账户证据',count:1}]});
+  }
+  if(p.endsWith('/publish-ready')) {
+   assert.equal(caps.publish_enabled,true);publishes++;partialParent={...structuredClone(batch),status:'published'};
+   const deferred=structuredClone(batch.rows.find(r=>r.fields.action==='deposit'));deferred.source.deferred_from={batch_id:batch.batch_id,row_id:deferred.row_id,file_id:deferred.source.file_id};
+   batch={...structuredClone(batch),batch_id:'deferred',revision:1,status:'draft',rows:[deferred]};
+   return send({batch:partialParent,deferred_batch_id:'deferred'});
   }
   if(p.endsWith('/publish')) {assert.equal(caps.publish_enabled,true);publishes++;batch.status='published';return send({batch});}
   throw new Error('Unexpected API '+req.method()+' '+p);
@@ -225,6 +233,22 @@ try {
  await page.getByRole('button',{name:'补充本图记录',exact:true}).click();await page.locator('#field-business_date').fill('2026-10-20');await page.locator('#field-symbol').fill('600001');await page.locator('#field-action').selectOption('buy');await save();
  assert.equal(batch.rows[0].source.file_id,'f1');assert.equal(batch.rows[0].source.origin,'ocr');await page.locator('#confirm-image').click();await page.locator('#review').waitFor();await ready();assert.equal(batch.rows[0].acknowledged,true);assert.equal(publishes,0);
  await page.goBack();await page.locator('#image-review').waitFor();assert.equal(batch.rows.length,1);
+ reset();caps.publish_enabled=true;await open();await page.locator('#files').setInputFiles({name:'partial.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from('synthetic partial')});
+ await page.waitForFunction(()=>document.getElementById('file-list').querySelector('a')&&!document.getElementById('workspace').inert);
+ await page.locator('#next').click();await page.locator('#review').waitFor();await ready();
+ assert.equal(await page.locator('#publish-ready').isEnabled(),true);assert.equal(await page.locator('#publish').isHidden(),true);
+ await page.getByText('可先录入 1 条已核对记录；1 条资金记录保留草稿，补充银行流水后匹配。在此之前账户现金与资金流可能不完整。',{exact:true}).waitFor();
+ page.once('dialog',dialog=>dialog.accept());await page.locator('#publish-ready').click();await ready();
+ assert.equal(publishes,1);assert.equal(batch.batch_id,'deferred');assert.equal(batch.rows.length,1);
+ await page.getByText('已录入 1 条；1 条待关联资金记录保留在草稿。补充银行流水前，账户现金与资金流可能不完整。',{exact:true}).waitFor();
+ await page.locator('#next').click();await page.locator('#review').waitFor();await ready();
+ await page.getByRole('button',{name:'查看 / 处理',exact:true}).click();
+ await page.getByText('尚无同日同额的银行划转流水；请先导入并核对为划转，再返回预检。',{exact:true}).waitFor();
+ await save();
+ bankAvailable=true;await page.locator('#step-one-link').click();await page.locator('#step-two-link').click();await page.locator('#review').waitFor();await ready();
+ await page.getByRole('button',{name:'查看 / 处理',exact:true}).click();await page.locator('#field-bank_cashflow_id').selectOption('9');
+ assert.equal(await page.locator('#field-counter_account_code').inputValue(),'bank');await save();
+ assert.equal(batch.rows[0].fields.bank_cashflow_id,'9');assert.equal(batch.rows[0].fields.counter_account_code,'bank');assert.equal(publishes,1);
  reset();caps.publish_enabled=true;await open();await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#add-row').click();await page.locator('#field-business_date').fill('2026-10-20');await page.locator('#field-action').selectOption('buy');await save();
  await page.locator('#next').click();await page.locator('#review').waitFor();await ready();await page.locator('#publish').click();await page.waitForFunction(()=>document.getElementById('batch-meta').textContent.includes('已录入'));assert.equal(publishes,1);assert.equal(await page.locator('#add-row').isDisabled(),true);
  assert.deepEqual(errors,[]);console.log(JSON.stringify({reports,errors,productionRequests:0}));

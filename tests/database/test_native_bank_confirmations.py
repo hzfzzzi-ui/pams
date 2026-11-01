@@ -14,6 +14,95 @@ from tests.database.test_isolated_source_bootstrap import empty_source_db  # noq
 from scripts import bootstrap_isolated_sources as bootstrap
 
 
+def test_partial_broker_import_waits_for_independent_bank_source(empty_source_db, monkeypatch):
+    from domain.imports import account_import_statement as statement, account_import_store as store
+    from endpoints import account_import
+    from tests.imports.test_account_import_ths import event, export
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name,base_currency) VALUES ('bank_a','Synthetic bank','CNY')")
+    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a1' * 32)
+    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
+    monkeypatch.setattr(store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(statement, 'config', lambda: {'profiles': {'a': {'account_code':'bank_a',
+        'statement_template':'manual_statement_csv', 'currency':'CNY'}}, 'rules':[], 'amount_rules':[]})
+    app = FastAPI()
+    app.include_router(account_import.router, prefix='/api')
+    day = (date.today() - timedelta(days=2)).isoformat()
+    native_day = day.replace('-', '')
+    with TestClient(app) as web:
+        web.headers['Origin'] = 'http://testserver'
+        parent = web.post('/api/account-import/batches', json={'account_code':'tonghuashun','mode':'upload','kind':'trade'}).json()
+        path = '/api/account-import/batches/' + parent['batch_id']
+        data = export(event('利息归本', **{'成交日期':native_day,'发生金额':'10.00','定位串':'synthetic-interest'}),
+                      event('银行转证券', **{'成交日期':native_day,'发生金额':'500.00','定位串':'synthetic-deposit'}))
+        response = web.post(path + '/files?filename=synthetic.xls', content=data)
+        assert response.status_code == 200, response.text
+        parent = response.json()
+        parent = web.put(path, json={'revision':parent['revision'], 'rows':parent['rows']}).json()
+        check = web.post(path + '/preview', json={'revision':parent['revision']}).json()
+        assert check['can_publish_ready'] and check['counts']['pending'] == 1
+        result = web.post(path + '/publish-ready', json={'revision':parent['revision'],'preview_token':check['preview_token']})
+        assert result.status_code == 200, result.text
+        child_id = result.json()['deferred_batch_id']
+        child_path = '/api/account-import/batches/' + child_id
+        child = web.get(child_path).json()
+        child = web.put(child_path, json={'revision':child['revision'], 'rows':child['rows']}).json()
+        pending = web.post(child_path + '/preview', json={'revision':child['revision']}).json()
+        assert not pending['can_publish'] and pending['rows'][0]['bank_candidates'] == []
+        from domain.imports import source_fact_evidence
+        with monkeypatch.context() as patch:
+            patch.setattr(source_fact_evidence, '_reviewed_snapshot', lambda *args, **kwargs: False)
+            invalid = web.post(child_path + '/preview', json={'revision':child['revision']}).json()
+            assert invalid['rows'][0]['status'] == 'blocked'
+            assert any(i['code'] == 'deferred_source_unverified' for i in invalid['rows'][0]['issues'])
+        child['rows'][0]['fields']['counter_account_code'] = 'bank_a'
+        child['rows'][0]['acknowledged'] = True
+        child = web.put(child_path, json={'revision':child['revision'], 'rows':child['rows']}).json()
+        pending = web.post(child_path + '/preview', json={'revision':child['revision']}).json()
+        assert not pending['can_publish']
+        assert any(i['code'] == 'bank_confirmation_required' for i in pending['rows'][0]['issues'])
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute('SELECT count(*) FROM pams_cashflow_fact')
+            assert cur.fetchone()[0] == 0
+
+        bank = web.post('/api/account-import/batches', json={'account_code':'bank_a','mode':'upload','kind':'cash'}).json()
+        bank_path = '/api/account-import/batches/' + bank['batch_id']
+        content = f'transaction_date,amount,currency,balance,summary\n{day},-500,CNY,200,investment\n'.encode()
+        bank = web.post(bank_path + '/files?filename=synthetic.csv', content=content).json()
+        bank['rows'][0]['fields'].update(action='transfer', counter_account_code='tonghuashun')
+        bank = web.put(bank_path, json={'revision':bank['revision'], 'rows':bank['rows']}).json()
+        bank_check = web.post(bank_path + '/preview', json={'revision':bank['revision']}).json()
+        assert bank_check['can_publish'], bank_check
+        assert web.post(bank_path + '/publish', json={'revision':bank['revision'],'preview_token':bank_check['preview_token']}).status_code == 200
+
+        pending = web.post(child_path + '/preview', json={'revision':child['revision']}).json()
+        candidates = pending['rows'][0]['bank_candidates']
+        assert len(candidates) == 1 and candidates[0]['account_code'] == 'bank_a'
+        child['rows'][0]['fields']['bank_cashflow_id'] = '999999'
+        child = web.put(child_path, json={'revision':child['revision'], 'rows':child['rows']}).json()
+        invalid = web.post(child_path + '/preview', json={'revision':child['revision']}).json()
+        assert not invalid['can_publish'] and any(i['code'] == 'bank_confirmation_required' for i in invalid['rows'][0]['issues'])
+        child['rows'][0]['fields']['bank_cashflow_id'] = candidates[0]['cashflow_id']
+        child = web.put(child_path, json={'revision':child['revision'], 'rows':child['rows']}).json()
+        checked = web.post(child_path + '/preview', json={'revision':child['revision']}).json()
+        assert checked['can_publish'], checked
+        response = web.post(child_path + '/publish', json={'revision':child['revision'],'preview_token':checked['preview_token']})
+        assert response.status_code == 200, response.text
+        replay = web.post(child_path + '/publish', json={'revision':child['revision'],'preview_token':checked['preview_token']})
+        assert replay.status_code == 200 and replay.json()['replayed']
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT cashflow_id,net_cash FROM pams_investment_trade_fact WHERE side='deposit'")
+            deposit = cur.fetchone()
+            assert deposit['net_cash'] == 500 and str(deposit['cashflow_id']) == candidates[0]['cashflow_id']
+            cur.execute('SELECT count(*) AS n FROM pams_cashflow_fact')
+            assert cur.fetchone()['n'] == 1
+            cur.execute("SELECT count(*) AS n FROM evidence_confirmation WHERE confirmation_type='transfer' AND revoked_at IS NULL")
+            assert cur.fetchone()['n'] == 1
+
+
 def test_new_bank_sources_and_two_sided_confirmation(empty_source_db, monkeypatch):
     from domain.imports import account_import_statement as statement, account_import_store as store
     from domain.investments.portfolio_state import load_cash_transactions, load_transfer_matches

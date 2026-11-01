@@ -107,6 +107,85 @@ def native_batch(web):
     return batch, content
 
 
+@pytest.mark.parametrize('save_before', [True, False])
+def test_partial_publish_defers_unmatched_funding_with_original_evidence(client, save_before):
+    web, params = client
+    batch, content = native_batch(web)
+    path = f"/api/account-import/batches/{batch['batch_id']}"
+    if save_before:
+        saved = web.put(path, json={'revision': batch['revision'], 'rows': batch['rows']})
+        assert saved.status_code == 200, saved.text
+        batch = saved.json()
+    check = preview(web, batch)
+    assert not check['can_publish'] and check['can_publish_ready']
+    assert check['counts']['new'] == 5 and check['counts']['pending'] == 2
+    original_revision = batch['revision']
+    invalid = web.post(path + '/publish-ready', json={'revision': original_revision, 'preview_token': '0' * 64})
+    assert invalid.status_code == 409
+    assert sql(params, 'SELECT count(*) n FROM source_batches')[0]['n'] == 1
+    assert not sql(params, 'SELECT * FROM pams_investment_trade_fact')
+    response = web.post(path + '/publish-ready', json={'revision': original_revision, 'preview_token': check['preview_token']})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result['batch']['status'] == 'published'
+    deferred = web.get('/api/account-import/batches/' + result['deferred_batch_id']).json()
+    assert deferred['status'] == 'draft' and len(deferred['rows']) == 2
+    assert {r['fields']['action'] for r in deferred['rows']} == {'deposit', 'withdraw'}
+    assert all(r['source']['deferred_from']['batch_id'] == batch['batch_id'] for r in deferred['rows'])
+    assert deferred['files'][0]['sha256'] == batch['files'][0]['sha256']
+    reparse = web.post(f"/api/account-import/batches/{deferred['batch_id']}/files/{deferred['files'][0]['file_id']}/parse",
+                       json={'kind':'trade', 'mapping':{}})
+    assert reparse.status_code == 409 and reparse.json()['detail']['code'] == 'deferred_reparse_forbidden'
+    stored = sql(params, 'SELECT content FROM source_files WHERE batch_id=%s', (deferred['batch_id'],))
+    assert stored[0]['content'].tobytes() == content
+    assert len(sql(params, 'SELECT * FROM pams_investment_trade_fact')) == 5
+    assert not sql(params, 'SELECT * FROM pams_cashflow_fact')
+    replay = web.post(path + '/publish-ready', json={'revision': original_revision, 'preview_token': check['preview_token']})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()['replayed'] and replay.json()['deferred_batch_id'] == deferred['batch_id']
+    assert len(sql(params, 'SELECT * FROM pams_investment_trade_fact')) == 5
+
+
+def test_partial_publish_rolls_back_deferred_batch_if_publication_fails(client, monkeypatch):
+    from domain.imports import native_source
+    web, params = client
+    batch, _ = native_batch(web)
+    path = f"/api/account-import/batches/{batch['batch_id']}"
+    batch = web.put(path, json={'revision': batch['revision'], 'rows': batch['rows']}).json()
+    check = preview(web, batch)
+    def fail(*args, **kwargs):
+        raise ValueError('synthetic failure')
+    monkeypatch.setattr(native_source, 'publish_native', fail)
+    response = web.post(path + '/publish-ready', json={'revision': batch['revision'], 'preview_token': check['preview_token']})
+    assert response.status_code == 400
+    assert sql(params, 'SELECT count(*) n FROM source_batches')[0]['n'] == 1
+    assert sql(params, 'SELECT status FROM source_batches')[0]['status'] == 'draft'
+    assert not sql(params, 'SELECT * FROM pams_investment_trade_fact')
+    assert not any(row['excluded'] for row in web.get(path).json()['rows'])
+
+
+def test_concurrent_partial_publish_never_duplicates_facts_or_drafts(client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    web, params = client
+    batch, _ = native_batch(web)
+    path = f"/api/account-import/batches/{batch['batch_id']}"
+    check = preview(web, batch)
+    payload = {'revision': batch['revision'], 'preview_token': check['preview_token']}
+    barrier = Barrier(2)
+    def submit():
+        barrier.wait(timeout=10)
+        return web.post(path + '/publish-ready', json=payload)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: submit(), range(2)))
+    assert any(response.status_code == 200 for response in responses)
+    assert all(response.status_code in {200, 409} for response in responses)
+    assert sql(params, 'SELECT count(*) n FROM source_batches')[0]['n'] == 2
+    assert sql(params, 'SELECT count(*) n FROM pams_investment_trade_fact')[0]['n'] == 5
+    retry = web.post(path + '/publish-ready', json=payload)
+    assert retry.status_code == 200 and retry.json()['replayed']
+
+
 def test_native_display_price_precision_preserves_reported_amounts(client):
     from tests.imports.test_account_import_ths import event, export
     web, params = client

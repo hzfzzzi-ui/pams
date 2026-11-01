@@ -1,7 +1,7 @@
 import { ROOT, KIND_TEXT, DECIMALS, LABELS, TEXT, accessState, fileFormat, previewFields, displayAssetType, recordEditable, publishable } from './contract.js?v=20261031-modules-v1';
 import { createImportClient } from './client.js?v=20261031-modules-v1';
 import { createRequestScope } from './request_scope.js?v=20261101-auto-kind';
-import { createRecordsEditor } from './records_editor.js?v=20261101-record-handling';
+import { createRecordsEditor } from './records_editor.js?v=20261101-partial-funding';
 import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();
@@ -34,6 +34,9 @@ export function mount(root, context = {}) {
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
   const editable = () => !state.batch || state.batch.status === 'draft';
+  const canPublishReady = () => state.caps?.publish_enabled === true && state.batch?.status === 'draft' &&
+    !state.dirty && state.preview?.can_publish_ready === true && state.preview.batch_id === state.batch.batch_id &&
+    state.preview.revision === state.batch.revision && !!state.preview.preview_token;
   const emptyDraft = () => state.batch?.status === 'draft' && Array.isArray(state.batch.rows) && !state.batch.rows.length && Array.isArray(state.batch.files) && !state.batch.files.length && !state.dirty && !state.suspended && !mappingDirty() && !$('editor').open;
   function detachEmptyDraft() {
     if (!emptyDraft()) return;
@@ -132,6 +135,7 @@ export function mount(root, context = {}) {
     $('file-list').querySelectorAll('.import-mapping button, .import-mapping select').forEach(control => { control.disabled = locked; });
     $('next').disabled = locked || !(state.batch?.rows?.length || images().length) || !!state.suspended;
     $('publish').disabled = state.busy || state.conflict || state.needsRefresh || !publishable(state.caps, state.batch, state.preview, state.dirty);
+    $('publish-ready').disabled = state.busy || state.conflict || state.needsRefresh || !canPublishReady();
     $('back').disabled = state.busy; $('reload').disabled = state.busy;
     $('refresh-result').disabled = state.busy;
     $('pending-result').hidden = !state.needsRefresh;
@@ -148,6 +152,8 @@ export function mount(root, context = {}) {
     }
     for (const id of ['save-draft', 'next']) $(id).hidden = state.step !== 1;
     for (const id of ['back', 'publish']) $(id).hidden = state.step !== 2 || imageReview;
+    $('publish-ready').hidden = state.step !== 2 || imageReview || !state.preview?.can_publish_ready;
+    if (!$('publish-ready').hidden) $('publish').hidden = true;
     for (const id of ['previous-image','confirm-image']) $(id).hidden = !imageReview;
     $('upload-area').hidden = state.mode !== 'upload';
     $('kind-prompt').hidden = !state.needsKind;
@@ -160,6 +166,7 @@ export function mount(root, context = {}) {
     $('completeness-label').hidden = $('kind').value !== 'holding';
     $('complete-warning').hidden = $('completeness').value !== 'complete';
     const batch = state.batch;
+    $('deferred-notice').hidden = !batch?.rows?.some(row => row.source?.deferred_from && !row.excluded);
     const uploadedFiles = (batch?.files || []).filter(file => !file.content_type?.startsWith('image/'));
     $('file-selection-status').textContent = uploadedFiles.length ? `已暂存：${uploadedFiles.map(file => file.filename).join('、')}` : '请选择要导入的文件。';
     $('batch-meta').textContent = batch ? `${batch.status === 'published' ? '已录入' : TEXT[batch.status] || batch.status} · ${batch.batch_id} · 版本 ${batch.revision}${state.dirty ? ' · 未保存' : ''}${batch.updated_at ? ` · ${batch.updated_at}` : ''}` : '尚无暂存记录';
@@ -185,7 +192,9 @@ export function mount(root, context = {}) {
           ? `模板解析成功，已识别 ${result.count} 条；请继续核对。`
           : '模板未匹配或识别不完整，请检查账户、文件或配置字段。',
           result.status === 'matched' && result.count ? 'import-meta' : 'import-warning'));
-        node.append(mappingEditor(file));
+        if ((batch?.rows || []).some(row => row.source?.file_id === file.file_id && row.source?.deferred_from))
+          node.append(el('p', '待关联草稿保留原始来源；请导入银行流水后进行匹配。', 'import-meta'));
+        else node.append(mappingEditor(file));
       }
       return node;
     }));
@@ -271,7 +280,7 @@ export function mount(root, context = {}) {
 
   function abandon() { return !(state.dirty || state.suspended || mappingDirty()) || window.confirm('有未保存输入，放弃本地修改？'); }
   function writeUsesRevision(operation) {
-    return operation?.method === 'PUT' || /\/(?:publish|review|preview|void)$/.test(operation?.path || '');
+    return operation?.method === 'PUT' || /\/(?:publish|publish-ready|review|preview|void)$/.test(operation?.path || '');
   }
   function recoveryNotice() {
     if (scope.hasPendingWrite()) return '上次操作仍在处理中；读取草稿不能确认结果。请等待后再载入服务器版本，期间不会继续或重复写入。';
@@ -415,6 +424,8 @@ export function mount(root, context = {}) {
     $('impact').textContent = knownImpact ? `NAV 影响 ${impact.nav_change} · ${impact.message || ''}` : '';
     const hiddenSummaries = ['持仓、交易、现金独立核对', '资产底表待补充/核准', '已识别的券商入出金缺少银行对手账户证据', '以下标的类型及币种使用待核对默认值'];
     $('warnings').replaceChildren(...(p.warnings || []).filter(warning => !hiddenSummaries.some(prefix => typeof warning === 'string' && warning.startsWith(prefix))).map(warning => el('p', issues([warning]), 'import-warning')));
+    if (state.batch.rows.some(row => row.source?.deferred_from && !row.excluded)) $('warnings').append(el('p', '待关联的资金记录尚未入账；补充并匹配银行流水前，账户现金与资金流可能不完整。', 'import-warning'));
+    if (p.can_publish_ready) $('warnings').append(el('p', `可先录入 ${p.counts.new} 条已核对记录；${p.counts.pending} 条资金记录保留草稿，补充银行流水后匹配。在此之前账户现金与资金流可能不完整。`, 'import-warning'));
     const groupLabels = {counter_required:'资金待关联', possible_duplicate:'疑似重复', asset_unresolved:'标的未匹配', gross_mismatch:'金额校验异常'};
     $('issue-groups').replaceChildren(...(p.issue_groups || []).map(group => el('p',`${groupLabels[group.code] || group.message} · ${group.count} 条`,'import-warning')));
     const filter = $('preview-filter').value;
@@ -527,6 +538,15 @@ export function mount(root, context = {}) {
     if (state.needsRefresh || !publishable(state.caps, state.batch, state.preview, state.dirty) || state.conflict) return;
     const result = await api(`${path()}/publish`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
     useBatch(result.batch); message('批次已发布。'); await history();
+  }));
+  listen($('publish-ready'), 'click', () => run(async () => {
+    if (state.needsRefresh || state.conflict || !canPublishReady()) return;
+    const readyCount = state.preview.counts.new, pendingCount = state.preview.counts.pending;
+    if (!window.confirm(`确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待关联资金记录保留为草稿？`)) return;
+    const result = await api(`${path()}/publish-ready`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
+    useBatch(result.batch); await history();
+    if (result.deferred_batch_id) useBatch(await api(`/batches/${encodeURIComponent(result.deferred_batch_id)}`));
+    message(`已录入 ${readyCount} 条；${pendingCount} 条待关联资金记录保留在草稿。补充银行流水前，账户现金与资金流可能不完整。`);
   }));
   listen($('refresh-history'), 'click', () => run(history));
   function clearCurrentBatch() {
