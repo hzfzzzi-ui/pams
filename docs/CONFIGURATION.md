@@ -25,7 +25,7 @@
 | --- | --- |
 | PostgreSQL | PGHOST、PGPORT、PGDATABASE、PGUSER、PGPASSWORD |
 | 数据来源 | TUSHARE_TOKEN、IBKR_FLEX_*、PAMS_DATABENTO_API_KEY、PAMS_DATA_DIR、券商连接参数 |
-| 导入 | PAMS_IMPORT_PUBLISH_ENABLED；访问边界、schema、预览和发布分别核对；旧的独立口令变量不再读取 |
+| 导入 | PAMS_IMPORT_RUNTIME_ENABLED、PAMS_IMPORT_RUNTIME_DATABASE、PAMS_IMPORT_RUNTIME_TOKEN_KEY、PAMS_IMPORT_PUBLISH_ENABLED；访问边界、schema、预览和发布分别核对；旧的独立口令变量不再读取 |
 | 调度 | PAMS_API_BASE、PAMS_REFRESH_STATE_PATH、日结和现金事件开关、PAMS_SCHEDULER_SKIP_STARTUP_REFRESH |
 | 隔离验证 | PAMS_TEST_POSTGRES_DSN；必须显式指向测试环境，不回退生产 PG* |
 | 隔离来源主链路 | PAMS_UNIFIED_SOURCE_ISOLATED=true；PAMS_SOURCE_TEST_TOKEN_KEY 须显式提供 32 字节的十六进制测试密钥，多个测试 worker 使用同一值；仅允许带隔离标记的专用测试库 |
@@ -34,6 +34,8 @@
 | 来源修复 | PAMS_REPAIR_DSN；与应用连接及隔离测试连接分开 |
 
 根 .env 是 Compose 输入之一；还须核对实际启动时的 --env-file、进程环境及部署文件。config/.env 没有应用自动加载约定。秘密值不进入源码、文档、日志或 PR。
+
+账户导入运行库权限默认关闭，仅导入请求范围内生效：启用时要求显式指定匹配的数据库名、PostgreSQL 16 和 `pams-empty-bootstrap` 数据库标记。预检密钥为独立 32 字节十六进制随机值，不得复用测试密钥。`PAMS_IMPORT_PUBLISH_ENABLED` 独立控制发布；启用运行库访问不自动启用发布。该权限不启用其他来源或调度路径。
 
 默认 Compose 将 `PAMS_DATA_DIR` 设为 `/app/data`，并可透传 `PAMS_IBKR_CP_TIMEOUT_SECONDS`、`PAMS_IBKR_TWS_TIMEOUT_SECONDS`、`PAMS_IBKR_TWS_SNAPSHOT_WAIT_SECONDS` 和 `PAMS_IBKR_TWS_USE_OVERNIGHT`；实际运行时环境与 Compose 覆盖文件仍须单独核对，不能根据本默认配置推断线上取值。
 

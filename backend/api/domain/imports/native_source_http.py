@@ -26,14 +26,15 @@ from domain.imports.unified_source import add_item, attach_file
 
 def _token_key():
     mode = isolation.source_mode()
-    key_name = 'PAMS_SOURCE_DEV_TOKEN_KEY' if mode == 'development' else 'PAMS_SOURCE_TEST_TOKEN_KEY'
+    key_name = ('PAMS_SOURCE_DEV_TOKEN_KEY' if mode == 'development' else
+                'PAMS_SOURCE_TEST_TOKEN_KEY' if mode == 'test' else 'PAMS_IMPORT_RUNTIME_TOKEN_KEY')
     value = os.environ.get(key_name, '')
     try:
         key = bytes.fromhex(value)
     except ValueError as exc:
         raise store.ImportProblem('source_token_unconfigured', '来源预检密钥未配置', 503) from exc
     if (len(value) != 64 or len(key) != 32 or
-        (mode == 'development' and value.lower() == os.environ.get('PAMS_SOURCE_TEST_TOKEN_KEY', '').lower())):
+        (mode != 'test' and value.lower() == os.environ.get('PAMS_SOURCE_TEST_TOKEN_KEY', '').lower())):
         raise store.ImportProblem('source_token_unconfigured', '来源预检密钥未配置或与测试密钥相同', 503)
     return key
 
