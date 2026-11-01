@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="assets/css/tokens.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/style-phone.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/design-system-phone.css?v=20261031-modules-v1" />
-  <link rel="stylesheet" href="assets/css/more.css?v=20261031-modules-v1" />
+  <link rel="stylesheet" href="assets/css/more.css?v=20261101-asset-review" />
   <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-modules-v1" />
 </head>
 <body class="page-more app-shell app-low-frequency" data-page-role="low-frequency">
@@ -25,6 +25,11 @@
       <div class="morePrimary">
         <a class="moreRow" href="account_import.html"><strong>导入资料</strong><span aria-hidden="true">›</span></a>
         <a class="moreRow" href="accounts.html#overview"><strong>账户管理</strong><span aria-hidden="true">›</span></a>
+        <details id="moreAssetManagement" class="moreAdvanced moreAssetManagement">
+          <summary>资产管理 <span id="assetPendingCount" aria-live="polite"></span></summary>
+          <button id="refreshAssetReview" type="button">刷新待补充资产</button>
+          <div id="moreAssetReview" aria-live="polite"></div>
+        </details>
 
       </div>
       <details id="moreAdvanced" class="moreAdvanced">
@@ -39,6 +44,6 @@
       </details>
     </main>
   </div>
-  <script type="module" src="assets/js/more.js?v=20261031-modules-v1"></script>
+  <script type="module" src="assets/js/more.js?v=20261101-asset-review"></script>
 </body>
 </html>

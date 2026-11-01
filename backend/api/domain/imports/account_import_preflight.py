@@ -75,7 +75,7 @@ def current_state(cur, account: str) -> dict:
     facts = [dict(r) for r in cur.fetchall()]
     if len(facts) > 10000:
         raise store.ImportProblem("history_limit", "账户历史超过本轮预检容量，不能截断后发布")
-    cur.execute("SELECT asset_id,primary_symbol,canonical_name,asset_type,currency FROM pams_asset_master WHERE status='active' AND currency='CNY' ORDER BY asset_id")
+    cur.execute("SELECT asset_id,primary_symbol,canonical_name,asset_type,currency,exchange,source,raw_json FROM pams_asset_master WHERE status='active' AND currency='CNY' ORDER BY asset_id")
     assets = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT asset_id,alias_type,alias_value FROM pams_asset_alias ORDER BY asset_id,alias_value")
     alias_rows = [dict(r) for r in cur.fetchall()]
@@ -133,7 +133,7 @@ def same_snapshot(before, after):
                 else str(before.get(k)) == str(v)) for k, v in after.items())
 
 
-def _asset(fields: dict, state: dict, errors: list, *, infer_type=False):
+def _asset(fields: dict, state: dict, errors: list, *, infer_type=False, source=None):
     symbol, identifier = fields.get("symbol"), fields.get("asset_id")
     aliases = {a["asset_id"] for a in state["aliases"] if symbol and a["alias_value"] == symbol}
     matches = [a for a in state["assets"] if (a["asset_id"] == identifier if identifier else
@@ -142,6 +142,25 @@ def _asset(fields: dict, state: dict, errors: list, *, infer_type=False):
         errors.append(issue("symbol", "asset_unresolved", "标的未唯一匹配，请先核对代码或完成资产底表映射"))
         return None
     asset = matches[0]
+    if infer_type and source:
+        source_market = {'上海Ａ股': 'SSE', '深圳Ａ股': 'SZSE'}.get(source.get('market'))
+        evidence = asset.get('raw_json') or {}
+        recorded_market = {'上海Ａ股': 'SSE', '深圳Ａ股': 'SZSE'}.get(evidence.get('source_market'))
+        exchange = asset.get('exchange') or recorded_market
+        if not exchange:
+            qualified = str(asset.get('primary_symbol') or '').upper()
+            if qualified.endswith(('.SH', '.SS')):
+                exchange = 'SSE'
+            elif qualified.endswith('.SZ'):
+                exchange = 'SZSE'
+        exchange = {'SH': 'SSE', 'SS': 'SSE', '上海Ａ股': 'SSE', '上海证券交易所': 'SSE',
+                    'SZ': 'SZSE', '深圳Ａ股': 'SZSE', '深圳证券交易所': 'SZSE'}.get(exchange, exchange)
+        if source_market and not exchange:
+            errors.append(issue('symbol', 'asset_market_unverified', '资产底表缺少市场证据，请先核对标的身份'))
+            return None
+        if source_market and exchange and exchange != source_market:
+            errors.append(issue('symbol', 'asset_market_mismatch', '原件市场与资产底表不一致，请先核对标的身份'))
+            return None
     if infer_type and not fields.get("asset_type") and asset_type(asset["asset_type"]) in {"stock", "fund"}:
         fields["asset_type"] = asset_type(asset["asset_type"])
     if symbol and identifier and asset["primary_symbol"] != symbol and asset["asset_id"] not in aliases:
@@ -197,7 +216,7 @@ def prepare_row(cur, batch: dict, row: dict, state: dict) -> dict:
                             for p in state.get("_statement_sources", {}).get(batch["account_code"], [])):
         errors.append(issue("net_cash", "liability_balance_unsupported", "此余额属于负债账户，不能按普通现金资产快照写入；本轮保留对账证据"))
     cash_event = native and fields.get("asset_type") == "cash" and fields.get("action") in ths.CASH_ACTIONS
-    asset = _asset(fields, state, errors, infer_type=native) if kind != "cash" and not cash_balance and not cash_event else None
+    asset = _asset(fields, state, errors, infer_type=native, source=row.get('source')) if kind != "cash" and not cash_balance and not cash_event else None
     if asset:
         fields.update(asset_id=asset["asset_id"], symbol=asset["primary_symbol"], name=asset["canonical_name"])
         profile_actions = ths.TRADE_ACTIONS if native else store.PROFILES[batch["account_code"]]["trade_actions"]
@@ -451,6 +470,13 @@ def preview(cur, batch: dict) -> dict:
             symbol = row["fields"].get("symbol") or row["fields"].get("name") or "未知标的"
             unresolved[symbol] = unresolved.get(symbol, 0) + 1
     warnings = ["持仓、交易、现金独立核对；未上传部分不视为零。"]
+    pending_ids = {a['asset_id'] for a in state['assets']
+                   if a.get('source') in {'ths_import', 'broker_statement'}
+                   and not (a.get('raw_json') or {}).get('import_identity_reviewed')}
+    provisional = {r['fields'].get('symbol') for r in rows
+                   if r['fields'].get('asset_id') in pending_ids and r['status'] != 'excluded'}
+    if provisional:
+        warnings.append('以下标的类型及币种使用待核对默认值，请在更多页资产管理补充：' + '、'.join(sorted(provisional)))
     if batch.get("unified_source") and any(row.get("fact") and row["fact"].get("side") in {"deposit", "withdraw"} for row in rows):
         warnings.append("未上传独立银行资料时生成派生银行腿，并标记与券商侧同源；已有真实流水须唯一且人工确认后关联。")
     if unresolved:

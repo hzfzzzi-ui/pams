@@ -1487,7 +1487,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "risk.html" not in html
     assert "ledger.html#transfers" not in html
     assert "more.html#sync" not in html + accounts_html
-    assert "assets/js/more.js?v=20261031-modules-v1" in html
+    assert "assets/js/more.js?v=20261101-asset-review" in html
     assert 'id="moreAdvanced"' in html and 'id="moreAdvanced" open' not in html
     assert 'class="statusbar"' not in html and 'LIVE' not in html
     assert 'href="accounts.html#sources"' not in html

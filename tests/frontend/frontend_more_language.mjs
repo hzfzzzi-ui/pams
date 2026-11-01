@@ -7,13 +7,15 @@ const root=path.resolve(process.argv[2]),output=process.env.PAMS_MORE_ARTIFACT_D
 if(output)await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],reports=[];
-let status='ok';
+let status='ok', assetPending=true;
 page.on('pageerror',error=>errors.push(error.message));
 await page.route('**/*',async route=>{
- const req=route.request(),url=new URL(req.url());assert.equal(req.method(),'GET');assert.equal(url.origin,'http://language.invalid');
+ const req=route.request(),url=new URL(req.url());assert.equal(url.origin,'http://language.invalid');
  if(url.pathname.startsWith('/api/')){
   calls.push(url.pathname);
-  assert.ok(['/api/portfolio/data-quality','/api/portfolio/equity-bridge'].includes(url.pathname));
+  if(url.pathname==='/api/analysis/asset-import-review') return route.fulfill({contentType:'application/json',body:JSON.stringify({rows:assetPending?[{asset_id:'synthetic',symbol:'000002',name:'合成资产',asset_type:'A股个股',currency:'CNY',updated_at:'synthetic-version'}]:[]})});
+  if(url.pathname==='/api/analysis/asset-import-review/synthetic' && req.method()==='POST') {assert.equal(req.postDataJSON().asset_type,'ETF / 基金');assetPending=false;return route.fulfill({contentType:'application/json',body:'{"status":"confirmed"}'});}
+  assert.equal(req.method(),'GET');assert.ok(['/api/portfolio/data-quality','/api/portfolio/equity-bridge'].includes(url.pathname));
   if(status==='failed'||url.pathname.endsWith('/equity-bridge'))return route.fulfill({status:503,contentType:'application/json',body:'{}'});
   return route.fulfill({contentType:'application/json',body:JSON.stringify({data_quality:{summary:{status,error_count:0,warning_count:status==='ok'?0:2}}})});
  }
@@ -42,13 +44,17 @@ try{
    const row=document.createElement('div');row.className='mobileHoldingText';const label=document.createElement('strong');label.textContent='标的名称';row.append(label);document.getElementById('holdings-smart-table').append(row);
   });
   const investment={body:await style('body'),name:await style('.mobileHoldingText strong'),wrap:await style('.wrap')};
-  status='ok';const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
+  status='ok';assetPending=true;const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
   await page.locator('#moreIssues').waitFor({state:'hidden'});assert.equal(await page.locator('#moreAdvanced').getAttribute('open'),null);
   const body=await style('body'),primary=await style('.morePrimary strong'),wrap=await style('.wrap');
   assert.equal(body.font,investment.body.font);assert.equal(body.background,investment.body.background);
   for(const key of ['font','size','weight','line','color'])assert.equal(primary[key],investment.name[key],JSON.stringify({width,key,primary,investment}));
   assert.equal(wrap.gutter,investment.wrap.gutter);assert.ok(wrap.width<=430);assert.equal(await page.locator('.moreHub').evaluate(n=>getComputedStyle(n).display),'block');
-  assert.equal(await page.locator('.nav a').count(),0);assert.deepEqual(calls.slice(before),['/api/portfolio/data-quality']);
+  assert.equal(await page.locator('.nav a').count(),0);await page.getByText('· 待补充 1',{exact:true}).waitFor();
+  assert.deepEqual(calls.slice(before).sort(),['/api/analysis/asset-import-review','/api/portfolio/data-quality']);
+  await page.locator('#moreAssetManagement>summary').click();await page.getByText('000002 · 合成资产',{exact:true}).waitFor();
+  await page.getByLabel('000002 资产类型').selectOption('ETF / 基金');await page.getByRole('button',{name:'确认类型与人民币'}).click();
+  await page.getByText('没有待补充的导入资产。',{exact:true}).waitFor();await page.locator('#moreAssetManagement>summary').click();
   await capture(width+'-home');
   await page.locator('#moreAdvanced>summary').click();await page.getByText('资产底表与映射',{exact:true}).waitFor();await page.mouse.move(0,0);
   const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));

@@ -398,6 +398,24 @@ def _aliases_for_raw(raw: dict[str, Any], asset: dict[str, Any]) -> list[tuple[s
 
 def _upsert_asset(cur, raw: dict[str, Any], *, source: str = "system") -> str:
     asset = _asset_record_from_raw(raw, source=source)
+    identity = _qualified_cn_symbol(asset['primary_symbol'])
+    if identity:
+        code, _ = identity
+        variants = [code, code + '.SH', code + '.SS', code + '.SZ', 'SH' + code, 'SZ' + code]
+        cur.execute('''SELECT asset_id,primary_symbol,asset_type,currency,source FROM pams_asset_master
+            WHERE source = ANY(%s) AND upper(primary_symbol) = ANY(%s) FOR UPDATE''',
+            (['manual', 'ths_import', 'broker_statement'], variants))
+        existing = cur.fetchall()
+        if len(existing) > 1:
+            raise AmbiguousAssetIdentityError('multiple protected identities share a security code')
+        if existing:
+            old = existing[0]
+            if _cn_symbol_conflicts(asset['primary_symbol'], old['primary_symbol']):
+                raise AmbiguousAssetIdentityError('protected identity has ambiguous exchange')
+            asset['asset_id'] = old['asset_id']
+            if source != 'manual':
+                asset['asset_type'] = old['asset_type']
+                asset['currency'] = old['currency'] or asset['currency']
     cur.execute(
         """
         INSERT INTO pams_asset_master (
@@ -414,70 +432,70 @@ def _upsert_asset(cur, raw: dict[str, Any], *, source: str = "system") -> str:
         )
         ON CONFLICT (asset_id) DO UPDATE SET
             canonical_name = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.canonical_name
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.canonical_name
                 ELSE COALESCE(NULLIF(EXCLUDED.canonical_name, ''), pams_asset_master.canonical_name)
             END,
             display_name = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.display_name
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.display_name
                 ELSE COALESCE(NULLIF(EXCLUDED.display_name, ''), pams_asset_master.display_name)
             END,
             primary_symbol = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.primary_symbol
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.primary_symbol
                 ELSE COALESCE(NULLIF(EXCLUDED.primary_symbol, ''), pams_asset_master.primary_symbol)
             END,
             asset_type = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.asset_type
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.asset_type
                 ELSE EXCLUDED.asset_type
             END,
             asset_subtype = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.asset_subtype
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.asset_subtype
                 ELSE COALESCE(NULLIF(EXCLUDED.asset_subtype, ''), pams_asset_master.asset_subtype)
             END,
             market = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.market
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.market
                 ELSE COALESCE(NULLIF(EXCLUDED.market, ''), pams_asset_master.market)
             END,
             listing_region = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.listing_region
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.listing_region
                 ELSE COALESCE(NULLIF(EXCLUDED.listing_region, ''), pams_asset_master.listing_region)
             END,
             economic_region = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.economic_region
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.economic_region
                 ELSE COALESCE(NULLIF(EXCLUDED.economic_region, ''), pams_asset_master.economic_region)
             END,
             currency = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.currency
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.currency
                 WHEN EXCLUDED.currency IN ('CNY', 'HKD', 'USD', 'SEK', 'KRW', 'MXN') THEN EXCLUDED.currency
                 WHEN pams_asset_master.currency IN ('CNY', 'HKD', 'USD', 'SEK', 'KRW', 'MXN') THEN pams_asset_master.currency
                 ELSE NULLIF(EXCLUDED.currency, '')
             END,
             valuation_method = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.valuation_method
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.valuation_method
                 ELSE COALESCE(NULLIF(EXCLUDED.valuation_method, ''), pams_asset_master.valuation_method)
             END,
             liquidity_profile = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.liquidity_profile
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.liquidity_profile
                 ELSE COALESCE(NULLIF(EXCLUDED.liquidity_profile, ''), pams_asset_master.liquidity_profile)
             END,
             income_type = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.income_type
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.income_type
                 ELSE COALESCE(NULLIF(EXCLUDED.income_type, ''), pams_asset_master.income_type)
             END,
             exposure_policy = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.exposure_policy
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.exposure_policy
                 ELSE COALESCE(NULLIF(EXCLUDED.exposure_policy, ''), pams_asset_master.exposure_policy)
             END,
             confidence = CASE
-                WHEN pams_asset_master.source = 'manual' THEN pams_asset_master.confidence
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') THEN pams_asset_master.confidence
                 ELSE EXCLUDED.confidence
             END,
             raw_json = CASE
-                WHEN pams_asset_master.source = 'manual' AND EXCLUDED.source <> 'manual'
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') AND EXCLUDED.source <> 'manual'
                     THEN EXCLUDED.raw_json || pams_asset_master.raw_json
                 ELSE pams_asset_master.raw_json || EXCLUDED.raw_json
             END,
             last_verified_at = CASE
-                WHEN pams_asset_master.source = 'manual' AND EXCLUDED.source IS DISTINCT FROM 'manual'
+                WHEN pams_asset_master.source IN ('manual', 'ths_import', 'broker_statement') AND EXCLUDED.source IS DISTINCT FROM 'manual'
                     THEN pams_asset_master.last_verified_at
                 ELSE NOW()
             END,

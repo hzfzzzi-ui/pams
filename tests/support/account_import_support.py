@@ -39,10 +39,13 @@ def scratch_database(*, development=False):
                 INSERT INTO pams_accounts(account_code,display_name) VALUES
                     ('tonghuashun','Test broker'),('tencent_licaitong','Test fund'),('bank_test','Test bank');
                 CREATE TABLE pams_asset_master(asset_id varchar(120) PRIMARY KEY,primary_symbol text,
-                    canonical_name text,asset_type text,currency text,status text DEFAULT 'active');
-                INSERT INTO pams_asset_master VALUES
+                    canonical_name text,asset_type text,currency text,status text DEFAULT 'active',
+                    display_name text,exchange text,market text,source text,confidence text,
+                    raw_json jsonb DEFAULT '{}'::jsonb,updated_at timestamptz DEFAULT now());
+                INSERT INTO pams_asset_master(asset_id,primary_symbol,canonical_name,asset_type,currency,status) VALUES
                     ('TEST_STOCK','000001','Test stock','stock','CNY','active'),
                     ('TEST_FUND','011613','Test fund C','fund','CNY','active');
+                UPDATE pams_asset_master SET exchange='SZSE' WHERE asset_id='TEST_STOCK';
                 CREATE TABLE pams_asset_alias(asset_id text,alias_value text,alias_type text NOT NULL DEFAULT 'alias');
             """)
             cur.execute((ROOT / "database/postgres/schema/024_cashflow_and_trade_fact.sql").read_text(encoding="utf-8"))

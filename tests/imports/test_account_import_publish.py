@@ -106,6 +106,116 @@ def native_batch(web):
     return batch, content
 
 
+def test_native_upload_initializes_missing_asset_from_source_evidence(client):
+    from tests.imports.test_account_import_ths import event, export
+    web, params = client
+    batch = web.post('/api/account-import/batches', json={
+        'account_code': 'tonghuashun', 'mode': 'upload', 'kind': 'trade', 'completeness': 'partial'}).json()
+    content = export(event(**{'证券代码': '000002', '证券名称': 'Synthetic stock', '定位串': 'synthetic-one'}))
+    response = web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=table.xls", content=content,
+                        headers={'Content-Type': 'application/vnd.ms-excel'})
+    assert response.status_code == 200, response.text
+    staged = response.json()
+    assert staged['asset_initialization']['created'] == ['000002']
+    asset = sql(params, "SELECT * FROM pams_asset_master WHERE primary_symbol='000002'")[0]
+    assert asset['source'] == 'ths_import' and asset['confidence'] == 'low'
+    assert asset['raw_json']['source_file_sha256'] == staged['files'][0]['sha256']
+    assert asset['raw_json']['pending_fields'] == ['asset_type', 'currency']
+    checked = preview(web, staged)
+    assert checked['counts']['blocked'] == 0
+    assert any('待核对默认值' in warning for warning in checked['warnings'])
+    assert not sql(params, 'SELECT * FROM pams_investment_trade_fact')
+
+
+def test_import_identity_review_requires_fresh_user_confirmation(client):
+    from tests.imports.test_account_import_ths import event, export
+    from domain.assets import import_identity_review
+    web, params = client
+    batch = web.post('/api/account-import/batches', json={
+        'account_code': 'tonghuashun', 'mode': 'upload', 'kind': 'trade', 'completeness': 'partial'}).json()
+    content = export(event(**{'证券代码': '000002', '证券名称': 'Synthetic stock', '定位串': 'synthetic-one'}))
+    assert web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=table.xls", content=content).status_code == 200
+    with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        pending = import_identity_review.pending(cur)
+        assert len(pending) == 1 and pending[0]['symbol'] == '000002'
+        with pytest.raises(ValueError):
+            import_identity_review.confirm(cur, asset_id=pending[0]['asset_id'], expected_updated_at='stale',
+                                           asset_type='ETF / 基金', currency='CNY')
+        import_identity_review.confirm(cur, asset_id=pending[0]['asset_id'], expected_updated_at=pending[0]['updated_at'],
+                                       asset_type='ETF / 基金', currency='CNY')
+        assert not import_identity_review.pending(cur)
+    row = sql(params, "SELECT * FROM pams_asset_master WHERE primary_symbol='000002'")[0]
+    assert row['asset_type'] == 'ETF / 基金'
+    assert row['raw_json']['import_identity_review']['previous_asset_type'] == 'A股个股'
+    assert row['raw_json']['source_file_sha256']
+
+
+def test_asset_review_endpoint_requires_same_origin_and_shows_pending(client, monkeypatch):
+    from endpoints import analysis
+    from tests.imports.test_account_import_ths import event, export
+    web, params = client
+    monkeypatch.setattr(analysis, 'get_conn', lambda: psycopg2.connect(**params))
+    web.app.include_router(analysis.router, prefix='/api')
+    batch = web.post('/api/account-import/batches', json={
+        'account_code': 'tonghuashun', 'mode': 'upload', 'kind': 'trade', 'completeness': 'partial'}).json()
+    content = export(event(**{'证券代码': '000002', '证券名称': 'Synthetic stock', '定位串': 'synthetic-one'}))
+    assert web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=table.xls", content=content).status_code == 200
+    review = web.get('/api/analysis/asset-import-review').json()['rows'][0]
+    payload = {'expected_updated_at': review['updated_at'], 'asset_type': 'A股个股', 'currency': 'CNY'}
+    route = '/api/analysis/asset-import-review/' + review['asset_id']
+    assert web.post(route, json=payload, headers={'Origin': 'http://other.invalid'}).status_code == 403
+    assert web.post(route, json=payload).status_code == 200
+    assert web.get('/api/analysis/asset-import-review').json()['rows'] == []
+
+
+def test_repeated_native_upload_preserves_existing_asset_and_provenance(client):
+    from tests.imports.test_account_import_ths import event, export
+    web, params = client
+    for index, name in enumerate(['Synthetic one', 'Synthetic renamed']):
+        batch = web.post('/api/account-import/batches', json={
+            'account_code': 'tonghuashun', 'mode': 'upload', 'kind': 'trade', 'completeness': 'partial'}).json()
+        content = export(event(**{'证券代码': '000002', '证券名称': name, '定位串': f'synthetic-{index}'}))
+        result = web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=table.xls", content=content)
+        assert result.status_code == 200, result.text
+        assert result.json()['asset_initialization']['created'] == (['000002'] if index == 0 else [])
+    rows = sql(params, "SELECT * FROM pams_asset_master WHERE primary_symbol='000002'")
+    assert len(rows) == 1 and rows[0]['canonical_name'] == 'Synthetic one'
+    assert rows[0]['raw_json']['source_records'][0]['name'] == 'Synthetic one'
+
+
+def test_native_source_market_conflict_does_not_match_existing_identity(client):
+    web, params = client
+    sql(params, "UPDATE pams_asset_master SET exchange='SSE' WHERE primary_symbol='000001'")
+    batch, _ = native_batch(web)
+    check = preview(web, batch)
+    assert any(issue['code'] == 'asset_market_mismatch' for issue in check['rows'][0]['issues'])
+    assert check['rows'][0]['status'] == 'blocked'
+
+
+def test_explicit_asset_sync_preserves_reviewed_import_identity(client):
+    from domain.assets import asset_master
+    _, params = client
+    schema = (Path(__file__).resolve().parents[2] / 'database/postgres/schema/023_asset_master.sql').read_text(encoding='utf-8')
+    with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute('CREATE SCHEMA synthetic_asset_review')
+        cur.execute('SET LOCAL search_path TO synthetic_asset_review, pg_catalog')
+        cur.execute(schema)
+        cur.execute("""INSERT INTO pams_asset_master(asset_id,primary_symbol,canonical_name,asset_type,currency,source,confidence,raw_json)
+                    VALUES ('A_000002','000002','Reviewed fund','ETF / 基金','CNY','manual','low',
+                            '{"import_identity_reviewed":true}'::jsonb)""")
+        assert asset_master._upsert_asset(cur, {'symbol': '000002', 'name': 'Automatic name',
+                                               'asset_type': 'ETF / 基金', 'currency': 'CNY'}, source='system') == 'A_000002'
+        asset_id = asset_master._upsert_asset(cur, {'symbol': '000002', 'name': 'Automatic name',
+                                                   'asset_type': 'A股个股', 'currency': 'CNY'}, source='system')
+        cur.execute("SELECT asset_id,canonical_name,asset_type,source,raw_json FROM pams_asset_master WHERE primary_symbol='000002'")
+        rows = cur.fetchall()
+        assert asset_id == 'A_000002' and len(rows) == 1
+        assert rows[0]['canonical_name'] == 'Reviewed fund' and rows[0]['asset_type'] == 'ETF / 基金'
+        assert rows[0]['source'] == 'manual' and rows[0]['raw_json']['import_identity_reviewed'] is True
+        cur.execute("SELECT classification_scope FROM asset_classifications WHERE asset_id='A_000002' AND classification_type='industry'")
+        assert cur.fetchone()['classification_scope'] == 'fund_lookthrough'
+
+
 def test_native_mixed_file_preview_never_writes_financial_facts(client, monkeypatch):
     web, params = client
     monkeypatch.delenv("PAMS_IMPORT_PUBLISH_ENABLED")
