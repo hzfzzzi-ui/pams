@@ -5,10 +5,15 @@ COPY tools/mobile_styles.py /tools/mobile_styles.py
 COPY public/assets/css/ /css/
 RUN python /tools/mobile_styles.py /css
 
+FROM python:3.12-slim AS versioned-assets
+COPY ./public /site
+COPY --from=phone-styles /css/style-phone.css /css/design-system-phone.css /site/assets/css/
+COPY tools/asset_versions.py /tools/asset_versions.py
+RUN python /tools/asset_versions.py /site
+
 FROM nginx:1.27-alpine
 
-COPY ./public /usr/share/nginx/html
-COPY --from=phone-styles /css/style-phone.css /css/design-system-phone.css /usr/share/nginx/html/assets/css/
+COPY --from=versioned-assets /site /usr/share/nginx/html
 
 # Simple SPA-friendly config
 RUN printf '%s\n' \
