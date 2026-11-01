@@ -172,7 +172,28 @@ def test_native_upload_initializes_missing_asset_from_source_evidence(client):
     checked = preview(web, staged)
     assert checked['counts']['blocked'] == 0
     assert any('待核对默认值' in warning for warning in checked['warnings'])
+    assert checked['rows'][0]['asset_created_first_row'] is True
     assert not sql(params, 'SELECT * FROM pams_investment_trade_fact')
+
+
+def test_created_asset_badge_requires_batch_and_original_source_evidence():
+    from domain.imports.account_import_preflight import created_asset_first_rows
+    batch = {'batch_id': 'synthetic-batch', 'account_code': 'tonghuashun', 'kind': 'trade'}
+    asset = {'asset_id': 'synthetic-asset', 'source': 'ths_import', 'raw_json': {
+        'source_batch_id': 'synthetic-batch', 'source_file_id': 'synthetic-file', 'source_file_sha256': 'synthetic-hash',
+        'source_records': [{'date': '2026-01-02', 'row': 2}, {'date': '2026-01-01', 'row': 3}]}}
+    source = {'profile': 'ths_broker_ledger_v1', 'file_id': 'synthetic-file', 'file_sha256': 'synthetic-hash'}
+    rows = [
+        {'row_id': 'later', 'status': 'ready', 'fields': {'asset_id': 'synthetic-asset', 'business_date': '2026-01-02'}, 'source': {**source, 'row': 2}},
+        {'row_id': 'earlier', 'status': 'ready', 'fields': {'asset_id': 'synthetic-asset', 'business_date': '2026-01-01'}, 'source': {**source, 'row': 3}},
+        {'row_id': 'different-file', 'status': 'ready', 'fields': {'asset_id': 'synthetic-asset', 'business_date': '2026-01-01'}, 'source': {**source, 'file_id': 'other', 'row': 3}},
+    ]
+    assert created_asset_first_rows(batch, rows, [asset]) == {'earlier'}
+    assert created_asset_first_rows({**batch, 'batch_id': 'other'}, rows, [asset]) == set()
+    assert created_asset_first_rows(batch, rows, [{**asset, 'source': 'other'}]) == set()
+    assert created_asset_first_rows(batch, rows, [{**asset, 'raw_json': {**asset['raw_json'], 'source_file_sha256': None}}]) == set()
+    rows[1]['status'] = 'excluded'
+    assert created_asset_first_rows(batch, rows, [asset]) == {'later'}
 
 
 def test_import_identity_review_requires_fresh_user_confirmation(client):
