@@ -59,8 +59,18 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-evidence img { display: block; width: 100%; height: auto; margin-block: 10px; border: 1px solid var(--pams-line-subtle); }
 .page-account-import .import-evidence a { display: block; min-height: 44px; padding-block: 10px; color: var(--pams-action); overflow-wrap: anywhere; }
 .page-account-import pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; color: var(--pams-text-secondary); }
-.page-account-import .import-counts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-block: 20px; }
-.page-account-import .import-counts div { display: flex; justify-content: space-between; gap: 8px; }
+.page-account-import .import-counts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-block: 20px; }
+.page-account-import .import-counts div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px; border: 1px solid #303b42; border-radius: 10px; background: #10191d; }
+.page-account-import .import-counts dt { color: var(--pams-text-secondary); }
+.page-account-import .import-counts dd { font-size: 18px; font-weight: 650; color: var(--pams-text-primary); }
+.page-account-import .import-counts [data-count="new"][data-active="true"] dd { color: #80d5c4; }
+.page-account-import .import-counts [data-count="blocked"][data-active="true"] dd { color: var(--pams-loss); }
+.page-account-import .import-counts [data-count="pending"][data-active="true"] dd { color: var(--pams-warning); }
+.page-account-import #review .import-status { display: inline-block; margin: 5px 0 8px; padding: 2px 8px; border-radius: 4px; background: #202428; color: var(--pams-text-secondary); font-size: 12px; line-height: 1.6; }
+.page-account-import #review [data-status="ready"] .import-status { background: #13322d; color: #80d5c4; }
+.page-account-import #review [data-status="pending"] .import-status { background: #382a14; color: #ffca75; }
+.page-account-import #review [data-status="blocked"] .import-status { background: #401e23; color: #ff8d8d; }
+.page-account-import #issue-groups .import-warning { padding: 10px 12px; border-left: 2px solid var(--pams-warning); background: #261f13; color: #ffcf85; }
 .page-account-import :is(dt,dd) { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
 .page-account-import dd { font-family: var(--pams-font-number); }
 .page-account-import .import-values { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; margin-block: 10px; }
