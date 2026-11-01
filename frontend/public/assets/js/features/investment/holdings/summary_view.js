@@ -285,6 +285,9 @@ function topMoverGroup(title, rows, emptyText, options = {}) {
 }
 
 function TopContributionPanel(model) {
+  if (model?.unavailable) return `
+    <div class="returnInsightHead"><div><h3>Top 贡献</h3><span>区间数据尚不完整</span></div></div>
+    <div class="returnInsightEmpty">暂无法计算贡献，请先补齐历史行情和账户范围。</div>`;
   const winners = model?.winners || [];
   const losers = model?.losers || [];
   const daily = model?.daily || [];

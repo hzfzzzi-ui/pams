@@ -69,6 +69,15 @@ def test_section_returns_unknown_if_required_trade_cost_is_missing(monkeypatch):
     assert result['summary']['total_return'] is None and result['rows'][0]['net_flow'] is None
 
 
+def test_missing_historical_price_reason_survives_terminal_anchor():
+    from domain.investments.valuation_nav import ValuationEvidenceSeries, scale_series_to_terminal_anchor
+    day = date(2026, 1, 1)
+    values = ValuationEvidenceSeries({day: Decimal('100')}, unknown_dates={day}, missing_price_dates={day})
+    result = scale_series_to_terminal_anchor(values, terminal_date=day, target_value=Decimal('200'))
+    assert result.missing_price_dates == {day} and result.unknown_dates == {day}
+    assert result[day] == Decimal('100')
+
+
 def test_published_valuation_does_not_turn_unknown_holding_pnl_into_zero():
     from domain.investments.portfolio_valuation_state import build_portfolio_valuation_state_from_parts
     day = date(2026, 1, 1)

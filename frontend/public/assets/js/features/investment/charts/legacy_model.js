@@ -50,7 +50,8 @@ function filterReturnWindowRows(rows, windowKey) {
 }
 
 function returnRateForChart(row) {
-  return safeNum(row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate);
+  const value = row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate;
+  return value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
 }
 
 function rebaseReturnRate(rate, baseRate) {
@@ -97,6 +98,7 @@ function buildReturnEvents(rows) {
   for (let index = 1; index < (rows || []).length; index += 1) {
     const row = rows[index];
     const prev = rows[index - 1];
+    if (row.daily_return_rate == null || row.total_pnl == null || prev.total_pnl == null) continue;
     const dailyRate = safeNum(row.daily_return_rate);
     const pnlDelta = returnEventAdjustedAmount(row, prev);
     const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl);
@@ -142,8 +144,11 @@ function pointRadiusForReturnSeries(pointCount, isMobile) {
 function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile, events = []) {
   const windowRows = filterReturnWindowRows(rows, windowKey);
   const labels = windowRows.map(row => row.date);
-  const totalBaseRate = windowRows.length ? returnRateForChart(windowRows[0]) : 0;
-  const totalData = windowRows.map(row => rebaseReturnRate(returnRateForChart(row), totalBaseRate) * 100);
+  const totalBaseRate = windowRows.map(returnRateForChart).find(value => value !== null) ?? null;
+  const totalData = windowRows.map(row => {
+    const rate = returnRateForChart(row);
+    return rate === null || totalBaseRate === null ? null : rebaseReturnRate(rate, totalBaseRate) * 100;
+  });
   const labelSet = new Set(labels);
   const visibleEvents = (events || [])
     .filter(event => labelSet.has(event.date))
@@ -158,7 +163,7 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
     const sectionData = labels.map(date => {
       if (!rateByDate.has(date)) return null;
       const rate = rateByDate.get(date);
-      if (!Number.isFinite(Number(rate))) return null;
+      if (rate === null || !Number.isFinite(rate)) return null;
       if (sectionBaseRate == null) sectionBaseRate = rate;
       return rebaseReturnRate(rate, sectionBaseRate) * 100;
     });
@@ -186,8 +191,9 @@ function normalizeInvestmentNavRows(rows) {
   return (rows || [])
     .map(row => {
       const date = row.date || row.asOfDate || row.snapshot_date;
-      const marketValue = safeNum(row.netWorth ?? row.net_worth ?? row.market_value);
-      if (!date || !Number.isFinite(marketValue)) return null;
+      const rawValue = row.netWorth ?? row.net_worth ?? row.market_value;
+      const marketValue = rawValue == null || rawValue === '' ? null : Number(rawValue);
+      if (!date || (marketValue !== null && !Number.isFinite(marketValue))) return null;
       return {
         ...row,
         date,
@@ -202,6 +208,10 @@ function normalizeInvestmentNavRows(rows) {
 
 function buildInvestmentNavChartData(windowRows, isMobile) {
   const rows = windowRows || [];
+  if (rows.some(row => row.market_value == null)) {
+    return { labels: [], values: [], first: null, latest: null, change: null,
+      changeRate: null, maxDrawdown: null, pointRadius: 0 };
+  }
   const labels = rows.map(row => row.date);
   const values = rows.map(row => safeNum(row.market_value));
   const first = values.length ? values[0] : 0;
@@ -228,8 +238,8 @@ function buildInvestmentNavChartData(windowRows, isMobile) {
 
 function sectionReturnAmount(row) {
   if (!row) return 0;
-  if (Number.isFinite(Number(row.total_pnl))) return safeNum(row.total_pnl);
-  if (Number.isFinite(Number(row.position_pnl))) return safeNum(row.position_pnl);
+  if (row.total_pnl != null && Number.isFinite(Number(row.total_pnl))) return safeNum(row.total_pnl);
+  if (row.position_pnl != null && Number.isFinite(Number(row.position_pnl))) return safeNum(row.position_pnl);
   return safeNum(row.market_value) - safeNum(row.cumulative_capital);
 }
 
@@ -249,6 +259,10 @@ function sectionPeriodReturnRate(rows, pnl) {
 
 function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey, totalRows) {
   const totalWindowRows = filterReturnWindowRows(totalRows, windowKey);
+  if (totalWindowRows.length < 2 || totalWindowRows.some(row => row.total_pnl == null || row.market_value == null)) {
+    return { mode: 'period', windowKey, windowLabel: returnWindowLabel(windowKey), unavailable: true,
+      totalPnl: null, winners: [], losers: [], unattributed: null };
+  }
   const startDate = totalWindowRows[0]?.date || null;
   const endDate = totalWindowRows[totalWindowRows.length - 1]?.date || null;
   const seriesTotalPnl = totalWindowRows.length >= 2
@@ -261,6 +275,8 @@ function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey
       const date = String(row.date || '');
       return (!startDate || date >= startDate) && (!endDate || date <= endDate);
     });
+    if (periodRows.length < 2 || periodRows.some(row => row.total_pnl == null && row.position_pnl == null
+      && (row.market_value == null || row.cumulative_capital == null))) return null;
     const pnl = sectionPeriodPnl(periodRows);
     const latestValue = safeNum(periodRows[periodRows.length - 1]?.market_value);
     return {
@@ -272,7 +288,7 @@ function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey
       returnPct: sectionPeriodReturnRate(periodRows, pnl),
       weight: latestTotalValue > 0 ? latestValue / latestTotalValue : 0,
     };
-  }).filter(item => Math.abs(item.pnl) > 0.005 || Math.abs(item.weight) > 0.0001);
+  }).filter(item => item && (Math.abs(item.pnl) > 0.005 || Math.abs(item.weight) > 0.0001));
   const sectionPnl = rows.reduce((sum, item) => sum + safeNum(item.pnl), 0);
   const residualPnl = safeNum(totalPnl) - sectionPnl;
   const residualThreshold = Math.max(1, Math.abs(safeNum(totalPnl)) * 0.002);

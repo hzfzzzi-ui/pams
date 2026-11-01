@@ -23,10 +23,11 @@ INVESTMENT_SNAPSHOT_EXCLUDE = {"tonghuashun", "ibkr", *STABLE_ANCHOR_ACCOUNTS}
 
 class ValuationEvidenceSeries(dict):
     """Values plus dates where an input is missing; consumers must honor the latter."""
-    def __init__(self, values=(), *, unknown_dates=(), estimated_dates=()):
+    def __init__(self, values=(), *, unknown_dates=(), estimated_dates=(), missing_price_dates=()):
         super().__init__(values)
         self.unknown_dates = set(unknown_dates)
         self.estimated_dates = set(estimated_dates)
+        self.missing_price_dates = set(missing_price_dates)
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
 
 
@@ -197,7 +198,8 @@ def scale_series_to_terminal_anchor(
 ) -> ValuationEvidenceSeries:
     """Scale a reconstructed curve so the terminal value matches a confirmed account anchor."""
     adjusted = ValuationEvidenceSeries(series, unknown_dates=getattr(series, "unknown_dates", ()),
-                                       estimated_dates=getattr(series, "estimated_dates", ()))
+                                       estimated_dates=getattr(series, "estimated_dates", ()),
+                                       missing_price_dates=getattr(series, "missing_price_dates", ()))
     if target_value is None:
         return adjusted
     terminal_value = series.get(terminal_date, Decimal("0"))
@@ -208,7 +210,8 @@ def scale_series_to_terminal_anchor(
         return adjusted
     scale = target_value / terminal_value
     return ValuationEvidenceSeries(((date, value * scale) for date, value in adjusted.items()),
-                                   unknown_dates=adjusted.unknown_dates, estimated_dates=adjusted.estimated_dates)
+                                   unknown_dates=adjusted.unknown_dates, estimated_dates=adjusted.estimated_dates,
+                                   missing_price_dates=adjusted.missing_price_dates)
 
 
 def add_nav_amount(bucket: dict[str, Decimal], amount_cny: Decimal) -> None:
@@ -828,6 +831,8 @@ def _tonghuashun_series_from_trade_fact(
     exists = cur.fetchone()
     if not exists or not exists["fact_exists"] or not exists["px_exists"]:
         values.unknown_dates.update(dates)
+        if exists and not exists["px_exists"]:
+            values.missing_price_dates.update(dates)
         return values
 
     if exists.get("item_exists") and exists.get("batch_exists"):
@@ -1010,6 +1015,8 @@ def _tonghuashun_series_from_trade_fact(
         values[row["date"]] = _dec(row["gross_value_cny"]) * owner_ratio
         if row.get("has_unknown_tax") or row.get("missing_price"):
             values.unknown_dates.add(row["date"])
+        if row.get("missing_price"):
+            values.missing_price_dates.add(row["date"])
         if row.get("estimated_price"):
             values.estimated_dates.add(row["date"])
     return values

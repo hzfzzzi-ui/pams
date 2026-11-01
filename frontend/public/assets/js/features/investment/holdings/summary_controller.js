@@ -4,7 +4,7 @@ import {
 } from './summary_legacy_model.js?v=20261102-incomplete-scope-v1';
 import {
   createSummaryView
-} from './summary_view.js?v=20261102-incomplete-scope-v1';
+} from './summary_view.js?v=20261102-analysis-unknown-v1';
 import {
   applyLegacySummaryPayload
 } from './legacy_summary_projection.js?v=20261102-incomplete-scope-v1';
@@ -23,7 +23,7 @@ import {
 import {
   CATEGORY_SECTION_IDS, CATEGORY_RETURN_CHART_SPECS, INVESTMENT_PHONE_QUERY
 } from './constants.js?v=20261031-modules-v1';
-import { createInvestmentChartController } from '../charts/controller.js?v=20261031-modules-v1';
+import { createInvestmentChartController } from '../charts/controller.js?v=20261102-analysis-unknown-v1';
 import { replaceContentAddress } from '../../../app/routes.js?v=20261031-modules-v1';
 
 const mounted = new WeakMap();

@@ -9,3 +9,11 @@ def test_investment_chart_controller_lifecycle():
         cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_missing_returns_and_nav_never_render_as_zero():
+    result = subprocess.run(
+        ["node", "--experimental-vm-modules", "tests/frontend/investment_charts_missing.mjs"],
+        cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

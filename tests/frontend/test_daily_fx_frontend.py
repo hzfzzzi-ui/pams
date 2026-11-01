@@ -341,6 +341,5 @@ def test_sidecar_has_no_financial_formulas_or_global_amount_writes():
     assert "dailyFxAccountBridgeHtml(" not in source.split("function renderReturnAttributionSummary()", 1)[1].split("function returnAttributionRowHtml", 1)[0]
     html = (ROOT / "frontend/public/investments.html").read_text(encoding="utf-8")
     for name in ("holdings.js", "holdings_categories.js", "lookthrough.js"):
-        version = {"holdings.js": "20261102-verified-trade-snapshot-v1", "holdings_categories.js": "20261102-incomplete-scope-v1"}.get(name, "20261031-modules-v1")
+        version = {"holdings.js": "20261102-verified-trade-snapshot-v1", "holdings_categories.js": "20261102-analysis-unknown-v1"}.get(name, "20261031-modules-v1")
         assert f'assets/js/{name}?v={version}' in html
-
