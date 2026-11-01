@@ -81,4 +81,3 @@ def test_runtime_http_staging_preview_and_publication(monkeypatch):
             check = preview(client, batch)
             assert check['can_publish']
             assert publish(client, batch, check).status_code == 200
-

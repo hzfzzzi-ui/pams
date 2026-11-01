@@ -124,4 +124,3 @@ def require_external_access():
     """Fail closed before contacting live brokers or market providers in development."""
     if source_mode() == "development":
         raise IsolationError("External synchronization is disabled in development mode")
-

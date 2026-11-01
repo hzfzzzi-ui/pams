@@ -310,4 +310,3 @@ def publish(cur, batch_id, revision, preview_token):
     result['records'] = result.pop('details')
     result['batch'] = batch(cur, batch_id)
     return result
-

@@ -63,4 +63,3 @@
 | .github/workflows/quality.yml | 测试、静态检查和候选镜像验证 |
 
 仓库不使用 VERSION 文件判断发布版本。开发进度与 CI 查询 GitHub，部署记录查询对应功能 PR 评论；实际镜像、配置和能力必须重新观察。
-

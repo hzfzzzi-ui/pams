@@ -237,4 +237,3 @@ def review_image(batch_id: UUID, file_id: UUID, body: Revision, request: Request
 def publish(batch_id: UUID, body: Publish, request: Request):
     return execute(request, lambda cur: source_http.publish(cur, batch_id, body.revision, body.preview_token),
                    write=True, serializable=True)
-
