@@ -25,6 +25,7 @@ def test_buy_uses_net_cash_including_fee_and_full_exit_resets_basis():
     row = calculate_diluted_positions(rows)[0]
     assert row['diluted_cost'] == Decimal('1105')
     assert row['trade_ids'] == [3]
+    assert row['all_event_ids'] == [1, 2, 3]
 
 
 def test_negative_diluted_cost_is_not_silently_clamped():

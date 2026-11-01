@@ -100,5 +100,7 @@ def calculate_diluted_positions(rows, *, closed_adjustments=None):
                            'remaining_cost_price': remaining_cost / quantity,
                            'realized_trade_pnl': realized,
                            'net_distributions': distributions,
-                           'trade_ids': current_ids, 'latest_trade_date': trades[-1]['trade_date']})
+                           'trade_ids': current_ids,
+                           'all_event_ids': [row['trade_id'] for row in trades],
+                           'latest_trade_date': trades[-1]['trade_date']})
     return result
