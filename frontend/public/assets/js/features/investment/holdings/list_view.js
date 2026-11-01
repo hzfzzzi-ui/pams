@@ -7,7 +7,7 @@ import {
   dilutedAveragePriceText, holdingGroupLabel, holdingGroupRank, shortHoldingName,
   holdingPriceText, holdingQuantityText, holdingAveragePriceText, holdingPriceChangePct,
   signedPercentText, aggregateMobileHoldingRows
-} from './list_legacy_model.js?v=20261031-modules-v1';
+} from './list_legacy_model.js?v=20261102-verified-trade-snapshot-v1';
 import { typeLabel, accountLabel } from '../../../api.js?v=20261031-modules-v1';
 
 export function createListView({ document, host: window, showDetails: openBottomSheet, scope }) {
@@ -35,6 +35,21 @@ function holdingDailyStatusBadge(row, options = {}) {
 
 function closedBadge(r) {
   return r.is_closed ? '<span class="pill" style="margin-left:8px;padding:2px 6px">已平仓</span>' : '';
+}
+
+function cumulativeFormula(row, floatPnl, realized, total) {
+  const hasDistributions = row.net_distributions_cny != null || row.net_distributions != null;
+  const income = hasDistributions ? ` + 分红税后 ${formatSignedCurrency(cnyValue(row, 'net_distributions'))}` : '';
+  return `浮盈 ${formatSignedCurrency(floatPnl)} + 已实现 ${formatSignedCurrency(realized)}${income} = ${formatSignedCurrency(total)}`;
+}
+
+function dilutedCostLabel(row) {
+  return row.diluted_cost_source === 'verified_trade_snapshot' ? '同花顺摊薄成本（流水计算）' : '摊薄成本（估算）';
+}
+
+function snapshotQuoteDate(row) {
+  return row.diluted_cost_source === 'verified_trade_snapshot' && row.snapshot_as_of
+    ? String(row.snapshot_as_of).slice(0, 10) : '';
 }
 
 function renderRows(rows, options = {}){
@@ -106,10 +121,11 @@ function renderRows(rows, options = {}){
           <div><strong>收益状态</strong><span>${dailyPending ? '待更新' : holdingDailyStatusBadge(r) || '<span class="muted">—</span>'}</span></div>
           <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(r))}</span></div>
           <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(r))}</span></div>
-          <div><strong>摊薄成本</strong><span class="mono">${esc(dilutedAveragePriceText(r))}</span></div>
+          <div><strong>${dilutedCostLabel(r)}</strong><span class="mono">${esc(dilutedAveragePriceText(r))}</span></div>
           <div><strong>现价</strong><span class="mono">${esc(holdingPriceText(r))}</span></div>
           <div><strong>数据</strong><span>${dataBadge(r)}</span></div>
-          <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${formatSignedCurrency(floatPnl)} + ${formatSignedCurrency(realizedPnl(r))} = ${formatSignedCurrency(totalPnl)}</span></div>
+          ${snapshotQuoteDate(r) ? `<div><strong>行情日期</strong><span>${esc(snapshotQuoteDate(r))}</span></div>` : ''}
+          <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(r, floatPnl, realizedPnl(r), totalPnl)}</span></div>
         </div>
       </td>
     `;
@@ -192,6 +208,7 @@ function renderMobileHoldingRows(rows, options = {}) {
           ${holdingDailyStatusBadge(r)}
           <span class="mobileHoldingQuote">${quoteLine}</span>
           ${holdingSyncTime(r)}
+          ${snapshotQuoteDate(r) ? `<span class="mobileHoldingSync">行情 ${esc(snapshotQuoteDate(r))}</span>` : ''}
         </span>
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
@@ -256,11 +273,12 @@ function renderMobileHoldingRows(rows, options = {}) {
           ${detailFxDaily ? `<div><strong>证券汇兑估算</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${esc(detailFxDaily.replace(/^证券汇兑\s*/, ''))}</span></div>` : ''}
           <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(row))}</span></div>
           <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(row))}</span></div>
-          <div><strong>摊薄成本</strong><span class="mono">${esc(dilutedAveragePriceText(row))}</span></div>
+          <div><strong>${dilutedCostLabel(row)}</strong><span class="mono">${esc(dilutedAveragePriceText(row))}</span></div>
           <div><strong>现价</strong><span class="mono">${esc(holdingPriceText(row))}</span></div>
           <div><strong>涨跌幅</strong><span class="mono ${dailyPending ? '' : Number(changePct) >= 0 ? 'up' : 'down'}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : signedPercentText(changePct)}</span></div>
           <div><strong>数据</strong><span>${dataBadge(row)}</span></div>
-          <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${formatSignedCurrency(floatPnl)} + ${formatSignedCurrency(realized)} = ${formatSignedCurrency(totalPnl)}</span></div>
+          ${snapshotQuoteDate(row) ? `<div><strong>行情日期</strong><span>${esc(snapshotQuoteDate(row))}</span></div>` : ''}
+          <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(row, floatPnl, realized, totalPnl)}</span></div>
           ${accountBreakdown}
         </div>
       `;

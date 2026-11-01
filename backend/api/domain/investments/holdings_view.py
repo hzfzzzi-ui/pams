@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 from domain.market.quote_valuation import quote_price_as_of, quote_valuation_cte
+from domain.investments.trade_snapshot_display import enrich_trade_snapshot_costs
 from domain.market.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session
 from domain.investments.snapshot_coverage import annotate_snapshot_coverage
 
@@ -1101,6 +1102,7 @@ def build_holdings_by_category_payload(
     )
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
     current_rows = _enrich_realized_trade_pnl(cur, current_rows)
+    current_rows = enrich_trade_snapshot_costs(cur, current_rows)
     current_keys = {_holding_key(row) for row in current_rows}
     rows = [
         _apply_owner_ratio(
@@ -1744,6 +1746,7 @@ def build_holdings_latest_payload(
     )
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
     current_rows = _enrich_realized_trade_pnl(cur, current_rows)
+    current_rows = enrich_trade_snapshot_costs(cur, current_rows)
     current_keys = {_holding_key(r) for r in current_rows}
     rows = [
         _apply_owner_ratio(

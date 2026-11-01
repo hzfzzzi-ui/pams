@@ -168,6 +168,10 @@ export function realizedPnlNote(row) {
 export function dilutedAveragePrice(row) {
   const quantity = Number(row.quantity);
   if (!Number.isFinite(quantity) || Math.abs(quantity) <= 0) return null;
+  if (row.diluted_cost_source === 'verified_trade_snapshot' && row.diluted_cost != null) {
+    const value = Number(row.diluted_cost);
+    return Number.isFinite(value) ? value / quantity : null;
+  }
   const cost = grossCnyValue(row, 'cost');
   const realized = grossCnyValue(row, 'realized_trade_pnl');
   if (cost > 0 && Math.abs(realized) >= 0.005) return (cost - realized) / quantity;

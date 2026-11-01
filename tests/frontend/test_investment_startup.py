@@ -46,7 +46,7 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
 def test_investment_entries_share_one_startup_and_ui_module_version():
     html = (PUBLIC / "investments.html").read_text(encoding="utf-8")
     for name in ("holdings", "holdings_categories", "lookthrough", "transactions", "portfolio_risk", "portfolio_config"):
-        version = "20261031-modules-v1"
+        version = "20261102-verified-trade-snapshot-v1" if name == "holdings" else "20261031-modules-v1"
         assert f"assets/js/{name}.js?v={version}" in html
         text = (PUBLIC / "assets/js" / f"{name}.js").read_text(encoding="utf-8")
         if name == "lookthrough":

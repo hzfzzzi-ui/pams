@@ -805,7 +805,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "tradePrice" not in html + tx_js
     assert "tradeNotes" not in html + tx_js
 
-    assert "assets/js/holdings.js?v=20261031-modules-v1" in html
+    assert "assets/js/holdings.js?v=20261102-verified-trade-snapshot-v1" in html
     assert "holdingDailyStatusBadge" in holding_rows_js
     assert "今日收益已确认" in holding_rows_js
     assert "预估收益" in holding_rows_js
@@ -1699,7 +1699,7 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? '' : dailyPnl" in hero
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
-    assert "holdings.js?v=20261031-modules-v1" in html
+    assert "holdings.js?v=20261102-verified-trade-snapshot-v1" in html
     assert "holdings_categories.js?v=20261031-modules-v1" in html
 
 

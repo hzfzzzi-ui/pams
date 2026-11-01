@@ -52,6 +52,8 @@ def _apply_owner_ratio(
         "daily_price_pnl",
         "realized_trade_pnl",
         "daily_realized_trade_pnl",
+        "diluted_cost",
+        "net_distributions",
     ):
         cny_key = f"{key}_cny"
         if cny_key in out:
