@@ -28,4 +28,3 @@ def test_same_day_opposite_directions_without_order_is_unknown():
     assert _trade_order_ambiguous(rows)
     rows[0]['trade_time'] = rows[1]['trade_time'] = '2026-06-29T09:30:00'
     assert _trade_order_ambiguous(rows)
-
