@@ -64,6 +64,17 @@ def test_icbc_pdf_row_handles_watermark_and_currency_filter():
                                  profile={**profile, 'currency_filter': 'USD'}) is None
 
 
+def test_icbc_pdf_row_preserves_foreign_currency():
+    fields = ['2025-01-10\n08:00:00', '00000001', '活期', '00000', '1\n美3元', '汇',
+              '示例', '0000', '+15.00', 'E\n2\n2\nA15.00', 'SYNTHETIC', '0000', '柜面']
+    profile = {'profile_code': 'test', 'account_code': 'test', 'currency_filter': 'USD'}
+    row = _parse_icbc_debit_row(fields, page_idx=0, row_idx=1, path=Path('synthetic.pdf'), profile=profile)
+    assert row is not None
+    assert row['amount'] == Decimal('15.00')
+    assert row['balance'] == Decimal('15.00')
+    assert row['currency'] == 'USD'
+
+
 def test_guangfa_credit_row_preserves_both_currencies():
     row = _parse_guangfa_credit_transaction_line(
         '2025/01/10 2025/01/11 (还款)银联跨行购汇还_示例银行 -70.00 人民币 -10.00 美元'
@@ -73,6 +84,17 @@ def test_guangfa_credit_row_preserves_both_currencies():
     assert row['original_amount'] == Decimal('-70.00')
     assert row['original_currency'] == 'CNY'
     assert row['settlement_amount'] == Decimal('-10.00')
+    assert row['settlement_currency'] == 'USD'
+
+
+def test_guangfa_credit_compact_foreign_currency():
+    row = _parse_guangfa_credit_transaction_line(
+        '2025/01/10 2025/01/11 (消费)SYNTHETIC MERCHANT 70.00墨西哥比索 4.00 美元'
+    )
+    assert row is not None
+    assert row['original_amount'] == Decimal('70.00')
+    assert row['original_currency'] == 'MXN'
+    assert row['settlement_amount'] == Decimal('4.00')
     assert row['settlement_currency'] == 'USD'
 
 
