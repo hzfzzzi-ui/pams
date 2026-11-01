@@ -6,7 +6,8 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from domain.assets.asset_master import AmbiguousAssetIdentityError, AssetMasterSchemaUnavailable
 from domain.assets.lookthrough_state import build_lookthrough_payload
@@ -15,6 +16,32 @@ from domain.investments.return_attribution import build_return_attribution_paylo
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+class ImportIdentityConfirmation(BaseModel):
+    expected_updated_at: str = Field(max_length=80)
+    asset_type: str = Field(max_length=80)
+    currency: str = Field(max_length=16)
+
+
+@router.get('/asset-import-review')
+def pending_import_identities():
+    from domain.assets import import_identity_review
+    with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        return {'rows': import_identity_review.pending(cur)}
+
+
+@router.post('/asset-import-review/{asset_id}')
+def confirm_import_identity(asset_id: str, body: ImportIdentityConfirmation, request: Request):
+    from domain.assets import import_identity_review
+    from domain.imports.account_import_access import same_origin
+    same_origin(request)
+    try:
+        with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            import_identity_review.confirm(cur, asset_id=asset_id, **body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {'status': 'confirmed'}
 
 
 @router.get("/lookthrough")

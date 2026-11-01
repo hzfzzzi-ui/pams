@@ -226,7 +226,14 @@ def upload(cur, batch_id, filename, content, content_type):
     attach_file(cur, file_id=key, batch_id=UUID(str(batch_id)), filename=filename,
                 file_format='jpeg' if suffix == 'jpg' else suffix, content_type=safe, content=content)
     _append_parsed(cur, batch_id, key, digest, parsed)
-    return batch(cur, batch_id)
+    initialized = None
+    if result['account_code'] == 'tonghuashun' and result['kind'] == 'trade':
+        from domain.imports.ths_asset_candidates import initialize
+        initialized = initialize(cur, parsed, batch_id=batch_id, file_id=key, file_sha256=digest)
+    updated = batch(cur, batch_id)
+    if initialized is not None:
+        updated['asset_initialization'] = initialized
+    return updated
 
 
 def reparse(cur, batch_id, file_id, mapping, kind=None):
