@@ -1,8 +1,4 @@
-"""Isolated transaction candidate for trade-derived holding snapshots.
-
-Not available in runtime mode. A production path requires explicit coverage,
-quote acquisition, replay handling and release review before enabling it.
-"""
+"""Publish verified trade-derived snapshots under the import runtime gate."""
 from __future__ import annotations
 
 from datetime import date
@@ -11,7 +7,8 @@ from uuid import uuid4
 
 from psycopg2.extras import Json
 
-from domain.imports.isolation import source_mode
+from domain.imports.isolation import source_mode, runtime_import_active
+from domain.imports.native_source import enabled as publication_enabled
 from domain.investments.diluted_trade_positions import calculate_diluted_positions
 from domain.investments.holding_evidence_writer import lock_holding_accounts, prepare_holding_change, finish_holding_change
 from domain.investments.trade_snapshot_preview import build_trade_snapshot_candidates
@@ -51,10 +48,11 @@ def preview(cur, *, account_code, as_of, quote_ids, for_write=False):
     return {'candidates': candidates, 'closed_adjustments': closed, 'digest': digest}
 
 
-def publish_isolated(cur, *, account_code, as_of, quote_ids, expected_digest, confirmed_scope=False):
-    """Prototype only: atomic writes in explicitly marked disposable test DBs."""
-    if source_mode() != 'test' or cur.connection.autocommit:
-        raise ValueError('snapshot writer is restricted to isolated testing')
+def publish_isolated(cur, *, account_code, as_of, quote_ids, expected_digest, confirmed_scope=False, allow_runtime=False):
+    """Publish atomically under isolation or explicitly enabled import runtime."""
+    permitted = source_mode() == 'test' or (allow_runtime and runtime_import_active() and publication_enabled())
+    if not permitted or cur.connection.autocommit:
+        raise ValueError('snapshot writer requires isolated testing or enabled import runtime')
     if confirmed_scope is not True:
         raise ValueError('securities coverage confirmation required')
     lock_holding_accounts(cur, [account_code])
@@ -100,7 +98,11 @@ def publish_isolated(cur, *, account_code, as_of, quote_ids, expected_digest, co
         refs.append({'kind': 'quote', 'key': {'quote_id': quote_ids[row['symbol']]}, 'role': 'valuation_quote'})
         version = finish_holding_change(cur, holding_id=holding_id, source_item_id=None, input_refs=refs)
         _, current = _bound_input(cur, 'holding', {'id': holding_id})
-        records.append({'id': holding_id, 'version': version, 'holding_hash': _hash(current)})
+        records.append({'id': holding_id, 'version': version, 'holding_hash': _hash(current),
+                        'symbol': row['symbol'], 'diluted_cost': str(row['diluted_cost']),
+                        'realized_trade_pnl': str(row['realized_trade_pnl']),
+                        'net_distributions': str(row['net_distributions']),
+                        'all_event_ids': row['all_event_ids']})
         ids.append(holding_id)
     cur.execute('''INSERT INTO source_batches
         (batch_id,account_code,business_type,workflow,institution,acquisition_method,date_to,

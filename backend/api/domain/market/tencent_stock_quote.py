@@ -52,3 +52,21 @@ def fetch_tencent_stock_quotes(symbols: list[str]) -> dict[str, dict]:
     with urllib.request.urlopen(request, timeout=15) as response:
         observations = parse_tencent_stock_quotes(response.read().decode('gbk', errors='replace'))
     return {symbol: row for symbol, row in observations.items() if symbol in requested}
+
+
+def completed_session_prices(observations: dict[str, dict], *, now: datetime) -> dict[str, Decimal]:
+    """Only report a daily close when its observed time is after session close."""
+    if now.utcoffset() is None:
+        raise ValueError('aware current time required')
+    import exchange_calendars as xcals
+    day = now.astimezone(ZoneInfo('Asia/Shanghai')).date()
+    try:
+        calendar = xcals.get_calendar('XSHG')
+        if not calendar.is_session(day.isoformat()):
+            return {}
+        close = calendar.session_close(day.isoformat()).to_pydatetime()
+    except (ValueError, OverflowError):
+        return {}
+    return {symbol: row['price'] for symbol, row in observations.items()
+            if row.get('price_date') == day and isinstance(row.get('price_time'), datetime)
+            and row['price_time'].utcoffset() is not None and close <= row['price_time'] <= now}

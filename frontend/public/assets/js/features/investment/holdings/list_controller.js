@@ -1,10 +1,10 @@
 import {
   esc, holdingGroupLabel, holdingGroupRank, buildAccountCashRows,
   isInvestmentRow
-} from './list_legacy_model.js?v=20261031-modules-v1';
+} from './list_legacy_model.js?v=20261102-verified-trade-snapshot-v1';
 import {
   createListView
-} from './list_view.js?v=20261031-modules-v1';
+} from './list_view.js?v=20261102-verified-trade-snapshot-v1';
 import {
   readListInputs
 } from './requests.js?v=20261031-modules-v1';

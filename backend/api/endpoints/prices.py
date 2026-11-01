@@ -683,6 +683,7 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
             row.get("quantity"),
             row.get("buy_price"),
             current_price,
+            row.get("asset_id"),
         ))
         origins.append(row)
 
@@ -694,7 +695,7 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
             lock_holding_accounts(cur, [row[4] for row in payload])
             isolated = source_enabled(cur)
             if isolated:
-                keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price')
+                keys = ('account_code','name','symbol','currency','as_of','quantity','cost','buy_price','market_value','current_price','asset_id')
                 for original, target in zip(origins, payload):
                     if not original.get('id'):
                         raise ValueError('price source holding identity missing')
@@ -716,9 +717,9 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
                 INSERT INTO pams_holdings_snapshot (
                     symbol, name, asset_liability, currency, account_code,
                     major_category, minor_category, market_value, cost, as_of,
-                    quantity, buy_price, current_price
+                    quantity, buy_price, current_price, asset_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (account_code, name, as_of)
                 DO UPDATE SET
                     symbol = EXCLUDED.symbol,
@@ -731,16 +732,17 @@ def _upsert_price_snapshots(rows: List[dict], prices: Dict[str, float], as_of) -
                     quantity = EXCLUDED.quantity,
                     buy_price = EXCLUDED.buy_price,
                     current_price = EXCLUDED.current_price,
+                    asset_id = COALESCE(pams_holdings_snapshot.asset_id, EXCLUDED.asset_id),
                     updated_at = now()
             """
             if isolated:
                 statement += """ WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
                     pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
                     pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost,pams_holdings_snapshot.quantity,
-                    pams_holdings_snapshot.buy_price,pams_holdings_snapshot.current_price)
+                    pams_holdings_snapshot.buy_price,pams_holdings_snapshot.current_price,pams_holdings_snapshot.asset_id)
                     IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
                     EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost,EXCLUDED.quantity,
-                    EXCLUDED.buy_price,EXCLUDED.current_price) RETURNING id"""
+                    EXCLUDED.buy_price,EXCLUDED.current_price,COALESCE(pams_holdings_snapshot.asset_id, EXCLUDED.asset_id)) RETURNING id"""
                 for row in payload:
                     prepare_holding_change(cur, account_code=row[4], name=row[1], as_of=row[9], source_item_id=None)
                     cur.execute(statement, row)
@@ -1283,43 +1285,21 @@ def _latest_stored_yfinance_prices(
 # ---------- A股个股价格 (腾讯财经) ----------
 
 def _fetch_stock_prices_tencent(symbols: List[str]) -> Dict[str, float]:
-    """从腾讯财经API批量获取A股个股价格
+    """从腾讯财经API批量获取当日收盘后的A股个股价格
     symbols: ['sh600519', 'sz000858', ...]
     返回: {'sh600519': 1855.02, ...}
     """
-    from domain.imports.isolation import require_external_access
-    require_external_access()
-    if not symbols:
-        return {}
-
-    url = f"https://qt.gtimg.cn/q={','.join(symbols)}"
-    req = urllib.request.Request(url, headers={"User-Agent": "PAMS/2.0"})
-
+    from domain.market.tencent_stock_quote import fetch_tencent_stock_quotes, completed_session_prices
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            text = resp.read().decode("gbk", errors="replace")
+        observations = fetch_tencent_stock_quotes(symbols)
     except Exception as e:
+        from domain.imports.isolation import IsolationError
+        if isinstance(e, IsolationError):
+            raise
         logger.error("腾讯财经API请求失败: %s", e)
         return {}
-
-    prices = {}
-    for line in text.strip().split("\n"):
-        line = line.strip()
-        if not line or "=" not in line:
-            continue
-        # v_sh600519="1~贵州茅台~600519~1855.02~..."
-        try:
-            var_name, value = line.split("=", 1)
-            symbol = var_name.replace("v_", "")
-            fields = value.strip('"').strip(";").split("~")
-            if len(fields) > 3 and fields[3]:
-                price = float(fields[3])
-                if price > 0:
-                    prices[symbol] = price
-        except (ValueError, IndexError) as e:
-            logger.warning("解析A股行情失败 [%s]: %s", line[:50], e)
-
-    return prices
+    return {symbol: float(price) for symbol, price in completed_session_prices(
+        observations, now=datetime.now(ZoneInfo('Asia/Shanghai'))).items()}
 
 
 # ---------- 基金累计净值 (天天基金 Eastmoney) ----------

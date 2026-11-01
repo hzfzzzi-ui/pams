@@ -1,6 +1,9 @@
 from decimal import Decimal
+from pathlib import Path
+import sys
 
 import pytest
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
 from domain.investments.diluted_trade_positions import calculate_diluted_positions
 
 

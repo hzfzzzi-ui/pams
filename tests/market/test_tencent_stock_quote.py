@@ -1,9 +1,12 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
+from pathlib import Path
+import sys
 
 import pytest
-from domain.market.tencent_stock_quote import fetch_tencent_stock_quotes, parse_tencent_stock_quotes
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
+from domain.market.tencent_stock_quote import completed_session_prices, fetch_tencent_stock_quotes, parse_tencent_stock_quotes
 
 
 def quote(symbol='sh600001', code='600001', price='12.34', timestamp='20261030161438'):
@@ -38,3 +41,13 @@ def test_fetch_returns_only_requested_symbols_and_validates_input(monkeypatch):
         assert call.call_args.kwargs['timeout'] == 15
     with pytest.raises(ValueError, match='symbol'):
         fetch_tencent_stock_quotes(['sh600001&other=1'])
+
+
+def test_daily_close_rejects_stale_intraday_weekend_and_future_quotes():
+    observations = parse_tencent_stock_quotes(quote(timestamp='20261030150100'))
+    assert completed_session_prices(observations, now=datetime(2026, 10, 30, 7, 5, tzinfo=timezone.utc)) == {'sh600001': Decimal('12.34')}
+    assert not completed_session_prices(observations, now=datetime(2026, 10, 30, 7, 0, tzinfo=timezone.utc))
+    assert not completed_session_prices(observations, now=datetime(2026, 11, 2, 7, 5, tzinfo=timezone.utc))
+    assert not completed_session_prices(observations, now=datetime(2026, 10, 31, 7, 5, tzinfo=timezone.utc))
+    intraday = parse_tencent_stock_quotes(quote(timestamp='20261030143000'))
+    assert not completed_session_prices(intraday, now=datetime(2026, 10, 30, 7, 5, tzinfo=timezone.utc))

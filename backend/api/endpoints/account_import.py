@@ -78,6 +78,15 @@ class ConfirmFlowCoverage(Revision):
     confirmed: bool = False
 
 
+class TradeSnapshotPreview(StrictRequest):
+    account_code: Literal['tonghuashun']
+
+
+class TradeSnapshotPublish(StrictRequest):
+    preview_token: str = Field(min_length=1, max_length=20000)
+    confirmed_scope: bool = False
+
+
 def _schema_ready(cur):
     try:
         if not isolation.source_enabled(cur):
@@ -139,6 +148,22 @@ def capabilities():
 @router.get("/context")
 def context(request: Request):
     return execute(request, store.context)
+
+
+@router.post('/trade-snapshot/preview')
+def preview_trade_snapshot(body: TradeSnapshotPreview, request: Request):
+    from domain.investments import trade_snapshot_http
+    access.same_origin(request)
+    return execute(request, lambda cur: trade_snapshot_http.preview(cur, body.account_code), serializable=True)
+
+
+@router.post('/trade-snapshot/publish')
+def publish_trade_snapshot(body: TradeSnapshotPublish, request: Request):
+    from domain.investments import trade_snapshot_http
+    if not source.enabled():
+        raise HTTPException(403, detail={'code': 'publish_disabled', 'message': '持仓发布未启用'})
+    return execute(request, lambda cur: trade_snapshot_http.publish(
+        cur, body.preview_token, confirmed_scope=body.confirmed_scope), write=True, serializable=True)
 
 
 @router.get("/assets")
