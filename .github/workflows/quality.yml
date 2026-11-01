@@ -42,7 +42,7 @@ jobs:
           PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_ASSET_CI_TEST_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams_asset_test_ci
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q --durations=30 --durations-min=0.5
       - name: Python与前端语法
         run: |
           python -m compileall -q backend/api backend/scheduler
