@@ -224,6 +224,28 @@ def _trade_cash_proceeds(row: dict[str, Any]) -> Decimal:
         return _dec(net_cash)
     return abs(_dec(row.get("gross_amount"))) - abs(_dec(row.get("fee_amount"))) - abs(_dec(row.get("tax_amount")))
 
+
+def _trade_order_ambiguous(trades: list[dict[str, Any]]) -> bool:
+    """Do not infer ordering of same-day buys and sells from row IDs."""
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for trade in trades:
+        by_day.setdefault(str(trade.get('trade_date'))[:10], []).append(trade)
+    for day_trades in by_day.values():
+        def direction(row):
+            value = str(row.get('trade_type') or row.get('side') or '').lower()
+            return 'buy' if value in {'buy', 'fund_subscription'} else 'sell'
+        if len({direction(row) for row in day_trades}) < 2:
+            continue
+        if any(not row.get('trade_time') for row in day_trades):
+            return True
+        time_sides: dict[str, set[str]] = {}
+        for row in day_trades:
+            time_sides.setdefault(str(row['trade_time']), set()).add(direction(row))
+        if any(len(sides) > 1 for sides in time_sides.values()):
+            return True
+    return False
+
+
 def _replay_weighted_average_trade_pnl(
     trades: list[dict[str, Any]],
     *,
@@ -237,7 +259,8 @@ def _replay_weighted_average_trade_pnl(
     daily_realized = Decimal("0")
     daily_realized_cny = Decimal("0")
 
-    for trade in sorted(trades, key=lambda item: (str(item.get("trade_date"))[:10], _dec(item.get("trade_id")))):
+    for trade in sorted(trades, key=lambda item: (str(item.get("trade_date"))[:10],
+                                                  str(item.get("trade_time") or ''), _dec(item.get("trade_id")))):
         trade_date_key = str(trade.get("trade_date"))[:10]
         if trade_date_key > as_of_key:
             continue
@@ -428,6 +451,7 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
                 account_code,
                 symbol,
                 trade_date,
+                trade_time,
                 trade_type,
                 side,
                 quantity,
@@ -496,6 +520,12 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
                 row["realized_trade_pnl_native"] = None
                 row["realized_trade_pnl_cny"] = None
                 row["realized_trade_pnl_source"] = "unavailable_missing_tax"
+                continue
+            if _trade_order_ambiguous(relevant):
+                row["realized_trade_pnl"] = None
+                row["realized_trade_pnl_native"] = None
+                row["realized_trade_pnl_cny"] = None
+                row["realized_trade_pnl_source"] = "unavailable_trade_order"
                 continue
             state = _replay_weighted_average_trade_pnl(inferred_trades, as_of_key=str(as_of)[:10])
             if _apply_inferred_realized_trade_pnl(row, state):
