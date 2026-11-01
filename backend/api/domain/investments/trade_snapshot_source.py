@@ -7,13 +7,18 @@ from domain.imports.isolation import source_enabled
 from domain.imports.source_fact_evidence import NativeFactVerifier
 
 
-def load_verified_equity_events(cur, account_code):
-    """Read in one repeatable-read transaction; never write or assert coverage."""
+def load_verified_equity_events(cur, account_code, *, for_write=False):
+    """Read source facts consistently without claiming completeness."""
     if account_code != 'tonghuashun' or cur.connection.autocommit or not source_enabled(cur):
         raise ValueError('unsupported or unguarded snapshot source')
     cur.execute("SELECT current_setting('transaction_read_only') AS ro, current_setting('transaction_isolation') AS level")
     mode = cur.fetchone()
-    if mode['ro'] != 'on' or mode['level'] not in {'repeatable read', 'serializable'}:
+    if for_write:
+        from domain.investments.holding_evidence_writer import assert_holding_accounts_locked
+        if mode['ro'] != 'off' or mode['level'] != 'serializable':
+            raise ValueError('serializable writable transaction required')
+        assert_holding_accounts_locked(cur, [account_code])
+    elif mode['ro'] != 'on' or mode['level'] not in {'repeatable read', 'serializable'}:
         raise ValueError('consistent read-only transaction required')
     cur.execute('''SELECT trade_id,account_code,symbol,currency,trade_date,trade_time,side,
                           quantity,net_cash,asset_id,source_table,review_status,affects_position
