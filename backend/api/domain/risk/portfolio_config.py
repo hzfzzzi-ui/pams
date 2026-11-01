@@ -958,6 +958,15 @@ def build_portfolio_config_payload_from_inputs(
     """Build target allocation rules from risk and lookthrough state."""
 
     plan = {**DEFAULT_PLAN, **(plan or {})}
+    if risk.get("status") == "unavailable" and risk.get("reason") in {
+        "nonpositive_nav", "invalid_nav", "invalid_published_valuation",
+    }:
+        return {
+            "status": "unavailable", "reason": risk.get("reason"),
+            "as_of": risk.get("as_of") or lookthrough.get("as_of"), "base_currency": base_currency,
+            "plan": plan, "inputs": build_portfolio_config_input_summary(risk, lookthrough),
+            "groups": CONFIG_GROUPS, "rules": [], "drilldown_rules": [], "rebalance": [],
+        }
     nav = _n((risk.get("summary") or {}).get("total_net_worth_cny")) or _n(lookthrough.get("total_market_value_cny"))
     look_total = _n(lookthrough.get("total_market_value_cny")) or nav
     esop_amount = _esop_value(risk, lookthrough)
