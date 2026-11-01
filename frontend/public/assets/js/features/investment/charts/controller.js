@@ -1,10 +1,10 @@
 import { createReadScope, isReadCancelled } from '../../../shared/read_scope.js?v=20261031-modules-v1';
 import { SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 import { trackInvestmentNav } from '../../../investment_startup.js?v=20261031-modules-v1';
-import { normalizeInvestmentNavRows } from './legacy_model.js?v=20261031-modules-v1';
-import { createInvestmentChartState } from './state.js?v=20261031-modules-v1';
+import { normalizeInvestmentNavRows } from './legacy_model.js?v=20261102-analysis-unknown-v1';
+import { createInvestmentChartState } from './state.js?v=20261102-analysis-unknown-v1';
 import { RETURN_SECTION_SPECS, readInvestmentNav, readInvestmentReturnSeries } from './requests.js?v=20261031-modules-v1';
-import { createInvestmentChartRenderer } from './renderer.js?v=20261031-modules-v1';
+import { createInvestmentChartRenderer } from './renderer.js?v=20261102-analysis-unknown-v1';
 
 const owners = new WeakMap();
 

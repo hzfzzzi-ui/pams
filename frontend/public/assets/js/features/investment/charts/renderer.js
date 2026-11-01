@@ -1,8 +1,8 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
 import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261031-modules-v1';
-import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261031-modules-v1';
+import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261102-analysis-unknown-v1';
+import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261102-analysis-unknown-v1';
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
@@ -55,16 +55,16 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         pointRadius: sectionData.pointRadius,
         borderWidth: 1.8,
         hidden: true,
-        spanGaps: true,
+        spanGaps: false,
         order: 1,
       };
     });
     const noteEl = getElementById('investmentReturnNote');
     if (noteEl) {
-      const notes = resp.coverage_notes || [];
+      const notes = (resp.coverage_notes || []).map(item => typeof item === 'string' ? item : item?.reason).filter(Boolean);
       noteEl.style.display = notes.length ? 'block' : 'none';
       noteEl.textContent = notes.length
-        ? `含多口径数据，分类线仅作参考。${notes.join(' ')}`
+        ? `${resp.status === 'unavailable' ? '收益数据尚不完整' : '含多口径数据'}，分类线仅作参考。${notes.join(' ')}`
         : '';
     }
 
@@ -226,7 +226,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       .filter(dataset => !dataset.hidden && dataset.returnSeriesKey !== 'events')
       .map(dataset => ({
         ...dataset,
-        values: (dataset.data || []).map(value => Number(value)).filter(value => Number.isFinite(value)),
+        values: (dataset.data || []).filter(value => value != null).map(value => Number(value)).filter(value => Number.isFinite(value)),
       }))
       .filter(dataset => dataset.values.length);
     if (!labels.length || !visibleDatasets.length) {

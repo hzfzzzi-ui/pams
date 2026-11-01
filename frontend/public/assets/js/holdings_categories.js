@@ -2,7 +2,7 @@ import { jget } from './api.js?v=20261031-modules-v1';
 import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js?v=20261031-modules-v1';
 import { afterInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261031-modules-v1';
 import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-modules-v1';
-import { mount as mountPage, dispose as disposePage } from './features/investment/holdings/summary_controller.js?v=20261102-incomplete-scope-v1';
+import { mount as mountPage, dispose as disposePage } from './features/investment/holdings/summary_controller.js?v=20261102-analysis-unknown-v1';
 
 export function mount(root = document.body, context = {}) {
   return mountPage(root, {get: jget, showDetails: openBottomSheet, closeDetails: closeBottomSheet,

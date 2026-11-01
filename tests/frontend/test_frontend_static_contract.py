@@ -721,7 +721,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "function createInvestmentReturnCanvasFallback(canvas, data)" in chart_source
     assert "if (typeof ChartClass !== 'function')" in chart_source
     assert "function returnEventAdjustedAmount(row, prev)" in chart_source
-    assert "return safeNum(row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate)" in chart_source
+    assert "const value = row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate" in chart_source
     assert "const rawPnlDelta = safeNum(row.total_pnl) - safeNum(prev.total_pnl)" in chart_source
     assert "pnlDelta = returnEventAdjustedAmount(row, prev)" in chart_source
     assert "/nav/weekly?start=2026-01-01&baseCurrency=CNY&latest=true&interval=daily" in chart_source
@@ -817,7 +817,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261102-incomplete-scope-v1" in html
+    assert "assets/js/holdings_categories.js?v=20261102-analysis-unknown-v1" in html
     assert "assets/js/lookthrough.js?v=20261031-modules-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261031-modules-v1" in html
     assert "assets/js/portfolio_config.js?v=20261031-modules-v1" in html
@@ -1700,7 +1700,7 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
     assert "holdings.js?v=20261102-verified-trade-snapshot-v1" in html
-    assert "holdings_categories.js?v=20261102-incomplete-scope-v1" in html
+    assert "holdings_categories.js?v=20261102-analysis-unknown-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
