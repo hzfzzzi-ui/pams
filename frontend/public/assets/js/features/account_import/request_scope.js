@@ -10,7 +10,7 @@ export function createRequestScope(client, { recovery = null, getBatch = () => n
   const check = () => { if (!alive) throw cancelled(); };
   async function request(path, method = 'GET', body, raw = false, signal) {
     check();
-    const read = method === 'GET';
+    const read = method === 'GET' || (method === 'POST' && path.startsWith('/detect?'));
     if (!read && recovery.requiresReview) {
       throw Object.assign(new Error('上次操作结果尚未确认，请先载入服务器版本。'), {code: 'write_result_unconfirmed'});
     }

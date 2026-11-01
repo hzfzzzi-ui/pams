@@ -183,6 +183,26 @@ def create(body: Create, request: Request):
     return execute(request, lambda cur: source_http.create(cur, **body.model_dump()), write=True)
 
 
+@router.post('/detect')
+async def detect_document(request: Request, account_code: str = Query(..., max_length=50),
+                          filename: str = Query(..., max_length=180)):
+    access.same_origin(request)
+    if any(c in filename for c in ('/', '\\', '\x00', '\r', '\n')):
+        raise HTTPException(400, detail={'code': 'invalid_filename', 'message': '文件名无效'})
+    content = bytearray()
+    async for part in request.stream():
+        content.extend(part)
+        if len(content) > store.MAX_FILE_BYTES:
+            raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
+    if not content:
+        return {'kind': None, 'status': 'mismatch'}
+    from domain.imports.document_kind import detect
+    try:
+        return await run_in_threadpool(detect, bytes(content), filename, account_code)
+    except (ValueError, UnicodeError):
+        return {'kind': None, 'status': 'mismatch'}
+
+
 @router.get("/batches/{batch_id}")
 def get_batch(batch_id: UUID, request: Request):
     return execute(request, lambda cur: source_http.batch(cur, batch_id))

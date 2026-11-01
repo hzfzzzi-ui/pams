@@ -7,7 +7,7 @@ const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const root=path.resolve('frontend/public'), output=process.env.PAMS_FRONTEND_ARTIFACT_DIR;
 if(output) await mkdir(output,{recursive:true});
-let batch,caps,publishes,calls,failPreview,uploads,holdPut,releasePut,holdCreate,releaseCreate,holdFile,releaseFile,holdPublish,releasePublish,publishOutcome,fileOutcome,createOutcome;
+let batch,caps,publishes,calls,failPreview,uploads,holdPut,releasePut,holdCreate,releaseCreate,holdFile,releaseFile,holdPublish,releasePublish,publishOutcome,fileOutcome,createOutcome,holdDetect,releaseDetect;
 const defaults={authentication_required:false,schema_ready:true,publish_enabled:false,ocr_available:true,limits:{files:10,file_bytes:10485760}};
 const fields=(kind='trade')=>({kind,business_date:'2026-10-20',asset_type:'stock',symbol:'600001',name:'合成标的',currency:'CNY',action:'buy',status:'confirmed',quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_scope:'separate',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'});
 const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;publishOutcome='success';fileOutcome='success';createOutcome='success';};
@@ -28,6 +28,7 @@ await context.route('**/*',async route=>{
   assert.ok(p.startsWith('/api/account-import/')); calls.push([req.method(),p]);
   if(p.endsWith('/capabilities')) return send(caps);
   if(p.endsWith('/context')) return send({accounts,counter_accounts:[{account_code:'bank',display_name:'银行账户'}]});
+  if(p.endsWith('/detect')) {if(holdDetect) await new Promise(resolve=>{releaseDetect=resolve;});return send({kind:'trade',status:'detected'});}
   if(p.endsWith('/assets')) return send({rows:[{asset_id:'a',symbol:'600001',name:'合成标的',asset_type:'stock',currency:'CNY'}]});
   if(p.endsWith('/batches') && req.method()==='GET') return send({rows:batch?[batch]:[]});
   if(p.endsWith('/batches') && req.method()==='POST') {if(holdCreate) await new Promise(resolve=>{releaseCreate=resolve;});
@@ -84,14 +85,14 @@ const ready=async()=>page.waitForFunction(()=>!document.getElementById('workspac
 const open=async()=>{await page.goto('http://import.invalid/account_import.html');await page.waitForFunction(()=>!document.getElementById('workspace').hidden);await ready();};
 const save=async()=>{await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});await ready();};
 const capture=async name=>{await page.evaluate(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);const head=await page.locator('.import-head').boundingBox();assert.ok(head.y>=0&&head.y<100,JSON.stringify({name,head,metrics:await page.evaluate(()=>({scroll:scrollY,height:innerHeight,doc:document.documentElement.scrollHeight,body:document.body.getBoundingClientRect().toJSON(),active:document.activeElement.id}))}));if(output)await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});};
-const controllerURL='/assets/js/features/account_import/controller.js?v=20261101-template-status';
+const controllerURL='/assets/js/features/account_import/controller.js?v=20261101-auto-kind';
 const mounted=()=>page.evaluate(async url=>{const m=await import(url);return !!m.mount(document.body);},controllerURL);
 const suspendRestore=()=>page.evaluate(()=>{
  window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));
  window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
 });
 const fillManual=async()=>{
- await page.locator('#mode-manual').click();await page.locator('#add-row').click();
+ await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#add-row').click();
  for(const [key,value] of Object.entries({business_date:'2026-10-20',symbol:'600001',name:'合成标的',quantity:'12345678901234567890.0100',price:'10.0100',gross_amount:'10.0100',fee_amount:'0',net_cash:'-10.0100'})) await page.locator('#field-'+key).fill(value);
  await page.locator('#field-action').selectOption('buy');
 };
@@ -155,7 +156,7 @@ try {
 
  // An accepted create may not have returned its ID before exit. Recovery reads
  // history and lets the user choose that batch; it never creates a replacement.
- reset();await open();await page.locator('#mode-manual').click();holdCreate=true;
+ reset();await open();await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');holdCreate=true;
  await page.locator('#add-row').click();
  await waitUntil(()=>releaseCreate,'create request');
  await suspendRestore();await page.locator('#pending-result').waitFor();
@@ -169,7 +170,7 @@ try {
 
  // A rejected create has no batch ID to read. An explicit history refresh may
  // unlock a new user attempt after its definitive 409; it must not auto-create.
- reset();await open();await page.locator('#mode-manual').click();holdCreate=true;createOutcome='conflict';
+ reset();await open();await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');holdCreate=true;createOutcome='conflict';
  await page.locator('#add-row').click();await waitUntil(()=>releaseCreate,'rejected create');
  await suspendRestore();holdCreate=false;releaseCreate();releaseCreate=null;await page.waitForTimeout(30);
  page.once('dialog',dialog=>dialog.accept());await page.locator('#refresh-result').click();await ready();
@@ -177,6 +178,14 @@ try {
  assert.equal(await page.locator('#add-row').isDisabled(),false);
  assert.match(await page.locator('#notice').textContent(),/新建请求已被服务器拒绝/);
  assert.equal(calls.filter(([method,p])=>method==='POST'&&p.endsWith('/batches')).length,1);
+
+ // Leaving during read-only detection cannot create or replay a batch.
+ reset();await open();holdDetect=true;
+ await page.locator('#files').setInputFiles({name:'detect.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});
+ await waitUntil(()=>releaseDetect,'detection request');await suspendRestore();
+ holdDetect=false;releaseDetect();releaseDetect=null;await page.waitForTimeout(30);
+ await page.getByText('文件尚未上传，请重新选择文件后继续。',{exact:true}).waitFor();
+ assert.equal(calls.filter(([method,p])=>method==='POST'&&p.endsWith('/batches')).length,0);
 
  // Two-file upload must stop after its already accepted first upload when the
  // page exits. Neither the first write nor the remaining file is replayed.
