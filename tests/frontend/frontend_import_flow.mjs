@@ -7,10 +7,10 @@ const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const root=path.resolve('frontend/public'), output=process.env.PAMS_FRONTEND_ARTIFACT_DIR;
 if(output) await mkdir(output,{recursive:true});
-let batch,caps,publishes,calls,failPreview,failUpload,uploads,extraHistory,voidLostResponse;
+let batch,caps,publishes,calls,failPreview,failUpload,uploads,extraHistory,voidLostResponse,mismatchTemplate;
 const defaults={authentication_required:false,schema_ready:true,publish_enabled:false,ocr_available:true,limits:{files:10,file_bytes:10485760}};
 const fields=(kind='trade')=>({kind,business_date:'2026-10-20',asset_type:'stock',symbol:'600001',name:'合成标的',currency:'CNY',action:'buy',status:'confirmed',quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_scope:'separate',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'});
-const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;failUpload=false;extraHistory=[];voidLostResponse=false;};
+const reset=()=>{batch=null;caps={...defaults};publishes=0;calls=[];uploads=[];failPreview=false;failUpload=false;extraHistory=[];voidLostResponse=false;mismatchTemplate=false;};
 const accounts=[{account_code:'ths',profile:'tonghuashun',label:'同花顺',currency:'CNY',default_asset_type:'stock',kinds:['trade','holding'],trade_actions:{stock:['buy','sell','dividend','fee'],fund:['buy','sell','dividend','fee']}},
  {account_code:'licai',profile:'tencent_licaitong',label:'理财通',currency:'CNY',default_asset_type:'fund',kinds:['trade','holding'],trade_actions:{fund:['subscribe','redeem','dividend','fee']}},
  {account_code:'bank',profile:'statement',label:'银行账户',currency:'CNY',default_asset_type:'cash',kinds:['cash'],trade_actions:{cash:['income','expense','transfer','balance']}}];
@@ -48,7 +48,7 @@ await context.route('**/*',async route=>{
    if(failUpload) return send({detail:{code:'invalid_file',message:'文件与账户不匹配'}},400);
    const name=url.searchParams.get('filename'), image=/\.(png|jpe?g)$/i.test(name), id='f'+(batch.files.length+1);
    uploads.push(name); assert.ok(req.postDataBuffer().length);
-   batch.files.push({file_id:id,filename:name,content_type:image?'image/png':'text/plain',metadata:{headers:image?[]:['日期','代码','净收付'],suggested_mapping:image?{}:{business_date:'日期',symbol:'代码',net_cash:'净收付'}}});
+   batch.files.push({file_id:id,filename:name,content_type:image?'image/png':'text/plain',metadata:{template_status:mismatchTemplate?'needs_mapping':'matched',headers:image?[]:['日期','代码','净收付'],suggested_mapping:image?{}:{business_date:'日期',symbol:'代码',net_cash:'净收付'}}});
    const count=image?(caps.ocr_available?2:0):batch.kind==='cash'?2:1;
    for(let n=0;n<count;n++) batch.rows.push({row_id:id+'r'+n,fields:{...fields(batch.kind),name:`${name}记录${n+1}`,...(batch.kind==='cash'?{asset_type:'cash',action:n?'balance':'income',net_cash:'100.05'}:{})},source:{origin:image?'ocr':'file',file_id:id,raw_text:'合成原始记录',row:n+1},can_edit_fields:image,acknowledged:false,excluded:batch.kind==='cash'&&n===1});
    batch.revision++;return send(batch);
@@ -90,6 +90,11 @@ try {
  assert.equal(batch.account_code,'licai');failUpload=false;
  await page.locator('#files').setInputFiles({name:'table.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from('synthetic')});await ready();
  assert.equal(batch.account_code,'ths');assert.equal(batch.files.length,1);assert.equal(await page.locator('#account').isDisabled(),true);
+ await page.getByText('模板解析成功，请核对原始凭证和识别结果。',{exact:true}).waitFor();
+ assert.match(await page.locator('#file-selection-status').textContent(),/table\.xls/);
+ await page.getByText('模板解析成功，已识别 1 条；请继续核对。',{exact:true}).waitFor();
+ reset();mismatchTemplate=true;await open();await page.locator('#files').setInputFiles({name:'unknown.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});await ready();
+ await page.getByText('模板未匹配或识别不完整，请核对账户、文件或配置字段。',{exact:true}).waitFor();
  reset();extraHistory=[{batch_id:'p',account_code:'ths',status:'published',revision:1}];await open();
  await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
  await page.getByRole('heading',{name:'批次草稿'}).waitFor();await page.getByRole('heading',{name:'已录入批次'}).waitFor();

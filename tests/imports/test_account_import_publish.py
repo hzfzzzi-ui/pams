@@ -103,6 +103,7 @@ def native_batch(web):
     assert response.status_code == 200, response.text
     batch = response.json()
     assert len(batch["rows"]) == 7 and batch["files"][0]["content_type"] == "text/plain"
+    assert batch["files"][0]["metadata"]["template_status"] == "matched"
     return batch, content
 
 

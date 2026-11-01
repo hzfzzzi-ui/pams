@@ -240,6 +240,9 @@ def upload(cur, batch_id, filename, content, content_type):
     template = cur.fetchone()
     parsed = store.parse(content, filename, result['account_code'], result['kind'], template['mapping'] if template else None)
     suffix = filename.rsplit('.', 1)[-1].lower()
+    if suffix not in {'png', 'jpg', 'jpeg'}:
+        from domain.imports.template_assessment import assess_template
+        parsed['template_status'] = assess_template(parsed, result['kind'])
     safe = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'csv': 'text/plain',
             'tsv': 'text/plain', 'xls': 'text/plain', 'pdf': 'application/pdf',
             'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}.get(suffix)
@@ -267,6 +270,9 @@ def reparse(cur, batch_id, file_id, mapping, kind=None):
         raise store.ImportProblem('kind_mismatch', '重新解析不能改变批次资料类型')
     file = get_file(cur, batch_id, file_id)
     parsed = store.parse(bytes(file['content']), file['filename'], result['account_code'], result['kind'], mapping)
+    if not file['content_type'].startswith('image/'):
+        from domain.imports.template_assessment import assess_template
+        parsed['template_status'] = assess_template(parsed, result['kind'])
     _append_parsed(cur, batch_id, file_id, file['sha256'], parsed)
     cur.execute("""INSERT INTO source_templates(account_code,business_type,mapping) VALUES (%s,%s,%s)
         ON CONFLICT (account_code,business_type) DO UPDATE SET mapping=EXCLUDED.mapping,updated_at=now()""",

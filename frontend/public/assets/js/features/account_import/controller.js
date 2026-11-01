@@ -39,6 +39,14 @@ export function mount(root, context = {}) {
     message('已切换账户或资料类别；原空草稿仍保留在最近批次。');
   }
   const images = () => (state.batch?.files || []).filter(file => file.content_type?.startsWith('image/'));
+  function templateStatus(file, batch = state.batch) {
+    const rows = (batch?.rows || []).filter(row => row.source?.file_id === file.file_id);
+    const warnings = file.metadata?.warnings || [];
+    const legacyNative = rows.some(row => row.source?.profile === 'ths_broker_ledger_v1') &&
+      !warnings.some(w => ['headers_changed', 'ambiguous_header'].includes(w?.code));
+    const status = file.metadata?.template_status || (legacyNative ? 'matched' : 'needs_mapping');
+    return {status, count: rows.length};
+  }
   const issues = list => (list || []).map(item => typeof item === 'string' ? item : item.message || item.code || JSON.stringify(item)).join('；');
   const button = (text, action) => { const node = el('button', text); node.type = 'button'; node.addEventListener('click', event => { if (scope.isActive()) action(event); }); return node; };
   const dirty = () => { state.dirty = true; state.preview = null; };
@@ -137,6 +145,8 @@ export function mount(root, context = {}) {
     $('completeness-label').hidden = $('kind').value !== 'holding';
     $('complete-warning').hidden = $('completeness').value !== 'complete';
     const batch = state.batch;
+    const uploadedFiles = (batch?.files || []).filter(file => !file.content_type?.startsWith('image/'));
+    $('file-selection-status').textContent = uploadedFiles.length ? `已暂存：${uploadedFiles.map(file => file.filename).join('、')}` : '请选择要导入的文件。';
     $('batch-meta').textContent = batch ? `${batch.status === 'published' ? '已录入' : TEXT[batch.status] || batch.status} · ${batch.batch_id} · 版本 ${batch.revision}${state.dirty ? ' · 未保存' : ''}${batch.updated_at ? ` · ${batch.updated_at}` : ''}` : '尚无暂存记录';
     $('rows').replaceChildren();
     for (const [index, row] of (batch?.rows || []).entries()) {
@@ -154,7 +164,14 @@ export function mount(root, context = {}) {
     if (state.suspended) $('rows').prepend(button('继续未保存的编辑', () => resumeEditor()));
     $('file-list').replaceChildren(...(batch?.files || []).map(file => {
       const node = evidence(file);
-      if (!file.content_type?.startsWith('image/')) node.append(mappingEditor(file));
+      if (!file.content_type?.startsWith('image/')) {
+        const result = templateStatus(file, batch);
+        node.append(el('p', result.status === 'matched' && result.count
+          ? `模板解析成功，已识别 ${result.count} 条；请继续核对。`
+          : '模板未匹配或识别不完整，请检查账户、文件或配置字段。',
+          result.status === 'matched' && result.count ? 'import-meta' : 'import-warning'));
+        node.append(mappingEditor(file));
+      }
       return node;
     }));
     $('originals').hidden = !batch?.files?.length;
@@ -287,10 +304,19 @@ export function mount(root, context = {}) {
     await saveDraft();
     for (const file of files) {
       message(`正在识别 ${file.name}…`);
-      state.batch = await api(`${path()}/files?filename=${encodeURIComponent(file.name)}`, 'POST', file, true);
+      try {
+        state.batch = await api(`${path()}/files?filename=${encodeURIComponent(file.name)}`, 'POST', file, true);
+      } catch (error) {
+        if (error.status === 400 && error.code === 'invalid_document') error.message = `模板不匹配或文件无法识别，请核对账户和文件。${error.message}`;
+        throw error;
+      }
       state.preview = null; render();
     }
-    message('文件已暂存，请核对原始凭证和识别结果。');
+    const selected = (state.batch?.files || []).filter(file => files.some(item => item.name === file.filename));
+    const results = selected.filter(file => !file.content_type?.startsWith('image/')).map(file => templateStatus(file));
+    message(results.length && results.every(result => result.status === 'matched' && result.count)
+      ? '模板解析成功，请核对原始凭证和识别结果。'
+      : results.length ? '模板未匹配或识别不完整，请核对账户、文件或配置字段。' : '文件已暂存，请核对原始凭证和识别结果。');
   }
   function values(title, object) {
     const section = el('div'); section.append(el('h3', title)); const list = el('dl', undefined, 'import-values');

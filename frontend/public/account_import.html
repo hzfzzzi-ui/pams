@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/css/tokens.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/style.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20261031-modules-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261031-modules-v1" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-template-status" />
   <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-modules-v1" />
 </head>
 <body class="page-account-import app-shell">
@@ -41,6 +41,7 @@
         <div id="upload-area">
           <label class="import-file-label" for="files">选择文件</label>
           <input id="files" type="file" multiple accept=".csv,.tsv,.xls,.xlsx,.pdf" aria-describedby="file-formats file-limits" />
+          <p id="file-selection-status" class="import-meta" aria-live="polite">请选择要导入的文件。</p>
           <p id="file-formats" class="import-meta">CSV / TSV / 同花顺 XLS / XLSX · 账单 PDF</p>
           <p id="file-limits" class="import-meta"></p>
         </div>
@@ -90,6 +91,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261101-batch-groups"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261101-template-status"></script>
 </body>
 </html>
