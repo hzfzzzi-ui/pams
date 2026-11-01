@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/css/tokens.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/style.css?v=20261031-modules-v1" />
   <link rel="stylesheet" href="assets/css/design-system.css?v=20261031-modules-v1" />
-  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-review-color" />
+  <link rel="stylesheet" href="assets/css/account-import.css?v=20261101-review-identity" />
   <link rel="stylesheet" href="assets/css/page-shell.css?v=20261031-modules-v1" />
 </head>
 <body class="page-account-import app-shell">
@@ -57,7 +57,7 @@
         <h2 id="image-review-title">截图核对</h2><div id="image-original"></div><div id="image-records"></div>
       </section>
       <section id="review" aria-label="核对发布" hidden>
-        <h2>配置与确认</h2><p id="review-meta" class="import-meta"></p>
+        <h2 id="review-title">草稿</h2><p id="review-meta" class="import-meta"></p>
         <dl id="counts" class="import-counts"></dl>
         <p id="impact" hidden></p><div id="warnings"></div><div id="issue-groups"></div>
         <label for="preview-filter">具体条目<select id="preview-filter"><option value="all">全部</option><option value="issues">异常</option><option value="excluded">已排除</option></select></label><div id="preview-rows"></div>
@@ -93,6 +93,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261101-review-color"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261101-review-identity"></script>
 </body>
 </html>

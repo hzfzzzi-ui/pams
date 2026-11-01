@@ -67,6 +67,8 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-counts [data-count="blocked"][data-active="true"] dd { color: var(--pams-loss); }
 .page-account-import .import-counts [data-count="pending"][data-active="true"] dd { color: var(--pams-warning); }
 .page-account-import #review .import-status { display: inline-block; margin: 5px 0 8px; padding: 2px 8px; border-radius: 4px; background: #202428; color: var(--pams-text-secondary); font-size: 12px; line-height: 1.6; }
+.page-account-import .import-review-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; }
+.page-account-import .import-created-asset { color: #80d5c4; font-size: 12px; line-height: 1.5; }
 .page-account-import #review [data-status="ready"] .import-status { background: #13322d; color: #80d5c4; }
 .page-account-import #review [data-status="pending"] .import-status { background: #382a14; color: #ffca75; }
 .page-account-import #review [data-status="blocked"] .import-status { background: #401e23; color: #ff8d8d; }

@@ -69,12 +69,12 @@ await context.route('**/*',async route=>{
    if(failPreview) return send({detail:{code:'source_changed',message:'来源资料已变化'}},409);
    assert.equal(req.postDataJSON().revision,batch.revision);
    const blocked=batch.rows.some(r=>r.source.origin==='ocr'&&!r.acknowledged&&!r.excluded);
-   const rows=batch.rows.map(r=>({row_id:r.row_id,fields:r.fields,status:r.excluded?'excluded':blocked?'blocked':'ready',issues:[],before:null,after:r.fields}));
+   const rows=batch.rows.map(r=>({row_id:r.row_id,fields:r.fields,status:r.excluded?'excluded':blocked?'blocked':'ready',issues:[],before:null,after:r.fields,asset_created_first_row:r.fields.name==='原始.xls记录1'}));
    return send({batch_id:'b',revision:batch.revision,preview_token:'p'.repeat(64),can_publish:!blocked,
     counts:{new:batch.rows.filter(r=>!r.excluded).length,duplicates:0,blocked:blocked?1:0,pending:0},rows,
     write_count:rows.filter(r=>r.status==='ready').length,write_plan:rows.filter(r=>r.status==='ready').map(r=>({row_id:r.row_id,table:batch.kind==='cash'?'pams_cashflow_fact':'pams_investment_trade_fact',operation:'insert',before:null,after:r.fields})),
     impact:{nav_estimate_status:'unavailable',nav_change:null,message:'测试不应展示'},
-    warnings:['持仓、交易、现金独立核对；未上传部分不视为零。','资产底表待补充/核准：000001','已识别的券商入出金缺少银行对手账户证据','其他来源异常'],
+    warnings:['持仓、交易、现金独立核对；未上传部分不视为零。','资产底表待补充/核准：000001','以下标的类型及币种使用待核对默认值，请在更多页资产管理补充：000001','已识别的券商入出金缺少银行对手账户证据','其他来源异常'],
     issue_groups:[{code:'counter_required',message:'券商入出金缺少银行对手账户证据',count:1}]});
   }
   if(p.endsWith('/publish')) {assert.equal(caps.publish_enabled,true);publishes++;batch.status='published';return send({batch});}
@@ -194,6 +194,9 @@ try {
   await page.locator('#mode-ocr').click();await page.getByText('请先保存字段映射，再切换输入方式。',{exact:true}).waitFor();assert.equal(await page.locator('#mode-upload').getAttribute('aria-pressed'),'true');
   await page.getByRole('button',{name:'保存映射并重新识别',exact:true}).click();assert.equal(calls.filter(c=>c[1].endsWith('/parse')).length,0);
   await page.getByRole('button',{name:'确认替换并重新识别',exact:true}).click();await ready();await page.locator('#next').click();await page.locator('#review').waitFor();await ready();
+  assert.equal(await page.locator('#review-title').innerText(),'草稿 · 原始.xls');assert.equal(await page.locator('#review-meta').innerText(),'草稿编号 · b');
+  assert.equal(await page.getByText('本批首次 · 已建资产标的条目',{exact:true}).count(),1);
+  assert.equal(await page.getByText('以下标的类型及币种使用待核对默认值',{exact:false}).count(),0);
   await page.getByRole('button',{name:'查看 / 处理',exact:true}).click();assert.equal(await page.locator('#field-gross_amount').isDisabled(),true);await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});await ready();assert.equal(batch.rows[0].fields.gross_amount,'10.0100');await capture(width+'-file-review');
   await page.getByRole('button',{name:'排除此条',exact:true}).click();await ready();assert.equal(batch.rows[0].excluded,true);assert.equal(publishes,0);
   reports.push({width,manual:true,ocr_images:2,ocr_records:4,file_readonly:true,layout_overflow:false,publishes});

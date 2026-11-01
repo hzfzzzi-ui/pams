@@ -52,6 +52,38 @@ def ths_display_price_matches(quantity: Decimal, price: Decimal, gross: Decimal)
     return midpoint - half_step <= gross < midpoint + half_step
 
 
+def created_asset_first_rows(batch: dict, rows: list[dict], assets: list[dict]) -> set[str]:
+    """Identify one source-backed row per asset created by this import batch.
+
+    This records the first eligible row in this batch, not a first lifetime trade.
+    """
+    created = {asset['asset_id']: asset for asset in assets
+               if asset.get('source') == 'ths_import'
+               and str((asset.get('raw_json') or {}).get('source_batch_id') or '') == str(batch['batch_id'])}
+    first: dict[str, tuple] = {}
+    for row in rows:
+        fields, source = row.get('fields') or {}, row.get('source') or {}
+        asset_id = fields.get('asset_id')
+        asset = created.get(asset_id)
+        if not asset or row.get('status') == 'excluded' or not ths.native_row(batch, row):
+            continue
+        evidence = asset.get('raw_json') or {}
+        if (not source.get('file_id') or not evidence.get('source_file_sha256')
+                or str(source.get('file_id') or '') != str(evidence.get('source_file_id') or '')
+                or source.get('file_sha256') != evidence.get('source_file_sha256')):
+            continue
+        day, position = fields.get('business_date'), source.get('row')
+        if not any(record.get('date') == day and record.get('row') == position
+                   for record in evidence.get('source_records') or []):
+            continue
+        if not isinstance(day, str) or not isinstance(position, int):
+            continue
+        key = (day, fields.get('trade_time') or '', position, str(row['row_id']))
+        if asset_id not in first or key < first[asset_id]:
+            first[asset_id] = key
+    return {key[-1] for key in first.values()}
+
+
 def decimal(value, field: str, errors: list, *, required=True, scale=10):
     if value in (None, ""):
         if required:
@@ -477,7 +509,9 @@ def preview(cur, batch: dict) -> dict:
     can_publish = bool(rows) and counts["blocked"] == counts["pending"] == 0 and counts["new"] + counts["duplicates"] > 0
     plan = write_entries(batch, rows)
     token = fingerprint([batch["batch_id"], batch["revision"], batch["rows"], batch["completeness"], state["version"], plan])
-    public_rows = [{k: v for k, v in row.items() if k not in {"fact", "snapshot", "key"}} for row in rows]
+    first_created = created_asset_first_rows(batch, rows, state['assets'])
+    public_rows = [{**{k: v for k, v in row.items() if k not in {"fact", "snapshot", "key"}},
+                    'asset_created_first_row': str(row['row_id']) in first_created} for row in rows]
     unresolved: dict[str, int] = {}
     for row in rows:
         if any(i["code"] == "asset_unresolved" for i in row["issues"]):
