@@ -671,6 +671,20 @@ def build_portfolio_risk_disclosure_payload_from_inputs(
 ) -> dict[str, Any]:
     """Build the investment page risk disclosure payload from current portfolio facts."""
 
+    if risk.get("status") == "unavailable" and risk.get("reason") in {
+        "nonpositive_nav", "invalid_nav", "invalid_published_valuation",
+    }:
+        return {
+            "status": "unavailable", "reason": risk.get("reason"),
+            "as_of": risk.get("as_of") or lookthrough.get("as_of"), "base_currency": base_currency,
+            "nav_cny": (risk.get("metrics") or {}).get("total_nav"),
+            "nav_label": (_money((risk.get("metrics") or {}).get("total_nav"))
+                          if (risk.get("metrics") or {}).get("total_nav") is not None else "--"),
+            "inputs": build_portfolio_config_input_summary(risk, lookthrough),
+            "dashboard": {"score_label": "--", "status_tone": "risk",
+                          "status_label": "净值不可用，无法计算风险比例", "category_scores": []},
+            "categories": [], "highlights": [], "method": {},
+        }
     nav = _n((risk.get("summary") or {}).get("total_net_worth_cny")) or _n(lookthrough.get("total_market_value_cny"))
     asset_type = _rows(lookthrough, "asset_type")
     non_cny_currency = [

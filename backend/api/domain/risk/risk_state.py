@@ -5,6 +5,7 @@ assembly until the broader PortfolioState contract is introduced.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 from datetime import datetime
@@ -1753,7 +1754,15 @@ def _positions_reconciled_to_published_nav(
             )
         return df, raw_nav, meta
 
-    target_nav = _safe_float(valuation_state.get("net_liquidation_value"))
+    try:
+        target_nav = float(valuation_state["net_liquidation_value"])
+    except (TypeError, ValueError, OverflowError):
+        target_nav = float("nan")
+    if not math.isfinite(target_nav) or valuation_state.get("data_completeness") != "complete":
+        meta = published_valuation_state_meta(valuation_state) or {}
+        meta["reconciliation_status"] = "unavailable"
+        meta["exposure_scope_status"] = "incomplete"
+        return df, raw_nav, meta
     adjustment = target_nav - raw_nav
     meta = published_valuation_state_meta(valuation_state) or {}
     meta.update(
@@ -1763,35 +1772,12 @@ def _positions_reconciled_to_published_nav(
         }
     )
     if abs(adjustment) <= 0.005:
+        meta["reconciliation_status"] = "matched"
         return df, target_nav, meta
 
-    reconciliation_type = "cash" if adjustment > 0 else "liability"
-    reconciliation = pd.DataFrame(
-        [
-            {
-                "as_of": str(valuation_state.get("valuation_date") or ""),
-                "source_type": "portfolio_valuation_state_reconciliation",
-                "account_code": "portfolio_valuation_state",
-                "account_name": "Portfolio valuation state",
-                "owner_ratio": 1.0,
-                "symbol": "VALUATION_STATE_ADJUSTMENT",
-                "asset_id": "VALUATION_STATE_ADJUSTMENT",
-                "asset_name": "Portfolio valuation reconciliation",
-                "asset_type": reconciliation_type,
-                "currency": "CNY",
-                "quantity": 1.0,
-                "price": adjustment,
-                "market_value": adjustment,
-                "cost": adjustment,
-                "fx_rate_to_cny": 1.0,
-                "market_value_cny": adjustment,
-                "cost_cny": adjustment,
-                "is_cash": reconciliation_type == "cash",
-                "is_liability": reconciliation_type == "liability",
-            }
-        ]
-    )
-    return pd.concat([df, reconciliation], ignore_index=True), target_nav, meta
+    meta["reconciliation_status"] = "unexplained"
+    meta["exposure_scope_status"] = "incomplete"
+    return df, target_nav, meta
 
 
 def build_risk_state() -> dict[str, Any]:
@@ -1809,7 +1795,18 @@ def build_risk_state() -> dict[str, Any]:
         limits,
         valuation_state,
     )
-    alerts = risk_alerts(calc_positions, limits, factor_map)
+    if valuation_meta and valuation_meta.get("reconciliation_status") == "unavailable":
+        return {"status": "unavailable", "reason": "invalid_published_valuation",
+                "metrics": {"total_nav": None}, "valuation_state": valuation_meta,
+                "alerts": [], "holdings": _records(positions)}
+    if not math.isfinite(nav) or nav <= 0:
+        return {"status": "unavailable", "reason": "nonpositive_nav" if math.isfinite(nav) else "invalid_nav",
+                "metrics": {"total_nav": nav if math.isfinite(nav) else None,
+                            "gross_exposure_ratio": None, "negative_cash_ratio": None},
+                "valuation_state": valuation_meta or {},
+                "alerts": risk_alerts(calc_positions, limits, factor_map, nav_override=nav),
+                "holdings": _records(positions)}
+    alerts = risk_alerts(calc_positions, limits, factor_map, nav_override=nav)
     legacy_concentration = concentration_exposure(
         calc_positions,
         nav,
@@ -1842,22 +1839,22 @@ def build_risk_state() -> dict[str, Any]:
     alert_concentration = {"industry": concentration["industry"], **style_groups}
     concentration_alerts = _concentration_alerts(alert_concentration)
     all_alerts = [*alerts, *concentration_alerts]
-    rebalance = [*rebalance_suggestions(positions, limits, factor_map), *_concentration_rebalance(alert_concentration)]
+    rebalance = [*rebalance_suggestions(positions, limits, factor_map, nav_override=nav), *_concentration_rebalance(alert_concentration)]
     as_of = _view_as_of()
     data_as_of_min = str(positions["as_of"].min())
     data_as_of_max = str(positions["as_of"].max())
-    stress_rows = _records(stress_loss(calc_positions, factor_map, limits.get("stress_tests", {}), limits))
+    stress_rows = _records(stress_loss(calc_positions, factor_map, limits.get("stress_tests", {}), limits, nav_override=nav))
     stress_rows = [row for row in stress_rows if "crypto" not in str(row.get("scenario") or "").lower()]
     metrics = {
         "total_nav": nav,
-        **gross_exposure(calc_positions, limits),
-        **negative_cash_ratio(calc_positions, limits),
+        **gross_exposure(calc_positions, limits, nav_override=nav),
+        **negative_cash_ratio(calc_positions, limits, nav_override=nav),
         "red_alerts": sum(1 for a in all_alerts if a["level"] == "red"),
         "yellow_alerts": sum(1 for a in all_alerts if a["level"] == "yellow"),
     }
-    account_rows = _records(account_weight(calc_positions, limits))
-    position_rows = _records(position_weight(calc_positions, limits))
-    factor_rows = _records(factor_exposure(calc_positions, factor_map, limits))
+    account_rows = _records(account_weight(calc_positions, limits, nav_override=nav))
+    position_rows = _records(position_weight(calc_positions, limits, nav_override=nav))
+    factor_rows = _records(factor_exposure(calc_positions, factor_map, limits, nav_override=nav))
     ibkr_performance = _latest_ibkr_performance()
     risk_tasks = _build_risk_tasks(
         all_alerts,
@@ -1872,6 +1869,14 @@ def build_risk_state() -> dict[str, Any]:
         ibkr_performance=ibkr_performance,
         metrics=metrics,
     )
+    if valuation_meta and valuation_meta.get("reconciliation_status") == "unexplained":
+        risk_tasks["data_check"].append(_manual_data_task(
+            task_id="data_check:valuation_unexplained",
+            title="资产净值差额待核对",
+            message="已发布净值与已知持仓存在未解释差额；不能将差额归类为现金或负债。",
+            recommendation="核对账户范围、来源和估值构成后再判断完整风险敞口。",
+            as_of=as_of,
+        ))
     terminal_summary = _risk_summary_payload(
         nav=nav,
         metrics=metrics,
@@ -1895,7 +1900,7 @@ def build_risk_state() -> dict[str, Any]:
         stress_rows=stress_rows,
     )
     return {
-        "status": "ok",
+        "status": "review" if valuation_meta and valuation_meta.get("reconciliation_status") == "unexplained" else "ok",
         "as_of": as_of,
         "coverage_start": data_as_of_min,
         "coverage_end": data_as_of_max,

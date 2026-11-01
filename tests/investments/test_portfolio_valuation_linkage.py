@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,40 +88,33 @@ def test_apply_published_valuation_state_to_summary_skips_stale_state():
     assert out["valuation_state"]["target_as_of"] == "2026-06-19"
 
 
-def test_positions_reconciled_to_published_nav_adds_transparent_denominator_row():
-    positions = pd.DataFrame(
-        [
-            {
-                "account_code": "broker",
-                "account_name": "Broker",
-                "asset_id": "QQQ",
-                "asset_name": "QQQ",
-                "asset_type": "us_stock",
-                "market_value_cny": 100.0,
-            }
-        ]
-    )
+@pytest.mark.parametrize("target,adjustment", [(150.0, 50.0), (50.0, -50.0), (100.0, 0.0)])
+def test_published_nav_keeps_unexplained_difference_out_of_exposure(target, adjustment):
+    from domain.risk.core.risk_engine import gross_exposure, negative_cash_ratio, position_weight
+    positions = pd.DataFrame([{"as_of": "2026-06-18", "account_code": "broker", "asset_id": "QQQ",
+                               "asset_name": "QQQ", "asset_type": "us_stock", "market_value_cny": 100.0}])
+    out, nav, meta = _positions_reconciled_to_published_nav(positions, {}, {
+        "valuation_date": date(2026, 6, 18), "cycle": "manual_publish", "status": "published",
+        "data_completeness": "complete", "net_liquidation_value": target,
+        "assets_cny": target, "liabilities_cny": 0.0})
+    assert nav == target and meta["raw_positions_nav_cny"] == 100.0
+    assert meta["nav_reconciliation_cny"] == adjustment
+    assert meta["reconciliation_status"] == ("matched" if adjustment == 0 else "unexplained")
+    assert set(out["asset_id"]) == {"QQQ"}
+    assert gross_exposure(out, {}, nav_override=nav)["gross_exposure_ratio"] == pytest.approx(100 / target)
+    assert negative_cash_ratio(out, {}, nav_override=nav)["negative_cash_cny"] == 0
+    assert position_weight(out, {}, nav_override=nav).iloc[0]["position_weight"] == pytest.approx(100 / target)
 
-    out, nav, meta = _positions_reconciled_to_published_nav(
-        positions,
-        {},
-        {
-            "valuation_date": date(2026, 6, 18),
-            "cycle": "manual_publish",
-            "status": "published",
-            "data_completeness": "complete",
-            "net_liquidation_value": 150.0,
-            "assets_cny": 150.0,
-            "liabilities_cny": 0.0,
-        },
-    )
 
-    assert nav == 150.0
-    assert meta["raw_positions_nav_cny"] == 100.0
-    assert meta["nav_reconciliation_cny"] == 50.0
-    adjustment = out.loc[out["asset_id"] == "VALUATION_STATE_ADJUSTMENT"].iloc[0]
-    assert adjustment["asset_type"] == "cash"
-    assert adjustment["market_value_cny"] == 50.0
+@pytest.mark.parametrize("value,completeness", [("NaN", "complete"), (100, "partial")])
+def test_incomplete_or_invalid_published_valuation_is_unavailable(value, completeness):
+    positions = pd.DataFrame([{"as_of": "2026-06-18", "account_code": "broker", "asset_id": "QQQ",
+                               "asset_name": "QQQ", "asset_type": "us_stock", "market_value_cny": 100.0}])
+    _, _, meta = _positions_reconciled_to_published_nav(positions, {}, {
+        "valuation_date": date(2026, 6, 18), "status": "published",
+        "data_completeness": completeness, "net_liquidation_value": value})
+    assert meta["reconciliation_status"] == "unavailable"
+    assert meta["exposure_scope_status"] == "incomplete"
 
 
 def test_positions_reconciled_to_published_nav_skips_stale_state():

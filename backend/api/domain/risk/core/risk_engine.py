@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pandas as pd
@@ -81,46 +82,46 @@ def total_nav(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None
     return float(df["market_value_cny"].sum())
 
 
-def gross_exposure(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None) -> dict[str, float]:
+def gross_exposure(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None, *, nav_override: float | None = None) -> dict[str, float | None]:
     """Calculate non-cash gross exposure and its ratio to total NAV."""
     df = ensure_positions(positions, risk_limits)
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
     risky = ~df["is_cash"] & ~df["is_liability"]
     gross_cny = float(df.loc[risky, "market_value_cny"].abs().sum())
     return {
         "gross_exposure_cny": gross_cny,
-        "gross_exposure_ratio": gross_cny / nav if nav > 0 else 0.0,
+        "gross_exposure_ratio": gross_cny / nav if math.isfinite(nav) and nav > 0 else None,
     }
 
 
-def negative_cash_ratio(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None) -> dict[str, float]:
+def negative_cash_ratio(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None, *, nav_override: float | None = None) -> dict[str, float | None]:
     """Calculate the negative cash balance ratio relative to total NAV."""
     df = ensure_positions(positions, risk_limits)
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
     neg_cash_cny = float(df.loc[df["is_cash"] & (df["market_value_cny"] < 0), "market_value_cny"].abs().sum())
     return {
         "negative_cash_cny": neg_cash_cny,
-        "negative_cash_ratio": neg_cash_cny / nav if nav > 0 else 0.0,
+        "negative_cash_ratio": neg_cash_cny / nav if math.isfinite(nav) and nav > 0 else None,
     }
 
 
-def account_weight(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None) -> pd.DataFrame:
+def account_weight(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None, *, nav_override: float | None = None) -> pd.DataFrame:
     """Calculate account-level NAV weights in CNY."""
     df = ensure_positions(positions, risk_limits)
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
     grouped = (
         df.groupby(["account_code", "account_name"], dropna=False)["market_value_cny"]
         .sum()
         .reset_index(name="account_value_cny")
     )
-    grouped["account_weight"] = grouped["account_value_cny"] / nav if nav > 0 else 0.0
+    grouped["account_weight"] = grouped["account_value_cny"] / nav if math.isfinite(nav) and nav > 0 else None
     return grouped.sort_values("account_value_cny", ascending=False, ignore_index=True)
 
 
-def position_weight(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None) -> pd.DataFrame:
+def position_weight(positions: pd.DataFrame, risk_limits: dict[str, Any] | None = None, *, nav_override: float | None = None) -> pd.DataFrame:
     """Calculate single-asset weights in CNY, excluding cash-like assets."""
     df = ensure_positions(positions, risk_limits)
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
     non_cash = df.loc[~df["is_cash"] & ~df["is_liability"]].copy()
     if non_cash.empty:
         return pd.DataFrame(
@@ -132,7 +133,7 @@ def position_weight(positions: pd.DataFrame, risk_limits: dict[str, Any] | None 
         .sum()
         .reset_index(name="position_value_cny")
     )
-    grouped["position_weight"] = grouped["position_value_cny"].abs() / nav if nav > 0 else 0.0
+    grouped["position_weight"] = grouped["position_value_cny"].abs() / nav if math.isfinite(nav) and nav > 0 else None
     return grouped.sort_values("position_weight", ascending=False, ignore_index=True)
 
 
@@ -140,18 +141,18 @@ def factor_exposure(
     positions: pd.DataFrame,
     factor_map: dict[str, Any],
     risk_limits: dict[str, Any] | None = None,
-) -> pd.DataFrame:
+    *, nav_override: float | None = None) -> pd.DataFrame:
     """Calculate aggregate factor exposure ratios in CNY."""
     df = ensure_positions(positions, risk_limits)
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
     rows = factor_exposure_rows(df.loc[~df["is_liability"]].copy(), factor_map)
     if not rows:
         return pd.DataFrame(columns=["factor", "exposure_cny", "exposure_ratio"])
 
     expanded = pd.DataFrame(rows)
     grouped = expanded.groupby("factor", dropna=False)["exposure_cny"].sum().reset_index()
-    grouped["exposure_ratio"] = grouped["exposure_cny"] / nav if nav > 0 else 0.0
-    grouped["abs_exposure_ratio"] = grouped["exposure_ratio"].abs()
+    grouped["exposure_ratio"] = grouped["exposure_cny"] / nav if math.isfinite(nav) and nav > 0 else None
+    grouped["abs_exposure_ratio"] = grouped["exposure_ratio"].abs() if math.isfinite(nav) and nav > 0 else None
     return grouped.sort_values("abs_exposure_ratio", ascending=False, ignore_index=True)
 
 
@@ -160,10 +161,10 @@ def stress_loss(
     factor_map: dict[str, Any],
     stress_tests: dict[str, Any],
     risk_limits: dict[str, Any] | None = None,
-) -> pd.DataFrame:
+    *, nav_override: float | None = None) -> pd.DataFrame:
     """Estimate scenario losses from factor shocks; positive loss means NAV declines."""
     df = ensure_positions(positions, risk_limits)
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
     scenario_rows: list[dict[str, Any]] = []
 
     scenario_df = df.loc[~df["is_liability"]].copy()
@@ -181,7 +182,7 @@ def stress_loss(
                 "scenario": scenario_id,
                 "label": scenario.get("label", scenario_id) if isinstance(scenario, dict) else scenario_id,
                 "loss_cny": loss_cny,
-                "loss_ratio": loss_cny / nav if nav > 0 else 0.0,
+                "loss_ratio": loss_cny / nav if math.isfinite(nav) and nav > 0 else None,
                 "pnl_cny": pnl_cny,
             }
         )
@@ -200,7 +201,7 @@ def _threshold_level(value: float, threshold: dict[str, Any] | None) -> str:
     return "green"
 
 
-def _alert(rule: str, level: str, metric: float, threshold: float | None, message: str) -> dict[str, Any]:
+def _alert(rule: str, level: str, metric: float | None, threshold: float | None, message: str) -> dict[str, Any]:
     return {
         "rule": rule,
         "level": level,
@@ -214,13 +215,16 @@ def risk_alerts(
     positions: pd.DataFrame,
     risk_limits: dict[str, Any],
     factor_map: dict[str, Any],
-) -> list[dict[str, Any]]:
+    *, nav_override: float | None = None) -> list[dict[str, Any]]:
     """Generate red/yellow/green alerts from configured portfolio risk limits."""
     df = ensure_positions(positions, risk_limits)
     limits = risk_limits.get("limits", {}) or {}
     alerts: list[dict[str, Any]] = []
 
-    nav = total_nav(df, risk_limits)
+    nav = total_nav(df, risk_limits) if nav_override is None else nav_override
+    if not math.isfinite(nav) or nav <= 0:
+        return [_alert("total_nav", "red", nav if math.isfinite(nav) else None, 0,
+                       "Total NAV is non-positive or unavailable; risk ratios cannot be calculated")]
     alerts.append(
         _alert(
             "total_nav",
@@ -231,36 +235,40 @@ def risk_alerts(
         )
     )
 
-    gross = gross_exposure(df, risk_limits)
+    gross = gross_exposure(df, risk_limits, nav_override=nav)
+    gross_ratio = gross["gross_exposure_ratio"]
+    assert gross_ratio is not None  # positive finite NAV was checked above
     gross_limit = limits.get("gross_exposure", {})
-    level = _threshold_level(gross["gross_exposure_ratio"], gross_limit)
+    level = _threshold_level(gross_ratio, gross_limit)
     alerts.append(
         _alert(
             "gross_exposure",
             level,
-            gross["gross_exposure_ratio"],
+            gross_ratio,
             gross_limit.get(level) if level != "green" else gross_limit.get("yellow"),
-            f"Gross exposure is {gross['gross_exposure_ratio']:.2%}",
+            f"Gross exposure is {gross_ratio:.2%}",
         )
     )
 
-    neg_cash = negative_cash_ratio(df, risk_limits)
+    neg_cash = negative_cash_ratio(df, risk_limits, nav_override=nav)
+    neg_cash_ratio = neg_cash["negative_cash_ratio"]
+    assert neg_cash_ratio is not None  # positive finite NAV was checked above
     neg_cash_limit = limits.get("negative_cash_ratio", {})
-    level = _threshold_level(neg_cash["negative_cash_ratio"], neg_cash_limit)
+    level = _threshold_level(neg_cash_ratio, neg_cash_limit)
     alerts.append(
         _alert(
             "negative_cash_ratio",
             level,
-            neg_cash["negative_cash_ratio"],
+            neg_cash_ratio,
             neg_cash_limit.get(level) if level != "green" else neg_cash_limit.get("yellow"),
-            f"Negative cash ratio is {neg_cash['negative_cash_ratio']:.2%}",
+            f"Negative cash ratio is {neg_cash_ratio:.2%}",
         )
     )
 
     account_limits = limits.get("account_weight", {}) or {}
     default_account_limit = account_limits.get("default", {})
     account_overrides = account_limits.get("by_account", {}) or {}
-    account_rows = account_weight(df, risk_limits)
+    account_rows = account_weight(df, risk_limits, nav_override=nav)
     emitted_account = False
     for _, row in account_rows.iterrows():
         account_code = str(row["account_code"])
@@ -283,7 +291,7 @@ def risk_alerts(
     position_limits = limits.get("position_weight", {}) or {}
     default_position_limit = position_limits.get("default", {})
     type_overrides = position_limits.get("by_asset_type", {}) or {}
-    position_rows = position_weight(df, risk_limits)
+    position_rows = position_weight(df, risk_limits, nav_override=nav)
     emitted_position = False
     for _, row in position_rows.iterrows():
         asset_type = str(row["asset_type"]).lower()
@@ -304,7 +312,7 @@ def risk_alerts(
         alerts.append(_alert("position_weight", "green", 0.0, default_position_limit.get("yellow"), "Single-asset weights are within limits"))
 
     factor_limits = limits.get("factor_exposure", {}) or {}
-    factor_rows = factor_exposure(df, factor_map, risk_limits)
+    factor_rows = factor_exposure(df, factor_map, risk_limits, nav_override=nav)
     emitted_factor = False
     for _, row in factor_rows.iterrows():
         factor = str(row["factor"])
@@ -327,7 +335,7 @@ def risk_alerts(
     if not emitted_factor:
         alerts.append(_alert("factor_exposure", "green", 0.0, None, "Factor exposures are within limits"))
 
-    stress_rows = stress_loss(df, factor_map, risk_limits.get("stress_tests", {}), risk_limits)
+    stress_rows = stress_loss(df, factor_map, risk_limits.get("stress_tests", {}), risk_limits, nav_override=nav)
     stress_limit = limits.get("stress_loss", {})
     emitted_stress = False
     for _, row in stress_rows.iterrows():
@@ -353,10 +361,10 @@ def rebalance_suggestions(
     positions: pd.DataFrame,
     risk_limits: dict[str, Any],
     factor_map: dict[str, Any],
-) -> list[dict[str, Any]]:
+    *, nav_override: float | None = None) -> list[dict[str, Any]]:
     """Create simple V0 rebalance suggestions from non-green alerts."""
     suggestions: list[dict[str, Any]] = []
-    for alert in risk_alerts(positions, risk_limits, factor_map):
+    for alert in risk_alerts(positions, risk_limits, factor_map, nav_override=nav_override):
         if alert["level"] == "green":
             continue
         threshold = alert.get("threshold")
