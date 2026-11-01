@@ -26,6 +26,12 @@ await context.route('**/*',async route=>{
   assert.ok(p.startsWith('/api/account-import/')); calls.push([req.method(),p]);
   if(p.endsWith('/capabilities')) return send(caps);
   if(p.endsWith('/context')) return send({accounts,counter_accounts:[{account_code:'bank',display_name:'银行账户'}]});
+  if(p.endsWith('/detect')) {
+   const name=url.searchParams.get('filename'), account=url.searchParams.get('account_code');
+   if(name==='ambiguous.csv'||name==='empty.png') return send({kind:null,status:'unknown'});
+   if(name==='wrong.xls') return send({kind:null,status:'mismatch'});
+   return send({kind:account==='bank'?'cash':name==='holding.xlsx'?'holding':'trade',status:'detected'});
+  }
   if(p.endsWith('/assets')) return send({rows:[{asset_id:'a',symbol:'600001',name:'合成标的',asset_type:'stock',currency:'CNY'}]});
   if(p.endsWith('/batches') && req.method()==='GET') return send({rows:[...extraHistory,...(batch&&batch.status!=='voided'?[batch]:[])]});
   if(p.endsWith('/batches') && req.method()==='POST') {batch={batch_id:'b',revision:1,status:'draft',rows:[],files:[],...req.postDataJSON()};return send(batch);}
@@ -95,14 +101,25 @@ try {
  await page.getByText('模板解析成功，已识别 1 条；请继续核对。',{exact:true}).waitFor();
  reset();mismatchTemplate=true;await open();await page.locator('#files').setInputFiles({name:'unknown.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});await ready();
  await page.getByText('模板未匹配或识别不完整，请核对账户、文件或配置字段。',{exact:true}).waitFor();
+ reset();await open();assert.equal(await page.locator('#kind-prompt').isHidden(),true);
+ await page.locator('#files').setInputFiles({name:'ambiguous.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});
+ await page.locator('#kind-prompt').waitFor();assert.equal(batch,null);
+ await page.locator('#kind').selectOption('holding');await ready();
+ await page.getByText('模板解析成功，请核对原始凭证和识别结果。',{exact:true}).waitFor();assert.equal(batch.kind,'holding');
+ reset();await open();await page.locator('#files').setInputFiles({name:'holding.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('synthetic')});
+ await page.getByText('模板解析成功，请核对原始凭证和识别结果。',{exact:true}).waitFor();assert.equal(batch.kind,'holding');assert.equal(await page.locator('#kind-prompt').isHidden(),true);
+ reset();await open();await page.locator('#files').setInputFiles({name:'wrong.xls',mimeType:'application/vnd.ms-excel',buffer:Buffer.from('synthetic')});
+ await page.getByText('模板不匹配，请检查所选账户和文件格式。',{exact:true}).waitFor();assert.equal(batch,null);
+ reset();await open();await page.locator('#files').setInputFiles([{name:'holding.xlsx',mimeType:'application/octet-stream',buffer:Buffer.from('one')},{name:'trade.csv',mimeType:'text/csv',buffer:Buffer.from('two')}]);
+ await page.getByText('文件包含不同资料类别，请分别新建批次导入。',{exact:true}).waitFor();assert.equal(batch,null);
  reset();extraHistory=[{batch_id:'p',account_code:'ths',status:'published',revision:1}];await open();
- await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
+ await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
  await page.getByRole('heading',{name:'批次草稿'}).waitFor();await page.getByRole('heading',{name:'已录入批次'}).waitFor();
  assert.equal(await page.getByRole('button',{name:'删除草稿'}).count(),1);
  page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'删除草稿'}).click();await ready();
  assert.equal(batch.status,'voided');await page.getByText('暂无批次草稿',{exact:true}).waitFor();
  assert.equal(await page.getByRole('heading',{name:'已录入批次'}).count(),1);assert.equal(publishes,0);
- reset();await open();await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
+ reset();await open();await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#save-draft').click();await ready();await page.locator('#history>summary').click();await page.locator('#refresh-history').click();await ready();
  voidLostResponse=true;page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'删除草稿'}).click();
  await page.locator('#pending-result').waitFor();assert.equal(batch.status,'voided');
  await page.getByRole('button',{name:'删除草稿'}).click();
@@ -114,8 +131,9 @@ try {
  for(const width of [320,390,1280]) {
   await page.setViewportSize({width,height:844});reset();await open();
   assert.equal(await page.locator('nav').count(),0);
-  await page.locator('#kind').selectOption('cash');assert.deepEqual(await page.locator('#account option').evaluateAll(nodes=>nodes.map(n=>n.value)),['bank']);
-  await page.locator('#kind').selectOption('trade');await page.locator('#mode-manual').click();await page.locator('#add-row').click();
+  assert.deepEqual(await page.locator('#account option').evaluateAll(nodes=>nodes.map(n=>n.value)),['ths','licai','bank']);
+  await page.locator('#account').selectOption('bank');assert.equal(await page.locator('#kind').inputValue(),'cash');
+  await page.locator('#account').selectOption('ths');await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#add-row').click();
   await page.locator('#field-business_date').fill('2026-10-20');await page.locator('#field-symbol').fill('600001');await page.locator('#field-name').fill('手动<img src=x onerror=alert(1)>');
   await page.locator('#field-action').selectOption('buy');await page.locator('#field-fee_scope').selectOption('separate');
   for(const [key,value] of Object.entries({quantity:'1',price:'10.0100',gross_amount:'10.0100',fee_amount:'0',tax_amount:'0',net_cash:'-10.0100'})) await page.locator('#field-'+key).fill(value);
@@ -142,17 +160,18 @@ try {
   await page.getByRole('button',{name:'排除此条',exact:true}).click();await ready();assert.equal(batch.rows[0].excluded,true);assert.equal(publishes,0);
   reports.push({width,manual:true,ocr_images:2,ocr_records:4,file_readonly:true,layout_overflow:false,publishes});
  }
- reset();await open();await page.locator('#kind').selectOption('cash');await page.locator('#files').setInputFiles({name:'bank.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic separate balance')});
+ reset();await open();await page.locator('#account').selectOption('bank');await page.locator('#files').setInputFiles({name:'bank.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic separate balance')});
  await page.waitForFunction(()=>document.getElementById('file-list').querySelector('a')&&!document.getElementById('workspace').inert);await page.locator('#next').click();await page.locator('#review').waitFor();await ready();
  await page.getByRole('heading',{name:'账单流水',exact:true}).waitFor();await page.getByRole('heading',{name:'期末余额 · 独立确认',exact:true}).waitFor();assert.equal(batch.rows[1].excluded,true);assert.equal(publishes,0);await capture('bank-separate-balance');
  reset();caps.ocr_available=false;await open();await page.locator('#mode-ocr').click();await page.locator('#images').setInputFiles({name:'empty.png',mimeType:'image/png',buffer:Buffer.from('synthetic empty OCR')});
+ await page.locator('#kind-prompt').waitFor();await page.locator('#kind').selectOption('trade');
  await page.waitForFunction(()=>document.getElementById('file-list').querySelector('a')&&!document.getElementById('workspace').inert);
  await page.locator('#next').click();await page.locator('#image-review').waitFor();await ready();assert.equal(batch.rows.length,0);
  await page.getByText('本图未识别出记录，请对照原图补充；空图不能确认。',{exact:true}).waitFor();await page.locator('#confirm-image').click();await ready();assert.equal(await page.locator('#image-review').isVisible(),true);assert.equal(publishes,0);
  await page.getByRole('button',{name:'补充本图记录',exact:true}).click();await page.locator('#field-business_date').fill('2026-10-20');await page.locator('#field-symbol').fill('600001');await page.locator('#field-action').selectOption('buy');await save();
  assert.equal(batch.rows[0].source.file_id,'f1');assert.equal(batch.rows[0].source.origin,'ocr');await page.locator('#confirm-image').click();await page.locator('#review').waitFor();await ready();assert.equal(batch.rows[0].acknowledged,true);assert.equal(publishes,0);
  await page.goBack();await page.locator('#image-review').waitFor();assert.equal(batch.rows.length,1);
- reset();caps.publish_enabled=true;await open();await page.locator('#mode-manual').click();await page.locator('#add-row').click();await page.locator('#field-business_date').fill('2026-10-20');await page.locator('#field-action').selectOption('buy');await save();
+ reset();caps.publish_enabled=true;await open();await page.locator('#mode-manual').click();await page.locator('#kind').selectOption('trade');await page.locator('#add-row').click();await page.locator('#field-business_date').fill('2026-10-20');await page.locator('#field-action').selectOption('buy');await save();
  await page.locator('#next').click();await page.locator('#review').waitFor();await ready();await page.locator('#publish').click();await page.waitForFunction(()=>document.getElementById('batch-meta').textContent.includes('已录入'));assert.equal(publishes,1);assert.equal(await page.locator('#add-row').isDisabled(),true);
  assert.deepEqual(errors,[]);console.log(JSON.stringify({reports,errors,productionRequests:0}));
 } finally {await browser.close();}

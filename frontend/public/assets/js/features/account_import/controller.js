@@ -1,6 +1,6 @@
 import { ROOT, KIND_TEXT, DECIMALS, LABELS, TEXT, accessState, fileFormat, previewFields, displayAssetType, recordEditable, publishable } from './contract.js?v=20261031-modules-v1';
 import { createImportClient } from './client.js?v=20261031-modules-v1';
-import { createRequestScope } from './request_scope.js?v=20261031-modules-v1';
+import { createRequestScope } from './request_scope.js?v=20261101-auto-kind';
 import { createRecordsEditor } from './records_editor.js?v=20261031-modules-v1';
 import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
 
@@ -26,7 +26,9 @@ export function mount(root, context = {}) {
     cleanup.push(remove);
     return remove;
   }
-  const state = context.snapshot ? structuredClone(context.snapshot.state) : { caps: null, accounts: [], counterAccounts: [], batch: null, preview: null, step: 1, mode: 'upload', imageIndex: null, dirty: false, busy: false, conflict: false, edit: null, buffer: null, suspended: null, mappings: new Map(), historyRows: [], initialized: false, needsRefresh: false };
+  const state = context.snapshot ? structuredClone(context.snapshot.state) : { caps: null, accounts: [], counterAccounts: [], batch: null, preview: null, step: 1, mode: 'upload', imageIndex: null, dirty: false, busy: false, conflict: false, edit: null, buffer: null, suspended: null, mappings: new Map(), historyRows: [], initialized: false, needsRefresh: false, needsKind: false };
+  let pendingSelection = null;
+  let detecting = false;
   const el = (tag, text, cls) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = String(text); if (cls) node.className = cls; return node; };
   const message = text => { $('notice').textContent = text; };
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
@@ -93,19 +95,30 @@ export function mount(root, context = {}) {
     state.accounts = context.accounts || [];
     state.counterAccounts = context.counter_accounts || [];
     const query = new URLSearchParams(location.search);
-    if (!state.batch && ['trade','holding','cash'].includes(query.get('kind'))) $('kind').value = query.get('kind');
+    const requestedKind = ['trade','holding','cash'].includes(query.get('kind')) ? query.get('kind') : '';
     renderAccounts(state.batch?.account_code || query.get('account'));
+    if (!state.batch && requestedKind && !query.get('account') && !(account()?.kinds || []).includes(requestedKind)) {
+      const compatible = state.accounts.find(item => (item.kinds || []).includes(requestedKind));
+      if (compatible) $('account').value = compatible.account_code;
+    }
     if (!state.batch && query.get('mode') === 'manual') state.mode = 'manual';
+    if (!state.batch) configureKind(requestedKind);
     if (!state.accounts.length) message('没有可用的导入账户。');
     const limits = state.caps.limits || {};
     $('file-limits').textContent = [state.caps.ocr_available ? '截图识别可用' : '截图识别不可用', ...Object.entries(limits).map(([key, value]) => `${({ files: '文件上限', file_bytes: '单文件字节上限', batch_bytes: '批次字节上限', rows: '记录上限', max_files: '文件上限', max_file_bytes: '单文件字节上限', max_rows: '记录上限' })[key] || key}：${value}`)].join(' · ');
     await history(); state.initialized = true; render();
   }
   function renderAccounts(preferred = $('account').value) {
-    const available = state.accounts.filter(a => (a.kinds || ['trade','holding','cash']).includes($('kind').value));
+    const available = state.accounts;
     $('account').replaceChildren(...available.map(a => new Option(a.label || a.account_code, a.account_code)));
     if (available.some(a => a.account_code === preferred)) $('account').value = preferred;
-    if (!available.length) message('此类别暂无已配置账户。');
+    if (!available.length) message('没有可用的导入账户。');
+  }
+  function configureKind(preferred = '') {
+    const allowed = account()?.kinds || [];
+    for (const option of $('kind').options) if (option.value) option.disabled = !allowed.includes(option.value);
+    $('kind').value = allowed.includes(preferred) ? preferred : allowed.length === 1 ? allowed[0] : '';
+    state.needsKind = state.mode === 'manual' && !$('kind').value;
   }
   function renderControls() {
     const locked = state.busy || state.conflict || state.needsRefresh || !editable() || !state.accounts.length;
@@ -123,6 +136,7 @@ export function mount(root, context = {}) {
     $('refresh-result').disabled = state.busy;
     $('pending-result').hidden = !state.needsRefresh;
     $('new-batch').disabled = state.busy || state.needsRefresh;
+    if (!state.batch && !$('kind').value) { $('add-row').disabled = true; $('save-draft').disabled = true; }
     $('save-draft').textContent = state.busy ? '处理中…' : '保存草稿';
   }
   function render() {
@@ -136,6 +150,7 @@ export function mount(root, context = {}) {
     for (const id of ['back', 'publish']) $(id).hidden = state.step !== 2 || imageReview;
     for (const id of ['previous-image','confirm-image']) $(id).hidden = !imageReview;
     $('upload-area').hidden = state.mode !== 'upload';
+    $('kind-prompt').hidden = !state.needsKind;
     $('screenshot-area').hidden = state.mode !== 'ocr';
     $('ocr-status').textContent = state.caps?.ocr_available ? '' : '截图识别当前不可用';
     for (const mode of ['upload', 'ocr', 'manual']) $(`mode-${mode}`).setAttribute('aria-pressed', String(state.mode === mode));
@@ -269,15 +284,16 @@ export function mount(root, context = {}) {
   }
   function useBatch(batch) {
     if (!confirmRecovery(batch)) { state.needsRefresh = true; message(recoveryNotice()); renderControls(); return false; }
-    state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false;
+    state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false; state.needsKind = false; pendingSelection = null;
     state.mappings.clear();
-    $('conflict').hidden = true; $('kind').value = batch.kind; renderAccounts(batch.account_code);
+    $('conflict').hidden = true; renderAccounts(batch.account_code); configureKind(batch.kind); state.needsKind = false;
     $('completeness').value = batch.completeness || 'partial'; state.mode = batch.mode === 'manual' ? 'manual' : images().length ? 'ocr' : 'upload'; render();
     return true;
   }
   async function ensureBatch() {
     if (state.batch) return;
     if (!account()) throw new Error('请选择服务端配置的投资账户');
+    if (!$('kind').value || !(account().kinds || []).includes($('kind').value)) throw new Error('请先确认资料类别。');
     state.batch = await api('/batches', 'POST', { account_code: account().account_code, mode: state.mode === 'manual' ? 'manual' : 'upload', kind: $('kind').value, completeness: $('completeness').value });
     render();
   }
@@ -291,16 +307,50 @@ export function mount(root, context = {}) {
     }
     message('草稿已保存，尚未发布。'); render();
   }
-  async function upload(files) {
+  async function upload(files, selectedKind = '', previouslyDetected = []) {
     if (!files.length) return;
     if (state.suspended) throw new Error('请先继续并保存未完成的编辑，文件尚未上传。');
-    const formats = files.map(file => fileFormat(file.name, $('kind').value));
+    if (!account()) throw new Error('请先选择账户。');
+    const formats = files.map(file => fileFormat(file.name, 'cash'));
     if (state.mode === 'ocr' && formats.some(format => !['png','jpg','jpeg'].includes(format))) throw new Error('截图识别仅接收 PNG、JPG、JPEG');
     if (state.mode === 'upload' && formats.some(format => ['png','jpg','jpeg'].includes(format))) throw new Error('请在截图识别方式中选择图片');
     const limits = state.caps.limits || {};
     const maxFiles = limits.files ?? limits.max_files, maxBytes = limits.file_bytes ?? limits.max_file_bytes;
     if (maxFiles && files.length + (state.batch?.files?.length || 0) > maxFiles) throw new Error('文件数量超过服务端上限');
     if (maxBytes && files.some(file => file.size > maxBytes)) throw new Error('文件大小超过服务端上限');
+    let detected = previouslyDetected;
+    if (!selectedKind) {
+      detected = [];
+      detecting = true;
+      try {
+        for (const file of files) {
+          message(`正在识别 ${file.name} 的资料类别…`);
+          detected.push(await api(`/detect?account_code=${encodeURIComponent(account().account_code)}&filename=${encodeURIComponent(file.name)}`, 'POST', file, true));
+        }
+      } finally { detecting = false; }
+    }
+    if (detected.some(result => !result || !['detected', 'account_kind', 'unknown', 'mismatch'].includes(result.status))) throw new Error('资料类别识别结果不可用，请重试。');
+    if (detected.some(result => result.status === 'mismatch')) throw new Error('模板不匹配，请检查所选账户和文件格式。');
+    const known = [...new Set(detected.map(result => result.kind).filter(Boolean))];
+    if (known.length > 1) throw new Error('文件包含不同资料类别，请分别新建批次导入。');
+    const allowed = account().kinds || [];
+    if (known.some(kind => !allowed.includes(kind))) throw new Error('文件类别与所选账户不匹配，请核对账户。');
+    const uncertain = detected.some(result => !result.kind);
+    if (!selectedKind && uncertain && !state.batch && allowed.length > 1) {
+      pendingSelection = {files, detected}; state.needsKind = true; $('kind').value = '';
+      render(); message(state.mode === 'ocr' ? '无法可靠识别截图类别，请选择后继续；文件尚未上传。'
+        : '未能匹配模板或识别资料类别，请核对账户和文件；如需继续请选择类别。文件尚未上传。'); return;
+    }
+    let kind = selectedKind || known[0] || (allowed.length === 1 ? allowed[0] : state.batch?.kind);
+    if (!kind || !allowed.includes(kind) || known.some(value => value !== kind)) {
+      throw new Error('文件类别与所选类别不一致，请分别导入。');
+    }
+    if (state.batch && kind !== state.batch.kind) {
+      if (emptyDraft()) { state.batch = null; state.preview = null; state.mappings.clear(); }
+      else throw new Error('文件类别与当前批次不同，请新建批次后导入。');
+    }
+    if (!selectedKind && uncertain && state.batch && !window.confirm(`无法识别文件类别。确认按当前批次的${KIND_TEXT[state.batch.kind]}资料继续？`)) return;
+    $('kind').value = kind; state.needsKind = false;
     await saveDraft();
     for (const file of files) {
       message(`正在识别 ${file.name}…`);
@@ -384,10 +434,25 @@ export function mount(root, context = {}) {
   listen($('retry'), 'click', () => run(start));
   for (const mode of ['upload', 'ocr', 'manual']) listen($(`mode-${mode}`), 'click', () => {
     if (state.batch?.rows?.length && mode !== state.mode) { message('请先保留当前草稿并新建批次，再选择另一种输入方式。'); return; }
-    state.mode = mode; render();
+    state.mode = mode; pendingSelection = null;
+    if (!state.batch && mode === 'manual' && !$('kind').value) {
+      state.needsKind = true; message('手动填写无法自动识别类别，请先选择资料类别。');
+    } else if (!state.batch) state.needsKind = false;
+    render();
   });
-  listen($('account'), 'change', () => { detachEmptyDraft(); render(); });
-  listen($('kind'), 'change', () => { detachEmptyDraft(); renderAccounts(); render(); });
+  listen($('account'), 'change', () => {
+    detachEmptyDraft(); pendingSelection = null; configureKind();
+    if (state.needsKind) message('手动填写无法自动识别类别，请先选择资料类别。');
+    render();
+  });
+  listen($('kind'), 'change', () => {
+    const selected = $('kind').value;
+    if (!selected || !(account()?.kinds || []).includes(selected)) return;
+    state.needsKind = false;
+    const pending = pendingSelection; pendingSelection = null; render();
+    if (pending) run(() => upload(pending.files, selected, pending.detected));
+    else message('已选择资料类别，可以继续。');
+  });
   listen($('completeness'), 'change', () => { if (state.batch) dirty(); render(); });
   listen($('files'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
   listen($('images'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
@@ -423,7 +488,7 @@ export function mount(root, context = {}) {
   listen($('refresh-history'), 'click', () => run(history));
   function clearCurrentBatch() {
     state.batch = null; state.preview = null; state.dirty = false; state.suspended = null; state.conflict = false; state.needsRefresh = false; state.step = 1; state.imageIndex = null;
-    state.mappings.clear();
+    state.mappings.clear(); pendingSelection = null; configureKind();
     $('conflict').hidden = true; $('completeness').value = 'partial';
   }
   listen($('new-batch'), 'click', () => {
@@ -520,7 +585,7 @@ export function mount(root, context = {}) {
       saved.imageIndex = null;
     }
     return { state: saved, recovery: scope.recovery, editorOpen: editorOpen && !saved.needsRefresh, editorState,
-      selectedAccount: $('account').value, kind: $('kind').value,
+      selectedAccount: $('account').value, kind: $('kind').value, detectionPending: detecting,
       completeness: $('completeness').value, filter: $('preview-filter').value,
       notice: $('notice').textContent, imageOpen: $('image-viewer').open,
       imageSource: $('full-image').getAttribute('src') };
@@ -542,12 +607,14 @@ export function mount(root, context = {}) {
     const saved = context.snapshot;
     $('kind').value = saved.kind;
     renderAccounts(saved.selectedAccount);
+    const lostSelection = saved.detectionPending || (state.needsKind && state.mode !== 'manual' && !state.batch);
+    if (lostSelection) { state.needsKind = false; if (!state.batch) $('kind').value = ''; }
     $('completeness').value = saved.completeness;
     $('preview-filter').value = saved.filter;
     renderAccess(); renderHistory();
     $('conflict').hidden = !state.conflict;
     if (state.step === 2 && state.imageIndex === null && state.preview) renderPreview(); else render();
-    message(state.needsRefresh ? recoveryNotice() : saved.notice);
+    message(state.needsRefresh ? recoveryNotice() : lostSelection ? '文件尚未上传，请重新选择文件后继续。' : saved.notice);
     if (saved.editorOpen && saved.editorState) openEditor(saved.editorState.index, saved.editorState);
     if (saved.imageOpen && saved.imageSource) { $('full-image').src = saved.imageSource; $('image-viewer').showModal(); }
   }

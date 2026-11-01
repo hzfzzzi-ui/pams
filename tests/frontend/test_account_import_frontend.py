@@ -44,7 +44,8 @@ def test_isolated_two_step_shell_and_existing_bank_link() -> None:
     assert 'id="review" aria-label="核对发布" hidden' in HTML
     assert 'id="ack-all"' not in HTML
     assert 'id="image-review"' in HTML and 'id="confirm-image"' in HTML
-    assert HTML.index('id="kind"') < HTML.index('id="account"')
+    assert HTML.index('id="account"') < HTML.index('id="kind"')
+    assert 'id="kind-prompt" hidden' in HTML
     assert 'type="module" src="assets/js/account_import.js?v=' in HTML
     assert 'aria-label="关闭记录编辑器"' in HTML
     assert "app-shell" in HTML and '<dialog id="editor"' in HTML

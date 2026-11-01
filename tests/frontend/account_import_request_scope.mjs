@@ -50,4 +50,12 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {
  assert.equal(scope.recovery.last.outcome,'unknown');assert.equal(scope.recovery.requiresReview,true);
  assert.equal(scope.hasPendingWrite(),false);scope.dispose();
 }
+{
+ const wait=deferred();let signal;
+ const scope=createRequestScope(async(path,method,body,raw,owned)=>{signal=owned;return wait.promise;});
+ const detection=scope.request('/detect?account_code=test&filename=sample.csv','POST',new Blob(['synthetic']),true);
+ assert.equal(scope.hasPendingWrite(),false);scope.dispose();assert.equal(signal.aborted,true);
+ wait.resolve({kind:'trade',status:'detected'});await assert.rejects(detection,e=>e.name==='AbortError');
+ assert.equal(scope.recovery.requiresReview,false);
+}
 console.log(JSON.stringify({readCancellation:true,externalSignal:true,lateSuppressed:true,writeNotAbortedOrRetried:true,conflictUnchanged:true,remountWriteBarrier:true,lateOutcomeMetadataOnly:true,unknownOutcomeBlocked:true}));

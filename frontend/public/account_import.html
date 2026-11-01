@@ -27,8 +27,8 @@
     </section>
     <main id="workspace" hidden>
       <section id="intake" aria-label="填写或识别">
-        <label for="kind">资料类别</label><select id="kind"><option value="trade">交易</option><option value="holding">持仓快照</option><option value="cash">账单</option></select>
         <label for="account">账户</label><select id="account" required></select>
+        <div id="kind-prompt" hidden><label for="kind">无法确定资料类别，请选择</label><select id="kind"><option value="">请选择</option><option value="trade">交易</option><option value="holding">持仓快照</option><option value="cash">账单</option></select></div>
         <div class="import-modes" role="group" aria-label="录入方式">
           <button id="mode-upload" type="button" aria-pressed="true">上传文件</button>
           <button id="mode-ocr" type="button" aria-pressed="false">截图识别</button>
@@ -91,6 +91,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261101-template-status"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261101-auto-kind"></script>
 </body>
 </html>
