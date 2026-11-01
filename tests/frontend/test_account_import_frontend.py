@@ -88,7 +88,7 @@ def test_decimal_values_remain_exact_strings_and_unknowns_stay_empty() -> None:
     assert "toFixed" not in JS and "new Date" not in JS
     assert "fields.tax_amount = null" in JS
     assert "total_charges" in JS and "手续费与税分列" in JS
-    assert "field('value-fields', 'counter_account_code', state.counterAccounts" in JS
+    assert "field('handling-fields', 'counter_account_code', state.counterAccounts" in JS
 
 
 def test_upload_formats_match_parser_and_include_tsv() -> None:

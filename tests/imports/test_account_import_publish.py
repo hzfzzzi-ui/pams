@@ -107,6 +107,53 @@ def native_batch(web):
     return batch, content
 
 
+def test_native_display_price_precision_preserves_reported_amounts(client):
+    from tests.imports.test_account_import_ths import event, export
+    web, params = client
+
+    def upload(*rows):
+        batch = web.post('/api/account-import/batches', json={
+            'account_code': 'tonghuashun', 'mode': 'upload', 'kind': 'trade'}).json()
+        response = web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=table.xls",
+                            content=export(*rows))
+        assert response.status_code == 200, response.text
+        batch = response.json()
+        saved = web.put(f"/api/account-import/batches/{batch['batch_id']}",
+                        json={'revision': batch['revision'], 'rows': batch['rows']})
+        assert saved.status_code == 200, saved.text
+        return saved.json()
+
+    common = {'成交数量': '123', '成交均价': '10.1240', '成交金额': '1245.300'}
+    batch = upload(event(**{**common, '发生金额': '-1248.400', '定位串': 'synthetic-buy'}),
+                   event('证券卖出', **{**common, '发生金额': '1241.600', '印花税': '0.600', '定位串': 'synthetic-sell'}))
+    check = preview(web, batch)
+    assert check['can_publish'] and check['counts']['blocked'] == 0, {k: v for k, v in check.items() if k != 'rows'}
+    assert publish(web, batch, check).status_code == 200
+    facts = sql(params, 'SELECT side,quantity,price,gross_amount,fee_amount,tax_amount,net_cash FROM pams_investment_trade_fact ORDER BY side')
+    assert [(f['side'], f['gross_amount'], f['net_cash']) for f in facts] == [
+        ('buy', Decimal('1245.300'), Decimal('-1248.400')),
+        ('sell', Decimal('1245.300'), Decimal('1241.600'))]
+    assert all(f['quantity'] == 123 and f['price'] == Decimal('10.1240') for f in facts)
+    assert [(f['fee_amount'], f['tax_amount']) for f in facts] == [(Decimal('3.100'), 0), (Decimal('3.100'), Decimal('0.600'))]
+
+    outside = upload(event(**{**common, '成交金额': '1245.400', '发生金额': '-1248.500', '定位串': 'synthetic-outside'}))
+    assert 'gross_mismatch' in issues(preview(web, outside))
+    bad_net = upload(event(**{**common, '发生金额': '-1248.500', '定位串': 'synthetic-bad-net'}))
+    assert 'net_mismatch' in issues(preview(web, bad_net))
+    manual = draft(web, [trade(quantity='123', price='10.1240', gross_amount='1245.300',
+                               fee_amount='3.100', net_cash='-1248.400')])
+    assert 'gross_mismatch' in issues(preview(web, manual))
+
+
+def test_ths_display_precision_has_bounded_rounding_interval():
+    from domain.imports.account_import_preflight import ths_display_price_matches
+    q, p = Decimal('100'), Decimal('10.1240')
+    assert ths_display_price_matches(q, p, Decimal('1012.350'))
+    assert not ths_display_price_matches(q, p, Decimal('1012.450'))
+    assert not ths_display_price_matches(q, Decimal('10.1241'), Decimal('1012.400'))
+    assert not ths_display_price_matches(Decimal(0), p, Decimal(0))
+
+
 def test_native_upload_initializes_missing_asset_from_source_evidence(client):
     from tests.imports.test_account_import_ths import event, export
     web, params = client

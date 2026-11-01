@@ -47,6 +47,9 @@ export function createRecordsEditor(context) {
     state.buffer = { ...(saved?.fields || row?.fields || { kind: $('kind').value, asset_type: account()?.default_asset_type || '', currency: account()?.currency || '', status: 'confirmed' }) };
     const checked = state.preview?.batch_id === state.batch.batch_id && state.preview?.revision === state.batch.revision ? state.preview.rows?.find(item => item.row_id === row?.row_id) : null;
     if (!saved && row && !state.buffer.asset_type && checked?.fields?.asset_type) state.buffer.asset_type = checked.fields.asset_type;
+    $('editor-title').textContent = recordEditable(row) ? '编辑记录' : '查看 / 处理记录';
+    $('editor-guidance').textContent = recordEditable(row) ? '可修改记录，或选择不发布此条。' :
+      '原始文件字段只读；可在此选择对手账户、处理重复或排除此条。需要改正原始字段时，请核对原文件或重新配置字段。';
     $('editor-account').textContent = account()?.label || state.batch.account_code;
     $('row-excluded').checked = !!(saved || row)?.excluded;
     $('row-excluded').disabled = !editable(); $('editor-error').textContent = '';
@@ -54,11 +57,12 @@ export function createRecordsEditor(context) {
     const source = row?.source, file = state.batch.files?.find(item => item.file_id === source?.file_id);
     $('row-evidence').replaceChildren(evidence(file, source));
     if (row?.issues?.length) $('row-evidence').append(el('p', issues(row.issues), 'import-warning'));
+    if (checked?.issues?.length) $('editor-guidance').append(` ${issues(checked.issues)}`);
     $('record-form').querySelector('[type="submit"]').hidden = !editable() || state.needsRefresh;
     state.suspended = null; render(); $('editor').showModal();
   }
   function renderFields() {
-    for (const id of ['identity-fields', 'asset-fields', 'value-fields', 'source-fields']) $(id).replaceChildren();
+    for (const id of ['handling-fields', 'identity-fields', 'asset-fields', 'value-fields', 'source-fields']) $(id).replaceChildren();
     state.buffer.kind = state.batch.kind;
     field('identity-fields', 'kind', [state.batch.kind]).disabled = true; field('identity-fields', 'business_date', null, 'date');
     const f = state.buffer, holding = f.kind === 'holding', cash = f.kind === 'cash' || (holding && f.asset_type === 'cash');
@@ -79,11 +83,11 @@ export function createRecordsEditor(context) {
     if (!holding && !cash) field('value-fields', 'fee_scope', ['total_charges', 'separate']);
     keys.filter(key => key !== 'tax_amount' || f.fee_scope === 'separate').forEach(key => field('value-fields', key));
     if (holding && !cash) field('value-fields', 'cost_basis_type', ['holding_cost', 'diluted_cost', 'unknown']);
-    if (['deposit', 'withdraw', 'transfer'].includes(f.action)) field('value-fields', 'counter_account_code', state.counterAccounts.filter(a => a.account_code !== state.batch.account_code).map(a => a.account_code));
+    if (['deposit', 'withdraw', 'transfer'].includes(f.action)) field('handling-fields', 'counter_account_code', state.counterAccounts.filter(a => a.account_code !== state.batch.account_code).map(a => a.account_code));
     field('source-fields', 'source_ref', null, 'text', true);
     field('source-fields', 'note', null, 'text', true);
     const rowIssues = [...(row?.issues || []), ...(state.preview?.rows?.find(item => item.row_id === row?.row_id)?.issues || [])];
-    if (f.duplicate_decision || rowIssues.some(issue => issue.code === 'possible_duplicate' || issue === 'possible_duplicate')) field('source-fields', 'duplicate_decision', ['distinct', 'skip']);
+    if (f.duplicate_decision || rowIssues.some(issue => issue.code === 'possible_duplicate' || issue === 'possible_duplicate')) field('handling-fields', 'duplicate_decision', ['distinct', 'skip']);
     if (!recordEditable(row)) {
       $('record-form').querySelectorAll('[name]').forEach(input => { if (!['duplicate_decision','counter_account_code'].includes(input.name)) input.disabled = true; });
     }
