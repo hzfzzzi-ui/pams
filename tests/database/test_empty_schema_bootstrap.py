@@ -436,8 +436,11 @@ def test_bootstrap_manifest_uses_schema_files_without_historical_backfills():
     paths = bootstrap_paths()
     assert all(path.parent == ROOT / "database/postgres/schema" for path in paths)
     names = {path.name for path in paths}
-    assert {"028a_account_reference_constraints.sql", "029a_holding_asset_reference_constraints.sql",
-            "033a_benchmark_asset_seed.sql"} <= names
+    assert {"029a_holding_asset_reference_constraints.sql", "033a_benchmark_asset_seed.sql",
+            "079_source_records.sql", "080_source_items_redesign.sql", "081_fact_redesign.sql",
+            "082_cashflow_classification.sql", "083_trade_review_redesign.sql",
+            "084_holding_source_link.sql"} <= names
+    assert "028a_account_reference_constraints.sql" not in names
     assert not {"028_account_dimension_backfill.sql", "029_holding_asset_identity_backfill.sql",
                 "033_benchmark_assets_and_gold_proxy.sql"} & names
 

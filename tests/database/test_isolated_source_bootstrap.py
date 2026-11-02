@@ -583,7 +583,7 @@ def test_initialization_failure_rolls_back_every_table(empty_source_db, monkeypa
         with pytest.raises(psycopg2.Error):
             bootstrap.initialize_isolated_sources(conn)
         with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.pams_accounts'),to_regclass('public.source_batches')")
+            cur.execute("SELECT to_regclass('public.pams_accounts'),to_regclass('public.source_records')")
             assert cur.fetchone() == (None, None)
 
 
