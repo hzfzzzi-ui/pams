@@ -298,6 +298,7 @@ def test_build_nav_weekly_payload_does_not_scale_unproven_account_history():
         [
             [],
             {"fact_exists": True, "px_exists": True, "item_exists": True, "batch_exists": True},
+            None,  # No verified cash-scope attestation.
             [],
             [
                 {"date": date(2026, 6, 10), "gross_value_cny": Decimal("100")},

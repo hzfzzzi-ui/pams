@@ -1150,9 +1150,11 @@ def build_section_return_series_payload(
             "end": terminal_date.isoformat(), "base_currency": base_currency,
             "interval": interval, "method": "cash_flow_adjusted_time_weighted_return",
             "status": "unavailable", "reason": ("fx_rate_unknown" if fx_missing else
-                "historical_price_missing" if getattr(values, 'missing_price_dates', set()) else "trade_cost_evidence_missing"),
+                "historical_price_missing" if getattr(values, 'missing_price_dates', set()) else
+                "account_cash_coverage_unverified" if getattr(values, 'cash_scope_unverified', False) else "trade_cost_evidence_missing"),
             "coverage_notes": ["缺少同日汇率，不能计算完整收益。" if fx_missing else
                 "缺少历史行情，不能计算期间收益。" if getattr(values, 'missing_price_dates', set()) else
+                "证券账户现金及资金流水范围尚未核验，不能计算账户期间收益。" if getattr(values, 'cash_scope_unverified', False) else
                 "交易来源或成本证据不完整，不能计算期间收益。"],
             "summary": {"total_return": None, "total_return_rate": None, "annualized_return_rate": None},
             "rows": [{"date": norm(day), "market_value": norm(values.get(day)), **{key: None for key in (
@@ -1547,9 +1549,11 @@ def build_investment_return_series_payload(
                 "start": start_date.isoformat(), "end": view_as_of.isoformat(),
                 "base_currency": base_currency, "interval": interval,
                 "method": "coverage_adjusted_daily_return", "status": "unavailable",
-                "reason": "historical_price_missing" if getattr(a_share_values, 'missing_price_dates', set()) else "trade_cost_evidence_missing",
+                "reason": ("historical_price_missing" if getattr(a_share_values, 'missing_price_dates', set()) else
+                    "account_cash_coverage_unverified" if getattr(a_share_values, 'cash_scope_unverified', False) else "trade_cost_evidence_missing"),
                 "coverage_notes": [{"account_code": "tonghuashun", "reason":
-                    "缺少历史行情。" if getattr(a_share_values, 'missing_price_dates', set()) else "交易来源或成本证据不完整。"}],
+                    "缺少历史行情。" if getattr(a_share_values, 'missing_price_dates', set()) else
+                    "证券账户现金及资金流水范围尚未核验。" if getattr(a_share_values, 'cash_scope_unverified', False) else "交易来源或成本证据不完整。"}],
                 "rows": [{"date": norm(day), **{key: None for key in (
                     "market_value", "cost", "position_pnl", "realized_income", "total_pnl",
                     "return_rate", "reported_return_adjustment", "daily_return_rate",

@@ -78,6 +78,30 @@ def test_missing_historical_price_reason_survives_terminal_anchor():
     assert result[day] == Decimal('100')
 
 
+def test_securities_only_snapshot_does_not_prove_account_cash_coverage():
+    from domain.investments.valuation_nav import _tonghuashun_series_from_trade_fact, scale_series_to_terminal_anchor
+    day = date(2026, 1, 2)
+
+    class Cursor:
+        def execute(self, sql, *args): self.sql = sql
+        def fetchone(self):
+            if 'fact_exists' in self.sql:
+                return {'fact_exists': True, 'px_exists': True, 'item_exists': True, 'batch_exists': True}
+            if 'scope_attestation' in self.sql:
+                return {'scope_attestation': {'securities_coverage_confirmed': True, 'cash_coverage': 'unknown'}}
+            raise AssertionError(self.sql)
+        def fetchall(self):
+            if 'f.trade_id,f.trade_date' in self.sql:
+                return []
+            return [{'date': day, 'gross_value_cny': Decimal('100'), 'has_unknown_tax': False,
+                     'missing_price': False, 'estimated_price': False}]
+
+    values = _tonghuashun_series_from_trade_fact(Cursor(), dates=[day], account_owner_ratio=lambda _: Decimal(1))
+    scaled = scale_series_to_terminal_anchor(values, terminal_date=day, target_value=Decimal('200'))
+    assert day in scaled.unknown_dates and scaled.cash_scope_unverified
+    assert not scaled.missing_price_dates
+
+
 def test_published_valuation_does_not_turn_unknown_holding_pnl_into_zero():
     from domain.investments.portfolio_valuation_state import build_portfolio_valuation_state_from_parts
     day = date(2026, 1, 1)
