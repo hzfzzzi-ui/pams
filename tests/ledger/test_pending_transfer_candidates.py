@@ -5,11 +5,12 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
-from domain.ledger import bank_source_read, confirmed_transfers  # noqa: E402
+from domain.ledger import bank_source_read, confirmed_transfers, ledger_view  # noqa: E402
 from domain.ledger.ledger_view import _load_pending_transfer_cases  # noqa: E402
 
 
 def test_pending_candidates_show_unmatched_unique_ambiguity_and_missing_evidence(monkeypatch):
+    monkeypatch.setattr(ledger_view, '_table_exists', lambda cur, name: False)
     day = date(2026, 10, 22)
     rows = []
     monkeypatch.setattr(confirmed_transfers, 'read', lambda cur, limit=None: [])
@@ -32,3 +33,20 @@ def test_pending_candidates_show_unmatched_unique_ambiguity_and_missing_evidence
     unknown=next(item for item in pending() if item['case_id']=='cashflow:4')
     assert unknown['status']=='source_unknown' and unknown['amount'] is None and unknown['candidate_count'] is None
     assert all(item['total_count']==4 for item in pending())
+
+
+def test_new_source_schema_keeps_missing_evidence_unmatched(monkeypatch):
+    day = date(2026, 10, 22)
+    monkeypatch.setattr(ledger_view, '_table_exists', lambda cur, name: True)
+    monkeypatch.setattr(ledger_view, '_confirmed_transfer_records', lambda *args, **kwargs: [])
+    rows = [{'id': 1, 'account_code': 'a', 'amount': Decimal('-10'), 'currency': 'CNY',
+             'transaction_date': day, 'cashflow_type': 'internal_transfer',
+             'classification_status': 'confirmed', 'source_evidence_status': 'verified'},
+            {'id': 2, 'account_code': 'b', 'amount': Decimal('10'), 'currency': 'CNY',
+             'transaction_date': day, 'cashflow_type': 'internal_transfer',
+             'classification_status': 'confirmed', 'source_evidence_status': 'unknown'}]
+    monkeypatch.setattr(ledger_view, '_load_cash_rows', lambda *args, **kwargs: rows)
+    cases = _load_pending_transfer_cases(None, start=day, end=day)
+    assert cases[0]['status'] == 'unmatched' and cases[0]['amount'] == -10
+    assert cases[1]['status'] == 'source_unknown' and cases[1]['amount'] is None
+    assert all(case['candidate_ids'] == [] and case['candidate_count'] is None for case in cases)

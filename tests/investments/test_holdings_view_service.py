@@ -752,7 +752,7 @@ def test_build_holdings_by_category_payload_uses_other_category_branch():
 def test_adjust_a_stock_daily_pnl_uses_trade_fact_execution_amount_when_available():
     cur = FakeCursor(
         [
-            {"exists": True},
+            {"exists": False}, {"exists": True},
             {"has_rows": True},
             {"item_exists": False, "batch_exists": False},
             [
@@ -793,7 +793,7 @@ def test_adjust_a_stock_daily_pnl_uses_trade_fact_execution_amount_when_availabl
 def test_enrich_realized_trade_pnl_merges_partial_sell_into_open_holding():
     cur = FakeCursor(
         [
-            {"exists": True},
+            {"exists": True}, {"exists": False},
             [
                 {
                     "account_code": "tonghuashun",
@@ -836,7 +836,7 @@ def test_enrich_realized_trade_pnl_merges_partial_sell_into_open_holding():
 def test_enrich_realized_trade_pnl_normalizes_net_invested_cost_snapshot():
     cur = FakeCursor(
         [
-            {"exists": True},
+            {"exists": True}, {"exists": False},
             [],
             [
                 {
@@ -900,7 +900,7 @@ def test_enrich_realized_trade_pnl_normalizes_net_invested_cost_snapshot():
 def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
     cur = FakeCursor(
         [
-            {"exists": True},
+            {"exists": True}, {"exists": False},
             [
                 {
                     "account_code": "tonghuashun",
@@ -989,7 +989,7 @@ def test_enrich_realized_trade_pnl_replays_when_some_sells_missing_realized():
 
 
 def test_unavailable_tax_does_not_become_zero_realized_profit():
-    cur = FakeCursor([{"exists": True}, [], [{"trade_id": 1, "account_code": "tonghuashun",
+    cur = FakeCursor([{"exists": True}, {"exists": False}, [], [{"trade_id": 1, "account_code": "tonghuashun",
         "symbol": "601899", "trade_date": date(2026, 5, 1), "trade_type": "buy",
         "quantity": Decimal("10"), "gross_amount": Decimal("100"), "fee_amount": Decimal("0"),
         "tax_amount": None, "net_cash": None, "currency": "CNY", "effective_fx_rate": Decimal("1")} ]])
@@ -1008,7 +1008,7 @@ def test_unavailable_tax_does_not_become_zero_realized_profit():
 def test_known_net_cash_allows_unknown_tax_component():
     common = {"account_code": "tonghuashun", "symbol": "601899", "fee_amount": Decimal("2"),
               "tax_amount": None, "currency": "CNY", "effective_fx_rate": Decimal("1")}
-    cur = FakeCursor([{"exists": True}, [], [
+    cur = FakeCursor([{"exists": True}, {"exists": False}, [], [
         {**common, "trade_id": 1, "trade_date": date(2026, 5, 1), "trade_type": "buy",
          "quantity": Decimal("10"), "gross_amount": Decimal("100"), "net_cash": Decimal("-102")},
         {**common, "trade_id": 2, "trade_date": date(2026, 5, 2), "trade_type": "sell",
@@ -1024,7 +1024,7 @@ def test_known_net_cash_allows_unknown_tax_component():
 
 def test_same_day_trade_preserves_missing_fx_in_daily_pnl():
     cur=FakeCursor([
-        {'exists':True}, {'has_rows':True}, {'item_exists':False,'batch_exists':False},
+        {'exists':False}, {'exists':True}, {'has_rows':True}, {'item_exists':False,'batch_exists':False},
         [{'account_code':'tonghuashun','normalized_symbol':'603986','as_of':date(2026,6,4),
           'buy_qty':Decimal('50'),'buy_value':Decimal('450')}],
     ])
@@ -1050,3 +1050,46 @@ def test_tradingview_history_does_not_label_cny_estimate_as_foreign_currency():
     assert payload['rows'][0]['value'] is None
     assert payload['rows'][0]['known_value'] == 100
     assert payload['rows'][0]['known_value_currency'] == 'CNY'
+
+
+def test_new_source_schema_same_day_buy_uses_verified_trade(monkeypatch):
+    from domain.investments import trade_read_v2
+
+    facts = [{'symbol': '603986', 'trade_date': date(2026, 6, 4), 'trade_type': 'buy',
+              'source_evidence_status': 'verified', 'quantity': Decimal('100'),
+              'gross_amount': Decimal('51977')}]
+    monkeypatch.setattr(trade_read_v2, 'load_trade_rows', lambda *args, **kwargs: facts)
+    cur = FakeCursor([{'exists': True}])
+    row = _current_holding_row(symbol='603986', quantity=Decimal('100'),
+        current_price=Decimal('519.77'), previous_price=Decimal('492.23'),
+        market_value=Decimal('51977'), market_value_cny=Decimal('51977'),
+        daily_pnl=Decimal('2754'), daily_pnl_cny=Decimal('2754'), as_of=date(2026, 6, 4))
+    adjusted = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, [row])[0]
+    assert adjusted['daily_pnl'] == Decimal('0')
+    assert adjusted['daily_pnl_cny'] == Decimal('0')
+
+
+def test_new_source_schema_missing_evidence_marks_daily_basis_unavailable(monkeypatch):
+    from domain.investments import trade_read_v2
+
+    facts = [{'symbol': '603986', 'trade_date': date(2026, 6, 4), 'trade_type': 'buy',
+              'source_evidence_status': 'unknown', 'quantity': Decimal('100'),
+              'gross_amount': Decimal('51977')}]
+    monkeypatch.setattr(trade_read_v2, 'load_trade_rows', lambda *args, **kwargs: facts)
+    row = _current_holding_row(symbol='603986', quantity=Decimal('100'),
+        current_price=Decimal('519.77'), previous_price=Decimal('492.23'),
+        market_value=Decimal('51977'), market_value_cny=Decimal('51977'),
+        daily_pnl=Decimal('2754'), daily_pnl_cny=Decimal('2754'), as_of=date(2026, 6, 4))
+    adjusted = _adjust_a_stock_daily_pnl_for_same_day_buys(FakeCursor([{'exists': True}]), [row])[0]
+    assert adjusted['_daily_basis_unavailable'] is True
+
+
+def test_new_source_schema_does_not_invent_realized_trade_pnl():
+    cur = FakeCursor([{'exists': True}, {'exists': True},
+                      [{'account_code': 'tonghuashun', 'symbol': '601899'}]])
+    row = _current_holding_row(symbol='601899', quantity=Decimal('10'),
+        current_price=Decimal('11'), market_value=Decimal('110'), market_value_cny=Decimal('110'),
+        as_of=date(2026, 6, 12))
+    result = _enrich_realized_trade_pnl(cur, [row])[0]
+    assert result['realized_trade_pnl_cny'] is None
+    assert result['realized_trade_pnl_source'] == 'unavailable_trade_coverage'

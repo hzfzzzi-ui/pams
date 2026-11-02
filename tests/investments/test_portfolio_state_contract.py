@@ -214,6 +214,7 @@ def test_load_investment_transactions_reads_trade_fact_table_first():
     cur = FakeCursor(
         [
             {"table_name": "pams_investment_trade_fact"},
+            {"table_name": None},
             {"table_name": "pams_fx_rates_daily"},
             [
                 {
