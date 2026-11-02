@@ -41,6 +41,9 @@ def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_sou
             with pytest.raises(ValueError, match='business fields cannot be edited'):
                 review_item(cur, source_id=source_id, item_id=item['source_item_id'], expected_revision=2,
                             parsed_fields={**item['parsed_fields'], 'net_cash':'-1'}, review_status='confirmed')
+            with pytest.raises(ValueError, match='business fields cannot be edited'):
+                review_item(cur, source_id=source_id, item_id=item['source_item_id'], expected_revision=2,
+                            parsed_fields={**item['parsed_fields'], 'fee_scope':'total_charges'}, review_status='confirmed')
             with pytest.raises(ValueError, match='unreviewed'):
                 publish_trade_source(cur, source_id=source_id, expected_revision=2)
             revision = review_item(cur, source_id=source_id, item_id=item['source_item_id'], expected_revision=2,

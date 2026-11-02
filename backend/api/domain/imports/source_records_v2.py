@@ -10,7 +10,8 @@ from psycopg2.extras import Json
 _IMMUTABLE_REPORTED_FIELDS = frozenset({
     'business_date', 'trade_time', 'settle_date', 'posting_date', 'action', 'trade_type', 'side',
     'symbol', 'name', 'market', 'currency', 'quantity', 'price', 'gross_amount', 'net_cash',
-    'fee_amount', 'fee_currency', 'tax_amount', 'counterparty', 'summary', 'description', 'broker',
+    'fee_amount', 'fee_currency', 'fee_scope', 'tax_amount', 'counterparty', 'summary', 'description',
+    'broker', 'execution_status', 'source_ref', 'kind',
 })
 
 
