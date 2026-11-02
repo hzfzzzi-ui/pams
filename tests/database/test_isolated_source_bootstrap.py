@@ -112,6 +112,9 @@ def test_full_bootstrap_native_bank_http_reaches_account_ledger_and_sync(empty_s
         forged_balance = {**balance['parsed_fields'], 'action': 'income'}
         response = web.put(path + '/items/' + balance['source_item_id'], json={
             'revision':revision, 'parsed_fields':forged_balance, 'review_status':'confirmed'})
+        assert response.status_code == 400
+        response = web.put(path + '/items/' + balance['source_item_id'], json={
+            'revision':revision, 'parsed_fields':balance['parsed_fields'], 'review_status':'confirmed'})
         assert response.status_code == 200, response.text
         revision = response.json()['revision']
         check = web.post(path+'/cash-preview', json={'revision':revision,'mode':'all'}).json()

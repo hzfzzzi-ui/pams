@@ -7,6 +7,12 @@ import json
 from uuid import UUID
 from psycopg2.extras import Json
 
+_IMMUTABLE_REPORTED_FIELDS = frozenset({
+    'business_date', 'trade_time', 'settle_date', 'posting_date', 'action', 'trade_type', 'side',
+    'symbol', 'name', 'market', 'currency', 'quantity', 'price', 'gross_amount', 'net_cash',
+    'fee_amount', 'fee_currency', 'tax_amount', 'counterparty', 'summary', 'description', 'broker',
+})
+
 
 def create_source(cur, *, source_id: UUID, account_code: str, source_name: str,
                   acquisition_method: str, document_type: str, import_group_id: UUID | None = None,
@@ -53,6 +59,15 @@ def review_item(cur, *, source_id: UUID, item_id: UUID, expected_revision: int,
         AND revision=%s FOR UPDATE''', (str(source_id), expected_revision))
     if not cur.fetchone():
         raise ValueError('source missing, stale or not editable')
+    cur.execute('''SELECT parse_method,parsed_fields FROM public.source_items
+        WHERE source_item_id=%s AND source_id=%s FOR UPDATE''', (str(item_id), str(source_id)))
+    existing = cur.fetchone()
+    if not existing:
+        raise ValueError('source item missing')
+    method = existing['parse_method'] if isinstance(existing, Mapping) else existing[0]
+    fields = existing['parsed_fields'] if isinstance(existing, Mapping) else existing[1]
+    if method in {'template', 'api'} and any(fields.get(key) != parsed_fields.get(key) for key in _IMMUTABLE_REPORTED_FIELDS):
+        raise ValueError('original file or API business fields cannot be edited')
     cur.execute('''UPDATE public.source_items SET parsed_fields=%s,review_status=%s,review_note=%s,updated_at=now()
         WHERE source_item_id=%s AND source_id=%s''', (Json(parsed_fields),review_status,note,str(item_id),str(source_id)))
     if cur.rowcount != 1:
