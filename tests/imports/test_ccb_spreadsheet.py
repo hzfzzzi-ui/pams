@@ -17,6 +17,7 @@ def test_credit_preserves_direction_description_and_raw():
     parsed = ccb.parse(data, "credit.csv", "ccb_1234", "ccb_credit_pdf")
     assert [r["fields"]["net_cash"] for r in parsed["rows"]] == ["-20.00", "10.00"]
     assert parsed["rows"][1]["fields"]["action"] == "transfer"
+    assert parsed["rows"][0]["source"]["statement_row"]["posting_date"] == "2026-01-02"
     assert parsed["rows"][0]["fields"]["note"] == "消费 示例,商户"
     assert len(parsed["rows"][0]["source"]["statement_row"]["raw"]["row"]) == 8
 
@@ -50,3 +51,28 @@ def test_detect_and_statement_adapter_use_selected_profile(monkeypatch):
     row = statement.parse(data, "credit.csv", "ccb_1234", "cash")["rows"][0]
     assert row["source"]["statement"] is True
     assert row["fields"]["net_cash"] == "-20.00"
+
+
+def test_credit_upload_stays_draft_and_repayment_requires_transfer_review(client, monkeypatch):
+    from tests.imports.test_account_import_publish import sql, preview
+    web, params = client
+    sql(params, "INSERT INTO pams_accounts(account_code,display_name) VALUES ('ccb_test_1234','Synthetic credit')")
+    profile = {"ccb_test_1234": [{"statement_template":"ccb_credit_pdf", "profile_code":"test", "account_code":"ccb_test_1234"}]}
+    monkeypatch.setattr(statement, "profiles", lambda *args: profile)
+    monkeypatch.setattr(statement, "config", lambda: {})
+    response = web.post("/api/account-import/batches", json={"account_code":"ccb_test_1234", "mode":"upload", "kind":"cash", "completeness":"partial"})
+    assert response.status_code == 200, response.text
+    batch = response.json()
+    data = credit("20260101,20260102,****1234,消费,人民币,20.00,示例\n20260103,20260104,****1234,存入,人民币,-10.00,还款")
+    response = web.post(f"/api/account-import/batches/{batch['batch_id']}/files?filename=credit.csv", content=data, headers={"Content-Type":"text/csv"})
+    assert response.status_code == 200, response.text
+    batch = response.json()
+    assert len(batch["rows"]) == 2 and batch["files"][0]["metadata"]["template_status"] == "matched"
+    assert not sql(params, "SELECT * FROM pams_cashflow_fact")
+    result = preview(web, batch)
+    repayment = next(row for row in result["rows"] if row["fields"]["action"] == "transfer")
+    assert repayment["status"] == "blocked"
+    assert any(issue["code"] == "transfer_evidence_required" for issue in repayment["issues"])
+    assert not sql(params, "SELECT * FROM pams_cashflow_fact")
+
+from tests.imports.test_account_import_publish import client

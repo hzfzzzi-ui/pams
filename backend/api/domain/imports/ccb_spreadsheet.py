@@ -102,7 +102,9 @@ def parse(content: bytes, filename: str, account: str, template: str) -> dict | 
             fields = {"kind":"cash", "asset_type":"cash", "business_date":day, "currency":"CNY",
                 "net_cash":str(amount), "action":action,
                 "note":" ".join((cells[3], ",".join(cells[6:])))}
-            result.append(_row(fields, cells, i, "ccb_credit_csv"))
+            record = _row(fields, cells, i, "ccb_credit_csv")
+            record["source"]["statement_row"]["posting_date"] = _date(cells[1])
+            result.append(record)
     else:
         return None
     if not result or len(result) > MAX_ROWS:
