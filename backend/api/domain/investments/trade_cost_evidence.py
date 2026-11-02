@@ -7,7 +7,7 @@ def unconverted_ibkr_fee(row):
     raw = row.get('raw_json')
     source = raw.get('source_row', {}) if isinstance(raw, dict) else {}
     table = row.get('source_table') or (source.get('source_table') if isinstance(source, dict) else None)
-    if table != 'ibkr_flex_trade':
+    if table != 'ibkr_flex_trade' and str(row.get('broker') or '').lower() != 'ibkr':
         return False
     try:
         fee = Decimal(str(row.get('fee_amount')))
@@ -24,7 +24,7 @@ def known_trade_charges(row):
     """A reported total can be known even when its tax component is unknown."""
     raw = row.get('raw_json')
     source = raw.get('source_row', {}) if isinstance(raw, dict) else {}
-    scope = source.get('fee_scope') if isinstance(source, dict) else None
+    scope = row.get('fee_scope') or (source.get('fee_scope') if isinstance(source, dict) else None)
     fee, tax = row.get('fee_amount'), row.get('tax_amount')
     if unconverted_ibkr_fee(row):
         return None

@@ -4,7 +4,7 @@ CREATE TABLE public.broker_processing_state (
     state_type TEXT NOT NULL CHECK (state_type IN ('publication', 'cash_progress')),
     publication_id BIGINT GENERATED ALWAYS AS (CASE WHEN state_type='publication' THEN state_id END) STORED,
     progress_id BIGINT GENERATED ALWAYS AS (CASE WHEN state_type='cash_progress' THEN state_id END) STORED,
-    source_batch_id UUID NOT NULL REFERENCES public.source_batches(batch_id),
+    source_batch_id UUID NOT NULL REFERENCES public.source_records(source_id),
 
     -- Report publication fields.
     account_code TEXT REFERENCES public.pams_accounts(account_code),
@@ -54,11 +54,11 @@ BEGIN
     IF TG_OP IN ('UPDATE','DELETE') THEN
         RAISE EXCEPTION 'broker business processing evidence is immutable';
     END IF;
-    IF NEW.state_type='publication' AND NOT EXISTS (SELECT 1 FROM public.source_batches b
-        JOIN public.source_items i ON i.batch_id=b.batch_id AND i.source_uid='scope'
-        WHERE b.batch_id=NEW.source_batch_id AND b.status='published' AND b.account_code=NEW.account_code
-          AND b.account_code='ibkr' AND b.institution='ibkr' AND b.workflow='ibkr_report'
-          AND b.date_to=NEW.statement_date AND i.review_status='confirmed'
+    IF NEW.state_type='publication' AND NOT EXISTS (SELECT 1 FROM public.source_records b
+        JOIN public.source_items i ON i.source_id=b.source_id AND i.source_uid='scope'
+        WHERE b.source_id=NEW.source_batch_id AND b.status='published' AND b.account_code=NEW.account_code
+          AND b.account_code='ibkr' AND lower(b.source_name)='ibkr' AND b.acquisition_method='api'
+          AND b.period_end=NEW.statement_date AND i.review_status='confirmed'
           AND i.raw_fields->>'kind'='report' AND i.raw_fields->>'sha256'=NEW.source_sha256
           AND i.raw_fields->>'business_date'=NEW.statement_date::text) THEN
         RAISE EXCEPTION 'broker publication source identity mismatch';

@@ -896,6 +896,35 @@ def load_investment_transactions(cur, base_currency: str, limit: int = 5000) -> 
     """Load transactions with CNY amounts based on their own trade-day FX."""
     if not _table_exists(cur, "pams_investment_trade_fact"):
         return []
+    if _table_exists(cur, 'source_records'):
+        from domain.investments.trade_read_v2 import load_trade_rows
+        from domain.investments.trade_cost_evidence import known_trade_charges
+        cur.execute('SELECT DISTINCT account_code FROM pams_investment_trade_fact')
+        accounts = [row['account_code'] for row in cur.fetchall()]
+        facts = [fact for account in accounts for fact in
+                 load_trade_rows(cur, account_code=account, start=Date.min, end=Date.max)]
+        facts.sort(key=lambda row: (row['trade_date'], str(row['trade_time'] or ''), row['trade_id']), reverse=True)
+        rows = []
+        for fact in facts[:limit]:
+            verified = fact['source_evidence_status'] == 'verified'
+            rate = Decimal(1) if fact['currency'] == 'CNY' else None
+            if rate is None:
+                cur.execute('''SELECT rate FROM pams_fx_rates_daily WHERE base_currency='CNY' AND quote_currency=%s
+                    AND as_of=%s AND NULLIF(btrim(source),'') IS NOT NULL AND rate>0
+                    AND rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1''', (fact['currency'], fact['trade_date']))
+                fx = cur.fetchone()
+                rate = fx['rate'] if fx else None
+            gross = fact['gross_amount'] if verified else None
+            cash = fact['net_cash'] if verified else None
+            rows.append({**fact, 'side': fact['side'] or fact['trade_type'],
+                'fees': known_trade_charges(fact) if verified else None, 'source': 'source_records',
+                'source_key': str(fact['source_item_id']), 'gross_amount': gross,
+                'quantity': fact['quantity'] if verified else None, 'price': fact['price'] if verified else None,
+                'net_cash': cash,
+                'gross_amount_cny': gross * rate if gross is not None and rate is not None else None,
+                'net_cash_cny': cash * rate if cash is not None and rate is not None else None,
+                'realized_pnl_cny': None, 'fx_status': 'unavailable' if rate is None else 'available'})
+        return rows
     fx_available = _table_exists(cur, "pams_fx_rates_daily")
     fx_join = """LEFT JOIN LATERAL (
         SELECT rate FROM pams_fx_rates_daily
@@ -936,8 +965,8 @@ def load_investment_transactions(cur, base_currency: str, limit: int = 5000) -> 
 
 def load_cash_transactions(cur, limit: int = 5000) -> list[dict[str, Any]]:
     """Load independent bank statement facts from unified sources."""
-    if not all(_table_exists(cur, table) for table in ('source_items', 'source_batches',
-                                                        'evidence_confirmation')):
+    if not (_table_exists(cur, 'source_records') or all(_table_exists(cur, table) for table in
+            ('source_items', 'source_batches', 'evidence_confirmation'))):
         return []
     from domain.ledger import bank_source_read
     result = []
@@ -962,7 +991,10 @@ def load_transfer_matches(cur, limit: int = 5000) -> list[dict[str, Any]]:
     """Load immutable, explicitly confirmed transfer decisions."""
     if not _table_exists(cur, 'evidence_confirmation'):
         return []
-    from domain.ledger import confirmed_transfers
+    if _table_exists(cur, 'source_records'):
+        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+    else:
+        from domain.ledger import confirmed_transfers
     result = []
     for item in confirmed_transfers.read(cur, limit=limit):
         left, right = item['from_evidence'], item['to_evidence']

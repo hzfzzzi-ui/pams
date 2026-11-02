@@ -58,7 +58,13 @@ def scratch_database(*, development=False):
                 created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now(),
                 UNIQUE(account_code,name,as_of));""")
             for schema_name in ('074_unified_source.sql','075_source_fact_links.sql','076_valuation_input_evidence.sql','077_confirmed_transfers.sql'):
-                cur.execute((ROOT / 'database/postgres/schema' / schema_name).read_text(encoding='utf-8'))
+                schema_sql = (ROOT / 'database/postgres/schema' / schema_name).read_text(encoding='utf-8')
+                # This fixture models the legacy source schema; the official empty
+                # bootstrap now targets source_records instead of source_batches.
+                if schema_name == '076_valuation_input_evidence.sql':
+                    schema_sql = schema_sql.replace('REFERENCES public.source_records(source_id)',
+                                                    'REFERENCES public.source_batches(batch_id)')
+                cur.execute(schema_sql)
         yield target
     finally:
         assert name.startswith(prefix) and len(name) == len(prefix) + 32

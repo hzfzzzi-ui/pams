@@ -491,7 +491,11 @@ def _fetch_daily_fx_rates_by_date(cur, holding_balances: dict[str, list[dict[str
 
 
 def _fetch_transfer_rollups(cur) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    from domain.ledger import confirmed_transfers
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    if cur.fetchone().get('redesigned'):
+        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+    else:
+        from domain.ledger import confirmed_transfers
     grouped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for record in confirmed_transfers.read(cur, limit=None):
         if record['evidence_status'] != 'confirmed':

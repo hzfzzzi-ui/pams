@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS public.account_snapshot_version (
     coverage_status text NOT NULL CHECK (coverage_status IN ('complete','partial','unknown')),
     cash_status text NOT NULL CHECK (cash_status IN ('known','unknown')),
     cash_amount numeric(28,10),
-    source_batch_id uuid REFERENCES public.source_batches(batch_id),
+    source_batch_id uuid REFERENCES public.source_records(source_id),
     source_revision integer,
     source_sha256 char(64),
     scope_attestation jsonb,

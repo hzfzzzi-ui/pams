@@ -1,0 +1,125 @@
+"""Read investment facts through the redesigned source evidence chain."""
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from decimal import Decimal, InvalidOperation
+from hashlib import sha256
+import json
+
+
+def _matches(row: dict) -> bool:
+    fields = row['parsed_fields'] or {}
+    try:
+        action = fields.get('trade_type') or fields.get('action')
+        action = {'subscribe': 'fund_subscription', 'redeem': 'fund_redemption'}.get(action, action)
+        business_date = date.fromisoformat(fields['business_date'])
+        trade_time = datetime.combine(business_date, time.fromisoformat(fields['trade_time'])) if fields.get('trade_time') else None
+        settle_date = date.fromisoformat(fields['settle_date']) if fields.get('settle_date') else None
+        numeric = ('quantity', 'price', 'gross_amount', 'fee_amount', 'tax_amount', 'net_cash')
+        expected = {key: Decimal(str(fields[key])) if fields.get(key) not in (None, '') else None for key in numeric}
+        side = fields.get('side') or (action if action in {'buy', 'sell', 'deposit', 'withdraw'} else None)
+        return (business_date == row['trade_date'] and trade_time == row['trade_time'] and settle_date == row['settle_date']
+                and action == row['trade_type'] and side == row['side'] and fields.get('currency') == row['currency']
+                and all(expected[key] == row[key] for key in numeric)
+                and all(fields.get(key) == row[key] for key in
+                        ('asset_id', 'symbol', 'name', 'market', 'fee_currency', 'broker', 'portfolio_code', 'execution_status')))
+    except (ValueError, TypeError, KeyError, InvalidOperation):
+        return False
+
+
+def load_trade_rows(cur, *, account_code: str, start: date, end: date) -> list[dict]:
+    """Return source status per fact; caller must not calculate from unverified facts."""
+    cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
+        i.review_status AS item_review, r.status AS source_status,
+        r.account_code AS source_account, r.content, r.sha256
+        FROM public.pams_investment_trade_fact f
+        JOIN public.source_items i ON i.source_item_id=f.source_item_id
+        JOIN public.source_records r ON r.source_id=i.source_id
+        WHERE f.account_code=%s AND f.trade_date BETWEEN %s AND %s
+        ORDER BY f.trade_date,f.trade_time NULLS FIRST,f.trade_id''', (account_code, start, end))
+    columns = [column[0] for column in cur.description]
+    out = []
+    for value in cur.fetchall():
+        row = dict(value) if hasattr(value, 'keys') else dict(zip(columns, value))
+        raw = json.dumps(row['raw_fields'], ensure_ascii=False, sort_keys=True,
+                         separators=(',', ':'), allow_nan=False).encode('utf-8')
+        content, digest = row['content'], row['sha256']
+        verified = (row['source_status'] == 'published' and row['item_review'] == 'confirmed'
+                    and row['source_account'] == row['account_code'] and _matches(row)
+                    and sha256(raw).hexdigest() == row['record_hash']
+                    and ((content is None and digest is None) or
+                         (content is not None and sha256(bytes(content)).hexdigest() == digest)))
+        row['source_evidence_status'] = 'verified' if verified else 'unknown'
+        row['fee_scope'] = (row['parsed_fields'] or {}).get('fee_scope')
+        origin = row['raw_fields'].get('source') if isinstance(row['raw_fields'], dict) else None
+        row['source_market'] = origin.get('market') if isinstance(origin, dict) else None
+        for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
+                    'source_account', 'content', 'sha256'):
+            row.pop(key, None)
+        out.append(row)
+    return out
+
+
+def _normalized_symbol(value):
+    symbol = str(value or '').strip()
+    if symbol.upper().startswith(('SSE:', 'SZSE:')):
+        return symbol.split(':', 1)[1]
+    if symbol.lower().startswith(('sh', 'sz', 'bj')) and len(symbol) >= 8:
+        return symbol[2:]
+    return symbol
+
+
+def same_day_trade_groups(cur, *, keys, as_of):
+    grouped = {}
+    unverified = set()
+    allowed = {'buy', 'sell', 'fund_subscription', 'fund_redemption'}
+    for account in sorted({key[0] for key in keys}):
+        for row in load_trade_rows(cur, account_code=account, start=as_of, end=as_of):
+            key = (account, _normalized_symbol(row.get('symbol')))
+            if key not in keys or row['trade_type'] not in allowed:
+                continue
+            if row['source_evidence_status'] != 'verified' or row['quantity'] is None or row['quantity'] <= 0:
+                unverified.add(key)
+                continue
+            grouped.setdefault(key, []).append(row)
+    for key in unverified:
+        grouped.pop(key, None)
+    return grouped, unverified
+
+
+def prior_trade_quantities(cur, *, keys, as_of):
+    from datetime import timedelta
+    quantities = {}
+    coverage_unknown = set()
+    if as_of == date.min:
+        return quantities, coverage_unknown
+    for account in sorted({key[0] for key in keys}):
+        for row in load_trade_rows(cur, account_code=account, start=date.min, end=as_of - timedelta(days=1)):
+            key = (account, _normalized_symbol(row.get('symbol')))
+            if key not in keys or row['trade_type'] not in {'buy', 'sell', 'fund_subscription', 'fund_redemption'}:
+                continue
+            # Individual source facts cannot establish all preceding positions.
+            coverage_unknown.add(key)
+            if row['source_evidence_status'] != 'verified' or row['quantity'] is None or row['quantity'] <= 0:
+                continue
+            sign = 1 if row['trade_type'] in {'buy', 'fund_subscription'} else -1
+            quantities[key] = quantities.get(key, Decimal(0)) + sign * row['quantity']
+    return quantities, coverage_unknown
+
+
+def calculate_verified_positions(cur, *, account_code: str, start: date, end: date,
+                                 coverage_confirmed: bool) -> list[dict]:
+    """Reconstruct positions only when the caller has confirmed full coverage."""
+    if coverage_confirmed is not True:
+        raise ValueError('complete trade coverage must be explicitly confirmed')
+    from domain.investments.diluted_trade_positions import calculate_diluted_positions
+    rows = load_trade_rows(cur, account_code=account_code, start=start, end=end)
+    if any(row['source_evidence_status'] != 'verified' for row in rows):
+        raise ValueError('trade source evidence is incomplete')
+    security_rows = []
+    for row in rows:
+        if row['trade_type'] in {'deposit', 'withdraw', 'interest'} and row.get('symbol') in (None, '', 'CASH_CNY'):
+            continue
+        row['side'] = row['side'] or row['trade_type']
+        security_rows.append(row)
+    return calculate_diluted_positions(security_rows)

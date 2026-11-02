@@ -487,10 +487,13 @@ def _previous_a_stock_snapshot_rows(cur, keys: set[tuple[str, str]], as_of) -> d
 def _eligible_trade_source_filter(cur) -> str | None:
     cur.execute("""SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS exists,
         to_regclass('public.source_items') IS NOT NULL AS item_exists,
-        to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
+        to_regclass('public.source_batches') IS NOT NULL AS batch_exists,
+        to_regclass('public.source_records') IS NOT NULL AS redesigned""")
     relations = cur.fetchone()
     if not relations or not relations.get("exists"):
         return None
+    if relations.get('redesigned'):
+        return '__redesigned__'
     if not relations.get("item_exists") or not relations.get("batch_exists"):
         return "source_table NOT IN ('tradingview_csv','source_items','ibkr_flex_trade')"
     return """((source_item_id IS NULL AND source_table NOT IN
@@ -514,6 +517,10 @@ def _a_stock_trade_net_quantities_before(cur, keys: set[tuple[str, str]], as_of)
     source_filter = _eligible_trade_source_filter(cur)
     if source_filter is None:
         return {}
+    if source_filter == '__redesigned__':
+        from domain.investments.trade_read_v2 import prior_trade_quantities
+        values, unknown = prior_trade_quantities(cur, keys=keys, as_of=as_of)
+        return _TradeQuantities(values, unverified_keys=unknown)
     linked_source = "source_item_id IS NOT NULL" if "source_item_id" in source_filter else "FALSE"
 
     accounts = sorted({account for account, _ in keys})
@@ -564,6 +571,10 @@ def _same_day_a_stock_trades(cur, keys: set[tuple[str, str]], as_of) -> dict[tup
     source_filter = _eligible_trade_source_filter(cur)
     if source_filter is None:
         return {}
+    if source_filter == '__redesigned__':
+        from domain.investments.trade_read_v2 import same_day_trade_groups
+        values, unknown = same_day_trade_groups(cur, keys=keys, as_of=as_of)
+        return _TradeQuantities(values, unverified_keys=unknown)
 
     accounts = sorted({account for account, _ in keys})
     symbols = sorted({symbol for _, symbol in keys})
@@ -628,12 +639,15 @@ def _apply_same_day_a_stock_trades(rows: list[dict], as_of) -> list[dict]:
             pre_day_quantities = _a_stock_trade_net_quantities_before(cur, keys, as_of)
             trades_by_key = _same_day_a_stock_trades(cur, keys, as_of)
 
-    if not trades_by_key:
+    if not trades_by_key and not getattr(trades_by_key, 'unverified_keys', set()):
         return rows
 
     adjusted_rows: list[dict] = []
     for row in rows:
         key = (str(row.get("account_code") or ""), _same_day_trade_symbol(row.get("symbol")))
+        if key in getattr(trades_by_key, 'unverified_keys', set()):
+            adjusted_rows.append({**row, '_daily_basis_unavailable': True})
+            continue
         trades = trades_by_key.get(key)
         if not trades:
             adjusted_rows.append(row)

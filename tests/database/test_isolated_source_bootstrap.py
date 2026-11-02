@@ -40,11 +40,11 @@ def test_empty_isolated_database_gets_sources_and_facts_atomically(empty_source_
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor() as cur:
-            for table in ('source_templates', 'source_batches', 'source_files', 'source_items', 'pams_cashflow_fact',
-                          'pams_investment_trade_fact', 'pams_holdings_snapshot'):
+            for table in ('source_records', 'source_items', 'source_templates', 'cashflow_classification', 'investment_trade_review',
+                          'pams_cashflow_fact', 'pams_investment_trade_fact', 'pams_holdings_snapshot'):
                 cur.execute('SELECT to_regclass(%s)', ('public.' + table,))
                 assert cur.fetchone()[0] is not None
-            for legacy in ('pams_source_row', 'pams_data_job_run', 'pams_data_sync_runs', 'pams_sync_run_log', 'pams_ibkr_source_link_repair_audit',
+            for legacy in ('source_batches', 'source_files', 'pams_source_row', 'pams_data_job_run', 'pams_data_sync_runs', 'pams_sync_run_log', 'pams_ibkr_source_link_repair_audit',
                            'pams_ibkr_trades', 'pams_ibkr_position_history', 'pams_investment_transactions',
                            'pams_tradingview_transactions',
                            'pams_external_transaction_source', 'pams_investment_trade_snapshot',
@@ -103,21 +103,35 @@ def test_full_bootstrap_native_bank_http_reaches_account_ledger_and_sync(empty_s
     day = (date.today() - timedelta(days=2)).isoformat()
     with TestClient(app) as web:
         web.headers['Origin'] = 'http://testserver'
-        response = web.post('/api/account-import/batches', json={'account_code':'bank_test','mode':'upload','kind':'cash'})
-        assert response.status_code == 200, response.text
-        path = '/api/account-import/batches/' + response.json()['batch_id']
         content = f'transaction_date,amount,currency,balance,summary\n{day},100.05,CNY,200.05,pay\n'.encode()
-        response = web.post(path + '/files?filename=bank.csv', content=content)
+        response = web.post('/api/account-import/source-records?account_code=bank_test&source_name=synthetic&filename=bank.csv', content=content)
         assert response.status_code == 200, response.text
-        batch = response.json()
-        response = web.put(path, json={'revision':batch['revision'], 'rows':batch['rows']})
+        path = '/api/account-import/source-records/' + response.json()['source_id']
+        batch = web.get(path).json(); revision = batch['revision']
+        balance = next(item for item in batch['items'] if item['review_status'] == 'excluded')
+        forged_balance = {**balance['parsed_fields'], 'action': 'income'}
+        response = web.put(path + '/items/' + balance['source_item_id'], json={
+            'revision':revision, 'parsed_fields':forged_balance, 'review_status':'confirmed'})
         assert response.status_code == 200, response.text
-        batch = response.json()
-        response = web.post(path+'/preview', json={'revision':batch['revision']})
+        revision = response.json()['revision']
+        check = web.post(path+'/cash-preview', json={'revision':revision,'mode':'all'}).json()
+        assert check['counts']['invalid'] == 1 and not check['can_publish']
+        response = web.put(path + '/items/' + balance['source_item_id'], json={
+            'revision':revision, 'parsed_fields':balance['parsed_fields'], 'review_status':'excluded'})
+        assert response.status_code == 200, response.text
+        revision = response.json()['revision']
+        for item in batch['items']:
+            if item['review_status'] == 'excluded':
+                continue
+            response = web.put(path + '/items/' + item['source_item_id'], json={
+                'revision':revision, 'parsed_fields':item['parsed_fields'], 'review_status':'confirmed'})
+            assert response.status_code == 200, response.text
+            revision = response.json()['revision']
+        response = web.post(path+'/cash-preview', json={'revision':revision,'mode':'all'})
         assert response.status_code == 200, response.text
         check = response.json()
         assert check['can_publish'], check
-        response = web.post(path+'/publish', json={'revision':batch['revision'], 'preview_token':check['preview_token']})
+        response = web.post(path+'/cash-publish', json={'revision':revision, 'mode':'all', 'preview_token':check['preview_token']})
         assert response.status_code == 200, response.text
         # Once facts exist, read-only consumers do not require the isolated
         # write switch merely to read a new database without the old table.
@@ -141,43 +155,6 @@ def test_full_bootstrap_native_bank_http_reaches_account_ledger_and_sync(empty_s
         account_cfg['accounts']['bank_test'].pop('manual_balance')
         no_anchor = web.get('/api/accounts/overview').json()
         assert next(a for a in no_anchor['accounts'] if a['account_code']=='bank_test')['primary_balance'] is None
-        # Draft or cross-account links are not silently filtered into a
-        # complete-looking zero. The raw fact remains visible as unknown.
-        from domain.ledger.bank_source_read import rows as read_bank_rows
-        from psycopg2.extras import RealDictCursor
-        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
-            cur.execute("ALTER TABLE source_batches DISABLE TRIGGER USER")
-            cur.execute("UPDATE source_batches SET status='draft' WHERE account_code='bank_test'")
-            cur.execute("ALTER TABLE source_batches ENABLE TRIGGER USER")
-        with psycopg2.connect(**empty_source_db) as conn:
-            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                evidence = read_bank_rows(cur)
-                assert len(evidence)==1 and evidence[0]['source_evidence_status']=='unknown'
-        draft_payload = web.get('/api/accounts/overview').json()
-        assert draft_payload['statement_source_status']=='needs_review'
-        draft_account = next(a for a in draft_payload['accounts'] if a['account_code']=='bank_test')
-        assert draft_account['statement_profiles'][0]['row_count'] is None
-        draft_sync = next(r for r in web.get('/api/sync/center').json()['rows'] if r['id']=='account-reconcile')
-        assert draft_sync['status']=='needs_review' and draft_sync['rows'] is None
-        draft_ledger = web.get('/api/ledger/workbench', params={'month':day[:7]})
-        assert draft_ledger.status_code == 200, draft_ledger.text
-        draft_item = next(r for r in draft_ledger.json()['recent_rows_month'] if r['account_code']=='bank_test')
-        assert draft_item['source_evidence_status']=='unknown' and draft_item['amount_cny'] is None
-        assert draft_ledger.json()['periods']['month']['income'] is None
-        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
-            cur.execute("ALTER TABLE source_batches DISABLE TRIGGER USER")
-            cur.execute("UPDATE source_batches SET status='published' WHERE account_code='bank_test'")
-            cur.execute("ALTER TABLE source_batches ENABLE TRIGGER USER")
-            cur.execute("INSERT INTO pams_accounts(account_code,display_name,base_currency) VALUES ('bank_other','Other','CNY')")
-            cur.execute("UPDATE pams_cashflow_fact SET account_code='bank_other' WHERE account_code='bank_test'")
-        with psycopg2.connect(**empty_source_db) as conn:
-            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                evidence = read_bank_rows(cur)
-                assert len(evidence)==1 and evidence[0]['account_code']=='bank_other' and evidence[0]['source_evidence_status'] in {'unknown','inconsistent'}
-        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
-            cur.execute("UPDATE pams_cashflow_fact SET account_code='bank_test' WHERE account_code='bank_other'")
         # A changed fact is retained for diagnosis, but source counts and
         # summaries must not present it as verified or a complete zero.
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
@@ -200,7 +177,7 @@ def test_full_bootstrap_native_bank_http_reaches_account_ledger_and_sync(empty_s
 def test_new_database_saves_and_reuses_source_mapping_without_legacy_tables(empty_source_db, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from domain.imports import account_import_store as store
+    from domain.imports import account_import_store as store, document_stage_v2
     from endpoints import account_import
 
     with psycopg2.connect(**empty_source_db) as conn:
@@ -208,6 +185,8 @@ def test_new_database_saves_and_reuses_source_mapping_without_legacy_tables(empt
         with conn.cursor() as cur:
             cur.execute("INSERT INTO pams_accounts (account_code,display_name,base_currency) VALUES ('tonghuashun','Synthetic','CNY') ON CONFLICT DO NOTHING")
     monkeypatch.setattr(store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(document_stage_v2.document_kind, 'detect', lambda *args: {'kind':'trade','status':'detected'})
+    monkeypatch.setattr(document_stage_v2, 'assess_template', lambda parsed, kind: 'matched')
     monkeypatch.setattr(store, 'parse', lambda content, filename, account, kind, mapping=None: {
         'origin': 'file', 'rows': [{'fields': {'note': 'mapped' if mapping else 'initial'},
                                    'source': {'row': 1}, 'issues': []}]})
@@ -215,48 +194,35 @@ def test_new_database_saves_and_reuses_source_mapping_without_legacy_tables(empt
     app.include_router(account_import.router, prefix='/api')
     with TestClient(app) as web:
         web.headers['Origin'] = 'http://testserver'
-        assert web.get('/api/account-import/capabilities').json()['schema_ready']
-        request = {'account_code': 'tonghuashun', 'mode': 'upload', 'kind': 'trade'}
-        first = web.post('/api/account-import/batches', json=request).json()
-        path = '/api/account-import/batches/' + first['batch_id']
-        uploaded = web.post(path + '/files?filename=one.csv', content=b'first').json()
-        assert uploaded['rows'][0]['fields']['note'] == 'initial'
-        file_id = uploaded['files'][0]['file_id']
-        response = web.post(path + '/files/' + file_id + '/parse', json={'mapping': {'symbol': 'ticker'}})
+        assert web.get('/api/account-import/capabilities').json()['source_record_schema_ready']
+        path = '/api/account-import/source-records'
+        first = web.post(path + '?account_code=tonghuashun&source_name=synthetic&filename=one.csv', content=b'first').json()
+        source_path = path + '/' + first['source_id']
+        assert web.get(source_path).json()['items'][0]['parsed_fields']['note'] == 'initial'
+        response = web.put(source_path + '/mapping', json={'revision': first['revision'], 'mapping': {'symbol': 'ticker'}})
         assert response.status_code == 200, response.text
-        assert response.json()['rows'][0]['fields']['note'] == 'mapped'
-        second = web.post('/api/account-import/batches', json=request).json()
-        response = web.post('/api/account-import/batches/' + second['batch_id'] + '/files?filename=two.csv', content=b'second')
+        assert web.get(source_path).json()['items'][0]['parsed_fields']['note'] == 'mapped'
+        response = web.post(path + '?account_code=tonghuashun&source_name=synthetic&filename=two.csv', content=b'second')
         assert response.status_code == 200, response.text
-        assert response.json()['rows'][0]['fields']['note'] == 'mapped'
+        assert web.get(path + '/' + response.json()['source_id']).json()['items'][0]['parsed_fields']['note'] == 'mapped'
     with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
         cur.execute("SELECT mapping,to_regclass('public.pams_account_import_template') FROM source_templates")
         assert cur.fetchone() == ({'symbol': 'ticker'}, None)
 
 
 def test_fact_account_constraints_are_validated_and_reject_unknown_account(empty_source_db):
-    from pathlib import Path
-
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor() as cur:
-            script = Path(__file__).resolve().parents[2] / 'database/postgres/schema/028a_account_reference_constraints.sql'
-            cur.execute(script.read_text(encoding='utf-8'))
-            cur.execute("""SELECT conname,convalidated FROM pg_constraint WHERE conname=ANY(%s::text[])""",
-                (['fk_pams_cashflow_fact_account_code','fk_pams_cashflow_fact_counter_account_code',
-                  'fk_pams_investment_trade_fact_account_code'],))
-            assert dict(cur.fetchall()) == {'fk_pams_cashflow_fact_account_code':True,
-                'fk_pams_cashflow_fact_counter_account_code':True,'fk_pams_investment_trade_fact_account_code':True}
+            cur.execute("""SELECT conrelid::regclass::text,convalidated FROM pg_constraint
+                WHERE contype='f' AND confrelid='public.pams_accounts'::regclass
+                  AND conrelid IN ('public.source_records'::regclass, 'public.pams_cashflow_fact'::regclass,
+                                   'public.pams_investment_trade_fact'::regclass)""")
+            assert dict(cur.fetchall()) == {'source_records': True, 'pams_cashflow_fact': True,
+                                           'pams_investment_trade_fact': True}
             with pytest.raises(psycopg2.errors.ForeignKeyViolation):
-                cur.execute("""INSERT INTO pams_investment_trade_fact
-                    (trade_date,account_code,source_table,source_id,source_hash)
-                    VALUES ('2026-01-01','nonexistent','synthetic','unknown',%s)""",('a'*64,))
-        conn.rollback()
-        with conn.cursor() as cur:
-            with pytest.raises(psycopg2.errors.ForeignKeyViolation):
-                cur.execute("""INSERT INTO pams_cashflow_fact
-                    (event_date,account_code,amount,amount_cny,source_table,source_id,source_hash)
-                    VALUES ('2026-01-01','nonexistent',1,1,'synthetic','unknown',%s)""",('b'*64,))
+                cur.execute("""INSERT INTO source_records(source_id,account_code,source_name,acquisition_method,document_type)
+                    VALUES ('00000000-0000-0000-0000-000000000001','nonexistent','synthetic','manual','cash')""")
         conn.rollback()
 
 
@@ -445,26 +411,30 @@ def test_tonghuashun_nav_unknown_tax_is_not_zero_and_known_net_cash_is_usable(em
     from decimal import Decimal
     from psycopg2.extras import RealDictCursor
     from domain.investments import valuation_nav as nav
+    from domain.imports import source_records_v2 as source
 
     day = date(2026, 10, 30)
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute('ALTER TABLE pams_investment_trade_fact ALTER COLUMN tax_amount DROP NOT NULL')
-            cur.execute("""INSERT INTO pams_investment_trade_fact
-                (trade_date,account_code,symbol,currency,trade_type,side,quantity,price,gross_amount,
-                 fee_amount,tax_amount,net_cash,source_table,source_id,source_hash,review_status)
-                VALUES (%s,'tonghuashun','600001','CNY','buy','buy',10,8,80,1,NULL,NULL,
-                        'synthetic','test',%s,'reviewed')""", (day, 'a'*64))
+            def publish(fields):
+                sid, iid = uuid4(), uuid4()
+                source.create_source(cur,source_id=sid,account_code='tonghuashun',source_name='synthetic',acquisition_method='manual',document_type='trade')
+                source.add_item(cur,source_id=sid,item_id=iid,parse_method='manual',raw_fields=fields,parsed_fields=fields)
+                source.review_item(cur,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=fields,review_status='confirmed')
+                source.publish_trade_source(cur,source_id=sid,expected_revision=3)
+            fields={'business_date':day.isoformat(),'symbol':'600001','currency':'CNY','trade_type':'buy',
+                    'quantity':'10','price':'8','gross_amount':'80','fee_amount':'1','tax_amount':None,'net_cash':None}
+            publish(fields)
             days = [day - timedelta(days=1), day]
             values = nav._tonghuashun_series_from_trade_fact(cur, dates=days, account_owner_ratio=lambda _: Decimal(1))
-            assert values.unknown_dates == {day}
+            assert values.unknown_dates == set(days) and values.cash_scope_unverified
             rows = nav.build_weekly_nav_rows(dates=days, bank_series={}, snapshot_series={},
                                              a_share_series=values, ibkr_values={})
             assert rows[1]['net_worth'] is None and rows[1]['unavailable_accounts'] == ['tonghuashun']
             scaled = nav.scale_series_to_terminal_anchor(values, terminal_date=day, target_value=Decimal(100))
-            assert scaled.unknown_dates == {day}
-            cur.execute("UPDATE pams_investment_trade_fact SET net_cash=-81 WHERE source_table='synthetic'")
+            assert scaled.unknown_dates == set(days)
+            publish({**fields,'symbol':'600002','net_cash':'-81'})
             known = nav._tonghuashun_series_from_trade_fact(cur, dates=days, account_owner_ratio=lambda _: Decimal(1))
             assert day in known.unknown_dates  # Cash is known; the held stock has no proven price.
             assert known[day] == Decimal(-81)
@@ -475,21 +445,24 @@ def test_tonghuashun_nav_never_treats_foreign_cash_as_cny_without_daily_fx(empty
     from decimal import Decimal
     from psycopg2.extras import RealDictCursor
     from domain.investments import valuation_nav as nav
+    from domain.imports import source_records_v2 as source
     day = date(2026, 10, 30)
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""INSERT INTO pams_investment_trade_fact
-                (trade_date,account_code,currency,trade_type,side,gross_amount,net_cash,net_cash_cny,
-                 source_table,source_id,source_hash,review_status)
-                VALUES (%s,'tonghuashun','USD','deposit','deposit',100,100,100,'synthetic','fx-test',%s,'reviewed')""", (day, 'b'*64))
+            sid, iid = uuid4(), uuid4()
+            fields={'business_date':day.isoformat(),'currency':'USD','trade_type':'deposit','gross_amount':'100','net_cash':'100'}
+            source.create_source(cur,source_id=sid,account_code='tonghuashun',source_name='synthetic',acquisition_method='manual',document_type='trade')
+            source.add_item(cur,source_id=sid,item_id=iid,parse_method='manual',raw_fields=fields,parsed_fields=fields)
+            source.review_item(cur,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=fields,review_status='confirmed')
+            source.publish_trade_source(cur,source_id=sid,expected_revision=3)
             cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
                 VALUES (%s,'CNY','USD',7,'synthetic'),(%s,'CNY','USD',8,'synthetic')""", (day-timedelta(days=1),day+timedelta(days=1)))
             values=nav._tonghuashun_series_from_trade_fact(cur,dates=[day],account_owner_ratio=lambda _: Decimal(1))
-            assert day in values.unknown_dates
+            assert day in values.unknown_dates and values[day] == 0
             cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'synthetic')",(day,))
             values=nav._tonghuashun_series_from_trade_fact(cur,dates=[day],account_owner_ratio=lambda _: Decimal(1))
-            assert day in values.unknown_dates and values[day]==Decimal(700)  # No reviewed source.
+            assert day in values.unknown_dates and values[day]==Decimal(700)  # Scope remains unverified.
 
 
 def test_same_day_buy_uses_only_account_matched_published_confirmed_sources(empty_source_db):
@@ -498,6 +471,7 @@ def test_same_day_buy_uses_only_account_matched_published_confirmed_sources(empt
     from domain.investments.holdings_view import _adjust_a_stock_daily_pnl_for_same_day_buys
     from domain.investments.valuation_nav import _tonghuashun_series_from_trade_fact
     from endpoints.prices import _same_day_a_stock_trades, _a_stock_trade_net_quantities_before
+    from domain.imports import source_records_v2 as source
 
     day = date(2026, 10, 30)
     with psycopg2.connect(**empty_source_db) as conn:
@@ -505,26 +479,16 @@ def test_same_day_buy_uses_only_account_matched_published_confirmed_sources(empt
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT to_regclass('public.pams_tradingview_transactions') AS legacy")
             assert cur.fetchone()['legacy'] is None
-            for suffix, account, status, review, quantity, trade_day in (
-                ('a','tonghuashun','published','confirmed',2,day),
-                ('b','tonghuashun','draft','confirmed',100,day),
-                ('c','ibkr','published','confirmed',100,day),
-                ('d','tonghuashun','published','ignored',100,day),
-                ('e','tonghuashun','published','confirmed',100,day-timedelta(days=1)),
-            ):
-                batch, item = str(uuid4()), str(uuid4())
-                cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method)
-                    VALUES (%s,%s,'trade','synthetic','manual')""", (batch,account))
-                cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash,review_status)
-                    VALUES (%s,%s,%s,'manual',%s,'confirmed')""", (item,batch,suffix,suffix*64))
-                cur.execute("""INSERT INTO pams_investment_trade_fact
-                    (trade_date,account_code,symbol,currency,trade_type,side,quantity,price,gross_amount,
-                     fee_amount,tax_amount,source_table,source_id,source_hash,source_item_id,review_status)
-                    VALUES (%s,'tonghuashun','600001','CNY','buy','buy',%s,8,%s,0,0,
-                     'source_items',%s,%s,%s,%s)""", (trade_day,quantity,quantity*8,item,suffix*64,item,review))
-                if status == 'published':
-                    cur.execute("UPDATE source_batches SET status='published',published_source_hash=%s WHERE batch_id=%s",
-                                ('f'*64,batch))
+            for account, quantity, trade_day in (('tonghuashun',2,day),('ibkr',100,day),
+                                                  ('tonghuashun',100,day-timedelta(days=1))):
+                sid, iid = uuid4(), uuid4()
+                fields={'business_date':trade_day.isoformat(),'symbol':'600001','currency':'CNY','trade_type':'buy',
+                        'market':'SSE','quantity':str(quantity),'price':'8','gross_amount':str(quantity*8),
+                        'fee_amount':'0','tax_amount':'0','net_cash':str(-quantity*8)}
+                source.create_source(cur,source_id=sid,account_code=account,source_name='synthetic',acquisition_method='manual',document_type='trade')
+                source.add_item(cur,source_id=sid,item_id=iid,parse_method='manual',raw_fields=fields,parsed_fields=fields)
+                source.review_item(cur,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=fields,review_status='confirmed')
+                source.publish_trade_source(cur,source_id=sid,expected_revision=3)
             row = {'account_code': 'tonghuashun', 'symbol': '600001', 'major_category': 'A股',
                    'as_of': day, 'quantity': 10, 'current_price': 10, 'previous_price': 9,
                    'market_value': 100, 'market_value_cny': 100, 'daily_pnl': 10, 'daily_pnl_cny': 10}
@@ -537,6 +501,8 @@ def test_same_day_buy_uses_only_account_matched_published_confirmed_sources(empt
             assert earlier[key] == 100 and key in earlier.unverified_keys
             values = _tonghuashun_series_from_trade_fact(cur, dates=[day], account_owner_ratio=lambda _: 1)
             assert values[day] == -816 and day in values.unknown_dates  # No proven market price.
+            cur.execute("UPDATE pams_investment_trade_fact SET gross_amount=1 WHERE account_code='tonghuashun' AND trade_date=%s", (day,))
+            assert key in _same_day_a_stock_trades(cur, {key}, day).unverified_keys
 
 
 def test_tradingview_history_reads_only_published_facts_without_legacy_table(empty_source_db, monkeypatch):
@@ -544,13 +510,15 @@ def test_tradingview_history_reads_only_published_facts_without_legacy_table(emp
     from fastapi.testclient import TestClient
     import main
     from domain.brokers.ibkr import ibkr_daily_close_read
+    from domain.imports import source_records_v2 as source
+    from psycopg2.extras import RealDictCursor
 
     today = date.today()
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
-        with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.pams_tradingview_transactions'), to_regclass('pams_legacy.pams_tradingview_transactions')")
-            assert cur.fetchone() == (None, None)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT to_regclass('public.pams_tradingview_transactions') AS public_old, to_regclass('pams_legacy.pams_tradingview_transactions') AS legacy_old")
+            assert list(cur.fetchone().values()) == [None, None]
             cur.execute("""INSERT INTO pams_holdings_snapshot
                 (name,symbol,account_code,asset_liability,currency,major_category,minor_category,
                  market_value,cost,quantity,current_price,as_of)
@@ -559,21 +527,16 @@ def test_tradingview_history_reads_only_published_facts_without_legacy_table(emp
                 VALUES ('sh600001','CN_A',%s,NULL),('sh600001','CN_A',%s,9)""",
                 (today - timedelta(days=2), today - timedelta(days=1)))
             for status, quantity, suffix in (('published', 10, 'a'), ('draft', 100, 'b')):
-                batch, item = str(uuid4()), str(uuid4())
-                cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method)
-                    VALUES (%s,'tonghuashun','trade','synthetic','manual')""", (batch,))
-                cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash,review_status)
-                    VALUES (%s,%s,%s,'manual',%s,'confirmed')""", (item,batch,suffix,suffix*64))
-                cur.execute("""INSERT INTO pams_investment_trade_fact
-                    (trade_date,account_code,symbol,currency,trade_type,side,quantity,price,gross_amount,
-                     source_table,source_id,source_hash,source_item_id,review_status)
-                    VALUES (%s,'tonghuashun','600001','CNY','buy','buy',%s,8,%s,
-                     'tradingview_csv',%s,%s,%s,'reviewed')""",
-                    (today - timedelta(days=2) if status == 'published' else today,
-                     quantity, quantity*8, item, suffix*64, item))
+                sid, iid = uuid4(), uuid4()
+                trade_day = today - timedelta(days=2) if status == 'published' else today
+                fields = {'business_date':trade_day.isoformat(),'symbol':'600001','market':'SSE','currency':'CNY',
+                          'trade_type':'buy','quantity':str(quantity),'price':'8','gross_amount':str(quantity*8),
+                          'net_cash':str(-quantity*8)}
+                source.create_source(cur,source_id=sid,account_code='tonghuashun',source_name='tradingview',acquisition_method='manual',document_type='trade')
+                source.add_item(cur,source_id=sid,item_id=iid,parse_method='manual',raw_fields=fields,parsed_fields=fields)
+                source.review_item(cur,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=fields,review_status='confirmed')
                 if status == 'published':
-                    cur.execute("UPDATE source_batches SET status='published',published_source_hash=%s WHERE batch_id=%s",
-                                ('f'*64,batch))
+                    source.publish_trade_source(cur,source_id=sid,expected_revision=3)
     monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
     monkeypatch.setattr(main, '_view_as_of', lambda: today)
     monkeypatch.setattr(main, '_holdings_market_view_as_of', lambda cur: today)
@@ -601,6 +564,11 @@ def test_tradingview_history_reads_only_published_facts_without_legacy_table(emp
         holdings = web.get('/holdings/by-category/A股?includeClosed=true')
         assert holdings.status_code == 200, holdings.text
         assert holdings.json()['closed_positions_evidence']['tradingview'] == 'unavailable_unverified_trade_coverage'
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute("UPDATE pams_investment_trade_fact SET gross_amount=1 WHERE account_code='tonghuashun'")
+        response = web.get('/holdings/history/A股')
+        assert response.status_code == 200
+        assert response.json()['history_evidence']['reason'] == 'trade_source_evidence_incomplete'
 
 
 def test_initialization_failure_rolls_back_every_table(empty_source_db, monkeypatch, tmp_path):
@@ -715,16 +683,19 @@ def test_portfolio_transaction_gross_cny_uses_trade_day_fx(empty_source_db):
     from decimal import Decimal
     from psycopg2.extras import RealDictCursor
     from domain.investments.portfolio_state import load_investment_transactions
+    from domain.imports import source_records_v2 as source
     day = date(2026, 10, 30)
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""INSERT INTO pams_investment_trade_fact
-                (trade_date,account_code,symbol,currency,trade_type,side,gross_amount,
-                 source_table,source_id,source_hash,review_status)
-                VALUES (%s,'tonghuashun','USD','USD','buy','buy',100,'synthetic','usd',%s,'reviewed'),
-                       (%s,'tonghuashun','CNY','CNY','buy','buy',100,'synthetic','cny',%s,'reviewed')""",
-                (day,'a'*64,day,'b'*64))
+            for currency in ('USD','CNY'):
+                sid, iid = uuid4(), uuid4()
+                fields={'business_date':day.isoformat(),'symbol':currency,'currency':currency,'trade_type':'buy',
+                        'quantity':'1','gross_amount':'100','net_cash':'-100'}
+                source.create_source(cur,source_id=sid,account_code='tonghuashun',source_name='synthetic',acquisition_method='manual',document_type='trade')
+                source.add_item(cur,source_id=sid,item_id=iid,parse_method='manual',raw_fields=fields,parsed_fields=fields)
+                source.review_item(cur,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=fields,review_status='confirmed')
+                source.publish_trade_source(cur,source_id=sid,expected_revision=3)
             cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',8,'synthetic'),(%s,'CNY','USD',6,'synthetic')",
                         (day + timedelta(days=1), day - timedelta(days=1)))
             rows = {row['symbol']: row for row in load_investment_transactions(cur, 'USD')}

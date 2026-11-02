@@ -320,7 +320,28 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
     symbols = sorted({symbol for _, symbol, _ in keys})
     dates = sorted({as_of for _, _, as_of in keys if as_of is not None})
 
-    if _trade_fact_rows_available(cur):
+    if _table_exists(cur, 'source_records'):
+        from domain.investments.trade_read_v2 import load_trade_rows
+        grouped = {}
+        incomplete = set()
+        for account in accounts:
+            for fact in load_trade_rows(cur, account_code=account, start=min(dates), end=max(dates)):
+                key = (account, str(fact.get('symbol') or ''), fact['trade_date'])
+                if key not in keys or fact['trade_type'] not in {'buy', 'fund_subscription'}:
+                    continue
+                if (fact['source_evidence_status'] != 'verified' or fact['quantity'] is None or
+                        fact['quantity'] <= 0 or fact['gross_amount'] is None):
+                    incomplete.add(key)
+                    continue
+                item = grouped.setdefault(key, {'buy_qty': Decimal(0), 'buy_value': Decimal(0)})
+                item['buy_qty'] += fact['quantity']
+                item['buy_value'] += abs(fact['gross_amount'])
+        trades = {key: value for key, value in grouped.items() if key not in incomplete}
+        for row in rows:
+            key = (str(row.get('account') or row.get('account_code') or ''), str(row.get('symbol') or ''), row.get('as_of'))
+            if key in incomplete:
+                row['_daily_basis_unavailable'] = True
+    elif _trade_fact_rows_available(cur):
         cur.execute("""SELECT to_regclass('public.source_items') IS NOT NULL AS item_exists,
             to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
         source_relations = cur.fetchone()
@@ -364,21 +385,16 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
             """,
             (accounts, symbols, dates),
         )
+        trades = {
+            (str(row['account_code']), str(row['normalized_symbol']), row['as_of']): row
+            for row in cur.fetchall()
+        }
     else:
         for row in rows:
             if (row.get("major_category") == "A股" and row.get("previous_price") is None
                     and row.get("current_price") is not None and _dec(row.get("quantity")) > 0):
                 row["_daily_basis_unavailable"] = True
         return rows
-    trades = {
-        (
-            str(row["account_code"]),
-            str(row["normalized_symbol"]),
-            row["as_of"],
-        ): row
-        for row in cur.fetchall()
-    }
-
     for row in rows:
         key = (
             str(row.get("account") or row.get("account_code") or ""),
@@ -1187,10 +1203,22 @@ def build_holdings_history_payload(
 
     cur.execute("""SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS fact_exists,
         to_regclass('public.source_items') IS NOT NULL AS item_exists,
-        to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
+        to_regclass('public.source_batches') IS NOT NULL AS batch_exists,
+        to_regclass('public.source_records') IS NOT NULL AS redesigned""")
     tradingview_relations = cur.fetchone()
     fact_history = False
-    if (tradingview_relations.get("fact_exists") and tradingview_relations.get("item_exists")
+    redesigned = tradingview_relations.get('redesigned', False)
+    incomplete_trade_history = False
+    if redesigned and category == 'A股' and minor_category in (None, 'A股'):
+        from datetime import date
+        from domain.investments.trade_read_v2 import load_trade_rows
+        facts = load_trade_rows(cur, account_code='tonghuashun', start=date.min, end=view_as_of)
+        identifiers = [int(fact['trade_id']) for fact in facts if fact['source_evidence_status'] == 'verified'
+                       and fact['trade_type'] in {'buy', 'sell'} and fact['symbol'] and fact['quantity'] is not None]
+        incomplete_trade_history = any(fact['source_evidence_status'] != 'verified' for fact in facts
+                                       if fact['trade_type'] in {'buy', 'sell'})
+        fact_history = bool(identifiers) and not incomplete_trade_history
+    elif (tradingview_relations.get("fact_exists") and tradingview_relations.get("item_exists")
             and tradingview_relations.get("batch_exists")):
         cur.execute("""SELECT EXISTS (SELECT 1 FROM pams_investment_trade_fact f
             JOIN source_items si ON si.source_item_id=f.source_item_id
@@ -1211,6 +1239,11 @@ def build_holdings_history_payload(
               AND LOWER(f.review_status) IN ('auto','reviewed','confirmed')
               AND sb.account_code=f.account_code
               AND si.review_status='confirmed' AND sb.status='published')"""
+    if redesigned and fact_history:
+        id_array = 'ARRAY[' + ','.join(str(ident) for ident in identifiers) + ']::bigint[]'
+        tv_history_relation = """(SELECT f.account_code,f.symbol AS normalized_symbol,
+            f.trade_date AS closing_time,INITCAP(COALESCE(f.side,f.trade_type)) AS side,ABS(f.quantity) AS quantity
+            FROM pams_investment_trade_fact f WHERE f.trade_id=ANY(""" + id_array + '))'
 
     if category == "A股" and minor_category == "A股基金":
         cur.execute(
@@ -1477,7 +1510,10 @@ def build_holdings_history_payload(
         }
     if category == "A股" and minor_category in (None, "A股") and fact_history:
         payload["history_evidence"] = {"status": "estimated", "coverage": "unknown",
-                                       "reason": "tradingview_report_coverage_unverified"}
+                                       "reason": "trade_source_coverage_unverified" if redesigned else "tradingview_report_coverage_unverified"}
+    elif category == 'A股' and redesigned and incomplete_trade_history:
+        payload['history_evidence'] = {'status': 'snapshot_based' if series else 'unavailable',
+                                       'coverage': 'unknown', 'reason': 'trade_source_evidence_incomplete'}
     return payload
 
 

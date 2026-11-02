@@ -828,10 +828,14 @@ def _tonghuashun_series_from_trade_fact(
         SELECT to_regclass('public.pams_investment_trade_fact') IS NOT NULL AS fact_exists,
                to_regclass('public.pams_ohlcv_daily') IS NOT NULL AS px_exists,
                to_regclass('public.source_items') IS NOT NULL AS item_exists,
-               to_regclass('public.source_batches') IS NOT NULL AS batch_exists
+               to_regclass('public.source_batches') IS NOT NULL AS batch_exists,
+               to_regclass('public.source_records') IS NOT NULL AS redesigned
         """
     )
     exists = cur.fetchone()
+    if exists and exists.get('redesigned'):
+        from domain.investments.nav_trade_source_v2 import project
+        return project(cur, dates=dates, owner_ratio=owner_ratio, series_type=ValuationEvidenceSeries)
     if not exists or not exists["fact_exists"] or not exists["px_exists"]:
         values.unknown_dates.update(dates)
         if exists and not exists["px_exists"]:

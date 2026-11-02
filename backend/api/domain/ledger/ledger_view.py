@@ -278,6 +278,10 @@ def classify_ledger_row(
     """
 
     transfer_row_ids = transfer_row_ids or set()
+    if row.get("classification_status") in {"pending", "suggested"}:
+        if isinstance(row.get('id'), int) and row['id'] in transfer_row_ids:
+            return {"flow_type": "transfer", "coarse_category": "资金流转", "needs_review": False, "is_operating": False}
+        return {"flow_type": "unclassified", "coarse_category": "待分类", "needs_review": True, "is_operating": False}
     amount = _to_float(row.get("amount") if row.get("amount_cny") is None else row.get("amount_cny"))
     category = str(row.get("category") or "")
     subcategory = str(row.get("subcategory") or "")
@@ -396,6 +400,11 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         "income_count": sum(1 for r in period_rows if r["flow_type"] == "income"),
         "expense_count": sum(1 for r in period_rows if r["flow_type"] == "expense"),
     }
+    unclassified_count = sum(1 for row in period_rows if row.get("flow_type") == "unclassified")
+    if unclassified_count:
+        result.update(classification_status="incomplete", unclassified_count=unclassified_count)
+        for key in ("income", "expense", "net", "disposable_net", "cash_net"):
+            result[key] = None
     if missing_fx or missing_transfer_row_fx:
         for key in ("cash_net", "investment_transfer", "investment_transfer_net", "other_transfer", "internal_transfer"):
             result[key] = None
@@ -523,6 +532,7 @@ def _account_summary(
                 "fx_missing_flows": set(),
                 "direction_conflict_count": 0,
                 "source_unverified_count": 0,
+                "unclassified_count": 0,
             },
         )
         if row.get("account_kind") == "investment":
@@ -531,6 +541,8 @@ def _account_summary(
         if sync_at and (item["latest_sync_at"] is None or str(sync_at) > str(item["latest_sync_at"])):
             item["latest_sync_at"] = sync_at
         flow_type = row.get("flow_type")
+        if flow_type == "unclassified":
+            item["unclassified_count"] += 1
         item["row_count"] += 1
         if row.get("amount_cny") is None:
             if row.get('source_issue') == 'direction_conflict':
@@ -618,6 +630,10 @@ def _account_summary(
                 result_item.update(source_status="inconsistent", direction_conflict_count=item["direction_conflict_count"])
             if item["source_unverified_count"]:
                 result_item.update(source_status="incomplete", source_unverified_count=item["source_unverified_count"])
+        if item["unclassified_count"]:
+            result_item.update(income=None, expense=None, transfer=None, investment_inflow=None,
+                investment_outflow=None, investment_return=None, investment_fee=None, net=None, activity=None,
+                classification_status="incomplete", unclassified_count=item["unclassified_count"])
         if capital_unavailable:
             result_item.update(investment_inflow=None,net=None,activity=None,capital_status='unavailable')
         result.append(result_item)
@@ -635,6 +651,9 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
             key = key_date.isoformat()
         else:
             key = d.strftime("%Y-%m")
+        if row.get("flow_type") == "unclassified":
+            buckets[key]["unclassified"] = True
+            continue
         if row.get("amount_cny") is None and row["flow_type"] in {"income", "expense"}:
             buckets[key]["fx_missing_" + row["flow_type"]] = True
             continue
@@ -647,8 +666,8 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
     for key in sorted(buckets):
         income = round(buckets[key]["income"], 2)
         expense = round(buckets[key]["expense"], 2)
-        missing_income = buckets[key].get("fx_missing_income")
-        missing_expense = buckets[key].get("fx_missing_expense")
+        missing_income = buckets[key].get("fx_missing_income") or buckets[key].get("unclassified")
+        missing_expense = buckets[key].get("fx_missing_expense") or buckets[key].get("unclassified")
         result.append({"period": key, "income": None if missing_income else income,
                        "expense": None if missing_expense else expense,
                        "net": None if missing_income or missing_expense else round(income - expense, 2)})
@@ -656,6 +675,10 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
 
 
 def _load_latest_statement_date(cur, verifier=None) -> date | None:
+    if _table_exists(cur, 'source_records'):
+        rows = _load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY')
+        return next((_as_date(row['transaction_date']) for row in rows
+                     if row.get('source_evidence_status') == 'verified'), None)
     visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
     cur.execute(f"""SELECT cf.cashflow_id,cf.event_date,cf.source_table,to_jsonb(cf)->>'source_item_id' AS source_item_id
                     FROM pams_cashflow_fact cf WHERE {visibility} ORDER BY cf.event_date DESC,cf.cashflow_id DESC""")
@@ -777,6 +800,15 @@ def _mark_fact_source(cur, rows, *, table: str, verifier=None):
 
 
 def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
+    if _table_exists(cur, 'source_records'):
+        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        rows = load_cash_rows(cur, start=start, end=end, base_currency=base_currency)
+        for row in rows:
+            row['account_kind'] = None
+            row['bank'] = None
+            row['review_status'] = 'confirmed' if row['source_evidence_status'] == 'verified' else 'unverified'
+            row['imported_at'] = row.get('created_at')
+        return rows
     source_rows = source_row_relation(cur, verifier=verifier)
     fx_join = _daily_fx_join(cur, currency_sql='cf.currency', date_sql='cf.event_date')
     visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
@@ -971,6 +1003,48 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
 
 
 def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
+    if _table_exists(cur, 'source_records'):
+        from domain.investments.trade_read_v2 import load_trade_rows
+        cur.execute("""SELECT DISTINCT account_code FROM pams_investment_trade_fact
+            WHERE trade_date BETWEEN %s AND %s AND trade_type IN ('deposit','withdraw')""", (start, end))
+        accounts = [row['account_code'] for row in cur.fetchall()]
+        matched = {}
+        for item, left, right, *_ in _confirmed_transfer_records(cur, start=start, end=end):
+            if item['evidence_status'] != 'confirmed':
+                continue
+            for trade, cash in ((left, right), (right, left)):
+                if trade.get('kind') == 'trade' and cash.get('kind') == 'cashflow':
+                    matched[trade['id']] = cash['id']
+        rows = []
+        for account in accounts:
+            for fact in load_trade_rows(cur, account_code=account, start=start, end=end):
+                if fact['trade_type'] not in {'deposit', 'withdraw'}:
+                    continue
+                amount = fact['net_cash']
+                verified = fact['source_evidence_status'] == 'verified'
+                converted = amount if verified and fact['currency'] == base_currency else None
+                if verified and amount is not None and fact['currency'] != base_currency and base_currency == 'CNY':
+                    cur.execute('''SELECT rate FROM pams_fx_rates_daily WHERE base_currency='CNY' AND quote_currency=%s
+                        AND as_of=%s AND rate>0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+                        AND NULLIF(btrim(source),'') IS NOT NULL LIMIT 1''', (fact['currency'], fact['trade_date']))
+                    fx = cur.fetchone()
+                    if fx:
+                        converted = amount * fx['rate']
+                cash_id = matched.get(fact['trade_id'])
+                is_deposit = fact['trade_type'] == 'deposit'
+                rows.append({'id': 'investment-trade-' + str(fact['trade_id']), 'fact_id': fact['trade_id'],
+                    'source_item_id': fact['source_item_id'], 'account_code': account, 'account_kind': 'investment',
+                    'transaction_date': fact['trade_date'], 'transaction_date_obj': fact['trade_date'],
+                    'amount': amount if verified else None, 'amount_cny': converted, 'currency': fact['currency'],
+                    'category': '投资账户', 'subcategory': '入金' if is_deposit else '出金',
+                    'summary': '投资入金' if is_deposit else '投资出金',
+                    'cashflow_type': 'investment_funding' if is_deposit else 'investment_withdrawal',
+                    'flow_type': 'investment_inflow' if is_deposit else 'investment_outflow',
+                    'is_internal_transfer': cash_id is not None, 'linked_cashflow_id': cash_id,
+                    'needs_review': not verified or cash_id is None or converted is None, 'is_operating': False,
+                    'source_evidence_status': fact['source_evidence_status'],
+                    'source_issue': None if verified else 'source_evidence_unknown', 'imported_at': fact['created_at']})
+        return sorted(rows, key=lambda row: (row['transaction_date'], str(row['id'])), reverse=True)
     source_rows = source_row_relation(cur, verifier=verifier)
     fx_join = _daily_fx_join(cur, currency_sql='cf.currency', date_sql='cf.event_date')
     visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
@@ -1070,7 +1144,10 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
 
 def _confirmed_transfer_records(cur, *, start: date, end: date):
     """Read immutable decisions and recheck both source-backed facts."""
-    from domain.ledger import confirmed_transfers
+    if _table_exists(cur, 'source_records'):
+        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+    else:
+        from domain.ledger import confirmed_transfers
     result = []
     for item in confirmed_transfers.read(cur, limit=None):
         left, right = item['from_evidence'], item['to_evidence']
@@ -1107,6 +1184,34 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -
 
 def _load_pending_transfer_cases(cur, *, start: date, end: date) -> list[dict[str, Any]]:
     """Expose known open bank facts and invalidated decisions without confirming them."""
+    if _table_exists(cur, 'source_records'):
+        decisions = _confirmed_transfer_records(cur, start=start, end=end)
+        linked = {leg['id'] for item, left, right, *_ in decisions if item['evidence_status'] == 'confirmed'
+                  for leg in (left, right) if leg.get('kind') == 'cashflow'}
+        rows = _load_cash_rows(cur, start=start, end=end, base_currency='CNY')
+        cases = []
+        for row in rows:
+            if (row['id'] in linked or row.get('classification_status') != 'confirmed' or
+                row.get('cashflow_type') not in {'internal_transfer', 'investment_funding', 'investment_withdrawal'}):
+                continue
+            verified = row.get('source_evidence_status') == 'verified'
+            amount = row.get('amount') if verified else None
+            cases.append({'case_id': 'cashflow:' + str(row['id']), 'case_type': row['cashflow_type'],
+                'from_account_code': row['account_code'] if amount is not None and amount < 0 else None,
+                'to_account_code': row['account_code'] if amount is not None and amount > 0 else None,
+                'case_date': _serialize_date(row['transaction_date']), 'amount': _to_float(amount) if amount is not None else None,
+                'currency': row['currency'], 'status': 'unmatched' if verified else 'source_unknown',
+                'source_evidence_status': row.get('source_evidence_status'), 'candidate_count': None, 'candidate_ids': []})
+        for item, left, right, left_day, _, kind in decisions:
+            if item['evidence_status'] not in {'confirmed', 'revoked'}:
+                cases.append({'case_id': str(item['transfer_id']), 'case_type': kind,
+                    'from_account_code': item['from_account_code'], 'to_account_code': item['to_account_code'],
+                    'case_date': _serialize_date(left_day), 'amount': None, 'currency': item['currency'],
+                    'status': item['evidence_status']})
+        total = len(cases)
+        for case in cases:
+            case['total_count'] = total
+        return cases[:200]
     from domain.ledger import bank_source_read
 
     decisions = _confirmed_transfer_records(cur, start=start, end=end)
@@ -1263,7 +1368,8 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
-    verifier = _source_fact_verifier(cur)
+    redesigned = _table_exists(cur, 'source_records')
+    verifier = None if redesigned else _source_fact_verifier(cur)
     latest_date = _load_latest_statement_date(cur, verifier=verifier)
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
@@ -1290,7 +1396,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     }
 
     confirmed_proxy_roles = {}
-    if _table_exists(cur, 'evidence_confirmation'):
+    if not redesigned and _table_exists(cur, 'evidence_confirmation'):
         from domain.ledger.payment_proxy_confirmation import decisions
         for decision in decisions(cur):
             if decision['evidence_status'] == 'confirmed':

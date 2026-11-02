@@ -96,7 +96,13 @@ def _filter_current_holding_rows(
 
 def _enrich_esop_realized_income(cur, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Add confirmed ESOP dividends to current holding PnL without changing position cost."""
-    if not rows:
+    if not rows or not any(str(row.get('major_category') or '') == 'ESOP' for row in rows):
+        return rows
+
+    if _table_exists(cur, 'source_records'):
+        for row in rows:
+            if str(row.get('major_category') or '') == 'ESOP':
+                row['realized_income_status'] = 'unavailable_source_reconciliation'
         return rows
 
     cur.execute(
@@ -387,6 +393,23 @@ def _enrich_realized_trade_pnl(cur, rows: list[dict[str, Any]]) -> list[dict[str
         and _dec(row.get("market_value_cny") if row.get("market_value_cny") is not None else row.get("market_value")) > Decimal("0.0001")
     }
     if not keys or not _table_exists(cur, "pams_investment_trade_fact"):
+        return rows
+
+    if _table_exists(cur, 'source_records'):
+        # The redesigned facts no longer contain derived realized PnL. Until
+        # complete trade coverage is established, do not synthesize a result.
+        cur.execute('''SELECT DISTINCT account_code,symbol FROM pams_investment_trade_fact
+            WHERE account_code=ANY(%s::text[]) AND symbol=ANY(%s::text[]) AND trade_date<=%s::date''',
+            (sorted({account for account, _, _ in keys}), sorted({symbol for _, symbol, _ in keys}),
+             max(as_of for _, _, as_of in keys)))
+        present = {(str(item['account_code']), str(item['symbol'])) for item in cur.fetchall()}
+        for row in rows:
+            key = (str(row.get('account') or row.get('account_code') or ''), str(row.get('symbol') or ''))
+            if key in present:
+                row['realized_trade_pnl'] = None
+                row['realized_trade_pnl_native'] = None
+                row['realized_trade_pnl_cny'] = None
+                row['realized_trade_pnl_source'] = 'unavailable_trade_coverage'
         return rows
 
     accounts = sorted({account for account, _, _ in keys})
