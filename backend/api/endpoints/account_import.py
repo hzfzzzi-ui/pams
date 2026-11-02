@@ -219,6 +219,22 @@ async def stage_source_record(request: Request, account_code: str = Query(..., m
                                    filename=filename, content=bytes(content)), write=True)
 
 
+@router.post('/source-records/ibkr-report')
+async def stage_ibkr_source_record(request: Request):
+    access.same_origin(request)
+    account = request.headers.get('x-pams-ibkr-account', '').strip()
+    if not account or len(account) > 120 or any(char in account for char in ('\x00', '\r', '\n')):
+        raise HTTPException(400, detail={'code': 'invalid_account', 'message': '请提供券商来源账户标识'})
+    content = bytearray()
+    async for part in request.stream():
+        content.extend(part)
+        if len(content) > 32 * 1024 * 1024:
+            raise HTTPException(413, detail={'code': 'file_size', 'message': '券商报表超过32MB'})
+    from collectors.ibkr_source_records import stage_trade_report
+    return await run_in_threadpool(execute_source_record, request,
+        lambda cur: stage_trade_report(cur, report_bytes=bytes(content), expected_source_account=account), write=True)
+
+
 @router.get('/source-records')
 def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50)):
     def read(cur):

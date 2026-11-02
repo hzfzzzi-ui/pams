@@ -19,7 +19,7 @@ def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_sou
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            with pytest.raises(ValueError, match='does not match'):
+            with pytest.raises(ValueError, match='invalid IBKR report'):
                 stage_trade_report(cur, report_bytes=report, expected_source_account='U_OTHER')
             with pytest.raises(ValueError, match='amounts do not reconcile'):
                 stage_trade_report(cur, report_bytes=report.replace(b'tradeMoney="340"', b'tradeMoney="341"'),
@@ -60,3 +60,38 @@ def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_sou
             with pytest.raises(ValueError, match='existing source trade identifier'):
                 publish_trade_source(cur, source_id=UUID(later['source_id']), expected_revision=revision)
             cur.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
+
+def test_ibkr_report_http_stages_then_requires_review(empty_source_db, monkeypatch):  # noqa: F811
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from endpoints import account_import
+    from domain.imports import account_import_store
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+    monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a1' * 32)
+    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
+    app = FastAPI(); app.include_router(account_import.router, prefix='/api')
+    report = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="USD" taxAmount="0"').encode('utf-8')
+    url = '/api/account-import/source-records/ibkr-report'
+    with TestClient(app) as client:
+        assert client.post(url, content=report, headers={'Origin':'http://other','X-PAMS-IBKR-Account':'U_TEST'}).status_code == 403
+        client.headers.update({'Origin':'http://testserver','X-PAMS-IBKR-Account':'U_TEST'})
+        assert client.post(url, content=b'<broken').status_code == 400
+        assert client.post(url, content=b'<!DOCTYPE x [<!ENTITY a "x">]><x>&a;</x>').status_code == 400
+        response = client.post(url, content=report)
+        assert response.status_code == 200, response.text
+        path = '/api/account-import/source-records/' + response.json()['source_id']
+        draft = client.get(path).json()
+        assert client.post(path+'/trade-preview', json={'revision':draft['revision']}).status_code == 400
+        item = draft['items'][0]
+        reviewed = client.put(path+'/items/'+item['source_item_id'], json={'revision':draft['revision'],
+            'parsed_fields':item['parsed_fields'], 'review_status':'confirmed'})
+        assert reviewed.status_code == 200
+        revision = reviewed.json()['revision']
+        preview = client.post(path+'/trade-preview', json={'revision':revision})
+        assert preview.status_code == 200, preview.text
+        published = client.post(path+'/trade-publish', json={'revision':revision,'preview_token':preview.json()['preview_token']})
+        assert published.status_code == 200 and published.json()['published'] == 1

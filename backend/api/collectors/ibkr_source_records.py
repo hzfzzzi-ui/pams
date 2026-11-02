@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from hashlib import sha256
 from uuid import uuid4
+from xml.etree.ElementTree import ParseError
 
-from collectors.ibkr_flex import parse_flex_report, _validated_isolated_report_trades
-from domain.brokers.ibkr.ibkr_report_state import inspect_report
+from collectors.ibkr_flex import IBKRFlexError, parse_flex_report, _validated_isolated_report_trades
+from domain.brokers.ibkr.ibkr_daily_close import _document
+from domain.brokers.ibkr.ibkr_report_state import ReportRejected, inspect_report
 from domain.brokers.ibkr.ibkr_report_trade_source import _row
 from domain.imports.source_records_v2 import add_item, create_source
 
@@ -25,8 +27,14 @@ def stage_trade_report(cur, *, report_bytes: bytes, expected_source_account: str
     except UnicodeDecodeError as exc:
         raise ValueError('IBKR report must be UTF-8') from exc
     digest = sha256(report_bytes).hexdigest()
-    day = inspect_report(text)
-    parsed = parse_flex_report(text, account_code='ibkr', allow_empty_holdings=True)
+    _, _, error = _document(text, expected_source_account, digest)
+    if error:
+        raise ValueError('invalid IBKR report')
+    try:
+        day = inspect_report(text)
+        parsed = parse_flex_report(text, account_code='ibkr', allow_empty_holdings=True)
+    except (ParseError, IBKRFlexError, ReportRejected) as exc:
+        raise ValueError('invalid IBKR report') from exc
     official, trades, stats = _validated_isolated_report_trades(parsed, day, 'ibkr', text, digest)
     if official != expected_source_account:
         raise ValueError('IBKR source account does not match')
