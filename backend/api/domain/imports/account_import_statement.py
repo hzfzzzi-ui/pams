@@ -52,7 +52,13 @@ def parse(content, filename, account, kind, mapping=None):
     if kind != "cash":
         raise ValueError("账单账户仅接受账单资料")
     suffix = Path(filename).suffix.lower()
-    if suffix in {".png", ".jpg", ".jpeg"}:
+    candidates = profiles().get(account, [])
+    from domain.imports.ccb_spreadsheet import parse as parse_ccb_spreadsheet
+    ccb_result = (parse_ccb_spreadsheet(content, filename, account, candidates[0].get("statement_template", ""))
+                  if len(candidates) == 1 else None)
+    if ccb_result is not None:
+        result = ccb_result
+    elif suffix in {".png", ".jpg", ".jpeg"}:
         result = parse_image(content, "tonghuashun", "cash")
     else:
         # Standard mapped tables share the bounded parser, including formula checks.

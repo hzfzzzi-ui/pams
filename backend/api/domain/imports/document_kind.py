@@ -21,7 +21,7 @@ def _text_kind(text: str) -> str | None:
 def detect(content: bytes, filename: str, account: str) -> dict:
     suffix = PurePath(filename).suffix.lower()
     if statement.is_statement(account):
-        if suffix not in {'.csv', '.tsv', '.xlsx', '.pdf', *IMAGES}:
+        if suffix not in {'.csv', '.tsv', '.xls', '.xlsx', '.pdf', *IMAGES}:
             return {'kind': None, 'status': 'mismatch'}
         if suffix in IMAGES:
             return {'kind': 'cash', 'status': 'account_kind'}
