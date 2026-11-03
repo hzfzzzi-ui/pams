@@ -244,11 +244,52 @@ def publish_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict
     return {'published':len(prepared),'classification':'pending'}
 
 
-def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, preview_only: bool = False) -> dict:
+def _ths_batch_duplicates(prepared):
+    from collections import Counter, defaultdict
+
+    references = Counter()
+    by_values = defaultdict(list)
+    for item, fields, day, stamp, _, kind, currency, amounts in prepared:
+        ref = fields.get('source_ref')
+        if ref:
+            references[day, ref] += 1
+        key = (day, kind, fields.get('symbol'), amounts['quantity'], amounts['net_cash'], currency)
+        by_values[key].append((str(item['source_item_id']), stamp, ref))
+    duplicates = set()
+    for key, matches in by_values.items():
+        all_times = Counter(stamp for _, stamp, _ in matches)
+        no_ref_times = Counter(stamp for _, stamp, ref in matches if not ref)
+        for ident, stamp, ref in matches:
+            counts = no_ref_times if ref else all_times
+            same_values = sum(counts.values()) if stamp is None else counts[stamp] + counts[None]
+            if (ref and references[key[0], ref] > 1) or same_values > (0 if ref else 1):
+                duplicates.add(ident)
+    return duplicates
+
+
+def _ths_trade_exists(cur, account, fields, day, stamp, kind, currency, amounts):
+    cur.execute("""SELECT 1 FROM public.pams_investment_trade_fact f
+        JOIN public.source_items i ON i.source_item_id=f.source_item_id
+        WHERE f.account_code=%s AND f.trade_date=%s AND (
+          (%s IS NOT NULL AND i.parsed_fields->>'source_ref'=%s)
+          OR (f.trade_type=%s AND f.symbol IS NOT DISTINCT FROM %s
+            AND f.quantity IS NOT DISTINCT FROM %s AND f.net_cash IS NOT DISTINCT FROM %s
+            AND f.currency=%s AND (f.trade_time IS NULL OR %s IS NULL OR f.trade_time=%s)
+            AND (%s IS NULL OR NULLIF(i.parsed_fields->>'source_ref','') IS NULL))
+        ) LIMIT 1""",
+        (account, day, fields.get('source_ref'), fields.get('source_ref'), kind, fields.get('symbol'),
+         amounts['quantity'], amounts['net_cash'], currency, stamp, stamp, fields.get('source_ref')))
+    return cur.fetchone() is not None
+
+
+def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, preview_only: bool = False,
+                         mode: str = 'all') -> dict:
     """Publish reviewed original trade facts; preserve unreported amounts as NULL."""
     from datetime import date, datetime, time
     from decimal import Decimal, InvalidOperation
 
+    if mode not in {'all', 'ready'}:
+        raise ValueError('invalid publication mode')
     if cur.connection.autocommit:
         raise ValueError('source publication requires a transaction')
     cur.execute('SELECT account_code FROM public.source_records WHERE source_id=%s', (str(source_id),))
@@ -257,27 +298,50 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
         raise ValueError('source missing')
     account=account_row['account_code'] if isinstance(account_row, Mapping) else account_row[0]
     cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account,))
-    cur.execute('''SELECT account_code,document_type,status,revision,content,sha256 FROM public.source_records
+    cur.execute('''SELECT account_code,document_type,status,revision,content,sha256,acquisition_method,
+        import_group_id,source_name,filename,file_format,content_type,period_start,period_end,scope_note FROM public.source_records
         WHERE source_id=%s FOR UPDATE''',(str(source_id),))
-    cols=('account_code','document_type','status','revision','content','sha256'); row=cur.fetchone()
+    cols=('account_code','document_type','status','revision','content','sha256','acquisition_method',
+          'import_group_id','source_name','filename','file_format','content_type','period_start','period_end','scope_note')
+    row=cur.fetchone()
     src=dict(row) if isinstance(row,Mapping) else dict(zip(cols,row)) if row else None
     if not src or src['account_code']!=account or src['document_type']!='trade' or src['status']!='draft' or src['revision']!=expected_revision:
         raise ValueError('source changed or cannot publish trade')
     if src['content'] is not None and sha256(bytes(src['content'])).hexdigest()!=src['sha256']:
         raise ValueError('source content hash mismatch')
-    cur.execute('''SELECT source_item_id,source_uid,raw_fields,parsed_fields,record_hash,review_status
+    cur.execute('''SELECT source_item_id,source_uid,raw_fields,parsed_fields,record_hash,review_status,
+        parse_method,source_position,review_note
         FROM public.source_items WHERE source_id=%s ORDER BY source_item_id FOR UPDATE''',(str(source_id),))
-    cols=('source_item_id','source_uid','raw_fields','parsed_fields','record_hash','review_status')
+    cols=('source_item_id','source_uid','raw_fields','parsed_fields','record_hash','review_status',
+          'parse_method','source_position','review_note')
     items=[dict(row) if isinstance(row,Mapping) else dict(zip(cols,row)) for row in cur.fetchall()]
-    if not items or any(item['review_status']=='pending' for item in items):
+    from domain.imports.account_import_ths import PROFILE
+    template = (account == 'tonghuashun' and src['acquisition_method'] == 'file' and bool(items)
+                and all(item['parse_method'] == 'template'
+                        and (item['raw_fields'].get('source') or {}).get('profile') == PROFILE
+                        for item in items))
+    if mode == 'ready' and not template:
+        raise ValueError('partial trade publication requires a recognized broker template')
+    if not items or (not template and any(item['review_status']=='pending' for item in items)):
         raise ValueError('source contains unreviewed items')
     nums=('quantity','price','gross_amount','fee_amount','tax_amount','net_cash')
     allowed={'buy','sell','deposit','withdraw','fund_subscription','fund_redemption','dividend','interest','coupon','fee','tax','fx_conversion','corporate_action','split','transfer_in_kind','transfer_out_kind','position_adjustment','unknown'}
     prepared=[]; seen=set()
+    results = {}
     for item in items:
         digest=sha256(json.dumps(item['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')).hexdigest()
         if digest!=item['record_hash']: raise ValueError('source item hash mismatch')
-        if item['review_status']=='excluded': continue
+        ident = str(item['source_item_id'])
+        if item['review_status']=='excluded':
+            results[ident] = {'status': 'excluded', 'issues': []}
+            continue
+        _verify_deferred_source(cur, source_id, item)
+        if template:
+            errors = [issue for issue in (item['raw_fields'].get('initial_issues') or [])
+                      if issue.get('severity') == 'error']
+            if errors:
+                results[ident] = {'status': 'blocked', 'issues': errors}
+                continue
         f=item['parsed_fields']; raw_type=f.get('trade_type') or f.get('action'); typ={'subscribe':'fund_subscription','redeem':'fund_redemption'}.get(raw_type,raw_type); currency=f.get('currency')
         try:
             day=date.fromisoformat(f['business_date']); settle=date.fromisoformat(f['settle_date']) if f.get('settle_date') else None
@@ -291,10 +355,21 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
             if typ in {'sell','withdraw'} and amounts['net_cash'] is not None and (amounts['net_cash'] < 0 if typ == 'sell' else amounts['net_cash'] >= 0):
                 raise ValueError('trade cash direction conflicts')
             if stamp is not None and stamp.tzinfo is not None: raise ValueError('trade time must be local')
-            if any(not value.is_finite() or value.as_tuple().exponent < -10 for value in amounts.values() if value is not None): raise ValueError('invalid trade amount')
-        except (KeyError,TypeError,ValueError,InvalidOperation) as exc: raise ValueError('trade required fields invalid') from exc
+            if any(not value.is_finite() or value.as_tuple().exponent < -10 or abs(value) >= Decimal('1e18')
+                   for value in amounts.values() if value is not None):
+                raise ValueError('invalid trade amount')
+            if template and amounts['net_cash'] is None:
+                raise ValueError('trade cash amount missing')
+        except (KeyError,TypeError,ValueError,InvalidOperation) as exc:
+            if not template:
+                raise ValueError('trade required fields invalid') from exc
+            results[ident] = {'status': 'blocked', 'issues': [{'message': '日期、方向、币种或金额字段有误，请核对原表。'}]}
+            continue
         uid=item['source_uid']
-        if uid:
+        if template:
+            prepared.append((item,f,day,stamp,settle,typ,currency,amounts))
+            continue
+        elif uid:
             if uid in seen: raise ValueError('duplicate source trade identifier')
             seen.add(uid)
             cur.execute('''SELECT 1 FROM public.pams_investment_trade_fact f JOIN public.source_items i ON i.source_item_id=f.source_item_id
@@ -308,8 +383,22 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
                 AND symbol IS NOT DISTINCT FROM %s AND quantity IS NOT DISTINCT FROM %s AND net_cash IS NOT DISTINCT FROM %s AND currency=%s LIMIT 1''',
                 (account,day,typ,f.get('symbol'),amounts['quantity'],amounts['net_cash'],currency))
             if cur.fetchone(): raise ValueError('potential duplicate trade requires review')
+        results[ident] = {'status': 'ready', 'issues': []}
         prepared.append((item,f,day,stamp,settle,typ,currency,amounts))
-    if not prepared: raise ValueError('source has no confirmed trades')
+    if template:
+        duplicates = _ths_batch_duplicates(prepared)
+        ready = []
+        for candidate in prepared:
+            item, fields, day, stamp, _, kind, currency, amounts = candidate
+            ident = str(item['source_item_id'])
+            if ident in duplicates or _ths_trade_exists(cur, account, fields, day, stamp, kind, currency, amounts):
+                results[ident] = {'status': 'duplicate', 'issues': [{'message': '批次内或已入库记录中存在相同来源编号或相同成交，请核对。'}]}
+            else:
+                results[ident] = {'status': 'ready', 'issues': []}
+                ready.append(candidate)
+        prepared = ready
+    unresolved = {ident for ident, result in results.items() if result['status'] in {'duplicate', 'blocked'}}
+    if not prepared and not (template and preview_only): raise ValueError('source has no confirmed trades')
     if preview_only:
         return {'source_id': str(source_id), 'revision': expected_revision,
                 'items': [{'source_item_id': str(item['source_item_id']), 'trade_date': day.isoformat(),
@@ -318,7 +407,18 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
                            'trade_type': typ, 'symbol': f.get('symbol'), 'name': f.get('name'),
                            'currency': currency, 'fee_currency': f.get('fee_currency'),
                            **{key: str(value) if value is not None else None for key, value in amounts.items()}}
-                          for item, f, day, stamp, settle, typ, currency, amounts in prepared]}
+                          for item, f, day, stamp, settle, typ, currency, amounts in prepared],
+                'rows': [{'source_item_id': ident, **result} for ident, result in results.items()],
+                'can_publish': bool(prepared) and not unresolved,
+                'can_publish_ready': bool(prepared and unresolved),
+                'template_review': template}
+    if unresolved and mode != 'ready':
+        raise ValueError('trade source contains unresolved items')
+    deferred_id = _defer_source_items(cur, source_id, src, items, unresolved) if unresolved else None
+    if template:
+        cur.execute("""UPDATE public.source_items SET review_status='confirmed',updated_at=now()
+            WHERE source_id=%s AND source_item_id=ANY(%s::uuid[]) AND review_status='pending'""",
+            (str(source_id), [str(item['source_item_id']) for item, *_ in prepared]))
     for item,f,day,stamp,settle,typ,currency,amounts in prepared:
         cur.execute('''INSERT INTO public.pams_investment_trade_fact(account_code,broker,portfolio_code,trade_date,trade_time,settle_date,
             asset_id,symbol,name,market,currency,trade_type,side,quantity,price,gross_amount,fee_amount,fee_currency,tax_amount,net_cash,
@@ -327,14 +427,16 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
              amounts['quantity'],amounts['price'],amounts['gross_amount'],amounts['fee_amount'],f.get('fee_currency'),amounts['tax_amount'],amounts['net_cash'],
              f.get('execution_status'),f.get('notes'),str(item['source_item_id'])))
     cur.execute("UPDATE public.source_records SET status='published',revision=revision+1,updated_at=now() WHERE source_id=%s",(str(source_id),))
-    return {'published':len(prepared)}
+    result = {'published': len(prepared)}
+    if deferred_id:
+        result.update(deferred_source_id=str(deferred_id), deferred_count=len(unresolved))
+    return result
 
 
 def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict:
     """Publish unambiguous reviewed cashflows and defer other evidence atomically."""
     from datetime import date
     from decimal import Decimal, InvalidOperation
-    from uuid import uuid4
 
     if cur.connection.autocommit:
         raise ValueError('partial publication requires a transaction')
@@ -384,11 +486,19 @@ def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -
     ready=[item for item,_ in checked if str(item['source_item_id']) not in unresolved]
     if not ready: raise ValueError('no unambiguous confirmed cashflows')
     if not unresolved: return publish_cash_source(cur,source_id=source_id,expected_revision=expected_revision)
+    deferred_id = _defer_source_items(cur, source_id, src, items, unresolved)
+    result=publish_cash_source(cur,source_id=source_id,expected_revision=expected_revision)
+    return {**result,'deferred_source_id':str(deferred_id),'deferred_count':len(unresolved)}
+
+
+
+def _defer_source_items(cur, source_id, src, items, unresolved):
+    """Keep unresolved rows and their original evidence in a linked draft."""
     deferred_id=uuid4()
     cur.execute('''INSERT INTO public.source_records(source_id,import_group_id,account_code,source_name,acquisition_method,document_type,
         filename,file_format,content_type,content,sha256,period_start,period_end,scope_note)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-        (str(deferred_id),str(src['import_group_id']) if src['import_group_id'] else None,account,src['source_name'],src['acquisition_method'],src['document_type'],
+        (str(deferred_id),str(src['import_group_id']) if src['import_group_id'] else None,src['account_code'],src['source_name'],src['acquisition_method'],src['document_type'],
          src['filename'],src['file_format'],src['content_type'],bytes(src['content']) if src['content'] is not None else None,src['sha256'],src['period_start'],src['period_end'],src['scope_note']))
     for item in items:
         old_id=str(item['source_item_id'])
@@ -401,5 +511,4 @@ def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -
         cur.execute("UPDATE public.source_items SET review_status='excluded',updated_at=now() WHERE source_id=%s AND source_item_id=%s",
                     (str(source_id),old_id))
         if cur.rowcount!=1: raise ValueError('source item changed during deferral')
-    result=publish_cash_source(cur,source_id=source_id,expected_revision=expected_revision)
-    return {**result,'deferred_source_id':str(deferred_id),'deferred_count':len(unresolved)}
+    return deferred_id

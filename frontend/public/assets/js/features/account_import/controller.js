@@ -3,7 +3,7 @@ import { createImportClient } from './client.js?v=20261031-modules-v1';
 import { createRequestScope } from './request_scope.js?v=20261101-auto-kind';
 import { createRecordsEditor } from './records_editor.js?v=20261101-partial-funding';
 import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
-import { createSourceRecordAdapter } from './source_record_adapter.js?v=20261103-holding-scope';
+import { createSourceRecordAdapter } from './source_record_adapter.js?v=20261103-trade-preflight';
 
 const mounted = new WeakMap();
 
@@ -451,12 +451,13 @@ export function mount(root, context = {}) {
     $('impact').textContent = knownImpact ? `NAV 影响 ${impact.nav_change} · ${impact.message || ''}` : '';
     const hiddenSummaries = ['持仓、交易、现金独立核对', '资产底表待补充/核准', '已识别的券商入出金缺少银行对手账户证据', '以下标的类型及币种使用待核对默认值'];
     $('warnings').replaceChildren(...(p.warnings || []).filter(warning => !hiddenSummaries.some(prefix => typeof warning === 'string' && warning.startsWith(prefix))).map(warning => el('p', issues([warning]), 'import-warning')));
-    if (state.batch.rows.some(row => row.source?.deferred_from && !row.excluded)) $('warnings').append(el('p', '待关联的资金记录尚未入账；补充并匹配银行流水前，账户现金与资金流可能不完整。', 'import-warning'));
-    if (p.can_publish_ready) $('warnings').append(el('p', state.useSourceRecords ? `可先录入 ${p.counts.new} 条已核对记录；待确认、疑似重复及字段异常的记录将保留草稿。` : `可先录入 ${p.counts.new} 条已核对记录；${p.counts.pending} 条资金记录保留草稿，补充银行流水后匹配。在此之前账户现金与资金流可能不完整。`, 'import-warning'));
+    if (p.template_review) $('warnings').append(el('p', '本次仅录入同花顺来源事实。入出金关联和业务分类在录入后处理。', 'import-warning'));
+    if (!state.useSourceRecords && state.batch.rows.some(row => row.source?.deferred_from && !row.excluded)) $('warnings').append(el('p', '待关联的资金记录尚未入账；补充并匹配银行流水前，账户现金与资金流可能不完整。', 'import-warning'));
+    if (p.can_publish_ready) $('warnings').append(el('p', state.useSourceRecords ? `可先录入 ${p.counts.new} 条通过预检的记录；待确认、疑似重复及字段异常的记录将保留草稿。` : `可先录入 ${p.counts.new} 条已核对记录；${p.counts.pending} 条资金记录保留草稿，补充银行流水后匹配。在此之前账户现金与资金流可能不完整。`, 'import-warning'));
     const groupLabels = {counter_required:'资金待关联', possible_duplicate:'疑似重复', asset_unresolved:'标的未匹配', gross_mismatch:'金额校验异常'};
     $('issue-groups').replaceChildren(...(p.issue_groups || []).map(group => el('p',`${groupLabels[group.code] || group.message} · ${group.count} 条`,'import-warning')));
     const filter = $('preview-filter').value;
-    $('preview-rows').replaceChildren(...(p.rows || []).filter(row => filter === 'all' || (filter === 'excluded' ? row.status === 'excluded' : ['blocked','pending'].includes(row.status))).map(row => {
+    $('preview-rows').replaceChildren(...(p.rows || []).filter(row => filter === 'all' || (filter === 'excluded' ? row.status === 'excluded' : ['blocked','pending','duplicate'].includes(row.status))).map(row => {
       const node = el('article', undefined, 'import-row'); node.dataset.status = row.status;
       const record = row.fields || state.batch.rows.find(item => item.row_id === row.row_id)?.fields || {};
       node.dataset.recordRole = record.action === 'balance' ? 'balance' : 'transaction';
@@ -582,7 +583,7 @@ export function mount(root, context = {}) {
   listen($('publish-ready'), 'click', () => run(async () => {
     if (state.needsRefresh || state.conflict || !canPublishReady()) return;
     const readyCount = state.preview.counts.new, pendingCount = state.preview.counts.pending + (state.useSourceRecords ? state.preview.counts.duplicates + state.preview.counts.blocked : 0);
-    if (!window.confirm(state.useSourceRecords ? `确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待确认、疑似重复或字段异常的记录保留为草稿？` : `确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待关联资金记录保留为草稿？`)) return;
+    if (!window.confirm(state.useSourceRecords ? `确认录入 ${readyCount} 条通过预检的记录，并将 ${pendingCount} 条待确认、疑似重复或字段异常的记录保留为草稿？` : `确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待关联资金记录保留为草稿？`)) return;
     const result = state.useSourceRecords ? await sourceAdapter.publish(state.batch, state.preview, true) : await api(`${path()}/publish-ready`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
     useBatch(result.batch); await history();
     if (result.deferred_batch_id) useBatch(await loadBatch(result.deferred_batch_id));
