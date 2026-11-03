@@ -35,6 +35,7 @@ def proven_account_scope(monkeypatch):
     monkeypatch.setattr(account_balance, 'load_account_snapshot_coverage',
         lambda cur, pairs: {pair: {'status':'complete'} for pair in pairs})
     monkeypatch.setattr(account_balance, '_cash_source_schema_available', lambda cur: True)
+    monkeypatch.setattr(account_balance, '_redesigned_sources_available', lambda cur: False)
 
 
 class FakeCursor:
