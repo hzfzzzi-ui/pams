@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from domain.imports.isolation import source_enabled
 from domain.imports.source_fact_evidence import NativeFactVerifier
@@ -20,27 +21,38 @@ def load_verified_equity_events(cur, account_code, *, for_write=False):
         assert_holding_accounts_locked(cur, [account_code])
     elif mode['ro'] != 'on' or mode['level'] not in {'repeatable read', 'serializable'}:
         raise ValueError('consistent read-only transaction required')
-    cur.execute('''SELECT trade_id,account_code,symbol,currency,trade_date,trade_time,side,
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    redesigned = cur.fetchone()['redesigned']
+    if redesigned:
+        from domain.investments.trade_read_v2 import load_trade_rows
+        rows = load_trade_rows(cur, account_code=account_code, start=date.min, end=date.max)
+    else:
+        cur.execute('''SELECT trade_id,account_code,symbol,currency,trade_date,trade_time,side,
                           quantity,net_cash,asset_id,source_table,review_status,affects_position
                    FROM pams_investment_trade_fact WHERE account_code=%s ORDER BY trade_date,trade_time,trade_id''',
-                (account_code,))
-    rows = [dict(row) for row in cur.fetchall()]
+                    (account_code,))
+        rows = [dict(row) for row in cur.fetchall()]
     events = []
     for row in rows:
-        symbol, side = str(row.get('symbol') or ''), str(row.get('side') or '').lower()
-        if symbol == 'CASH_CNY' and not row.get('affects_position'):
+        symbol = str(row.get('symbol') or '')
+        side = str(row.get('side') or (row.get('trade_type') if redesigned else '') or '').lower()
+        if symbol == 'CASH_CNY' and (redesigned or not row.get('affects_position')):
             continue
         if not re.fullmatch(r'\d{6}', symbol) or side not in {'buy', 'sell', 'dividend', 'tax'}:
             raise ValueError('unsupported or unidentified account event')
-        if row.get('source_table') != 'source_items' or row.get('review_status') not in {'auto', 'reviewed', 'confirmed'}:
+        if redesigned and row.get('source_evidence_status') != 'verified':
+            raise ValueError('trade source verification failed')
+        if not redesigned and (row.get('source_table') != 'source_items' or row.get('review_status') not in {'auto', 'reviewed', 'confirmed'}):
             raise ValueError('trade source or review status unsupported')
+        row['side'] = side
         events.append(row)
     if not events:
         raise ValueError('no verified stock events')
-    verified = NativeFactVerifier(cur).verify_many(table='pams_investment_trade_fact',
-                                                    fact_ids=[row['trade_id'] for row in events])
-    if any(verified.get(row['trade_id'], {}).get('status') != 'verified' for row in events):
-        raise ValueError('trade source verification failed')
+    if not redesigned:
+        verified = NativeFactVerifier(cur).verify_many(table='pams_investment_trade_fact',
+                                                        fact_ids=[row['trade_id'] for row in events])
+        if any(verified.get(row['trade_id'], {}).get('status') != 'verified' for row in events):
+            raise ValueError('trade source verification failed')
     identity_by_symbol = {}
     for row in events:
         symbol, asset_id = row['symbol'], row.get('asset_id')

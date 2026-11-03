@@ -3,6 +3,7 @@ import { createImportClient } from './client.js?v=20261031-modules-v1';
 import { createRequestScope } from './request_scope.js?v=20261101-auto-kind';
 import { createRecordsEditor } from './records_editor.js?v=20261101-partial-funding';
 import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
+import { createSourceRecordAdapter } from './source_record_adapter.js?v=20261103-holding-scope';
 
 const mounted = new WeakMap();
 
@@ -16,7 +17,10 @@ export function mount(root, context = {}) {
   const scope = createRequestScope(context.client || createImportClient(window.fetch.bind(window)), {
     recovery: context.snapshot?.recovery, getBatch: () => state.batch,
   });
-  const api = scope.request;
+  const sourceAdapter = createSourceRecordAdapter(scope.request, scope.recovery);
+  const api = (path, ...args) => state.useSourceRecords && path.startsWith('/assets?')
+    ? scope.request(`/source-records${path}`, ...args) : scope.request(path, ...args);
+  const loadBatch = id => state.useSourceRecords ? sourceAdapter.load(id) : api(`/batches/${encodeURIComponent(id)}`);
   const cleanup = [];
   function listen(target, type, callback, options) {
     if (!target) return;
@@ -92,9 +96,14 @@ export function mount(root, context = {}) {
     $('capability-note').hidden = access !== 'ready' || state.caps.publish_enabled === true;
   }
   async function start() {
-    state.caps = await api('/capabilities'); renderAccess();
+    state.caps = await api('/capabilities');
+    state.useSourceRecords = state.caps?.source_record_schema_ready === true && state.caps?.schema_ready !== true;
+    if (state.useSourceRecords) state.caps = {...state.caps, schema_ready:true,
+      publish_enabled:state.caps.source_record_publish_enabled === true,
+      ocr_available:state.caps.source_record_ocr_available === true};
+    renderAccess();
     if (accessState(state.caps) !== 'ready') return;
-    const context = await api('/context');
+    const context = state.useSourceRecords ? await sourceAdapter.context() : await api('/context');
     state.accounts = context.accounts || [];
     state.counterAccounts = context.counter_accounts || [];
     const query = new URLSearchParams(location.search);
@@ -165,6 +174,7 @@ export function mount(root, context = {}) {
     $('rows').hidden = state.mode !== 'manual';
     $('completeness-label').hidden = $('kind').value !== 'holding';
     $('complete-warning').hidden = $('completeness').value !== 'complete';
+    $('holding-scope').hidden = !state.useSourceRecords || $('kind').value !== 'holding' || $('complete-warning').hidden;
     const batch = state.batch;
     $('deferred-notice').hidden = !batch?.rows?.some(row => row.source?.deferred_from && !row.excluded);
     const uploadedFiles = (batch?.files || []).filter(file => !file.content_type?.startsWith('image/'));
@@ -194,6 +204,7 @@ export function mount(root, context = {}) {
           result.status === 'matched' && result.count ? 'import-meta' : 'import-warning'));
         if ((batch?.rows || []).some(row => row.source?.file_id === file.file_id && row.source?.deferred_from))
           node.append(el('p', '待关联草稿保留原始来源；请导入银行流水后进行匹配。', 'import-meta'));
+        else if (state.useSourceRecords) node.append(el('p', '新来源资料暂不支持在此配置字段，请核对识别结果。', 'import-meta'));
         else node.append(mappingEditor(file));
       }
       return node;
@@ -205,7 +216,7 @@ export function mount(root, context = {}) {
   function evidence(file, source) {
     const node = el('div', undefined, 'import-evidence');
     if (file) {
-      const url = `${ROOT}${path()}/files/${encodeURIComponent(file.file_id)}`;
+      const url = state.useSourceRecords ? sourceAdapter.original(state.batch.batch_id) : `${ROOT}${path()}/files/${encodeURIComponent(file.file_id)}`;
       const link = el('a', file.filename || '查看原始文件'); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; node.append(link);
       if (file.content_type?.startsWith('image/')) {
         const img = el('img'); img.src = url; img.alt = file.filename || '原始截图'; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
@@ -222,7 +233,7 @@ export function mount(root, context = {}) {
     return node;
   }
   async function history() {
-    const data = await api('/batches?limit=20');
+    const data = state.useSourceRecords ? await sourceAdapter.history() : await api('/batches?limit=20');
     state.historyRows = data.rows || []; renderHistory();
   }
   function rememberBatch(batch) {
@@ -249,7 +260,7 @@ export function mount(root, context = {}) {
         const status = item.status === 'published' ? '已录入' : TEXT[item.status] || item.status;
         const open = button('', () => run(async () => {
           if (!abandon()) return;
-          if (useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) message('');
+          if (useBatch(await loadBatch(item.batch_id))) message('');
         }));
         open.className = 'import-history-open';
         open.setAttribute('aria-label', `打开批次：${label}，${status}，${item.batch_id}`);
@@ -258,12 +269,13 @@ export function mount(root, context = {}) {
         if (item.status === 'draft') {
           const remove = button('', () => run(async () => {
           if (state.conflict || state.needsRefresh) { message('请先刷新并确认服务器批次状态，再删除草稿。'); return; }
-          if (!window.confirm('删除此草稿后将从列表移除；原始凭证和已建立的资产来源仍会保留。继续？')) return;
+          if (!window.confirm(state.useSourceRecords ? '删除此草稿会删除其中的原始资料和未发布记录。继续？' : '删除此草稿后将从列表移除；原始凭证和已建立的资产来源仍会保留。继续？')) return;
           if (!abandon()) return;
-          if (state.batch?.batch_id !== item.batch_id && !useBatch(await api(`/batches/${encodeURIComponent(item.batch_id)}`))) return;
+          if (state.batch?.batch_id !== item.batch_id && !useBatch(await loadBatch(item.batch_id))) return;
           if (!state.batch || state.batch.status !== 'draft') throw new Error('批次已变化，请刷新后重新核对。');
-          await api(`${path()}/void`, 'POST', { revision: state.batch.revision });
-          clearCurrentBatch(); render(); await history(); message('草稿已从列表移除，原始凭证和资产来源已保留。');
+          if (state.useSourceRecords) await sourceAdapter.remove(state.batch);
+          else await api(`${path()}/void`, 'POST', { revision: state.batch.revision });
+          clearCurrentBatch(); render(); await history(); message(state.useSourceRecords ? '草稿及其中未发布的原始资料已删除。' : '草稿已从列表移除，原始凭证和资产来源已保留。');
           }));
           remove.className = 'import-history-delete'; remove.setAttribute('aria-label', '删除草稿'); remove.title = '删除草稿';
           const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -315,6 +327,8 @@ export function mount(root, context = {}) {
     state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false; state.needsKind = false; pendingSelection = null;
     state.mappings.clear(); rememberBatch(batch);
     $('conflict').hidden = true; renderAccounts(batch.account_code); configureKind(batch.kind); state.needsKind = false;
+    for (const key of ['date','count','cash','note']) $(`holding-scope-${key}`).value = '';
+    $('holding-scope-confirm').checked = false;
     $('completeness').value = batch.completeness || 'partial'; state.mode = batch.mode === 'manual' ? 'manual' : images().length ? 'ocr' : 'upload'; render();
     return true;
   }
@@ -322,7 +336,9 @@ export function mount(root, context = {}) {
     if (state.batch) return;
     if (!account()) throw new Error('请选择服务端配置的投资账户');
     if (!$('kind').value || !(account().kinds || []).includes($('kind').value)) throw new Error('请先确认资料类别。');
-    state.batch = await api('/batches', 'POST', { account_code: account().account_code, mode: state.mode === 'manual' ? 'manual' : 'upload', kind: $('kind').value, completeness: $('completeness').value });
+    state.batch = state.useSourceRecords
+      ? await sourceAdapter.createManual(account().account_code, $('kind').value)
+      : await api('/batches', 'POST', { account_code: account().account_code, mode: state.mode === 'manual' ? 'manual' : 'upload', kind: $('kind').value, completeness: $('completeness').value });
     rememberBatch(state.batch); render();
   }
   async function saveDraft() {
@@ -331,7 +347,9 @@ export function mount(root, context = {}) {
     if (state.conflict || !editable()) throw new Error('当前批次不可修改，请重新载入或新建批次');
     if (state.dirty) {
       const payload = { revision: state.batch.revision, completeness: $('completeness').value, rows: state.batch.rows.map(row => ({ ...(row.row_id ? { row_id: row.row_id } : row.image_file_id ? {image_file_id:row.image_file_id} : {}), fields: row.fields, acknowledged: !!row.acknowledged, excluded: !!row.excluded })) };
-      state.batch = await api(path(), 'PUT', payload); state.dirty = false; state.preview = null;
+      state.batch = state.useSourceRecords ? await sourceAdapter.save(state.batch, state.batch.rows)
+        : await api(path(), 'PUT', payload);
+      state.dirty = false; state.preview = null;
     }
     rememberBatch(state.batch); message('草稿已保存，尚未发布。'); render();
   }
@@ -346,6 +364,15 @@ export function mount(root, context = {}) {
     const maxFiles = limits.files ?? limits.max_files, maxBytes = limits.file_bytes ?? limits.max_file_bytes;
     if (maxFiles && files.length + (state.batch?.files?.length || 0) > maxFiles) throw new Error('文件数量超过服务端上限');
     if (maxBytes && files.some(file => file.size > maxBytes)) throw new Error('文件大小超过服务端上限');
+    if (state.useSourceRecords) {
+      if (state.batch && !emptyDraft()) throw new Error('请先新建资料，再选择要导入的文件。');
+      if (files.length !== 1) throw new Error('新来源模式每次选择一份资料，请分别导入。');
+      message(`正在识别 ${files[0].name}…`);
+      const batch = await sourceAdapter.stageFile(account().account_code, files[0]);
+      if (useBatch(batch)) message('文件已暂存，请逐条核对识别结果。');
+      await history();
+      return;
+    }
     let detected = previouslyDetected;
     if (!selectedKind) {
       detected = [];
@@ -425,7 +452,7 @@ export function mount(root, context = {}) {
     const hiddenSummaries = ['持仓、交易、现金独立核对', '资产底表待补充/核准', '已识别的券商入出金缺少银行对手账户证据', '以下标的类型及币种使用待核对默认值'];
     $('warnings').replaceChildren(...(p.warnings || []).filter(warning => !hiddenSummaries.some(prefix => typeof warning === 'string' && warning.startsWith(prefix))).map(warning => el('p', issues([warning]), 'import-warning')));
     if (state.batch.rows.some(row => row.source?.deferred_from && !row.excluded)) $('warnings').append(el('p', '待关联的资金记录尚未入账；补充并匹配银行流水前，账户现金与资金流可能不完整。', 'import-warning'));
-    if (p.can_publish_ready) $('warnings').append(el('p', `可先录入 ${p.counts.new} 条已核对记录；${p.counts.pending} 条资金记录保留草稿，补充银行流水后匹配。在此之前账户现金与资金流可能不完整。`, 'import-warning'));
+    if (p.can_publish_ready) $('warnings').append(el('p', state.useSourceRecords ? `可先录入 ${p.counts.new} 条已核对记录；待确认、疑似重复及字段异常的记录将保留草稿。` : `可先录入 ${p.counts.new} 条已核对记录；${p.counts.pending} 条资金记录保留草稿，补充银行流水后匹配。在此之前账户现金与资金流可能不完整。`, 'import-warning'));
     const groupLabels = {counter_required:'资金待关联', possible_duplicate:'疑似重复', asset_unresolved:'标的未匹配', gross_mismatch:'金额校验异常'};
     $('issue-groups').replaceChildren(...(p.issue_groups || []).map(group => el('p',`${groupLabels[group.code] || group.message} · ${group.count} 条`,'import-warning')));
     const filter = $('preview-filter').value;
@@ -436,7 +463,7 @@ export function mount(root, context = {}) {
       const heading = el('div', undefined, 'import-review-heading');
       heading.append(el('strong', `${record.symbol || '现金'} · ${record.name || ''}`));
       if (row.asset_created_first_row === true) heading.append(el('span', '本批首次 · 已建资产标的条目', 'import-created-asset'));
-      node.append(heading, el('p', row.status === 'excluded' ? '已排除' : TEXT[row.status] || row.status, 'import-status'));
+      node.append(heading, el('p', row.status === 'excluded' ? '已排除' : state.useSourceRecords && row.status === 'duplicate' ? '疑似重复，待处理' : TEXT[row.status] || row.status, 'import-status'));
       if (row.issues?.length) node.append(el('p', issues(row.issues), 'import-warning'));
       node.append(el('p',[record.business_date, TEXT[record.action] || ({income:'收入',expense:'支出'})[record.action],record.market_value ?? record.gross_amount ?? record.net_cash,record.currency].filter(value=>value!=null&&value!=='').join(' · '),'import-meta'));
       const allValues=el('details'); allValues.append(el('summary','前后值与底表条目'));
@@ -499,9 +526,19 @@ export function mount(root, context = {}) {
   listen($('images'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
   listen($('add-row'), 'click', () => run(async () => { await ensureBatch(); openEditor(-1); }));
   listen($('save-draft'), 'click', () => run(async () => { if (state.suspended) { resumeEditor(); return; } await saveDraft(); }));
+  function holdingScope() {
+    if (state.batch.kind !== 'holding' || $('completeness').value !== 'complete' ||
+        state.batch.rows.some(row => !row.acknowledged && !row.excluded)) return null;
+    const scope = {revision:state.batch.revision, as_of:$('holding-scope-date').value,
+      member_count:$('holding-scope-count').valueAsNumber, cash_amount:$('holding-scope-cash').value.trim(),
+      note:$('holding-scope-note').value.trim(), confirmed:$('holding-scope-confirm').checked};
+    if (!scope.as_of || !Number.isInteger(scope.member_count) || !$('holding-scope-count').checkValidity() ||
+        !scope.cash_amount || !scope.note || !scope.confirmed) throw new Error('请在填写页确认完整范围的日期、成员数、现金及备注。');
+    return scope;
+  }
   async function makePreview() {
     message('正在核验服务端清单…');
-    state.preview = await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
+    state.preview = state.useSourceRecords ? await sourceAdapter.preview(state.batch, holdingScope()) : await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
     state.step = 2; state.imageIndex = null; message(''); renderPreview();
   }
   async function advanceToReview() {
@@ -528,7 +565,10 @@ export function mount(root, context = {}) {
   listen($('confirm-image'), 'click', () => run(async () => {
     if (state.suspended) { resumeEditor(); return; }
     const file = images()[state.imageIndex];
-    state.batch = await api(`${path()}/files/${encodeURIComponent(file.file_id)}/review`, 'POST', { revision: state.batch.revision });
+    if (state.useSourceRecords) {
+      for (const row of state.batch.rows) if (!row.excluded) row.acknowledged = true;
+      state.batch = await sourceAdapter.save(state.batch, state.batch.rows);
+    } else state.batch = await api(`${path()}/files/${encodeURIComponent(file.file_id)}/review`, 'POST', { revision: state.batch.revision });
     if (state.imageIndex + 1 < images().length) { state.imageIndex++; render(); } else await makePreview();
     pushFlow(); window.scrollTo(0,0);
   }));
@@ -536,17 +576,17 @@ export function mount(root, context = {}) {
   listen($('close-image-viewer'), 'click', () => $('image-viewer').close());
   listen($('publish'), 'click', () => run(async () => {
     if (state.needsRefresh || !publishable(state.caps, state.batch, state.preview, state.dirty) || state.conflict) return;
-    const result = await api(`${path()}/publish`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
+    const result = state.useSourceRecords ? await sourceAdapter.publish(state.batch, state.preview) : await api(`${path()}/publish`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
     useBatch(result.batch); message('批次已发布。'); await history();
   }));
   listen($('publish-ready'), 'click', () => run(async () => {
     if (state.needsRefresh || state.conflict || !canPublishReady()) return;
-    const readyCount = state.preview.counts.new, pendingCount = state.preview.counts.pending;
-    if (!window.confirm(`确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待关联资金记录保留为草稿？`)) return;
-    const result = await api(`${path()}/publish-ready`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
+    const readyCount = state.preview.counts.new, pendingCount = state.preview.counts.pending + (state.useSourceRecords ? state.preview.counts.duplicates + state.preview.counts.blocked : 0);
+    if (!window.confirm(state.useSourceRecords ? `确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待确认、疑似重复或字段异常的记录保留为草稿？` : `确认录入 ${readyCount} 条已核对记录，并将 ${pendingCount} 条待关联资金记录保留为草稿？`)) return;
+    const result = state.useSourceRecords ? await sourceAdapter.publish(state.batch, state.preview, true) : await api(`${path()}/publish-ready`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
     useBatch(result.batch); await history();
-    if (result.deferred_batch_id) useBatch(await api(`/batches/${encodeURIComponent(result.deferred_batch_id)}`));
-    message(`已录入 ${readyCount} 条；${pendingCount} 条待关联资金记录保留在草稿。补充银行流水前，账户现金与资金流可能不完整。`);
+    if (result.deferred_batch_id) useBatch(await loadBatch(result.deferred_batch_id));
+    message(state.useSourceRecords ? `已录入 ${readyCount} 条；${pendingCount} 条待处理记录保留在草稿。` : `已录入 ${readyCount} 条；${pendingCount} 条待关联资金记录保留在草稿。补充银行流水前，账户现金与资金流可能不完整。`);
   }));
   listen($('refresh-history'), 'click', () => run(history));
   function clearCurrentBatch() {
@@ -562,6 +602,12 @@ export function mount(root, context = {}) {
   async function reloadLatest() {
     if (!window.confirm('重新载入会放弃本地未保存修改，继续？')) return;
     if (!state.batch) {
+      const completedId = scope.recovery.last?.result?.batchId;
+      if (state.useSourceRecords && completedId) {
+        const loaded = await loadBatch(completedId);
+        if (useBatch(loaded)) message('已载入服务器版本，请核对上次操作结果。');
+        return;
+      }
       await history(); $('history').open = true;
       if (scope.recovery.last?.outcome === 'rejected' && scope.acknowledgeRecovery()) {
         state.needsRefresh = false; renderControls();
@@ -572,7 +618,7 @@ export function mount(root, context = {}) {
       return;
     }
     if ($('editor').open) $('editor').close();
-    const loaded = await api(path());
+    const loaded = state.useSourceRecords ? await loadBatch(state.batch.batch_id) : await api(path());
     if (useBatch(loaded)) {
       if (loaded.status === 'voided') await history();
       message(loaded.status === 'voided' ? '已确认草稿删除，原始凭证已保留。' : '已载入服务器版本。');

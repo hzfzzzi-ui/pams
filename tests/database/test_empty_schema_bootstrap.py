@@ -436,8 +436,11 @@ def test_bootstrap_manifest_uses_schema_files_without_historical_backfills():
     paths = bootstrap_paths()
     assert all(path.parent == ROOT / "database/postgres/schema" for path in paths)
     names = {path.name for path in paths}
-    assert {"028a_account_reference_constraints.sql", "029a_holding_asset_reference_constraints.sql",
-            "033a_benchmark_asset_seed.sql"} <= names
+    assert {"029a_holding_asset_reference_constraints.sql", "033a_benchmark_asset_seed.sql",
+            "079_source_records.sql", "080_source_items_redesign.sql", "081_fact_redesign.sql",
+            "082_cashflow_classification.sql", "083_trade_review_redesign.sql",
+            "084_holding_source_link.sql"} <= names
+    assert "028a_account_reference_constraints.sql" not in names
     assert not {"028_account_dimension_backfill.sql", "029_holding_asset_identity_backfill.sql",
                 "033_benchmark_assets_and_gold_proxy.sql"} & names
 
@@ -447,7 +450,7 @@ def test_legacy_qdii_alias_is_not_used_by_pams_consumers(empty_source_db, monkey
     from datetime import date
     from domain.assets.alias_policy import QQQ_FEEDER_NAMES, identity_alias_sql, is_identity_alias
     from domain.assets.asset_master import _find_asset, load_asset_master_lookup
-    from domain.imports import account_import_preflight
+    from domain.imports.holding_publication_v2 import _holding
     from domain.investments import trade_attribution
     from domain.risk import portfolio_config
     from endpoints import investment_transactions
@@ -498,12 +501,14 @@ def test_legacy_qdii_alias_is_not_used_by_pams_consumers(empty_source_db, monkey
             valid = trade_attribution._asset_identity_lookup(cur, [{'name': QQQ_FEEDER_NAMES[3]}])
             assert valid[QQQ_FEEDER_NAMES[3].casefold()]['asset_id'] == 'FUND_REAL'
             assert trade_attribution._asset_identity_lookup(cur, [{'symbol': 'GOOD_QQQ_ALIAS'}])['good_qqq_alias']['asset_id'] == 'ETF_QQQ'
-            state = account_import_preflight.current_state(cur, 'ibkr')
-            assert not any(row['asset_id'] == 'ETF_QQQ' and row['alias_value'] in QQQ_FEEDER_NAMES for row in state['aliases'])
-            assert any(row['asset_id'] == 'FUND_REAL' and row['alias_value'] == QQQ_FEEDER_NAMES[3] for row in state['aliases'])
-            errors = []
-            assert account_import_preflight._asset({'symbol': QQQ_FEEDER_NAMES[0], 'asset_type': 'fund'}, state, errors) is None
-            assert errors[0]['code'] == 'asset_unresolved'
+            fields = {'asset_type': 'fund', 'currency': 'CNY', 'cost_basis_type': 'holding_cost',
+                      'quantity': '1', 'price': '10', 'cost': '10', 'market_value': '10'}
+            for name in QQQ_FEEDER_NAMES[:3]:
+                with pytest.raises(ValueError, match='持仓标的须唯一匹配'):
+                    _holding(cur, {**fields, 'symbol': name}, 'ibkr', date(2026, 1, 2), uuid4(), complete=False)
+            resolved = _holding(cur, {**fields, 'symbol': QQQ_FEEDER_NAMES[3]}, 'ibkr',
+                                date(2026, 1, 2), uuid4(), complete=False)
+            assert resolved['asset_id'] == 'FUND_REAL'
 
         as_of = date(2026, 1, 2)
         names = [*QQQ_FEEDER_NAMES, 'GOOD_QQQ_ALIAS']

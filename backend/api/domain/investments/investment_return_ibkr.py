@@ -11,7 +11,11 @@ from datetime import date as Date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from domain.investments.investment_return_data import IBKR_EQUITY_MARKETS, exact_fx_rate_at
+from domain.investments.holdings_view import _table_exists
+from domain.investments.investment_return_data import (
+    IBKR_EQUITY_MARKETS, exact_fx_rate_at, source_record_ibkr_equity_trades,
+)
+from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
 from domain.investments.investment_return_math import dec, ibkr_return_effective_date
 
 
@@ -164,26 +168,36 @@ def _ibkr_full_trade_return_series(
     if not dates:
         return values, costs, []
 
-    cur.execute(
-        """
-        SELECT
-          symbol,
-          MAX(NULLIF(currency, '')) AS currency,
-          COUNT(DISTINCT NULLIF(currency, '')) AS currency_count,
-          COUNT(*) FILTER (WHERE NULLIF(currency, '') IS NULL) AS missing_currency_count
-        FROM pams_investment_trade_fact
-        WHERE account_code = 'ibkr'
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
-          AND symbol IS NOT NULL
-          AND trade_date <= %s
-          AND quantity IS NOT NULL
-          AND COALESCE(LOWER(review_status), 'confirmed') IN ('auto', 'reviewed', 'confirmed')
-        GROUP BY symbol
-        ORDER BY symbol
-        """,
-        (list(IBKR_EQUITY_MARKETS), dates[-1]),
-    )
-    traded = [dict(r) for r in cur.fetchall()]
+    source_records = _table_exists(cur, 'source_records')
+    if source_records:
+        candidates = source_record_ibkr_equity_trades(cur, Date.min, dates[-1])
+        currencies = {}
+        for row in candidates:
+            if row.get('symbol'):
+                currencies.setdefault(row['symbol'], set()).add(row.get('currency'))
+        traded = [{'symbol': symbol, 'currency': next(iter(units)) if len(units) == 1 else None}
+                  for symbol, units in sorted(currencies.items())]
+    else:
+        cur.execute(
+            """
+            SELECT
+              symbol,
+              MAX(NULLIF(currency, '')) AS currency,
+              COUNT(DISTINCT NULLIF(currency, '')) AS currency_count,
+              COUNT(*) FILTER (WHERE NULLIF(currency, '') IS NULL) AS missing_currency_count
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'ibkr'
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
+              AND symbol IS NOT NULL
+              AND trade_date <= %s
+              AND quantity IS NOT NULL
+              AND COALESCE(LOWER(review_status), 'confirmed') IN ('auto', 'reviewed', 'confirmed')
+            GROUP BY symbol
+            ORDER BY symbol
+            """,
+            (list(IBKR_EQUITY_MARKETS), dates[-1]),
+        )
+        traded = [dict(r) for r in cur.fetchall()]
     if not traded:
         return {}, {}, ["ibkr_position_history_unavailable"]
 
@@ -206,41 +220,48 @@ def _ibkr_full_trade_return_series(
     warnings.append("ibkr_history_coverage_unverified")
 
     active_symbols = sorted(symbol_map.keys())
-    cur.execute(
-        """
-        SELECT
-            trade_id,
-            source_table,
-            trade_date,
-            symbol,
-            currency,
-            quantity,
-            gross_amount,
-            COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0) AS commission,
-            COALESCE((fee_amount=0 OR UPPER(fee_currency)=UPPER(currency)) AND
-                (net_cash IS NOT NULL OR tax_amount IS NOT NULL), FALSE) AS tax_known,
-            net_cash
-        FROM pams_investment_trade_fact
-        WHERE account_code = 'ibkr'
-          AND symbol = ANY(%s::text[])
-          AND trade_date <= %s
-          AND quantity IS NOT NULL
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
-          AND COALESCE(LOWER(review_status), 'confirmed') IN ('auto', 'reviewed', 'confirmed')
-        ORDER BY trade_date, trade_id
-        """,
-        (active_symbols, dates[-1], list(IBKR_EQUITY_MARKETS)),
-    )
+    if not source_records:
+        cur.execute(
+            """
+            SELECT
+                trade_id,
+                source_table,
+                trade_date,
+                symbol,
+                currency,
+                quantity,
+                gross_amount,
+                COALESCE(fee_amount, 0) + COALESCE(tax_amount, 0) AS commission,
+                COALESCE((fee_amount=0 OR UPPER(fee_currency)=UPPER(currency)) AND
+                    (net_cash IS NOT NULL OR tax_amount IS NOT NULL), FALSE) AS tax_known,
+                net_cash
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'ibkr'
+              AND symbol = ANY(%s::text[])
+              AND trade_date <= %s
+              AND quantity IS NOT NULL
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
+              AND COALESCE(LOWER(review_status), 'confirmed') IN ('auto', 'reviewed', 'confirmed')
+            ORDER BY trade_date, trade_id
+            """,
+            (active_symbols, dates[-1], list(IBKR_EQUITY_MARKETS)),
+        )
+        candidates = [dict(row) for row in cur.fetchall()]
+        from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
+        from domain.imports.source_fact_evidence import NativeFactVerifier
+        source_cache, native_verifier = EvidenceCache(), NativeFactVerifier(cur)
     trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
-    candidates = [dict(row) for row in cur.fetchall()]
-    from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
-    from domain.imports.source_fact_evidence import NativeFactVerifier
-    source_cache, native_verifier = EvidenceCache(), NativeFactVerifier(cur)
     unverified_from: list[Date] = []
     for item in candidates:
         item["return_effective_date"] = ibkr_return_effective_date(item["trade_date"], item.get("currency"))
         try:
-            if item.get('source_table') == 'ibkr_flex_trade':
+            if source_records:
+                proven = item['source_evidence_status'] == 'verified' and bool(item.get('symbol'))
+                item['commission'] = known_trade_charges(item)
+                item['tax_known'] = not unconverted_ibkr_fee(item) and (
+                    item.get('net_cash') is not None or (
+                        item['commission'] is not None and item.get('gross_amount') is not None))
+            elif item.get('source_table') == 'ibkr_flex_trade':
                 evidence = verify_ibkr_fact(cur, trade_id=item['trade_id'], cache=source_cache)
                 required = {'trade_date','symbol','currency','side','quantity','gross_amount','net_cash'}
                 proven = (evidence.get('status') in {'consistent','partial'} and
@@ -319,7 +340,7 @@ def _ibkr_full_trade_return_series(
     for sample_date in missing_fx:
         values[sample_date] = None
         costs[sample_date] = None
-    if local_only:
+    if local_only or source_records:
         for sample_date in missing_prices:
             values[sample_date] = None
         for sample_date in missing_costs:

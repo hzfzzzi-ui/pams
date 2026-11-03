@@ -22,3 +22,13 @@ def test_import_lifecycle_with_intercepted_browser():
     if not os.environ.get('PAMS_FRONTEND_PLAYWRIGHT_MODULE'):
         pytest.skip('Optional offline browser runtime not configured')
     run('account_import_lifecycle_browser.mjs', timeout=120)
+
+
+def test_source_record_adapter_protocol_and_recovery():
+    run('account_import_source_record_adapter.mjs')
+
+
+def test_source_record_browser_flow():
+    if not os.environ.get('PAMS_FRONTEND_PLAYWRIGHT_MODULE'):
+        pytest.skip('Optional offline browser runtime not configured')
+    run('account_import_source_record_browser.mjs', timeout=120)

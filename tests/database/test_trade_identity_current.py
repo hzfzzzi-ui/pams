@@ -2,6 +2,7 @@
 # ruff: noqa: F811
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg2
 from fastapi import FastAPI
@@ -18,16 +19,25 @@ from tests.database.test_isolated_source_bootstrap import empty_source_db  # noq
 def test_identity_review_keeps_latest_decision_and_existing_note(empty_source_db, monkeypatch):
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
-        with conn.cursor() as cur:
+        from domain.imports import source_records_v2 as source
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('identity_test','Synthetic')")
-            cur.execute("""INSERT INTO pams_investment_trade_fact
-                (trade_date,account_code,currency,trade_type,side,source_table,source_id,source_hash,
-                 initial_position_identity,current_position_identity,review_note)
-                VALUES ('2026-01-02','identity_test','CNY','buy','buy','synthetic','one','source-hash',
-                        'trend','trend','existing manual note') RETURNING trade_id""")
-            trade_id = cur.fetchone()[0]
-            cur.execute("SELECT to_regclass('public.pams_trade_identity_transition_event')")
-            assert cur.fetchone()[0] is None
+            source_id, item_id = uuid4(), uuid4()
+            source.create_source(cur, source_id=source_id, account_code='identity_test', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            fields = {'business_date': '2026-01-02', 'trade_type': 'buy', 'currency': 'CNY',
+                      'symbol': 'TEST', 'quantity': '1'}
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'row': 'synthetic'}, parsed_fields=fields)
+            revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                          parsed_fields=fields, review_status='confirmed')
+            source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+            cur.execute('SELECT trade_id FROM pams_investment_trade_fact WHERE source_item_id=%s', (str(item_id),))
+            trade_id = cur.fetchone()['trade_id']
+            cur.execute("""INSERT INTO investment_trade_review(trade_id,initial_position_identity,
+                current_position_identity,review_note,review_status) VALUES (%s,'trend','trend','existing manual note','reviewed')""", (trade_id,))
+            cur.execute("SELECT to_regclass('public.pams_trade_identity_transition_event') AS relation")
+            assert cur.fetchone()['relation'] is None
 
     monkeypatch.setattr(trades, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
     monkeypatch.setattr(trades, '_load_accounts_config', lambda: {})
@@ -61,9 +71,11 @@ def test_identity_review_keeps_latest_decision_and_existing_note(empty_source_db
         assert listed.json()['rows'][0]['identity_transition_evidence'] == 'synthetic research note'
 
     with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT source_table,source_id,source_hash,initial_position_identity,current_position_identity,"
-                    "identity_transition_evidence,review_note FROM pams_investment_trade_fact WHERE trade_id=%s", (trade_id,))
+        cur.execute("""SELECT f.source_item_id,i.record_hash,r.initial_position_identity,r.current_position_identity,
+                    r.identity_transition_evidence,r.review_note FROM pams_investment_trade_fact f
+                    JOIN source_items i ON i.source_item_id=f.source_item_id
+                    JOIN investment_trade_review r ON r.trade_id=f.trade_id WHERE f.trade_id=%s""", (trade_id,))
         row = cur.fetchone()
-        assert (row['source_table'], row['source_id'], row['source_hash']) == ('synthetic','one','source-hash')
+        assert str(row['source_item_id']) == str(item_id) and row['record_hash']
         assert row['identity_transition_evidence'] == 'synthetic research note'
         assert row['review_note'] == 'existing manual note'

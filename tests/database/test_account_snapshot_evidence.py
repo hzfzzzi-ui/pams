@@ -100,12 +100,12 @@ def _source_member_fixture(params):
     with psycopg2.connect(**params) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor() as cur:
-            cur.execute("""INSERT INTO source_batches
-                (batch_id,account_code,business_type,institution,acquisition_method)
+            cur.execute("""INSERT INTO source_records
+                (source_id,account_code,document_type,source_name,acquisition_method)
                 VALUES (%s,'tonghuashun','holding','synthetic','manual')""", (batch,))
             for item in (referenced, unreferenced):
                 cur.execute("""INSERT INTO source_items
-                    (source_item_id,batch_id,source_uid,parse_method,record_hash)
+                    (source_item_id,source_id,source_uid,parse_method,record_hash)
                     VALUES (%s,%s,%s,'manual',%s)""", (item,batch,item,'a'*64))
             cur.execute("""INSERT INTO pams_holdings_snapshot(account_code,name,symbol,currency,major_category,
                 minor_category,asset_liability,market_value,cost,quantity,current_price,as_of)

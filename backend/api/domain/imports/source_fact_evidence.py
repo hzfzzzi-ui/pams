@@ -143,6 +143,34 @@ class _LockedNativeReplay:
         self.cache.clear()
 
 
+def _verify_source_record_fact(cur, table, fact_id, *, locking):
+    trade = table == 'pams_investment_trade_fact'
+    pk, date_column = ('trade_id', 'trade_date') if trade else ('cashflow_id', 'event_date')
+    statement = f'SELECT account_code,{date_column} AS business_date FROM public.{table} WHERE {pk}=%s'
+    cur.execute(statement, (fact_id,))
+    rows = _rows(cur)
+    if not rows:
+        return {'status': 'unknown', 'reason': 'source_link_missing'}
+    account, day = rows[0]['account_code'], rows[0]['business_date']
+    if locking:
+        cur.execute("SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS acquired", ('account-import:' + account,))
+        if not _rows(cur)[0]['acquired']:
+            return {'status': 'unknown', 'reason': 'account_lock_busy'}
+        cur.execute(statement + ' FOR SHARE', (fact_id,))
+        if _rows(cur) != rows:
+            return {'status': 'unknown', 'reason': 'fact_changed_during_lock'}
+    if trade:
+        from domain.investments.trade_read_v2 import load_trade_rows
+        facts = load_trade_rows(cur, account_code=account, start=day, end=day, fact_id=fact_id)
+    else:
+        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        facts = load_cash_rows(cur, start=day, end=day, base_currency='CNY', fact_id=fact_id)
+    if not facts or facts[0]['source_evidence_status'] != 'verified':
+        return {'status': 'unknown', 'reason': 'source_record_evidence_unverified'}
+    return {'status': 'verified', 'reason': 'reviewed_source_matches',
+            'source_role': 'direct', 'external_authority_verified': False}
+
+
 def verify_native_fact(cur: Any, *, table: str, fact_id: int, _snapshot_cache: dict | None = None,
                        _replay_context: _LockedNativeReplay | None = None) -> dict[str, Any]:
     """Read-only consistency proof for one native fact; caller owns transaction.
@@ -169,6 +197,10 @@ def verify_native_fact(cur: Any, *, table: str, fact_id: int, _snapshot_cache: d
     if replay and (not isinstance(_replay_context, _LockedNativeReplay) or not _replay_context.active
                    or _replay_context.cur is not cur or not locking or isolation != 'serializable'):
         return {'status':'unknown','reason':'invalid_replay_context'}
+    if not replay:
+        cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+        if _rows(cur)[0]['redesigned']:
+            return _verify_source_record_fact(cur, table, fact_id, locking=locking)
     if _replay_context is not None:
         snapshot_cache = _replay_context.cache
     else:

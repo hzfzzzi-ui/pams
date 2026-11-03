@@ -444,9 +444,15 @@ def list_payment_proxy():
 @router.post("/bank-reconcile/transfers/confirm")
 def confirm_transfer(req: ConfirmTransferRequest):
     """Record a user-confirmed link between two independent source facts."""
-    from domain.ledger import confirmed_transfers
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if _table_exists(cur, 'source_records'):
+                from domain.imports.isolation import source_enabled
+                from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+                if not source_enabled(cur):
+                    raise ValueError('transfer confirmation requires source access')
+            else:
+                from domain.ledger import confirmed_transfers
             result = confirmed_transfers.confirm(cur, **req.model_dump())
         return _norm(result)
     except ValueError as exc:
@@ -518,7 +524,10 @@ def list_transfer_matches(limit: int = 200):
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         ensure_tables(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            from domain.ledger import confirmed_transfers
+            if _table_exists(cur, 'source_records'):
+                from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+            else:
+                from domain.ledger import confirmed_transfers
             matches = confirmed_transfers.read(cur, limit=max(1, min(limit, 1000)))
             for match in matches:
                 left, right = match['from_evidence'], match['to_evidence']
@@ -527,8 +536,8 @@ def list_transfer_matches(limit: int = 200):
                     relation_code='manual_confirmed', source_row_id=left['id'], target_row_id=right['id'],
                     source_ref_table='pams_cashflow_fact' if left['kind']=='cashflow' else 'pams_investment_trade_fact',
                     target_ref_table='pams_cashflow_fact' if right['kind']=='cashflow' else 'pams_investment_trade_fact',
-                    source_date=left['day'], target_date=right['day'], source_amount=left['signed_amount'],
-                    target_amount=right['signed_amount'], confidence=None, status=match['evidence_status'])
+                    source_date=left['day'], target_date=right['day'], source_amount=left.get('signed_amount', left.get('amount')),
+                    target_amount=right.get('signed_amount', right.get('amount')), confidence=None, status=match['evidence_status'])
             summary = _transfer_match_summary([m for m in matches if m['evidence_status']=='confirmed'])
             return _norm({"matches": matches, "summary": summary, "table_ready": True,
                           "data_status": "confirmed_relations_only", "coverage_status": "unknown"})

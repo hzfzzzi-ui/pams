@@ -67,8 +67,24 @@ def source_row_relation(cur, *, verifier=None) -> str:
                            NOT EXISTS (SELECT 1 FROM unnest(ARRAY['file_id','batch_id','filename','file_format',
                                'content_type','sha256','content','current_metadata','review_fingerprint']) AS required(name)
                                WHERE NOT EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=to_regclass('public.source_files')
-                                   AND a.attname=required.name AND NOT a.attisdropped)) AS source_files_columns""")
+                                   AND a.attname=required.name AND NOT a.attisdropped)) AS source_files_columns,
+                           to_regclass('public.source_records') AS redesigned""")
     row = cur.fetchone()
+    if (isinstance(row, dict) and row.get('redesigned')) or (not isinstance(row, dict) and row and len(row) > 10 and row[10]):
+        from datetime import date
+        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        facts = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY')
+        ids = [int(fact['id']) for fact in facts if fact.get('source_evidence_status') == 'verified']
+        id_array = 'ARRAY[' + ','.join(str(ident) for ident in ids) + ']::bigint[]'
+        return """(SELECT CASE WHEN i.raw_fields->'source'->'statement'='true'::jsonb
+                    THEN 'bank_statement_row' ELSE 'unified_source' END::text AS source_system,
+                'source_items'::text AS source_table,i.source_item_id::text AS source_id,
+                i.source_uid::text AS source_uid,f.account_code::text AS account_code,f.event_date,
+                i.created_at AS imported_at,i.created_at,'unified_source_item'::text AS source_projection_origin,
+                CASE WHEN f.cashflow_id=ANY(""" + id_array + """) THEN 'verified' ELSE 'unknown' END::text AS source_evidence_status,
+                (i.raw_fields->'source'->'statement'='true'::jsonb) IS TRUE AS is_bank_statement
+            FROM pams_cashflow_fact f JOIN source_items i ON i.source_item_id=f.source_item_id
+            JOIN source_records r ON r.source_id=i.source_id WHERE i.review_status<>'excluded')"""
     if isinstance(row, dict):
         ready = all(row.get(key) for key in ('source_items','source_batches','cashflow_facts','cashflow_source_link',
                                               'source_files','source_items_columns','source_batches_columns','source_files_columns'))

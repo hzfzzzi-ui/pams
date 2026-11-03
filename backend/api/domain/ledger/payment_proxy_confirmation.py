@@ -6,11 +6,24 @@ from domain.imports.isolation import source_enabled
 from domain.imports.source_fact_evidence import verify_native_fact
 
 
-def _leg(cur, ident):
+def _redesigned(cur):
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    return bool((cur.fetchone() or {}).get('redesigned'))
+
+
+def _leg(cur, ident, redesigned):
     proof = verify_native_fact(cur, table='pams_cashflow_fact', fact_id=ident)
     if proof.get('status') != 'verified' or proof.get('source_role') == 'derived_bank_leg':
         raise ValueError('payment source evidence is unavailable or not independent')
-    cur.execute('''SELECT f.cashflow_id,f.account_code,f.counter_account_code,f.event_date,f.currency,f.amount,
+    if redesigned:
+        cur.execute("""SELECT f.cashflow_id,f.account_code,NULL::text AS counter_account_code,
+                f.event_date,f.currency,f.amount,f.source_item_id,i.source_id AS batch_id,
+                i.raw_fields->'source'->'statement' AS statement_source,r.sha256 AS file_sha256
+            FROM pams_cashflow_fact f JOIN source_items i ON i.source_item_id=f.source_item_id
+            JOIN source_records r ON r.source_id=i.source_id
+            WHERE f.cashflow_id=%s AND r.acquisition_method='file' AND r.document_type='cash'""", (ident,))
+    else:
+        cur.execute('''SELECT f.cashflow_id,f.account_code,f.counter_account_code,f.event_date,f.currency,f.amount,
                     f.source_item_id,i.batch_id,i.raw_fields->'source'->'statement' AS statement_source,
                     sf.sha256 AS file_sha256 FROM pams_cashflow_fact f
                     JOIN source_items i ON i.source_item_id=f.source_item_id
@@ -26,10 +39,10 @@ def _leg(cur, ident):
             'file_sha256':str(r['file_sha256']).strip()}
 
 
-def _unambiguous(cur, left, right):
+def _unambiguous(cur, left, right, redesigned):
+    visibility = "" if redesigned else " AND lower(coalesce(review_status,'')) IN ('auto','reviewed','confirmed')"
     cur.execute("""SELECT cashflow_id,account_code FROM pams_cashflow_fact
-        WHERE account_code=ANY(%s) AND event_date=%s AND currency=%s AND amount=%s
-          AND lower(coalesce(review_status,'')) IN ('auto','reviewed','confirmed')""",
+        WHERE account_code=ANY(%s) AND event_date=%s AND currency=%s AND amount=%s""" + visibility,
         ([left['account_code'],right['account_code']],left['date'],left['currency'],Decimal(left['amount'])))
     same=cur.fetchall()
     return all(sum(1 for r in same if r['account_code']==account)==1
@@ -44,23 +57,26 @@ def confirm(cur, *, source_id, target_id, note, confirmed):
     if any(not isinstance(i,int) or isinstance(i,bool) or i<1 for i in (source_id,target_id)) or source_id==target_id:
         raise ValueError('two distinct payment facts are required')
     ids=(source_id,target_id)
-    cur.execute('SELECT cashflow_id,account_code,counter_account_code FROM pams_cashflow_fact WHERE cashflow_id=ANY(%s)', (list(ids),))
+    redesigned = _redesigned(cur)
+    counter = 'NULL::text' if redesigned else 'counter_account_code'
+    query = f'SELECT cashflow_id,account_code,{counter} AS counter_account_code FROM pams_cashflow_fact WHERE cashflow_id=ANY(%s)'
+    cur.execute(query, (list(ids),))
     initial={r['cashflow_id']:(r['account_code'],r['counter_account_code']) for r in cur.fetchall()}
     if set(initial)!=set(ids):
         raise ValueError('payment fact missing')
     accounts={a for pair in initial.values() for a in pair if a}
     for account in sorted(accounts):
         cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:'+account,))
-    cur.execute('SELECT cashflow_id,account_code,counter_account_code FROM pams_cashflow_fact WHERE cashflow_id=ANY(%s)', (list(ids),))
+    cur.execute(query, (list(ids),))
     if {r['cashflow_id']:(r['account_code'],r['counter_account_code']) for r in cur.fetchall()} != initial:
         raise ValueError('payment account set changed while acquiring locks')
-    left,right=(_leg(cur,i) for i in ids)
+    left,right=(_leg(cur,i,redesigned) for i in ids)
     if (left['account_code']==right['account_code'] or left['batch_id']==right['batch_id'] or
         left['source_item_id']==right['source_item_id'] or left['file_sha256']==right['file_sha256'] or left['date']!=right['date'] or
         left['currency']!=right['currency'] or Decimal(left['amount'])!=Decimal(right['amount'])):
         raise ValueError('payment facts conflict in source, account, date, currency or amount')
     # Even explicit selection cannot make an ambiguous same-day duplicate unique.
-    if not _unambiguous(cur, left, right):
+    if not _unambiguous(cur, left, right, redesigned):
         raise ValueError('ambiguous payment evidence requires prior resolution')
     cur.execute('''SELECT c.* FROM evidence_confirmation c
         WHERE c.confirmation_type IN ('payment_proxy','transfer') AND c.revoked_at IS NULL AND
@@ -83,13 +99,14 @@ def decisions(cur):
     cur.execute('''SELECT c.* FROM evidence_confirmation c
                    WHERE c.confirmation_type='payment_proxy' ORDER BY c.confirmed_at DESC''')
     records=[dict(r) for r in cur.fetchall()]
+    redesigned = _redesigned(cur) if records else False
     for r in records:
         if r['revoked_at'] is not None:
             r['evidence_status']='revoked'
         else:
             try:
-                left, right = _leg(cur,r['from_cashflow_id']), _leg(cur,r['to_cashflow_id'])
-                r['evidence_status']='confirmed' if left==r['from_evidence'] and right==r['to_evidence'] and _unambiguous(cur,left,right) else 'invalidated'
+                left, right = _leg(cur,r['from_cashflow_id'],redesigned), _leg(cur,r['to_cashflow_id'],redesigned)
+                r['evidence_status']='confirmed' if left==r['from_evidence'] and right==r['to_evidence'] and _unambiguous(cur,left,right,redesigned) else 'invalidated'
             except ValueError:
                 r['evidence_status']='invalidated'
     return records

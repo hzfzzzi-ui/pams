@@ -35,6 +35,9 @@ def proven_account_scope(monkeypatch):
     monkeypatch.setattr(account_balance, 'load_account_snapshot_coverage',
         lambda cur, pairs: {pair: {'status':'complete'} for pair in pairs})
     monkeypatch.setattr(account_balance, '_cash_source_schema_available', lambda cur: True)
+    monkeypatch.setattr(account_balance, '_redesigned_sources_available', lambda cur: False)
+    monkeypatch.setattr(investment_returns, '_source_record_income_ids', lambda cur, end_date: None)
+    monkeypatch.setattr(investment_return_data, '_table_exists', lambda cur, table: False)
 
 
 class FakeCursor:
@@ -445,7 +448,8 @@ def test_ibkr_return_effective_date_aligns_usd_to_beijing_bucket():
     assert ibkr_return_effective_date(date(2026, 6, 17), "KRW") == date(2026, 6, 17)
 
 
-def test_ibkr_trade_flow_events_uses_effective_date_for_usd_trades():
+def test_ibkr_trade_flow_events_uses_effective_date_for_usd_trades(monkeypatch):
+    monkeypatch.setattr(investment_return_data, '_table_exists', lambda *_: False)
     cur = FakeCursor(
         [
             [
@@ -477,7 +481,8 @@ def test_ibkr_trade_flow_events_uses_effective_date_for_usd_trades():
     assert events == [(date(2026, 6, 18), Decimal("700"))]
 
 
-def test_ibkr_trade_flow_events_keeps_non_usd_trades_on_trade_date():
+def test_ibkr_trade_flow_events_keeps_non_usd_trades_on_trade_date(monkeypatch):
+    monkeypatch.setattr(investment_return_data, '_table_exists', lambda *_: False)
     cur = FakeCursor(
         [
             [
@@ -504,7 +509,8 @@ def test_ibkr_trade_flow_events_keeps_non_usd_trades_on_trade_date():
     assert events == [(date(2026, 6, 17), Decimal("90.0"))]
 
 
-def test_ibkr_trade_flow_events_includes_korea_and_europe_markets():
+def test_ibkr_trade_flow_events_includes_korea_and_europe_markets(monkeypatch):
+    monkeypatch.setattr(investment_return_data, '_table_exists', lambda *_: False)
     cur = FakeCursor(
         [
             [
@@ -586,7 +592,8 @@ def test_legacy_ibkr_estimate_exposes_source_date_and_missing_values():
     assert payload["summary"]["total_return"] is None and payload["today_window"] is None
 
 
-def test_ibkr_return_without_history_is_unavailable_without_assuming_zero():
+def test_ibkr_return_without_history_is_unavailable_without_assuming_zero(monkeypatch):
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
     day = date(2026, 6, 2)
     cur = FakeCursor([[]])
     values, costs, warnings = investment_return_ibkr._ibkr_full_trade_return_series(
@@ -596,7 +603,8 @@ def test_ibkr_return_without_history_is_unavailable_without_assuming_zero():
     assert len(cur.executed) == 1
 
 
-def test_ibkr_return_ignores_obsolete_position_history():
+def test_ibkr_return_ignores_obsolete_position_history(monkeypatch):
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
     cur = FakeCursor([[]])
     values, costs, warnings = investment_return_ibkr._ibkr_full_trade_return_series(
         cur, dates=[date(2026, 6, 2)], base_currency="CNY", fx_timelines={})
@@ -605,6 +613,7 @@ def test_ibkr_return_ignores_obsolete_position_history():
 
 
 def test_ibkr_full_trade_return_series_delays_usd_trade_to_beijing_bucket(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
     dates = [date(2026, 6, 17), date(2026, 6, 18)]
     cur = FakeCursor(
         [
@@ -651,6 +660,7 @@ def test_ibkr_full_trade_return_series_delays_usd_trade_to_beijing_bucket(monkey
 
 
 def test_ibkr_unknown_trade_tax_marks_reconstructed_value_unavailable(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
     day = date(2026, 6, 18)
     cur = FakeCursor([[{"symbol": "QQQ", "currency": "USD"}], [{"trade_id":1,"source_table":"ibkr_flex_trade",
         "trade_date": date(2026, 6, 17), "symbol": "QQQ", "currency": "USD",
@@ -666,6 +676,7 @@ def test_ibkr_unknown_trade_tax_marks_reconstructed_value_unavailable(monkeypatc
 
 
 def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
     dates = [date(2026, 5, 10), date(2026, 5, 11)]
     cur = FakeCursor(
         [
@@ -967,6 +978,7 @@ def test_build_section_return_series_payload_injects_us_stock_warning(monkeypatc
 
 
 def test_us_stock_return_missing_history_has_no_zero_curve(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
     day = date(2026, 1, 1)
     monkeypatch.setattr(investment_returns, "_section_first_activity_date", lambda cur, section: day)
     monkeypatch.setattr(investment_returns, "load_fx_timelines", lambda cur, base_currency: {})

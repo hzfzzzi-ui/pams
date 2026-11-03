@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import psycopg2.extras
 
+from domain.investments.holdings_view import _table_exists
 from domain.investments.portfolio_state import _excluded_accounts, _load_accounts_config, _owner_ratio, get_conn
 from domain.investments.portfolio_valuation_state import _build_current_state
 from domain.investments.return_attribution import build_return_attribution_payload
@@ -539,6 +540,37 @@ def _attribution_reconciliation_pnl(attribution: dict[str, Any]) -> Decimal:
     return total
 
 
+def _source_cashflow_breakdown(cur, start_date, end_date, excluded):
+    from domain.ledger.cashflow_fact import _cashflow_flags
+    from domain.ledger.cashflow_read_v2 import load_cash_rows
+    from domain.ledger.confirmed_transfers_v2 import read
+    from domain.ledger.payment_proxy_confirmation import decisions
+
+    confirmed = {leg['id'] for item in read(cur, limit=None)
+                 if item['evidence_status'] == 'confirmed'
+                 for leg in (item['from_evidence'], item['to_evidence'])
+                 if leg['kind'] == 'cashflow'}
+    confirmed.update(item['from_cashflow_id'] for item in decisions(cur)
+                     if item['evidence_status'] == 'confirmed')
+    cash_rows = []
+    for row in load_cash_rows(cur, start=start_date, end=end_date, base_currency='CNY'):
+        if row['account_code'] in excluded or row['id'] in confirmed:
+            continue
+        kind = row['cashflow_type']
+        classification_known = (row['classification_status'] == 'confirmed'
+                                and row['source_evidence_status'] == 'verified')
+        if classification_known and kind not in {
+                'internal_transfer', 'investment_funding', 'investment_withdrawal', 'fx_conversion'}:
+            if not _cashflow_flags(kind)['affects_nav']:
+                continue
+            # The new source facts have no verified cash-to-investment income link.
+            amount = row['amount_cny'] if kind != 'investment_return_cash' else None
+        else:
+            amount = None
+        cash_rows.append({**row, 'amount_cny': amount, 'count': 1})
+    return _cashflow_breakdown_from_rows(cash_rows)
+
+
 def _cashflow_breakdown(
     cur,
     *,
@@ -547,6 +579,8 @@ def _cashflow_breakdown(
     excluded_accounts: set[str] | None = None,
 ) -> dict[str, Any]:
     excluded = sorted(str(item) for item in (excluded_accounts or set()) if item)
+    if _table_exists(cur, 'source_records'):
+        return _source_cashflow_breakdown(cur, start_date, end_date, excluded)
     cur.execute(
         """
         WITH linked_investment_return_cashflows AS (
@@ -595,47 +629,144 @@ def _trade_cash_amount_sql() -> str:
     """
 
 
+def _source_funding_totals(cur, start_date, end_date):
+    from domain.investments.investment_return_data import exact_fx_rate_at
+    from domain.investments.trade_read_v2 import load_trade_rows
+    from domain.investments.valuation_nav import load_fx_timelines
+    from domain.ledger.cashflow_read_v2 import load_cash_rows
+    from domain.ledger.confirmed_transfers_v2 import read
+
+    confirmations = [item for item in read(cur, limit=None) if item['evidence_status'] == 'confirmed']
+    fx = load_fx_timelines(cur, 'CNY')
+    totals = []
+    for account, start in (('ibkr', start_date), ('tonghuashun', Date.min)):
+        trades = {row['trade_id']: row for row in load_trade_rows(cur, account_code=account, start=start, end=end_date)
+                  if row['trade_type'] in ({'deposit'} if account == 'ibkr' else {'deposit', 'withdraw'})}
+        cash_rows = {row['id']: row for row in load_cash_rows(
+            cur, start=start, end=end_date, base_currency='CNY',
+            account_codes=['ccb_7332'] if account == 'tonghuashun' else None)}
+        cash_by_trade = {}
+        for item in confirmations:
+            left, right = item['from_evidence'], item['to_evidence']
+            if left['kind'] == 'trade' and right['kind'] == 'cashflow':
+                left, right = right, left
+            if left['kind'] == 'cashflow' and right['kind'] == 'trade' and right['id'] in trades:
+                cash_by_trade[right['id']] = cash_rows.get(left['id'])
+        amounts, cash_amounts, cash_dates = [], [], []
+        for ident, trade in trades.items():
+            day, amount = trade['trade_date'], trade['net_cash']
+            rate = exact_fx_rate_at(fx, trade['currency'], day, 'CNY')
+            amounts.append(amount * rate if amount is not None and rate is not None
+                           and trade['source_evidence_status'] == 'verified' else None)
+            cash = cash_by_trade.get(ident)
+            if cash:
+                cash_dates.append(cash['transaction_date'])
+                cash_amounts.append(-cash['amount_cny'] if cash['amount_cny'] is not None else None)
+            else:
+                cash_amounts.append(None)
+        trade_dates = [row['trade_date'] for row in trades.values()]
+        totals.extend([
+            {'count': len(cash_dates), 'first_date': min(cash_dates, default=None),
+             'last_date': max(cash_dates, default=None),
+             'amount_cny': sum(cash_amounts, Decimal(0)) if cash_amounts and None not in cash_amounts else None},
+            {'count': len(trades), 'first_date': min(trade_dates, default=None),
+             'last_date': max(trade_dates, default=None),
+             'amount_cny': sum(amounts, Decimal(0)) if amounts and None not in amounts else None},
+        ])
+    return totals
+
+
 def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cfg: dict[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
 
-    cur.execute(
-        """
-        SELECT COUNT(*) AS count,
-               CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
-                    ELSE COALESCE(SUM(ABS(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END)), 0) END AS amount_cny,
-               MIN(event_date) AS first_date,
-               MAX(event_date) AS last_date
-        FROM pams_cashflow_fact cf
-        LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
-            AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
-            AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
-        WHERE event_date >= %s
-          AND event_date <= %s
-          AND counter_account_code = 'ibkr'
-          AND amount < 0
-          AND cashflow_type IN ('investment_funding', 'internal_transfer')
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
-        """,
-        (start_date, end_date),
-    )
-    ibkr_cashflow = cur.fetchone() or {}
-    cur.execute(
-        f"""
-        SELECT COUNT(*) AS count,
-               CASE WHEN COUNT(*) FILTER (WHERE {_trade_cash_amount_sql()} IS NULL) > 0 THEN NULL
-                    ELSE COALESCE(SUM({_trade_cash_amount_sql()}), 0) END AS amount_cny,
-               MIN(trade_date) AS first_date,
-               MAX(trade_date) AS last_date
-        FROM pams_investment_trade_fact
-        WHERE trade_date >= %s
-          AND trade_date <= %s
-          AND account_code = 'ibkr'
-          AND trade_type = 'deposit'
-          AND COALESCE(LOWER(review_status), 'auto') NOT IN ('ignored', 'cancelled', 'canceled', 'void')
-        """,
-        (start_date, end_date),
-    )
-    ibkr_trade = cur.fetchone() or {}
+    if _table_exists(cur, 'source_records'):
+        ibkr_cashflow, ibkr_trade, ths_cashflow, ths_trade = _source_funding_totals(cur, start_date, end_date)
+    else:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count,
+                   CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
+                        ELSE COALESCE(SUM(ABS(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END)), 0) END AS amount_cny,
+                   MIN(event_date) AS first_date,
+                   MAX(event_date) AS last_date
+            FROM pams_cashflow_fact cf
+            LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+                AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
+                AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
+            WHERE event_date >= %s
+              AND event_date <= %s
+              AND counter_account_code = 'ibkr'
+              AND amount < 0
+              AND cashflow_type IN ('investment_funding', 'internal_transfer')
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            """,
+            (start_date, end_date),
+        )
+        ibkr_cashflow = cur.fetchone() or {}
+        cur.execute(
+            f"""
+            SELECT COUNT(*) AS count,
+                   CASE WHEN COUNT(*) FILTER (WHERE {_trade_cash_amount_sql()} IS NULL) > 0 THEN NULL
+                        ELSE COALESCE(SUM({_trade_cash_amount_sql()}), 0) END AS amount_cny,
+                   MIN(trade_date) AS first_date,
+                   MAX(trade_date) AS last_date
+            FROM pams_investment_trade_fact
+            WHERE trade_date >= %s
+              AND trade_date <= %s
+              AND account_code = 'ibkr'
+              AND trade_type = 'deposit'
+              AND COALESCE(LOWER(review_status), 'auto') NOT IN ('ignored', 'cancelled', 'canceled', 'void')
+            """,
+            (start_date, end_date),
+        )
+        ibkr_trade = cur.fetchone() or {}
+
+        cur.execute(
+            f"""
+            SELECT COUNT(*) AS count,
+                   CASE WHEN COUNT(*) FILTER (WHERE {_trade_cash_amount_sql()} IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(
+                       CASE
+                           WHEN trade_type = 'deposit' THEN {_trade_cash_amount_sql()}
+                           WHEN trade_type = 'withdraw' THEN -{_trade_cash_amount_sql()}
+                           ELSE 0
+                       END
+                   ), 0) END AS amount_cny
+            FROM pams_investment_trade_fact
+            WHERE trade_date <= %s
+              AND account_code = 'tonghuashun'
+              AND trade_type IN ('deposit', 'withdraw')
+              AND COALESCE(LOWER(review_status), 'auto') NOT IN ('ignored', 'cancelled', 'canceled', 'void')
+            """,
+            (end_date,),
+        )
+        ths_trade = cur.fetchone() or {}
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count,
+                   CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
+                        ELSE COALESCE(SUM(ABS(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END)), 0) END AS amount_cny,
+                   MIN(event_date) AS first_date,
+                   MAX(event_date) AS last_date
+            FROM pams_cashflow_fact cf
+            LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
+                AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
+                AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
+            WHERE event_date <= %s
+              AND account_code = 'ccb_7332'
+              AND counter_account_code = 'tonghuashun'
+              AND amount < 0
+              AND cashflow_type IN ('investment_funding', 'internal_transfer')
+              AND (
+                  counterparty ILIKE '%%沈钰棋%%'
+                  OR summary ILIKE '%%沈钰棋%%'
+                  OR description ILIKE '%%沈钰棋%%'
+              )
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            """,
+            (end_date,),
+        )
+        ths_cashflow = cur.fetchone() or {}
+
     ibkr_unknown = ibkr_cashflow.get("amount_cny") is None or ibkr_trade.get("amount_cny") is None
     ibkr_gap = None if ibkr_unknown else _dec(ibkr_cashflow["amount_cny"]) - _dec(ibkr_trade["amount_cny"])
     issues.append(
@@ -658,51 +789,6 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
         }
     )
 
-    cur.execute(
-        f"""
-        SELECT COUNT(*) AS count,
-               CASE WHEN COUNT(*) FILTER (WHERE {_trade_cash_amount_sql()} IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(
-                   CASE
-                       WHEN trade_type = 'deposit' THEN {_trade_cash_amount_sql()}
-                       WHEN trade_type = 'withdraw' THEN -{_trade_cash_amount_sql()}
-                       ELSE 0
-                   END
-               ), 0) END AS amount_cny
-        FROM pams_investment_trade_fact
-        WHERE trade_date <= %s
-          AND account_code = 'tonghuashun'
-          AND trade_type IN ('deposit', 'withdraw')
-          AND COALESCE(LOWER(review_status), 'auto') NOT IN ('ignored', 'cancelled', 'canceled', 'void')
-        """,
-        (end_date,),
-    )
-    ths_trade = cur.fetchone() or {}
-    cur.execute(
-        """
-        SELECT COUNT(*) AS count,
-               CASE WHEN COUNT(*) FILTER (WHERE cf.currency <> 'CNY' AND fx.rate IS NULL) > 0 THEN NULL
-                    ELSE COALESCE(SUM(ABS(CASE WHEN cf.currency = 'CNY' THEN cf.amount ELSE cf.amount * fx.rate END)), 0) END AS amount_cny,
-               MIN(event_date) AS first_date,
-               MAX(event_date) AS last_date
-        FROM pams_cashflow_fact cf
-        LEFT JOIN LATERAL (SELECT rate FROM pams_fx_rates_daily r WHERE NULLIF(BTRIM(r.source),'') IS NOT NULL AND r.base_currency='CNY'
-            AND r.quote_currency=cf.currency AND r.as_of=cf.event_date AND r.rate > 0
-            AND r.rate::text NOT IN ('NaN','Infinity','-Infinity') LIMIT 1) fx ON TRUE
-        WHERE event_date <= %s
-          AND account_code = 'ccb_7332'
-          AND counter_account_code = 'tonghuashun'
-          AND amount < 0
-          AND cashflow_type IN ('investment_funding', 'internal_transfer')
-          AND (
-              counterparty ILIKE '%%沈钰棋%%'
-              OR summary ILIKE '%%沈钰棋%%'
-              OR description ILIKE '%%沈钰棋%%'
-          )
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
-        """,
-        (end_date,),
-    )
-    ths_cashflow = cur.fetchone() or {}
     ths_cfg = (account_cfg.get("accounts") or {}).get("tonghuashun") or {}
     expected_personal = _dec(ths_cfg.get("personal_capital"))
     owner_ratio = _owner_ratio(account_cfg, "tonghuashun")

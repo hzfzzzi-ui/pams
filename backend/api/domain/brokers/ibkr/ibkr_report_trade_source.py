@@ -30,7 +30,7 @@ def _number(attrs, keys, label):
     return nums[0]
 
 
-def _row(cur, trade, account, day, report_sha256):
+def _row(cur, trade, account, day, report_sha256, *, include_fx=True):
     raw = trade['raw']
     values = {str(key).lower(): str(value).strip() for key, value in raw.items()}
     if len(values) != len(raw):
@@ -68,7 +68,7 @@ def _row(cur, trade, account, day, report_sha256):
         raise ValueError('current report trade amounts do not reconcile')
     if not is_fx and tax is not None and (fee == 0 or fee_currency == currency) and net != (-gross-fee-tax if side == 'BUY' else gross-fee-tax):
         raise ValueError('current report trade amounts do not reconcile')
-    rate = dated_fx_rate(cur, currency, day)
+    rate = dated_fx_rate(cur, currency, day) if include_fx else None
     identity = json.dumps(['ibkr', account, official[0], official[1]], separators=(',', ':'))
     key = 'ibkr_trade:' + sha256(identity.encode()).hexdigest()
     realized = _number(values, ('fifopnlrealized',), 'realized pnl') if values.get('fifopnlrealized') else None

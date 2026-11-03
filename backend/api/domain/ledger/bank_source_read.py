@@ -3,6 +3,29 @@ from decimal import Decimal, InvalidOperation
 
 
 def rows(cur, *, since=None, limit=1000):
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    state = cur.fetchone()
+    if state and state.get('redesigned'):
+        from datetime import date
+        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        facts = load_cash_rows(cur, start=since or date.min, end=date.max, base_currency='CNY')
+        verified = {row['id']: row for row in facts}
+        cur.execute('''SELECT f.cashflow_id,f.account_code,f.event_date,f.posting_date,f.amount,f.currency,
+            f.counterparty,f.summary,f.description,f.source_item_id,r.source_id AS batch_id,
+            r.source_name AS institution,r.created_at AS imported_at,i.raw_fields->'source' AS source,
+            r.filename,r.sha256,c.cashflow_type,c.category,c.subcategory
+            FROM pams_cashflow_fact f JOIN source_items i ON i.source_item_id=f.source_item_id
+            JOIN source_records r ON r.source_id=i.source_id
+            LEFT JOIN cashflow_classification c ON c.cashflow_id=f.cashflow_id
+            WHERE i.raw_fields->'source'->'statement'='true'::jsonb AND (%s::date IS NULL OR f.event_date >= %s::date)
+            ORDER BY f.event_date DESC,f.cashflow_id DESC LIMIT %s''', (since, since, limit))
+        result = [dict(row) for row in cur.fetchall()]
+        for row in result:
+            proof = verified.get(row['cashflow_id']) or {}
+            row['source_evidence_status'] = proof.get('source_evidence_status', 'unknown')
+            row['source_evidence_reason'] = proof.get('source_issue')
+            row['counter_account_code'] = None
+        return result
     cur.execute('''SELECT f.cashflow_id,f.account_code,f.event_date,f.posting_date,f.amount,f.currency,
           f.counter_account_code,f.cashflow_type,f.category,f.subcategory,f.summary,f.description,f.counterparty,
           f.source_item_id,b.batch_id,b.institution,b.created_at AS imported_at,
@@ -97,7 +120,11 @@ def imports(cur):
 
 
 def unmatched(cur, *, since, limit):
-    from domain.ledger import confirmed_transfers
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    if cur.fetchone()['redesigned']:
+        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+    else:
+        from domain.ledger import confirmed_transfers
     recorded = confirmed_transfers.read(cur, limit=10000)
     linked = {leg['id'] for match in recorded if match['evidence_status'] == 'confirmed'
               for leg in (match['from_evidence'], match['to_evidence']) if leg['kind'] == 'cashflow'}

@@ -199,3 +199,24 @@ def test_real_unknown_cost_flows_through_snapshot_http(empty_source_db, monkeypa
         result = web.get('/investment/return-series?start=2026-10-30')
         assert result.status_code == 200, result.text
         assert result.json()['status'] == 'unavailable' and result.json()['rows'][0]['return_rate'] is None
+
+        from uuid import uuid4
+        from domain.imports import source_records_v2 as source
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            source_id, item_id = uuid4(), uuid4()
+            fields = {'business_date': day.isoformat(), 'action': 'dividend', 'currency': 'CNY',
+                      'market': 'CN_A', 'symbol': 'SYNTH', 'gross_amount': '5', 'net_cash': '5'}
+            source.create_source(cur, source_id=source_id, account_code='tonghuashun', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'entered_fields': fields}, parsed_fields=fields)
+            revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                          parsed_fields=fields, review_status='confirmed')
+            source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+        assert web.post('/investment/return-series/snapshot?start=2026-10-30').status_code == 200
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute("UPDATE pams_investment_trade_fact SET gross_amount=6 WHERE source_item_id=%s", (str(item_id),))
+        assert web.post('/investment/return-series/snapshot?start=2026-10-30').status_code == 200
+        result = web.get('/investment/return-series?start=2026-10-30')
+        assert result.json()['reason'] == 'income_evidence_unknown'
+        assert result.json()['rows'][0]['realized_income'] is None

@@ -1240,6 +1240,28 @@ def _fetch_review_trades(
     end: Date | None,
     limit: int,
 ) -> list[dict[str, Any]]:
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS ready")
+    schema = cur.fetchone()
+    redesigned = bool(schema.get('ready')) if hasattr(schema, 'get') else bool(schema and schema[0])
+    if redesigned:
+        from domain.investments.transaction_list_v2 import list_rows
+        rows = [row for row in list_rows(cur, start=start, end=end)
+                if row['source_evidence_status'] == 'verified'
+                and row['trade_type'] in {'buy', 'sell', 'fund_subscription', 'fund_redemption'}]
+        rows.sort(key=lambda row: (row['trade_date'], row['trade_id']), reverse=True)
+        rows = rows[:limit]
+        for row in rows:
+            row['review_status'] = row['status']
+            row['asset_major_category'] = row.get('major_category')
+            row['asset_minor_category'] = row.get('minor_category')
+            row['fx_rate_to_cny'] = row.get('fx_rate')
+            row['realized_pnl'] = None
+            row['realized_pnl_cny'] = None
+            row['raw_json'] = {}
+        _enrich_trade_names(cur, rows)
+        _enrich_trade_asset_identity(cur, rows)
+        _annotate_trade_lifecycle(rows)
+        return rows
     where = ["f.trade_type IN ('buy', 'sell', 'fund_subscription', 'fund_redemption')"]
     params: list[Any] = []
     if start:
@@ -1389,6 +1411,9 @@ def apply_auto_trade_annotations(
     """
     as_of = as_of or Date.today()
     rows = _fetch_review_trades(cur, start=start, end=end, limit=limit)
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS ready")
+    schema = cur.fetchone()
+    redesigned = bool(schema.get('ready')) if hasattr(schema, 'get') else bool(schema and schema[0])
     learned_defaults = _learn_annotation_defaults(rows)
     examples: list[dict[str, Any]] = []
     field_counts: dict[str, int] = defaultdict(int)
@@ -1430,6 +1455,11 @@ def apply_auto_trade_annotations(
                 }
             )
         if dry_run:
+            continue
+        if redesigned:
+            from domain.investments.trade_review_v2 import write_auto_review
+            if write_auto_review(cur, trade_id=row['trade_id'], updates=updates):
+                updated += 1
             continue
         set_parts = []
         params: list[Any] = []

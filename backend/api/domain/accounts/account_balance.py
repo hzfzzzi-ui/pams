@@ -5,7 +5,7 @@ Profit, realized PnL and return-rate calculations remain in investment_returns.
 """
 from __future__ import annotations
 
-from datetime import date as Date
+from datetime import date as Date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -32,10 +32,16 @@ def norm(value: Any) -> Any:
 def _cash_source_schema_available(cur) -> bool:
     cur.execute("""SELECT to_regclass('public.source_items') IS NOT NULL AS items,
         to_regclass('public.source_batches') IS NOT NULL AS batches,
+        to_regclass('public.source_records') IS NOT NULL AS records,
         EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.pams_investment_trade_fact')
           AND attname='source_item_id' AND NOT attisdropped) AS links""")
     row = cur.fetchone() or {}
-    return bool(row.get('items') and row.get('batches') and row.get('links'))
+    return bool(row.get('items') and (row.get('batches') or row.get('records')) and row.get('links'))
+
+
+def _redesigned_sources_available(cur) -> bool:
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    return bool((cur.fetchone() or {}).get('redesigned'))
 
 
 def _cash_delta_cny(cur, account_code: str, start: Any, end: Any, *, external_only: bool = False) -> Decimal | None:
@@ -43,6 +49,8 @@ def _cash_delta_cny(cur, account_code: str, start: Any, end: Any, *, external_on
 
     Even a zero result does not prove that the period's sources are complete.
     """
+    if _redesigned_sources_available(cur):
+        return _cash_delta_cny_v2(cur, account_code, start, end, external_only=external_only)
     extra_filter = " AND f.trade_type IN ('deposit','withdraw')" if external_only else ""
     cur.execute("""SELECT CASE WHEN COUNT(*) FILTER (WHERE f.net_cash IS NULL OR (f.net_cash <> 0 AND fx.rate IS NULL)
         OR i.source_item_id IS NULL OR i.review_status IS DISTINCT FROM 'confirmed'
@@ -70,6 +78,51 @@ def _cash_delta_cny(cur, account_code: str, start: Any, end: Any, *, external_on
         if verifier.verify(table='pams_investment_trade_fact',fact_id=fact_id).get('status') != 'verified':
             return None
     return dec(row['cash_delta'])
+
+
+def _cash_delta_cny_v2(cur, account_code: str, start: Any, end: Any, *, external_only: bool) -> Decimal | None:
+    """Read only verified redesigned facts and sourced daily exchange rates."""
+    from domain.investments.trade_read_v2 import load_trade_rows
+    try:
+        start_day = Date.fromisoformat(str(start)[:10])
+        end_day = Date.fromisoformat(str(end)[:10])
+    except (TypeError, ValueError):
+        return None
+    if end_day <= start_day:
+        return Decimal(0)
+    rows = load_trade_rows(cur, account_code=account_code, start=start_day + timedelta(days=1), end=end_day)
+    cash_types = {'buy', 'sell', 'deposit', 'withdraw', 'fund_subscription', 'fund_redemption',
+                  'dividend', 'interest', 'coupon', 'fee', 'tax', 'fx_conversion'}
+    noncash_types = {'corporate_action', 'split', 'transfer_in_kind', 'transfer_out_kind', 'position_adjustment'}
+    total = Decimal(0)
+    for row in rows:
+        kind = row['trade_type']
+        if external_only and kind not in {'deposit', 'withdraw'}:
+            continue
+        if row['source_evidence_status'] != 'verified':
+            return None
+        if kind in noncash_types and row['net_cash'] is None:
+            continue
+        if kind not in cash_types and kind not in noncash_types:
+            return None
+        amount = row['net_cash']
+        if amount is None:
+            return None
+        if amount == 0:
+            continue
+        if row['currency'] == 'CNY':
+            rate = Decimal(1)
+        else:
+            cur.execute("""SELECT rate FROM pams_fx_rates_daily WHERE base_currency='CNY'
+                AND quote_currency=%s AND as_of=%s AND rate > 0
+                AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+                AND NULLIF(BTRIM(source),'') IS NOT NULL LIMIT 1""", (row['currency'], row['trade_date']))
+            quote = cur.fetchone()
+            if not quote or quote['rate'] is None:
+                return None
+            rate = quote['rate']
+        total += amount * rate
+    return total
 
 
 def load_account_balance_basis(

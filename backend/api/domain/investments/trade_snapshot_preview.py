@@ -8,6 +8,24 @@ from zoneinfo import ZoneInfo
 from domain.investments.diluted_trade_positions import calculate_diluted_positions
 
 
+def build_candidates_from_source_records(cur, *, account_code, start, as_of, identities, quotes,
+                                         coverage_confirmed, closed_adjustments=None):
+    """Build a preview from reviewed source records without writing a snapshot."""
+    if coverage_confirmed is not True:
+        raise ValueError('complete trade coverage must be explicitly confirmed')
+    from domain.investments.trade_read_v2 import load_trade_rows
+    rows = load_trade_rows(cur, account_code=account_code, start=start, end=as_of)
+    if any(row['source_evidence_status'] != 'verified' for row in rows):
+        raise ValueError('trade source evidence is incomplete')
+    events = []
+    for row in rows:
+        if row['trade_type'] in {'deposit', 'withdraw', 'interest'} and row.get('symbol') in (None, '', 'CASH_CNY'):
+            continue
+        events.append({**row, 'side': row['side'] or row['trade_type'], 'source_verified': True})
+    return build_trade_snapshot_candidates(events=events, identities=identities, quotes=quotes,
+        as_of=as_of, closed_adjustments=closed_adjustments)
+
+
 def build_trade_snapshot_candidates(*, events, identities, quotes, as_of, closed_adjustments=None):
     """Require verified inputs; snapshots cover securities only, not account cash.
 

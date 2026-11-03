@@ -63,7 +63,7 @@ def test_explicit_identity_is_bound_to_full_holding_and_frozen_original(empty_so
     XML.replace(b'currency="USD"',b'currency="EUR"'),
     XML.replace(b'position="10"',b'position="11"'),
     XML.replace(b'conid="1001"',b'conid="1001" accountId="OTHER"'),
-])
+], ids=['missing_contract', 'wrong_currency', 'wrong_quantity', 'duplicate_account_attribute'])
 def test_source_conflicts_or_missing_contract_cannot_be_reviewed(empty_source_db,content):
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)

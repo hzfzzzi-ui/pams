@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 from functools import wraps
-from uuid import UUID
+from hashlib import sha256
+from uuid import UUID, uuid4
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -16,6 +17,7 @@ from domain.imports import account_import_store as store
 from domain.imports import native_source as source
 from domain.imports import native_source_http as source_http
 from domain.imports import isolation
+from domain.imports.source_records_v2 import SourceRevisionConflict
 from domain.imports.account_import_ocr import ocr_available
 
 def private_response(response: Response):
@@ -72,6 +74,14 @@ class Publish(Revision):
     preview_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
 
 
+class HoldingSourcePreview(Revision):
+    scope: CompleteScope | None = None
+
+
+class HoldingSourcePublish(Publish):
+    scope: CompleteScope | None = None
+
+
 class ConfirmFlowCoverage(Revision):
     mappings: dict[str, int] = Field(max_length=store.MAX_ROWS)
     note: str = Field(min_length=1, max_length=500)
@@ -85,6 +95,73 @@ class TradeSnapshotPreview(StrictRequest):
 class TradeSnapshotPublish(StrictRequest):
     preview_token: str = Field(min_length=1, max_length=20000)
     confirmed_scope: bool = False
+
+
+class SourceReview(Revision):
+    parsed_fields: dict[str, Any]
+    review_status: Literal['pending', 'confirmed', 'excluded']
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ManualSource(StrictRequest):
+    account_code: str = Field(min_length=1, max_length=80)
+    document_type: Literal['cash', 'trade', 'holding']
+
+
+class ManualSourceItem(Revision):
+    parsed_fields: dict[str, Any]
+
+
+class SourceReviewItem(StrictRequest):
+    source_item_id: UUID | None = None
+    parsed_fields: dict[str, Any]
+    review_status: Literal['pending', 'confirmed', 'excluded']
+    note: str | None = Field(default=None, max_length=500)
+
+
+class SourceBatchReview(Revision):
+    items: list[SourceReviewItem] = Field(min_length=1, max_length=store.MAX_ROWS)
+
+
+class SourceMapping(Revision):
+    mapping: dict[str, str] = Field(max_length=40)
+
+
+class CashSourcePreview(Revision):
+    mode: Literal['all', 'ready']
+
+
+class CashSourcePublish(CashSourcePreview):
+    preview_token: str = Field(min_length=64, max_length=64, pattern=r'^[0-9a-f]+$')
+
+
+@import_scope
+def execute_source_record(request: Request, fn, *, write=False):
+    if write:
+        access.same_origin(request)
+    try:
+        with store.get_conn() as conn:
+            conn.set_session(isolation_level='SERIALIZABLE', readonly=not write)
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SET LOCAL statement_timeout='10s'")
+                cur.execute("SET LOCAL lock_timeout='3s'")
+                if not isolation.source_enabled(cur):
+                    raise store.ImportProblem('isolated_only', '来源操作未启用', 403)
+                cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AND "
+                            "to_regclass('public.cashflow_classification') IS NOT NULL AS ready")
+                if not cur.fetchone()['ready']:
+                    raise store.ImportProblem('schema_unavailable', '新来源结构尚未启用', 503)
+                return store.norm(fn(cur))
+    except store.ImportProblem as error:
+        raise HTTPException(error.status, detail={'code': error.code, 'message': str(error)}) from error
+    except isolation.IsolationError as error:
+        raise HTTPException(403, detail={'code': 'isolated_only', 'message': '来源操作未启用'}) from error
+    except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected, SourceRevisionConflict) as error:
+        raise HTTPException(409, detail={'code': 'source_changed', 'message': '资料已变化，请重新核对'}) from error
+    except psycopg2.Error as error:
+        raise HTTPException(503, detail={'code': 'import_unavailable', 'message': '来源操作失败，事务已回滚'}) from error
+    except (ValueError, UnicodeError) as error:
+        raise HTTPException(400, detail={'code': 'invalid_document', 'message': str(error)[:250]}) from error
 
 
 def _schema_ready(cur):
@@ -130,17 +207,24 @@ def execute(request: Request, fn, *, write=False, serializable=False):
 @import_scope
 def capabilities():
     ready = False
+    source_record_ready = False
     try:
         with store.get_conn() as conn:
             conn.set_session(readonly=True)
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 ready = _schema_ready(cur)
+                cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AND "
+                            "to_regclass('public.cashflow_classification') IS NOT NULL AS ready")
+                source_record_ready = bool(cur.fetchone()['ready'])
     except (psycopg2.Error, store.ImportProblem):
         pass
     # Capability keys mean access is available, not a verified user session.
     return {"configured": True, "authenticated": True, "authentication_required": False,
             "schema_ready": ready, "publish_enabled": ready and source.enabled(),
+            "source_record_schema_ready": source_record_ready,
+            "source_record_publish_enabled": source_record_ready and source.enabled(),
             "ocr_available": ready and ocr_available(),
+            "source_record_ocr_available": source_record_ready and ocr_available(),
             "limits": {"file_bytes": store.MAX_FILE_BYTES, "batch_bytes": store.MAX_BATCH_BYTES,
                        "files": store.MAX_FILES, "rows": store.MAX_ROWS}}
 
@@ -148,6 +232,202 @@ def capabilities():
 @router.get("/context")
 def context(request: Request):
     return execute(request, store.context)
+
+
+@router.post('/source-records')
+async def stage_source_record(request: Request, account_code: str = Query(..., min_length=1, max_length=80),
+                              source_name: str = Query(..., min_length=1, max_length=80),
+                              filename: str = Query(..., min_length=1, max_length=180)):
+    access.same_origin(request)
+    content = bytearray()
+    async for part in request.stream():
+        content.extend(part)
+        if len(content) > store.MAX_FILE_BYTES:
+            raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
+    from domain.imports.document_stage_v2 import stage_document
+    return await run_in_threadpool(execute_source_record, request,
+        lambda cur: stage_document(cur, account_code=account_code, source_name=source_name,
+                                   filename=filename, content=bytes(content)), write=True)
+
+
+@router.post('/source-records/ibkr-report')
+async def stage_ibkr_source_record(request: Request):
+    access.same_origin(request)
+    account = request.headers.get('x-pams-ibkr-account', '').strip()
+    if not account or len(account) > 120 or any(char in account for char in ('\x00', '\r', '\n')):
+        raise HTTPException(400, detail={'code': 'invalid_account', 'message': '请提供券商来源账户标识'})
+    content = bytearray()
+    async for part in request.stream():
+        content.extend(part)
+        if len(content) > 32 * 1024 * 1024:
+            raise HTTPException(413, detail={'code': 'file_size', 'message': '券商报表超过32MB'})
+    from collectors.ibkr_source_records import stage_trade_report
+    return await run_in_threadpool(execute_source_record, request,
+        lambda cur: stage_trade_report(cur, report_bytes=bytes(content), expected_source_account=account), write=True)
+
+
+@router.get('/source-records')
+def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50)):
+    def read(cur):
+        cur.execute('''SELECT source_id,account_code,source_name,acquisition_method,document_type,filename,
+            status,revision,created_at,updated_at FROM public.source_records
+            ORDER BY updated_at DESC,source_id DESC LIMIT %s''', (limit,))
+        return {'sources': [dict(row) for row in cur.fetchall()]}
+    return execute_source_record(request, read)
+
+
+@router.get('/source-records/context')
+def source_record_context(request: Request):
+    return execute_source_record(request, store.context)
+
+
+@router.get('/source-records/assets')
+def source_record_assets(request: Request, q: str = Query('', max_length=80)):
+    return execute_source_record(request, lambda cur: store.assets(cur, q))
+
+
+@router.post('/source-records/manual')
+def create_manual_source(body: ManualSource, request: Request):
+    from domain.imports.source_records_v2 import create_source
+    def create(cur):
+        context = store.context(cur)
+        if not any(row['account_code'] == body.account_code and body.document_type in row.get('kinds', [])
+                   for row in context['accounts']):
+            raise ValueError('account does not support this document type')
+        source_id = uuid4()
+        create_source(cur, source_id=source_id, account_code=body.account_code, source_name='manual',
+                      acquisition_method='manual', document_type=body.document_type)
+        return {'source_id': str(source_id), 'revision': 1}
+    return execute_source_record(request, create, write=True)
+
+
+@router.post('/source-records/{source_id}/items')
+def create_manual_source_item(source_id: UUID, body: ManualSourceItem, request: Request):
+    from domain.imports.source_records_v2 import add_manual_item
+    def create(cur):
+        item_id = uuid4()
+        revision = add_manual_item(cur, source_id=source_id, item_id=item_id,
+                                   expected_revision=body.revision, parsed_fields=body.parsed_fields)
+        return {'source_item_id': str(item_id), 'revision': revision}
+    return execute_source_record(request, create, write=True)
+
+
+@router.get('/source-records/{source_id}')
+def get_source_record(source_id: UUID, request: Request):
+    def read(cur):
+        cur.execute('''SELECT source_id,account_code,source_name,acquisition_method,document_type,filename,
+            file_format,status,revision,created_at,updated_at FROM public.source_records WHERE source_id=%s''', (str(source_id),))
+        row = cur.fetchone()
+        if not row:
+            raise store.ImportProblem('source_missing', '来源资料不存在', 404)
+        cur.execute('''SELECT source_item_id,source_position,parse_method,raw_fields,parsed_fields,review_status,review_note
+            FROM public.source_items WHERE source_id=%s ORDER BY created_at,source_item_id''', (str(source_id),))
+        return {**dict(row), 'items': [dict(item) for item in cur.fetchall()]}
+    return execute_source_record(request, read)
+
+
+@router.get('/source-records/{source_id}/original')
+def source_record_original(source_id: UUID, request: Request):
+    def read(cur):
+        cur.execute('SELECT content,sha256,file_format FROM public.source_records WHERE source_id=%s', (str(source_id),))
+        item = cur.fetchone()
+        if not item or item['content'] is None:
+            raise store.ImportProblem('source_missing', '原始资料不存在', 404)
+        content = bytes(item['content'])
+        if sha256(content).hexdigest() != item['sha256']:
+            raise store.ImportProblem('source_changed', '原始资料校验失败', 409)
+        return {'content': content, 'file_format': item['file_format']}
+    item = execute_source_record(request, read)
+    media_type = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}.get(item['file_format'], 'application/octet-stream')
+    return Response(item['content'], media_type=media_type, headers={'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline' if media_type.startswith('image/') else 'attachment'})
+
+
+@router.post('/source-records/{source_id}/delete-draft')
+def delete_source_draft(source_id: UUID, body: Revision, request: Request):
+    from domain.imports.source_records_v2 import delete_draft
+    def remove(cur):
+        delete_draft(cur, source_id=source_id, expected_revision=body.revision)
+        return {'deleted': True}
+    return execute_source_record(request, remove, write=True)
+
+
+@router.put('/source-records/{source_id}/items/{item_id}')
+def review_source_record(source_id: UUID, item_id: UUID, body: SourceReview, request: Request):
+    from domain.imports.source_records_v2 import review_item
+    return execute_source_record(request, lambda cur: {'revision': review_item(cur, source_id=source_id, item_id=item_id,
+        expected_revision=body.revision, parsed_fields=body.parsed_fields, review_status=body.review_status,
+        note=body.note)}, write=True)
+
+
+@router.put('/source-records/{source_id}/reviews')
+def review_source_records(source_id: UUID, body: SourceBatchReview, request: Request):
+    from domain.imports.source_records_v2 import review_items
+    return execute_source_record(request, lambda cur: {'revision': review_items(cur, source_id=source_id,
+        expected_revision=body.revision, items=[item.model_dump() for item in body.items])}, write=True)
+
+
+@router.get('/source-records/{source_id}/mapping')
+def source_record_mapping(source_id: UUID, request: Request):
+    from domain.imports.document_stage_v2 import mapping_metadata
+    return execute_source_record(request, lambda cur: mapping_metadata(cur, source_id=source_id))
+
+
+@router.put('/source-records/{source_id}/mapping')
+def map_source_record(source_id: UUID, body: SourceMapping, request: Request):
+    from domain.imports.document_stage_v2 import update_mapping
+    return execute_source_record(request, lambda cur: update_mapping(cur, source_id=source_id,
+        revision=body.revision, mapping=body.mapping), write=True)
+
+
+@router.post('/source-records/{source_id}/cash-preview')
+def preview_cash_source_record(source_id: UUID, body: CashSourcePreview, request: Request):
+    from domain.imports.cash_publication_v2 import preview
+    return execute_source_record(request, lambda cur: preview(cur, source_id=source_id, revision=body.revision,
+                                                               mode=body.mode), write=True)
+
+
+@router.post('/source-records/{source_id}/cash-publish')
+def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request: Request):
+    from domain.imports.cash_publication_v2 import publish
+    return execute_source_record(request, lambda cur: publish(cur, source_id=source_id, revision=body.revision,
+        mode=body.mode, preview_token=body.preview_token), write=True)
+
+
+@router.post('/source-records/{source_id}/holding-preview')
+def preview_holding_source(source_id: UUID, body: HoldingSourcePreview, request: Request):
+    from domain.imports import holding_publication_v2
+    return execute_source_record(request, lambda cur: holding_publication_v2.preview(
+        cur, source_id=source_id, revision=body.revision, scope=_holding_scope(body)), write=True)
+
+
+@router.post('/source-records/{source_id}/holding-publish')
+def publish_holding_source(source_id: UUID, body: HoldingSourcePublish, request: Request):
+    from domain.imports import holding_publication_v2
+    return execute_source_record(request, lambda cur: holding_publication_v2.publish(
+        cur, source_id=source_id, revision=body.revision, preview_token=body.preview_token,
+        scope=_holding_scope(body)), write=True)
+
+
+def _holding_scope(body):
+    if body.scope is None:
+        return None
+    if body.scope.revision != body.revision:
+        raise ValueError('完整范围确认版本已变化')
+    return body.scope.model_dump(exclude={'revision'})
+
+
+@router.post('/source-records/{source_id}/trade-preview')
+def preview_trade_source_record(source_id: UUID, body: Revision, request: Request):
+    from domain.imports.trade_publication_v2 import preview
+    return execute_source_record(request, lambda cur: preview(cur, source_id=source_id, revision=body.revision), write=True)
+
+
+@router.post('/source-records/{source_id}/trade-publish')
+def publish_trade_source_record(source_id: UUID, body: Publish, request: Request):
+    from domain.imports.trade_publication_v2 import publish
+    return execute_source_record(request, lambda cur: publish(cur, source_id=source_id, revision=body.revision,
+        preview_token=body.preview_token), write=True)
 
 
 @router.post('/trade-snapshot/preview')

@@ -256,7 +256,8 @@ def test_cashflow_breakdown_excludes_linked_investment_cash_realization() -> Non
     assert linked_detail["excluded_from_external_cashflow"] is True
 
 
-def test_cashflow_breakdown_filters_excluded_nav_accounts() -> None:
+def test_cashflow_breakdown_filters_excluded_nav_accounts(monkeypatch) -> None:
+    monkeypatch.setattr('domain.investments.portfolio_equity_bridge._table_exists', lambda *_: False)
     cur = _FakeRowsCursor([])
 
     _cashflow_breakdown(
@@ -282,7 +283,8 @@ def test_bridge_cashflow_excluded_accounts_keep_parent_payment_ledgers() -> None
     assert excluded == {"ccb_cny"}
 
 
-def test_tonghuashun_personal_capital_checks_cashflow_source_side() -> None:
+def test_tonghuashun_personal_capital_checks_cashflow_source_side(monkeypatch) -> None:
+    monkeypatch.setattr('domain.investments.portfolio_equity_bridge._table_exists', lambda *_: False)
     cur = _FakeCursor(
         [
             {"count": 1, "amount_cny": Decimal("100"), "first_date": date(2026, 1, 1), "last_date": date(2026, 1, 1)},

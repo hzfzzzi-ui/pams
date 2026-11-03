@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from domain.investments.investment_return_math import dec, ibkr_return_effective_date
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE, _table_exists
 
 
 FX_UNAVAILABLE = object()
@@ -248,7 +248,24 @@ def _tonghuashun_cost_series(
 def _section_first_activity_date(cur, section: str) -> Date | None:
     """Return the first transaction or snapshot date available for an investment section."""
     cfg = SECTION_RETURN_CONFIG[section]
-    if section == "a_stock":
+    if _table_exists(cur, 'source_records'):
+        # The range can start at the earliest observed row. Amounts are verified
+        # separately before a trade contributes to returns.
+        market_names = [cfg['major_category']]
+        if section == 'a_stock':
+            market_names.extend(['CN_A'])
+        elif section == 'a_fund':
+            market_names = [cfg['minor_category'], 'CN_FUND']
+        elif section == 'us_stock':
+            market_names.extend(IBKR_EQUITY_MARKETS)
+        cur.execute("""SELECT MIN(day) AS start_date FROM (
+            SELECT MIN(as_of) AS day FROM pams_holdings_snapshot WHERE major_category=%s
+                AND (%s::text IS NULL OR minor_category=%s)
+            UNION ALL
+            SELECT MIN(trade_date) FROM pams_investment_trade_fact
+                WHERE market=ANY(%s::text[]) AND gross_amount IS NOT NULL
+        ) observed""", (cfg['major_category'], cfg.get('minor_category'), cfg.get('minor_category'), market_names))
+    elif section == "a_stock":
         cur.execute(
             """
             SELECT MIN(trade_date) AS start_date
@@ -621,6 +638,38 @@ def _exact_snapshot_category_value(
 
 
 
+def _source_record_section_flows(cur, start_date, end_date, major_category, minor_category, account_codes):
+    """Match flows to evidenced section membership and attach source verification."""
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    filters = ['h.major_category=%s', "h.asset_liability='资产'", 'h.market_value<>0',
+               "h.as_of BETWEEN f.trade_date - INTERVAL '10 days' AND f.trade_date"]
+    params = [start_date, end_date, major_category]
+    if minor_category:
+        filters.append('h.minor_category=%s')
+        params.append(minor_category)
+    if account_codes:
+        filters.append('h.account_code=ANY(%s::text[])')
+        params.append(account_codes)
+    cur.execute("""SELECT DISTINCT f.trade_id,f.account_code FROM pams_investment_trade_fact f
+        JOIN pams_holdings_snapshot h ON h.account_code=f.account_code
+        WHERE f.trade_date BETWEEN %s AND %s
+          AND f.trade_type IN ('buy','sell','fund_subscription','fund_redemption','deposit','withdraw')
+          AND (h.asset_id=f.asset_id OR (f.asset_id IS NULL AND h.symbol=f.symbol AND h.currency=f.currency)
+              OR (f.trade_type IN ('deposit','withdraw') AND f.market=h.major_category))
+          AND """ + ' AND '.join(filters), params)
+    ids_by_account = {}
+    for row in cur.fetchall():
+        ids_by_account.setdefault(row['account_code'], set()).add(row['trade_id'])
+    rows = [row for account, ids in ids_by_account.items()
+            for row in load_trade_rows(cur, account_code=account, start=start_date, end=end_date)
+            if row['trade_id'] in ids]
+    for row in rows:
+        row['side'] = {'fund_subscription': 'subscribe', 'fund_redemption': 'redeem'}.get(
+            row['trade_type'], row['side'] or row['trade_type'])
+    return sorted(rows, key=lambda row: (row['trade_date'], row['trade_id']))
+
+
 def _investment_transaction_flow_events(
     cur,
     *,
@@ -634,63 +683,71 @@ def _investment_transaction_flow_events(
     account_codes: list[str] | None = None,
 ) -> list[tuple[Date, Decimal]]:
     """Return section-level investment cash flows that should be excluded from returns."""
-    filters = [
-        "trade_date >= %s",
-        "trade_date <= %s",
-        f"{TRADE_FACT_MAJOR_EXPR} = %s",
-        "gross_amount IS NOT NULL",
-        "COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'pending', 'pending_settlement', 'in_transit')",
-    ]
-    params: list[Any] = [start_date, end_date, major_category]
-    if minor_category:
-        filters.append(f"{TRADE_FACT_MINOR_EXPR} = %s")
-        params.append(minor_category)
-    if account_codes:
-        filters.append("account_code = ANY(%s::text[])")
-        params.append(account_codes)
+    if _table_exists(cur, 'source_records'):
+        rows = _source_record_section_flows(cur, start_date, end_date, major_category, minor_category, account_codes)
+    else:
+        filters = [
+            "trade_date >= %s",
+            "trade_date <= %s",
+            f"{TRADE_FACT_MAJOR_EXPR} = %s",
+            "gross_amount IS NOT NULL",
+            "COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'pending', 'pending_settlement', 'in_transit')",
+        ]
+        params: list[Any] = [start_date, end_date, major_category]
+        if minor_category:
+            filters.append(f"{TRADE_FACT_MINOR_EXPR} = %s")
+            params.append(minor_category)
+        if account_codes:
+            filters.append("account_code = ANY(%s::text[])")
+            params.append(account_codes)
 
-    coverage_filters = [
-        "hs.account_code = pams_investment_trade_fact.account_code",
-        "hs.as_of BETWEEN pams_investment_trade_fact.trade_date - INTERVAL '10 days' AND pams_investment_trade_fact.trade_date",
-        "hs.asset_liability = %s",
-        "hs.major_category = %s",
-        "COALESCE(hs.market_value, 0) <> 0",
-    ]
-    coverage_params: list[Any] = ["资产", major_category]
-    if minor_category:
-        coverage_filters.append("hs.minor_category = %s")
-        coverage_params.append(minor_category)
-    filters.append(
-        f"""
-        EXISTS (
-            SELECT 1
-            FROM pams_holdings_snapshot hs
-            WHERE {' AND '.join(coverage_filters)}
+        coverage_filters = [
+            "hs.account_code = pams_investment_trade_fact.account_code",
+            "hs.as_of BETWEEN pams_investment_trade_fact.trade_date - INTERVAL '10 days' AND pams_investment_trade_fact.trade_date",
+            "hs.asset_liability = %s",
+            "hs.major_category = %s",
+            "COALESCE(hs.market_value, 0) <> 0",
+        ]
+        coverage_params: list[Any] = ["资产", major_category]
+        if minor_category:
+            coverage_filters.append("hs.minor_category = %s")
+            coverage_params.append(minor_category)
+        filters.append(
+            f"""
+            EXISTS (
+                SELECT 1
+                FROM pams_holdings_snapshot hs
+                WHERE {' AND '.join(coverage_filters)}
+            )
+            """
         )
-        """
-    )
-    params.extend(coverage_params)
+        params.extend(coverage_params)
 
-    cur.execute(
-        f"""
-        SELECT
-            account_code,
-            trade_date,
-            COALESCE(NULLIF(side, ''), trade_type) AS side,
-            gross_amount,
-            fee_amount, tax_amount, net_cash, raw_json,
-            currency
-        FROM pams_investment_trade_fact
-        WHERE {' AND '.join(filters)}
-        ORDER BY trade_date, trade_id
-        """,
-        params,
-    )
+        cur.execute(
+            f"""
+            SELECT
+                account_code,
+                trade_date,
+                COALESCE(NULLIF(side, ''), trade_type) AS side,
+                gross_amount,
+                fee_amount, tax_amount, net_cash, raw_json,
+                currency
+            FROM pams_investment_trade_fact
+            WHERE {' AND '.join(filters)}
+            ORDER BY trade_date, trade_id
+            """,
+            params,
+        )
+        rows = cur.fetchall()
 
     positive_sides = {"buy", "subscribe", "purchase", "deposit", "transfer_in", "in"}
     negative_sides = {"sell", "redeem", "redemption", "withdraw", "withdrawal", "cancel", "transfer_out", "out"}
     events = FlowEvents()
-    for row in cur.fetchall():
+    for row in rows:
+        if row.get('source_evidence_status', 'verified') != 'verified' or (
+                row.get('gross_amount') is None and row.get('net_cash') is None):
+            events.append((row['trade_date'], None))
+            continue
         side = str(row.get("side") or "").strip().lower()
         amount = abs(dec(row.get("gross_amount")))
         from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
@@ -732,22 +789,32 @@ def _tonghuashun_external_flow_events(
     account_owner_ratio: Callable[[str], Decimal],
 ) -> list[tuple[Date, Decimal]]:
     """Return external capital flows for the Tonghuashun account."""
-    cur.execute(
-        """
-        SELECT trade_date, COALESCE(NULLIF(side, ''), trade_type) AS side, gross_amount, net_cash, currency
-        FROM pams_investment_trade_fact
-        WHERE account_code = 'tonghuashun'
-          AND trade_date >= %s
-          AND trade_date <= %s
-          AND LOWER(COALESCE(NULLIF(side, ''), trade_type)) IN ('deposit', 'withdraw', 'cash_deposit', 'cash_withdrawal', 'transfer_in', 'transfer_out')
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
-        ORDER BY trade_date, trade_id
-        """,
-        (start_date, end_date),
-    )
+    if _table_exists(cur, 'source_records'):
+        from domain.investments.trade_read_v2 import load_trade_rows
+        rows = [row for row in load_trade_rows(cur, account_code='tonghuashun', start=start_date, end=end_date)
+                if row['trade_type'] in {'deposit','withdraw'}]
+    else:
+        cur.execute(
+            """
+            SELECT trade_date, COALESCE(NULLIF(side, ''), trade_type) AS side, gross_amount, net_cash, currency
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'tonghuashun'
+              AND trade_date >= %s
+              AND trade_date <= %s
+              AND LOWER(COALESCE(NULLIF(side, ''), trade_type)) IN ('deposit', 'withdraw', 'cash_deposit', 'cash_withdrawal', 'transfer_in', 'transfer_out')
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            ORDER BY trade_date, trade_id
+            """,
+            (start_date, end_date),
+        )
+        rows = cur.fetchall()
     events = FlowEvents()
     owner_ratio = account_owner_ratio("tonghuashun")
-    for row in cur.fetchall():
+    for row in rows:
+        if row.get('source_evidence_status', 'verified') != 'verified' or (
+                row.get('gross_amount') is None and row.get('net_cash') is None):
+            events.append((row['trade_date'], None))
+            continue
         side = str(row.get("side") or "").strip().lower()
         amount = abs(dec(row.get("gross_amount")) or dec(row.get("net_cash")))
         signed_native = -amount if side in {"withdraw", "cash_withdrawal", "transfer_out"} else amount
@@ -762,6 +829,22 @@ def _tonghuashun_external_flow_events(
     return events
 
 
+def source_record_ibkr_equity_trades(cur, start_date: Date, end_date: Date):
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    rows = load_trade_rows(cur, account_code='ibkr', start=start_date, end=end_date)
+    trades = []
+    for row in rows:
+        if row['market'] not in IBKR_EQUITY_MARKETS or row['trade_type'] not in {'buy', 'sell'}:
+            continue
+        if row['quantity'] is None or row['quantity'] <= 0:
+            row['source_evidence_status'] = 'unknown'
+        elif row['trade_type'] == 'sell':
+            row['quantity'] = -row['quantity']
+        trades.append(row)
+    return trades
+
+
 def _ibkr_trade_flow_events(
     cur,
     *,
@@ -771,28 +854,32 @@ def _ibkr_trade_flow_events(
     fx_timelines: dict[str, list[tuple[Date, Decimal]]],
 ) -> list[tuple[Date, Decimal]]:
     """Return stock/ETF trade cash flows for the IBKR section."""
-    cur.execute(
-        """
-        SELECT
-            trade_date,
-            quantity,
-            gross_amount,
-            fee_amount, tax_amount, raw_json,
-            net_cash,
-            currency
-        FROM pams_investment_trade_fact
-        WHERE account_code = 'ibkr'
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
-          AND quantity IS NOT NULL
-          AND trade_date >= %s
-          AND trade_date <= %s
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
-        ORDER BY trade_date, trade_id
-        """,
-        (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
-    )
+    if _table_exists(cur, 'source_records'):
+        rows = source_record_ibkr_equity_trades(cur, start_date - timedelta(days=1), end_date)
+    else:
+        cur.execute(
+            """
+            SELECT
+                trade_date,
+                quantity,
+                gross_amount,
+                fee_amount, tax_amount, raw_json,
+                net_cash,
+                currency
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'ibkr'
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
+              AND quantity IS NOT NULL
+              AND trade_date >= %s
+              AND trade_date <= %s
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            ORDER BY trade_date, trade_id
+            """,
+            (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
+        )
+        rows = cur.fetchall()
     events = FlowEvents()
-    for row in cur.fetchall():
+    for row in rows:
         qty = dec(row.get("quantity"))
         gross = abs(dec(row.get("gross_amount")))
         from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
@@ -802,10 +889,10 @@ def _ibkr_trade_flow_events(
         trade_date = ibkr_return_effective_date(row["trade_date"], currency)
         if trade_date < start_date or trade_date > end_date:
             continue
-        if unconverted_ibkr_fee(row):
+        if row.get('source_evidence_status', 'verified') != 'verified' or unconverted_ibkr_fee(row):
             events.append((trade_date, None))
             continue
-        if row.get('net_cash') is None and commission is None:
+        if row.get('net_cash') is None and (commission is None or row.get('gross_amount') is None):
             events.append((trade_date, None))
             continue
         commission = commission if commission is not None else Decimal('0')

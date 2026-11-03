@@ -969,6 +969,29 @@ def list_investment_transactions(
             where_sql = "WHERE " + " AND ".join(where) if where else ""
             if not _fact_rows_available(cur):
                 return {"summary": _transaction_summary([], "trade_fact"), "rows": []}
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.transaction_list_v2 import list_rows
+                rows = list_rows(cur, start=start, end=end, account_code=account_code)
+                if source:
+                    rows = [row for row in rows if row['source'] == source]
+                if side:
+                    rows = [row for row in rows if row['side_normalized'] == side.lower()]
+                if review_status:
+                    rows = [row for row in rows if row['status'] == review_status]
+                if asset_key:
+                    key = _clean_optional_text(asset_key, max_len=160)
+                    if key:
+                        rows = [row for row in rows if str(row.get('symbol') or row.get('name') or '').lower() == key.lower()]
+                if search:
+                    term = search.casefold()
+                    rows = [row for row in rows if any(term in str(row.get(field) or '').casefold() for field in
+                        ('symbol', 'name', 'notes', 'trade_intent', 'trade_plan', 'review_note'))]
+                rows.sort(key=lambda row: (row['trade_time'], row['native_id']), reverse=True)
+                rows = rows[:limit]
+                _enrich_transaction_names(cur, rows)
+                _apply_owner_amount_scope(rows, _load_accounts_config())
+                summary = _transaction_summary(rows, 'trade_fact')
+                return {"summary": summary, "rows": [{k: norm(v) for k, v in row.items()} for row in rows]}
             data_source = "trade_fact"
             query = _fact_query(where_sql)
             cur.execute(query, params + [limit])
@@ -1121,7 +1144,19 @@ def investment_trade_attribution(trade_id: int):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if not _table_exists(cur, "pams_investment_trade_fact"):
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
-            payload = build_trade_attribution_payload(cur, trade_id)
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.transaction_list_v2 import list_rows
+                cur.execute('SELECT account_code,trade_date FROM pams_investment_trade_fact WHERE trade_id=%s', (trade_id,))
+                target = cur.fetchone()
+                if not target:
+                    raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}")
+                rows = list_rows(cur, start=target['trade_date'], end=target['trade_date'], account_code=target['account_code'])
+                trade = next((row for row in rows if row['trade_id'] == trade_id), None)
+                if not trade or trade['source_evidence_status'] != 'verified':
+                    raise HTTPException(status_code=409, detail='交易来源无法核验，暂不能生成归因')
+                payload = build_trade_attribution_payload(cur, trade_id, trade_row=trade)
+            else:
+                payload = build_trade_attribution_payload(cur, trade_id)
             if not payload.get("found"):
                 raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}")
             return payload
@@ -1202,6 +1237,25 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if not _table_exists(cur, "pams_investment_trade_fact"):
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.trade_review_v2 import write_review
+                cleaned = {'buy_reason': buy_reason, 'sell_reason': sell_reason, 'review_tags': review_tags,
+                    'trade_intent': trade_intent, 'trade_plan': trade_plan, 'review_note': review_note,
+                    'review_due_date': review.review_due_date, 'initial_position_identity': initial_position_identity,
+                    'current_position_identity': current_position_identity, 'identity_confidence': identity_confidence,
+                    'intended_holding_period': intended_holding_period, 'buy_logic': buy_logic,
+                    'add_condition': add_condition, 'reduce_condition': reduce_condition, 'sell_condition': sell_condition,
+                    'max_acceptable_loss_pct': max_acceptable_loss_pct, 'max_position_pct': max_position_pct,
+                    'next_review_date': review.next_review_date, 'sell_rule_type': sell_rule_type}
+                changes = {key: value for key, value in cleaned.items() if _field_was_provided(review, key)}
+                try:
+                    row = write_review(cur, trade_id=trade_id, changes=changes, inferred_status=review_status,
+                        explicit_status=_field_was_provided(review, 'review_status'), transition_type=transition_type,
+                        transition_triggers=transition_triggers, transition_evidence=transition_evidence)
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}") from exc
+                conn.commit()
+                return {"trade": {k: norm(v) for k, v in row.items()}, "review_options": _review_options_payload()}
             cur.execute(
                 """
                 SELECT current_position_identity, review_status
@@ -1363,6 +1417,18 @@ def investment_transaction_options():
                 """
             )
             accounts = [dict(r) for r in cur.fetchall()]
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.transaction_list_v2 import list_options
+                categories, sources, assets = list_options(cur)
+                _enrich_asset_filter_options(cur, assets)
+                return {
+                    "accounts": [{k: norm(v) for k, v in row.items()} for row in accounts],
+                    "categories": [{k: norm(v) for k, v in row.items()} for row in categories],
+                    "sources": sources,
+                    "assets": [{k: norm(v) for k, v in row.items()} for row in assets],
+                    "side_options": ["buy", "sell", "deposit", "withdraw", "dividend", "fx_conversion", "fee", "other"],
+                    "review_options": _review_options_payload(),
+                }
             cur.execute(
                 f"""
                 WITH categories AS (

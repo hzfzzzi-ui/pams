@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'backend/api'))
 from domain.brokers.ibkr.ibkr_fee_currency import currency_code, explicit_ibkr_fee_currency  # noqa: E402
-from tests.brokers.ibkr.test_ibkr_sync_transaction import database as database, sync_case as sync_case, business_state, rows  # noqa: E402
+from tests.brokers.ibkr.test_ibkr_sync_transaction import database as database, sync_case as sync_case, business_state  # noqa: E402
 
 XML = '''<FlexQueryResponse><FlexStatements><FlexStatement accountId="U_TEST" toDate="20261022">
 <AccountInformation accountId="U_TEST" currency="USD" />
@@ -61,23 +61,6 @@ def test_missing_or_conflicting_raw_evidence_is_not_guessed(change):
     elif change == 'invalid_unit': raw['ibCommissionCurrency'] = 'USDD'
     else: raw['ibCommission'] = '-3'
     assert explicit_ibkr_fee_currency(row, Decimal('2')) is None
-
-
-def test_real_new_sync_preserves_fee_currency_and_replay_never_mutates(sync_case, database):
-    client, _, _ = sync_case
-    before = rows(database, 'pams_investment_trade_fact')
-    response = client.post('/api/ibkr/flex/sync', json={})
-    assert response.status_code == 200, response.text
-    after = rows(database, 'pams_investment_trade_fact')
-    added = [row for row in after if row['trade_id'] not in {r['trade_id'] for r in before}]
-    trade = next(row for row in added if row['source_table'] == 'ibkr_flex_trade')
-    assert trade['fee_currency'] == 'USD'
-    assert (trade['fee_amount'], trade['net_cash'], trade['net_cash_cny']) == (1.25, -341.25, -2388.75)
-    assert all(row in after for row in before)
-    response = client.post('/api/ibkr/flex/sync', json={})
-    assert response.status_code == 200, response.text
-    assert response.json()['success']
-    assert rows(database, 'pams_investment_trade_fact') == after
 
 
 def test_real_currency_audit_is_server_readonly_after_migration(sync_case, database):

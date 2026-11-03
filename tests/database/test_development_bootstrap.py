@@ -49,7 +49,7 @@ def test_development_bootstrap_initializes_once_and_preserves_data(fresh_develop
     with psycopg2.connect(**params) as conn:
         bootstrap.initialize_development_database(conn)
         with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.source_batches'), to_regclass('public.pams_holdings_snapshot')")
+            cur.execute("SELECT to_regclass('public.source_records'), to_regclass('public.pams_holdings_snapshot')")
             assert all(cur.fetchone())
             for table in (
                 'valuation_evidence', 'account_snapshot_version', 'account_snapshot_member', 'evidence_confirmation',
@@ -92,7 +92,7 @@ def test_development_bootstrap_rolls_back_every_schema_on_failure(fresh_developm
         with pytest.raises(psycopg2.errors.SyntaxError):
             bootstrap.initialize_development_database(conn)
         with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.source_batches'), to_regclass('public.pams_accounts')")
+            cur.execute("SELECT to_regclass('public.source_records'), to_regclass('public.pams_accounts')")
             assert cur.fetchone() == (None, None)
 
 

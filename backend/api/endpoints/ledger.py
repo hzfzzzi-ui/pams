@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from domain.ledger.cashflow_fact import _cashflow_flags as cashflow_flags_for_type
-from domain.ledger.ledger_view import build_ledger_workbench_payload
+from domain.ledger.ledger_view import build_ledger_workbench_payload, _table_exists
 
 
 router = APIRouter()
@@ -63,6 +63,19 @@ def _manual_category(cashflow_type: str, category: str | None, subcategory: str 
     return (_clean_optional(category) or default_category, _clean_optional(subcategory) or default_subcategory)
 
 
+def _verified_new_cashflow(cur, row_id: int):
+    from domain.ledger.cashflow_read_v2 import load_cash_rows
+    cur.execute('SELECT event_date FROM pams_cashflow_fact WHERE cashflow_id=%s FOR UPDATE', (row_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail='ledger row not found')
+    rows = load_cash_rows(cur, start=row['event_date'], end=row['event_date'], base_currency='CNY')
+    fact = next((item for item in rows if item['id'] == row_id), None)
+    if not fact or fact['source_evidence_status'] != 'verified':
+        raise HTTPException(status_code=409, detail='source evidence requires review')
+    return fact
+
+
 def get_conn():
     """Create a Postgres connection using the same environment as the API."""
     from domain.imports.isolation import guarded_connect
@@ -96,6 +109,15 @@ def confirm_ledger_review(row_id: int, payload: LedgerReviewConfirm):
 
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if _table_exists(cur, 'source_records'):
+                from domain.ledger.cashflow_classification import confirm
+                row = _verified_new_cashflow(cur, row_id)
+                if row['amount'] >= 0:
+                    raise HTTPException(status_code=400, detail='only expense rows can be confirmed here')
+                category = (payload.confirmed_category or '其他消费').strip()
+                subcategory = (payload.confirmed_subcategory or '手动确认').strip()
+                confirm(cur, cashflow_id=row_id, cashflow_type='operating_expense', category=category, subcategory=subcategory)
+                return {'ok': True, 'row_id': row_id, 'category': category, 'subcategory': subcategory}
             cur.execute(
                 """
                 SELECT cashflow_id AS id, event_date AS transaction_date, amount, category, subcategory
@@ -156,6 +178,16 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
 
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if _table_exists(cur, 'source_records'):
+                from domain.ledger.cashflow_classification import confirm
+                row = _verified_new_cashflow(cur, row_id)
+                if counterparty is not None and counterparty != _clean_optional(row.get('counterparty')):
+                    raise HTTPException(status_code=409, detail='source counterparty cannot be changed by classification')
+                if counter_account_code is not None:
+                    raise HTTPException(status_code=409, detail='counter account requires a separate transfer confirmation')
+                confirm(cur, cashflow_id=row_id, cashflow_type=cashflow_type, category=category, subcategory=subcategory)
+                return {'ok': True, 'row_id': row_id, 'cashflow_type': cashflow_type,
+                        'category': category, 'subcategory': subcategory}
             cur.execute(
                 """
                 SELECT cashflow_id AS id, counterparty, counter_account_code

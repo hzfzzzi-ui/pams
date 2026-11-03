@@ -1,14 +1,18 @@
 """Business dates are source facts, not portfolio display dates."""
+from contextlib import closing
 from copy import deepcopy
 from datetime import date
 from pathlib import Path
 import sys
 
+import psycopg2
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend" / "api"))
 from backend.api.collectors import ibkr_flex as collector  # noqa: E402
-from tests.brokers.ibkr.test_ibkr_sync_transaction import database as database, sync_case as sync_case  # noqa: E402
+from scripts.bootstrap_isolated_sources import initialize_isolated_sources  # noqa: E402
+from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: E402,F401
+from tests.brokers.ibkr.test_ibkr_sync_transaction import XML  # noqa: E402
 
 
 @pytest.mark.parametrize("requested,latest,align", [
@@ -67,17 +71,17 @@ def test_writer_rejects_date_mismatch_before_any_database_write(monkeypatch, row
     assert rows == before
 
 
-def test_writer_leaves_input_and_values_unchanged(sync_case):
-    _, conn, report = sync_case
-    parsed = collector.parse_flex_report(report['xml'])
-    rows = parsed.rows
+def test_snapshot_upsert_preserves_input_date_and_values(empty_source_db):  # noqa: F811
+    day = date(2026, 10, 22)
+    rows = collector.parse_flex_report(XML).rows
     before = deepcopy(rows)
-    assert collector._write_holdings(conn, rows, account_code='ibkr', as_of=date(2026, 10, 22)) == len(rows)
-    assert rows == before
-    with conn.cursor() as cur:
-        cur.execute("SELECT as_of,quantity,market_value FROM pams_holdings_snapshot WHERE account_code='ibkr' AND symbol='TEST'")
-        assert cur.fetchone() == (date(2026, 10, 22), 2, 381)
-    conn.rollback()
+    with closing(psycopg2.connect(**empty_source_db)) as conn:
+        initialize_isolated_sources(conn)
+        assert collector._upsert_holdings(conn, rows, account_code='ibkr', as_of=day) == len(rows)
+        assert rows == before
+        with conn.cursor() as cur:
+            cur.execute("SELECT as_of,quantity,market_value FROM pams_holdings_snapshot WHERE account_code='ibkr' AND symbol='TEST'")
+            assert cur.fetchone() == (day, 2, 381)
 
 
 def test_duplicate_names_rejected_before_any_database_write():
