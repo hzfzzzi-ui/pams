@@ -458,7 +458,40 @@ def _verified_current_source(cur: Any, raw: dict[str, Any], holding_id: int,
     from domain.imports.source_fact_evidence import _reviewed_snapshot
 
     batch, item = raw.get('batch'), raw.get('item')
-    if not isinstance(batch, dict) or not isinstance(item, dict) or batch.get('workflow') != 'account_import':
+    if not isinstance(batch, dict) or not isinstance(item, dict):
+        return False
+    if 'source_id' in batch and 'document_type' in batch:
+        # Redesigned sources have no mutable publication-result JSON. The
+        # holding's creation link, immutable original and reviewed fields must
+        # independently agree before the source can certify this value.
+        if (batch.get('status') != 'published' or item.get('review_status') != 'confirmed'
+                or batch.get('document_type') not in {'holding', 'cash'}
+                or batch.get('account_code') != holding_raw.get('account_code')
+                or str(holding_raw.get('id')) != str(holding_id)
+                or str(item.get('source_id')) != str(batch.get('source_id'))
+                or str(holding_raw.get('source_item_id')) != str(item.get('source_item_id'))):
+            return False
+        try:
+            content, digest = batch.get('content'), batch.get('sha256')
+            if content is None:
+                if digest is not None:
+                    return False
+            elif (not isinstance(content, str) or not content.startswith('\\x') or not digest
+                  or hashlib.sha256(bytes.fromhex(content[2:])).hexdigest() != digest):
+                return False
+            raw_bytes = json.dumps(item.get('raw_fields'), ensure_ascii=False, sort_keys=True,
+                separators=(',', ':'), allow_nan=False,
+                default=lambda value: float(value) if isinstance(value, Decimal) else value).encode('utf-8')
+            if hashlib.sha256(raw_bytes).hexdigest() != item.get('record_hash'):
+                return False
+            evidence, _ = _bound_input(cur, 'source_item', {'source_item_id': str(item['source_item_id'])},
+                                       locking=locking, snapshot_cache=snapshot_cache)
+            evidence['role'] = 'current_source'
+            return _bound_consistent(evidence, account_code=holding_raw['account_code'],
+                                     business_date=holding_raw['as_of'], holding_raw=holding_raw)
+        except (KeyError, TypeError, ValueError):
+            return False
+    if batch.get('workflow') != 'account_import':
         return False
     parsed, source = item.get('parsed_fields'), (item.get('raw_fields') or {}).get('source') or {}
     if (not isinstance(parsed, dict) or parsed.get('excluded') is not False

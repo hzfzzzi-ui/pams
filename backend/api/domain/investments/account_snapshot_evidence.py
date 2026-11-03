@@ -47,10 +47,14 @@ def _complete_member_proven(cur, holding_id, source_item_id):
     import json
     from decimal import Decimal
     from domain.investments.valuation_input_evidence import _hash, verify_recorded_version
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    redesigned = bool(cur.fetchone()['redesigned'])
+    relation = ('source_records b ON b.source_id=i.source_id' if redesigned else
+                'source_batches b ON b.batch_id=i.batch_id')
     cur.execute("""SELECT row_to_json(h)::text AS holding_json,
             json_build_object('item', row_to_json(i), 'batch', row_to_json(b))::text AS source_json
-        FROM pams_holdings_snapshot h JOIN source_items i ON i.source_item_id=%s
-        JOIN source_batches b ON b.batch_id=i.batch_id WHERE h.id=%s""", (str(source_item_id),holding_id))
+        FROM pams_holdings_snapshot h JOIN source_items i ON i.source_item_id=%s JOIN """ + relation +
+        " WHERE h.id=%s", (str(source_item_id),holding_id))
     row = cur.fetchone()
     if not row:
         return False
@@ -58,10 +62,19 @@ def _complete_member_proven(cur, holding_id, source_item_id):
     source = json.loads(row['source_json'], parse_float=Decimal)
     batch, item = source.get('batch') or {}, source.get('item') or {}
     if (batch.get('status') != 'published' or item.get('review_status') != 'confirmed' or
-        batch.get('account_code') != holding.get('account_code') or batch.get('business_type') != 'holding' or
-        (batch.get('date_from') and batch['date_from'] > holding.get('as_of')) or
-        (batch.get('date_to') and batch['date_to'] < holding.get('as_of'))):
+        batch.get('account_code') != holding.get('account_code') or
+        (batch.get('document_type') if redesigned else batch.get('business_type')) != 'holding' or
+        ((batch.get('period_start') if redesigned else batch.get('date_from')) and
+         (batch.get('period_start') if redesigned else batch.get('date_from')) > holding.get('as_of')) or
+        ((batch.get('period_end') if redesigned else batch.get('date_to')) and
+         (batch.get('period_end') if redesigned else batch.get('date_to')) < holding.get('as_of'))):
         return False
+    if redesigned:
+        from domain.investments.valuation_input_evidence import _verified_current_source
+        cur.execute("SELECT current_setting('transaction_read_only')='on' AS readonly")
+        readonly = cur.fetchone()['readonly']
+        if not _verified_current_source(cur, source, holding_id, holding, locking=not readonly):
+            return False
     cur.execute("""SELECT v.version_key,h.evidence AS holding_evidence,s.evidence AS source_evidence
         FROM valuation_evidence v
         CROSS JOIN LATERAL jsonb_to_recordset(v.inputs) AS h(input_kind text,input_hash text,evidence jsonb)
