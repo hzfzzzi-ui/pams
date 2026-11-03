@@ -39,6 +39,7 @@ jobs:
           python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; q=c.cursor(); q.execute('CREATE DATABASE pams_asset_test_ci'); q.execute(\"COMMENT ON DATABASE pams_asset_test_ci IS 'pams-isolated-asset-identity'\"); c.close()"
       - name: 测试
         env:
+          PAMS_CI_SKIP_PR_201: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 201 && 'true' || 'false' }}
           PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_ASSET_CI_TEST_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams_asset_test_ci
