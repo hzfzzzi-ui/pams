@@ -5,6 +5,7 @@ from decimal import Decimal
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import psycopg2
+import pytest
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
 from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 from endpoints import investment_transactions as endpoint
@@ -135,33 +136,40 @@ def test_only_verified_fact_link_deduplicates_investment_funding(empty_source_db
 def test_investment_funding_requires_published_matching_source(empty_source_db):
     from uuid import uuid4
     from psycopg2.extras import RealDictCursor
-    from domain.ledger.ledger_view import _load_investment_trade_account_rows
-    day=date(2026,10,22)
+    from domain.imports import source_records_v2 as source
+    day = date(2026, 10, 22)
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            for index, state in enumerate(('published','draft','excluded','cross','ignored'), start=1):
-                batch,item=str(uuid4()),str(uuid4())
-                account='tonghuashun' if state=='cross' else 'ibkr'
-                cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method)
-                               VALUES (%s,%s,'trade','synthetic','manual')""",(batch,account))
-                cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash,review_status)
-                               VALUES (%s,%s,%s,'manual',%s,%s)""",(item,batch,str(index),'a'*64,'excluded' if state=='excluded' else 'confirmed'))
-                cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,currency,trade_type,side,
-                  gross_amount,net_cash,source_table,source_id,source_hash,source_item_id,review_status)
-                  VALUES (%s,'ibkr','CNY','deposit','deposit',100,100,'source_items',%s,%s,%s,%s)""",
-                  (day,str(index),'hash-'+str(index),item,'ignored' if state=='ignored' else 'confirmed'))
-                if state!='draft':
-                    cur.execute("UPDATE source_batches SET status='published',published_source_hash=%s WHERE batch_id=%s",('f'*64,batch))
-            cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,currency,trade_type,side,
-              gross_amount,net_cash,source_table,source_id,source_hash) VALUES
-              (%s,'ibkr','CNY','deposit','deposit',50,50,'legacy','legacy','legacy-hash')""",(day,))
-            rows=_load_investment_trade_account_rows(cur,start=day,end=day,base_currency='CNY')
-            assert {row['source_id'] for row in rows} == {'1','2','4','legacy'}
-            for row in rows:
-                if row['source_id'] != 'legacy':
-                    assert row['source_evidence_status'] in {'unknown','inconsistent'}
-                    assert row['amount_cny'] is None
+            source_id, item_id = uuid4(), uuid4()
+            source.create_source(cur, source_id=source_id, account_code='tonghuashun', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            fields = {'business_date': str(day), 'trade_type': 'deposit', 'currency': 'CNY', 'net_cash': '100'}
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'row': 'synthetic'}, parsed_fields=fields)
+            cur.execute('SAVEPOINT pending_item')
+            with pytest.raises(psycopg2.errors.CheckViolation):
+                cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,currency,trade_type,
+                    net_cash,source_item_id,fact_role) VALUES (%s,'tonghuashun','CNY','deposit',100,%s,'execution')""",
+                    (day, str(item_id)))
+            cur.execute('ROLLBACK TO SAVEPOINT pending_item')
+            source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                               parsed_fields=fields, review_status='confirmed')
+            cur.execute('SAVEPOINT wrong_account')
+            with pytest.raises(psycopg2.errors.CheckViolation):
+                cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,currency,trade_type,
+                    net_cash,source_item_id,fact_role) VALUES (%s,'ibkr','CNY','deposit',100,%s,'execution')""",
+                    (day, str(item_id)))
+            cur.execute('ROLLBACK TO SAVEPOINT wrong_account')
+            cur.execute('SAVEPOINT draft_source')
+            cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,currency,trade_type,
+                net_cash,source_item_id,fact_role) VALUES (%s,'tonghuashun','CNY','deposit',100,%s,'execution')""",
+                (day, str(item_id)))
+            with pytest.raises(psycopg2.errors.CheckViolation):
+                cur.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            cur.execute('ROLLBACK TO SAVEPOINT draft_source')
+            cur.execute('SELECT count(*) AS n FROM pams_investment_trade_fact')
+            assert cur.fetchone()['n'] == 0
 
 
 def test_investment_funding_direction_conflict_does_not_reverse_cash(empty_source_db):
