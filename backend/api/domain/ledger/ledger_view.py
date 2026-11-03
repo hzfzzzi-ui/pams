@@ -1190,18 +1190,40 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date) -> list[dict[st
                   for leg in (left, right) if leg.get('kind') == 'cashflow'}
         rows = _load_cash_rows(cur, start=start, end=end, base_currency='CNY')
         cases = []
-        for row in rows:
-            if (row['id'] in linked or row.get('classification_status') != 'confirmed' or
-                row.get('cashflow_type') not in {'internal_transfer', 'investment_funding', 'investment_withdrawal'}):
-                continue
-            verified = row.get('source_evidence_status') == 'verified'
+        eligible = [row for row in rows if row['id'] not in linked
+                    and row.get('classification_status') == 'confirmed'
+                    and row.get('cashflow_type') in {'internal_transfer', 'investment_funding', 'investment_withdrawal'}]
+        groups = defaultdict(list)
+        for row in eligible:
+            amount = row.get('amount')
+            if (row.get('source_evidence_status') == 'verified' and amount is not None and amount != 0
+                    and row.get('currency') and row.get('transaction_date')):
+                groups[(row['transaction_date'], row['currency'], abs(amount), amount > 0)].append(row)
+
+        def candidates_for(row):
+            amount = row.get('amount')
+            if (row.get('source_evidence_status') != 'verified' or amount is None or amount == 0
+                    or not row.get('currency') or not row.get('transaction_date')):
+                return []
+            return [other for other in groups.get((row['transaction_date'], row['currency'], abs(amount), amount < 0), [])
+                    if other.get('account_code') != row.get('account_code')]
+
+        for row in eligible:
+            verified = (row.get('source_evidence_status') == 'verified' and row.get('amount') is not None
+                        and row.get('currency') and row.get('transaction_date'))
             amount = row.get('amount') if verified else None
+            candidates = candidates_for(row) if verified else []
+            status = ('source_unknown' if not verified else 'unmatched' if not candidates else
+                      'unique_candidate' if len(candidates) == 1 and len(candidates_for(candidates[0])) == 1
+                      else 'ambiguous')
             cases.append({'case_id': 'cashflow:' + str(row['id']), 'case_type': row['cashflow_type'],
                 'from_account_code': row['account_code'] if amount is not None and amount < 0 else None,
                 'to_account_code': row['account_code'] if amount is not None and amount > 0 else None,
-                'case_date': _serialize_date(row['transaction_date']), 'amount': _to_float(amount) if amount is not None else None,
-                'currency': row['currency'], 'status': 'unmatched' if verified else 'source_unknown',
-                'source_evidence_status': row.get('source_evidence_status'), 'candidate_count': None, 'candidate_ids': []})
+                'case_date': _serialize_date(row.get('transaction_date')), 'amount': _to_float(amount) if amount is not None else None,
+                'currency': row.get('currency'), 'status': status,
+                'source_evidence_status': row.get('source_evidence_status'),
+                'candidate_count': len(candidates) if verified else None,
+                'candidate_ids': sorted(other['id'] for other in candidates)[:20]})
         for item, left, right, left_day, _, kind in decisions:
             if item['evidence_status'] not in {'confirmed', 'revoked'}:
                 cases.append({'case_id': str(item['transfer_id']), 'case_type': kind,

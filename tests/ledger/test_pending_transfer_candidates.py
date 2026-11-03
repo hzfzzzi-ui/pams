@@ -49,4 +49,28 @@ def test_new_source_schema_keeps_missing_evidence_unmatched(monkeypatch):
     cases = _load_pending_transfer_cases(None, start=day, end=day)
     assert cases[0]['status'] == 'unmatched' and cases[0]['amount'] == -10
     assert cases[1]['status'] == 'source_unknown' and cases[1]['amount'] is None
-    assert all(case['candidate_ids'] == [] and case['candidate_count'] is None for case in cases)
+    assert cases[0]['candidate_count'] == 0 and cases[0]['candidate_ids'] == []
+    assert cases[1]['candidate_count'] is None and cases[1]['candidate_ids'] == []
+
+
+def test_new_source_schema_suggests_only_verified_unique_or_ambiguous_pairs(monkeypatch):
+    day = date(2026, 10, 22)
+    monkeypatch.setattr(ledger_view, '_table_exists', lambda cur, name: True)
+    monkeypatch.setattr(ledger_view, '_confirmed_transfer_records', lambda *args, **kwargs: [])
+    def fact(ident, account, amount):
+        return {'id': ident, 'account_code': account, 'amount': Decimal(amount), 'currency': 'CNY',
+                'transaction_date': day, 'cashflow_type': 'internal_transfer',
+                'classification_status': 'confirmed', 'source_evidence_status': 'verified'}
+    rows = [fact(1, 'a', '-10'), fact(2, 'b', '10')]
+    monkeypatch.setattr(ledger_view, '_load_cash_rows', lambda *args, **kwargs: rows)
+    cases = _load_pending_transfer_cases(None, start=day, end=day)
+    assert [case['status'] for case in cases] == ['unique_candidate', 'unique_candidate']
+    assert cases[0]['candidate_ids'] == [2] and cases[1]['candidate_ids'] == [1]
+    rows.append(fact(3, 'c', '10'))
+    cases = _load_pending_transfer_cases(None, start=day, end=day)
+    assert [case['status'] for case in cases] == ['ambiguous', 'ambiguous', 'ambiguous']
+    assert cases[0]['candidate_count'] == 2
+    rows[2]['source_evidence_status'] = 'unknown'
+    cases = _load_pending_transfer_cases(None, start=day, end=day)
+    assert [case['status'] for case in cases] == ['unique_candidate', 'unique_candidate', 'source_unknown']
+    assert cases[2]['candidate_count'] is None and cases[2]['amount'] is None
