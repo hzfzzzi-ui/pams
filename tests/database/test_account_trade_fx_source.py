@@ -43,30 +43,26 @@ def test_account_balance_current_and_rollforward_require_source(empty_source_db,
             assert zero['position_value_gross']==0 and zero['holding_pnl_gross']==0
 
 
-def test_ibkr_fx_helper_and_trade_insert_require_sourced_quote(empty_source_db):
+def test_ibkr_fx_helper_and_trade_projection_require_sourced_quote(empty_source_db):
     from domain.brokers.ibkr.ibkr_cash_events import dated_fx_rate
-    from domain.investments.investment_trade_fact import build_investment_trade_fact,insert_investment_trade_facts
-    day=date(2026,10,22)
-    payload={'source_table':'synthetic','source_id':'bank','source_key':'bank','trade_date':day,
-        'account_code':'ibkr','currency':'USD','side':'deposit','gross_amount':'100','net_cash':'100','fx_rate_to_cny':'7'}
+    from domain.investments.transaction_list_v2 import list_rows
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_trades
+
+    day = date(2026, 10, 22)
+    fields = {'business_date': str(day), 'trade_type': 'deposit', 'currency': 'USD',
+              'gross_amount': '100', 'net_cash': '100'}
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
+        _publish_synthetic_trades(conn, [fields], account_code='ibkr')
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'')",(day,))
-            assert dated_fx_rate(cur,'USD',day) is None
-            fact=build_investment_trade_fact(payload)
-            assert insert_investment_trade_facts(cur,[fact],strict_source=True)==1
-            assert insert_investment_trade_facts(cur,[fact],strict_source=True)==0
-            cur.execute("SELECT net_cash,fx_rate_to_cny,net_cash_cny FROM pams_investment_trade_fact WHERE source_id='bank'")
-            saved=cur.fetchone()
-            assert saved['net_cash']==100 and saved['fx_rate_to_cny'] is None and saved['net_cash_cny'] is None
-            cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='USD' AND as_of=%s",(day,))
-            assert dated_fx_rate(cur,'USD',day)==7
-            payload.update(source_id='proven',source_key='proven')
-            assert insert_investment_trade_facts(cur,[build_investment_trade_fact(payload)],strict_source=True)==1
-            cur.execute("SELECT net_cash,fx_rate_to_cny,net_cash_cny FROM pams_investment_trade_fact WHERE source_id='proven'")
-            saved=cur.fetchone()
-            assert saved['net_cash']==100 and saved['fx_rate_to_cny']==7 and saved['net_cash_cny']==700
+            cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'')", (day,))
+            assert dated_fx_rate(cur, 'USD', day) is None
+            saved, = list_rows(cur, start=day, end=day, account_code='ibkr')
+            assert saved['net_cash'] == 100 and saved['fx_rate'] is None and saved['net_cash_cny'] is None
+            cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='USD' AND as_of=%s", (day,))
+            assert dated_fx_rate(cur, 'USD', day) == 7
+            saved, = list_rows(cur, start=day, end=day, account_code='ibkr')
+            assert saved['net_cash'] == 100 and saved['fx_rate'] == 7 and saved['net_cash_cny'] == 700
 
 
 def test_rollforward_cash_requires_sourced_business_day_fx(empty_source_db):

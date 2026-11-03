@@ -11,13 +11,13 @@ from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 from endpoints import investment_transactions as endpoint
 
 
-def _publish_synthetic_trades(conn, rows):
+def _publish_synthetic_trades(conn, rows, *, account_code='tonghuashun'):
     from uuid import uuid4
     from psycopg2.extras import RealDictCursor
     from domain.imports import source_records_v2 as source
     source_id = uuid4()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        source.create_source(cur, source_id=source_id, account_code='tonghuashun', source_name='synthetic',
+        source.create_source(cur, source_id=source_id, account_code=account_code, source_name='synthetic',
                              acquisition_method='manual', document_type='trade')
         for index, fields in enumerate(rows):
             source.add_item(cur, source_id=source_id, item_id=uuid4(), parse_method='manual',
