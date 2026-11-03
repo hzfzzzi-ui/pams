@@ -57,11 +57,17 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
         or (a['source_hash'] is not None and a['source_hash']==b['source_hash']) or a['currency']!=b['currency']
         or Decimal(a['amount'])>=0 or Decimal(b['amount'])<=0 or -Decimal(a['amount'])!=Decimal(b['amount'])):
         raise ValueError('transfer facts conflict or are not independent')
-    cur.execute('''SELECT 1 FROM public.evidence_confirmation WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
+    cur.execute('''SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
         ((%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s)) OR
-         (%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s))) LIMIT 1''',
+         (%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s))) FOR UPDATE OF c''',
         (from_kind,from_id,from_id,from_kind,from_id,from_id,to_kind,to_id,to_id,to_kind,to_id,to_id))
-    if cur.fetchone(): raise ValueError('transfer leg already confirmed')
+    existing = cur.fetchall()
+    if existing:
+        if (len(existing) == 1 and existing[0]['confirmation_type'] == 'transfer' and
+                existing[0]['from_evidence'] == a and existing[0]['to_evidence'] == b and
+                existing[0]['note'] == note.strip()):
+            return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
+        raise ValueError('transfer leg already confirmed')
     transfer_id=uuid4()
     cur.execute('''INSERT INTO public.evidence_confirmation(confirmation_id,confirmation_type,from_cashflow_id,from_trade_id,
         to_cashflow_id,to_trade_id,from_account_code,to_account_code,amount,currency,from_evidence,to_evidence,note)
@@ -69,7 +75,7 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
         (str(transfer_id),from_id if from_kind=='cashflow' else None,from_id if from_kind=='trade' else None,
          to_id if to_kind=='cashflow' else None,to_id if to_kind=='trade' else None,a['account_code'],b['account_code'],
          -Decimal(a['amount']),a['currency'],Json(a),Json(b),note.strip()))
-    return {'transfer_id':str(transfer_id)}
+    return {'transfer_id':str(transfer_id), 'replayed':False}
 
 
 def read(cur, *, limit=200):

@@ -274,3 +274,42 @@ def test_zero_trade_amounts_remain_zero_without_fx(empty_source_db,monkeypatch):
         assert Decimal(str(row['gross_amount_cny']))==0
         assert Decimal(str(row['net_cash_cny']))==0
         assert Decimal(str(row['fees_cny']))==0
+
+
+def test_new_source_transfer_confirmation_http_is_replay_safe(empty_source_db, monkeypatch):
+    from endpoints import bank_reconcile
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('bank_a','A'),('bank_b','B')")
+        for account, amount in [('bank_a', '-10'), ('bank_b', '10')]:
+            _publish_synthetic_cashflow(conn, account=account, fields={'business_date': '2026-10-22',
+                'net_cash': amount, 'currency': 'USD'}, classification='internal_transfer')
+        with conn.cursor() as cur:
+            cur.execute('SELECT cashflow_id FROM pams_cashflow_fact ORDER BY account_code')
+            first, second = [row[0] for row in cur.fetchall()]
+    monkeypatch.setattr(bank_reconcile, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    app = FastAPI(); app.include_router(bank_reconcile.router, prefix='/api')
+    with TestClient(app) as client:
+        payload = {'from_kind': 'cashflow', 'from_id': first, 'to_kind': 'cashflow', 'to_id': second,
+                   'note': 'synthetic verified', 'confirmed': True}
+        first_result = client.post('/api/bank-reconcile/transfers/confirm', json=payload)
+        assert first_result.status_code == 200, first_result.text
+        assert first_result.json()['replayed'] is False
+        transfer_id = first_result.json()['transfer_id']
+        replay = client.post('/api/bank-reconcile/transfers/confirm', json=payload)
+        assert replay.status_code == 200 and replay.json()['replayed'] is True
+        conflict = client.post('/api/bank-reconcile/transfers/confirm', json={**payload, 'note': 'different'})
+        assert conflict.status_code == 409
+        matches = client.get('/api/bank-reconcile/transfer-matches')
+        assert matches.status_code == 200, matches.text
+        assert matches.json()['matches'][0]['evidence_status'] == 'confirmed'
+        assert Decimal(str(matches.json()['matches'][0]['source_amount'])) == -10
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute('UPDATE pams_cashflow_fact SET amount=-11 WHERE cashflow_id=%s', (first,))
+        matches = client.get('/api/bank-reconcile/transfer-matches')
+        assert matches.json()['matches'][0]['evidence_status'] == 'invalidated'
+        revoked = client.post(f'/api/bank-reconcile/transfers/{transfer_id}/revoke',
+                              json={'note': 'synthetic revoke', 'confirmed': True})
+        assert revoked.status_code == 200, revoked.text
+        assert client.get('/api/bank-reconcile/transfer-matches').json()['matches'][0]['evidence_status'] == 'revoked'
