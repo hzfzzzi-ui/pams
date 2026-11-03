@@ -69,32 +69,31 @@ def test_ibkr_fx_helper_and_trade_insert_require_sourced_quote(empty_source_db):
             assert saved['net_cash']==100 and saved['fx_rate_to_cny']==7 and saved['net_cash_cny']==700
 
 
-def test_rollforward_cash_requires_sourced_business_day_fx(empty_source_db,monkeypatch):
+def test_rollforward_cash_requires_sourced_business_day_fx(empty_source_db):
+    from uuid import uuid4
     from domain.accounts.account_balance import _cash_delta_cny
-    from domain.imports import source_fact_evidence
-    day=date(2026,10,22)
-    class Verifier:
-        def __init__(self,cur): self.cur=cur
-        def verify(self,**kwargs): return {'status':'verified'}
-    monkeypatch.setattr(source_fact_evidence,'NativeFactVerifier',Verifier)
+    from domain.imports import source_records_v2 as source
+
+    day = date(2026, 10, 22)
+    fields = {'business_date': day.isoformat(), 'action': 'deposit', 'currency': 'USD',
+              'gross_amount': '100', 'net_cash': '100'}
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""INSERT INTO source_batches(batch_id,account_code,business_type,institution,acquisition_method)
-                VALUES ('00000000-0000-0000-0000-000000000001','ibkr','trade','synthetic','manual')""")
-            cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash,review_status)
-                VALUES ('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001',
-                        'synthetic','manual',%s,'confirmed')""",('a'*64,))
-            cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,currency,trade_type,side,
-                gross_amount,net_cash,affects_cash,source_table,source_id,source_hash,source_item_id)
-                VALUES (%s,'ibkr','USD','deposit','deposit',100,100,true,'synthetic','cashflow',%s,
-                        '00000000-0000-0000-0000-000000000002')""",(day,'b'*64))
-            cur.execute("""UPDATE source_batches SET status='published',published_source_hash=%s
-                WHERE batch_id='00000000-0000-0000-0000-000000000001'""",('c'*64,))
-            cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'')",(day,))
-            assert _cash_delta_cny(cur,'ibkr',day-timedelta(days=1),day) is None
-            cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='USD' AND as_of=%s",(day,))
-            assert _cash_delta_cny(cur,'ibkr',day-timedelta(days=1),day)==Decimal(700)
+            source_id, item_id = uuid4(), uuid4()
+            source.create_source(cur, source_id=source_id, account_code='ibkr', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'entered_fields': fields}, parsed_fields=fields)
+            revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                          parsed_fields=fields, review_status='confirmed')
+            source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+            cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
+                VALUES (%s,'CNY','USD',7,''),(%s,'CNY','USD',8,'synthetic')""",
+                        (day, day + timedelta(days=1)))
+            assert _cash_delta_cny(cur, 'ibkr', day-timedelta(days=1), day) is None
+            cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='USD' AND as_of=%s", (day,))
+            assert _cash_delta_cny(cur, 'ibkr', day-timedelta(days=1), day) == Decimal(700)
 
 
 def test_confirmed_full_account_snapshots_do_not_double_count_cash_flows(client, monkeypatch):

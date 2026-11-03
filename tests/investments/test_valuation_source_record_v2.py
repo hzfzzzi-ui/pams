@@ -116,6 +116,8 @@ def test_new_holding_publish_and_explicit_scope(empty_source_db, monkeypatch):
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO pams_asset_master(asset_id,primary_symbol,canonical_name,asset_type,currency)
                 VALUES ('TEST_STOCK','000001','Synthetic stock','stock','CNY')""")
+            cur.execute("""INSERT INTO pams_asset_alias(asset_id,alias_type,alias_value)
+                VALUES ('TEST_STOCK','alias','SYNTH_ALIAS')""")
     app = FastAPI()
     app.include_router(account_import.router, prefix='/api')
     root = '/api/account-import/source-records'
@@ -127,7 +129,7 @@ def test_new_holding_publish_and_explicit_scope(empty_source_db, monkeypatch):
         base = f'{root}/{source_id}'
         common = {'business_date': '2026-01-02', 'currency': 'CNY'}
         fields = [
-            {**common, 'asset_type': 'stock', 'symbol': '000001', 'asset_id': 'TEST_STOCK',
+            {**common, 'asset_type': 'stock', 'symbol': 'SYNTH_ALIAS',
              'quantity': '100', 'price': '10', 'cost': '900', 'market_value': '1000', 'cost_basis_type': 'holding_cost'},
             {**common, 'asset_type': 'cash', 'net_cash': '50'},
         ]

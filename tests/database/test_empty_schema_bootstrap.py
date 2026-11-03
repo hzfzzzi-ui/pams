@@ -450,7 +450,7 @@ def test_legacy_qdii_alias_is_not_used_by_pams_consumers(empty_source_db, monkey
     from datetime import date
     from domain.assets.alias_policy import QQQ_FEEDER_NAMES, identity_alias_sql, is_identity_alias
     from domain.assets.asset_master import _find_asset, load_asset_master_lookup
-    from domain.imports import account_import_preflight
+    from domain.imports.holding_publication_v2 import _holding
     from domain.investments import trade_attribution
     from domain.risk import portfolio_config
     from endpoints import investment_transactions
@@ -501,12 +501,14 @@ def test_legacy_qdii_alias_is_not_used_by_pams_consumers(empty_source_db, monkey
             valid = trade_attribution._asset_identity_lookup(cur, [{'name': QQQ_FEEDER_NAMES[3]}])
             assert valid[QQQ_FEEDER_NAMES[3].casefold()]['asset_id'] == 'FUND_REAL'
             assert trade_attribution._asset_identity_lookup(cur, [{'symbol': 'GOOD_QQQ_ALIAS'}])['good_qqq_alias']['asset_id'] == 'ETF_QQQ'
-            state = account_import_preflight.current_state(cur, 'ibkr')
-            assert not any(row['asset_id'] == 'ETF_QQQ' and row['alias_value'] in QQQ_FEEDER_NAMES for row in state['aliases'])
-            assert any(row['asset_id'] == 'FUND_REAL' and row['alias_value'] == QQQ_FEEDER_NAMES[3] for row in state['aliases'])
-            errors = []
-            assert account_import_preflight._asset({'symbol': QQQ_FEEDER_NAMES[0], 'asset_type': 'fund'}, state, errors) is None
-            assert errors[0]['code'] == 'asset_unresolved'
+            fields = {'asset_type': 'fund', 'currency': 'CNY', 'cost_basis_type': 'holding_cost',
+                      'quantity': '1', 'price': '10', 'cost': '10', 'market_value': '10'}
+            for name in QQQ_FEEDER_NAMES[:3]:
+                with pytest.raises(ValueError, match='持仓标的须唯一匹配'):
+                    _holding(cur, {**fields, 'symbol': name}, 'ibkr', date(2026, 1, 2), uuid4(), complete=False)
+            resolved = _holding(cur, {**fields, 'symbol': QQQ_FEEDER_NAMES[3]}, 'ibkr',
+                                date(2026, 1, 2), uuid4(), complete=False)
+            assert resolved['asset_id'] == 'FUND_REAL'
 
         as_of = date(2026, 1, 2)
         names = [*QQQ_FEEDER_NAMES, 'GOOD_QQQ_ALIAS']

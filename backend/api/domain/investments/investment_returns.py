@@ -1297,6 +1297,20 @@ def build_section_return_series_payload(
     return payload
 
 
+def _source_record_income_ids(cur, end_date):
+    """Return verified income IDs on the redesigned schema, or None for the legacy schema."""
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    if not (cur.fetchone() or {}).get('redesigned'):
+        return None
+    from domain.imports.source_fact_evidence import NativeFactVerifier
+
+    cur.execute("""SELECT trade_id FROM pams_investment_trade_fact
+        WHERE trade_date <= %s AND trade_type IN ('dividend','interest','coupon')""", (end_date,))
+    ids = [row['trade_id'] for row in cur.fetchall()]
+    proofs = NativeFactVerifier(cur).verify_many(table='pams_investment_trade_fact', fact_ids=ids) if ids else {}
+    return [fact_id for fact_id, proof in proofs.items() if proof['status'] == 'verified']
+
+
 def build_investment_return_series_payload(
     cur,
     *,
@@ -1321,6 +1335,23 @@ def build_investment_return_series_payload(
     tx_owner_sql, tx_owner_params = owner_ratio_case_sql("tx")
     categories = list(INVESTMENT_RETURN_CATEGORIES)
     snapshot_excluded_accounts = sorted(INVESTMENT_RETURN_SNAPSHOT_EXCLUDE)
+    verified_income_ids = _source_record_income_ids(cur, view_as_of)
+    if verified_income_ids is None:
+        income_known = 'TRUE'
+        income_where = """COALESCE(NULLIF(tx.asset_major_category, ''),
+            NULLIF(tx.raw_json #>> '{source_row,major_category}', ''), NULLIF(tx.market, ''), tx.trade_type)
+            = ANY(%s::text[])
+            AND LOWER(COALESCE(NULLIF(tx.side, ''), tx.trade_type)) IN ('dividend','interest','income','distribution','coupon')
+            AND tx.gross_amount IS NOT NULL
+            AND COALESCE(LOWER(tx.review_status), 'confirmed') NOT IN ('cancelled','canceled','void')"""
+        income_value_params, income_where_params = [], [categories]
+    else:
+        category_sql = """CASE tx.market WHEN 'CN_A' THEN 'A股' WHEN 'CN_FUND' THEN 'A股'
+            WHEN 'US' THEN '美股' ELSE tx.market END"""
+        income_known = f"(tx.trade_id=ANY(%s::bigint[]) AND COALESCE(({category_sql})=ANY(%s::text[]),false) AND tx.gross_amount IS NOT NULL)"
+        income_where = "tx.trade_type IN ('dividend','interest','coupon')"
+        income_value_params, income_where_params = [verified_income_ids, categories], []
+
 
     cur.execute(
         f"""
@@ -1415,6 +1446,7 @@ def build_investment_return_series_payload(
         ), income_marked AS (
             SELECT
                 d.date,
+                {income_known} AS income_known,
                 tx.gross_amount * COALESCE(fx_identity.rate, fx_hist.rate) * {tx_owner_sql} AS income_cny
             FROM series_dates d
             JOIN pams_investment_trade_fact tx ON tx.trade_date <= d.date
@@ -1432,24 +1464,18 @@ def build_investment_return_series_payload(
             LEFT JOIN LATERAL (
                 SELECT CASE WHEN tx.currency=%s THEN 1::numeric END AS rate
             ) fx_identity ON TRUE
-            WHERE COALESCE(
-                NULLIF(tx.asset_major_category, ''),
-                NULLIF(tx.raw_json #>> '{{source_row,major_category}}', ''),
-                NULLIF(tx.market, ''),
-                tx.trade_type
-              ) = ANY(%s::text[])
-              AND LOWER(COALESCE(NULLIF(tx.side, ''), tx.trade_type)) IN ('dividend', 'interest', 'income', 'distribution', 'coupon')
-              AND tx.gross_amount IS NOT NULL
-              AND COALESCE(LOWER(tx.review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            WHERE {income_where}
         ), income AS (
             SELECT date, CASE WHEN COUNT(*) FILTER (WHERE income_cny IS NULL)>0 THEN NULL ELSE SUM(income_cny) END AS realized_income_cny,
-                   COUNT(*) FILTER (WHERE income_cny IS NULL) AS unknown_fx_count
+                   COUNT(*) FILTER (WHERE income_known AND income_cny IS NULL) AS unknown_fx_count,
+                   COUNT(*) FILTER (WHERE NOT income_known) AS unknown_income_count
             FROM income_marked
             GROUP BY date
         )
         SELECT
             d.date,
             COALESCE(p.unknown_cost_count, 0) AS unknown_cost_count,
+            COALESCE(i.unknown_income_count, 0) AS unknown_income_count,
             COALESCE(p.unknown_fx_count,0) + COALESCE(i.unknown_fx_count,0) AS unknown_fx_count,
             CASE WHEN COALESCE(p.unknown_fx_count,0)>0 THEN NULL ELSE COALESCE(p.market_value_cny, 0) END AS market_value_cny,
             COALESCE(p.cost_cny, 0) AS cost_cny,
@@ -1481,21 +1507,23 @@ def build_investment_return_series_payload(
             *h_owner_params,
             base_currency,
             base_currency,
+            *income_value_params,
             *tx_owner_params,
             base_currency,
             base_currency,
-            categories,
+            *income_where_params,
         ),
     )
     rows = [dict(r) for r in cur.fetchall()]
     dates = [r["date"] for r in rows]
 
-    if any(row.get('unknown_fx_count', 0) for row in rows):
+    unknown_income = any(row.get('unknown_income_count', 0) for row in rows)
+    if unknown_income or any(row.get('unknown_fx_count', 0) for row in rows):
         payload = {
             "start": start_date.isoformat(), "end": view_as_of.isoformat(),
             "base_currency": base_currency, "interval": interval,
-            "method": "coverage_adjusted_daily_return", "status": "unavailable", "reason": "fx_rate_unknown",
-            "coverage_notes": [{"reason": "缺少同业务日汇率，不能计算完整收益。"}],
+            "method": "coverage_adjusted_daily_return", "status": "unavailable", "reason": "income_evidence_unknown" if unknown_income else "fx_rate_unknown",
+            "coverage_notes": [{"reason": "收益记录缺少来源或市场分类证据。" if unknown_income else "缺少同业务日汇率，不能计算完整收益。"}],
             "rows": [{"date": norm(row['date']), "market_value": norm(row.get('market_value_cny')),
                       **{key: None for key in ("cost", "position_pnl", "realized_income", "total_pnl",
                           "return_rate", "reported_return_adjustment", "daily_return_rate", "time_weighted_return_rate")}}

@@ -7,6 +7,7 @@ import json
 import time
 from zoneinfo import ZoneInfo
 
+from domain.assets.alias_policy import identity_alias_sql
 from domain.imports import native_source, native_source_http
 from domain.imports.account_import_types import asset_type
 from domain.imports.source_records_v2 import SourceRevisionConflict
@@ -38,10 +39,13 @@ def _holding(cur, fields, account, day, item_id, *, complete):
                     market_value=amount, buy_price=Decimal(1))
     if kind not in {'stock', 'fund'} or fields.get('cost_basis_type') != 'holding_cost':
         raise ValueError('请核对标的类型与持仓成本口径')
-    cur.execute("""SELECT asset_id,primary_symbol,canonical_name,asset_type FROM pams_asset_master
-        WHERE status='active' AND currency='CNY' AND primary_symbol=%s
-          AND (%s::text IS NULL OR asset_id=%s) LIMIT 2""",
-                (fields.get('symbol'), fields.get('asset_id'), fields.get('asset_id')))
+    cur.execute(f"""SELECT m.asset_id,m.primary_symbol,m.canonical_name,m.asset_type FROM pams_asset_master m
+        WHERE m.status='active' AND m.currency='CNY'
+          AND (%s::text IS NULL OR m.asset_id=%s)
+          AND (m.primary_symbol=%s OR EXISTS (
+            SELECT 1 FROM pams_asset_alias al WHERE al.asset_id=m.asset_id AND al.alias_value=%s
+            AND {identity_alias_sql('al')})) LIMIT 2""",
+                (fields.get('asset_id'), fields.get('asset_id'), fields.get('symbol'), fields.get('symbol')))
     assets = cur.fetchall()
     if len(assets) != 1 or asset_type(assets[0]['asset_type']) != kind:
         raise ValueError('持仓标的须唯一匹配资产底表')
