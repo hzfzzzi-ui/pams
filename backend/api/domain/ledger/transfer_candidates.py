@@ -519,6 +519,37 @@ def _build_transfer_matches(rows: list[dict[str, Any]], config: dict[str, Any]) 
 
 def list_candidates(cur, config, *, limit=1000):
     """Suggest only; matching never constitutes confirmation or de-duplication."""
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    state = cur.fetchone()
+    if state and state.get('redesigned'):
+        from domain.ledger.ledger_view import _load_pending_transfer_cases
+        pending = _load_pending_transfer_cases(cur, start=date.min, end=date.max)
+        by_id = {row['case_id']: row for row in pending if row.get('case_id', '').startswith('cashflow:')}
+        ids = [int(key.split(':', 1)[1]) for key in by_id]
+        cur.execute('''SELECT f.cashflow_id, i.source_id, r.sha256 FROM pams_cashflow_fact f
+            JOIN source_items i ON i.source_item_id=f.source_item_id
+            JOIN source_records r ON r.source_id=i.source_id WHERE f.cashflow_id=ANY(%s)''', (ids,))
+        origins = {item['cashflow_id']: item for item in cur.fetchall()}
+        suggestions = []
+        for row in pending:
+            if not row.get('from_account_code') or row.get('status') not in {'unique_candidate', 'ambiguous'}:
+                continue
+            source_id = int(row['case_id'].split(':', 1)[1])
+            for target_id in row.get('candidate_ids') or []:
+                target = by_id.get('cashflow:' + str(target_id))
+                if not target or not target.get('to_account_code'):
+                    continue
+                left_origin, right_origin = origins.get(source_id), origins.get(target_id)
+                independent = bool(left_origin and right_origin and left_origin['source_id'] != right_origin['source_id']
+                    and (left_origin['sha256'] is None or left_origin['sha256'] != right_origin['sha256']))
+                suggestions.append({'match_key': f"candidate:{source_id}:{target_id}",
+                    'match_type': row['case_type'], 'relation_code': 'same_day_amount',
+                    'from_account_code': row['from_account_code'], 'to_account_code': target['to_account_code'],
+                    'source_row_id': source_id, 'target_row_id': target_id,
+                    'amount': abs(Decimal(str(row['amount']))), 'currency': row['currency'],
+                    'match_date': row['case_date'], 'confidence': None, 'status': 'review_required',
+                    'confirmation_supported': independent, 'ambiguity_status': row['status']})
+        return suggestions[:limit]
     from domain.ledger import bank_source_read, confirmed_transfers
     existing = confirmed_transfers.read(cur, limit=10000)
     linked = {leg['id'] for record in existing if record['evidence_status'] == 'confirmed'

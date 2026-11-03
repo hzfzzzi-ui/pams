@@ -54,6 +54,9 @@ def test_foreign_statement_import_preserves_native_amount_without_fx(empty_sourc
     with _client(empty_source_db, monkeypatch, ['usd_bank']) as web:
         web.headers['Origin'] = 'http://testserver'
         path, content = _import_statement(web, 'usd_bank', '-10')
+        imports = web.get('/api/bank-reconcile/imports')
+        assert imports.status_code == 200, imports.text
+        assert imports.json()['summary'][0]['currency'] == 'USD'
         duplicate = web.post('/api/account-import/source-records?account_code=usd_bank&source_name=synthetic&filename=bank.csv', content=content)
         assert duplicate.status_code == 400
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
@@ -84,6 +87,14 @@ def test_foreign_transfer_requires_two_proven_sides_and_replays(empty_source_db,
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
             cur.execute('SELECT cashflow_id FROM pams_cashflow_fact ORDER BY account_code')
             first, second = [row[0] for row in cur.fetchall()]
+        for ident in (first, second):
+            classified = web.post(f'/api/ledger/rows/{ident}/update', json={'cashflow_type': 'internal_transfer'})
+            assert classified.status_code == 200, classified.text
+        candidates = web.post('/api/bank-reconcile/transfer-matches/run')
+        assert candidates.status_code == 200, candidates.text
+        proposed = candidates.json()['matches']
+        assert len(proposed) == 1 and proposed[0]['source_row_id'] == first and proposed[0]['target_row_id'] == second
+        assert proposed[0]['status'] == 'review_required' and proposed[0]['confirmation_supported'] is True
         payload = {'from_kind': 'cashflow', 'from_id': first, 'to_kind': 'cashflow', 'to_id': second,
                    'note': '双方核对', 'confirmed': True}
         response = web.post('/api/bank-reconcile/transfers/confirm', json=payload)
