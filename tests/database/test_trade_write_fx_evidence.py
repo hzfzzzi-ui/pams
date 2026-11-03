@@ -80,35 +80,33 @@ def test_equity_bridge_marks_unverified_funding_and_cashflow_unknown(empty_sourc
 
 
 def test_trade_attribution_keeps_known_percent_but_not_unverified_cny(empty_source_db):
-    from domain.investments.trade_attribution import (_trade_query, _event_review_record,
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_trades
+    from domain.investments.trade_attribution import (_fetch_review_trades, _event_review_record,
         _summary_bucket, _add_metric_to_bucket, _finalize_bucket, _build_trade_asset_heatmap)
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
+        _publish_synthetic_trades(conn, [{'business_date': str(DAY), 'trade_type': 'buy',
+            'symbol': 'SYN', 'currency': 'USD', 'quantity': '10', 'price': '10',
+            'gross_amount': '100', 'fee_amount': '2', 'tax_amount': '0', 'net_cash': '-102'}])
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Simulate legacy rows that contain a fabricated 1:1 CNY value.
-            cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,symbol,currency,
-              trade_type,side,gross_amount,net_cash,fee_amount,tax_amount,fx_rate_to_cny,net_cash_cny,
-              source_table,source_id,source_hash) VALUES (%s,'ibkr','SYN','USD','buy','buy',100,-102,2,0,1,-102,'synthetic','attr','attr')""", (DAY,))
-            cur.execute(_trade_query("WHERE f.source_id='attr'"))
-            trade=dict(cur.fetchone())
+            trade = _fetch_review_trades(cur, start=DAY, end=DAY, limit=20)[0]
             assert trade['fx_rate_to_cny'] is None and trade['net_cash_cny'] is None
-            payload={'side':'buy','event_metrics':{'coverage':'ok','current_return_pct':Decimal('10')}}
-            record=_event_review_record(trade,payload)
+            payload = {'side': 'buy', 'event_metrics': {'coverage': 'ok', 'current_return_pct': Decimal('10')}}
+            record = _event_review_record(trade, payload)
             assert record['estimated_decision_effect_cny'] is None and record['fee_drag_cny'] is None
-            bucket=_summary_bucket('synthetic')
-            _add_metric_to_bucket(bucket,trade,payload)
-            result=_finalize_bucket(bucket)
-            assert result['avg_return_pct'] is not None and result['gross_exposure_cny'] is None and result['estimated_decision_effect_cny'] is None
-            assert result['win_rate'] is None
-            heatmap=_build_trade_asset_heatmap([record])
-            assert heatmap['coverage_status']=='incomplete' and heatmap['estimated_decision_effect_cny'] is None
-            cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'')",(DAY,))
-            cur.execute(_trade_query("WHERE f.source_id='attr'"))
-            assert cur.fetchone()['fx_rate_to_cny'] is None
-            cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='USD' AND as_of=%s",(DAY,))
-            cur.execute(_trade_query("WHERE f.source_id='attr'"))
-            record=_event_review_record(dict(cur.fetchone()),payload)
-            assert record['estimated_decision_effect_cny']==Decimal('71.4') and record['fee_drag_cny']==Decimal('-14')
+            bucket = _summary_bucket('synthetic')
+            _add_metric_to_bucket(bucket, trade, payload)
+            result = _finalize_bucket(bucket)
+            assert result['avg_return_pct'] is not None and result['gross_exposure_cny'] is None
+            assert result['estimated_decision_effect_cny'] is None and result['win_rate'] is None
+            heatmap = _build_trade_asset_heatmap([record])
+            assert heatmap['coverage_status'] == 'incomplete' and heatmap['estimated_decision_effect_cny'] is None
+            cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'')", (DAY,))
+            assert _fetch_review_trades(cur, start=DAY, end=DAY, limit=20)[0]['fx_rate_to_cny'] is None
+            cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='USD' AND as_of=%s", (DAY,))
+            trade = _fetch_review_trades(cur, start=DAY, end=DAY, limit=20)[0]
+            record = _event_review_record(trade, payload)
+            assert record['estimated_decision_effect_cny'] == Decimal('71.4') and record['fee_drag_cny'] == Decimal('-14')
 
 
 def test_exact_fx_precision_rounds_and_replays_idempotently(empty_source_db):
