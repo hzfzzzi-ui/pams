@@ -74,12 +74,22 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
     app.include_router(account_import.router,prefix='/api')
     with TestClient(app) as web:
         web.headers['Origin']='http://testserver'
-        batch=draft(web,[holding(),holding(asset_type='cash',symbol=None,action='balance',net_cash='50')],completeness='complete')
-        assert confirm(web,batch).status_code==200
-        batch=web.get('/api/account-import/batches/'+batch['batch_id']).json()
-        check=preview(web,batch)
-        response=publish(web,batch,check)
-        assert response.status_code==200,response.text
+        response = web.post('/api/account-import/source-records/manual',
+                            json={'account_code': 'tonghuashun', 'document_type': 'holding'})
+        assert response.status_code == 200, response.text
+        path = '/api/account-import/source-records/' + response.json()['source_id']
+        fields = [holding(), holding(asset_type='cash', symbol=None, action='balance', net_cash='50')]
+        response = web.put(path + '/reviews', json={'revision': 1, 'items': [
+            {'parsed_fields': row, 'review_status': 'confirmed'} for row in fields]})
+        assert response.status_code == 200, response.text
+        revision = response.json()['revision']
+        request = {'revision': revision, 'scope': {'revision': revision, 'as_of': DAY, 'member_count': 2,
+                   'cash_amount': '50', 'note': 'Synthetic complete account', 'confirmed': True}}
+        response = web.post(path + '/holding-preview', json=request)
+        assert response.status_code == 200, response.text
+        request['preview_token'] = response.json()['preview_token']
+        response = web.post(path + '/holding-publish', json=request)
+        assert response.status_code == 200, response.text
     cfg={'accounts':{'tonghuashun':{'account_type':'brokerage','truth_source':'platform_snapshot',
                                     'base_currency':'CNY','owner_ratio':'1','include_in_nav':True},
                      'ibkr':{'account_type':'brokerage','truth_source':'ibkr_flex','base_currency':'USD','include_in_nav':False}}}

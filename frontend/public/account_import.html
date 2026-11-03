@@ -38,6 +38,13 @@
           <label id="completeness-label">快照范围<select id="completeness"><option value="partial">部分记录</option><option value="complete">完整快照</option></select></label>
         </div>
         <p id="complete-warning" class="import-warning" hidden>完整快照须通过成员覆盖校验，缺失不会自动清仓。</p>
+        <div id="holding-scope" class="import-grid" hidden>
+          <label>快照日期<input id="holding-scope-date" type="date" /></label>
+          <label>核对的成员数（含现金）<input id="holding-scope-count" type="number" min="1" max="2000" step="1" /></label>
+          <label>人民币现金余额<input id="holding-scope-cash" inputmode="decimal" maxlength="40" /></label>
+          <label>核对备注<input id="holding-scope-note" maxlength="500" /></label>
+          <label class="import-check"><input id="holding-scope-confirm" type="checkbox" />已核对该日完整持仓及现金</label>
+        </div>
         <div id="upload-area">
           <label class="import-file-label" for="files">选择文件</label>
           <input id="files" type="file" multiple accept=".csv,.tsv,.xls,.xlsx,.pdf" aria-describedby="file-formats file-limits" />
@@ -94,6 +101,6 @@
     </form>
   </dialog>
   <dialog id="image-viewer" aria-label="原始截图"><button id="close-image-viewer" type="button" aria-label="关闭原图" title="关闭">×</button><img id="full-image" alt="原始截图" /></dialog>
-  <script type="module" src="assets/js/account_import.js?v=20261103-source-records"></script>
+  <script type="module" src="assets/js/account_import.js?v=20261103-holding-scope"></script>
 </body>
 </html>

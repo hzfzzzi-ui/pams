@@ -3,7 +3,7 @@ import { createImportClient } from './client.js?v=20261031-modules-v1';
 import { createRequestScope } from './request_scope.js?v=20261101-auto-kind';
 import { createRecordsEditor } from './records_editor.js?v=20261101-partial-funding';
 import { createMappingEditor } from './mapping_editor.js?v=20261031-modules-v1';
-import { createSourceRecordAdapter } from './source_record_adapter.js?v=20261103-source-records';
+import { createSourceRecordAdapter } from './source_record_adapter.js?v=20261103-holding-scope';
 
 const mounted = new WeakMap();
 
@@ -174,6 +174,7 @@ export function mount(root, context = {}) {
     $('rows').hidden = state.mode !== 'manual';
     $('completeness-label').hidden = $('kind').value !== 'holding';
     $('complete-warning').hidden = $('completeness').value !== 'complete';
+    $('holding-scope').hidden = !state.useSourceRecords || $('kind').value !== 'holding' || $('complete-warning').hidden;
     const batch = state.batch;
     $('deferred-notice').hidden = !batch?.rows?.some(row => row.source?.deferred_from && !row.excluded);
     const uploadedFiles = (batch?.files || []).filter(file => !file.content_type?.startsWith('image/'));
@@ -326,6 +327,8 @@ export function mount(root, context = {}) {
     state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false; state.needsKind = false; pendingSelection = null;
     state.mappings.clear(); rememberBatch(batch);
     $('conflict').hidden = true; renderAccounts(batch.account_code); configureKind(batch.kind); state.needsKind = false;
+    for (const key of ['date','count','cash','note']) $(`holding-scope-${key}`).value = '';
+    $('holding-scope-confirm').checked = false;
     $('completeness').value = batch.completeness || 'partial'; state.mode = batch.mode === 'manual' ? 'manual' : images().length ? 'ocr' : 'upload'; render();
     return true;
   }
@@ -523,9 +526,19 @@ export function mount(root, context = {}) {
   listen($('images'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
   listen($('add-row'), 'click', () => run(async () => { await ensureBatch(); openEditor(-1); }));
   listen($('save-draft'), 'click', () => run(async () => { if (state.suspended) { resumeEditor(); return; } await saveDraft(); }));
+  function holdingScope() {
+    if (state.batch.kind !== 'holding' || $('completeness').value !== 'complete' ||
+        state.batch.rows.some(row => !row.acknowledged && !row.excluded)) return null;
+    const scope = {revision:state.batch.revision, as_of:$('holding-scope-date').value,
+      member_count:$('holding-scope-count').valueAsNumber, cash_amount:$('holding-scope-cash').value.trim(),
+      note:$('holding-scope-note').value.trim(), confirmed:$('holding-scope-confirm').checked};
+    if (!scope.as_of || !Number.isInteger(scope.member_count) || !$('holding-scope-count').checkValidity() ||
+        !scope.cash_amount || !scope.note || !scope.confirmed) throw new Error('请在填写页确认完整范围的日期、成员数、现金及备注。');
+    return scope;
+  }
   async function makePreview() {
     message('正在核验服务端清单…');
-    state.preview = state.useSourceRecords ? await sourceAdapter.preview(state.batch) : await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
+    state.preview = state.useSourceRecords ? await sourceAdapter.preview(state.batch, holdingScope()) : await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
     state.step = 2; state.imageIndex = null; message(''); renderPreview();
   }
   async function advanceToReview() {

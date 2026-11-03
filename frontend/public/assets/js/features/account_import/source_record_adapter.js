@@ -59,15 +59,18 @@ export function createSourceRecordAdapter(request, recovery) {
       await request(`${path(batch.batch_id)}/reviews`,'PUT',{revision:batch.revision,items});
       return loadAfterWrite(batch.batch_id);
     },
-    async preview(batch) {
-      if (batch.kind === 'holding') return {batch_id:batch.batch_id,revision:batch.revision,
-        counts:{new:0,duplicates:0,blocked:1,pending:0},rows:[],can_publish:false,
-        warnings:['持仓快照的新来源发布尚未接入，请保留草稿。']};
+    async preview(batch, scope = null) {
       const pending = batch.rows.some(row => !row.acknowledged && !row.excluded);
-      if (batch.kind === 'trade' && pending) return {batch_id:batch.batch_id,revision:batch.revision,
+      if (batch.kind !== 'cash' && pending) return {batch_id:batch.batch_id,revision:batch.revision,
         counts:{new:0,duplicates:0,blocked:0,pending:batch.rows.filter(row=>!row.acknowledged&&!row.excluded).length},
         rows:batch.rows.map(row=>({row_id:row.row_id,fields:row.fields,status:row.excluded?'excluded':row.acknowledged?'ready':'pending'})),
         can_publish:false,warnings:['请逐条核对记录后进行发布预检。']};
+      if (batch.kind === 'holding') {
+        const result = await request(`${path(batch.batch_id)}/holding-preview`,'POST',{revision:batch.revision,scope});
+        return {batch_id:batch.batch_id,revision:result.revision,preview_token:result.preview_token,scope,
+          can_publish:true,counts:{new:result.holdings.length,duplicates:0,blocked:0,pending:0},
+          rows:batch.rows.map(row=>({row_id:row.row_id,fields:row.fields,status:row.excluded?'excluded':'ready'}))};
+      }
       if (batch.kind === 'cash') {
         const value = await request(`${path(batch.batch_id)}/cash-preview`,'POST',{revision:batch.revision,mode:'all'});
         let readyToken = null;
@@ -86,9 +89,10 @@ export function createSourceRecordAdapter(request, recovery) {
         rows:batch.rows.map(row=>({row_id:row.row_id,fields:row.fields,status:row.excluded?'excluded':'ready'}))};
     },
     async publish(batch, preview, ready = false) {
-      const suffix = batch.kind === 'cash' ? 'cash-publish' : 'trade-publish';
+      const suffix = `${batch.kind}-publish`;
       const body = {revision:batch.revision,preview_token:ready?preview.ready_token:preview.preview_token};
       if (batch.kind === 'cash') body.mode = ready ? 'ready' : 'all';
+      if (batch.kind === 'holding') body.scope = preview.scope;
       const result = await request(`${path(batch.batch_id)}/${suffix}`,'POST',body);
       return {batch:await loadAfterWrite(batch.batch_id),deferred_batch_id:result.deferred_source_id};
     },

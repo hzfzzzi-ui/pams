@@ -166,9 +166,96 @@ def record_complete(cur, *, account_code, as_of, members, source_batch_id, sourc
     return str(identifier)
 
 
+def _published_holding_source(cur, source_id):
+    cur.execute("""SELECT account_code,revision,
+        encode(sha256(convert_to(concat_ws(':',source_id,account_code,revision,coalesce(sha256,'')), 'UTF8')), 'hex') AS digest
+        FROM source_records WHERE source_id=%s AND document_type='holding' AND status='published'""",
+                (str(source_id),))
+    return cur.fetchone()
+
+
+def record_source_scope(cur, *, source_id, holding_ids, as_of, scope):
+    """Freeze exactly the published holding members in the redesigned schema."""
+    source = _published_holding_source(cur, source_id)
+    if not source or not holding_ids:
+        raise ValueError('持仓范围缺少已发布来源')
+    cur.execute("""SELECT id,source_item_id,md5(to_jsonb(h)::text) AS row_hash
+        FROM pams_holdings_snapshot h WHERE account_code=%s AND as_of=%s AND id=ANY(%s) ORDER BY id""",
+                (source['account_code'], as_of, holding_ids))
+    rows = cur.fetchall()
+    if len(rows) != len(holding_ids):
+        raise ValueError('持仓范围成员不一致')
+    version = str(uuid4())
+    execute_values(cur, """INSERT INTO account_snapshot_member
+        (version_id,holding_id,holding_row_hash,source_item_id) VALUES %s""",
+                   [(version, row['id'], row['row_hash'], str(row['source_item_id'])) for row in rows])
+    complete = scope is not None
+    cur.execute("""INSERT INTO account_snapshot_version
+        (version_id,account_code,as_of,coverage_status,cash_status,cash_amount,source_batch_id,source_revision,
+         source_sha256,scope_attestation,calculation_version,reason)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'source-record-scope-v1',%s)""",
+                (version, source['account_code'], as_of, 'complete' if complete else 'partial',
+                 'known' if complete else 'unknown', scope['cash_amount'] if complete else None,
+                 str(source_id), source['revision'], source['digest'], Json(scope) if complete else None,
+                 'user confirmed all account members and cash' if complete else 'reviewed partial holding source'))
+    if complete and not _verified_source_scope(cur, version):
+        raise ValueError('完整范围未能覆盖并核验全部账户持仓')
+    return version
+
+
+def _verified_source_scope(cur, version_id):
+    from decimal import Decimal, InvalidOperation
+
+    cur.execute("""SELECT * FROM account_snapshot_version WHERE version_id=%s
+        AND calculation_version='source-record-scope-v1' AND coverage_status='complete' AND cash_status='known'""",
+                (str(version_id),))
+    version = cur.fetchone()
+    if not version:
+        return False
+    source = _published_holding_source(cur, version['source_batch_id'])
+    account, day = version['account_code'], version['as_of']
+    if (not source or source['account_code'] != account or source['revision'] != version['source_revision']
+            or source['digest'] != version['source_sha256']):
+        return False
+    scope = version['scope_attestation']
+    try:
+        if (not isinstance(scope, dict) or scope.get('confirmed') is not True
+                or not isinstance(scope.get('note'), str) or not scope['note'].strip()
+                or scope.get('as_of') != day.isoformat()
+                or Decimal(scope['cash_amount']) != version['cash_amount']):
+            return False
+    except (KeyError, TypeError, InvalidOperation):
+        return False
+    cur.execute("""SELECT h.id,h.source_item_id,h.major_category,h.currency,h.market_value,
+            m.holding_id,i.source_id,i.review_status
+        FROM pams_holdings_snapshot h LEFT JOIN account_snapshot_member m
+          ON m.version_id=%s AND m.holding_id=h.id AND m.source_item_id=h.source_item_id
+         AND m.holding_row_hash=md5(to_jsonb(h)::text)
+        LEFT JOIN source_items i ON i.source_item_id=m.source_item_id
+        WHERE h.account_code=%s AND h.as_of=%s ORDER BY h.id""", (str(version_id), account, day))
+    holdings = cur.fetchall()
+    cur.execute("SELECT count(*) AS count FROM account_snapshot_member WHERE version_id=%s", (str(version_id),))
+    if cur.fetchone()['count'] != len(holdings) or scope.get('member_count') != len(holdings):
+        return False
+    if not holdings or _unresolved_prior_holdings(cur, account, day):
+        return False
+    cur.execute("SELECT source_item_id FROM source_items WHERE source_id=%s", (str(version['source_batch_id']),))
+    if {row['source_item_id'] for row in cur.fetchall()} != {row['source_item_id'] for row in holdings}:
+        return False
+    cash = [row for row in holdings if row['major_category'] == '现金']
+    if len(cash) != 1 or cash[0]['currency'] != 'CNY' or cash[0]['market_value'] != version['cash_amount']:
+        return False
+    return all(row['holding_id'] is not None and row['source_id'] == version['source_batch_id']
+               and row['review_status'] == 'confirmed'
+               and _complete_member_proven(cur, row['id'], row['source_item_id']) for row in holdings)
+
+
 def verified_complete(cur, version_id):
     """Check an immutable complete scope against all current members and source."""
     from decimal import Decimal, InvalidOperation
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+    if cur.fetchone()['redesigned']:
+        return _verified_source_scope(cur, version_id)
     cur.execute("""SELECT v.*,b.status AS batch_status,b.account_code AS source_account,
             b.business_type,b.workflow,b.completeness,b.revision AS batch_revision,
             b.published_source_hash,b.scope_attestation AS current_attestation

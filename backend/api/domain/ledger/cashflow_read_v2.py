@@ -8,9 +8,11 @@ import json
 from typing import Any
 
 
-def load_cash_rows(cur, *, start, end, base_currency: str) -> list[dict[str, Any]]:
+def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None = None) -> list[dict[str, Any]]:
     if base_currency != 'CNY':
         raise ValueError('only evidenced CNY projection is supported')
+    fact_filter = ' AND f.cashflow_id=%s' if fact_id is not None else ''
+    params = (base_currency, start, end) if fact_id is None else (base_currency, start, end, fact_id)
     cur.execute('''SELECT f.cashflow_id AS id,f.cashflow_id AS fact_id,f.source_item_id,f.account_code,
         f.event_date AS transaction_date,f.amount,f.currency,f.summary,f.description,f.counterparty,
         f.posting_date,f.created_at,f.updated_at,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status AS item_review,
@@ -25,8 +27,8 @@ def load_cash_rows(cur, *, start, end, base_currency: str) -> list[dict[str, Any
           WHERE x.base_currency=%s AND x.quote_currency=f.currency AND x.as_of=f.event_date
             AND x.rate>0 AND x.rate::text NOT IN ('NaN','Infinity','-Infinity')
             AND NULLIF(btrim(x.source),'') IS NOT NULL LIMIT 1) fx ON TRUE
-        WHERE f.event_date >= %s AND f.event_date <= %s
-        ORDER BY f.event_date DESC,f.cashflow_id DESC''', (base_currency,start,end))
+        WHERE f.event_date >= %s AND f.event_date <= %s''' + fact_filter +
+        ' ORDER BY f.event_date DESC,f.cashflow_id DESC', params)
     names=[x[0] for x in cur.description]
     out=[]
     for record in cur.fetchall():

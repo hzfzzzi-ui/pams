@@ -97,3 +97,61 @@ def test_new_holding_source_records_verified_evidence(empty_source_db):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             assert verify_historical_holding_source(cur, holding_id=holding_id, source_item_id=str(item_id))
             assert _complete_member_proven(cur, holding_id, item_id)
+
+
+def test_new_holding_publish_and_explicit_scope(empty_source_db, monkeypatch):
+    from datetime import date
+    from decimal import Decimal
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from domain.imports import account_import_store
+    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+    from endpoints import account_import
+
+    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'ab' * 32)
+    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
+    monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO pams_asset_master(asset_id,primary_symbol,canonical_name,asset_type,currency)
+                VALUES ('TEST_STOCK','000001','Synthetic stock','stock','CNY')""")
+    app = FastAPI()
+    app.include_router(account_import.router, prefix='/api')
+    root = '/api/account-import/source-records'
+    with TestClient(app) as web:
+        web.headers['Origin'] = 'http://testserver'
+        response = web.post(root + '/manual', json={'account_code': 'tonghuashun', 'document_type': 'holding'})
+        assert response.status_code == 200, response.text
+        source_id = response.json()['source_id']
+        base = f'{root}/{source_id}'
+        common = {'business_date': '2026-01-02', 'currency': 'CNY'}
+        fields = [
+            {**common, 'asset_type': 'stock', 'symbol': '000001', 'asset_id': 'TEST_STOCK',
+             'quantity': '100', 'price': '10', 'cost': '900', 'market_value': '1000', 'cost_basis_type': 'holding_cost'},
+            {**common, 'asset_type': 'cash', 'net_cash': '50'},
+        ]
+        response = web.put(base + '/reviews', json={'revision': 1, 'items': [
+            {'parsed_fields': item, 'review_status': 'confirmed'} for item in fields]})
+        assert response.status_code == 200, response.text
+        revision = response.json()['revision']
+        scope = {'revision': revision, 'as_of': '2026-01-02', 'member_count': 2,
+                 'cash_amount': '50', 'note': 'Synthetic complete scope', 'confirmed': True}
+        request = {'revision': revision, 'scope': scope}
+        response = web.post(base + '/holding-preview', json=request)
+        assert response.status_code == 200, response.text
+        token = response.json()['preview_token']
+        assert web.post(base + '/holding-publish', json={**request, 'scope': None, 'preview_token': token}).status_code == 400
+        assert web.get(base).json()['status'] == 'draft'
+        response = web.post(base + '/holding-publish', json={**request, 'preview_token': token})
+        assert response.status_code == 200, response.text
+        assert response.json()['coverage_status'] == 'complete'
+        assert web.post(base + '/holding-publish', json={**request, 'preview_token': token}).status_code == 409
+
+    day = date(2026, 1, 2)
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT sum(market_value) AS total FROM pams_holdings_snapshot WHERE account_code='tonghuashun'")
+        assert cur.fetchone()['total'] == Decimal(1050)
+        assert load_account_snapshot_coverage(cur, {('tonghuashun', day)})[('tonghuashun', day)]['status'] == 'complete'
+        cur.execute("UPDATE pams_holdings_snapshot SET market_value=market_value+1 WHERE symbol='000001'")
+        assert load_account_snapshot_coverage(cur, {('tonghuashun', day)})[('tonghuashun', day)]['status'] == 'unknown'

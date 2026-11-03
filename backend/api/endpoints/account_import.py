@@ -74,6 +74,14 @@ class Publish(Revision):
     preview_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
 
 
+class HoldingSourcePreview(Revision):
+    scope: CompleteScope | None = None
+
+
+class HoldingSourcePublish(Publish):
+    scope: CompleteScope | None = None
+
+
 class ConfirmFlowCoverage(Revision):
     mappings: dict[str, int] = Field(max_length=store.MAX_ROWS)
     note: str = Field(min_length=1, max_length=500)
@@ -384,6 +392,29 @@ def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request
     from domain.imports.cash_publication_v2 import publish
     return execute_source_record(request, lambda cur: publish(cur, source_id=source_id, revision=body.revision,
         mode=body.mode, preview_token=body.preview_token), write=True)
+
+
+@router.post('/source-records/{source_id}/holding-preview')
+def preview_holding_source(source_id: UUID, body: HoldingSourcePreview, request: Request):
+    from domain.imports import holding_publication_v2
+    return execute_source_record(request, lambda cur: holding_publication_v2.preview(
+        cur, source_id=source_id, revision=body.revision, scope=_holding_scope(body)), write=True)
+
+
+@router.post('/source-records/{source_id}/holding-publish')
+def publish_holding_source(source_id: UUID, body: HoldingSourcePublish, request: Request):
+    from domain.imports import holding_publication_v2
+    return execute_source_record(request, lambda cur: holding_publication_v2.publish(
+        cur, source_id=source_id, revision=body.revision, preview_token=body.preview_token,
+        scope=_holding_scope(body)), write=True)
+
+
+def _holding_scope(body):
+    if body.scope is None:
+        return None
+    if body.scope.revision != body.revision:
+        raise ValueError('完整范围确认版本已变化')
+    return body.scope.model_dump(exclude={'revision'})
 
 
 @router.post('/source-records/{source_id}/trade-preview')

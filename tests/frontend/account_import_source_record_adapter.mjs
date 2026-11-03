@@ -26,3 +26,23 @@ const source = {source_id:'s',account_code:'bank',document_type:'cash',acquisiti
  assert.equal(preview.can_publish_ready,true);assert.equal(preview.preview_token,'ready-token');
  assert.equal(preview.counts.duplicates,1);assert.equal(calls[1].body.mode,'ready');
 }
+
+{
+ const calls=[], recovery={requiresReview:false};
+ const api=async(path,method,body)=>{
+   calls.push({path,method,body});
+   if(path.endsWith('/holding-preview')) return {revision:2,holdings:[{}],preview_token:'scope-token'};
+   if(path.endsWith('/holding-publish')) return {published:1};
+   return {...source,document_type:'holding',status:'published'};
+ };
+ const adapter=createSourceRecordAdapter(api,recovery);
+ const batch={batch_id:'s',kind:'holding',revision:2,rows:[{row_id:'i',acknowledged:false}]};
+ assert.equal((await adapter.preview(batch)).can_publish,false);
+ assert.equal(calls.length,0);
+ batch.rows[0].acknowledged=true;
+ const scope={revision:2,as_of:'2026-01-02',member_count:1,cash_amount:'12',note:'Synthetic',confirmed:true};
+ const preview=await adapter.preview(batch,scope);
+ await adapter.publish(batch,preview);
+ assert.deepEqual(calls[0],{path:'/source-records/s/holding-preview',method:'POST',body:{revision:2,scope}});
+ assert.deepEqual(calls[1],{path:'/source-records/s/holding-publish',method:'POST',body:{revision:2,scope,preview_token:'scope-token'}});
+}

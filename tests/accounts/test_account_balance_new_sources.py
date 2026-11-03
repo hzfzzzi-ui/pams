@@ -14,6 +14,7 @@ from tests.support.account_import_support import scratch_database
 def test_account_cash_delta_with_redesigned_evidence():
     from domain.accounts.account_balance import _cash_delta_cny, _cash_source_schema_available
     from domain.imports import source_records_v2 as source
+    from domain.imports.source_fact_evidence import verify_native_fact
 
     class Cursor(SchemaCursor):
         @property
@@ -48,5 +49,9 @@ def test_account_cash_delta_with_redesigned_evidence():
         cur.execute("UPDATE redesign_test.pams_fx_rates_daily SET source='synthetic'")
         assert _cash_delta_cny(wrapped,'bank-a',start,end) == Decimal('-30')
         assert _cash_delta_cny(wrapped,'bank-a',start,end,external_only=True) == Decimal('70')
+        cur.execute("SELECT trade_id FROM redesign_test.pams_investment_trade_fact WHERE trade_type='deposit'")
+        fact_id = cur.fetchone()['trade_id']
+        assert verify_native_fact(wrapped, table='pams_investment_trade_fact', fact_id=fact_id)['status'] == 'verified'
         cur.execute("UPDATE redesign_test.pams_investment_trade_fact SET net_cash=20 WHERE trade_type='deposit'")
+        assert verify_native_fact(wrapped, table='pams_investment_trade_fact', fact_id=fact_id)['status'] == 'unknown'
         assert _cash_delta_cny(wrapped,'bank-a',start,end) is None

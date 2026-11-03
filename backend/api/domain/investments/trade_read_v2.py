@@ -27,8 +27,10 @@ def _matches(row: dict) -> bool:
         return False
 
 
-def load_trade_rows(cur, *, account_code: str, start: date, end: date) -> list[dict]:
+def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
+    fact_filter = ' AND f.trade_id=%s' if fact_id is not None else ''
+    params = (account_code, start, end) if fact_id is None else (account_code, start, end, fact_id)
     cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
         i.review_status AS item_review, i.source_uid AS item_source_uid,
         r.source_name,r.acquisition_method,r.file_format, r.status AS source_status,
@@ -36,8 +38,8 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date) -> list[d
         FROM public.pams_investment_trade_fact f
         JOIN public.source_items i ON i.source_item_id=f.source_item_id
         JOIN public.source_records r ON r.source_id=i.source_id
-        WHERE f.account_code=%s AND f.trade_date BETWEEN %s AND %s
-        ORDER BY f.trade_date,f.trade_time NULLS FIRST,f.trade_id''', (account_code, start, end))
+        WHERE f.account_code=%s AND f.trade_date BETWEEN %s AND %s''' + fact_filter +
+        ' ORDER BY f.trade_date,f.trade_time NULLS FIRST,f.trade_id', params)
     columns = [column[0] for column in cur.description]
     out = []
     ibkr_cache = {}
