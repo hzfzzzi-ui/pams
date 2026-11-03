@@ -76,6 +76,33 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
             'row_count':len(rows),'excluded_count':excluded,'revision':len(rows)+1}
 
 
+def mapping_metadata(cur, *, source_id: UUID) -> dict:
+    """Read available file headers without modifying source evidence or reviews."""
+    cur.execute("""SELECT account_code,document_type,filename,content,sha256,acquisition_method,status,revision
+        FROM public.source_records WHERE source_id=%s""", (str(source_id),))
+    source = cur.fetchone()
+    if not source:
+        raise ValueError('source missing')
+    if source['acquisition_method'] != 'file' or source['content'] is None:
+        raise ValueError('mapping is only available for file sources')
+    content = bytes(source['content'])
+    if sha256(content).hexdigest() != source['sha256']:
+        raise ValueError('source content hash mismatch')
+    cur.execute('SELECT mapping FROM public.source_templates WHERE account_code=%s AND document_type=%s',
+                (source['account_code'], source['document_type']))
+    row = cur.fetchone()
+    mapping = row['mapping'] if row else {}
+    parsed = account_import_store.parse(content, source['filename'], source['account_code'],
+                                        source['document_type'], mapping=mapping)
+    cur.execute("SELECT EXISTS (SELECT 1 FROM public.source_items WHERE source_id=%s AND review_status <> 'pending') AS reviewed",
+                (str(source_id),))
+    reviewed = cur.fetchone()['reviewed']
+    return {'source_id': str(source_id), 'revision': source['revision'],
+            'headers': parsed.get('headers') or [], 'suggested_mapping': parsed.get('suggested_mapping') or {},
+            'mapping': mapping, 'warnings': parsed.get('warnings') or [],
+            'editable': source['status'] == 'draft' and not reviewed}
+
+
 def update_mapping(cur, *, source_id: UUID, revision: int, mapping: dict) -> dict:
     if cur.connection.autocommit:
         raise ValueError('mapping requires a transaction')

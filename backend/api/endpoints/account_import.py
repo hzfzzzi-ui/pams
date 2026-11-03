@@ -359,6 +359,12 @@ def review_source_records(source_id: UUID, body: SourceBatchReview, request: Req
         expected_revision=body.revision, items=[item.model_dump() for item in body.items])}, write=True)
 
 
+@router.get('/source-records/{source_id}/mapping')
+def source_record_mapping(source_id: UUID, request: Request):
+    from domain.imports.document_stage_v2 import mapping_metadata
+    return execute_source_record(request, lambda cur: mapping_metadata(cur, source_id=source_id))
+
+
 @router.put('/source-records/{source_id}/mapping')
 def map_source_record(source_id: UUID, body: SourceMapping, request: Request):
     from domain.imports.document_stage_v2 import update_mapping

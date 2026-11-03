@@ -73,11 +73,24 @@ def test_cash_source_upload_review_preview_and_publish(monkeypatch):
             staged = client.post(broker_url, content=export(event()))
             assert staged.status_code == 200, staged.text
             source_id = staged.json()['source_id']
-            source = client.get('/api/account-import/source-records/' + source_id).json()
+            base = '/api/account-import/source-records/' + source_id
+            source = client.get(base).json()
+            metadata = client.get(base + '/mapping')
+            assert metadata.status_code == 200, metadata.text
+            assert '成交日期' in metadata.json()['headers'] and metadata.json()['editable']
+            assert metadata.json()['revision'] == source['revision']
+            mapped = client.put(base + '/mapping', json={'revision': source['revision'], 'mapping': {'business_date': '成交日期'}})
+            assert mapped.status_code == 200, mapped.text
+            source = client.get(base).json()
+            assert source['revision'] == mapped.json()['revision']
             item = source['items'][0]
-            response = client.put('/api/account-import/source-records/' + source_id + '/items/' + item['source_item_id'],
+            response = client.put(base + '/items/' + item['source_item_id'],
                 json={'revision': source['revision'], 'parsed_fields': item['parsed_fields'], 'review_status': 'confirmed'})
             revision = response.json()['revision']
+            assert client.get(base + '/mapping').json()['editable'] is False
+            blocked = client.put(base + '/mapping', json={'revision': revision, 'mapping': {}})
+            assert blocked.status_code == 400
+            assert client.get(base).json()['items'][0]['review_status'] == 'confirmed'
             preview = client.post('/api/account-import/source-records/' + source_id + '/trade-preview',
                                   json={'revision': revision})
             assert preview.status_code == 200, preview.text
