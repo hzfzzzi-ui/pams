@@ -1225,6 +1225,25 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if not _table_exists(cur, "pams_investment_trade_fact"):
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.trade_review_v2 import write_review
+                cleaned = {'buy_reason': buy_reason, 'sell_reason': sell_reason, 'review_tags': review_tags,
+                    'trade_intent': trade_intent, 'trade_plan': trade_plan, 'review_note': review_note,
+                    'review_due_date': review.review_due_date, 'initial_position_identity': initial_position_identity,
+                    'current_position_identity': current_position_identity, 'identity_confidence': identity_confidence,
+                    'intended_holding_period': intended_holding_period, 'buy_logic': buy_logic,
+                    'add_condition': add_condition, 'reduce_condition': reduce_condition, 'sell_condition': sell_condition,
+                    'max_acceptable_loss_pct': max_acceptable_loss_pct, 'max_position_pct': max_position_pct,
+                    'next_review_date': review.next_review_date, 'sell_rule_type': sell_rule_type}
+                changes = {key: value for key, value in cleaned.items() if _field_was_provided(review, key)}
+                try:
+                    row = write_review(cur, trade_id=trade_id, changes=changes, inferred_status=review_status,
+                        explicit_status=_field_was_provided(review, 'review_status'), transition_type=transition_type,
+                        transition_triggers=transition_triggers, transition_evidence=transition_evidence)
+                except LookupError as exc:
+                    raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}") from exc
+                conn.commit()
+                return {"trade": {k: norm(v) for k, v in row.items()}, "review_options": _review_options_payload()}
             cur.execute(
                 """
                 SELECT current_position_identity, review_status

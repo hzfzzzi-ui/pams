@@ -46,9 +46,25 @@ def test_new_trade_list_uses_source_and_trade_day_fx(empty_source_db, monkeypatc
         assert asset['trade_count'] == 1 and asset['pending_count'] == 1
         assert 'source_records' in options.json()['sources']
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO investment_trade_review(trade_id,review_note) SELECT trade_id,'pending note' FROM pams_investment_trade_fact WHERE source_item_id=%s", (str(item_id),))
+            cur.execute("INSERT INTO investment_trade_review(trade_id,review_note,review_status) SELECT trade_id,'pending note','needs_review' FROM pams_investment_trade_fact WHERE source_item_id=%s", (str(item_id),))
         review_row = client.get('/api/investment-transactions?review_status=needs_review').json()['rows'][0]
         assert review_row['review_note'] == 'pending note' and review_row['status'] == 'needs_review'
+        ident = review_row['native_id']
+        response = client.post(f'/api/investment-transactions/{ident}/review', json={
+            'review_status': 'ignored', 'current_position_identity': 'trend', 'buy_reason': 'plan_execution'})
+        assert response.status_code == 200, response.text
+        assert response.json()['trade']['review_note'] == 'pending note'
+        response = client.post(f'/api/investment-transactions/{ident}/review', json={'trade_plan': 'test plan'})
+        assert response.status_code == 200 and response.json()['trade']['review_status'] == 'ignored'
+        assert response.json()['trade']['buy_reason'] == 'plan_execution'
+        assert response.json()['trade']['review_note'] == 'pending note'
+        response = client.post(f'/api/investment-transactions/{ident}/review', json={
+            'current_position_identity': 'value', 'identity_transition_type': 'other'})
+        assert response.status_code == 200 and response.json()['trade']['identity_transition_quality'] == 'suspected_stop_avoidance'
+        assert client.post('/api/investment-transactions/999999/review', json={'review_note': 'x'}).status_code == 404
+        updated = client.get('/api/investment-transactions?review_status=ignored').json()['rows'][0]
+        assert updated['review_note'] == 'pending note' and updated['status'] == 'ignored'
+        assert updated['source_evidence_status'] == 'verified'
         assert client.get('/api/investment-transactions?side=sell').json()['rows'] == []
         assert client.get('/api/investment-transactions?start=2026-10-23').json()['rows'] == []
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:

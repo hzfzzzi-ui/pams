@@ -1,6 +1,8 @@
 -- Optional, one review per trade; the source transaction remains independent.
 CREATE TABLE public.investment_trade_review (
     trade_id BIGINT PRIMARY KEY REFERENCES public.pams_investment_trade_fact(trade_id) ON DELETE RESTRICT,
+    review_status VARCHAR(20) NOT NULL DEFAULT 'auto'
+        CHECK (review_status IN ('auto','needs_review','reviewed','ignored')),
     buy_reason VARCHAR(80), sell_reason VARCHAR(80),
     trade_intent TEXT, trade_plan TEXT, buy_logic TEXT,
     add_condition TEXT, reduce_condition TEXT, sell_condition TEXT,

@@ -56,7 +56,7 @@ def list_rows(cur, *, start=None, end=None, account_code=None):
             'trade_time': fact.get('trade_time') or datetime.combine(day, time.min),
             'major_category': asset.get('asset_type'), 'minor_category': asset.get('asset_subtype'),
             'side': fact.get('side') or kind, 'side_normalized': side,
-            'status': 'reviewed' if review.get('reviewed_at') else 'needs_review' if review else 'auto',
+            'status': review.get('review_status') or 'auto',
             'review_tags': review.get('review_tags') or [],
             'quantity': fact['quantity'] if verified else None, 'price': fact['price'] if verified else None,
             'gross_amount': gross, 'net_cash': net, 'tax_amount': fact['tax_amount'] if verified else None,
