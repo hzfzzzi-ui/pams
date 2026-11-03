@@ -13,8 +13,13 @@ from domain.imports.source_records_v2 import review_item, publish_trade_source
 from domain.investments.trade_read_v2 import load_trade_rows
 
 
-def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_source_db):  # noqa: F811
+def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_source_db, monkeypatch):  # noqa: F811
     from datetime import date
+    from decimal import Decimal
+
+    from domain.investments import investment_return_ibkr as returns
+    from domain.investments.investment_return_data import _ibkr_trade_flow_events
+
     report = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="USD" taxAmount="0"').encode('utf-8')
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
@@ -52,6 +57,23 @@ def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_sou
             facts = load_trade_rows(cur, account_code='ibkr', start=date(2026, 10, 22), end=date(2026, 10, 22))
             assert len(facts) == 1 and facts[0]['source_evidence_status'] == 'verified'
             assert str(facts[0]['gross_amount']) == '340.0000000000'
+            day = date(2026, 10, 23)
+            kwargs = dict(base_currency='USD', fx_timelines={})
+            monkeypatch.setattr(returns, '_fetch_yfinance_closes',
+                                lambda symbols, **_: ({symbol: {day: Decimal('180')} for symbol in symbols}, []))
+            assert _ibkr_trade_flow_events(cur, start_date=day, end_date=day, **kwargs) == [
+                (day, Decimal('341.25'))
+            ]
+            values, costs, warnings = returns._ibkr_full_trade_return_series(cur, dates=[day], **kwargs)
+            assert values[day] == 360 and costs[day] == Decimal('341.25')
+            assert 'ibkr_history_coverage_unverified' in warnings
+            cur.execute('SAVEPOINT altered_trade')
+            cur.execute('UPDATE pams_investment_trade_fact SET gross_amount=341 WHERE source_item_id=%s',
+                        (item['source_item_id'],))
+            assert _ibkr_trade_flow_events(cur, start_date=day, end_date=day, **kwargs) == [(day, None)]
+            values, costs, _ = returns._ibkr_full_trade_return_series(cur, dates=[day], **kwargs)
+            assert values[day] is None and costs[day] is None
+            cur.execute('ROLLBACK TO SAVEPOINT altered_trade')
             with conn.cursor() as tuple_cursor:
                 tuple_cursor.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES ('2026-10-22','CNY','USD',7,'synthetic')")
                 tuple_facts = load_trade_rows(tuple_cursor, account_code='ibkr', start=date(2026, 10, 22), end=date(2026, 10, 22))

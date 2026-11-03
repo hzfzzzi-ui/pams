@@ -38,7 +38,8 @@ def test_unknown_tax_does_not_create_precise_campaign_or_attribution():
     assert next(x for x in details if x['key'] == 'unexplained')['value_cny'] is None
 
 
-def test_net_cash_can_prove_flow_while_tax_breakdown_is_unknown():
+def test_net_cash_can_prove_flow_while_tax_breakdown_is_unknown(monkeypatch):
+    monkeypatch.setattr('domain.investments.investment_return_data._table_exists', lambda *_: False)
     class Cursor:
         def __init__(self, rows): self.rows = rows
         def execute(self, *args): pass
@@ -218,7 +219,8 @@ def test_ibkr_charges_require_an_explicit_matching_currency_for_nonzero_fee():
     assert known_trade_charges({**base,'tax_amount':None,'fee_currency':'USD'}) is None
 
 
-def test_unconverted_ibkr_commission_keeps_trade_cash_but_cost_and_returns_unknown():
+def test_unconverted_ibkr_commission_keeps_trade_cash_but_cost_and_returns_unknown(monkeypatch):
+    monkeypatch.setattr('domain.investments.investment_return_data._table_exists', lambda *_: False)
     class Cursor:
         def execute(self,*args): pass
         def fetchall(self): return [row]

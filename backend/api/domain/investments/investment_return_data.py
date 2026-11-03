@@ -829,6 +829,22 @@ def _tonghuashun_external_flow_events(
     return events
 
 
+def source_record_ibkr_equity_trades(cur, start_date: Date, end_date: Date):
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    rows = load_trade_rows(cur, account_code='ibkr', start=start_date, end=end_date)
+    trades = []
+    for row in rows:
+        if row['market'] not in IBKR_EQUITY_MARKETS or row['trade_type'] not in {'buy', 'sell'}:
+            continue
+        if row['quantity'] is None or row['quantity'] <= 0:
+            row['source_evidence_status'] = 'unknown'
+        elif row['trade_type'] == 'sell':
+            row['quantity'] = -row['quantity']
+        trades.append(row)
+    return trades
+
+
 def _ibkr_trade_flow_events(
     cur,
     *,
@@ -838,28 +854,32 @@ def _ibkr_trade_flow_events(
     fx_timelines: dict[str, list[tuple[Date, Decimal]]],
 ) -> list[tuple[Date, Decimal]]:
     """Return stock/ETF trade cash flows for the IBKR section."""
-    cur.execute(
-        """
-        SELECT
-            trade_date,
-            quantity,
-            gross_amount,
-            fee_amount, tax_amount, raw_json,
-            net_cash,
-            currency
-        FROM pams_investment_trade_fact
-        WHERE account_code = 'ibkr'
-          AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
-          AND quantity IS NOT NULL
-          AND trade_date >= %s
-          AND trade_date <= %s
-          AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
-        ORDER BY trade_date, trade_id
-        """,
-        (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
-    )
+    if _table_exists(cur, 'source_records'):
+        rows = source_record_ibkr_equity_trades(cur, start_date - timedelta(days=1), end_date)
+    else:
+        cur.execute(
+            """
+            SELECT
+                trade_date,
+                quantity,
+                gross_amount,
+                fee_amount, tax_amount, raw_json,
+                net_cash,
+                currency
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'ibkr'
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
+              AND quantity IS NOT NULL
+              AND trade_date >= %s
+              AND trade_date <= %s
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            ORDER BY trade_date, trade_id
+            """,
+            (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
+        )
+        rows = cur.fetchall()
     events = FlowEvents()
-    for row in cur.fetchall():
+    for row in rows:
         qty = dec(row.get("quantity"))
         gross = abs(dec(row.get("gross_amount")))
         from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
@@ -869,10 +889,10 @@ def _ibkr_trade_flow_events(
         trade_date = ibkr_return_effective_date(row["trade_date"], currency)
         if trade_date < start_date or trade_date > end_date:
             continue
-        if unconverted_ibkr_fee(row):
+        if row.get('source_evidence_status', 'verified') != 'verified' or unconverted_ibkr_fee(row):
             events.append((trade_date, None))
             continue
-        if row.get('net_cash') is None and commission is None:
+        if row.get('net_cash') is None and (commission is None or row.get('gross_amount') is None):
             events.append((trade_date, None))
             continue
         commission = commission if commission is not None else Decimal('0')
