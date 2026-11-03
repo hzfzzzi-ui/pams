@@ -126,7 +126,7 @@ def test_ibkr_report_http_stages_then_requires_review(empty_source_db, monkeypat
         assert published.status_code == 200 and published.json()['published'] == 1
 
 
-@pytest.mark.parametrize('tamper', ['parsed_and_fact', 'raw_and_fact', 'source_uid'])
+@pytest.mark.parametrize('tamper', ['parsed_and_fact', 'raw_and_fact', 'source_uid', 'original_bytes'])
 def test_ibkr_new_source_verification_rejects_tampering(empty_source_db, tamper):  # noqa: F811
     from datetime import date
     from hashlib import sha256
@@ -148,6 +148,13 @@ def test_ibkr_new_source_verification_rejects_tampering(empty_source_db, tamper)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             day = date(2026, 10, 22)
             assert load_trade_rows(cur, account_code='ibkr', start=day, end=day)[0]['source_evidence_status'] == 'verified'
+            if tamper == 'original_bytes':
+                cur.execute('ALTER TABLE source_records DISABLE TRIGGER USER')
+                cur.execute('UPDATE source_records SET content=%s WHERE source_id=%s',
+                            (report + b'\n', source['source_id']))
+                cur.execute('ALTER TABLE source_records ENABLE TRIGGER USER')
+                assert load_trade_rows(cur, account_code='ibkr', start=day, end=day)[0]['source_evidence_status'] == 'unknown'
+                return
             cur.execute('ALTER TABLE source_items DISABLE TRIGGER USER')
             if tamper == 'source_uid':
                 cur.execute("UPDATE source_items SET source_uid='ibkr_trade:forged' WHERE source_item_id=%s", (item['source_item_id'],))
@@ -164,3 +171,89 @@ def test_ibkr_new_source_verification_rejects_tampering(empty_source_db, tamper)
                 cur.execute('UPDATE pams_investment_trade_fact SET gross_amount=341 WHERE source_item_id=%s', (item['source_item_id'],))
             cur.execute('ALTER TABLE source_items ENABLE TRIGGER USER')
             assert load_trade_rows(cur, account_code='ibkr', start=day, end=day)[0]['source_evidence_status'] == 'unknown'
+
+
+def test_ibkr_report_tax_keeps_unknown_and_explicit_amount_distinct(empty_source_db):  # noqa: F811
+    from datetime import date
+    from decimal import Decimal
+
+    original = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="USD"').encode()
+    taxed = (original.replace(b'tradeID="T1"', b'tradeID="T2"')
+             .replace(b'netCash="-341.25"', b'netCash="-341.75" taxAmount="0.5" taxCurrency="USD"'))
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            for report in (original, taxed):
+                staged = stage_trade_report(cur, report_bytes=report, expected_source_account='U_TEST')
+                source_id = UUID(staged['source_id'])
+                cur.execute('SELECT source_item_id,parsed_fields FROM source_items WHERE source_id=%s', (str(source_id),))
+                item = cur.fetchone()
+                revision = review_item(cur, source_id=source_id, item_id=item['source_item_id'],
+                                       expected_revision=staged['revision'], parsed_fields=item['parsed_fields'],
+                                       review_status='confirmed')
+                publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+            with pytest.raises(ValueError, match='amounts do not reconcile'):
+                stage_trade_report(cur, report_bytes=taxed.replace(b'netCash="-341.75"', b'netCash="-341.25"'),
+                                   expected_source_account='U_TEST')
+            day = date(2026, 10, 22)
+            rows = load_trade_rows(cur, account_code='ibkr', start=day, end=day)
+            assert all(row['source_evidence_status'] == 'verified' for row in rows)
+            assert [(row['net_cash'], row['tax_amount']) for row in rows] == [
+                (Decimal('-341.25'), None), (Decimal('-341.75'), Decimal('0.5'))]
+
+
+def test_ibkr_reviewed_report_rolls_back_and_concurrent_retry_publishes_once(empty_source_db):  # noqa: F811
+    from concurrent.futures import ThreadPoolExecutor
+    import re
+    from threading import Barrier
+
+    original = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="USD" taxAmount="0"')
+    trade = re.search(r'<Trade\b[^>]*/>', original).group()
+    report = original.replace(trade, trade + trade.replace('tradeID="T1"', 'tradeID="T2"')).encode()
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            staged = stage_trade_report(cur, report_bytes=report, expected_source_account='U_TEST')
+            source_id = UUID(staged['source_id'])
+            cur.execute('SELECT source_item_id,parsed_fields FROM source_items WHERE source_id=%s', (str(source_id),))
+            revision = staged['revision']
+            for item in cur.fetchall():
+                revision = review_item(cur, source_id=source_id, item_id=item['source_item_id'],
+                                       expected_revision=revision, parsed_fields=item['parsed_fields'],
+                                       review_status='confirmed')
+    with pytest.raises(psycopg2.errors.CheckViolation, match='injected second trade failure'):
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('''
+                CREATE FUNCTION fail_second_trade() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM pams_investment_trade_fact) THEN
+                        RAISE check_violation USING MESSAGE = 'injected second trade failure';
+                    END IF;
+                    RETURN NEW;
+                END $$;
+                CREATE TRIGGER fail_second_trade BEFORE INSERT ON pams_investment_trade_fact
+                    FOR EACH ROW EXECUTE FUNCTION fail_second_trade();
+            ''')
+            publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute('SELECT count(*) FROM pams_investment_trade_fact')
+        assert cur.fetchone()[0] == 0
+        cur.execute('SELECT status,revision FROM source_records WHERE source_id=%s', (str(source_id),))
+        assert cur.fetchone() == ('draft', revision)
+
+    start = Barrier(2)
+
+    def retry():
+        try:
+            with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+                start.wait(timeout=5)
+                return publish_trade_source(cur, source_id=source_id, expected_revision=revision)['published']
+        except ValueError as exc:
+            assert 'source changed or cannot publish trade' in str(exc)
+            return 0
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(lambda _: retry(), range(2))) == [0, 2]
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute('SELECT count(*) FROM pams_investment_trade_fact')
+        assert cur.fetchone()[0] == 2
