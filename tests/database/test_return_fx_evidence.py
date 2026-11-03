@@ -105,10 +105,20 @@ def test_real_trade_flow_does_not_borrow_other_day_fx(empty_source_db):
     with psycopg2.connect(**empty_source_db) as conn:
         setup(conn,day)
         with conn.cursor() as cur:
-            cur.execute("""INSERT INTO pams_investment_trade_fact(trade_date,account_code,symbol,currency,market,
-                trade_type,side,gross_amount,fee_amount,tax_amount,net_cash,source_table,source_id,source_hash)
-                VALUES (%s,'jianhang','USD1','USD',%s,'buy','buy',100,0,0,-100,'synthetic','fx-test',%s)""",
-                (day,'\u8d35\u91d1\u5c5e','a'*64))
+            from uuid import uuid4
+            from domain.imports import source_records_v2 as source
+
+            source_id, item_id = uuid4(), uuid4()
+            fields = {'business_date': day.isoformat(), 'symbol': 'USD1', 'currency': 'USD',
+                      'market': '贵金属', 'action': 'buy', 'quantity': '1', 'gross_amount': '100',
+                      'net_cash': '-100', 'fee_amount': '0', 'tax_amount': '0'}
+            source.create_source(cur, source_id=source_id, account_code='jianhang', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'entered_fields': fields}, parsed_fields=fields)
+            revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                          parsed_fields=fields, review_status='confirmed')
+            source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             rates={'USD':[(day-timedelta(days=1),Decimal(6)),(day+timedelta(days=1),Decimal(8))]}
             kw=dict(start_date=day,end_date=day,base_currency='CNY',fx_timelines=rates,
@@ -118,3 +128,6 @@ def test_real_trade_flow_does_not_borrow_other_day_fx(empty_source_db):
             rates['USD'].append((day,Decimal(7)))
             events=data._investment_transaction_flow_events(cur,**kw)
             assert events==[(day,Decimal(700))] and not events.missing_fx
+            cur.execute("UPDATE pams_investment_trade_fact SET net_cash=-99 WHERE source_item_id=%s", (str(item_id),))
+            events = data._investment_transaction_flow_events(cur, **kw)
+            assert events == [(day, None)] and not events.missing_fx

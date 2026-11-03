@@ -37,6 +37,7 @@ def proven_account_scope(monkeypatch):
     monkeypatch.setattr(account_balance, '_cash_source_schema_available', lambda cur: True)
     monkeypatch.setattr(account_balance, '_redesigned_sources_available', lambda cur: False)
     monkeypatch.setattr(investment_returns, '_source_record_income_ids', lambda cur, end_date: None)
+    monkeypatch.setattr(investment_return_data, '_table_exists', lambda cur, table: False)
 
 
 class FakeCursor:
