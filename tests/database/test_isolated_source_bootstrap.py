@@ -707,3 +707,120 @@ def test_portfolio_transaction_gross_cny_uses_trade_day_fx(empty_source_db):
             cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',7,'synthetic')", (day,))
             rows = {row['symbol']: row for row in load_investment_transactions(cur, 'USD')}
             assert rows['USD']['gross_amount_cny'] == Decimal(700)
+
+
+def test_new_source_context_and_asset_lookup_use_new_schema(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from domain.imports import account_import_store
+    from endpoints import account_import
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO pams_asset_master(asset_id,canonical_name,primary_symbol,asset_type,currency,status)
+                VALUES ('TEST_STOCK','Synthetic Stock','600001','stock','CNY','active')""")
+    monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    app = FastAPI(); app.include_router(account_import.router, prefix='/api')
+    with TestClient(app) as client:
+        capabilities = client.get('/api/account-import/capabilities')
+        assert capabilities.status_code == 200 and capabilities.json()['source_record_schema_ready'] is True
+        assert capabilities.json()['schema_ready'] is False
+        context = client.get('/api/account-import/source-records/context')
+        assert context.status_code == 200, context.text
+        assert any(row['account_code'] == 'tonghuashun' for row in context.json()['accounts'])
+        assets = client.get('/api/account-import/source-records/assets?q=600001')
+        assert assets.status_code == 200 and assets.json()['rows'][0]['asset_id'] == 'TEST_STOCK'
+
+
+def test_new_source_batch_review_rolls_back_if_any_item_fails(empty_source_db, monkeypatch):
+    from uuid import uuid4
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from domain.imports import account_import_store, source_records_v2 as source
+    from endpoints import account_import
+
+    source_id, first, second = uuid4(), uuid4(), uuid4()
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            source.create_source(cur, source_id=source_id, account_code='tonghuashun', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            for item in (first, second):
+                source.add_item(cur, source_id=source_id, item_id=item, parse_method='manual',
+                                raw_fields={'row': str(item)}, parsed_fields={'symbol': 'TEST'})
+    monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    app = FastAPI(); app.include_router(account_import.router, prefix='/api')
+    with TestClient(app) as client:
+        client.headers['Origin'] = 'http://testserver'
+        path = f'/api/account-import/source-records/{source_id}'
+        items = [{'source_item_id': str(first), 'parsed_fields': {'symbol': 'TEST'}, 'review_status': 'confirmed'},
+                 {'source_item_id': str(uuid4()), 'parsed_fields': {'symbol': 'TEST'}, 'review_status': 'confirmed'}]
+        bad = client.put(path + '/reviews', json={'revision': 3, 'items': items})
+        assert bad.status_code == 400, bad.text
+        snapshot = client.get(path).json()
+        assert snapshot['revision'] == 3 and all(item['review_status'] == 'pending' for item in snapshot['items'])
+        items[1]['source_item_id'] = str(second)
+        good = client.put(path + '/reviews', json={'revision': 3, 'items': items})
+        assert good.status_code == 200 and good.json()['revision'] == 5, good.text
+        snapshot = client.get(path).json()
+        assert all(item['review_status'] == 'confirmed' for item in snapshot['items'])
+        stale = client.put(path + '/reviews', json={'revision': 3, 'items': items})
+        assert stale.status_code == 409 and stale.json()['detail']['code'] == 'source_changed'
+
+
+def test_new_manual_source_and_item_are_revision_guarded(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from domain.imports import account_import_store
+    from endpoints import account_import
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+    monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    app = FastAPI(); app.include_router(account_import.router, prefix='/api')
+    with TestClient(app) as client:
+        body = {'account_code': 'tonghuashun', 'document_type': 'trade'}
+        assert client.post('/api/account-import/source-records/manual', json=body, headers={'Origin': 'http://other'}).status_code == 403
+        client.headers['Origin'] = 'http://testserver'
+        created = client.post('/api/account-import/source-records/manual', json=body)
+        assert created.status_code == 200 and created.json()['revision'] == 1, created.text
+        path = '/api/account-import/source-records/' + created.json()['source_id']
+        fields = {'business_date': '2026-01-02', 'trade_type': 'buy', 'currency': 'CNY', 'symbol': 'TEST', 'quantity': '10'}
+        item = client.post(path + '/items', json={'revision': 1, 'parsed_fields': fields})
+        assert item.status_code == 200 and item.json()['revision'] == 2, item.text
+        assert client.post(path + '/items', json={'revision': 1, 'parsed_fields': fields}).status_code == 409
+        draft = client.get(path).json()
+        assert len(draft['items']) == 1 and draft['items'][0]['review_status'] == 'pending'
+        reviewed = client.put(path + '/reviews', json={'revision': 2, 'items': [{
+            'source_item_id': item.json()['source_item_id'], 'parsed_fields': fields, 'review_status': 'confirmed'}]})
+        assert reviewed.status_code == 200, reviewed.text
+        assert client.post('/api/account-import/source-records/manual', json={
+            'account_code': 'missing-account', 'document_type': 'trade'}).status_code == 400
+
+
+def test_new_source_original_download_checks_hash(empty_source_db, monkeypatch):
+    from uuid import uuid4
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from domain.imports import account_import_store, source_records_v2 as source
+    from endpoints import account_import
+
+    source_id = uuid4()
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            source.create_source(cur, source_id=source_id, account_code='tonghuashun', source_name='synthetic',
+                acquisition_method='file', document_type='trade', filename='source.csv', file_format='csv', content=b'original')
+    monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    app = FastAPI(); app.include_router(account_import.router, prefix='/api')
+    with TestClient(app) as client:
+        url = f'/api/account-import/source-records/{source_id}/original'
+        original = client.get(url)
+        assert original.status_code == 200 and original.content == b'original'
+        assert original.headers['content-disposition'] == 'attachment' and original.headers['cache-control'] == 'no-store'
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute('ALTER TABLE source_records DISABLE TRIGGER USER')
+            cur.execute('UPDATE source_records SET content=%s WHERE source_id=%s', (psycopg2.Binary(b'changed'), str(source_id)))
+            cur.execute('ALTER TABLE source_records ENABLE TRIGGER USER')
+        assert client.get(url).status_code == 409

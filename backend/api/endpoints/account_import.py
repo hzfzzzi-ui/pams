@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 from functools import wraps
-from uuid import UUID
+from hashlib import sha256
+from uuid import UUID, uuid4
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -16,6 +17,7 @@ from domain.imports import account_import_store as store
 from domain.imports import native_source as source
 from domain.imports import native_source_http as source_http
 from domain.imports import isolation
+from domain.imports.source_records_v2 import SourceRevisionConflict
 from domain.imports.account_import_ocr import ocr_available
 
 def private_response(response: Response):
@@ -93,6 +95,26 @@ class SourceReview(Revision):
     note: str | None = Field(default=None, max_length=500)
 
 
+class ManualSource(StrictRequest):
+    account_code: str = Field(min_length=1, max_length=80)
+    document_type: Literal['cash', 'trade', 'holding']
+
+
+class ManualSourceItem(Revision):
+    parsed_fields: dict[str, Any]
+
+
+class SourceReviewItem(StrictRequest):
+    source_item_id: UUID
+    parsed_fields: dict[str, Any]
+    review_status: Literal['pending', 'confirmed', 'excluded']
+    note: str | None = Field(default=None, max_length=500)
+
+
+class SourceBatchReview(Revision):
+    items: list[SourceReviewItem] = Field(min_length=1, max_length=store.MAX_ROWS)
+
+
 class SourceMapping(Revision):
     mapping: dict[str, str] = Field(max_length=40)
 
@@ -126,7 +148,7 @@ def execute_source_record(request: Request, fn, *, write=False):
         raise HTTPException(error.status, detail={'code': error.code, 'message': str(error)}) from error
     except isolation.IsolationError as error:
         raise HTTPException(403, detail={'code': 'isolated_only', 'message': '来源操作未启用'}) from error
-    except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected) as error:
+    except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected, SourceRevisionConflict) as error:
         raise HTTPException(409, detail={'code': 'source_changed', 'message': '资料已变化，请重新核对'}) from error
     except psycopg2.Error as error:
         raise HTTPException(503, detail={'code': 'import_unavailable', 'message': '来源操作失败，事务已回滚'}) from error
@@ -245,6 +267,42 @@ def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50)):
     return execute_source_record(request, read)
 
 
+@router.get('/source-records/context')
+def source_record_context(request: Request):
+    return execute_source_record(request, store.context)
+
+
+@router.get('/source-records/assets')
+def source_record_assets(request: Request, q: str = Query('', max_length=80)):
+    return execute_source_record(request, lambda cur: store.assets(cur, q))
+
+
+@router.post('/source-records/manual')
+def create_manual_source(body: ManualSource, request: Request):
+    from domain.imports.source_records_v2 import create_source
+    def create(cur):
+        context = store.context(cur)
+        if not any(row['account_code'] == body.account_code and body.document_type in row.get('kinds', [])
+                   for row in context['accounts']):
+            raise ValueError('account does not support this document type')
+        source_id = uuid4()
+        create_source(cur, source_id=source_id, account_code=body.account_code, source_name='manual',
+                      acquisition_method='manual', document_type=body.document_type)
+        return {'source_id': str(source_id), 'revision': 1}
+    return execute_source_record(request, create, write=True)
+
+
+@router.post('/source-records/{source_id}/items')
+def create_manual_source_item(source_id: UUID, body: ManualSourceItem, request: Request):
+    from domain.imports.source_records_v2 import add_manual_item
+    def create(cur):
+        item_id = uuid4()
+        revision = add_manual_item(cur, source_id=source_id, item_id=item_id,
+                                   expected_revision=body.revision, parsed_fields=body.parsed_fields)
+        return {'source_item_id': str(item_id), 'revision': revision}
+    return execute_source_record(request, create, write=True)
+
+
 @router.get('/source-records/{source_id}')
 def get_source_record(source_id: UUID, request: Request):
     def read(cur):
@@ -257,6 +315,23 @@ def get_source_record(source_id: UUID, request: Request):
             FROM public.source_items WHERE source_id=%s ORDER BY created_at,source_item_id''', (str(source_id),))
         return {**dict(row), 'items': [dict(item) for item in cur.fetchall()]}
     return execute_source_record(request, read)
+
+
+@router.get('/source-records/{source_id}/original')
+def source_record_original(source_id: UUID, request: Request):
+    def read(cur):
+        cur.execute('SELECT content,sha256,file_format FROM public.source_records WHERE source_id=%s', (str(source_id),))
+        item = cur.fetchone()
+        if not item or item['content'] is None:
+            raise store.ImportProblem('source_missing', '原始资料不存在', 404)
+        content = bytes(item['content'])
+        if sha256(content).hexdigest() != item['sha256']:
+            raise store.ImportProblem('source_changed', '原始资料校验失败', 409)
+        return {'content': content, 'file_format': item['file_format']}
+    item = execute_source_record(request, read)
+    media_type = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}.get(item['file_format'], 'application/octet-stream')
+    return Response(item['content'], media_type=media_type, headers={'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline' if media_type.startswith('image/') else 'attachment'})
 
 
 @router.post('/source-records/{source_id}/delete-draft')
@@ -274,6 +349,13 @@ def review_source_record(source_id: UUID, item_id: UUID, body: SourceReview, req
     return execute_source_record(request, lambda cur: {'revision': review_item(cur, source_id=source_id, item_id=item_id,
         expected_revision=body.revision, parsed_fields=body.parsed_fields, review_status=body.review_status,
         note=body.note)}, write=True)
+
+
+@router.put('/source-records/{source_id}/reviews')
+def review_source_records(source_id: UUID, body: SourceBatchReview, request: Request):
+    from domain.imports.source_records_v2 import review_items
+    return execute_source_record(request, lambda cur: {'revision': review_items(cur, source_id=source_id,
+        expected_revision=body.revision, items=[item.model_dump() for item in body.items])}, write=True)
 
 
 @router.put('/source-records/{source_id}/mapping')

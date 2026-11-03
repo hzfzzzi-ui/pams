@@ -308,8 +308,10 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts():
         cur.execute('SELECT trade_id FROM redesign_test.pams_investment_trade_fact');trade=cur.fetchone()['trade_id']
         result=transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='checked',confirmed=True)
         assert result['transfer_id']
+        replay=transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='checked',confirmed=True)
+        assert replay['replayed'] is True and replay['transfer_id'] == result['transfer_id']
         with pytest.raises(ValueError,match='already confirmed'):
-            transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='checked',confirmed=True)
+            transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='different',confirmed=True)
         cur.execute('SELECT count(*) AS n FROM redesign_test.evidence_confirmation');assert cur.fetchone()['n']==1
         cur.execute('SET CONSTRAINTS ALL IMMEDIATE')
         assert transfers.read(w)[0]['evidence_status'] == 'confirmed'

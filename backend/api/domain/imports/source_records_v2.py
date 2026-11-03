@@ -7,6 +7,10 @@ import json
 from uuid import UUID
 from psycopg2.extras import Json
 
+class SourceRevisionConflict(ValueError):
+    """The source draft changed before a versioned update."""
+
+
 _IMMUTABLE_REPORTED_FIELDS = frozenset({
     'business_date', 'trade_time', 'settle_date', 'posting_date', 'action', 'trade_type', 'side',
     'symbol', 'name', 'market', 'currency', 'quantity', 'price', 'gross_amount', 'net_cash',
@@ -50,6 +54,24 @@ def add_item(cur, *, source_id: UUID, item_id: UUID, parse_method: str, raw_fiel
     cur.execute('UPDATE public.source_records SET revision=revision+1,updated_at=now() WHERE source_id=%s', (str(source_id),))
 
 
+def add_manual_item(cur, *, source_id: UUID, item_id: UUID, expected_revision: int, parsed_fields: dict) -> int:
+    """Add one manual row only to the unchanged manual draft."""
+    if cur.connection.autocommit or not isinstance(parsed_fields, dict):
+        raise ValueError('manual item requires a transaction and object fields')
+    cur.execute("""SELECT revision FROM public.source_records WHERE source_id=%s AND status='draft'
+        AND acquisition_method='manual' AND revision=%s FOR UPDATE""", (str(source_id), expected_revision))
+    if not cur.fetchone():
+        raise SourceRevisionConflict('source missing, stale or not a manual draft')
+    cur.execute('SELECT COUNT(*) AS count FROM public.source_items WHERE source_id=%s', (str(source_id),))
+    row = cur.fetchone()
+    count = row['count'] if isinstance(row, Mapping) else row[0]
+    if count >= 2000:
+        raise ValueError('source item limit reached')
+    add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+             raw_fields={'entered_fields': parsed_fields}, parsed_fields=parsed_fields)
+    return expected_revision + 1
+
+
 def review_item(cur, *, source_id: UUID, item_id: UUID, expected_revision: int,
                 parsed_fields: dict, review_status: str, note: str | None = None) -> int:
     if cur.connection.autocommit:
@@ -59,7 +81,7 @@ def review_item(cur, *, source_id: UUID, item_id: UUID, expected_revision: int,
     cur.execute('''SELECT revision FROM public.source_records WHERE source_id=%s AND status='draft'
         AND revision=%s FOR UPDATE''', (str(source_id), expected_revision))
     if not cur.fetchone():
-        raise ValueError('source missing, stale or not editable')
+        raise SourceRevisionConflict('source missing, stale or not editable')
     cur.execute('''SELECT parse_method,parsed_fields FROM public.source_items
         WHERE source_item_id=%s AND source_id=%s FOR UPDATE''', (str(item_id), str(source_id)))
     existing = cur.fetchone()
@@ -76,6 +98,21 @@ def review_item(cur, *, source_id: UUID, item_id: UUID, expected_revision: int,
     cur.execute('UPDATE public.source_records SET revision=revision+1,updated_at=now() WHERE source_id=%s RETURNING revision', (str(source_id),))
     row=cur.fetchone()
     return int(row['revision'] if isinstance(row, Mapping) else row[0])
+
+
+def review_items(cur, *, source_id: UUID, expected_revision: int, items: list[dict]) -> int:
+    """Review multiple items in one transaction, rejecting duplicate identities."""
+    if cur.connection.autocommit or not items or len(items) > 2000:
+        raise ValueError('batch review requires a transaction and valid items')
+    identifiers = [str(item['source_item_id']) for item in items]
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError('duplicate source item')
+    revision = expected_revision
+    for item in items:
+        revision = review_item(cur, source_id=source_id, item_id=item['source_item_id'],
+            expected_revision=revision, parsed_fields=item['parsed_fields'], review_status=item['review_status'],
+            note=item.get('note'))
+    return revision
 
 
 def delete_draft(cur, *, source_id: UUID, expected_revision: int) -> None:
