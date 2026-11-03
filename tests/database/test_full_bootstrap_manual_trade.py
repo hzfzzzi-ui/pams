@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from scripts import bootstrap_isolated_sources as bootstrap
 from tests.database.test_isolated_source_bootstrap import empty_source_db
-from tests.imports.test_account_import_publish import draft, preview, publish, trade
+from tests.imports.test_account_import_publish import trade
 
 
 def test_new_database_manual_trade_publish_replay_and_read(empty_source_db, monkeypatch):
@@ -28,13 +28,21 @@ def test_new_database_manual_trade_publish_replay_and_read(empty_source_db, monk
     monkeypatch.setattr(investment_transactions, '_load_accounts_config', lambda: {})
     with TestClient(main.app, base_url='http://localhost') as web:
         web.headers['Origin'] = 'http://localhost'
-        batch = draft(web, [trade()])
-        check = preview(web, batch)
-        assert check['can_publish'], check['rows']
-        result = publish(web, batch, check)
+        root = '/api/account-import/source-records'
+        response = web.post(root + '/manual', json={'account_code': 'tonghuashun', 'document_type': 'trade'})
+        assert response.status_code == 200, response.text
+        path = root + '/' + response.json()['source_id']
+        response = web.put(path + '/reviews', json={'revision': 1, 'items': [
+            {'parsed_fields': trade(), 'review_status': 'confirmed'}]})
+        assert response.status_code == 200, response.text
+        payload = {'revision': response.json()['revision']}
+        check = web.post(path + '/trade-preview', json=payload)
+        assert check.status_code == 200, check.text
+        payload['preview_token'] = check.json()['preview_token']
+        result = web.post(path + '/trade-publish', json=payload)
         assert result.status_code == 200, result.text
-        replay = publish(web, batch, check)
-        assert replay.status_code == 200 and replay.json()['replayed']
+        replay = web.post(path + '/trade-publish', json=payload)
+        assert replay.status_code >= 400
         response = web.get('/api/investment-transactions?account_code=tonghuashun')
         assert response.status_code == 200, response.text
         assert any(row['symbol'] == '000001' and float(row['quantity']) == 100

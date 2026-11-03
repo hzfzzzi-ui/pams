@@ -277,30 +277,59 @@ def test_published_investment_source_keeps_verified_counter_account_leg(empty_so
     from scripts import bootstrap_isolated_sources as bootstrap
     from domain.imports import account_import_store as store
     from domain.ledger.ledger_view import _load_cash_rows, _load_investment_account_rows
-    from endpoints import account_import
+    from endpoints import account_import, bank_reconcile
+
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('bank_test','Synthetic bank') ON CONFLICT DO NOTHING")
-    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY','a1'*32)
-    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED','true')
-    monkeypatch.setattr(store,'get_conn',lambda:psycopg2.connect(**empty_source_db))
-    app=FastAPI()
-    app.include_router(account_import.router,prefix='/api')
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('bank_test','Synthetic bank')")
+    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a1'*32)
+    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
+    monkeypatch.setattr(store.statement, 'profiles', lambda: {'bank_test': []})
+    monkeypatch.setattr(store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(bank_reconcile, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    app = FastAPI()
+    app.include_router(account_import.router, prefix='/api')
+    app.include_router(bank_reconcile.router, prefix='/api')
     with TestClient(app) as web:
-        web.headers['Origin']='http://testserver'
-        fields={'kind':'cash','business_date':DAY,'currency':'CNY','action':'deposit','net_cash':'500','counter_account_code':'bank_test'}
-        batch=draft(web,[fields])
-        check=preview(web,batch)
-        assert check['can_publish'],check
-        result=publish(web,batch,check)
-        assert result.status_code==200,result.text
-    with psycopg2.connect(**empty_source_db) as conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
-        day=date.fromisoformat(DAY)
-        cash=_load_cash_rows(cur,start=day,end=day,base_currency='CNY')
-        assert len(cash)==1 and cash[0]['account_code']=='bank_test' and cash[0]['amount']==-500
-        funding=_load_investment_account_rows(cur,start=day,end=day,base_currency='CNY')
-        assert len(funding)==1 and funding[0]['amount']==500
+        web.headers['Origin'] = 'http://testserver'
+        for account, kind, action, amount in [('bank_test', 'cash', 'expense', '-500'),
+                                               ('tonghuashun', 'trade', 'deposit', '500')]:
+            root = '/api/account-import/source-records'
+            response = web.post(root + '/manual', json={'account_code': account, 'document_type': kind})
+            assert response.status_code == 200, response.text
+            path = root + '/' + response.json()['source_id']
+            fields = {'business_date': DAY, 'currency': 'CNY', 'action': action, 'net_cash': amount}
+            response = web.put(path + '/reviews', json={'revision': 1, 'items': [
+                {'parsed_fields': fields, 'review_status': 'confirmed'}]})
+            assert response.status_code == 200, response.text
+            payload = {'revision': response.json()['revision']}
+            if kind == 'cash':
+                payload['mode'] = 'all'
+            response = web.post(f'{path}/{kind}-preview', json=payload)
+            assert response.status_code == 200, response.text
+            payload['preview_token'] = response.json()['preview_token']
+            response = web.post(f'{path}/{kind}-publish', json=payload)
+            assert response.status_code == 200, response.text
+
+        day = date.fromisoformat(DAY)
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cash = _load_cash_rows(cur, start=day, end=day, base_currency='CNY')
+            funding = _load_investment_account_rows(cur, start=day, end=day, base_currency='CNY')
+            assert len(cash) == 1 and cash[0]['amount'] == -500 and cash[0]['account_code'] == 'bank_test'
+            assert len(funding) == 1 and funding[0]['amount'] == 500 and funding[0]['needs_review']
+            cash_id, trade_id = cash[0]['fact_id'], funding[0]['fact_id']
+        response = web.post('/api/bank-reconcile/transfers/confirm', json={
+            'from_kind': 'cashflow', 'from_id': cash_id, 'to_kind': 'trade', 'to_id': trade_id,
+            'note': 'Synthetic independently confirmed transfer', 'confirmed': True})
+        assert response.status_code == 200, response.text
+
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        funding = _load_investment_account_rows(cur, start=day, end=day, base_currency='CNY')
+        assert funding[0]['is_internal_transfer'] and funding[0]['linked_cashflow_id'] == cash_id
+        cur.execute("UPDATE pams_cashflow_fact SET amount=-501 WHERE cashflow_id=%s", (cash_id,))
+        funding = _load_investment_account_rows(cur, start=day, end=day, base_currency='CNY')
+        assert not funding[0]['is_internal_transfer'] and funding[0]['needs_review']
 
 
 def test_scope_confirmation_expires_on_draft_change_and_missing_cash_is_blocked(isolated):

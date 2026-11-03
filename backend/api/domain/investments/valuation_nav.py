@@ -558,8 +558,20 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
         return result
     cur.execute("""SELECT to_regclass('public.pams_cashflow_fact') IS NOT NULL AS cashflow_fact_exists,
         to_regclass('public.source_items') IS NOT NULL AS item_exists,
-        to_regclass('public.source_batches') IS NOT NULL AS batch_exists""")
+        to_regclass('public.source_batches') IS NOT NULL AS batch_exists,
+        to_regclass('public.source_records') IS NOT NULL AS redesigned""")
     exists = cur.fetchone() or {}
+    if exists.get('redesigned') and exists.get('cashflow_fact_exists') and exists.get('item_exists'):
+        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        rows = load_cash_rows(cur, start=start_date, end=terminal_date, base_currency='CNY', account_codes=account_codes)
+        for item in rows:
+            code = item['account_code']
+            if item['source_evidence_status'] != 'verified':
+                result.unknown(code, item.get('source_issue') or 'source_evidence_unavailable')
+                continue
+            item['statement_balance'] = None
+            result.setdefault(code, []).append(item)
+        return result
     if not (exists.get('cashflow_fact_exists') and exists.get('item_exists') and exists.get('batch_exists')):
         for code in account_codes:
             result.unknown(code, 'cash_source_schema_unavailable')

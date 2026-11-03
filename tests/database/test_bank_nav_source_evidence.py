@@ -29,21 +29,23 @@ def test_published_bank_source_proof_and_tamper_fail_closed(empty_source_db, mon
     day = date.today() - timedelta(days=1)
     with TestClient(app) as web:
         web.headers['Origin'] = 'http://testserver'
-        response = web.post('/api/account-import/batches', json={'account_code':'bank_a','mode':'upload','kind':'cash'})
-        assert response.status_code == 200, response.text
-        path = '/api/account-import/batches/' + response.json()['batch_id']
+        root = '/api/account-import/source-records'
         content = f'transaction_date,amount,currency,balance,summary\n{day},-10,CNY,90,expense\n{day},-20,CNY,70,expense\n'.encode()
-        response = web.post(path+'/files?filename=bank.csv', content=content)
+        response = web.post(root + '?account_code=bank_a&source_name=synthetic&filename=bank.csv', content=content)
         assert response.status_code == 200, response.text
-        batch = response.json()
-        for row in batch['rows']:
-            row['fields']['action'] = 'expense'
-        response = web.put(path, json={'revision': batch['revision'], 'rows': batch['rows']})
+        path = root + '/' + response.json()['source_id']
+        staged = web.get(path).json()
+        response = web.put(path + '/reviews', json={'revision': staged['revision'], 'items': [
+            {'source_item_id': row['source_item_id'], 'parsed_fields': row['parsed_fields'],
+             'review_status': 'excluded' if row['parsed_fields'].get('action') == 'balance' else 'confirmed'}
+            for row in staged['items']]})
         assert response.status_code == 200, response.text
-        batch = response.json()
-        checked = web.post(path+'/preview', json={'revision':batch['revision']}).json()
-        assert checked['can_publish'], checked
-        response = web.post(path+'/publish', json={'revision':batch['revision'],'preview_token':checked['preview_token']})
+        payload = {'revision': response.json()['revision'], 'mode': 'all'}
+        checked = web.post(path + '/cash-preview', json=payload)
+        assert checked.status_code == 200, checked.text
+        assert checked.json()['can_publish'], checked.text
+        payload['preview_token'] = checked.json()['preview_token']
+        response = web.post(path + '/cash-publish', json=payload)
         assert response.status_code == 200, response.text
     conn = psycopg2.connect(**empty_source_db)
     conn.set_session(readonly=True, isolation_level='REPEATABLE READ')

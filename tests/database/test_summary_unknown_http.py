@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
-from tests.imports.test_account_import_publish import draft, holding, preview, publish
+from tests.imports.test_account_import_publish import holding
 
 
 def test_summary_http_empty_then_published_holding_without_quote_is_unknown(empty_source_db,monkeypatch):
@@ -38,16 +38,21 @@ def test_summary_http_empty_then_published_holding_without_quote_is_unknown(empt
         assert all(response.json()['totals'][key] is None for key in ('market_value','holding_pnl','daily_pnl'))
         rows=[holding(business_date=day.isoformat(),quantity='100',market_value='1000',cost='900'),
               holding(business_date=day.isoformat(),asset_type='cash',symbol=None,action='balance',net_cash='0')]
-        batch=draft(web,rows,completeness='complete')
-        response=web.post('/api/account-import/batches/'+batch['batch_id']+'/confirm-scope',json={
-            'revision':batch['revision'],'as_of':day.isoformat(),'member_count':2,
-            'cash_amount':'0','note':'checked synthetic account holdings','confirmed':True})
-        assert response.status_code==200,response.text
-        batch=web.get('/api/account-import/batches/'+batch['batch_id']).json()
-        check=preview(web,batch)
-        assert check['can_publish'],check
-        response=publish(web,batch,check)
-        assert response.status_code==200,response.text
+        root = '/api/account-import/source-records'
+        response = web.post(root + '/manual', json={'account_code': 'tonghuashun', 'document_type': 'holding'})
+        assert response.status_code == 200, response.text
+        path = root + '/' + response.json()['source_id']
+        response = web.put(path + '/reviews', json={'revision': 1, 'items': [
+            {'parsed_fields': row, 'review_status': 'confirmed'} for row in rows]})
+        assert response.status_code == 200, response.text
+        revision = response.json()['revision']
+        payload = {'revision': revision, 'scope': {'revision': revision, 'as_of': day.isoformat(),
+                   'member_count': 2, 'cash_amount': '0', 'note': 'Synthetic complete account', 'confirmed': True}}
+        response = web.post(path + '/holding-preview', json=payload)
+        assert response.status_code == 200, response.text
+        payload['preview_token'] = response.json()['preview_token']
+        response = web.post(path + '/holding-publish', json=payload)
+        assert response.status_code == 200, response.text
         response=web.get('/summary2/latest')
         assert response.status_code==200,response.text
         body=response.json()
