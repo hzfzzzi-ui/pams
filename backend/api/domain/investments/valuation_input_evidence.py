@@ -260,7 +260,21 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any], *, locking: bool = Tr
             raise ValueError('unlocked evidence reads require a read-only repeatable-read transaction')
         statement = statement.split(' FOR SHARE', 1)[0]
     source_content_hash = None
-    if kind == 'source_item' and locking and snapshot_cache is not None:
+    redesigned = False
+    if kind == 'source_item':
+        cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL")
+        present = cur.fetchone()
+        redesigned = bool(next(iter(present.values())) if isinstance(present, dict) else present[0])
+    if kind == 'source_item' and redesigned:
+        query = """SELECT json_build_object('item',row_to_json(i),'batch',row_to_json(r))::text
+            FROM public.source_items i JOIN public.source_records r ON r.source_id=i.source_id
+            WHERE i.source_item_id=%s"""
+        if locking:
+            query += ' FOR SHARE OF i,r'
+        cur.execute(query, (key['source_item_id'],))
+        result = cur.fetchone()
+        raw = json.loads((next(iter(result.values())) if isinstance(result, dict) else result[0]), parse_float=Decimal) if result else None
+    elif kind == 'source_item' and locking and snapshot_cache is not None:
         # Avoid transferring a large published_result once per item. The same
         # locked MVCC identity guard also protects reuse after savepoint rollback.
         cur.execute("""SELECT row_to_json(i)::text AS item_json,b.batch_id AS batch_id
@@ -303,9 +317,9 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any], *, locking: bool = Tr
         batch, source_item = raw["batch"], raw["item"]
         ref["account_code"] = batch.get("account_code")
         parsed = source_item.get("parsed_fields")
-        fields = parsed.get("fields") if isinstance(parsed, dict) else None
+        fields = (parsed if redesigned else parsed.get("fields")) if isinstance(parsed, dict) else None
         resolved_assets: list[str] = []
-        if isinstance(fields, dict) and batch.get("business_type") == "holding" and fields.get("asset_type") != "cash":
+        if isinstance(fields, dict) and (batch.get("document_type") if redesigned else batch.get("business_type")) == "holding" and fields.get("asset_type") != "cash":
             from domain.assets.alias_policy import is_identity_alias
             identifier, symbol = fields.get("asset_id"), fields.get("symbol")
             if identifier:
@@ -324,11 +338,24 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any], *, locking: bool = Tr
                         resolved_assets.append(asset)
                 resolved_assets = sorted(set(resolved_assets))
         snapshot = {"content_hash": source_content_hash or _hash(raw), "batch_status": batch.get("status"),
-                    "review_status": source_item.get("review_status"), "business_type": batch.get("business_type"),
-                    "date_from": batch.get("date_from"), "date_to": batch.get("date_to"),
+                    "review_status": source_item.get("review_status"), "business_type": batch.get("document_type") if redesigned else batch.get("business_type"),
+                    "date_from": batch.get("period_start") if redesigned else batch.get("date_from"),
+                    "date_to": batch.get("period_end") if redesigned else batch.get("date_to"),
                     "source_action": fields.get("action") if isinstance(fields, dict) else None,
                     "source_fields": _normalize(fields) if isinstance(fields, dict) else None,
                     "resolved_assets": resolved_assets}
+        if redesigned:
+            content, digest = batch.get('content'), batch.get('sha256')
+            try:
+                content_ok = ((content is None and digest is None) or
+                    (isinstance(content, str) and content.startswith('\\x') and digest is not None and
+                     hashlib.sha256(bytes.fromhex(content[2:])).hexdigest() == digest))
+                raw_bytes = json.dumps(source_item.get('raw_fields'), ensure_ascii=False, sort_keys=True,
+                    separators=(',', ':'), allow_nan=False, default=lambda value: float(value) if isinstance(value, Decimal) else value).encode('utf-8')
+                snapshot['source_integrity'] = ('verified' if content_ok and
+                    hashlib.sha256(raw_bytes).hexdigest() == source_item.get('record_hash') else 'unknown')
+            except (ValueError, TypeError):
+                snapshot['source_integrity'] = 'unknown'
         return ({"kind": kind, "source_ref": ref, "source_version": None, "business_date": None,
                  "observed_at": None, "quality": "unknown", "snapshot": snapshot}, raw)
     if kind in {"holding", "trade"} and raw.get("account_code"):
@@ -503,7 +530,8 @@ def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_d
         cash_balance = (snapshot.get("business_type") == "cash" and snapshot.get("source_action") == "balance"
                         and holding_raw.get("major_category") == "现金")
         if (evidence["source_ref"].get("account_code") != account_code or snapshot.get("batch_status") != "published"
-                or snapshot.get("review_status") != "confirmed" or not (kind_allowed or cash_balance)):
+                or snapshot.get("review_status") != "confirmed" or not (kind_allowed or cash_balance)
+                or snapshot.get('source_integrity', 'verified') != 'verified'):
             return False
         # A batch range can disprove alignment; it cannot prove the exact input date.
         if snapshot.get("date_from") and snapshot["date_from"] > business_date:
