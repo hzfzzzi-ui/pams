@@ -105,11 +105,20 @@ def test_tonghuashun_history_rejects_future_mark_and_converts_base_currency(empt
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""INSERT INTO pams_investment_trade_fact
-                (trade_date,account_code,symbol,currency,trade_type,side,quantity,price,gross_amount,
-                 fee_amount,tax_amount,net_cash,source_table,source_id,source_hash,review_status)
-                VALUES (%s,'tonghuashun','600001','CNY','buy','buy',10,8,80,0,0,-80,
-                        'synthetic','price-test',%s,'reviewed')""",(day,'a'*64))
+            from uuid import uuid4
+            from domain.imports import source_records_v2 as source
+
+            source_id, item_id = uuid4(), uuid4()
+            fields = {'business_date': day.isoformat(), 'symbol': '600001', 'currency': 'CNY',
+                      'market': 'SSE', 'action': 'buy', 'quantity': '10', 'price': '8',
+                      'gross_amount': '80', 'net_cash': '-80', 'fee_amount': '0', 'tax_amount': '0'}
+            source.create_source(cur, source_id=source_id, account_code='tonghuashun', source_name='synthetic',
+                                 acquisition_method='manual', document_type='trade')
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'entered_fields': fields}, parsed_fields=fields)
+            revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                          parsed_fields=fields, review_status='confirmed')
+            source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
             cur.execute("""INSERT INTO pams_holdings_snapshot
                 (name,symbol,account_code,asset_liability,currency,major_category,minor_category,
                  market_value,cost,quantity,current_price,as_of)
@@ -118,10 +127,11 @@ def test_tonghuashun_history_rejects_future_mark_and_converts_base_currency(empt
             cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
                 VALUES (%s,'CNY','USD',7,'synthetic')""",(day,))
             values=_tonghuashun_series(cur,dates=[day],base_currency='USD',account_owner_ratio=lambda _:Decimal(1))
-            assert day in values.unknown_dates
+            assert day in values.unknown_dates and day in values.missing_price_dates
             cur.execute("INSERT INTO pams_ohlcv_daily(symbol,market,trade_date,close) VALUES ('sh600001','CN_A',%s,12)",(day,))
             values=_tonghuashun_series(cur,dates=[day],base_currency='USD',account_owner_ratio=lambda _:Decimal(1))
-            assert day in values.unknown_dates  # The synthetic trade has no reviewed source.
+            assert day in values.unknown_dates and values.cash_scope_unverified
+            assert day not in values.missing_price_dates
             assert abs(values[day] - Decimal(40)/Decimal(7)) < Decimal('1e-25')
             cur.execute("UPDATE pams_fx_rates_daily SET source='' WHERE quote_currency='USD'")
             values=_tonghuashun_series(cur,dates=[day],base_currency='USD',account_owner_ratio=lambda _:Decimal(1))
