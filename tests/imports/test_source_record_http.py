@@ -96,3 +96,40 @@ def test_new_source_routes_fail_closed_against_legacy_schema(monkeypatch):
         with TestClient(app) as client:
             response = client.get('/api/account-import/source-records/00000000-0000-0000-0000-000000000001')
             assert response.status_code == 503 and response.json()['detail']['code'] == 'schema_unavailable'
+
+
+def test_batch_reviews_add_manual_item_atomically():
+    from uuid import UUID
+    from domain.imports import source_records_v2
+
+    with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        install_redesign(cur)
+        source_id = UUID('00000000-0000-0000-0000-000000000010')
+        wrapped = SchemaCursor(cur)
+        source_records_v2.create_source(wrapped, source_id=source_id, account_code='bank-a', source_name='synthetic',
+                                       acquisition_method='screenshot', document_type='cash', filename='synthetic.png',
+                                       file_format='png', content=b'synthetic image')
+        fields = {'business_date': '2026-01-01', 'net_cash': '12.00', 'currency': 'CNY'}
+        missing = UUID('00000000-0000-0000-0000-000000000011')
+        cur.execute('SAVEPOINT before_review')
+        try:
+            source_records_v2.review_items(wrapped, source_id=source_id, expected_revision=1, items=[
+                {'source_item_id': None, 'parsed_fields': fields, 'review_status': 'confirmed'},
+                {'source_item_id': missing, 'parsed_fields': fields, 'review_status': 'confirmed'},
+            ])
+            assert False, 'missing source item must fail'
+        except ValueError as error:
+            assert 'missing' in str(error)
+        cur.execute('ROLLBACK TO SAVEPOINT before_review')
+        cur.execute('SELECT revision FROM redesign_test.source_records WHERE source_id=%s', (str(source_id),))
+        assert cur.fetchone()['revision'] == 1
+        cur.execute('SELECT count(*) AS count FROM redesign_test.source_items WHERE source_id=%s', (str(source_id),))
+        assert cur.fetchone()['count'] == 0
+        revision = source_records_v2.review_items(wrapped, source_id=source_id, expected_revision=1, items=[
+            {'source_item_id': None, 'parsed_fields': fields, 'review_status': 'confirmed'},
+        ])
+        assert revision == 3
+        cur.execute('SELECT parse_method, review_status, raw_fields FROM redesign_test.source_items WHERE source_id=%s', (str(source_id),))
+        item = cur.fetchone()
+        assert item['parse_method'] == 'manual' and item['review_status'] == 'confirmed'
+        assert item['raw_fields']['entered_fields'] == fields

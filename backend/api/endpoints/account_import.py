@@ -105,7 +105,7 @@ class ManualSourceItem(Revision):
 
 
 class SourceReviewItem(StrictRequest):
-    source_item_id: UUID
+    source_item_id: UUID | None = None
     parsed_fields: dict[str, Any]
     review_status: Literal['pending', 'confirmed', 'excluded']
     note: str | None = Field(default=None, max_length=500)
@@ -216,6 +216,7 @@ def capabilities():
             "source_record_schema_ready": source_record_ready,
             "source_record_publish_enabled": source_record_ready and source.enabled(),
             "ocr_available": ready and ocr_available(),
+            "source_record_ocr_available": source_record_ready and ocr_available(),
             "limits": {"file_bytes": store.MAX_FILE_BYTES, "batch_bytes": store.MAX_BATCH_BYTES,
                        "files": store.MAX_FILES, "rows": store.MAX_ROWS}}
 
@@ -311,7 +312,7 @@ def get_source_record(source_id: UUID, request: Request):
         row = cur.fetchone()
         if not row:
             raise store.ImportProblem('source_missing', '来源资料不存在', 404)
-        cur.execute('''SELECT source_item_id,source_position,parse_method,parsed_fields,review_status,review_note
+        cur.execute('''SELECT source_item_id,source_position,parse_method,raw_fields,parsed_fields,review_status,review_note
             FROM public.source_items WHERE source_id=%s ORDER BY created_at,source_item_id''', (str(source_id),))
         return {**dict(row), 'items': [dict(item) for item in cur.fetchall()]}
     return execute_source_record(request, read)

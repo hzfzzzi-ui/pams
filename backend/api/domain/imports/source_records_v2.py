@@ -4,7 +4,7 @@ from __future__ import annotations
 from hashlib import sha256
 from collections.abc import Mapping
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 from psycopg2.extras import Json
 
 class SourceRevisionConflict(ValueError):
@@ -55,13 +55,13 @@ def add_item(cur, *, source_id: UUID, item_id: UUID, parse_method: str, raw_fiel
 
 
 def add_manual_item(cur, *, source_id: UUID, item_id: UUID, expected_revision: int, parsed_fields: dict) -> int:
-    """Add one manual row only to the unchanged manual draft."""
+    """Add one manual row to an unchanged source draft."""
     if cur.connection.autocommit or not isinstance(parsed_fields, dict):
         raise ValueError('manual item requires a transaction and object fields')
     cur.execute("""SELECT revision FROM public.source_records WHERE source_id=%s AND status='draft'
-        AND acquisition_method='manual' AND revision=%s FOR UPDATE""", (str(source_id), expected_revision))
+        AND revision=%s FOR UPDATE""", (str(source_id), expected_revision))
     if not cur.fetchone():
-        raise SourceRevisionConflict('source missing, stale or not a manual draft')
+        raise SourceRevisionConflict('source missing, stale or not a draft')
     cur.execute('SELECT COUNT(*) AS count FROM public.source_items WHERE source_id=%s', (str(source_id),))
     row = cur.fetchone()
     count = row['count'] if isinstance(row, Mapping) else row[0]
@@ -104,12 +104,17 @@ def review_items(cur, *, source_id: UUID, expected_revision: int, items: list[di
     """Review multiple items in one transaction, rejecting duplicate identities."""
     if cur.connection.autocommit or not items or len(items) > 2000:
         raise ValueError('batch review requires a transaction and valid items')
-    identifiers = [str(item['source_item_id']) for item in items]
+    identifiers = [str(item['source_item_id']) for item in items if item.get('source_item_id') is not None]
     if len(set(identifiers)) != len(identifiers):
         raise ValueError('duplicate source item')
     revision = expected_revision
     for item in items:
-        revision = review_item(cur, source_id=source_id, item_id=item['source_item_id'],
+        item_id = item.get('source_item_id')
+        if item_id is None:
+            item_id = uuid4()
+            revision = add_manual_item(cur, source_id=source_id, item_id=item_id,
+                                       expected_revision=revision, parsed_fields=item['parsed_fields'])
+        revision = review_item(cur, source_id=source_id, item_id=item_id,
             expected_revision=revision, parsed_fields=item['parsed_fields'], review_status=item['review_status'],
             note=item.get('note'))
     return revision
