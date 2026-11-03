@@ -1386,6 +1386,18 @@ def investment_transaction_options():
                 """
             )
             accounts = [dict(r) for r in cur.fetchall()]
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.transaction_list_v2 import list_options
+                categories, sources, assets = list_options(cur)
+                _enrich_asset_filter_options(cur, assets)
+                return {
+                    "accounts": [{k: norm(v) for k, v in row.items()} for row in accounts],
+                    "categories": [{k: norm(v) for k, v in row.items()} for row in categories],
+                    "sources": sources,
+                    "assets": [{k: norm(v) for k, v in row.items()} for row in assets],
+                    "side_options": ["buy", "sell", "deposit", "withdraw", "dividend", "fx_conversion", "fee", "other"],
+                    "review_options": _review_options_payload(),
+                }
             cur.execute(
                 f"""
                 WITH categories AS (

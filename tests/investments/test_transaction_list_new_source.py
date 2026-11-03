@@ -40,6 +40,15 @@ def test_new_trade_list_uses_source_and_trade_day_fx(empty_source_db, monkeypatc
         assert float(row['gross_amount']) == 100 and row['gross_amount_cny'] is None
         assert row['source_evidence_status'] == 'verified' and response.json()['summary']['buy_amount_cny'] is None
         assert len(client.get('/api/investment-transactions?side=buy&account_code=tonghuashun').json()['rows']) == 1
+        options = client.get('/api/investment-transactions/options')
+        assert options.status_code == 200, options.text
+        asset = next(item for item in options.json()['assets'] if item['asset_key'] == 'test')
+        assert asset['trade_count'] == 1 and asset['pending_count'] == 1
+        assert 'source_records' in options.json()['sources']
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO investment_trade_review(trade_id,review_note) SELECT trade_id,'pending note' FROM pams_investment_trade_fact WHERE source_item_id=%s", (str(item_id),))
+        review_row = client.get('/api/investment-transactions?review_status=needs_review').json()['rows'][0]
+        assert review_row['review_note'] == 'pending note' and review_row['status'] == 'needs_review'
         assert client.get('/api/investment-transactions?side=sell').json()['rows'] == []
         assert client.get('/api/investment-transactions?start=2026-10-23').json()['rows'] == []
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:

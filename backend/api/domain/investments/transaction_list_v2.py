@@ -56,10 +56,38 @@ def list_rows(cur, *, start=None, end=None, account_code=None):
             'trade_time': fact.get('trade_time') or datetime.combine(day, time.min),
             'major_category': asset.get('asset_type'), 'minor_category': asset.get('asset_subtype'),
             'side': fact.get('side') or kind, 'side_normalized': side,
-            'status': 'reviewed' if review else 'auto', 'review_tags': review.get('review_tags') or [],
+            'status': 'reviewed' if review.get('reviewed_at') else 'needs_review' if review else 'auto',
+            'review_tags': review.get('review_tags') or [],
             'quantity': fact['quantity'] if verified else None, 'price': fact['price'] if verified else None,
             'gross_amount': gross, 'net_cash': net, 'tax_amount': fact['tax_amount'] if verified else None,
             'fees': fees, 'fx_rate': rate, 'gross_amount_cny': converted(gross),
             'net_cash_cny': converted(net), 'fees_cny': converted(fees)}
         out.append(row)
     return out
+
+
+def list_options(cur):
+    """Build filters using asset master and separate trade review records."""
+    cur.execute("""SELECT major_category, minor_category FROM (
+        SELECT major_category, minor_category FROM pams_holdings_snapshot
+        UNION SELECT asset_type AS major_category, asset_subtype AS minor_category FROM pams_asset_master
+    ) categories WHERE COALESCE(major_category, '') <> ''
+    ORDER BY major_category, minor_category NULLS LAST""")
+    categories = [dict(row) for row in cur.fetchall()]
+    cur.execute("""SELECT DISTINCT COALESCE(NULLIF(broker,''),'source_records') AS source
+        FROM pams_investment_trade_fact ORDER BY source""")
+    sources = [row['source'] for row in cur.fetchall()]
+    cur.execute("""WITH reviewable AS (
+        SELECT LOWER(COALESCE(NULLIF(f.symbol,''),NULLIF(f.name,''),'')) AS asset_key,
+            NULLIF(f.symbol,'') AS symbol, NULLIF(f.name,'') AS name, f.trade_type,
+            r.buy_reason,r.sell_reason,r.initial_position_identity,r.current_position_identity
+        FROM pams_investment_trade_fact f LEFT JOIN investment_trade_review r ON r.trade_id=f.trade_id
+        WHERE f.trade_type IN ('buy','sell','fund_subscription','fund_redemption')
+          AND COALESCE(NULLIF(f.symbol,''),NULLIF(f.name,'')) IS NOT NULL
+    ) SELECT asset_key, MAX(symbol) AS symbol, MAX(name) AS name, COUNT(*) AS trade_count,
+        COUNT(*) FILTER (WHERE (trade_type IN ('buy','fund_subscription') AND
+          (buy_reason IS NULL OR initial_position_identity IS NULL OR current_position_identity IS NULL))
+          OR (trade_type IN ('sell','fund_redemption') AND sell_reason IS NULL)) AS pending_count
+        FROM reviewable GROUP BY asset_key
+        ORDER BY pending_count DESC, trade_count DESC, COALESCE(MAX(name),MAX(symbol),asset_key) LIMIT 500""")
+    return categories, sources, [dict(row) for row in cur.fetchall()]
