@@ -65,9 +65,28 @@ def test_new_trade_list_uses_source_and_trade_day_fx(empty_source_db, monkeypatc
         updated = client.get('/api/investment-transactions?review_status=ignored').json()['rows'][0]
         assert updated['review_note'] == 'pending note' and updated['status'] == 'ignored'
         assert updated['source_evidence_status'] == 'verified'
+        from domain.investments.trade_review_v2 import write_auto_review
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            assert not write_auto_review(cur, trade_id=ident, updates={'buy_reason': 'other', 'review_status': 'needs_review'})
+        response = client.post(f'/api/investment-transactions/{ident}/review', json={'review_status': 'auto'})
+        assert response.status_code == 200
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            assert write_auto_review(cur, trade_id=ident, updates={'buy_reason': 'other', 'review_status': 'needs_review'})
+            cur.execute('SELECT buy_reason,review_note,review_status FROM investment_trade_review WHERE trade_id=%s', (ident,))
+            preserved = cur.fetchone()
+            assert preserved['buy_reason'] == 'plan_execution' and preserved['review_note'] == 'pending note'
+            assert preserved['review_status'] == 'needs_review'
         attribution = client.get(f'/api/investment-transactions/{ident}/attribution')
         assert attribution.status_code == 200, attribution.text
         assert attribution.json()['found'] and attribution.json()['trade']['trade_id'] == ident
+        summary = client.get('/api/investment-transactions/attribution/summary')
+        assert summary.status_code == 200, summary.text
+        assert summary.json()['sample_count'] == 0 and summary.json()['missing_price_count'] == 1
+        queue = client.get('/api/investment-transactions/auto-review/queue?kind=all')
+        assert queue.status_code == 200, queue.text
+        auto = client.post('/api/investment-transactions/auto-review/apply?dry_run=false')
+        assert auto.status_code == 200, auto.text
+        assert client.get('/api/investment-transactions').json()['rows'][0]['review_note'] == 'pending note'
         assert client.get('/api/investment-transactions?side=sell').json()['rows'] == []
         assert client.get('/api/investment-transactions?start=2026-10-23').json()['rows'] == []
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:

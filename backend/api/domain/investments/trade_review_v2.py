@@ -57,3 +57,25 @@ def write_review(cur, *, trade_id, changes, inferred_status, explicit_status,
     cur.execute(sql.SQL('UPDATE investment_trade_review SET {} WHERE trade_id=%s RETURNING *').format(
         sql.SQL(',').join(assignments)), [*params, trade_id])
     return dict(cur.fetchone())
+
+
+def write_auto_review(cur, *, trade_id, updates):
+    """Fill only empty annotations under lock; never overwrite a manual decision."""
+    cur.execute('SELECT trade_id FROM pams_investment_trade_fact WHERE trade_id=%s FOR UPDATE', (trade_id,))
+    if not cur.fetchone():
+        return False
+    cur.execute('SELECT * FROM investment_trade_review WHERE trade_id=%s FOR UPDATE', (trade_id,))
+    existing = cur.fetchone()
+    before = dict(existing) if existing else {}
+    status = before.get('review_status') or 'auto'
+    if status in {'reviewed', 'ignored'}:
+        return False
+    allowed = {'buy_reason', 'sell_reason', 'review_tags', 'initial_position_identity',
+               'current_position_identity', 'identity_confidence', 'sell_rule_type'}
+    changes = {key: value for key, value in updates.items() if key in allowed and not before.get(key)}
+    next_status = 'needs_review' if status == 'auto' and updates.get('review_status') == 'needs_review' else status
+    if not changes and next_status == status:
+        return False
+    write_review(cur, trade_id=trade_id, changes=changes, inferred_status=next_status,
+                 explicit_status=next_status != status)
+    return True
