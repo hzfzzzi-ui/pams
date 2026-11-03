@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 import sys
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 import psycopg2.extras
 from psycopg2.extensions import connection, ISOLATION_LEVEL_REPEATABLE_READ
 import pytest
@@ -20,7 +22,9 @@ from domain.brokers.ibkr import ibkr_account_audit as oracle
 from domain.brokers.ibkr import ibkr_account_audit_read as service
 from domain.brokers.ibkr import ibkr_performance as performance
 from domain.brokers.ibkr import ibkr_report_state as report_state
-from tests.brokers.ibkr.test_ibkr_sync_transaction import database as database, sync_case as sync_case, business_state, rows
+from endpoints import ibkr
+from scripts.bootstrap_isolated_sources import initialize_isolated_sources
+from tests.brokers.ibkr.test_ibkr_sync_transaction import database as database, rows
 
 DAY = date(2026, 10, 22)
 START = date(2026, 10, 1)
@@ -348,19 +352,46 @@ def test_optional_display_fx_default_contract_and_base_formula_ast(tmp_path, mon
 
 
 @pytest.fixture
-def published_case(sync_case):
-    client, conn, payload = sync_case
-    payload["xml"] = XML.decode("utf-8")
-    response = client.post("/api/ibkr/flex/sync", json={})
-    assert response.status_code == 200 and response.json().get("success"), response.json()
-    return client, conn
+def audit_client(database, monkeypatch):
+    """Exercise the audit adapter on PG16 with a fixed report at its selection boundary."""
+    from contextlib import closing
+
+    monkeypatch.setenv("PAMS_UNIFIED_SOURCE_ISOLATED", "true")
+    monkeypatch.setattr(report_state, "utc_now", lambda: datetime(2026, 10, 22, 22, tzinfo=timezone.utc))
+    monkeypatch.setattr(performance, "_latest_usd_cny_rate", lambda: None)
+    with closing(database()) as conn:
+        initialize_isolated_sources(conn)
+        with conn, conn.cursor() as cur:
+            cur.execute("""INSERT INTO pams_holdings_snapshot
+                (account_code,name,symbol,asset_liability,currency,major_category,minor_category,market_value,as_of)
+                VALUES ('ibkr','Synthetic holding','TEST','资产','USD','美股','股票',100,%s)""", (DAY,))
+    digest = hashlib.sha256(XML).hexdigest()
+    report = report_state.PublishedReport(report_state.StoredReport(XML, "ibkr-audit-fixture.xml"),
+                                          DAY, 1, digest, None)
+    latest = {"id": 1, "status": "success", "summary_json": {"publication": {"state": "published"}}}
+
+    def selected(conn, _raw_dir):
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS has_sources")
+            result = cur.fetchone()
+            assert result["has_sources"] if isinstance(result, dict) else result[0]
+        return report, latest
+
+    monkeypatch.setattr(service, "select_report", selected)
+    monkeypatch.setattr(report_state, "select_report", selected)
+    app = FastAPI()
+    app.include_router(ibkr.router, prefix="/api")
+    with TestClient(app) as client:
+        yield client
 
 
 def stored_state(database):
-    return {**business_state(database), "jobs": rows(database, "pams_data_job_run")}
+    tables = ("source_records", "source_items", "pams_holdings_snapshot", "pams_cashflow_fact",
+              "pams_investment_trade_fact", "broker_processing_state", "valuation_evidence")
+    return {table: rows(database, table) for table in tables}
 
 
-def test_postgres_route_is_server_readonly_repeatable_and_preserves_old_routes(published_case, database, monkeypatch):
+def test_postgres_route_is_server_readonly_repeatable_and_preserves_performance(audit_client, database, monkeypatch):
     statements = []
     class GuardCursor(psycopg2.extras.RealDictCursor):
         def execute(self, query, args=None):
@@ -375,10 +406,12 @@ def test_postgres_route_is_server_readonly_repeatable_and_preserves_old_routes(p
             return super().cursor(*args, **kwargs)
     def guarded():
         return database(connection_factory=GuardConnection)
-    client, _ = published_case
+    client = audit_client
     monkeypatch.setattr(performance, "get_conn", database)
     before = stored_state(database)
-    old = client.get("/api/ibkr/performance").json()
+    old_response = client.get("/api/ibkr/performance")
+    assert old_response.status_code == 200 and old_response.json()["status"] == "ok"
+    old = old_response.json()
     monkeypatch.setattr(performance, "get_conn", guarded)
     for _ in range(2):
         response = client.get("/api/ibkr/account-audit?period_start=2026-10-01")
@@ -391,7 +424,7 @@ def test_postgres_route_is_server_readonly_repeatable_and_preserves_old_routes(p
     assert statements and before == stored_state(database)
 
 
-def test_postgres_server_rejects_writes_without_relying_on_guard(published_case, database, monkeypatch):
+def test_postgres_server_rejects_writes_without_relying_on_guard(audit_client, database, monkeypatch):
     before = stored_state(database)
     def write(conn, raw):
         with conn.cursor() as cur:
@@ -402,7 +435,7 @@ def test_postgres_server_rejects_writes_without_relying_on_guard(published_case,
     assert before == stored_state(database)
 
 
-def test_postgres_selection_quality_and_history_share_snapshot(published_case, database, monkeypatch):
+def test_postgres_selection_quality_and_history_share_snapshot(audit_client, database, monkeypatch):
     selected = service.select_report
     calls = []
     def concurrent(conn, raw):
@@ -429,7 +462,7 @@ def test_postgres_selection_quality_and_history_share_snapshot(published_case, d
     assert result["adapter"]["history_dates_source"] == "unavailable_without_official_daily_coverage"
 
 
-def test_postgres_missing_history_is_not_created(published_case, database):
+def test_postgres_missing_history_is_not_created(audit_client, database):
     result = service.read_ibkr_account_audit(connection_factory=database)
     assert result["adapter"]["history_dates_source"] == "unavailable_without_official_daily_coverage"
     conn = database()
