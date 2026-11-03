@@ -39,13 +39,13 @@ def test_transfer_summary_never_uses_a_future_fx_rate(empty_source_db, monkeypat
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            from domain.ledger import confirmed_transfers
+            from domain.ledger import confirmed_transfers_v2
             common = {'from_account_code':'bank_a', 'to_account_code':'ibkr', 'amount':Decimal('100'),
                       'currency':'USD', 'from_evidence':{'kind':'cashflow','id':1,'day':str(day)},
                       'to_evidence':{'kind':'trade','id':2,'day':str(day)}}
             records = [{**common, 'transfer_id':'valid','evidence_status':'confirmed'},
                        {**common, 'transfer_id':'invalid','evidence_status':'invalidated'}]
-            monkeypatch.setattr(confirmed_transfers, 'read', lambda cur, limit=None: records)
+            monkeypatch.setattr(confirmed_transfers_v2, 'read', lambda cur, limit=None: records)
             cur.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES (%s,'CNY','USD',8,'synthetic')",(day+timedelta(days=1),))
             rows=_load_transfer_matches(cur,start=day,end=day,base_currency='CNY')
             assert len(rows)==1 and rows[0]['amount_cny'] is None

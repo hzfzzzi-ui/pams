@@ -969,6 +969,29 @@ def list_investment_transactions(
             where_sql = "WHERE " + " AND ".join(where) if where else ""
             if not _fact_rows_available(cur):
                 return {"summary": _transaction_summary([], "trade_fact"), "rows": []}
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.transaction_list_v2 import list_rows
+                rows = list_rows(cur, start=start, end=end, account_code=account_code)
+                if source:
+                    rows = [row for row in rows if row['source'] == source]
+                if side:
+                    rows = [row for row in rows if row['side_normalized'] == side.lower()]
+                if review_status:
+                    rows = [row for row in rows if row['status'] == review_status]
+                if asset_key:
+                    key = _clean_optional_text(asset_key, max_len=160)
+                    if key:
+                        rows = [row for row in rows if str(row.get('symbol') or row.get('name') or '').lower() == key.lower()]
+                if search:
+                    term = search.casefold()
+                    rows = [row for row in rows if any(term in str(row.get(field) or '').casefold() for field in
+                        ('symbol', 'name', 'notes', 'trade_intent', 'trade_plan', 'review_note'))]
+                rows.sort(key=lambda row: (row['trade_time'], row['native_id']), reverse=True)
+                rows = rows[:limit]
+                _enrich_transaction_names(cur, rows)
+                _apply_owner_amount_scope(rows, _load_accounts_config())
+                summary = _transaction_summary(rows, 'trade_fact')
+                return {"summary": summary, "rows": [{k: norm(v) for k, v in row.items()} for row in rows]}
             data_source = "trade_fact"
             query = _fact_query(where_sql)
             cur.execute(query, params + [limit])
