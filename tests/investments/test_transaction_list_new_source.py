@@ -65,6 +65,9 @@ def test_new_trade_list_uses_source_and_trade_day_fx(empty_source_db, monkeypatc
         updated = client.get('/api/investment-transactions?review_status=ignored').json()['rows'][0]
         assert updated['review_note'] == 'pending note' and updated['status'] == 'ignored'
         assert updated['source_evidence_status'] == 'verified'
+        attribution = client.get(f'/api/investment-transactions/{ident}/attribution')
+        assert attribution.status_code == 200, attribution.text
+        assert attribution.json()['found'] and attribution.json()['trade']['trade_id'] == ident
         assert client.get('/api/investment-transactions?side=sell').json()['rows'] == []
         assert client.get('/api/investment-transactions?start=2026-10-23').json()['rows'] == []
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
@@ -76,3 +79,4 @@ def test_new_trade_list_uses_source_and_trade_day_fx(empty_source_db, monkeypatc
         data = client.get('/api/investment-transactions').json()
         assert data['rows'][0]['source_evidence_status'] == 'unknown'
         assert data['rows'][0]['gross_amount'] is None and data['summary']['buy_amount_cny'] is None
+        assert client.get(f'/api/investment-transactions/{ident}/attribution').status_code == 409

@@ -1144,7 +1144,19 @@ def investment_trade_attribution(trade_id: int):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if not _table_exists(cur, "pams_investment_trade_fact"):
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
-            payload = build_trade_attribution_payload(cur, trade_id)
+            if _table_exists(cur, 'source_records'):
+                from domain.investments.transaction_list_v2 import list_rows
+                cur.execute('SELECT account_code,trade_date FROM pams_investment_trade_fact WHERE trade_id=%s', (trade_id,))
+                target = cur.fetchone()
+                if not target:
+                    raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}")
+                rows = list_rows(cur, start=target['trade_date'], end=target['trade_date'], account_code=target['account_code'])
+                trade = next((row for row in rows if row['trade_id'] == trade_id), None)
+                if not trade or trade['source_evidence_status'] != 'verified':
+                    raise HTTPException(status_code=409, detail='交易来源无法核验，暂不能生成归因')
+                payload = build_trade_attribution_payload(cur, trade_id, trade_row=trade)
+            else:
+                payload = build_trade_attribution_payload(cur, trade_id)
             if not payload.get("found"):
                 raise HTTPException(status_code=404, detail=f"trade not found: {trade_id}")
             return payload
