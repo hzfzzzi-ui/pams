@@ -52,6 +52,10 @@ def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_sou
             facts = load_trade_rows(cur, account_code='ibkr', start=date(2026, 10, 22), end=date(2026, 10, 22))
             assert len(facts) == 1 and facts[0]['source_evidence_status'] == 'verified'
             assert str(facts[0]['gross_amount']) == '340.0000000000'
+            with conn.cursor() as tuple_cursor:
+                tuple_cursor.execute("INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source) VALUES ('2026-10-22','CNY','USD',7,'synthetic')")
+                tuple_facts = load_trade_rows(tuple_cursor, account_code='ibkr', start=date(2026, 10, 22), end=date(2026, 10, 22))
+                assert tuple_facts[0]['source_evidence_status'] == 'verified'
             with pytest.raises(ValueError, match='already exists'):
                 stage_trade_report(cur, report_bytes=report, expected_source_account='U_TEST')
             changed = report.replace(b'ibCommission="-1.25"', b'ibCommission="-1.50"').replace(b'netCash="-341.25"', b'netCash="-341.50"')
@@ -98,3 +102,43 @@ def test_ibkr_report_http_stages_then_requires_review(empty_source_db, monkeypat
         assert preview.status_code == 200, preview.text
         published = client.post(path+'/trade-publish', json={'revision':revision,'preview_token':preview.json()['preview_token']})
         assert published.status_code == 200 and published.json()['published'] == 1
+
+
+@pytest.mark.parametrize('tamper', ['parsed_and_fact', 'raw_and_fact', 'source_uid'])
+def test_ibkr_new_source_verification_rejects_tampering(empty_source_db, tamper):  # noqa: F811
+    from datetime import date
+    from hashlib import sha256
+    import json
+    from psycopg2.extras import Json
+
+    report = XML.replace('ibCommission="-1.25"', 'ibCommission="-1.25" ibCommissionCurrency="USD" taxAmount="0"').encode('utf-8')
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            source = stage_trade_report(cur, report_bytes=report, expected_source_account='U_TEST')
+            cur.execute('SELECT source_item_id,parsed_fields FROM source_items WHERE source_id=%s', (source['source_id'],))
+            item = cur.fetchone()
+            revision = review_item(cur, source_id=UUID(source['source_id']), item_id=item['source_item_id'],
+                                   expected_revision=source['revision'], parsed_fields=item['parsed_fields'],
+                                   review_status='confirmed')
+            publish_trade_source(cur, source_id=UUID(source['source_id']), expected_revision=revision)
+        conn.commit()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            day = date(2026, 10, 22)
+            assert load_trade_rows(cur, account_code='ibkr', start=day, end=day)[0]['source_evidence_status'] == 'verified'
+            cur.execute('ALTER TABLE source_items DISABLE TRIGGER USER')
+            if tamper == 'source_uid':
+                cur.execute("UPDATE source_items SET source_uid='ibkr_trade:forged' WHERE source_item_id=%s", (item['source_item_id'],))
+            else:
+                cur.execute('SELECT raw_fields,parsed_fields FROM source_items WHERE source_item_id=%s', (item['source_item_id'],))
+                stored = cur.fetchone()
+                stored['parsed_fields']['gross_amount'] = '341'
+                if tamper == 'raw_and_fact':
+                    stored['raw_fields']['official_attributes']['tradeMoney'] = '341'
+                digest = sha256(json.dumps(stored['raw_fields'], ensure_ascii=False, sort_keys=True,
+                    separators=(',', ':')).encode('utf-8')).hexdigest()
+                cur.execute('UPDATE source_items SET raw_fields=%s,parsed_fields=%s,record_hash=%s WHERE source_item_id=%s',
+                    (Json(stored['raw_fields']), Json(stored['parsed_fields']), digest, item['source_item_id']))
+                cur.execute('UPDATE pams_investment_trade_fact SET gross_amount=341 WHERE source_item_id=%s', (item['source_item_id'],))
+            cur.execute('ALTER TABLE source_items ENABLE TRIGGER USER')
+            assert load_trade_rows(cur, account_code='ibkr', start=day, end=day)[0]['source_evidence_status'] == 'unknown'

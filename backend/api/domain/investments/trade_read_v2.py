@@ -30,7 +30,8 @@ def _matches(row: dict) -> bool:
 def load_trade_rows(cur, *, account_code: str, start: date, end: date) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
     cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
-        i.review_status AS item_review, r.status AS source_status,
+        i.review_status AS item_review, i.source_uid AS item_source_uid,
+        r.source_name,r.acquisition_method,r.file_format, r.status AS source_status,
         r.account_code AS source_account, r.content, r.sha256
         FROM public.pams_investment_trade_fact f
         JOIN public.source_items i ON i.source_item_id=f.source_item_id
@@ -39,6 +40,7 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date) -> list[d
         ORDER BY f.trade_date,f.trade_time NULLS FIRST,f.trade_id''', (account_code, start, end))
     columns = [column[0] for column in cur.description]
     out = []
+    ibkr_cache = {}
     for value in cur.fetchall():
         row = dict(value) if hasattr(value, 'keys') else dict(zip(columns, value))
         raw = json.dumps(row['raw_fields'], ensure_ascii=False, sort_keys=True,
@@ -49,12 +51,19 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date) -> list[d
                     and sha256(raw).hexdigest() == row['record_hash']
                     and ((content is None and digest is None) or
                          (content is not None and sha256(bytes(content)).hexdigest() == digest)))
+        ibkr_report = ((row.get('raw_fields') or {}).get('provider') == 'ibkr_flex' or
+                       (row.get('source_name') == 'ibkr' and row.get('acquisition_method') == 'api'
+                        and row.get('file_format') == 'xml'))
+        if verified and ibkr_report:
+            from domain.brokers.ibkr.ibkr_source_verify_v2 import verify_trade_original
+            verified = verify_trade_original(cur, row, ibkr_cache)
         row['source_evidence_status'] = 'verified' if verified else 'unknown'
         row['fee_scope'] = (row['parsed_fields'] or {}).get('fee_scope')
         origin = row['raw_fields'].get('source') if isinstance(row['raw_fields'], dict) else None
         row['source_market'] = origin.get('market') if isinstance(origin, dict) else None
         for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
-                    'source_account', 'content', 'sha256'):
+                    'source_account', 'content', 'sha256', 'item_source_uid', 'source_name',
+                    'acquisition_method', 'file_format'):
             row.pop(key, None)
         out.append(row)
     return out
