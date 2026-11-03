@@ -6,7 +6,7 @@ moving display-read logic out of ``main.py``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from collections.abc import Mapping
 from typing import Any
@@ -322,7 +322,7 @@ def _adjust_a_stock_daily_pnl_for_same_day_buys(cur, rows: list[dict[str, Any]])
 
     if _table_exists(cur, 'source_records'):
         from domain.investments.trade_read_v2 import load_trade_rows
-        grouped = {}
+        grouped: dict[tuple[str, str, date], dict[str, Decimal]] = {}
         incomplete = set()
         for account in accounts:
             for fact in load_trade_rows(cur, account_code=account, start=min(dates), end=max(dates)):
