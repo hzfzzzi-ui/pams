@@ -549,6 +549,38 @@ def list_candidates(cur, config, *, limit=1000):
                     'amount': abs(Decimal(str(row['amount']))), 'currency': row['currency'],
                     'match_date': row['case_date'], 'confidence': None, 'status': 'review_required',
                     'confirmation_supported': independent, 'ambiguity_status': row['status']})
+        if len(suggestions) < limit:
+            from domain.ledger import bank_source_read, confirmed_transfers_v2
+            from domain.ledger.payment_proxy_confirmation import decisions
+            linked = {leg['id'] for decision in confirmed_transfers_v2.read(cur, limit=None)
+                      if decision['evidence_status'] == 'confirmed'
+                      for leg in (decision['from_evidence'], decision['to_evidence']) if leg['kind'] == 'cashflow'}
+            for decision in decisions(cur):
+                if decision['evidence_status'] == 'confirmed':
+                    linked.update((decision['from_cashflow_id'], decision['to_cashflow_id']))
+            bank_rows = []
+            for item in bank_source_read.rows(cur, limit=limit):
+                if item['source_evidence_status'] != 'verified' or item['cashflow_id'] in linked:
+                    continue
+                original = (item.get('source') or {}).get('statement_row') or {}
+                bank_rows.append({**item, 'id': item['cashflow_id'], 'transaction_date': item['event_date'],
+                                  'raw_json': original.get('raw') or {}})
+            by_fact = {row['id']: row for row in bank_rows}
+            for candidate in _build_transfer_matches(bank_rows, config):
+                if candidate['match_type'] != 'payment_proxy':
+                    continue
+                left = by_fact.get(candidate.get('source_row_id'))
+                right = by_fact.get(candidate.get('target_row_id'))
+                if not left or not right:
+                    continue
+                candidate['status'] = 'review_required'
+                candidate['ambiguity_status'] = 'unverified'
+                candidate['confirmation_supported'] = bool(
+                    left['account_code'] != right['account_code'] and left['batch_id'] != right['batch_id']
+                    and left['sha256'] and right['sha256'] and left['sha256'] != right['sha256']
+                    and left['currency'] == right['currency'] and left['event_date'] == right['event_date']
+                    and left['amount'] == right['amount'] < 0)
+                suggestions.append(candidate)
         return suggestions[:limit]
     from domain.ledger import bank_source_read, confirmed_transfers
     existing = confirmed_transfers.read(cur, limit=10000)

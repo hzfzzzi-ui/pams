@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from uuid import uuid4
 
 import psycopg2
 from fastapi import FastAPI
@@ -27,17 +28,42 @@ def test_proxy_candidates_confirm_dedup_revoke_and_ambiguity(empty_source_db, mo
     for r in (account_import.router,bank_reconcile.router,ledger.router): app.include_router(r,prefix='/api')
     day=date.today()-timedelta(days=2)
     def publish(web, account, summary):
-        batch=web.post('/api/account-import/batches',json={'account_code':account,'mode':'upload','kind':'cash'}).json()
-        path='/api/account-import/batches/'+batch['batch_id']
-        batch=web.post(path+'/files?filename=bank.csv',content=f'transaction_date,amount,currency,summary\n{day},-10,CNY,{summary}\n'.encode()).json()
-        batch['rows'][0]['fields']['action']='expense'
-        response=web.put(path,json={'revision':batch['revision'],'rows':batch['rows']})
-        assert response.status_code==200,response.text
-        batch=response.json()
-        check=web.post(path+'/preview',json={'revision':batch['revision']}).json()
-        assert check['can_publish'], __import__('json').dumps(check,ensure_ascii=False,default=str)
-        response=web.post(path+'/publish',json={'revision':batch['revision'],'preview_token':check['preview_token']})
-        assert response.status_code==200,response.text
+        root = '/api/account-import/source-records'
+        content = f'transaction_date,amount,currency,summary\n{day},-10,CNY,{summary}\n'.encode()
+        response = web.post(root + f'?account_code={account}&source_name=synthetic&filename=bank.csv', content=content)
+        assert response.status_code == 200, response.text
+        path = root + '/' + response.json()['source_id']
+        staged = web.get(path).json()
+        response = web.put(path + '/reviews', json={'revision': staged['revision'], 'items': [
+            {'source_item_id': row['source_item_id'], 'parsed_fields': row['parsed_fields'],
+             'review_status': 'excluded' if row['parsed_fields'].get('action') == 'balance' else 'confirmed'}
+            for row in staged['items']]})
+        assert response.status_code == 200, response.text
+        payload = {'revision': response.json()['revision'], 'mode': 'all'}
+        response = web.post(path + '/cash-preview', json=payload)
+        assert response.status_code == 200 and response.json()['can_publish'], response.text
+        payload['preview_token'] = response.json()['preview_token']
+        response = web.post(path + '/cash-publish', json=payload)
+        assert response.status_code == 200, response.text
+
+    def add_competing_fact():
+        from psycopg2.extras import RealDictCursor
+        from domain.imports import source_records_v2 as source
+
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            source_id, item_id = uuid4(), uuid4()
+            fields = {'business_date': day.isoformat(), 'currency': 'CNY', 'net_cash': '-10'}
+            source.create_source(cur, source_id=source_id, account_code='wechat', source_name='synthetic',
+                                 acquisition_method='manual', document_type='cash')
+            source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                            raw_fields={'entered_fields': fields}, parsed_fields=fields)
+            source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                               parsed_fields=fields, review_status='confirmed')
+            cur.execute("UPDATE source_records SET status='published' WHERE source_id=%s", (str(source_id),))
+            cur.execute("""INSERT INTO pams_cashflow_fact(event_date,account_code,amount,currency,source_item_id,fact_role)
+                VALUES (%s,'wechat',-10,'CNY',%s,'statement_cashflow') RETURNING cashflow_id""", (day, str(item_id)))
+            return cur.fetchone()['cashflow_id']
+
     with TestClient(app) as web:
         web.headers['Origin']='http://testserver'
         publish(web,'ccb_7332','财付通')
@@ -45,6 +71,9 @@ def test_proxy_candidates_confirm_dedup_revoke_and_ambiguity(empty_source_db, mo
         with psycopg2.connect(**empty_source_db) as conn,conn.cursor() as cur:
             cur.execute('SELECT cashflow_id,account_code FROM pams_cashflow_fact')
             ids={account:ident for ident,account in cur.fetchall()}
+        for fact_id in ids.values():
+            response = web.post(f'/api/ledger/review/{fact_id}/confirm', json={})
+            assert response.status_code == 200, response.text
         suggestions=web.post('/api/bank-reconcile/transfer-matches/run').json()
         assert any(x['match_type']=='payment_proxy' and x['status']=='review_required' for x in suggestions['matches']),suggestions
         url='/api/ledger/workbench'
@@ -69,31 +98,25 @@ def test_proxy_candidates_confirm_dedup_revoke_and_ambiguity(empty_source_db, mo
         assert ids['ccb_7332'] not in after_ids and ids['wechat'] in after_ids
         assert after['periods']['month']['expense'] == 10
         with psycopg2.connect(**empty_source_db) as conn,conn.cursor() as cur:
-            cur.execute("SELECT i.file_id FROM source_items i JOIN pams_cashflow_fact f ON f.source_item_id=i.source_item_id WHERE f.cashflow_id=%s",(ids['wechat'],))
-            file_id=cur.fetchone()[0]
-            cur.execute('ALTER TABLE source_files DISABLE TRIGGER USER')
-            cur.execute("UPDATE source_files SET content=content || decode('00','hex') WHERE file_id=%s",(file_id,))
-            cur.execute('ALTER TABLE source_files ENABLE TRIGGER USER')
+            cur.execute("SELECT i.source_id FROM source_items i JOIN pams_cashflow_fact f ON f.source_item_id=i.source_item_id WHERE f.cashflow_id=%s",(ids['wechat'],))
+            source_record_id=cur.fetchone()[0]
+            cur.execute('ALTER TABLE source_records DISABLE TRIGGER USER')
+            cur.execute("UPDATE source_records SET content=content || decode('00','hex') WHERE source_id=%s",(source_record_id,))
+            cur.execute('ALTER TABLE source_records ENABLE TRIGGER USER')
         assert web.get('/api/bank-reconcile/payment-proxy').json()['decisions'][0]['evidence_status']=='invalidated'
         assert {ids['ccb_7332'],ids['wechat']} <= {r['id'] for r in data()['recent_rows_month']}
         with psycopg2.connect(**empty_source_db) as conn,conn.cursor() as cur:
-            cur.execute('ALTER TABLE source_files DISABLE TRIGGER USER')
-            cur.execute('UPDATE source_files SET content=substring(content FROM 1 FOR octet_length(content)-1) WHERE file_id=%s',(file_id,))
-            cur.execute('ALTER TABLE source_files ENABLE TRIGGER USER')
+            cur.execute('ALTER TABLE source_records DISABLE TRIGGER USER')
+            cur.execute('UPDATE source_records SET content=substring(content FROM 1 FOR octet_length(content)-1) WHERE source_id=%s',(source_record_id,))
+            cur.execute('ALTER TABLE source_records ENABLE TRIGGER USER')
         # New competing same-day evidence invalidates an earlier decision.
-        with psycopg2.connect(**empty_source_db) as conn,conn.cursor() as cur:
-            cur.execute("""INSERT INTO pams_cashflow_fact(event_date,account_code,amount,currency,amount_cny,
-                cashflow_type,source_table,source_id,source_hash) VALUES (%s,'wechat',-10,'CNY',-10,
-                'operating_expense','synthetic','ambiguous-before',%s)""", (day,'c'*64))
+        competing = add_competing_fact()
         assert web.get('/api/bank-reconcile/payment-proxy').json()['decisions'][0]['evidence_status']=='invalidated'
         assert {ids['ccb_7332'],ids['wechat']} <= {r['id'] for r in data()['recent_rows_month']}
         with psycopg2.connect(**empty_source_db) as conn,conn.cursor() as cur:
-            cur.execute("DELETE FROM pams_cashflow_fact WHERE source_id='ambiguous-before'")
+            cur.execute("DELETE FROM pams_cashflow_fact WHERE cashflow_id=%s", (competing,))
         assert web.post(f'/api/bank-reconcile/payment-proxy/{ident}/revoke',json={'note':'错误核准','confirmed':True}).status_code==200
         assert {ids['ccb_7332'],ids['wechat']} <= {r['id'] for r in data()['recent_rows_month']}
-        with psycopg2.connect(**empty_source_db) as conn,conn.cursor() as cur:
-            cur.execute("""INSERT INTO pams_cashflow_fact(event_date,account_code,amount,currency,amount_cny,
-                cashflow_type,source_table,source_id,source_hash) VALUES (%s,'wechat',-10,'CNY',-10,
-                'operating_expense','synthetic','ambiguous',%s)""", (day,'b'*64))
+        add_competing_fact()
         response=web.post('/api/bank-reconcile/payment-proxy/confirm',json=req)
         assert response.status_code==409 and 'ambiguous' in response.text

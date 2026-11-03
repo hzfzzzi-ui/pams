@@ -1418,7 +1418,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     }
 
     confirmed_proxy_roles = {}
-    if not redesigned and _table_exists(cur, 'evidence_confirmation'):
+    if _table_exists(cur, 'evidence_confirmation'):
         from domain.ledger.payment_proxy_confirmation import decisions
         for decision in decisions(cur):
             if decision['evidence_status'] == 'confirmed':
