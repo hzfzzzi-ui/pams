@@ -1,8 +1,8 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
 import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-available-returns-v2';
-import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-available-returns-v2';
+import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-trim-chart-copy-v1';
+import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-trim-chart-copy-v1';
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
@@ -69,17 +69,6 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         order: 1,
       };
     });
-    const noteEl = getElementById('investmentReturnNote');
-    if (noteEl) {
-      const notes = (resp.coverage_notes || []).map(item => typeof item === 'string' ? item : item?.reason).filter(Boolean);
-      const estimate = chartState.sectionEstimates.get('a_stock');
-      if (notes.length && resp.status !== 'unavailable') notes.unshift('含多口径数据。');
-      if (!initialWindowData.totalData.some(value => value != null)) notes.unshift('组合收益率待补齐。');
-      if (estimate) notes.push(`A股个股显示同花顺累计估算，按累计盈亏 ÷ 净投入计算。流水截至 ${estimate.source_through}，之后沿用末笔持仓和现金。`);
-      noteEl.style.display = notes.length ? 'block' : 'none';
-      noteEl.textContent = notes.join(' ');
-    }
-
     if (returnChart) returnChart.destroy();
     if (typeof ChartClass !== 'function') {
       const datasets = [{
@@ -331,18 +320,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     return formatNumber(n, { maximumFractionDigits: 0 });
   }
 
-  function renderInvestmentNavSummary(data, windowKey) {
-    const rangeEl = getElementById('investmentNavRange');
+  function renderInvestmentNavSummary(data) {
     const statsEl = getElementById('investmentNavStats');
-    const hintEl = getElementById('investmentNavHint');
-    if (hintEl) {
-      const through = data?.tonghuashunSourceThrough;
-      hintEl.textContent = '实线为全组合净值，虚线为已覆盖账户净值'
-        + (through ? `。同花顺流水截至 ${through}，之后沿用末笔持仓和现金。` : '');
-    }
-    if (rangeEl) rangeEl.textContent = data?.availableAccountCount
-      ? `${returnWindowLabel(windowKey)} · 部分覆盖（${data.availableAccountCount} 个账户）`
-      : returnWindowLabel(windowKey);
     if (!statsEl) return;
     if (!data || !data.values.length) {
       statsEl.innerHTML = '<span class="muted">暂无NAV数据</span>';
@@ -433,7 +412,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const el = getElementById('investmentNavChart');
     if (!el) return null;
     const data = buildInvestmentNavChartData(filterReturnWindowRows(rows, windowKey), isMobile);
-    renderInvestmentNavSummary(data, windowKey);
+    renderInvestmentNavSummary(data);
     if (navChart) navChart.destroy();
     if (typeof ChartClass !== 'function') {
       drawInvestmentNavCanvasFallback(el, data);
@@ -537,13 +516,13 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     chart.data.datasets[0].navScopes = data.scopes;
     if (chart.__fallback) {
       chart.update();
-      renderInvestmentNavSummary(data, state.activeWindow);
+      renderInvestmentNavSummary(data);
       return;
     }
     chart.data.datasets[0].fill = data.change != null && data.scopes[0] === 'complete';
     chart.data.datasets[0].navPointRadius = data.pointRadius;
     chart.update('none');
-    renderInvestmentNavSummary(data, state.activeWindow);
+    renderInvestmentNavSummary(data);
   }
 
   function returnEventSummary(event) {

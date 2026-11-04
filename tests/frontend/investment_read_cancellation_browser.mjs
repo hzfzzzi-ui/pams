@@ -70,7 +70,7 @@ try {
         fmtCny: String, fmtSignedCny: String, fmtSignedPctFromRate: String, TopContributionPanel: () => ''};
       const makeRoot = () => {
         const root = document.createElement('section');
-        root.innerHTML = '<canvas id="investmentReturnChart"></canvas><canvas id="investmentNavChart"></canvas><div id="investmentReturnToggle"></div><div id="investmentReturnWindowToggle"></div><div id="returnEventHotspots"></div><div id="returnEventPopover"></div><div id="investmentReturnNote"></div>';
+        root.innerHTML = '<canvas id="investmentReturnChart"></canvas><canvas id="investmentNavChart"></canvas><div id="investmentReturnToggle"></div><div id="investmentReturnWindowToggle"></div><div id="returnEventHotspots"></div><div id="returnEventPopover"></div>';
         document.body.append(root); return root;
       };
       Object.assign(window, {api, charts, bootstrap, Chart, presenters, makeRoot, rootA: makeRoot(), rootB: makeRoot()});

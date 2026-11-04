@@ -68,7 +68,7 @@ const returns = { rows: nav.rows.map((row, index) => ({ date: row.date, market_v
 async function fixture({ fallback = false } = {}) {
   const requests = [], charts = [], storage = new Map();
   const ids = ['investmentReturnChart', 'investmentNavChart', 'investmentReturnToggle', 'investmentReturnWindowToggle',
-    'returnEventHotspots', 'returnEventPopover', 'investmentReturnNote'];
+    'returnEventHotspots', 'returnEventPopover'];
   const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
   const document = { body: { dataset: {} }, getElementById: id => elements[id] || null };
   const window = Object.assign(new Target(), { matchMedia: () => ({ matches: true }), devicePixelRatio: 1 });
