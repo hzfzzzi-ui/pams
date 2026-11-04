@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   verify:
+    if: ${{ vars.PAMS_CI_PAUSED != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
