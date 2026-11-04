@@ -9,6 +9,80 @@ from tests.database.test_isolated_source_bootstrap import empty_source_db
 from tests.imports.test_account_import_publish import trade
 
 
+def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch):
+    from datetime import date, datetime
+    from decimal import Decimal
+    from uuid import UUID
+    from zoneinfo import ZoneInfo
+    from psycopg2.extras import RealDictCursor
+    import main
+    from domain.imports import account_import_store as store
+    from domain.investments import trade_snapshot_http
+    from domain.investments.trade_snapshot_display import enrich_trade_snapshot_costs
+    from scripts.link_ths_trade_assets import link_assets
+    from tests.imports.test_account_import_ths import event, export
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a1' * 32)
+    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
+    monkeypatch.setattr(store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    day = date(2025, 10, 22)
+    quote = {'symbol': 'sz003123', 'price': Decimal('12'), 'price_date': day, 'source': 'tencent',
+             'price_time': datetime(2025, 10, 22, 14, tzinfo=ZoneInfo('Asia/Shanghai'))}
+    monkeypatch.setattr(trade_snapshot_http, 'fetch_tencent_stock_quotes', lambda symbols: {'sz003123': quote})
+    root = '/api/account-import'
+    with TestClient(main.app, base_url='http://localhost') as web:
+        web.headers['Origin'] = 'http://localhost'
+        uploaded = web.post(root + '/source-records?account_code=tonghuashun&source_name=tonghuashun&filename=table.xls',
+                            content=export(event(**{'证券代码': '003123', '交易市场': '深圳Ａ股'})))
+        assert uploaded.status_code == 200, uploaded.text
+        source = uploaded.json()
+        source_path = root + '/source-records/' + source['source_id']
+        revision = {'revision': source['revision']}
+        checked = web.post(source_path + '/trade-preview', json=revision)
+        assert checked.status_code == 200, checked.text
+        saved = web.post(source_path + '/trade-publish', json={**revision, 'preview_token': checked.json()['preview_token']})
+        assert saved.status_code == 200, saved.text
+
+        with psycopg2.connect(**empty_source_db) as conn:
+            conn.set_session(isolation_level='SERIALIZABLE')
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT raw_fields,parsed_fields,record_hash FROM source_items')
+                before = cur.fetchall()
+                source_id = UUID(source['source_id'])
+                assert link_assets(cur, source_id, expected_count=1, apply=False)['new_links'] == 1
+                assert link_assets(cur, source_id, expected_count=1, apply=True)['new_links'] == 1
+                assert link_assets(cur, source_id, expected_count=1, apply=True)['new_links'] == 0
+                cur.execute('SELECT raw_fields,parsed_fields,record_hash FROM source_items')
+                assert cur.fetchall() == before
+
+        checked = web.post(root + '/trade-snapshot/preview', json={'account_code': 'tonghuashun'})
+        assert checked.status_code == 200, checked.text
+        value = checked.json()
+        assert value['cash_coverage'] == 'unknown'
+        holding, = value['candidates']
+        assert Decimal(holding['quantity']) == 100
+        assert Decimal(holding['market_value']) == 1200
+        assert Decimal(holding['remaining_cost']) == Decimal(holding['diluted_cost'])
+        body = {'preview_token': value['preview_token']}
+        assert web.post(root + '/trade-snapshot/publish', json=body).status_code == 400
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute('SELECT count(*) FROM pams_holdings_snapshot')
+            assert cur.fetchone()[0] == 0
+        body['confirmed_scope'] = True
+        saved = web.post(root + '/trade-snapshot/publish', json=body)
+        assert saved.status_code == 200, saved.text
+        assert web.post(root + '/trade-snapshot/publish', json=body).json()['replayed'] is True
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot')
+            row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
+        assert row['diluted_cost'] == Decimal(holding['diluted_cost'])
+
+
 def test_new_database_manual_trade_publish_replay_and_read(empty_source_db, monkeypatch):
     import main
     from domain.imports import account_import_store as store

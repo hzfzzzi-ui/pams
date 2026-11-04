@@ -6,6 +6,26 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 
+from domain.imports.ths_asset_candidates import MARKETS, PROFILE
+
+
+def _asset_matches(row, fields):
+    if fields.get('asset_id') == row['asset_id']:
+        return True
+    raw = row.get('raw_fields') or {}
+    source = raw.get('source') or {}
+    original = raw.get('initial_fields') or {}
+    exchange = MARKETS.get(source.get('market'))
+    asset = row.get('asset_identity') or {}
+    return (not fields.get('asset_id') and row['account_code'] == 'tonghuashun'
+            and row.get('acquisition_method') == 'file' and row.get('parse_method') == 'template'
+            and row.get('content') is not None and source.get('profile') == PROFILE
+            and row['trade_type'] in {'buy', 'sell', 'dividend', 'tax'} and exchange is not None
+            and original.get('symbol') == fields.get('symbol') == asset.get('primary_symbol')
+            and asset.get('exchange') == exchange and asset.get('status') == 'active'
+            and asset.get('currency') == row['currency'] == 'CNY'
+            and asset.get('asset_type') in {'stock', 'A股个股'})
+
 
 def _matches(row: dict) -> bool:
     fields = row['parsed_fields'] or {}
@@ -21,23 +41,31 @@ def _matches(row: dict) -> bool:
         return (business_date == row['trade_date'] and trade_time == row['trade_time'] and settle_date == row['settle_date']
                 and action == row['trade_type'] and side == row['side'] and fields.get('currency') == row['currency']
                 and all(expected[key] == row[key] for key in numeric)
+                and _asset_matches(row, fields)
                 and all(fields.get(key) == row[key] for key in
-                        ('asset_id', 'symbol', 'name', 'market', 'fee_currency', 'broker', 'portfolio_code', 'execution_status')))
+                        ('symbol', 'name', 'market', 'fee_currency', 'broker', 'portfolio_code', 'execution_status')))
     except (ValueError, TypeError, KeyError, InvalidOperation):
         return False
 
 
-def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None) -> list[dict]:
+def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None,
+                    source_id=None) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
     fact_filter = ' AND f.trade_id=%s' if fact_id is not None else ''
     params = (account_code, start, end) if fact_id is None else (account_code, start, end, fact_id)
+    if source_id is not None:
+        fact_filter += ' AND r.source_id=%s'
+        params += (str(source_id),)
     cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
         i.review_status AS item_review, i.source_uid AS item_source_uid,
         r.source_name,r.acquisition_method,r.file_format, r.status AS source_status,
-        r.account_code AS source_account, r.content, r.sha256
+        r.account_code AS source_account, r.content, r.sha256, i.parse_method,
+        json_build_object('primary_symbol', a.primary_symbol, 'exchange', a.exchange,
+                          'status', a.status, 'currency', a.currency, 'asset_type', a.asset_type) AS asset_identity
         FROM public.pams_investment_trade_fact f
         JOIN public.source_items i ON i.source_item_id=f.source_item_id
         JOIN public.source_records r ON r.source_id=i.source_id
+        LEFT JOIN public.pams_asset_master a ON a.asset_id=f.asset_id
         WHERE f.account_code=%s AND f.trade_date BETWEEN %s AND %s''' + fact_filter +
         ' ORDER BY f.trade_date,f.trade_time NULLS FIRST,f.trade_id', params)
     columns = [column[0] for column in cur.description]
@@ -65,7 +93,7 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
         row['source_market'] = origin.get('market') if isinstance(origin, dict) else None
         for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
                     'source_account', 'content', 'sha256', 'item_source_uid', 'source_name',
-                    'acquisition_method', 'file_format'):
+                    'acquisition_method', 'file_format', 'parse_method', 'asset_identity'):
             row.pop(key, None)
         out.append(row)
     return out

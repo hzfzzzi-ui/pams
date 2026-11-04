@@ -1,9 +1,12 @@
 """Attach recorded trade-derived cost data only while its evidence is current."""
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from domain.imports.source_fact_evidence import NativeFactVerifier
+from domain.investments.trade_read_v2 import load_trade_rows
+from domain.investments.trade_snapshot_publication import published_results
 from domain.investments.valuation_input_evidence import _bound_input, _hash, verify_recorded_version
 
 
@@ -12,14 +15,20 @@ def enrich_trade_snapshot_costs(cur, rows):
                   and row.get('currency') == 'CNY' and row.get('holding_id')]
     if not candidates:
         return rows
-    cur.execute("SELECT to_regclass('public.source_batches') IS NOT NULL AND to_regclass('public.valuation_evidence') IS NOT NULL AS ready")
-    if not cur.fetchone()['ready']:
+    cur.execute("""SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned,
+        (to_regclass('public.source_records') IS NOT NULL OR to_regclass('public.source_batches') IS NOT NULL)
+        AND to_regclass('public.valuation_evidence') IS NOT NULL AS ready""")
+    schema = cur.fetchone()
+    if not schema['ready']:
         return rows
-    cur.execute("""SELECT published_result FROM source_batches WHERE account_code='tonghuashun'
-        AND workflow='trade_snapshot' AND status='published' ORDER BY created_at DESC""")
-    records = [record for batch in cur.fetchall() for record in (batch['published_result'] or {}).get('records', [])
+    try:
+        results = published_results(cur, 'tonghuashun')
+    except (ValueError, TypeError, KeyError):
+        return rows
+    records = [record for result in results for record in result.get('records', [])
                if isinstance(record, dict)]
     verifier = NativeFactVerifier(cur)
+    source_rows = None
     for row in candidates:
         for record in records:
             if record.get('symbol') != row.get('symbol'):
@@ -43,9 +52,17 @@ def enrich_trade_snapshot_costs(cur, rows):
                     AND trade_date <= %s ORDER BY trade_id''', ('tonghuashun', row['symbol'], row['as_of']))
                 if set(event_ids) != {r['trade_id'] for r in cur.fetchall()}:
                     continue
-                proofs = verifier.verify_many(table='pams_investment_trade_fact', fact_ids=event_ids)
-                if any(proofs.get(event_id, {}).get('status') != 'verified' for event_id in event_ids):
-                    continue
+                if schema['redesigned']:
+                    if source_rows is None:
+                        source_rows = {trade['trade_id']: trade['source_evidence_status']
+                                       for trade in load_trade_rows(cur, account_code='tonghuashun',
+                                                                    start=date.min, end=date.max)}
+                    if any(source_rows.get(event_id) != 'verified' for event_id in event_ids):
+                        continue
+                else:
+                    proofs = verifier.verify_many(table='pams_investment_trade_fact', fact_ids=event_ids)
+                    if any(proofs.get(event_id, {}).get('status') != 'verified' for event_id in event_ids):
+                        continue
                 cur.execute('SELECT inputs FROM valuation_evidence WHERE version_key=%s', (version,))
                 evidence = (cur.fetchone() or {}).get('inputs') or []
                 current_refs = [item['evidence'] for item in evidence if item.get('input_kind') in {'trade', 'quote'}]

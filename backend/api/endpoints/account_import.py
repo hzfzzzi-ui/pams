@@ -172,12 +172,17 @@ def execute_source_record(request: Request, fn, *, write=False):
         raise HTTPException(400, detail={'code': 'invalid_document', 'message': str(error)[:250]}) from error
 
 
-def _schema_ready(cur):
+def _schema_ready(cur, *, allow_source_records=False):
     try:
         if not isolation.source_enabled(cur):
             raise store.ImportProblem('isolated_only', '统一来源仅允许隔离测试库', 403)
     except isolation.IsolationError as exc:
         raise store.ImportProblem('isolated_only', '统一来源仅允许隔离测试库', 403) from exc
+    if allow_source_records:
+        cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AND "
+                    "to_regclass('public.source_items') IS NOT NULL AS ready")
+        if cur.fetchone()['ready']:
+            return True
     cur.execute("SELECT to_regclass('public.source_batches') IS NOT NULL AND "
                 "to_regclass('public.source_files') IS NOT NULL AND "
                 "to_regclass('public.source_items') IS NOT NULL AND "
@@ -186,7 +191,7 @@ def _schema_ready(cur):
 
 
 @import_scope
-def execute(request: Request, fn, *, write=False, serializable=False):
+def execute(request: Request, fn, *, write=False, serializable=False, allow_source_records=False):
     if write:
         access.same_origin(request)
     try:
@@ -198,7 +203,7 @@ def execute(request: Request, fn, *, write=False, serializable=False):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SET LOCAL statement_timeout='10s'")
                 cur.execute("SET LOCAL lock_timeout='3s'")
-                if not _schema_ready(cur):
+                if not (_schema_ready(cur, allow_source_records=True) if allow_source_records else _schema_ready(cur)):
                     raise store.ImportProblem("schema_unavailable", "导入暂存结构尚未启用", 503)
                 return fn(cur)
     except store.ImportProblem as error:
@@ -443,7 +448,8 @@ def publish_trade_source_record(source_id: UUID, body: TradeSourcePublish, reque
 def preview_trade_snapshot(body: TradeSnapshotPreview, request: Request):
     from domain.investments import trade_snapshot_http
     access.same_origin(request)
-    return execute(request, lambda cur: trade_snapshot_http.preview(cur, body.account_code), serializable=True)
+    return execute(request, lambda cur: trade_snapshot_http.preview(cur, body.account_code),
+                   serializable=True, allow_source_records=True)
 
 
 @router.post('/trade-snapshot/publish')
@@ -452,7 +458,8 @@ def publish_trade_snapshot(body: TradeSnapshotPublish, request: Request):
     if not source.enabled():
         raise HTTPException(403, detail={'code': 'publish_disabled', 'message': '持仓发布未启用'})
     return execute(request, lambda cur: trade_snapshot_http.publish(
-        cur, body.preview_token, confirmed_scope=body.confirmed_scope), write=True, serializable=True)
+        cur, body.preview_token, confirmed_scope=body.confirmed_scope),
+        write=True, serializable=True, allow_source_records=True)
 
 
 @router.get("/assets")
