@@ -241,6 +241,7 @@ function buildInvestmentNavChartData(windowRows, isMobile) {
     latestDate: latestRow.date,
     availableAccountCount: latestRow.available_account_count,
     estimated: latestRow.valuation_quality === 'estimated',
+    tonghuashunSourceThrough: latestRow.tonghuashun_source_through,
     change,
     changeRate,
     maxDrawdown: comparable ? maxDrawdown : null,

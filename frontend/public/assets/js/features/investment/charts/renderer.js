@@ -1,8 +1,8 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
 import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-nav-coverage-v1';
-import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-nav-coverage-v1';
+import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-ths-nav-v1';
+import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-ths-nav-v1';
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
@@ -318,6 +318,12 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   function renderInvestmentNavSummary(data, windowKey) {
     const rangeEl = getElementById('investmentNavRange');
     const statsEl = getElementById('investmentNavStats');
+    const hintEl = getElementById('investmentNavHint');
+    if (hintEl) {
+      const through = data?.tonghuashunSourceThrough;
+      hintEl.textContent = '实线为全组合净值，虚线为已覆盖账户净值'
+        + (through ? `。同花顺流水截至 ${through}，之后沿用末笔持仓和现金。` : '');
+    }
     if (rangeEl) rangeEl.textContent = data?.availableAccountCount
       ? `${returnWindowLabel(windowKey)} · 部分覆盖（${data.availableAccountCount} 个账户）`
       : returnWindowLabel(windowKey);
@@ -439,12 +445,21 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           label: 'NAV',
           data: data.values,
           navScopes: data.scopes,
+          navPointRadius: data.pointRadius,
           borderColor: CHART_THEME.line,
           backgroundColor: CHART_THEME.fill,
           tension: 0.25,
           fill: data.change != null && data.scopes[0] === 'complete',
           spanGaps: false,
-          pointRadius: data.change == null ? Math.max(data.pointRadius, 2) : data.pointRadius,
+          pointRadius: ctx => {
+            if (ctx.type !== 'data') return 0;
+            const {data: values, navScopes: scopes, navPointRadius: radius} = ctx.dataset;
+            const index = ctx.dataIndex;
+            if (values[index] == null) return 0;
+            if (scopes[index] === 'complete') return radius;
+            const connected = [index - 1, index + 1].some(i => values[i] != null && scopes[i] === scopes[index]);
+            return connected ? 0 : 2;
+          },
           segment: {
             borderColor: ctx => {
               const scopes = ctx.chart.data.datasets[ctx.datasetIndex].navScopes;
@@ -510,7 +525,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       return;
     }
     chart.data.datasets[0].fill = data.change != null && data.scopes[0] === 'complete';
-    chart.data.datasets[0].pointRadius = data.change == null ? Math.max(data.pointRadius, 2) : data.pointRadius;
+    chart.data.datasets[0].navPointRadius = data.pointRadius;
     chart.update('none');
     renderInvestmentNavSummary(data, state.activeWindow);
   }
