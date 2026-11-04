@@ -11,7 +11,7 @@ from domain.imports.source_records_v2 import create_source
 def published_results(cur, account_code, digest=None):
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
     if cur.fetchone()['redesigned']:
-        cur.execute("""SELECT content,sha256 FROM source_records
+        cur.execute("""SELECT public.source_original_content(account_code,sha256,content) AS content,sha256 FROM source_records
                        WHERE account_code=%s AND source_name='pams_trade_snapshot'
                          AND document_type='holding' AND acquisition_method='api' AND status='published'
                        ORDER BY created_at DESC""", (account_code,))

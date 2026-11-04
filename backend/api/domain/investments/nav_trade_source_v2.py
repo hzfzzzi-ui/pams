@@ -16,7 +16,7 @@ CASH_ACTIONS = {'deposit', 'withdraw', 'interest'}
 
 
 def read_reconciled_events(cur):
-    cur.execute("""SELECT source_id, file_format, content, sha256 FROM source_records
+    cur.execute("""SELECT source_id, file_format, public.source_original_content(account_code,sha256,content) AS content, sha256 FROM source_records
         WHERE account_code='tonghuashun' AND status='published' AND document_type='trade'
         ORDER BY created_at LIMIT 2""")
     sources = cur.fetchall()

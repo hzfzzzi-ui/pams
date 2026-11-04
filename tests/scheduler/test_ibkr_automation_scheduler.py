@@ -91,3 +91,29 @@ def test_new_jobs_visible_in_existing_health_and_history_not_cleared(tmp_path):
     assert "asia:history_unverified" in result["issues"]
     assert "IBKR 资金事实" in result["jobs"]["ibkr_cash_events"]["display_detail"]
     assert path.read_bytes() == before
+
+
+def test_daily_holdings_scheduler_waits_for_publication(tmp_path, monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_ENABLED", "true")
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "synthetic-holdings-token")
+    monkeypatch.setattr(module, "STATE_PATH", tmp_path / "refresh.json")
+    observed = None
+    calls = []
+
+    def request(method, url, label, **kwargs):
+        nonlocal observed
+        calls.append(method)
+        assert "/ibkr/daily-holdings/" in url
+        if method == "post":
+            assert kwargs["headers"] == {"X-PAMS-Holdings-Token": "synthetic-holdings-token"}
+            assert kwargs["json"] == {"expected_statement_reference": "2026-10-23"}
+            observed = "2026-10-23"
+            return {"status": "published"}
+        return {"configured": True, "expected_statement_as_of": "2026-10-23",
+                "statement_as_of": observed, "publication_verified": observed is not None}
+
+    monkeypatch.setattr(module, "_request_json", request)
+    assert module.run_daily_holdings_confirmation(now=NOW)["success"]
+    assert module.run_daily_holdings_confirmation(now=NOW + timedelta(minutes=30))["success"]
+    assert calls.count("post") == 1

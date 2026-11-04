@@ -228,6 +228,67 @@ def ibkr_daily_close_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
     return sync_daily_close(expected_statement_reference=req.expected_statement_reference)
 
 
+@router.get("/daily-holdings/status")
+def ibkr_daily_holdings_status() -> dict[str, Any]:
+    from domain.brokers.ibkr import ibkr_daily_holdings as holdings
+    from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+
+    target = expected_statement_date()
+    with closing(get_conn()) as conn:
+        conn.set_session(readonly=True)
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready")
+            ready = cur.fetchone()['ready']
+            latest = holdings.last_publication(cur) if ready else None
+    return {'configured': bool(ready and holdings.credentials()),
+            'expected_statement_as_of': target.isoformat(),
+            'statement_as_of': latest['period_end'].isoformat() if latest else None,
+            'publication_verified': bool(latest and latest['period_end'] == target)}
+
+
+@router.post("/daily-holdings/sync")
+def ibkr_daily_holdings_sync(req: IBKRFlexSyncRequest, request: Request) -> dict[str, Any]:
+    from hmac import compare_digest
+
+    from collectors.ibkr_flex import fetch_flex_statement, request_flex_reference
+    from domain.brokers.ibkr import ibkr_daily_holdings as holdings
+    from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+    from domain.imports import isolation
+
+    config = holdings.credentials()
+    provided = request.headers.get('X-PAMS-Holdings-Token', '')
+    if not config or not compare_digest(provided.encode(), config[3].encode()):
+        raise HTTPException(403, "Daily holdings synchronization is unavailable")
+    target = expected_statement_date()
+    if (req.as_of is not None or req.align_to_latest_snapshot
+            or req.expected_statement_reference != target):
+        raise HTTPException(422, "Daily holdings require the expected report date")
+    token, query, source_account, _ = config
+    try:
+        with closing(get_conn()) as conn:
+            with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                with isolation.account_import_scope():
+                    if not isolation.source_enabled(cur):
+                        raise HTTPException(403, "Source publication is unavailable")
+                    latest = holdings.last_publication(cur)
+        if latest and latest['period_end'] >= target:
+            return {'status': 'published', 'as_of': latest['period_end'].isoformat(), 'replayed': True}
+        reference = request_flex_reference(token, query)
+        content = fetch_flex_statement(token, reference['reference_code'], attempts=3, timeout=10).encode('utf8')
+        with isolation.account_import_scope(), closing(get_conn()) as conn:
+            with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if not isolation.source_enabled(cur):
+                    raise HTTPException(403, "Source publication is unavailable")
+                return holdings.publish_report(cur, content=content, source_account=source_account, day=target)
+    except HTTPException:
+        raise
+    except holdings.ReportValidationError as exc:
+        return {'status': 'blocked', 'reason': exc.reason}
+    except Exception:
+        # Provider URLs can contain the Flex token. Do not return or log them.
+        raise HTTPException(503, "Daily holdings sync failed") from None
+
+
 @router.get("/cash-events/status")
 def ibkr_cash_event_status() -> dict[str, Any]:
     with closing(get_conn()) as conn:

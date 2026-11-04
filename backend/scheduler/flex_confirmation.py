@@ -60,7 +60,7 @@ def _result(job: dict, *, deferred: bool = False) -> dict:
 
 class FlexConfirmationJournal:
     def __init__(self, path: Path, *, key: str = KEY, probe_info: Callable = _probe_info):
-        if key not in {KEY, "ibkr_daily_close", "ibkr_cash_events"}:
+        if key not in {KEY, "ibkr_daily_close", "ibkr_cash_events", "ibkr_daily_holdings"}:
             raise ValueError("unsupported confirmation job")
         self.path = path
         self.key = key
@@ -133,6 +133,8 @@ class FlexConfirmationJournal:
             "production_report_changed", "publication_historical_revision_requires_review",
             "publication_scope_or_date_regression", "publication_same_date_source_conflict",
             "previous_source_integrity_failure", "approved_close_evidence_unavailable",
+            "position_report_conflict", "position_exit_scope_unverified", "position_account_inactive",
+            "position_report_unverified", "position_legacy_identity_unverified", "position_contract_mapping_conflict",
         }:
             state, reason = "blocked", response["reason"]
         elif response.get("reason") == "stale_statement_date":

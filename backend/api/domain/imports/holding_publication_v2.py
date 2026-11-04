@@ -69,7 +69,8 @@ def _plan(cur, source_id, revision, scope):
         raise ValueError('持仓来源不存在')
     account = account_row['account_code']
     lock_holding_accounts(cur, [account])
-    cur.execute("""SELECT r.*, a.active, a.base_currency FROM source_records r
+    cur.execute("""SELECT r.*, public.source_original_content(r.account_code,r.sha256,r.content) AS original_content,
+        a.active, a.base_currency FROM source_records r
         JOIN pams_accounts a ON a.account_code=r.account_code WHERE r.source_id=%s FOR UPDATE OF r""",
                 (str(source_id),))
     source = cur.fetchone()
@@ -77,7 +78,7 @@ def _plan(cur, source_id, revision, scope):
         raise SourceRevisionConflict('持仓来源版本已变化')
     if source['document_type'] != 'holding' or not source['active'] or source['base_currency'] != 'CNY':
         raise ValueError('目标账户或资料不支持人民币持仓发布')
-    if source['content'] is not None and sha256(bytes(source['content'])).hexdigest() != source['sha256']:
+    if source['original_content'] is not None and sha256(bytes(source['original_content'])).hexdigest() != source['sha256']:
         raise ValueError('持仓原件校验失败')
     cur.execute("""SELECT source_item_id,review_status,raw_fields,parsed_fields,record_hash FROM source_items
         WHERE source_id=%s ORDER BY source_item_id""", (str(source_id),))
@@ -137,9 +138,18 @@ def publish(cur, *, source_id, revision, preview_token, scope=None):
     now = int(time.time() // 30)
     if not any(hmac.compare_digest(preview_token, _token(plan, now - n)) for n in range(31)):
         raise ValueError('持仓预检已失效，请重新核对')
-    cur.execute("UPDATE source_records SET status='published',revision=revision+1,updated_at=now() WHERE source_id=%s", (str(source_id),))
+    return publish_validated_holdings(cur, source_id=source_id, as_of=plan['holdings'][0]['as_of'],
+                                      holdings=plan['holdings'], scope=scope)
+
+
+def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None, partial_attestation=None):
+    """Write a caller-validated snapshot under the existing account lock and transaction."""
+    cur.execute('''UPDATE source_records SET status='published',revision=revision+1,updated_at=now()
+        WHERE source_id=%s AND status='draft' AND document_type='holding' ''', (str(source_id),))
+    if cur.rowcount != 1:
+        raise SourceRevisionConflict('持仓来源不再可发布')
     holding_ids = []
-    for row in plan['holdings']:
+    for row in holdings:
         cur.execute("""INSERT INTO pams_holdings_snapshot
             (account_code,as_of,symbol,name,asset_id,currency,asset_liability,major_category,minor_category,
              quantity,current_price,cost,market_value,buy_price,source_item_id)
@@ -150,6 +160,7 @@ def publish(cur, *, source_id, revision, preview_token, scope=None):
         finish_holding_change(cur, holding_id=holding_id, source_item_id=row['source_item_id'])
         holding_ids.append(holding_id)
     version = record_source_scope(cur, source_id=source_id, holding_ids=holding_ids,
-                                  as_of=plan['holdings'][0]['as_of'], scope=scope)
+                                  as_of=as_of, scope=scope,
+                                  partial_attestation=partial_attestation) if holding_ids else None
     return {'published': len(holding_ids), 'snapshot_version_id': version,
             'coverage_status': 'complete' if scope is not None else 'partial'}

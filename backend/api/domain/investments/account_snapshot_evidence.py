@@ -51,8 +51,11 @@ def _complete_member_proven(cur, holding_id, source_item_id):
     redesigned = bool(cur.fetchone()['redesigned'])
     relation = ('source_records b ON b.source_id=i.source_id' if redesigned else
                 'source_batches b ON b.batch_id=i.batch_id')
-    cur.execute("""SELECT row_to_json(h)::text AS holding_json,
-            json_build_object('item', row_to_json(i), 'batch', row_to_json(b))::text AS source_json
+    batch_json = ('to_jsonb(b) || jsonb_build_object(\'content\', '
+                  'public.source_original_content(b.account_code,b.sha256,b.content))'
+                  if redesigned else 'row_to_json(b)')
+    cur.execute(f"""SELECT row_to_json(h)::text AS holding_json,
+            json_build_object('item', row_to_json(i), 'batch', {batch_json})::text AS source_json
         FROM pams_holdings_snapshot h JOIN source_items i ON i.source_item_id=%s JOIN """ + relation +
         " WHERE h.id=%s", (str(source_item_id),holding_id))
     row = cur.fetchone()
@@ -174,7 +177,7 @@ def _published_holding_source(cur, source_id):
     return cur.fetchone()
 
 
-def record_source_scope(cur, *, source_id, holding_ids, as_of, scope):
+def record_source_scope(cur, *, source_id, holding_ids, as_of, scope, partial_attestation=None):
     """Freeze exactly the published holding members in the redesigned schema."""
     source = _published_holding_source(cur, source_id)
     if not source or not holding_ids:
@@ -196,7 +199,7 @@ def record_source_scope(cur, *, source_id, holding_ids, as_of, scope):
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'source-record-scope-v1',%s)""",
                 (version, source['account_code'], as_of, 'complete' if complete else 'partial',
                  'known' if complete else 'unknown', scope['cash_amount'] if complete else None,
-                 str(source_id), source['revision'], source['digest'], Json(scope) if complete else None,
+                 str(source_id), source['revision'], source['digest'], Json(scope if complete else partial_attestation) if complete or partial_attestation is not None else None,
                  'user confirmed all account members and cash' if complete else 'reviewed partial holding source'))
     if complete and not _verified_source_scope(cur, version):
         raise ValueError('完整范围未能覆盖并核验全部账户持仓')

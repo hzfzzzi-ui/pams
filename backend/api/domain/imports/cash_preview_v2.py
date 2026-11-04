@@ -9,7 +9,7 @@ from collections.abc import Mapping
 
 
 def preview_cash(cur, *, source_id, expected_revision: int) -> dict:
-    cur.execute('''SELECT account_code,document_type,status,revision,content,sha256
+    cur.execute('''SELECT account_code,document_type,status,revision,public.source_original_content(account_code,sha256,content) AS content,sha256
         FROM public.source_records WHERE source_id=%s''',(str(source_id),))
     row=cur.fetchone(); names=('account_code','document_type','status','revision','content','sha256')
     src=dict(row) if isinstance(row,Mapping) else dict(zip(names,row)) if row else None

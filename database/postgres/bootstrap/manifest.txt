@@ -14,6 +14,7 @@ database/postgres/schema/029a_holding_asset_reference_constraints.sql
 database/postgres/schema/033a_benchmark_asset_seed.sql
 database/postgres/schema/034_gold_spot_benchmark.sql
 database/postgres/schema/079_source_records.sql
+database/postgres/schema/085_broker_source_originals.sql
 database/postgres/schema/080_source_items_redesign.sql
 database/postgres/schema/081_fact_redesign.sql
 database/postgres/schema/082_cashflow_classification.sql
