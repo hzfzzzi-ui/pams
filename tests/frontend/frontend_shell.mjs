@@ -155,8 +155,52 @@ try {
     await page.locator('[data-page="ledger.html"]').click();
     await page.locator('[data-page="ledger.html"][aria-current]').waitFor();
   }
+  // A desktop viewport alone reports zero insets. Emulate the phone's
+  // obstruction so the test catches an iframe starting behind the status bar.
+  const session = await context.newCDPSession(page);
+  await session.send('Emulation.setTouchEmulationEnabled', {enabled:true});
+  const firstControls = {
+    investments: '[data-invest-tab="analysis"]',
+    ledger: '[data-ledger-tab="recent"]',
+    more: 'a.moreRow[href="account_import.html"]',
+    accounts: '[data-account-tab="overview"]',
+    data_sources: '.issueDiagnostics',
+    account_import: '#flow-back',
+  };
+  for (const {width,height,top,bottom,left,right} of [
+    {width:320,height:568,top:0,bottom:0,left:0,right:0},
+    {width:390,height:844,top:59,bottom:34,left:0,right:0},
+    {width:844,height:390,top:0,bottom:21,left:59,right:0},
+  ]) {
+    await session.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:true});
+    await session.send('Emulation.setSafeAreaInsetsOverride', {insets:{top,bottom,left,right}});
+    for (const [key,selector] of Object.entries(firstControls)) {
+      const contentView = key === "data_sources" ? "&content_view=issues" : "";
+      await page.goto(`${base}/app.html?view=${key}.html${contentView}`);
+      const frame = page.frameLocator('#page-content');
+      await frame.locator('html.pams-content').waitFor({state:'attached'});
+      const box = await page.locator('#page-content').boundingBox();
+      const safeWidth = Math.min(430,width-left-right);
+      assert.equal(box.width,safeWidth,key);
+      assert.equal(box.x,left+(width-left-right-safeWidth)/2,key);
+      assert.equal(box.y,top+8,key);
+      const control = frame.locator(selector);
+      await control.click({trial:true,timeout:5000});
+      const controlBox = await control.boundingBox();
+      assert.ok(controlBox && controlBox.y >= box.y,key);
+      const primary = await page.locator('.pams-primary-nav a').first().boundingBox();
+      assert.ok(primary.y+primary.height <= height-bottom,key);
+      const contentFrame = page.frames().find(f => f.parentFrame() === page.mainFrame());
+      assert.equal(await contentFrame.evaluate(() => document.documentElement.scrollWidth > innerWidth),false,key);
+    }
+    await page.goto(`${base}/investments.html?content=1`);
+    assert.equal(await page.locator('meta[name="viewport"]').getAttribute('content'),'width=device-width, initial-scale=1');
+    assert.equal(await page.locator('body').evaluate(node => getComputedStyle(node).paddingTop),'8px');
+    await page.locator('[data-invest-tab="analysis"]').click();
+    await page.waitForFunction(() => location.hash === '#return-trend');
+  }
   assert.deepEqual(failures,[]);
-  console.log('Shell: four widths, persistent navigation, tabs, history and reload passed; APIs are explicit 503 fixtures.');
+  console.log('Shell: four desktop widths, six pages at three touch sizes, safe areas, tabs and history passed with fixed API fixtures.');
 } catch (error) {
   console.error(JSON.stringify({url:page.url(),frames:page.frames().map(f=>f.url()),failures}));
   throw error;

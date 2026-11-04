@@ -259,7 +259,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         html = _read_public(page)
         parsed = _parse_html(html)
         if page == "app.html":
-            assert parsed.stylesheets == ["assets/css/tokens.css?v=20261031-modules-v1", "assets/css/app-shell.css?v=20261031-modules-v1"]
+            assert parsed.stylesheets == ["assets/css/tokens.css?v=20261031-modules-v1", "assets/css/app-shell.css?v=20261104-mobile-safe-area-v1"]
             assert html.count('aria-label="主导航"') == 1
             assert 'id="page-content"' in html
             continue
