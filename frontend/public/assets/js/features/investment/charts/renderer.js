@@ -1,8 +1,8 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
 import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-available-returns-v1';
-import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-available-returns-v1';
+import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-available-returns-v2';
+import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-available-returns-v2';
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
@@ -753,18 +753,15 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       chart.update('none');
       if (state) renderReturnEventHotspots(chart, state);
     };
-    el.innerHTML = options.map((item, index) => {
+    el.innerHTML = options.map(item => {
       return `
-      <button type="button" data-return-series="${esc(item.key)}" class="${index === 0 ? 'active' : ''}" aria-pressed="${index === 0 ? 'true' : 'false'}">
+      <button type="button" data-return-series="${esc(item.key)}">
         ${esc(item.label)}
       </button>
     `;
     }).join('');
     el.querySelectorAll('[data-return-series]').forEach(btn => {
       listen('series', btn, 'click', () => toggleSeries(btn.dataset.returnSeries));
-    });
-    chart.data.datasets.forEach((dataset) => {
-      dataset.hidden = dataset.returnSeriesKey === 'events' ? false : dataset.label !== '总收益率';
     });
     syncButtons();
     chart.update('none');
