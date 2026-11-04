@@ -162,6 +162,29 @@ for (const fallback of [false, true]) {
   assert.equal(test.requests.length, 6);
 }
 
+{
+  const test = await fixture();
+  const controller = test.create();
+  const loading = controller.loadReturnsOnce();
+  const estimated = {rows: [], estimated_series: {label: '同花顺估算', source_through: '2026-09-30',
+    rows: [{date: '2026-09-30', display_return_rate: '0.1'}, {date: '2026-10-26', display_return_rate: '0.2'}]}};
+  for (const req of test.requests) {
+    if (req.url.startsWith('/nav/')) req.resolve(nav);
+    else if (req.url.includes('section=a_stock')) req.resolve(estimated);
+    else req.resolve({rows: [], status: 'unavailable'});
+  }
+  await loading;
+  const chart = test.window.__investmentReturnChart;
+  assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock').hidden, false);
+  const button = key => test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === key);
+  assert.equal(button('total').disabled, true);
+  assert.equal(button('total').attrs['aria-pressed'], 'false');
+  assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
+  test.elements.investmentReturnWindowToggle.buttons.find(item => item.dataset.returnWindow === '1w').fire('click');
+  assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
+  controller.dispose();
+}
+
 // Old reads settle after a new owner is already visible: they must be inert.
 for (const oldFirst of [false, true]) {
   const test = await fixture();
