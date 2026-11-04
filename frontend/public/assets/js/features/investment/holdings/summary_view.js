@@ -6,13 +6,13 @@ import {
   normalizeMobileHeroGroup, shareTone, formatOptionalMoney, isSameOrAfterDate,
   contributionPct, formatNativeDaily, esc, displayPnlPct,
   fmtSignedPctFromRate, sectionTodayReturnAmount, annualizedRateFromPeriod, buildInvestmentConclusion
-} from './summary_legacy_model.js?v=20261102-incomplete-scope-v1';
-import { fmt2, accountLabel } from '../../../api.js?v=20261031-modules-v1';
-import { safeNum, pnlPct } from '../../../utils.js?v=20261031-modules-v1';
-import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
+} from './summary_legacy_model.js';
+import { fmt2, accountLabel } from '../../../api.js';
+import { safeNum, pnlPct } from '../../../utils.js';
+import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js';
 import {
   RETURN_METHODS
-} from './constants.js?v=20261031-modules-v1';
+} from './constants.js';
 
 export function createSummaryView({ document, host: window, showDetails: openBottomSheet, scope }) {
   let mobileHeroContext = null;

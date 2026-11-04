@@ -1,4 +1,4 @@
-import { readFallback } from '../../../shared/read_scope.js?v=20261031-modules-v1';
+import { readFallback } from '../../../shared/read_scope.js';
 
 // Preserve the original fourteen summary and four list reads, URL parameters,
 // optional fallbacks and fresh-summary sharing. No financial aggregation here.

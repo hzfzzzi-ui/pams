@@ -1,5 +1,5 @@
-import { jget } from '../../api.js?v=20261031-modules-v1';
-import { loadInvestmentSummaryFresh } from '../../investment_requests.js?v=20261031-modules-v1';
+import { jget } from '../../api.js';
+import { loadInvestmentSummaryFresh } from '../../investment_requests.js';
 
 export function createAnalysisRequests({ get = jget, summary = loadInvestmentSummaryFresh } = {}) {
   return {

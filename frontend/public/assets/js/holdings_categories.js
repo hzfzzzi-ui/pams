@@ -1,8 +1,8 @@
-import { jget } from './api.js?v=20261031-modules-v1';
-import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js?v=20261031-modules-v1';
-import { afterInvestmentNav, trackInvestmentHoldings } from './investment_startup.js?v=20261031-modules-v1';
-import { loadInvestmentSummaryFresh } from './investment_requests.js?v=20261031-modules-v1';
-import { mount as mountPage, dispose as disposePage } from './features/investment/holdings/summary_controller.js?v=20261104-top-contribution-v1';
+import { jget } from './api.js';
+import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js';
+import { afterInvestmentNav, trackInvestmentHoldings } from './investment_startup.js';
+import { loadInvestmentSummaryFresh } from './investment_requests.js';
+import { mount as mountPage, dispose as disposePage } from './features/investment/holdings/summary_controller.js';
 
 export function mount(root = document.body, context = {}) {
   return mountPage(root, {get: jget, showDetails: openBottomSheet, closeDetails: closeBottomSheet,

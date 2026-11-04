@@ -1,4 +1,4 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
   if (!summary || !['ok', 'warning', 'error'].includes(summary.status) ||

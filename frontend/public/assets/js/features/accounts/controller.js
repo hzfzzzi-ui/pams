@@ -1,6 +1,6 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { createView } from './view.js?v=20261031-modules-v1';
-import { createActions } from './actions.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { createView } from './view.js';
+import { createActions } from './actions.js';
 
 const mounted = new WeakMap();
 const filterValues = {'缺数据': 'missing', '金额差异': 'diff', '日期过期': 'stale', '负余额': 'negative', '在途资金': 'transit'};

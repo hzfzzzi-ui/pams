@@ -44,6 +44,13 @@ await context.route('**/*', async route => {
 });
 const page = await context.newPage();
 const failures = [];
+const missingAssets = [];
+page.on('response', response => {
+  const url = new URL(response.url());
+  if (url.origin === base && url.pathname.startsWith('/assets/build-') && !response.ok()) {
+    missingAssets.push(url.pathname);
+  }
+});
 page.on('pageerror', error => failures.push(error.message));
 try {
   for (const width of [320,390,926,1280]) {
@@ -200,6 +207,7 @@ try {
     await page.waitForFunction(() => location.hash === '#return-trend');
   }
   assert.deepEqual(failures,[]);
+  assert.deepEqual(missingAssets,[]);
   console.log('Shell: four desktop widths, six pages at three touch sizes, safe areas, tabs and history passed with fixed API fixtures.');
 } catch (error) {
   console.error(JSON.stringify({url:page.url(),frames:page.frames().map(f=>f.url()),failures}));

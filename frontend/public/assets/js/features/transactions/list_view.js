@@ -1,5 +1,5 @@
-import { accountLabel, fmt2 } from '../../api.js?v=20261031-modules-v1';
-import { escapeHtml, formatCurrency, formatPercent, formatPlainMoney as money, formatQuantity, toFiniteNumber as num } from '../../utils.js?v=20261031-modules-v1';
+import { accountLabel, fmt2 } from '../../api.js';
+import { escapeHtml, formatCurrency, formatPercent, formatPlainMoney as money, formatQuantity, toFiniteNumber as num } from '../../utils.js';
 
 export function createListView({state, scope, legacy}) {
 const $ = scope.byId;

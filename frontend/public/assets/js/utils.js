@@ -1,5 +1,5 @@
-import { CHART_THEME } from './shared/chart_theme.js?v=20261031-modules-v1';
-import { fmt2, fmtMoneyFixed2, fmtSignedMoneyFixed2, jget } from './api.js?v=20261031-modules-v1';
+import { CHART_THEME } from './shared/chart_theme.js';
+import { fmt2, fmtMoneyFixed2, fmtSignedMoneyFixed2, jget } from './api.js';
 
 export const byId = (id) => document.getElementById(id);
 

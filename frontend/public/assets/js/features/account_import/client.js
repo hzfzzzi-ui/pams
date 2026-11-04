@@ -1,4 +1,4 @@
-import { ROOT } from './contract.js?v=20261031-modules-v1';
+import { ROOT } from './contract.js';
 
 export function createImportClient(fetcher) {
   return async (path, method = 'GET', body, raw = false, signal) => {

@@ -69,10 +69,10 @@ try {
     await page.evaluate(async ({markup}) => {
       const load = name => import(`/assets/js/features/${name}/controller.js`);
       const [api, readScope, more, dataSources, syncCenter, accounts, ledger, analysis, risk, config, transaction, ui] = await Promise.all([
-        import('/assets/js/api.js?v=20261031-modules-v1'), import('/assets/js/shared/read_scope.js?v=20261031-modules-v1'),
+        import('/assets/js/api.js'), import('/assets/js/shared/read_scope.js'),
         load('more'), load('data_sources'), load('sync_center'), load('accounts'), load('ledger'), load('analysis'),
         import('/assets/js/features/portfolio/risk_controller.js'), import('/assets/js/features/portfolio/config_controller.js'),
-        load('transactions'), import('/assets/js/ui.js?v=20261031-modules-v1'),
+        load('transactions'), import('/assets/js/ui.js'),
       ]);
       window.mods = {api, readScope, more, dataSources, syncCenter, accounts, ledger, analysis, risk, config, transaction, ui};
       Object.assign(window, {root: null, rootA: null, rootB: null, a: null, b: null, feature: null, child: null, first: null, second: null, third: null, reloading: null, triggered: null});

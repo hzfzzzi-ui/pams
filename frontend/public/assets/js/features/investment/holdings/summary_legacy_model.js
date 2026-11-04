@@ -1,8 +1,8 @@
 // Compatibility-only investment model; legacy field choices and formula bodies
 // remain unchanged. Do not reuse these fallbacks as a new financial engine.
-import { safeNum, pnlPct } from '../../../utils.js?v=20261031-modules-v1';
-import { accountCashBreakdown } from '../../../account_cash.js?v=20261031-modules-v1';
-import { accountLabel } from '../../../api.js?v=20261031-modules-v1';
+import { safeNum, pnlPct } from '../../../utils.js';
+import { accountCashBreakdown } from '../../../account_cash.js';
+import { accountLabel } from '../../../api.js';
 export function cnyValue(r, key) {
   const cnyKey = `${key}_cny`;
   return r[cnyKey] ?? r[key] ?? 0;

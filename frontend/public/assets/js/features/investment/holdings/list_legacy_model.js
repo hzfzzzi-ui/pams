@@ -1,8 +1,8 @@
 // Compatibility model: bodies are copied unchanged from holdings.js.
 // Financial fallback and grouping changes require a separate backend contract.
-import { pnlPct } from '../../../utils.js?v=20261031-modules-v1';
-import { makeAccountCashHoldingRows } from '../../../account_cash.js?v=20261031-modules-v1';
-import { typeLabel } from '../../../api.js?v=20261031-modules-v1';
+import { pnlPct } from '../../../utils.js';
+import { makeAccountCashHoldingRows } from '../../../account_cash.js';
+import { typeLabel } from '../../../api.js';
 export function esc(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')

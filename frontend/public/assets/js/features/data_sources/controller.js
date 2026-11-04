@@ -1,5 +1,5 @@
-import { createReadScope, isReadCancelled, readFallback } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { issuesHtml, renderQuality } from './view.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled, readFallback } from '../../shared/read_scope.js';
+import { issuesHtml, renderQuality } from './view.js';
 
 const mounted = new WeakMap();
 

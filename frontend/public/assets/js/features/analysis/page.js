@@ -1,5 +1,5 @@
-import { createAnalysisController } from './controller.js?v=20261031-modules-v1';
-import { snapshotAnalysisViewState } from './state.js?v=20261031-modules-v1';
+import { createAnalysisController } from './controller.js';
+import { snapshotAnalysisViewState } from './state.js';
 
 const pages = new WeakMap();
 

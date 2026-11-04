@@ -1,14 +1,14 @@
-FROM python:3.12-slim AS phone-styles
+FROM python:3.12-slim AS static-assets
 COPY tools/requirements.txt /tools/requirements.txt
 RUN pip install --no-cache-dir -r /tools/requirements.txt
-COPY tools/mobile_styles.py /tools/mobile_styles.py
-COPY public/assets/css/ /css/
-RUN python /tools/mobile_styles.py /css
+COPY tools/mobile_styles.py tools/fingerprint_assets.py /tools/
+COPY public/ /public/
+RUN python /tools/mobile_styles.py /public/assets/css \
+    && python /tools/fingerprint_assets.py /public
 
 FROM nginx:1.27-alpine
 
-COPY ./public /usr/share/nginx/html
-COPY --from=phone-styles /css/style-phone.css /css/design-system-phone.css /usr/share/nginx/html/assets/css/
+COPY --from=static-assets /public/ /usr/share/nginx/html/
 
 # Simple SPA-friendly config
 RUN printf '%s\n' \
@@ -95,8 +95,12 @@ RUN printf '%s\n' \
 '    add_header Cache-Control "no-store, max-age=0" always;' \
 '    try_files $uri $uri/ /investments.html;' \
 '  }' \
+'  location ~ "^/assets/build-[0-9a-f]{20}/" {' \
+'    add_header Cache-Control "public, max-age=31536000, immutable";' \
+'    try_files $uri =404;' \
+'  }' \
 '  location /assets/ {' \
-'    add_header Cache-Control "public, max-age=300, stale-while-revalidate=1800" always;' \
+'    add_header Cache-Control "no-cache" always;' \
 '    try_files $uri =404;' \
 '  }' \
 '}' \

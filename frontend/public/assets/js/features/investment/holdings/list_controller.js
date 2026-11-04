@@ -1,19 +1,19 @@
 import {
   esc, holdingGroupLabel, holdingGroupRank, buildAccountCashRows,
   isInvestmentRow
-} from './list_legacy_model.js?v=20261102-verified-trade-snapshot-v1';
+} from './list_legacy_model.js';
 import {
   createListView
-} from './list_view.js?v=20261102-verified-trade-snapshot-v1';
+} from './list_view.js';
 import {
   readListInputs
-} from './requests.js?v=20261031-modules-v1';
+} from './requests.js';
 import {
   createScope, createScopedDocument, createOwnedDetails, createOwnedError
-} from './scope.js?v=20261031-modules-v1';
+} from './scope.js';
 import {
   acquireClosedPositions
-} from './closed_positions.js?v=20261031-modules-v1';
+} from './closed_positions.js';
 
 const mounted = new WeakMap();
 export function mount(root, context) {

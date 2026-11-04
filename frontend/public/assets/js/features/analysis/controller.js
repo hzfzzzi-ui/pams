@@ -1,13 +1,13 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { ANALYSIS_PANEL_KEYS } from './constants.js?v=20261031-modules-v1';
-import { createAnalysisState, safeStorageSet, analysisPanelFromHash } from './state.js?v=20261031-modules-v1';
-import { createAnalysisLegacyModel } from './legacy_model.js?v=20261031-modules-v1';
-import { createAnalysisCharts } from './charts.js?v=20261031-modules-v1';
-import { createAnalysisTemplates } from './templates.js?v=20261031-modules-v1';
-import { createAnalysisView } from './view.js?v=20261031-modules-v1';
-import { createAnalysisRequests } from './requests.js?v=20261031-modules-v1';
-import { createBottomSheet } from '../../components/bottom_sheet.js?v=20261031-modules-v1';
-import { afterInvestmentNav } from '../../investment_startup.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { ANALYSIS_PANEL_KEYS } from './constants.js';
+import { createAnalysisState, safeStorageSet, analysisPanelFromHash } from './state.js';
+import { createAnalysisLegacyModel } from './legacy_model.js';
+import { createAnalysisCharts } from './charts.js';
+import { createAnalysisTemplates } from './templates.js';
+import { createAnalysisView } from './view.js';
+import { createAnalysisRequests } from './requests.js';
+import { createBottomSheet } from '../../components/bottom_sheet.js';
+import { afterInvestmentNav } from '../../investment_startup.js';
 
 const owners = new WeakMap();
 

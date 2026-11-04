@@ -1,5 +1,5 @@
-import { readFallback } from '../../../shared/read_scope.js?v=20261031-modules-v1';
-import { jget } from '../../../api.js?v=20261031-modules-v1';
+import { readFallback } from '../../../shared/read_scope.js';
+import { jget } from '../../../api.js';
 
 export const RETURN_SECTION_SPECS = [
     { key: 'a_stock', label: 'A股个股', url: '/investment/section-return-series?section=a_stock&start=2026-01-01&interval=daily&baseCurrency=CNY' },
