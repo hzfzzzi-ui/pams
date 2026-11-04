@@ -30,6 +30,7 @@ class ValuationEvidenceSeries(dict):
         self.missing_price_dates = set(missing_price_dates)
         self.cash_scope_unverified = cash_scope_unverified
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
+        self.available_accounts_by_date: dict[Date, list[str]] = {}
 
 
 def series_dates(start_date: Date, end_date: Date, interval: str = "weekly") -> list[Date]:
@@ -389,9 +390,26 @@ def build_weekly_nav_rows(
             missing_accounts.append("tonghuashun")
         if ibkr_bucket.get("history_evidence") == "unavailable":
             missing_accounts.append("ibkr")
+        available = set(bank_bucket.get("available_accounts") or ())
+        available_net = bank_bucket.get("net_worth", Decimal("0"))
+        snapshot_accounts = getattr(snapshot_series, "available_accounts_by_date", {}).get(sample_date, ())
+        if snapshot_accounts:
+            available.update(snapshot_accounts)
+            available_net += snapshot_series[sample_date]
+        if sample_date in a_share_series and "tonghuashun" not in missing_accounts:
+            available.add("tonghuashun")
+            available_net += a_share_series[sample_date]
+        if ibkr_bucket.get("net_worth") is not None and "ibkr" not in missing_accounts:
+            available.add("ibkr")
+            available_net += ibkr_bucket["net_worth"]
+        partial = ({"available_net_worth": available_net, "available_accounts": sorted(available)}
+                   if available else {})
         if missing_accounts:
-            rows.append({"date": sample_date, "assets": None, "liabilities": None,
+            estimated_available = available.intersection(bank_bucket.get("estimated_accounts") or ())
+            rows.append({"date": sample_date, **partial, "assets": None, "liabilities": None,
                          "net_worth": None, "unavailable_accounts": sorted(set(missing_accounts)),
+                         **({"valuation_quality": "estimated", "estimated_accounts": sorted(estimated_available)}
+                            if estimated_available else {}),
                          **({"source_evidence_unavailable_accounts": sorted(set(bank_bucket['source_evidence_unavailable_accounts']))}
                             if bank_bucket.get('source_evidence_unavailable_accounts') else {}),
                          **({"ibkr_history_evidence": "unavailable"} if "ibkr" in missing_accounts else {}),
@@ -400,7 +418,7 @@ def build_weekly_nav_rows(
         bucket["assets"] += ibkr_bucket.get("assets", Decimal("0"))
         bucket["liabilities"] += ibkr_bucket.get("liabilities", Decimal("0"))
         bucket["net_worth"] += ibkr_bucket.get("net_worth", Decimal("0"))
-        row: dict[str, Any] = {"date": sample_date, **bucket}
+        row: dict[str, Any] = {"date": sample_date, **bucket, **partial}
         estimated = set(bank_bucket.get('estimated_accounts') or ())
         if sample_date in getattr(a_share_series, 'estimated_dates', set()):
             estimated.add('tonghuashun')
@@ -515,6 +533,9 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
         result["unavailable_accounts"] = row["unavailable_accounts"]
     if "scope_status" in row:
         result["scope_status"] = row["scope_status"]
+    if row.get("net_worth") is None and "available_net_worth" in row:
+        result["availableNetWorth"] = _norm(row["available_net_worth"])
+        result["available_accounts"] = row["available_accounts"]
     for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts'):
         if field in row:
             result[field] = row[field]
@@ -742,6 +763,8 @@ def _bank_backcast_series(
                 values[sample_date].setdefault("unavailable_accounts", []).append(code)
             else:
                 add_nav_amount(values[sample_date], signed_native_value * rate)
+                if has_statement_rows or sample_date >= effective_date:
+                    values[sample_date].setdefault("available_accounts", []).append(code)
     return values
 
 
@@ -819,6 +842,8 @@ def _investment_snapshot_series(
         proven[day].add(code)
     for day in dates:
         missing = sorted(set(account_codes) - proven[day])
+        if proven[day]:
+            values.available_accounts_by_date[day] = sorted(proven[day])
         if missing:
             values.unknown_accounts_by_date[day] = missing
     return values
