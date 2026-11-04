@@ -10,6 +10,9 @@ from domain.investments.trade_snapshot_publication import published_results
 from domain.investments.valuation_input_evidence import _bound_input, _hash, verify_recorded_version
 
 
+_REPRICE_FIELDS = frozenset({'current_price', 'holding_pnl', 'market_value', 'updated_at'})
+
+
 def enrich_trade_snapshot_costs(cur, rows):
     candidates = [row for row in rows if (row.get('account') or row.get('account_code')) == 'tonghuashun'
                   and row.get('currency') == 'CNY' and row.get('holding_id')]
@@ -35,9 +38,23 @@ def enrich_trade_snapshot_costs(cur, rows):
                 continue
             try:
                 holding_id, version = int(record['id']), record['version']
-                _, original = _bound_input(cur, 'holding', {'id': holding_id}, locking=False)
-                if not original or _hash(original) != record['holding_hash'] or not verify_recorded_version(cur, version):
+                _, current = _bound_input(cur, 'holding', {'id': holding_id}, locking=False)
+                if not current or not verify_recorded_version(cur, version):
                     continue
+                cur.execute('SELECT inputs FROM valuation_evidence WHERE version_key=%s', (version,))
+                evidence = (cur.fetchone() or {}).get('inputs') or []
+                original = current
+                if _hash(current) != record['holding_hash']:
+                    if row['holding_id'] != holding_id:
+                        continue
+                    saved = [item['evidence']['snapshot']['content'] for item in evidence
+                             if item['input_kind'] == 'holding']
+                    if len(saved) != 1 or _hash(saved[0]) != record['holding_hash']:
+                        continue
+                    original = saved[0]
+                    if _hash({k: v for k, v in original.items() if k not in _REPRICE_FIELDS}) != _hash(
+                            {k: v for k, v in current.items() if k not in _REPRICE_FIELDS}):
+                        continue
                 if (original.get('account_code') != 'tonghuashun' or original.get('symbol') != row.get('symbol')
                         or original.get('currency') != row.get('currency')
                         or original.get('asset_id') != row.get('asset_id')
@@ -63,8 +80,6 @@ def enrich_trade_snapshot_costs(cur, rows):
                     proofs = verifier.verify_many(table='pams_investment_trade_fact', fact_ids=event_ids)
                     if any(proofs.get(event_id, {}).get('status') != 'verified' for event_id in event_ids):
                         continue
-                cur.execute('SELECT inputs FROM valuation_evidence WHERE version_key=%s', (version,))
-                evidence = (cur.fetchone() or {}).get('inputs') or []
                 current_refs = [item['evidence'] for item in evidence if item.get('input_kind') in {'trade', 'quote'}]
                 if len(current_refs) != len(event_ids) + 1:
                     continue
