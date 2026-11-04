@@ -59,6 +59,9 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#publish').disabled);
   await page.locator('#publish').click();await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('已发布'));
   assert.equal(source.status,'published');
+  const investmentLink = page.locator('#notice a');
+  assert.equal(await investmentLink.count(), kind === 'trade' ? 1 : 0);
+  if (kind === 'trade') assert.equal(await investmentLink.getAttribute('href'), 'investments.html#investment-ledger');
  }
  assert.equal(publishes,3);assert.deepEqual(errors,[]);
  assert.ok(calls.every(([,p])=>!p.includes('/batches')));
