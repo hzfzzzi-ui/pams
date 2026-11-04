@@ -3,15 +3,13 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
-from uuid import uuid4
-
-from psycopg2.extras import Json
 
 from domain.imports.isolation import source_mode, runtime_import_active
 from domain.imports.native_source import enabled as publication_enabled
 from domain.investments.diluted_trade_positions import calculate_diluted_positions
 from domain.investments.holding_evidence_writer import lock_holding_accounts, prepare_holding_change, finish_holding_change
 from domain.investments.trade_snapshot_preview import build_trade_snapshot_candidates
+from domain.investments.trade_snapshot_publication import published_results, save_publication
 from domain.investments.trade_snapshot_source import load_verified_equity_events
 from domain.investments.valuation_input_evidence import _hash, _bound_input, verify_recorded_version
 from domain.imports.account_import_store import norm
@@ -59,14 +57,11 @@ def publish_isolated(cur, *, account_code, as_of, quote_ids, expected_digest, co
     prepared = preview(cur, account_code=account_code, as_of=as_of, quote_ids=quote_ids, for_write=True)
     if not isinstance(expected_digest, str) or expected_digest != prepared['digest']:
         raise ValueError('preview is stale')
-    cur.execute('''SELECT published_result FROM source_batches
-                   WHERE account_code=%s AND workflow='trade_snapshot' AND status='published'
-                     AND published_source_hash=%s''', (account_code, expected_digest))
-    matches = cur.fetchall()
+    matches = published_results(cur, account_code, expected_digest)
     if len(matches) > 1:
         raise ValueError('ambiguous snapshot publication')
     if matches:
-        saved = matches[0]['published_result'] or {}
+        saved = matches[0]
         records = saved.get('records') or []
         cur.execute('SELECT id FROM pams_holdings_snapshot WHERE account_code=%s ORDER BY id', (account_code,))
         actual_ids = [row['id'] for row in cur.fetchall()]
@@ -104,12 +99,6 @@ def publish_isolated(cur, *, account_code, as_of, quote_ids, expected_digest, co
                         'net_distributions': str(row['net_distributions']),
                         'all_event_ids': row['all_event_ids']})
         ids.append(holding_id)
-    cur.execute('''INSERT INTO source_batches
-        (batch_id,account_code,business_type,workflow,institution,acquisition_method,date_to,
-         completeness,scope_attestation,status,published_source_hash,published_result)
-        VALUES (%s,%s,'holding','trade_snapshot','PAMS trade-derived','api',%s,
-                'partial',%s,'published',%s,%s)''',
-        (str(uuid4()), account_code, as_of,
-         Json({'securities_coverage_confirmed': True, 'cash_coverage': 'unknown'}), expected_digest,
-         Json({'records': records, 'closed_adjustments': norm(prepared['closed_adjustments'])})))
+    save_publication(cur, account_code=account_code, as_of=as_of, digest=expected_digest,
+                      result={'records': records, 'closed_adjustments': norm(prepared['closed_adjustments'])})
     return {'holding_ids': ids, 'digest': prepared['digest'], 'replayed': False}

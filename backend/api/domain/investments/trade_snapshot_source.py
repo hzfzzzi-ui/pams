@@ -26,6 +26,10 @@ def load_verified_equity_events(cur, account_code, *, for_write=False):
     if redesigned:
         from domain.investments.trade_read_v2 import load_trade_rows
         rows = load_trade_rows(cur, account_code=account_code, start=date.min, end=date.max)
+        cur.execute('SELECT count(*) AS total FROM pams_investment_trade_fact WHERE account_code=%s',
+                    (account_code,))
+        if cur.fetchone()['total'] != len(rows):
+            raise ValueError('trade source verification failed')
     else:
         cur.execute('''SELECT trade_id,account_code,symbol,currency,trade_date,trade_time,side,
                           quantity,net_cash,asset_id,source_table,review_status,affects_position

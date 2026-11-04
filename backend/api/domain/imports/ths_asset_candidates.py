@@ -58,7 +58,16 @@ def collect_candidates(parsed: dict) -> tuple[list[dict], list[dict]]:
     return candidates, conflicts
 
 
-def initialize(cur, parsed: dict, *, batch_id, file_id, file_sha256: str) -> dict:
+def find_identities(cur, symbol, asset_id):
+    aliases = [symbol, symbol + '.SH', symbol + '.SS', symbol + '.SZ', 'SH' + symbol, 'SZ' + symbol]
+    cur.execute('''SELECT DISTINCT m.asset_id,m.primary_symbol,m.exchange,m.asset_type,m.currency,m.status
+        FROM pams_asset_master m LEFT JOIN pams_asset_alias a ON a.asset_id=m.asset_id
+        WHERE m.asset_id=%s OR upper(m.primary_symbol)=ANY(%s) OR upper(a.alias_value)=ANY(%s)''',
+                (asset_id, aliases, aliases))
+    return cur.fetchall()
+
+
+def initialize(cur, parsed: dict, *, batch_id=None, file_id=None, file_sha256: str, source_record_id=None) -> dict:
     """Create missing source-backed identities in the caller's upload transaction."""
     candidates, conflicts = collect_candidates(parsed)
     created = []
@@ -72,19 +81,15 @@ def initialize(cur, parsed: dict, *, batch_id, file_id, file_sha256: str) -> dic
         # Coordinate with the asset-master synchronizer and serialize same-ID uploads.
         cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))',
                     ('pams:asset-identity:' + asset_id,))
-        identities = [symbol, symbol + '.SH', symbol + '.SS', symbol + '.SZ', 'SH' + symbol, 'SZ' + symbol]
-        cur.execute('''SELECT DISTINCT m.asset_id,m.primary_symbol,m.exchange
-            FROM pams_asset_master m LEFT JOIN pams_asset_alias a ON a.asset_id=m.asset_id
-            WHERE m.asset_id=%s OR upper(m.primary_symbol)=ANY(%s) OR upper(a.alias_value)=ANY(%s)''',
-                    (asset_id, identities, identities))
-        existing = cur.fetchall()
+        existing = find_identities(cur, symbol, asset_id)
         if existing:
             # Never alter an existing identity or turn a conflict into a duplicate.
             if len(existing) != 1:
                 conflicts.append({'symbol': symbol, 'reason': 'existing_identity_ambiguous'})
             continue
-        evidence = {'source_batch_id': str(batch_id), 'source_file_id': str(file_id),
-                    'source_file_sha256': file_sha256, 'source_profile': PROFILE,
+        source_identity = ({'source_record_id': str(source_record_id)} if source_record_id else
+                           {'source_batch_id': str(batch_id), 'source_file_id': str(file_id)})
+        evidence = {**source_identity, 'source_file_sha256': file_sha256, 'source_profile': PROFILE,
                     'source_records': candidate['source_records'],
                     'pending_fields': ['asset_type', 'currency'],
                     'type_basis': '同花顺账户默认个股，待核对',

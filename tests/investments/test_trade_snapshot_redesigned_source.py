@@ -21,6 +21,8 @@ class Cursor:
             return {'ro': 'on', 'level': 'repeatable read'}
         if 'to_regclass' in self.sql:
             return {'redesigned': True}
+        if 'count(*) AS total' in self.sql:
+            return {'total': 1}
         if 'pams_asset_master' in self.sql:
             return {'asset_id': 'synthetic', 'primary_symbol': '000001', 'canonical_name': 'Synthetic',
                     'asset_type': 'stock', 'status': 'active', 'currency': 'CNY'}
