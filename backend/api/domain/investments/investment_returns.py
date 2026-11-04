@@ -1044,6 +1044,8 @@ def build_section_return_series_payload(
     dates = series_dates(start_date, terminal_date, interval)
     fx_timelines = load_fx_timelines(cur, base_currency)
     warnings: list[str] = []
+    available_returns = {}
+    preview_source_through = None
 
     if section == "a_stock":
         values = tonghuashun_series(
@@ -1052,6 +1054,9 @@ def build_section_return_series_payload(
             base_currency=base_currency,
             account_owner_ratio=account_owner_ratio,
         )
+        if base_currency.upper() == 'CNY':
+            available_returns = getattr(values, 'preview_return_by_date', {})
+            preview_source_through = getattr(values, 'preview_source_through', None)
         anchor_value = _account_net_liquidation_anchor_cny(
             cur,
             account_code="tonghuashun",
@@ -1161,6 +1166,13 @@ def build_section_return_series_payload(
                 "net_flow", "cumulative_capital", "capital_return_rate", "daily_return_rate",
                 "time_weighted_return_rate", "display_return_rate", "display_return_rate_raw")}} for day in dates],
         }
+        if available_returns:
+            payload['estimated_series'] = {
+                'label': '同花顺估算',
+                'source_through': norm(preview_source_through),
+                'rows': [{'date': norm(day), 'display_return_rate': norm(available_returns.get(day))}
+                         for day in dates],
+            }
         if today_label_date is not None:
             payload["today_window"] = None
         return payload

@@ -141,12 +141,14 @@ function pointRadiusForReturnSeries(pointCount, isMobile) {
   return pointCount > (isMobile ? 28 : 45) ? 0 : 2;
 }
 
-function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile, events = []) {
+function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile, events = [], sectionEstimates = new Map()) {
   const windowRows = filterReturnWindowRows(rows, windowKey);
-  const labels = windowRows.map(row => row.date);
+  const dateRows = [...rows, ...sectionSpecs.flatMap(spec => sectionEstimates.get(spec.key)?.rows || sectionRowsByKey.get(spec.key) || [])];
+  const labels = [...new Set(filterReturnWindowRows(dateRows, windowKey).map(row => row.date))].sort();
+  const totalByDate = new Map(windowRows.map(row => [row.date, row]));
   const totalBaseRate = windowRows.map(returnRateForChart).find(value => value !== null) ?? null;
-  const totalData = windowRows.map(row => {
-    const rate = returnRateForChart(row);
+  const totalData = labels.map(date => {
+    const rate = returnRateForChart(totalByDate.get(date));
     return rate === null || totalBaseRate === null ? null : rebaseReturnRate(rate, totalBaseRate) * 100;
   });
   const labelSet = new Set(labels);
@@ -158,12 +160,14 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
   const eventData = labels.map((date, index) => eventDates.has(date) ? totalData[index] : null);
   const sectionDataByKey = new Map();
   for (const spec of sectionSpecs) {
-    const rateByDate = new Map((sectionRowsByKey.get(spec.key) || []).map(row => [row.date, returnRateForChart(row)]));
+    const estimate = sectionEstimates.get(spec.key);
+    const rateByDate = new Map((estimate?.rows || sectionRowsByKey.get(spec.key) || []).map(row => [row.date, returnRateForChart(row)]));
     let sectionBaseRate = null;
     const sectionData = labels.map(date => {
       if (!rateByDate.has(date)) return null;
       const rate = rateByDate.get(date);
       if (rate === null || !Number.isFinite(rate)) return null;
+      if (estimate) return rate * 100;
       if (sectionBaseRate == null) sectionBaseRate = rate;
       return rebaseReturnRate(rate, sectionBaseRate) * 100;
     });

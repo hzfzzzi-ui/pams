@@ -31,3 +31,13 @@ assert.deepEqual(Array.from(chart.scopes), ['partial:bank','complete','partial:b
 assert.equal(chart.latest,160);
 assert.equal(chart.availableAccountCount,2);
 assert.equal(chart.change,null);
+const estimate = new Map([['a_stock',{rows:[
+  {date:'2026-01-01', display_return_rate:'0.1'},
+  {date:'2026-01-03', display_return_rate:'0.2'},
+]}]]);
+const estimatedWindow = model.buildInvestmentReturnWindowData(missing, sections,
+  [{key:'a_stock',label:'A股个股'}], 'ytd', true, [], estimate);
+assert.deepEqual(Array.from(estimatedWindow.labels), ['2026-01-01','2026-01-02','2026-01-03']);
+assert.deepEqual(Array.from(estimatedWindow.totalData), [null,null,null]);
+assert.deepEqual(Array.from(estimatedWindow.sectionDataByKey.get('a_stock').data), [10,null,20]);
+assert.equal(estimatedWindow.topContribution.unavailable, true);

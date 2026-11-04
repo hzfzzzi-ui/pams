@@ -249,12 +249,14 @@ def _section_first_activity_date(cur, section: str) -> Date | None:
     """Return the first transaction or snapshot date available for an investment section."""
     cfg = SECTION_RETURN_CONFIG[section]
     if _table_exists(cur, 'source_records'):
+        if section == 'a_stock':
+            cur.execute("""SELECT MIN(trade_date) AS start_date FROM pams_investment_trade_fact
+                WHERE account_code='tonghuashun'""")
+            return (cur.fetchone() or {}).get('start_date')
         # The range can start at the earliest observed row. Amounts are verified
         # separately before a trade contributes to returns.
         market_names = [cfg['major_category']]
-        if section == 'a_stock':
-            market_names.extend(['CN_A'])
-        elif section == 'a_fund':
+        if section == 'a_fund':
             market_names = [cfg['minor_category'], 'CN_FUND']
         elif section == 'us_stock':
             market_names.extend(IBKR_EQUITY_MARKETS)
