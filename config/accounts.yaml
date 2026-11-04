@@ -300,7 +300,7 @@ accounts:
     account_type: brokerage
     institution: 同花顺
     base_currency: CNY
-    owner_ratio: 0.625
+    owner_ratio: 1.0
     truth_source: platform_snapshot
     reconcile_method: position_nav
     role: A股个股券商账户
@@ -312,7 +312,7 @@ accounts:
       currency: CNY
       as_of: 2026-06-21
       source: user_confirmed_tonghuashun_total_assets_20260621
-      note: 用户 2026-06-21 同花顺截图确认总资产 396,031.36、总市值 387,560.00，推得现金 8,471.36。个人口径按 0.625 乘数计算，账户绩效应以净清算价值而不是仅持仓市值计算。
+      note: 用户 2026-06-21 同花顺截图确认总资产 396,031.36、总市值 387,560.00，推得现金 8,471.36。当时个人口径按 0.625 乘数计算，账户绩效应以净清算价值而不是仅持仓市值计算。
 
   tencent_licaitong:
     display_name: 腾讯理财通
