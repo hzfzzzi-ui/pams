@@ -46,3 +46,26 @@ const source = {source_id:'s',account_code:'bank',document_type:'cash',acquisiti
  assert.deepEqual(calls[0],{path:'/source-records/s/holding-preview',method:'POST',body:{revision:2,scope}});
  assert.deepEqual(calls[1],{path:'/source-records/s/holding-publish',method:'POST',body:{revision:2,scope,preview_token:'scope-token'}});
 }
+
+{
+ const calls=[];
+ const item={...source.items[0],raw_fields:{source:{profile:'ths_broker_ledger_v1'}}};
+ const broker={...source,account_code:'tonghuashun',document_type:'trade',items:[item]};
+ const api=async(path,method,body)=>{
+   calls.push({path,method,body});
+   if(path.endsWith('/trade-preview')) return {revision:2,template_review:true,can_publish:false,can_publish_ready:true,
+     items:[{source_item_id:'i'}],rows:[{source_item_id:'i',status:'ready'},{source_item_id:'j',status:'duplicate'}],
+     preview_token:body.mode==='ready'?'ready-token':null};
+   if(path.endsWith('/trade-publish')) return {published:1,deferred_source_id:'later'};
+   return broker;
+ };
+ const adapter=createSourceRecordAdapter(api,{});
+ const batch=await adapter.load('s');
+ assert.equal(batch.rows[0].acknowledged,false);
+ const preview=await adapter.preview(batch);
+ assert.deepEqual(preview.counts,{new:1,duplicates:1,blocked:0,pending:0});
+ assert.equal(preview.rows[1].status,'duplicate');
+ const result=await adapter.publish(batch,preview,true);
+ assert.equal(result.deferred_batch_id,'later');
+ assert.deepEqual(calls[3].body,{revision:2,preview_token:'ready-token',mode:'ready'});
+}

@@ -61,7 +61,10 @@ export function createSourceRecordAdapter(request, recovery) {
     },
     async preview(batch, scope = null) {
       const pending = batch.rows.some(row => !row.acknowledged && !row.excluded);
-      if (batch.kind !== 'cash' && pending) return {batch_id:batch.batch_id,revision:batch.revision,
+      const templateTrade = batch.kind === 'trade' && batch.account_code === 'tonghuashun'
+        && batch.rows.length > 0 && batch.rows.every(row => row.source?.origin === 'template'
+          && row.source?.profile === 'ths_broker_ledger_v1');
+      if (batch.kind !== 'cash' && pending && !templateTrade) return {batch_id:batch.batch_id,revision:batch.revision,
         counts:{new:0,duplicates:0,blocked:0,pending:batch.rows.filter(row=>!row.acknowledged&&!row.excluded).length},
         rows:batch.rows.map(row=>({row_id:row.row_id,fields:row.fields,status:row.excluded?'excluded':row.acknowledged?'ready':'pending'})),
         can_publish:false,warnings:['请逐条核对记录后进行发布预检。']};
@@ -83,15 +86,21 @@ export function createSourceRecordAdapter(request, recovery) {
           counts:{new:value.counts.ready,duplicates:value.counts.duplicate,blocked:value.counts.invalid,pending:value.counts.pending},
           rows:value.rows.map(item=>({row_id:item.source_item_id,status:item.status==='invalid'?'blocked':item.status}))};
       }
-      const value = await request(`${path(batch.batch_id)}/trade-preview`,'POST',{revision:batch.revision});
-      return {batch_id:batch.batch_id,revision:value.revision,preview_token:value.preview_token,can_publish:true,
-        counts:{new:value.items.length,duplicates:0,blocked:0,pending:0},
-        rows:batch.rows.map(row=>({row_id:row.row_id,fields:row.fields,status:row.excluded?'excluded':'ready'}))};
+      const route = `${path(batch.batch_id)}/trade-preview`;
+      const value = await request(route,'POST',{revision:batch.revision});
+      const ready = value.can_publish_ready ? await request(route,'POST',{revision:batch.revision,mode:'ready'}) : null;
+      const rows = (value.rows || []).map(item => ({row_id:item.source_item_id,status:item.status,issues:item.issues}));
+      return {batch_id:batch.batch_id,revision:value.revision,preview_token:value.preview_token || ready?.preview_token,
+        ready_token:ready?.preview_token,can_publish:value.can_publish,can_publish_ready:value.can_publish_ready,
+        template_review:value.template_review,
+        counts:{new:value.items.length,duplicates:rows.filter(row=>row.status==='duplicate').length,
+          blocked:rows.filter(row=>row.status==='blocked').length,pending:0},rows};
     },
     async publish(batch, preview, ready = false) {
       const suffix = `${batch.kind}-publish`;
       const body = {revision:batch.revision,preview_token:ready?preview.ready_token:preview.preview_token};
       if (batch.kind === 'cash') body.mode = ready ? 'ready' : 'all';
+      if (batch.kind === 'trade' && ready) body.mode = 'ready';
       if (batch.kind === 'holding') body.scope = preview.scope;
       const result = await request(`${path(batch.batch_id)}/${suffix}`,'POST',body);
       return {batch:await loadAfterWrite(batch.batch_id),deferred_batch_id:result.deferred_source_id};

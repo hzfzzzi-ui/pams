@@ -82,6 +82,14 @@ class HoldingSourcePublish(Publish):
     scope: CompleteScope | None = None
 
 
+class TradeSourcePreview(Revision):
+    mode: Literal['all', 'ready'] = 'all'
+
+
+class TradeSourcePublish(Publish):
+    mode: Literal['all', 'ready'] = 'all'
+
+
 class ConfirmFlowCoverage(Revision):
     mappings: dict[str, int] = Field(max_length=store.MAX_ROWS)
     note: str = Field(min_length=1, max_length=500)
@@ -418,16 +426,17 @@ def _holding_scope(body):
 
 
 @router.post('/source-records/{source_id}/trade-preview')
-def preview_trade_source_record(source_id: UUID, body: Revision, request: Request):
+def preview_trade_source_record(source_id: UUID, body: TradeSourcePreview, request: Request):
     from domain.imports.trade_publication_v2 import preview
-    return execute_source_record(request, lambda cur: preview(cur, source_id=source_id, revision=body.revision), write=True)
+    return execute_source_record(request, lambda cur: preview(cur, source_id=source_id, revision=body.revision,
+                                                               mode=body.mode), write=True)
 
 
 @router.post('/source-records/{source_id}/trade-publish')
-def publish_trade_source_record(source_id: UUID, body: Publish, request: Request):
+def publish_trade_source_record(source_id: UUID, body: TradeSourcePublish, request: Request):
     from domain.imports.trade_publication_v2 import publish
     return execute_source_record(request, lambda cur: publish(cur, source_id=source_id, revision=body.revision,
-        preview_token=body.preview_token), write=True)
+        preview_token=body.preview_token, mode=body.mode), write=True)
 
 
 @router.post('/trade-snapshot/preview')

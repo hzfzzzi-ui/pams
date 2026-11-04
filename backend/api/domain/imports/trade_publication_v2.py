@@ -15,18 +15,24 @@ def _token(plan: dict, bucket: int) -> str:
     return hmac.new(native_source_http._token_key(), b'pams-source-record-trade-v1:' + message, sha256).hexdigest()
 
 
-def preview(cur, *, source_id, revision: int) -> dict:
-    plan = source_records_v2.publish_trade_source(cur, source_id=source_id, expected_revision=revision, preview_only=True)
-    return {**plan, 'preview_token': _token(plan, int(time.time() // 30))}
+def preview(cur, *, source_id, revision: int, mode: str = 'all') -> dict:
+    plan = source_records_v2.publish_trade_source(
+        cur, source_id=source_id, expected_revision=revision, preview_only=True, mode=mode)
+    plan['mode'] = mode
+    allowed = plan['can_publish_ready'] if mode == 'ready' else plan['can_publish']
+    return {**plan, 'preview_token': _token(plan, int(time.time() // 30)) if allowed else None}
 
 
-def publish(cur, *, source_id, revision: int, preview_token: str) -> dict:
+def publish(cur, *, source_id, revision: int, preview_token: str, mode: str = 'all') -> dict:
     if not native_source.enabled():
         raise ValueError('import publication is disabled')
     if not isinstance(preview_token, str) or len(preview_token) != 64:
         raise ValueError('invalid preview token')
-    plan = source_records_v2.publish_trade_source(cur, source_id=source_id, expected_revision=revision, preview_only=True)
+    plan = source_records_v2.publish_trade_source(
+        cur, source_id=source_id, expected_revision=revision, preview_only=True, mode=mode)
+    plan['mode'] = mode
+    allowed = plan['can_publish_ready'] if mode == 'ready' else plan['can_publish']
     now = int(time.time() // 30)
-    if not any(hmac.compare_digest(preview_token, _token(plan, now - n)) for n in range(31)):
+    if not allowed or not any(hmac.compare_digest(preview_token, _token(plan, now - n)) for n in range(31)):
         raise ValueError('preview expired or source changed')
-    return source_records_v2.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+    return source_records_v2.publish_trade_source(cur, source_id=source_id, expected_revision=revision, mode=mode)
