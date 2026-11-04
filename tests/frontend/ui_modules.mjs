@@ -9,8 +9,8 @@ function fixture({saveData = false, gate} = {}) {
   const timers = new Map(), idle = new Map(), listeners = new Map(), nodes = [], calls = [], signals = [];
   const node = (tagName, attr, value) => ({tagName, getAttribute: key => key === attr ? value : null});
   const resources = [
-    node('LINK', 'href', 'assets/css/tokens.css?v=fresh-token-version'),
-    node('SCRIPT', 'src', 'assets/js/holdings.js?v=fresh-controller-version'),
+    node('LINK', 'href', 'assets/build-12345678901234567890/css/tokens.css'),
+    node('SCRIPT', 'src', 'assets/build-12345678901234567890/js/holdings.js'),
     node('SCRIPT', 'src', 'https://outside.invalid/assets/secret.js'),
     node('SCRIPT', 'src', '/api/account-import/raw?file=private'),
   ];
@@ -53,8 +53,8 @@ function fixture({saveData = false, gate} = {}) {
     '/api/portfolio/data-quality?baseCurrency=CNY', '/api/ledger/workbench?month=2026-10']);
   assert.equal(f.nodes.length, 4);
   assert.equal(new Set(f.nodes.map(n => n.href)).size, f.nodes.length);
-  assert.ok(f.nodes.some(n => n.href.endsWith('tokens.css?v=fresh-token-version')));
-  assert.ok(f.nodes.some(n => n.href.endsWith('holdings.js?v=fresh-controller-version')));
+  assert.ok(f.nodes.some(n => n.href.endsWith('/assets/build-12345678901234567890/css/tokens.css')));
+  assert.ok(f.nodes.some(n => n.href.endsWith('/assets/build-12345678901234567890/js/holdings.js')));
   assert.ok(!f.nodes.some(n => n.href.includes('/api/') || n.href.includes('outside.invalid')));
   assert.deepEqual(collectPrefetchResources(f.doc).filter(n => n.as === 'document').map(n => new URL(n.href).pathname),
     ['/ledger.html', '/more.html']);

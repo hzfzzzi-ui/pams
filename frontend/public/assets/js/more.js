@@ -1,9 +1,9 @@
-import { jget } from './api.js?v=20261031-modules-v1';
-import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js?v=20261031-modules-v1';
-import { setActiveNav } from './ui.js?v=20261031-modules-v1';
-import { mount as mountPage, dispose as disposePage } from './features/more/controller.js?v=20261101-asset-review';
+import { jget } from './api.js';
+import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js';
+import { setActiveNav } from './ui.js';
+import { mount as mountPage, dispose as disposePage } from './features/more/controller.js';
 
-export { issueSummary } from './features/more/controller.js?v=20261101-asset-review';
+export { issueSummary } from './features/more/controller.js';
 
 export function mount(root = document.body, context = {}) {
   return mountPage(root, {

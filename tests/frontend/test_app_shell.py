@@ -18,7 +18,7 @@ def test_single_navigation_and_removed_page_headers():
     for name in ("investments", "ledger", "more", "accounts", "data_sources", "account_import"):
         html = (PUBLIC / f"{name}.html").read_text(encoding="utf-8")
         assert "data-nav" not in html
-        assert "page-shell.css?v=" in html
+        assert "page-shell.css" in html
     ledger = (PUBLIC / "ledger.html").read_text(encoding="utf-8")
     for removed in ('<h1>流水</h1>', '现金流、账户流水与内部转账。', '<summary>口径说明</summary>', '>资金流转匹配</a>'):
         assert removed not in ledger
@@ -33,4 +33,5 @@ def test_optional_shell_browser(tmp_path):
     public = tmp_path / "public"
     shutil.copytree(PUBLIC, public)
     subprocess.run([sys.executable, "frontend/tools/mobile_styles.py", str(public / "assets/css")], cwd=ROOT, check=True)
+    subprocess.run([sys.executable, "frontend/tools/fingerprint_assets.py", str(public)], cwd=ROOT, check=True)
     subprocess.run(["node", "tests/frontend/frontend_shell.mjs", str(public)], cwd=ROOT, check=True, timeout=120)

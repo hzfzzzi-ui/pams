@@ -1,8 +1,7 @@
 """Validate local browser module identity and one-way shared dependencies."""
-from collections import defaultdict
 from pathlib import Path
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 PUBLIC = Path(__file__).resolve().parents[2] / "frontend/public"
 IMPORT = re.compile(r"\b(?:from\s*|import\s*(?:\(\s*)?)(['\"])([^'\"]+\.js(?:\?[^'\"]*)?)\1")
@@ -18,8 +17,8 @@ def module_references():
             yield source, match.group(1)
 
 
-def test_local_module_urls_resolve_and_share_one_cache_identity():
-    identities = defaultdict(set)
+def test_local_module_urls_resolve_as_unversioned_relative_paths():
+    references = 0
     for source, reference in module_references():
         url = urlsplit(reference)
         if url.scheme or url.netloc:
@@ -27,10 +26,10 @@ def test_local_module_urls_resolve_and_share_one_cache_identity():
         target = ((PUBLIC / url.path.lstrip("/")) if url.path.startswith("/") else source.parent / url.path).resolve()
         assert target.is_relative_to(PUBLIC.resolve()), (source, reference)
         assert target.is_file(), (source, reference)
-        assert parse_qs(url.query).get("v"), (source, reference, "Unversioned local import")
-        identities[target].add(url.query)
-    assert identities, "No local module graph was inspected"
-    assert {str(path.relative_to(PUBLIC)): sorted(versions) for path, versions in identities.items() if len(versions) != 1} == {}
+        assert not url.query and not url.fragment, (source, reference)
+        assert not url.path.startswith("/"), (source, reference, "Use paths relative to the asset directory")
+        references += 1
+    assert references, "No local module graph was inspected"
 
 
 def test_shared_components_do_not_depend_on_business_features():

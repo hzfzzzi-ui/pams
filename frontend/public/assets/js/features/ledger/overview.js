@@ -1,6 +1,6 @@
-import { accountLabel } from '../../api.js?v=20261031-modules-v1';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js?v=20261031-modules-v1';
-import { CHART_THEME } from '../../shared/chart_theme.js?v=20261031-modules-v1';
+import { accountLabel } from '../../api.js';
+import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
+import { CHART_THEME } from '../../shared/chart_theme.js';
 // Restore the ledger's established semantic palette without changing shared charts or chrome.
 const CATEGORY_PIE_COLORS = {
   income: ['#3fb950', '#58a6ff', '#d29922', '#a371f7', '#2ea043', '#79c0ff', '#8b949e'],

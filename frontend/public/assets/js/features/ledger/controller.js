@@ -1,15 +1,15 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { replaceContentAddress } from '../../app/routes.js?v=20261031-modules-v1';
-import { createBottomSheet } from '../../components/bottom_sheet.js?v=20261031-modules-v1';
-import { setActiveNav } from '../../ui.js?v=20261031-modules-v1';
-import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL } from './state.js?v=20261031-modules-v1';
-import { createLedgerLegacyModel } from './legacy_model.js?v=20261031-modules-v1';
-import { createLedgerTemplates } from './templates.js?v=20261031-modules-v1';
-import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js?v=20261031-modules-v1';
-import { createLedgerOverview } from './overview.js?v=20261101-ledger-colors';
-import { createLedgerLists } from './lists.js?v=20261031-modules-v1';
-import { createLedgerEditor } from './editor.js?v=20261031-modules-v1';
-import { readLedgerWorkbench } from './requests.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { replaceContentAddress } from '../../app/routes.js';
+import { createBottomSheet } from '../../components/bottom_sheet.js';
+import { setActiveNav } from '../../ui.js';
+import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL } from './state.js';
+import { createLedgerLegacyModel } from './legacy_model.js';
+import { createLedgerTemplates } from './templates.js';
+import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js';
+import { createLedgerOverview } from './overview.js';
+import { createLedgerLists } from './lists.js';
+import { createLedgerEditor } from './editor.js';
+import { readLedgerWorkbench } from './requests.js';
 
 const owners = new WeakMap();
 

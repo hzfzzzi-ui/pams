@@ -1,4 +1,4 @@
-import { createDomView } from '../../shared/dom_view.js?v=20261031-modules-v1';
+import { createDomView } from '../../shared/dom_view.js';
 // One root owns its queries/listeners; sheet sessions are explicit child views.
 export function createLedgerDom(root) {
   const view = createDomView(root);

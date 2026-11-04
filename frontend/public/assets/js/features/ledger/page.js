@@ -1,5 +1,5 @@
-import { createLedgerController } from './controller.js?v=20261101-ledger-colors';
-import { snapshotLedgerViewState } from './state.js?v=20261031-modules-v1';
+import { createLedgerController } from './controller.js';
+import { snapshotLedgerViewState } from './state.js';
 
 const pages = new WeakMap();
 

@@ -34,7 +34,7 @@ pages/*.css / more.css / account-import.css
 page-shell.css             内容边界及唯一二级导航，内容页最后加载
 ```
 
-基础与手机派生样式仍遵守原相对顺序：`design-system.css` 必须在带版本号的 `style.css?v=...` 后加载。迁移的组件须同时移除或隔离旧定义；最终分层见下文，不将页面业务布局继续塞进共享覆盖层。
+基础与手机派生样式仍遵守原相对顺序：`design-system.css` 必须在 `style.css` 后加载。迁移的组件须同时移除或隔离旧定义；最终分层见下文，不将页面业务布局继续塞进共享覆盖层。
 
 正式页面的 `<body>` 保留 `app-shell` 兼容类。主导航由外壳唯一持有；`ui.js` 中历史导航增强须核对调用后清理，预加载另行评估。设计系统基础样式不能依赖 JS 执行后才生效。
 
@@ -103,8 +103,8 @@ docker compose up -d --build pams-web
 如果新增正式页面，必须接入：
 
 ```html
-<link rel="stylesheet" href="assets/css/style.css?v=20260620-mobile-density-v1" />
-<link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
+<link rel="stylesheet" href="assets/css/style.css" />
+<link rel="stylesheet" href="assets/css/design-system.css" />
 ```
 
 并补充静态契约测试，防止页面绕开设计系统。
@@ -147,7 +147,7 @@ docker compose up -d --build pams-web
 1. 先确认当前页面已有结构。
 2. 只改对应模块。
 3. 加静态契约测试。
-4. bump JS/CSS 版本号。
+4. 验证构建生成的静态资源版本目录。
 5. 验证候选构建；生产 `pams-web` 的重建/切换须另获部署授权。
 6. 按 [工作流程第 0.2 节](DEVELOPMENT_WORKFLOW.md#02-测试验证分层抽样与证据复用) 选择页面范围，在候选环境及获准部署后进行对应可见验证。
 

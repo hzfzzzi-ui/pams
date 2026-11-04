@@ -1,10 +1,10 @@
-import { jget } from './api.js?v=20261031-modules-v1';
-import { setActiveNav } from './ui.js?v=20261031-modules-v1';
-import { mount as mountSyncCenter } from './sync_center.js?v=20261031-modules-v1';
-import { mount as mountPage, dispose as disposePage } from './features/data_sources/controller.js?v=20261031-modules-v1';
-import { renderQuality as renderQualityInto } from './features/data_sources/view.js?v=20261031-modules-v1';
+import { jget } from './api.js';
+import { setActiveNav } from './ui.js';
+import { mount as mountSyncCenter } from './sync_center.js';
+import { mount as mountPage, dispose as disposePage } from './features/data_sources/controller.js';
+import { renderQuality as renderQualityInto } from './features/data_sources/view.js';
 
-export { issuesHtml } from './features/data_sources/view.js?v=20261031-modules-v1';
+export { issuesHtml } from './features/data_sources/view.js';
 
 // Preserve the historical public renderer while controllers pass an explicit target.
 export function renderQuality(portfolio, el = document.getElementById('dataQuality')) {

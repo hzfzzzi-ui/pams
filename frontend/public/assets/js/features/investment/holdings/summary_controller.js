@@ -1,30 +1,30 @@
 import {
   fmtCny, fmtSignedCny, formatNumber, formatPercentRate,
   esc, fmtSignedPctFromRate
-} from './summary_legacy_model.js?v=20261102-incomplete-scope-v1';
+} from './summary_legacy_model.js';
 import {
   createSummaryView
-} from './summary_view.js?v=20261104-top-contribution-v1';
+} from './summary_view.js';
 import {
   applyLegacySummaryPayload
-} from './legacy_summary_projection.js?v=20261102-incomplete-scope-v1';
+} from './legacy_summary_projection.js';
 import {
   readSummaryInputs
-} from './requests.js?v=20261031-modules-v1';
+} from './requests.js';
 import {
   createScope, createScopedDocument, createOwnedDetails, createOwnedError
-} from './scope.js?v=20261031-modules-v1';
+} from './scope.js';
 import {
   acquireClosedPositions
-} from './closed_positions.js?v=20261031-modules-v1';
+} from './closed_positions.js';
 import {
   createCategoryChartLoader
-} from './category_charts.js?v=20261031-modules-v1';
+} from './category_charts.js';
 import {
   CATEGORY_SECTION_IDS, CATEGORY_RETURN_CHART_SPECS, INVESTMENT_PHONE_QUERY
-} from './constants.js?v=20261031-modules-v1';
-import { createInvestmentChartController } from '../charts/controller.js?v=20261104-top-contribution-v1';
-import { replaceContentAddress } from '../../../app/routes.js?v=20261031-modules-v1';
+} from './constants.js';
+import { createInvestmentChartController } from '../charts/controller.js';
+import { replaceContentAddress } from '../../../app/routes.js';
 
 const mounted = new WeakMap();
 export function mount(root, context) {

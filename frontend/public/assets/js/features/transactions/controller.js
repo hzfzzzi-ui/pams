@@ -1,12 +1,12 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { createDomView } from '../../shared/dom_view.js?v=20261031-modules-v1';
-import { createState } from './state.js?v=20261031-modules-v1';
-import { createScope } from './scope.js?v=20261031-modules-v1';
-import { createLegacyReview } from './legacy_review.js?v=20261031-modules-v1';
-import { createListView } from './list_view.js?v=20261031-modules-v1';
-import { createAttributionView } from './attribution_view.js?v=20261031-modules-v1';
-import { createEditor } from './editor.js?v=20261031-modules-v1';
-import { createCommands } from './commands.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { createDomView } from '../../shared/dom_view.js';
+import { createState } from './state.js';
+import { createScope } from './scope.js';
+import { createLegacyReview } from './legacy_review.js';
+import { createListView } from './list_view.js';
+import { createAttributionView } from './attribution_view.js';
+import { createEditor } from './editor.js';
+import { createCommands } from './commands.js';
 
 const mounted = new WeakMap();
 

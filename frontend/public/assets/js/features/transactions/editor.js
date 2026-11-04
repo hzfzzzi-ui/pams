@@ -1,6 +1,6 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { accountLabel } from '../../api.js?v=20261031-modules-v1';
-import { escapeHtml, formatPlainMoney as money } from '../../utils.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { accountLabel } from '../../api.js';
+import { escapeHtml, formatPlainMoney as money } from '../../utils.js';
 
 export function createEditor({state, scope, legacy, attribution, get, reads = createReadScope({get})}) {
 const $ = scope.byId;

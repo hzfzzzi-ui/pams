@@ -1,6 +1,6 @@
-import { isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js?v=20261031-modules-v1';
-import { updateLedgerRow } from './requests.js?v=20261031-modules-v1';
+import { isReadCancelled } from '../../shared/read_scope.js';
+import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
+import { updateLedgerRow } from './requests.js';
 
 export function createLedgerEditor({ model, templates, sheets, dom, current, reload }) {
   const { isEditableLedgerRow, findLedgerRowById, ledgerCategoryOptions, ledgerSubcategoryOptions, ledgerEditSubmitLabel } = model;

@@ -1,4 +1,4 @@
-import { PRIMARY_PAGES, resolveContentRoute } from './routes.js?v=20261031-modules-v1';
+import { PRIMARY_PAGES, resolveContentRoute } from './routes.js';
 
 // Read the versions already selected by the page, rather than duplicating an
 // asset/version manifest here. Only same-origin static assets are eligible.

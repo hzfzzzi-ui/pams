@@ -1,4 +1,4 @@
-import {dataStateHtml} from '../../components/data_state.js?v=20261031-modules-v1';
+import {dataStateHtml} from '../../components/data_state.js';
 
 function esc(value) {
   return String(value ?? '')

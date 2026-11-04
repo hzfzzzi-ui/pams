@@ -1,5 +1,5 @@
-import { readFallback } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { jget, jpost } from '../../api.js?v=20261031-modules-v1';
+import { readFallback } from '../../shared/read_scope.js';
+import { jget, jpost } from '../../api.js';
 
 export function readLedgerWorkbench({signal} = {}) {
   const params = new URLSearchParams({ baseCurrency: 'CNY', recentDays: '30' });

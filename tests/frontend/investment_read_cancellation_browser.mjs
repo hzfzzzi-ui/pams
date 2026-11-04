@@ -56,7 +56,7 @@ try {
     await page.goto(base);
     await page.evaluate(async () => {
       const [api, charts, bootstrap] = await Promise.all([
-        import('/assets/js/api.js?v=20261031-modules-v1'),
+        import('/assets/js/api.js'),
         import('/assets/js/features/investment/charts/controller.js'),
         import('/assets/js/app/page_bootstrap.js'),
       ]);

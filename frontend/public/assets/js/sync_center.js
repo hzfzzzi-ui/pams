@@ -1,8 +1,8 @@
-import { jget, jpost } from './api.js?v=20261031-modules-v1';
-import { openBottomSheet, closeBottomSheet } from './ui.js?v=20261031-modules-v1';
-import { mount as mountCenter, dispose as disposeCenter, triggerSync as runSync } from './features/sync_center/controller.js?v=20261031-modules-v1';
+import { jget, jpost } from './api.js';
+import { openBottomSheet, closeBottomSheet } from './ui.js';
+import { mount as mountCenter, dispose as disposeCenter, triggerSync as runSync } from './features/sync_center/controller.js';
 
-export { fmtSyncTime, renderSyncSummary, renderWorkflow, renderSyncRows, renderSyncTable } from './features/sync_center/view.js?v=20261031-modules-v1';
+export { fmtSyncTime, renderSyncSummary, renderWorkflow, renderSyncRows, renderSyncTable } from './features/sync_center/view.js';
 
 export function mount(root, context = {}) {
   return mountCenter(root, {get: jget, post: jpost, openSheet: openBottomSheet, closeSheet: closeBottomSheet, ...context});

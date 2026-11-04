@@ -1,4 +1,4 @@
-import { escapeHtml } from '../../utils.js?v=20261031-modules-v1';
+import { escapeHtml } from '../../utils.js';
 
 export function createAttributionView({state, scope, legacy}) {
 const $ = scope.byId;

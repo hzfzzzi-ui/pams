@@ -1,6 +1,6 @@
-import { createReadScope, isReadCancelled } from '../../shared/read_scope.js?v=20261031-modules-v1';
-import { dataStateHtml } from '../../ui.js?v=20261031-modules-v1';
-import { fmtSyncTime, renderSyncSummary, renderWorkflow, renderSyncRows, renderSyncTable, rowDetail, setStatus } from './view.js?v=20261031-modules-v1';
+import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { dataStateHtml } from '../../ui.js';
+import { fmtSyncTime, renderSyncSummary, renderWorkflow, renderSyncRows, renderSyncTable, rowDetail, setStatus } from './view.js';
 
 const mounted = new WeakMap();
 
