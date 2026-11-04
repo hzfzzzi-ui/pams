@@ -32,7 +32,7 @@ class ValuationEvidenceSeries(dict):
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
         self.available_accounts_by_date: dict[Date, list[str]] = {}
         self.preview_by_date: dict[Date, Decimal] = {}
-        self.preview_return_by_date: dict[Date, Decimal] = {}
+        self.preview_performance_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_source_through: Date | None = None
 
 

@@ -1,4 +1,4 @@
-import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData, returnRateForChart } from './legacy_model.js?v=20261104-trim-chart-copy-v1';
+import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData, returnRateForChart } from './legacy_model.js?v=20261104-top-contribution-v1';
 
 const RETURN_WINDOW_STORAGE_KEY = 'pams.investmentReturn.window';
 function readReturnWindowPreference() {
