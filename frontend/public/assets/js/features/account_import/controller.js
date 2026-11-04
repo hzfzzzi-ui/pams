@@ -35,6 +35,13 @@ export function mount(root, context = {}) {
   let detecting = false;
   const el = (tag, text, cls) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = String(text); if (cls) node.className = cls; return node; };
   const message = text => { $('notice').textContent = text; };
+  function publishMessage(text, batch) {
+    message(text);
+    if (batch?.kind !== 'trade') return;
+    const link = el('a', '查看投资交易 →', 'btn');
+    link.href = 'investments.html#investment-ledger';
+    $('notice').append(' ', link);
+  }
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
   const editable = () => !state.batch || state.batch.status === 'draft';
@@ -578,7 +585,8 @@ export function mount(root, context = {}) {
   listen($('publish'), 'click', () => run(async () => {
     if (state.needsRefresh || !publishable(state.caps, state.batch, state.preview, state.dirty) || state.conflict) return;
     const result = state.useSourceRecords ? await sourceAdapter.publish(state.batch, state.preview) : await api(`${path()}/publish`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
-    useBatch(result.batch); message('批次已发布。'); await history();
+    if (useBatch(result.batch)) publishMessage('批次已发布。', result.batch);
+    await history();
   }));
   listen($('publish-ready'), 'click', () => run(async () => {
     if (state.needsRefresh || state.conflict || !canPublishReady()) return;
@@ -587,7 +595,7 @@ export function mount(root, context = {}) {
     const result = state.useSourceRecords ? await sourceAdapter.publish(state.batch, state.preview, true) : await api(`${path()}/publish-ready`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
     useBatch(result.batch); await history();
     if (result.deferred_batch_id) useBatch(await loadBatch(result.deferred_batch_id));
-    message(state.useSourceRecords ? `已录入 ${readyCount} 条；${pendingCount} 条待处理记录保留在草稿。` : `已录入 ${readyCount} 条；${pendingCount} 条待关联资金记录保留在草稿。补充银行流水前，账户现金与资金流可能不完整。`);
+    publishMessage(state.useSourceRecords ? `已录入 ${readyCount} 条；${pendingCount} 条待处理记录保留在草稿。` : `已录入 ${readyCount} 条；${pendingCount} 条待关联资金记录保留在草稿。补充银行流水前，账户现金与资金流可能不完整。`, result.batch);
   }));
   listen($('refresh-history'), 'click', () => run(history));
   function clearCurrentBatch() {
