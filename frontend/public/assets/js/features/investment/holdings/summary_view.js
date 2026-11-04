@@ -249,7 +249,7 @@ function topMoverRow(item, options = {}) {
   const totalPnl = safeNum(options.totalPnl);
   const name = item.name || item.label || '未命名';
   const detail = [item.assetClass, item.account].filter(Boolean).join(' / ');
-  const meta = mode === 'period'
+  const meta = options.partial ? '' : mode === 'period'
     ? [
         formatPercentRate(item.returnPct),
         `贡献 ${formatPercentRate(contributionPct(value, totalPnl))}`,
@@ -267,7 +267,7 @@ function topMoverRow(item, options = {}) {
       </div>
       <div class="topMoverValue">
         <strong>${formatCompactCurrency(value, 'CNY', { signed: true })}</strong>
-        <span>${esc(meta)}</span>
+        ${meta ? `<span>${esc(meta)}</span>` : ''}
       </div>
     </div>
   `;
@@ -295,10 +295,11 @@ function TopContributionPanel(model) {
   const mode = model?.mode || 'total';
   const windowLabel = model?.windowLabel || '当前';
   const totalPnl = safeNum(model?.totalPnl);
+  const partial = model?.partial === true;
   const titleHint = mode === 'period'
-    ? `${windowLabel}区间收益变化，随上方日期段切换`
+    ? partial ? `${windowLabel} · 已覆盖区间盈亏` : `${windowLabel}区间收益变化，随上方日期段切换`
     : '当前持仓收益贡献，不含自动调仓建议';
-  const badge = mode === 'period' ? statusBadge('区间口径', 'data') : statusBadge('持仓快照', 'data');
+  const badge = mode === 'period' ? statusBadge(partial ? '部分覆盖' : '区间口径', 'data') : statusBadge('持仓快照', 'data');
   if (mode === 'period') {
     return `
       <div class="returnInsightHead">
@@ -306,12 +307,12 @@ function TopContributionPanel(model) {
         ${badge}
       </div>
       <div class="topMoverTotal ${totalPnl >= 0 ? 'good' : 'bad'}">
-        <span>${esc(windowLabel)}合计</span>
+        <span>${esc(partial ? '已覆盖合计' : `${windowLabel}合计`)}</span>
         <strong>${formatCompactCurrency(totalPnl, 'CNY', { signed: true })}</strong>
       </div>
       <div class="topMoverGrid">
-        ${topMoverGroup('贡献最大', winners, '当前区间没有正贡献资产桶', { mode: 'period', totalPnl })}
-        ${topMoverGroup('拖累最大', losers, '当前区间没有明显拖累资产桶', { mode: 'period', totalPnl })}
+        ${topMoverGroup('贡献最大', winners, '当前区间没有正贡献资产桶', { mode: 'period', totalPnl, partial })}
+        ${topMoverGroup('拖累最大', losers, '当前区间没有明显拖累资产桶', { mode: 'period', totalPnl, partial })}
       </div>
       ${unattributed ? `<div class="returnInsightEmpty">
         未归因差额 ${formatCompactCurrency(unattributed.pnl, 'CNY', { signed: true })} · ${esc(unattributed.note)}

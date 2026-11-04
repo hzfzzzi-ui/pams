@@ -1055,7 +1055,7 @@ def build_section_return_series_payload(
             account_owner_ratio=account_owner_ratio,
         )
         if base_currency.upper() == 'CNY':
-            available_returns = getattr(values, 'preview_return_by_date', {})
+            available_returns = getattr(values, 'preview_performance_by_date', {})
             preview_source_through = getattr(values, 'preview_source_through', None)
         anchor_value = _account_net_liquidation_anchor_cny(
             cur,
@@ -1170,7 +1170,9 @@ def build_section_return_series_payload(
             payload['estimated_series'] = {
                 'label': '同花顺估算',
                 'source_through': norm(preview_source_through),
-                'rows': [{'date': norm(day), 'display_return_rate': norm(available_returns.get(day))}
+                'rows': [{'date': norm(day),
+                          **{field: norm(available_returns.get(day, {}).get(field))
+                             for field in ('display_return_rate', 'total_pnl')}}
                          for day in dates],
             }
         if today_label_date is not None:

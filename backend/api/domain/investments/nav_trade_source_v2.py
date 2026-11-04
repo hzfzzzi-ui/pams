@@ -115,8 +115,10 @@ def daily_estimates(events, prices, dates, symbols):
     return result
 
 
-def estimated_capital_returns(events, values):
-    """Calculate cumulative PnL over contributed capital on covered dates."""
+def estimated_capital_performance(events, values, owner_ratio):
+    """Calculate cumulative PnL and return after removing external capital flows."""
+    if owner_ratio <= 0:
+        return {}
     capital = events[0]['broker_cash'] - events[0]['net_cash']
     flows = iter(event for event in events if event['trade_type'] in {'deposit', 'withdraw'})
     flow = next(flows, None)
@@ -126,7 +128,8 @@ def estimated_capital_returns(events, values):
             capital += flow['net_cash']
             flow = next(flows, None)
         if capital > 0:
-            result[day] = (value - capital) / capital
+            pnl = value - capital
+            result[day] = {'total_pnl': pnl * owner_ratio, 'display_return_rate': pnl / capital}
     return result
 
 
@@ -148,6 +151,6 @@ def project(cur, *, dates, owner_ratio, series_type):
         prices[row['symbol']][row['as_of']] = row['close_price']
     values = daily_estimates(events, prices, dates, symbols)
     result.preview_by_date = {day: value * owner_ratio for day, value in values.items()}
-    result.preview_return_by_date = estimated_capital_returns(events, values) if owner_ratio > 0 else {}
+    result.preview_performance_by_date = estimated_capital_performance(events, values, owner_ratio)
     result.preview_source_through = events[-1]['trade_date']
     return result

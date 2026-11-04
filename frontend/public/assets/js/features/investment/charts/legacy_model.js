@@ -187,7 +187,7 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
     visibleEvents,
     pnlMap: new Map(windowRows.map(row => [row.date, safeNum(row.total_pnl)])),
     valueMap: new Map(windowRows.map(row => [row.date, safeNum(row.market_value)])),
-    topContribution: buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey, rows),
+    topContribution: buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey, rows, sectionEstimates, labels),
   };
 }
 
@@ -273,42 +273,43 @@ function sectionPeriodReturnRate(rows, pnl) {
   return rebaseReturnRate(returnRateForChart(last), returnRateForChart(first));
 }
 
-function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey, totalRows) {
+function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey, totalRows, sectionEstimates = new Map(), labels = []) {
   const totalWindowRows = filterReturnWindowRows(totalRows, windowKey);
-  if (totalWindowRows.length < 2 || totalWindowRows.some(row => row.total_pnl == null || row.market_value == null)) {
-    return { mode: 'period', windowKey, windowLabel: returnWindowLabel(windowKey), unavailable: true,
-      totalPnl: null, winners: [], losers: [], unattributed: null };
-  }
-  const startDate = totalWindowRows[0]?.date || null;
-  const endDate = totalWindowRows[totalWindowRows.length - 1]?.date || null;
-  const seriesTotalPnl = totalWindowRows.length >= 2
-    ? safeNum(totalWindowRows[totalWindowRows.length - 1].total_pnl) - safeNum(totalWindowRows[0].total_pnl)
-    : 0;
-  const totalPnl = seriesTotalPnl;
+  const partial = totalWindowRows.length < 2 || totalWindowRows.some(row => row.total_pnl == null || row.market_value == null);
+  const dates = partial && labels.length ? labels : totalWindowRows.map(row => row.date);
+  const startDate = dates[0];
+  const endDate = dates[dates.length - 1];
+  const seriesTotalPnl = partial
+    ? null
+    : safeNum(totalWindowRows[totalWindowRows.length - 1].total_pnl) - safeNum(totalWindowRows[0].total_pnl);
   const latestTotalValue = safeNum(totalWindowRows[totalWindowRows.length - 1]?.market_value);
   const rows = sectionSpecs.map((spec) => {
-    const periodRows = (sectionRowsByKey.get(spec.key) || []).filter((row) => {
+    const estimate = partial ? sectionEstimates.get(spec.key) : null;
+    const periodRows = (estimate?.rows || sectionRowsByKey.get(spec.key) || []).filter((row) => {
       const date = String(row.date || '');
       return (!startDate || date >= startDate) && (!endDate || date <= endDate);
     });
     if (periodRows.length < 2 || periodRows.some(row => row.total_pnl == null && row.position_pnl == null
       && (row.market_value == null || row.cumulative_capital == null))) return null;
+    if (partial && (dates.length !== periodRows.length || periodRows.some((row, index) => row.date !== dates[index]))) return null;
+    if (estimate && periodRows.some(row => row.total_pnl == null || !Number.isFinite(Number(row.total_pnl)))) return null;
     const pnl = sectionPeriodPnl(periodRows);
     const latestValue = safeNum(periodRows[periodRows.length - 1]?.market_value);
     return {
       key: spec.key,
       name: spec.label,
       assetClass: '资产桶',
-      account: returnWindowLabel(windowKey),
+      account: estimate?.label || returnWindowLabel(windowKey),
       pnl,
-      returnPct: sectionPeriodReturnRate(periodRows, pnl),
-      weight: latestTotalValue > 0 ? latestValue / latestTotalValue : 0,
+      returnPct: partial ? null : sectionPeriodReturnRate(periodRows, pnl),
+      weight: partial ? null : latestTotalValue > 0 ? latestValue / latestTotalValue : 0,
     };
-  }).filter(item => item && (Math.abs(item.pnl) > 0.005 || Math.abs(item.weight) > 0.0001));
+  }).filter(item => item && (partial || Math.abs(item.pnl) > 0.005 || Math.abs(item.weight) > 0.0001));
   const sectionPnl = rows.reduce((sum, item) => sum + safeNum(item.pnl), 0);
+  const totalPnl = partial ? (rows.length ? sectionPnl : null) : seriesTotalPnl;
   const residualPnl = safeNum(totalPnl) - sectionPnl;
   const residualThreshold = Math.max(1, Math.abs(safeNum(totalPnl)) * 0.002);
-  const unattributed = Math.abs(residualPnl) > residualThreshold
+  const unattributed = !partial && Math.abs(residualPnl) > residualThreshold
     ? {
         key: 'unattributed_residual',
         label: residualPnl >= 0 ? '未归因正差额' : '未归因负差额',
@@ -320,7 +321,9 @@ function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey
     mode: 'period',
     windowKey,
     windowLabel: returnWindowLabel(windowKey),
-    totalPnl: Number.isFinite(totalPnl) ? totalPnl : rows.reduce((sum, item) => sum + item.pnl, 0),
+    partial,
+    unavailable: partial && !rows.length,
+    totalPnl,
     winners: rows.filter(item => item.pnl > 0.005).sort((a, b) => b.pnl - a.pnl),
     losers: rows.filter(item => item.pnl < -0.005).sort((a, b) => a.pnl - b.pnl),
     unattributed,
