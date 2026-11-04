@@ -31,6 +31,8 @@ class ValuationEvidenceSeries(dict):
         self.cash_scope_unverified = cash_scope_unverified
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
         self.available_accounts_by_date: dict[Date, list[str]] = {}
+        self.preview_by_date: dict[Date, Decimal] = {}
+        self.preview_source_through: Date | None = None
 
 
 def series_dates(start_date: Date, end_date: Date, interval: str = "weekly") -> list[Date]:
@@ -399,13 +401,21 @@ def build_weekly_nav_rows(
         if sample_date in a_share_series and "tonghuashun" not in missing_accounts:
             available.add("tonghuashun")
             available_net += a_share_series[sample_date]
+        preview = getattr(a_share_series, "preview_by_date", {}).get(sample_date)
+        if preview is not None and "tonghuashun" in missing_accounts:
+            available.add("tonghuashun")
+            available_net += preview
         if ibkr_bucket.get("net_worth") is not None and "ibkr" not in missing_accounts:
             available.add("ibkr")
             available_net += ibkr_bucket["net_worth"]
         partial = ({"available_net_worth": available_net, "available_accounts": sorted(available)}
                    if available else {})
+        if preview is not None and "tonghuashun" in missing_accounts:
+            partial["tonghuashun_source_through"] = getattr(a_share_series, "preview_source_through", None)
         if missing_accounts:
             estimated_available = available.intersection(bank_bucket.get("estimated_accounts") or ())
+            if preview is not None and "tonghuashun" in missing_accounts:
+                estimated_available.add("tonghuashun")
             rows.append({"date": sample_date, **partial, "assets": None, "liabilities": None,
                          "net_worth": None, "unavailable_accounts": sorted(set(missing_accounts)),
                          **({"valuation_quality": "estimated", "estimated_accounts": sorted(estimated_available)}
@@ -536,6 +546,8 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("net_worth") is None and "available_net_worth" in row:
         result["availableNetWorth"] = _norm(row["available_net_worth"])
         result["available_accounts"] = row["available_accounts"]
+        if row.get("tonghuashun_source_through") is not None:
+            result["tonghuashun_source_through"] = _norm(row["tonghuashun_source_through"])
     for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts'):
         if field in row:
             result[field] = row[field]
@@ -1085,8 +1097,11 @@ def _tonghuashun_series(cur, *, dates: list[Date], base_currency: str, account_o
         if rate is None:
             if amount != 0:
                 values.unknown_dates.add(day)
+            values.preview_by_date.pop(day, None)
         else:
             values[day] = amount * rate
+            if day in values.preview_by_date:
+                values.preview_by_date[day] *= rate
     return values
 
 

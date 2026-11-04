@@ -1,4 +1,4 @@
-import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData } from './legacy_model.js?v=20261104-nav-coverage-v1';
+import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData } from './legacy_model.js?v=20261104-ths-nav-v1';
 
 const RETURN_WINDOW_STORAGE_KEY = 'pams.investmentReturn.window';
 function readReturnWindowPreference() {

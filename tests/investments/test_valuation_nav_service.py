@@ -74,6 +74,30 @@ def test_nav_keeps_available_accounts_separate_from_complete_total():
     assert result["unavailable_accounts"] == ["another", "tonghuashun"]
 
 
+def test_tonghuashun_estimates_use_balanced_cash_and_do_not_fill_missing_trading_prices():
+    from domain.investments.nav_trade_source_v2 import daily_estimates
+    from domain.investments.valuation_nav import ValuationEvidenceSeries, build_weekly_nav_rows, normalize_nav_row
+
+    friday, saturday, monday = date(2026, 6, 5), date(2026, 6, 6), date(2026, 6, 8)
+    events = [
+        {"trade_type": "deposit", "trade_date": friday, "broker_cash": Decimal("100.69"), "net_cash": Decimal("100")},
+        {"trade_type": "buy", "trade_date": friday, "broker_cash": Decimal("60.69"), "net_cash": Decimal("-40"),
+         "symbol": "000001", "quantity": Decimal("4")},
+    ]
+    dates = [friday, saturday, monday]
+    prices = {"sh000001": {friday: Decimal("1"), monday: Decimal("1")}, "sz000001": {friday: Decimal("12")}}
+    ths = ValuationEvidenceSeries(unknown_dates=dates)
+    ths.preview_by_date = daily_estimates(events, prices, dates, {"000001": "sz000001"})
+    assert ths.preview_by_date == {friday: Decimal("108.69"), saturday: Decimal("108.69")}
+    rows = build_weekly_nav_rows(dates=dates, bank_series={}, snapshot_series={}, a_share_series=ths, ibkr_values={})
+    assert normalize_nav_row(rows[0])["availableNetWorth"] == "108.69"
+    assert normalize_nav_row(rows[0])["estimated_accounts"] == ["tonghuashun"]
+    assert normalize_nav_row(rows[0])["netWorth"] is None
+    assert "availableNetWorth" not in normalize_nav_row(rows[-1])
+    events[-1]["broker_cash"] = Decimal("55")
+    assert daily_estimates(events, prices, dates, {"000001": "sz000001"}) == {}
+
+
 def test_nav_series_and_drawdown_propagate_missing_history():
     rows = [
         {"asOfDate": "2026-05-10", "netWorth": "100"},
