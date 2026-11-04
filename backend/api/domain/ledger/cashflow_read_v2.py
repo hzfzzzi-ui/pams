@@ -22,7 +22,7 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
     cur.execute('''SELECT f.cashflow_id AS id,f.cashflow_id AS fact_id,f.source_item_id,f.account_code,
         f.event_date AS transaction_date,f.amount,f.currency,f.summary,f.description,f.counterparty,
         f.posting_date,f.created_at,f.updated_at,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status AS item_review,
-        r.status AS source_status,r.account_code AS source_account,r.content,r.sha256,
+        r.status AS source_status,r.account_code AS source_account,public.source_original_content(r.account_code,r.sha256,r.content) AS content,r.sha256,
         c.cashflow_type,c.category,c.subcategory,c.status AS classification_status,c.classification_source,
         fx.rate AS fx_rate
         FROM public.pams_cashflow_fact f

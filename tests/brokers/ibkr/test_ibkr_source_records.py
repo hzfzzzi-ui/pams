@@ -34,7 +34,7 @@ def test_ibkr_trade_source_keeps_original_and_requires_explicit_review(empty_sou
             result = stage_trade_report(cur, report_bytes=report, expected_source_account='U_TEST')
             assert result['row_count'] == 1 and result['revision'] == 2
             source_id = UUID(result['source_id'])
-            cur.execute('SELECT status,content,sha256 FROM source_records WHERE source_id=%s', (str(source_id),))
+            cur.execute('SELECT status,public.source_original_content(account_code,sha256,content) AS content,sha256 FROM source_records WHERE source_id=%s', (str(source_id),))
             record = cur.fetchone()
             assert record['status'] == 'draft' and bytes(record['content']) == report
             assert record['sha256'] == result['report_sha256']

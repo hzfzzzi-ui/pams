@@ -266,7 +266,8 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any], *, locking: bool = Tr
         present = cur.fetchone()
         redesigned = bool(next(iter(present.values())) if isinstance(present, dict) else present[0])
     if kind == 'source_item' and redesigned:
-        query = """SELECT json_build_object('item',row_to_json(i),'batch',row_to_json(r))::text
+        query = """SELECT json_build_object('item',row_to_json(i),'batch',
+            to_jsonb(r) || jsonb_build_object('content', public.source_original_content(r.account_code,r.sha256,r.content)))::text
             FROM public.source_items i JOIN public.source_records r ON r.source_id=i.source_id
             WHERE i.source_item_id=%s"""
         if locking:
@@ -323,9 +324,9 @@ def _bound_input(cur: Any, kind: str, key: dict[str, Any], *, locking: bool = Tr
             from domain.assets.alias_policy import is_identity_alias
             identifier, symbol = fields.get("asset_id"), fields.get("symbol")
             if identifier:
-                cur.execute("SELECT asset_id FROM pams_asset_master WHERE asset_id=%s AND status='active' AND currency='CNY'", (identifier,))
+                cur.execute("SELECT asset_id FROM pams_asset_master WHERE asset_id=%s AND status='active' AND currency=%s", (identifier, fields.get('currency', 'CNY')))
                 resolved_assets = [row["asset_id"] if isinstance(row, dict) else row[0] for row in cur.fetchall()]
-            elif symbol:
+            elif symbol and not (redesigned and source_item.get('parse_method') == 'api'):
                 cur.execute("SELECT asset_id FROM pams_asset_master WHERE primary_symbol=%s AND status='active' AND currency='CNY'", (symbol,))
                 resolved_assets = [row["asset_id"] if isinstance(row, dict) else row[0] for row in cur.fetchall()]
                 cur.execute("""SELECT a.asset_id,a.alias_type,a.alias_value FROM pams_asset_alias a

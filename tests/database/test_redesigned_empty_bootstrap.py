@@ -69,8 +69,8 @@ def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_
         response = client.post('/api/account-import/source-records/' + source_id + '/cash-publish',
             json={'revision': revision, 'mode': 'all', 'preview_token': response.json()['preview_token']})
         assert response.status_code == 200 and response.json()['published'] == 1
-        broker_data = export(event(**{'成交日期':'20260103'}), event('银行转证券', **{
-            '成交日期':'20260102', '发生金额':'500.00', '定位串':'20260102!cash'}))
+        broker_data = export(event(**{'成交日期':'20260103', '本次金额':'-503.10'}), event('银行转证券', **{
+            '成交日期':'20260102', '发生金额':'500.00', '本次金额':'500.00', '定位串':'20260102!cash'}))
         response = client.post('/api/account-import/source-records?account_code=tonghuashun&source_name=synthetic&filename=table.xls', content=broker_data)
         assert response.status_code == 200, response.text
         source_id = response.json()['source_id']
@@ -152,10 +152,11 @@ def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_
         assert classify_ledger_row(rows[0], set(), set())['flow_type'] == 'expense'
         rows = load_trade_rows(cur, account_code='tonghuashun', start=date(2026, 1, 1), end=date(2026, 12, 31))
         assert len(rows) == 2 and all(row['source_evidence_status'] == 'verified' for row in rows)
-        cur.execute("INSERT INTO pams_ohlcv_daily(symbol,market,trade_date,close) VALUES ('sz000001','CN_A','2026-01-03',11)")
+        cur.execute("""INSERT INTO market_observations(observation_type,as_of,symbol,market,source,source_key,close_price)
+            VALUES ('daily','2026-01-03','sz000001','CN_A','tencent_cn_unadjusted_day_v1','synthetic',11)""")
         day = date(2026, 1, 3)
         projected = _tonghuashun_series_from_trade_fact(cur, dates=[day], account_owner_ratio=lambda _: Decimal('1'))
-        assert projected[day] == Decimal('596.9')
+        assert projected.preview_by_date[day] == Decimal('596.9')
         assert day in projected.unknown_dates and projected.cash_scope_unverified
         key = ('tonghuashun', '000001')
         assert len(_same_day_a_stock_trades(cur, {key}, day)[key]) == 1
@@ -203,7 +204,7 @@ def test_mapping_is_saved_and_reused_without_changing_original_evidence(empty_so
                               json={'revision':reviewed.json()['revision'], 'mapping': {'symbol':'another'}})
         assert rejected.status_code == 400
     with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
-        cur.execute('SELECT content FROM source_records WHERE source_id=%s', (source_id,))
+        cur.execute('SELECT public.source_original_content(account_code,sha256,content) FROM source_records WHERE source_id=%s', (source_id,))
         assert bytes(cur.fetchone()[0]) == b'synthetic one'
         cur.execute("SELECT mapping FROM source_templates WHERE account_code='tonghuashun' AND document_type='trade'")
         assert cur.fetchone()[0] == {'symbol':'ticker'}

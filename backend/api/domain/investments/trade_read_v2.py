@@ -59,7 +59,8 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
     cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
         i.review_status AS item_review, i.source_uid AS item_source_uid,
         r.source_name,r.acquisition_method,r.file_format, r.status AS source_status,
-        r.account_code AS source_account, r.content, r.sha256, i.parse_method,
+        r.account_code AS source_account, public.source_original_content(r.account_code,r.sha256,r.content) AS content,
+        r.sha256, i.parse_method,
         json_build_object('primary_symbol', a.primary_symbol, 'exchange', a.exchange,
                           'status', a.status, 'currency', a.currency, 'asset_type', a.asset_type) AS asset_identity
         FROM public.pams_investment_trade_fact f

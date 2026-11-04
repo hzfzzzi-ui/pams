@@ -17,7 +17,7 @@ def _leg(cur, kind, ident, *, lock=True):
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
         i.source_item_id,i.source_uid,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,
-        r.source_id,r.status,r.account_code AS source_account,r.content,r.sha256
+        r.source_id,r.status,r.account_code AS source_account,public.source_original_content(r.account_code,r.sha256,r.content) AS content,r.sha256
         FROM public.{table} f JOIN public.source_items i ON i.source_item_id=f.source_item_id
         JOIN public.source_records r ON r.source_id=i.source_id WHERE f.{pk}=%s AND {kind_clause}
         {"FOR UPDATE OF f FOR SHARE OF i,r" if lock else ""}''',(ident,))

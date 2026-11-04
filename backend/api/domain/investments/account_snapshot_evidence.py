@@ -51,8 +51,11 @@ def _complete_member_proven(cur, holding_id, source_item_id):
     redesigned = bool(cur.fetchone()['redesigned'])
     relation = ('source_records b ON b.source_id=i.source_id' if redesigned else
                 'source_batches b ON b.batch_id=i.batch_id')
-    cur.execute("""SELECT row_to_json(h)::text AS holding_json,
-            json_build_object('item', row_to_json(i), 'batch', row_to_json(b))::text AS source_json
+    batch_json = ('to_jsonb(b) || jsonb_build_object(\'content\', '
+                  'public.source_original_content(b.account_code,b.sha256,b.content))'
+                  if redesigned else 'row_to_json(b)')
+    cur.execute(f"""SELECT row_to_json(h)::text AS holding_json,
+            json_build_object('item', row_to_json(i), 'batch', {batch_json})::text AS source_json
         FROM pams_holdings_snapshot h JOIN source_items i ON i.source_item_id=%s JOIN """ + relation +
         " WHERE h.id=%s", (str(source_item_id),holding_id))
     row = cur.fetchone()

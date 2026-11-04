@@ -29,6 +29,12 @@ def create_source(cur, *, source_id: UUID, account_code: str, source_name: str,
     if content is not None and (not isinstance(content, bytes) or not 0 < len(content) <= max_bytes):
         raise ValueError('invalid source content')
     digest = sha256(content).hexdigest() if content is not None else None
+    archive = {'tonghuashun': 'tonghuashun_source_originals', 'ibkr': 'ibkr_source_originals'}.get(account_code)
+    if archive and content is not None:
+        # The relation name is selected from the fixed mapping.
+        cur.execute(f'INSERT INTO public.{archive}(sha256,content) VALUES (%s,%s) ON CONFLICT (sha256) DO NOTHING',
+                    (digest, content))
+        content = None
     cur.execute('''INSERT INTO public.source_records(source_id,import_group_id,account_code,source_name,
         acquisition_method,document_type,filename,file_format,content_type,content,sha256)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
@@ -152,7 +158,8 @@ def _verify_deferred_source(cur, source_id, item):
         raise ValueError('invalid deferred source identity') from exc
     cur.execute("""SELECT i.raw_fields,i.record_hash,i.source_uid,i.parse_method,i.source_position,i.review_status,
         parent.status,parent.account_code AS parent_account,child.account_code AS child_account,
-        parent.sha256 AS parent_hash,child.sha256 AS child_hash,parent.content AS parent_content,child.content AS child_content
+        parent.sha256 AS parent_hash,child.sha256 AS child_hash,public.source_original_content(parent.account_code,parent.sha256,parent.content) AS parent_content,
+        public.source_original_content(child.account_code,child.sha256,child.content) AS child_content
         FROM public.source_items i JOIN public.source_records parent ON parent.source_id=i.source_id
         JOIN public.source_records child ON child.source_id=%s
         WHERE i.source_item_id=%s AND parent.source_id=%s FOR SHARE OF i,parent,child""",
@@ -182,7 +189,7 @@ def publish_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict
         raise ValueError('source missing')
     account = account_row['account_code'] if isinstance(account_row, Mapping) else account_row[0]
     cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account,))
-    cur.execute('''SELECT account_code,document_type,status,revision,content,sha256
+    cur.execute('''SELECT account_code,document_type,status,revision,public.source_original_content(account_code,sha256,content) AS content,sha256
         FROM public.source_records WHERE source_id=%s FOR UPDATE''', (str(source_id),))
     columns=('account_code','document_type','status','revision','content','sha256')
     row=cur.fetchone()
@@ -298,7 +305,7 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
         raise ValueError('source missing')
     account=account_row['account_code'] if isinstance(account_row, Mapping) else account_row[0]
     cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account,))
-    cur.execute('''SELECT account_code,document_type,status,revision,content,sha256,acquisition_method,
+    cur.execute('''SELECT account_code,document_type,status,revision,public.source_original_content(account_code,sha256,content) AS content,sha256,acquisition_method,
         import_group_id,source_name,filename,file_format,content_type,period_start,period_end,scope_note FROM public.source_records
         WHERE source_id=%s FOR UPDATE''',(str(source_id),))
     cols=('account_code','document_type','status','revision','content','sha256','acquisition_method',
@@ -446,7 +453,7 @@ def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -
     account=row['account_code'] if isinstance(row,Mapping) else row[0]
     cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",('account-import:'+account,))
     cur.execute('''SELECT source_id,import_group_id,account_code,source_name,acquisition_method,document_type,
-        filename,file_format,content_type,content,sha256,period_start,period_end,scope_note,status,revision
+        filename,file_format,content_type,public.source_original_content(account_code,sha256,content) AS content,sha256,period_start,period_end,scope_note,status,revision
         FROM public.source_records WHERE source_id=%s FOR UPDATE''',(str(source_id),))
     cols=('source_id','import_group_id','account_code','source_name','acquisition_method','document_type',
           'filename','file_format','content_type','content','sha256','period_start','period_end','scope_note','status','revision')
@@ -495,11 +502,13 @@ def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -
 def _defer_source_items(cur, source_id, src, items, unresolved):
     """Keep unresolved rows and their original evidence in a linked draft."""
     deferred_id=uuid4()
-    cur.execute('''INSERT INTO public.source_records(source_id,import_group_id,account_code,source_name,acquisition_method,document_type,
-        filename,file_format,content_type,content,sha256,period_start,period_end,scope_note)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-        (str(deferred_id),str(src['import_group_id']) if src['import_group_id'] else None,src['account_code'],src['source_name'],src['acquisition_method'],src['document_type'],
-         src['filename'],src['file_format'],src['content_type'],bytes(src['content']) if src['content'] is not None else None,src['sha256'],src['period_start'],src['period_end'],src['scope_note']))
+    create_source(cur, source_id=deferred_id, import_group_id=src['import_group_id'],
+                  account_code=src['account_code'], source_name=src['source_name'],
+                  acquisition_method=src['acquisition_method'], document_type=src['document_type'],
+                  filename=src['filename'], file_format=src['file_format'], content_type=src['content_type'],
+                  content=bytes(src['content']) if src['content'] is not None else None)
+    cur.execute('''UPDATE public.source_records SET period_start=%s,period_end=%s,scope_note=%s
+        WHERE source_id=%s''', (src['period_start'], src['period_end'], src['scope_note'], str(deferred_id)))
     for item in items:
         old_id=str(item['source_item_id'])
         if old_id not in unresolved: continue

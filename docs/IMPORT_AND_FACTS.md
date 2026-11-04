@@ -53,6 +53,8 @@ IBKR 新库隔离同步以报表原文、明细和交易事实写入，持仓更
 - 所有修改要求同源 Origin，代理保留 Host 和正确 scheme。原件通过 API 提供，不暴露服务器路径或静态下载地址；响应不缓存，错误/日志不泄露凭据或连接串。
 - capabilities 的 configured/authenticated 仅表示访问可用；authentication_required=false，schema_ready 与 publish_enabled 仍独立判断。
 
+同花顺与 IBKR 的新原件分别按 SHA-256 存在 `tonghuashun_source_originals` 和 `ibkr_source_originals`。两者共用 `source_records` 批次、`source_items` 明细和事实发布。读取原件时兼容旧批次的内联内容，历史批次保留原 ID 和原件位置。
+
 同花顺原始文本 XLS 必须具备成交日期、代码、名称、操作、数量、均价、成交金额和发生金额表头；保留原始字节、哈希、行号和原始列。拒绝二进制 XLS、冒名文件及公式。成交金额、净发生金额和余额分别表达；未知业务不猜测或丢行。
 
 文件原始业务字段由服务端保持只读，允许排除、重复核准和对手关联等处理决策；截图与手工候选可编辑，但来源身份不可伪造。截图逐图确认绑定该图候选的字段与排除状态，修改后需重新确认。
@@ -101,6 +103,8 @@ $env:PGCLIENTENCODING='UTF8'
 ## 自动现金事件
 
 这条链路与手工批次发布独立：只消费已发布日结中逐笔 CashTransaction，不从 CashReport 日汇总制造单笔。日结原文发布器保持 facts_written=0，事实由单独步骤处理。
+
+IBKR 每日证券持仓单独通过 Flex 拉取指定账户的同日报表，校验汇总持仓后归档并调用共用持仓发布器。原币数量、成本和市值按报表记录。只有报告的证券多空总额足以核对范围时才记录退出。已发布的同日原件重复请求复用原结果，冲突或缺证据时保留原快照。证券来源按部分账户范围记录，现金覆盖维持未知。
 
 PAMS_IBKR_CASH_EVENTS_AFTER 为空时保持既有同步行为；启用后只接收严格晚于该 ISO 截止日的现金事件及普通成交。scheduler 的 PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED 默认 false；隔离新库使用 broker_processing_state 保存已发布原件关联的业务重试水位，技术尝试及错误仅写脱敏结构化日志。该链路尚未用于生产或存量库。GET /api/ibkr/cash-events/status 为服务器只读事务；POST /api/ibkr/cash-events/sync 最多 3 日/次，不接受请求改截止线、重标日期或绕过确认。
 

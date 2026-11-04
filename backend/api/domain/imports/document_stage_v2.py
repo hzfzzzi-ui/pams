@@ -78,7 +78,7 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
 
 def mapping_metadata(cur, *, source_id: UUID) -> dict:
     """Read available file headers without modifying source evidence or reviews."""
-    cur.execute("""SELECT account_code,document_type,filename,content,sha256,acquisition_method,status,revision
+    cur.execute("""SELECT account_code,document_type,filename,public.source_original_content(account_code,sha256,content) AS content,sha256,acquisition_method,status,revision
         FROM public.source_records WHERE source_id=%s""", (str(source_id),))
     source = cur.fetchone()
     if not source:
@@ -116,7 +116,7 @@ def update_mapping(cur, *, source_id: UUID, revision: int, mapping: dict) -> dic
         raise ValueError('source missing')
     account = row['account_code'] if hasattr(row, 'keys') else row[0]
     cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account,))
-    cur.execute('''SELECT account_code,document_type,filename,content,sha256,acquisition_method FROM public.source_records
+    cur.execute('''SELECT account_code,document_type,filename,public.source_original_content(account_code,sha256,content) AS content,sha256,acquisition_method FROM public.source_records
         WHERE source_id=%s AND status='draft' AND revision=%s FOR UPDATE''', (str(source_id), revision))
     source = cur.fetchone()
     if not source or source['account_code'] != account or source['acquisition_method'] != 'file':

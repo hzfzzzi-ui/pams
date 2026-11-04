@@ -342,7 +342,7 @@ def get_source_record(source_id: UUID, request: Request):
 @router.get('/source-records/{source_id}/original')
 def source_record_original(source_id: UUID, request: Request):
     def read(cur):
-        cur.execute('SELECT content,sha256,file_format FROM public.source_records WHERE source_id=%s', (str(source_id),))
+        cur.execute('SELECT public.source_original_content(account_code,sha256,content) AS content,sha256,file_format FROM public.source_records WHERE source_id=%s', (str(source_id),))
         item = cur.fetchone()
         if not item or item['content'] is None:
             raise store.ImportProblem('source_missing', '原始资料不存在', 404)
