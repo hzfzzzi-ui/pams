@@ -82,6 +82,26 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
             row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
         assert row['diluted_cost'] == Decimal(holding['diluted_cost'])
 
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute("""UPDATE pams_holdings_snapshot
+                       SET market_value=1300, current_price=13, updated_at=now()""")
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot')
+            row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
+        assert row['diluted_cost'] == Decimal(holding['diluted_cost'])
+        assert row['holding_pnl'] == Decimal(1300) - row['cost']
+
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute('UPDATE pams_holdings_snapshot SET cost=cost+1')
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot')
+            row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
+        assert 'diluted_cost' not in row
+
 
 def test_new_database_manual_trade_publish_replay_and_read(empty_source_db, monkeypatch):
     import main
