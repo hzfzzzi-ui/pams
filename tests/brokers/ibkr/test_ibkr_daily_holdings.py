@@ -1,4 +1,5 @@
 """Verified broker reports use the common source registry and holdings publisher."""
+from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
 from uuid import uuid4
@@ -16,8 +17,8 @@ from domain.imports.source_records_v2 import create_source
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 
 
-def report(day=DAY, *, empty=False):
-    root = statement(day, day, zero=empty, stock='100')
+def report(day=DAY, *, empty=False, stock='100'):
+    root = statement(day, day, zero=empty, stock=stock)
     if not empty:
         row = root.find('OpenPositions/OpenPosition')
         row.attrib.update(conid='123456', symbol='SYNTH', description='Synthetic Fund',
@@ -64,6 +65,14 @@ def test_broker_archives_and_snapshot_publication(empty_source_db):
             xml = ET.tostring(report())
             result = publish_report(cur, content=xml, source_account=ACCOUNT, day=DAY)
             assert result['published'] == 1 and result['coverage_status'] == 'partial'
+            cur.execute("""SELECT r.scope_note,v.coverage_status,v.cash_status,v.scope_attestation
+                FROM account_snapshot_version v JOIN source_records r ON r.source_id=v.source_batch_id
+                WHERE v.version_id=%s""", (result['snapshot_version_id'],))
+            assert cur.fetchone() == {
+                'scope_note': None, 'coverage_status': 'partial', 'cash_status': 'unknown',
+                'scope_attestation': {'securities_coverage': 'verified',
+                                      'method': 'ibkr-flex-securities-v1', 'reported_positions': 1},
+            }
             assert publish_report(cur, content=xml, source_account=ACCOUNT, day=DAY)['replayed']
             with pytest.raises(ReportValidationError, match='position_report_conflict'):
                 publish_report(cur, content=xml + b'\n', source_account=ACCOUNT, day=DAY)
@@ -86,16 +95,84 @@ def test_broker_archives_and_snapshot_publication(empty_source_db):
             cur.execute("SELECT count(*) AS count FROM pams_investment_trade_fact")
             assert cur.fetchone()['count'] == 0
 
-            day = DAY + timedelta(days=1)
+            cur.execute("""INSERT INTO pams_asset_master(asset_id,canonical_name,asset_type,currency)
+                VALUES ('SYNTH_HK','Synthetic Fund','stock','HKD')""")
+            cur.execute("""INSERT INTO pams_asset_alias(asset_id,alias_type,alias_value,source)
+                VALUES ('SYNTH_HK','ibkr_conid','123456','synthetic')""")
+            renamed_day = DAY + timedelta(days=1)
+            renamed = report(renamed_day)
+            renamed.find('OpenPositions/OpenPosition').attrib.update(symbol='RENAMED', description='Changed Name')
+            assert publish_report(cur, content=ET.tostring(renamed), source_account=ACCOUNT,
+                                  day=renamed_day)['published'] == 1
+            cur.execute(f"""WITH {LATEST_KNOWN_HOLDINGS_CTE}
+                SELECT h.name,h.symbol,h.asset_id,h.quantity,i.source_uid,i.raw_fields->>'description' AS raw_name
+                FROM latest_known_holding h JOIN source_items i USING (source_item_id)
+                WHERE h.account_code='ibkr'""", (renamed_day,))
+            assert cur.fetchall() == [{'name': 'SYNTH - Synthetic Fund', 'symbol': 'RENAMED', 'asset_id': 'SYNTH_HK',
+                                       'quantity': 10, 'source_uid': '123456', 'raw_name': 'Changed Name'}]
+
+            day = DAY + timedelta(days=2)
             incomplete = report(day)
             incomplete.find('OpenPositions').remove(incomplete.find('OpenPositions/OpenPosition'))
             with pytest.raises(ReportValidationError):
                 publish_report(cur, content=ET.tostring(incomplete), source_account=ACCOUNT, day=day)
             publish_report(cur, content=ET.tostring(report(day, empty=True)), source_account=ACCOUNT, day=day)
-            cur.execute(f"WITH {LATEST_KNOWN_HOLDINGS_CTE} SELECT quantity,as_of FROM latest_known_holding WHERE account_code='ibkr'", (day,))
-            assert cur.fetchall() == [{'quantity': 0, 'as_of': day}]
+            cur.execute(f"""WITH {LATEST_KNOWN_HOLDINGS_CTE}
+                SELECT h.quantity,h.as_of,h.asset_id,i.source_uid,i.raw_fields->>'conid' AS conid
+                FROM latest_known_holding h JOIN source_items i USING (source_item_id)
+                WHERE h.account_code='ibkr'""", (day,))
+            assert cur.fetchall() == [{'quantity': 0, 'as_of': day, 'asset_id': 'SYNTH_HK',
+                                       'source_uid': '123456', 'conid': '123456'}]
             cur.execute("SELECT quantity FROM pams_holdings_snapshot WHERE account_code='ibkr' AND as_of=%s", (DAY,))
             assert cur.fetchone()['quantity'] == 10
+
+
+def test_first_publication_requires_legacy_identity_evidence(empty_source_db):
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""INSERT INTO pams_accounts(account_code,display_name,base_currency)
+                VALUES ('ibkr','Synthetic IBKR','USD') ON CONFLICT (account_code) DO NOTHING""")
+            cur.execute("""INSERT INTO pams_asset_master(asset_id,canonical_name,asset_type,currency)
+                VALUES ('SYNTH_HK','Synthetic Fund','stock','HKD'),
+                       ('DUPLICATE_HK','Duplicate fund','stock','HKD')""")
+            cur.execute("""INSERT INTO pams_holdings_snapshot
+                (account_code,as_of,name,symbol,asset_id,currency,asset_liability,major_category,minor_category,
+                 quantity,market_value)
+                VALUES ('ibkr',%s,'Legacy holding name','SYNTH','SYNTH_HK','HKD',
+                        %s,%s,%s,10,800)""", (DAY - timedelta(days=1), '资产', '港股', '股票'))
+            xml = ET.tostring(report())
+            with pytest.raises(ReportValidationError, match='position_legacy_identity_unverified'):
+                publish_report(cur, content=xml, source_account=ACCOUNT, day=DAY)
+            cur.execute("""INSERT INTO pams_asset_alias(asset_id,alias_type,alias_value,source)
+                VALUES ('SYNTH_HK','ibkr_conid','123456','synthetic'),
+                       ('DUPLICATE_HK','ibkr_conid','123456','synthetic')""")
+            with pytest.raises(ReportValidationError, match='position_contract_mapping_conflict'):
+                publish_report(cur, content=xml, source_account=ACCOUNT, day=DAY)
+            cur.execute("SELECT count(*) AS count FROM ibkr_source_originals")
+            assert cur.fetchone()['count'] == 0
+            cur.execute("DELETE FROM pams_asset_alias WHERE asset_id='DUPLICATE_HK'")
+            assert publish_report(cur, content=xml, source_account=ACCOUNT, day=DAY)['published'] == 1
+            cur.execute("SELECT name,asset_id FROM pams_holdings_snapshot WHERE account_code='ibkr' AND as_of=%s", (DAY,))
+            assert cur.fetchone() == {'name': 'Legacy holding name', 'asset_id': 'SYNTH_HK'}
+
+
+def test_same_display_name_keeps_distinct_ibkr_contracts(empty_source_db):
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""INSERT INTO pams_accounts(account_code,display_name,base_currency)
+                VALUES ('ibkr','Synthetic IBKR','USD') ON CONFLICT (account_code) DO NOTHING""")
+            root = report(stock='200')
+            section = root.find('OpenPositions')
+            second = deepcopy(section.find('OpenPosition'))
+            second.set('conid', '234567')
+            section.append(second)
+            assert publish_report(cur, content=ET.tostring(root), source_account=ACCOUNT, day=DAY)['published'] == 2
+            cur.execute("""SELECT i.source_uid,h.name FROM pams_holdings_snapshot h
+                JOIN source_items i USING (source_item_id) WHERE h.account_code='ibkr' ORDER BY i.source_uid""")
+            assert cur.fetchall() == [{'source_uid': '123456', 'name': 'SYNTH - Synthetic Fund'},
+                                      {'source_uid': '234567', 'name': 'SYNTH - Synthetic Fund [234567]'}]
 
 
 def test_daily_holdings_http_publishes_once(empty_source_db, monkeypatch):

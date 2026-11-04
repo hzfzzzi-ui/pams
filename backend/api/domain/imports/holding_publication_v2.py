@@ -142,7 +142,7 @@ def publish(cur, *, source_id, revision, preview_token, scope=None):
                                       holdings=plan['holdings'], scope=scope)
 
 
-def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None):
+def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None, partial_attestation=None):
     """Write a caller-validated snapshot under the existing account lock and transaction."""
     cur.execute('''UPDATE source_records SET status='published',revision=revision+1,updated_at=now()
         WHERE source_id=%s AND status='draft' AND document_type='holding' ''', (str(source_id),))
@@ -160,6 +160,7 @@ def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None):
         finish_holding_change(cur, holding_id=holding_id, source_item_id=row['source_item_id'])
         holding_ids.append(holding_id)
     version = record_source_scope(cur, source_id=source_id, holding_ids=holding_ids,
-                                  as_of=as_of, scope=scope) if holding_ids else None
+                                  as_of=as_of, scope=scope,
+                                  partial_attestation=partial_attestation) if holding_ids else None
     return {'published': len(holding_ids), 'snapshot_version_id': version,
             'coverage_status': 'complete' if scope is not None else 'partial'}

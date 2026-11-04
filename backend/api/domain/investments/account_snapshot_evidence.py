@@ -177,7 +177,7 @@ def _published_holding_source(cur, source_id):
     return cur.fetchone()
 
 
-def record_source_scope(cur, *, source_id, holding_ids, as_of, scope):
+def record_source_scope(cur, *, source_id, holding_ids, as_of, scope, partial_attestation=None):
     """Freeze exactly the published holding members in the redesigned schema."""
     source = _published_holding_source(cur, source_id)
     if not source or not holding_ids:
@@ -199,7 +199,7 @@ def record_source_scope(cur, *, source_id, holding_ids, as_of, scope):
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'source-record-scope-v1',%s)""",
                 (version, source['account_code'], as_of, 'complete' if complete else 'partial',
                  'known' if complete else 'unknown', scope['cash_amount'] if complete else None,
-                 str(source_id), source['revision'], source['digest'], Json(scope) if complete else None,
+                 str(source_id), source['revision'], source['digest'], Json(scope if complete else partial_attestation) if complete or partial_attestation is not None else None,
                  'user confirmed all account members and cash' if complete else 'reviewed partial holding source'))
     if complete and not _verified_source_scope(cur, version):
         raise ValueError('完整范围未能覆盖并核验全部账户持仓')

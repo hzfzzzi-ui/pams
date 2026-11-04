@@ -134,7 +134,7 @@ class FlexConfirmationJournal:
             "publication_scope_or_date_regression", "publication_same_date_source_conflict",
             "previous_source_integrity_failure", "approved_close_evidence_unavailable",
             "position_report_conflict", "position_exit_scope_unverified", "position_account_inactive",
-            "position_report_unverified",
+            "position_report_unverified", "position_legacy_identity_unverified", "position_contract_mapping_conflict",
         }:
             state, reason = "blocked", response["reason"]
         elif response.get("reason") == "stale_statement_date":

@@ -106,6 +106,8 @@ $env:PGCLIENTENCODING='UTF8'
 
 IBKR 每日证券持仓单独通过 Flex 拉取指定账户的同日报表，校验汇总持仓后归档并调用共用持仓发布器。原币数量、成本和市值按报表记录。只有报告的证券多空总额足以核对范围时才记录退出。已发布的同日原件重复请求复用原结果，冲突或缺证据时保留原快照。证券来源按部分账户范围记录，现金覆盖维持未知。
 
+IBKR 合约号通过 `pams_asset_alias` 中显式的 `ibkr_conid` 关联已核对资产。未绑定的新合约可存快照，保留合约号，资产 ID 保持未知。存量非零持仓缺少可证合约关系时暂缓发布，防止错认退出或重复计入。有快照成员时，证券覆盖结论存在 `account_snapshot_version.scope_attestation`；核验空仓且无退出成员时，只存报表原件和发布登记。
+
 PAMS_IBKR_CASH_EVENTS_AFTER 为空时保持既有同步行为；启用后只接收严格晚于该 ISO 截止日的现金事件及普通成交。scheduler 的 PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED 默认 false；隔离新库使用 broker_processing_state 保存已发布原件关联的业务重试水位，技术尝试及错误仅写脱敏结构化日志。该链路尚未用于生产或存量库。GET /api/ibkr/cash-events/status 为服务器只读事务；POST /api/ibkr/cash-events/sync 最多 3 日/次，不接受请求改截止线、重标日期或绕过确认。
 
 账户及父节账户别名、业务日、币种、稳定身份、显式有限金额/符号、完整 CashTransactions 节必须可证。缺节未知，显式空节可完成；未知类型/冲突隔离，已知事件继续处理，整批事务错误回滚。稳定源键去重，行 ID 变化不重写旧关联；原币金额或既存 CNY 投影冲突不得静默跳过或修正，比较遵循 NUMERIC 十位小数精度。

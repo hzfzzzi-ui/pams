@@ -13,6 +13,8 @@ from domain.investments.holding_evidence_writer import lock_holding_accounts
 
 ACCOUNT = 'ibkr'
 SOURCE = 'ibkr_daily_holdings'
+ALIAS_TYPE = 'ibkr_conid'
+CONID = re.compile(r'[1-9][0-9]{0,17}')
 MARKET_LABELS = {
     'NASDAQ': '美股', 'NYSE': '美股', 'ARCA': '美股', 'AMEX': '美股',
     'SEHK': '港股', 'KRX': '韩股', 'KSE': '韩股', 'SFB': '瑞典',
@@ -64,12 +66,11 @@ def _read_report(content: bytes, source_account: str, day: date):
         raise ValueError('position_section_unverified')
     evidence.scope(sections[0], statement, base, day, day, leaf_account=False)
     rows = {}
-    names = set()
     for node in _rows(sections[0], 'OpenPosition'):
         evidence.scope(node, statement, base, day, day, currency=False)
         fields = dict(node.attrib)
         if (_day(fields.get('reportDate')) != day or fields.get('levelOfDetail') != 'SUMMARY'
-                or not re.fullmatch(r'[1-9][0-9]{0,17}', fields.get('conid', ''))
+                or not CONID.fullmatch(fields.get('conid', ''))
                 or not re.fullmatch(r'[A-Z]{3}', fields.get('currency', ''))
                 or fields.get('assetCategory') not in SECURITY_COMPONENTS):
             raise ValueError('position_identity_unverified')
@@ -77,9 +78,8 @@ def _read_report(content: bytes, source_account: str, day: date):
         description = fields.get('description', '').strip()
         name = description if description.upper() == symbol.upper() else f'{symbol} - {description}'
         if (not symbol or not description or len(symbol) > 100 or len(name) > 180
-                or conid in rows or name in names):
+                or conid in rows):
             raise ValueError('position_identity_ambiguous')
-        names.add(name)
         quantity, price, cost, value, buy_price = (
             _number(node, key) for key in ('position', 'markPrice', 'costBasisMoney', 'positionValue', 'costBasisPrice')
         )
@@ -120,12 +120,69 @@ def _read_report(content: bytes, source_account: str, day: date):
 
 
 def last_publication(cur):
-    cur.execute("""SELECT source_id, period_end, sha256 FROM public.source_records
-        WHERE account_code=%s AND source_name=%s AND document_type='holding' AND status='published'
-          AND acquisition_method='api' AND period_start=period_end
-          AND scope_note IN ('securities_verified','securities_observed')
-        ORDER BY period_end DESC LIMIT 1""", (ACCOUNT, SOURCE))
+    cur.execute("""SELECT r.source_id, r.period_end, r.sha256 FROM public.source_records r
+        JOIN public.ibkr_source_originals o ON o.sha256=r.sha256
+        WHERE r.account_code=%s AND r.source_name=%s AND r.document_type='holding'
+          AND r.status='published' AND r.acquisition_method='api' AND r.period_start=r.period_end
+        ORDER BY r.period_end DESC LIMIT 1""", (ACCOUNT, SOURCE))
     return cur.fetchone()
+
+
+def _bind_positions(cur, parsed, previous, complete):
+    # Prefer an explicit contract alias. Existing name-based snapshot readers
+    # require the same stored name across dates for a single contract.
+    cur.execute("""SELECT a.alias_value AS conid, a.asset_id, m.currency, m.status
+        FROM public.pams_asset_alias a JOIN public.pams_asset_master m USING (asset_id)
+        WHERE a.alias_type=%s FOR SHARE OF a, m""", (ALIAS_TYPE,))
+    aliases, contracts = {}, {}
+    for alias in cur.fetchall():
+        if CONID.fullmatch(alias['conid']):
+            aliases.setdefault(alias['conid'], []).append(alias)
+            contracts.setdefault(alias['asset_id'], []).append(alias['conid'])
+
+    prior_by_contract = {}
+    reserved_names = {row['name'] for row in previous}
+    for old in previous:
+        conid = old['conid']
+        if not conid or not CONID.fullmatch(conid):
+            candidates = contracts.get(old['asset_id'], [])
+            conid = candidates[0] if len(candidates) == 1 else None
+        if not conid:
+            if old['quantity'] or old['market_value']:
+                raise ReportValidationError('position_legacy_identity_unverified')
+            continue
+        if conid in prior_by_contract:
+            raise ReportValidationError('position_contract_mapping_conflict')
+        prior_by_contract[conid] = old
+
+    missing = {key: old for key, old in prior_by_contract.items()
+               if key not in parsed and (old['quantity'] or old['market_value'])}
+    if missing and not complete:
+        raise ReportValidationError('position_exit_scope_unverified')
+    for conid, old in missing.items():
+        row = {key: value for key, value in old.items() if key not in ('as_of', 'conid')}
+        row.update(quantity=Decimal(0), market_value=Decimal(0), cost=Decimal(0),
+                   current_price=Decimal(0), buy_price=Decimal(0))
+        parsed[conid] = ({'position_absent_from_verified_scope': True, 'conid': conid}, row)
+
+    for conid, (_, row) in sorted(parsed.items()):
+        old = prior_by_contract.get(conid)
+        candidates = aliases.get(conid, [])
+        if (len(candidates) > 1 or (candidates and (
+                candidates[0]['currency'] != row['currency'] or candidates[0]['status'] != 'active'))
+                or (old and old['currency'] != row['currency'])):
+            raise ReportValidationError('position_contract_mapping_conflict')
+        asset_id = candidates[0]['asset_id'] if candidates else None
+        if old and old['asset_id'] and old['asset_id'] != asset_id:
+            raise ReportValidationError('position_contract_mapping_conflict')
+        row['asset_id'] = asset_id
+        if old:
+            row['name'] = old['name']
+        elif row['name'] in reserved_names:
+            row['name'] = f"{row['name'][:175]} [{conid}]"
+            if row['name'] in reserved_names:
+                raise ReportValidationError('position_contract_mapping_conflict')
+        reserved_names.add(row['name'])
 
 
 def publish_report(cur, *, content, source_account, day):
@@ -142,31 +199,26 @@ def publish_report(cur, *, content, source_account, day):
     account = cur.fetchone()
     if not account or not account['active']:
         raise ReportValidationError('position_account_inactive')
-    cur.execute("""SELECT DISTINCT ON (name) name, symbol, currency, asset_id, asset_liability,
-        major_category, minor_category, quantity, market_value, as_of
-        FROM public.pams_holdings_snapshot
-        WHERE account_code=%s AND major_category <> '现金' ORDER BY name, as_of DESC""", (ACCOUNT,))
+    cur.execute("""SELECT DISTINCT ON (h.name) h.name, h.symbol, h.currency, h.asset_id, h.asset_liability,
+        h.major_category, h.minor_category, h.quantity, h.market_value, h.as_of,
+        CASE WHEN r.source_name=%s AND r.status='published' AND i.review_status='confirmed'
+             THEN i.source_uid END AS conid
+        FROM public.pams_holdings_snapshot h
+        LEFT JOIN public.source_items i ON i.source_item_id=h.source_item_id
+        LEFT JOIN public.source_records r ON r.source_id=i.source_id AND r.account_code=h.account_code
+        WHERE h.account_code=%s AND h.major_category <> '现金' ORDER BY h.name, h.as_of DESC""", (SOURCE, ACCOUNT))
     previous = cur.fetchall()
     if any(row['as_of'] >= day for row in previous):
         raise ReportValidationError('position_report_conflict')
-    names = {row['name'] for _, row in parsed.values()}
-    missing = [row for row in previous if row['name'] not in names and (row['quantity'] or row['market_value'])]
-    if missing and not complete:
-        raise ReportValidationError('position_exit_scope_unverified')
-    # Preserve history and record a sourced zero on the new date so the normal
-    # latest-known holding reader does not carry a verified exit forward.
-    for index, old in enumerate(missing, 1):
-        row = {key: value for key, value in old.items() if key != 'as_of'}
-        row.update(asset_id=None, quantity=Decimal(0), market_value=Decimal(0), cost=Decimal(0),
-                   current_price=Decimal(0), buy_price=Decimal(0))
-        parsed[f'exit:{index}'] = ({'position_absent_from_verified_scope': True, 'name': old['name']}, row)
+    reported_positions = len(parsed)
+    _bind_positions(cur, parsed, previous, complete)
 
     source_id = uuid4()
     source_records_v2.create_source(cur, source_id=source_id, account_code=ACCOUNT, source_name=SOURCE,
                                     acquisition_method='api', document_type='holding', filename='ibkr-positions.xml',
                                     file_format='xml', content_type='application/xml', content=content)
-    cur.execute("""UPDATE public.source_records SET period_start=%s,period_end=%s,scope_note=%s WHERE source_id=%s""",
-                (day, day, 'securities_verified' if complete else 'securities_observed', str(source_id)))
+    cur.execute("UPDATE public.source_records SET period_start=%s,period_end=%s WHERE source_id=%s",
+                (day, day, str(source_id)))
     holdings = []
     for uid, (raw, row) in parsed.items():
         for field in ('quantity', 'current_price', 'buy_price', 'cost', 'market_value'):
@@ -184,5 +236,9 @@ def publish_report(cur, *, content, source_account, day):
         holdings.append(dict(row, source_item_id=str(item_id), account_code=ACCOUNT, as_of=day))
     cur.execute("""UPDATE public.source_items SET review_status='confirmed',review_note='Validated broker position report'
         WHERE source_id=%s""", (str(source_id),))
-    result = publish_validated_holdings(cur, source_id=source_id, as_of=day, holdings=holdings)
+    result = publish_validated_holdings(
+        cur, source_id=source_id, as_of=day, holdings=holdings,
+        partial_attestation={'securities_coverage': 'verified' if complete else 'observed',
+                             'method': 'ibkr-flex-securities-v1', 'reported_positions': reported_positions},
+    )
     return {**result, 'status': 'published', 'as_of': day.isoformat(), 'replayed': False}
