@@ -1,4 +1,4 @@
-import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData } from './legacy_model.js?v=20261104-ths-nav-v1';
+import { normalizeReturnWindowKey, buildReturnEvents, buildInvestmentReturnWindowData, returnRateForChart } from './legacy_model.js?v=20261104-available-returns-v1';
 
 const RETURN_WINDOW_STORAGE_KEY = 'pams.investmentReturn.window';
 function readReturnWindowPreference() {
@@ -32,9 +32,17 @@ export function createInvestmentChartState(host) {
 export function initializeReturnState(state, resp, sectionResponses, sectionSpecs) {
   const rows = resp.rows || [];
   const sectionRowsByKey = new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.rows || []]));
+  const sectionEstimates = new Map();
+  sectionSpecs.forEach((spec, index) => {
+    const estimate = sectionResponses[index]?.estimated_series;
+    if (estimate?.rows?.length && !sectionRowsByKey.get(spec.key).some(row => returnRateForChart(row) != null)) {
+      sectionEstimates.set(spec.key, estimate);
+    }
+  });
   Object.assign(state, {
     rows,
     sectionRowsByKey,
+    sectionEstimates,
     sectionSpecs,
     events: buildReturnEvents(rows),
     visibleRows: [],
@@ -54,6 +62,7 @@ export function updateVisibleReturnState(state) {
     state.activeWindow,
     state.isMobile,
     state.events,
+    state.sectionEstimates,
   );
   state.visibleRows = windowData.rows;
   state.visibleEvents = windowData.visibleEvents;

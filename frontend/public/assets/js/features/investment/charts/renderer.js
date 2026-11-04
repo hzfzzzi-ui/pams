@@ -1,8 +1,8 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js?v=20261031-modules-v1';
 import { fmt2 } from '../../../api.js?v=20261031-modules-v1';
 import { safeNum } from '../../../utils.js?v=20261031-modules-v1';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-ths-nav-v1';
-import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-ths-nav-v1';
+import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, returnWindowLabel, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js?v=20261104-available-returns-v1';
+import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js?v=20261104-available-returns-v1';
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
@@ -33,6 +33,16 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   }
   host.addEventListener?.('resize', onResize);
 
+  function showAvailableReturnSeries(datasets) {
+    const visibleSeries = datasets.filter(dataset => dataset.returnSeriesKey !== 'events');
+    const hasData = dataset => dataset.data.some(value => value != null);
+    visibleSeries.forEach(dataset => { if (!hasData(dataset)) dataset.hidden = true; });
+    if (!visibleSeries.some(dataset => !dataset.hidden)) {
+      const first = visibleSeries.find(hasData);
+      if (first) first.hidden = false;
+    }
+  }
+
   function renderInvestmentReturnChart({ resp, sectionResponses, sectionSpecs }) {
     if (disposed) return null;
     const el = getElementById('investmentReturnChart');
@@ -62,17 +72,17 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const noteEl = getElementById('investmentReturnNote');
     if (noteEl) {
       const notes = (resp.coverage_notes || []).map(item => typeof item === 'string' ? item : item?.reason).filter(Boolean);
+      const estimate = chartState.sectionEstimates.get('a_stock');
+      if (notes.length && resp.status !== 'unavailable') notes.unshift('含多口径数据。');
+      if (!initialWindowData.totalData.some(value => value != null)) notes.unshift('组合收益率待补齐。');
+      if (estimate) notes.push(`A股个股显示同花顺累计估算，按累计盈亏 ÷ 净投入计算。流水截至 ${estimate.source_through}，之后沿用末笔持仓和现金。`);
       noteEl.style.display = notes.length ? 'block' : 'none';
-      noteEl.textContent = notes.length
-        ? `${resp.status === 'unavailable' ? '收益数据尚不完整' : '含多口径数据'}，分类线仅作参考。${notes.join(' ')}`
-        : '';
+      noteEl.textContent = notes.join(' ');
     }
 
     if (returnChart) returnChart.destroy();
     if (typeof ChartClass !== 'function') {
-      returnChart = createInvestmentReturnCanvasFallback(el, {
-        labels: initialWindowData.labels,
-        datasets: [{
+      const datasets = [{
           returnSeriesKey: 'total',
           label: '总收益率',
           data: initialWindowData.totalData,
@@ -84,8 +94,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           data: initialWindowData.eventData,
           borderColor: CHART_THEME.event,
           hidden: false,
-        }, ...sectionDatasets],
-      });
+        }, ...sectionDatasets];
+      showAvailableReturnSeries(datasets);
+      returnChart = createInvestmentReturnCanvasFallback(el, {labels: initialWindowData.labels, datasets});
       bindReturnEventPopover(returnChart, chartState);
       renderReturnEventHotspots(returnChart, chartState);
       renderInvestmentReturnToggle(returnChart, sectionSpecs, chartState);
@@ -96,38 +107,40 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         ? { latest: rows[rows.length - 1], previous: rows.length > 1 ? rows[rows.length - 2] : null, rows, todayWindow: resp.today_window || null }
         : null;
     }
+    const datasets = [{
+      returnSeriesKey: 'total',
+      label: '总收益率',
+      data: initialWindowData.totalData,
+      borderColor: CHART_THEME.line,
+      backgroundColor: CHART_THEME.fill,
+      tension: 0.25,
+      fill: true,
+      pointRadius: initialWindowData.totalPointRadius,
+      borderWidth: 2.4,
+      order: 0,
+    }, {
+      returnSeriesKey: 'events',
+      label: '关键事件',
+      data: initialWindowData.eventData,
+      borderColor: CHART_THEME.event,
+      backgroundColor: CHART_THEME.event,
+      tension: 0,
+      fill: false,
+      showLine: false,
+      pointStyle: 'triangle',
+      pointRadius: initialWindowData.eventPointRadius,
+      pointHoverRadius: 7,
+      hitRadius: 12,
+      borderWidth: 0,
+      spanGaps: false,
+      order: -1,
+    }, ...sectionDatasets];
+    showAvailableReturnSeries(datasets);
     returnChart = new ChartClass(el, {
       type: 'line',
       data: {
         labels: initialWindowData.labels,
-        datasets: [{
-          returnSeriesKey: 'total',
-          label: '总收益率',
-          data: initialWindowData.totalData,
-          borderColor: CHART_THEME.line,
-          backgroundColor: CHART_THEME.fill,
-          tension: 0.25,
-          fill: true,
-          pointRadius: initialWindowData.totalPointRadius,
-          borderWidth: 2.4,
-          order: 0,
-        }, {
-          returnSeriesKey: 'events',
-          label: '关键事件',
-          data: initialWindowData.eventData,
-          borderColor: CHART_THEME.event,
-          backgroundColor: CHART_THEME.event,
-          tension: 0,
-          fill: false,
-          showLine: false,
-          pointStyle: 'triangle',
-          pointRadius: initialWindowData.eventPointRadius,
-          pointHoverRadius: 7,
-          hitRadius: 12,
-          borderWidth: 0,
-          spanGaps: false,
-          order: -1,
-        }, ...sectionDatasets],
+        datasets,
       },
       options: {
         responsive: true,
@@ -149,10 +162,13 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                     : '关键事件';
                 }
                 if (ctx.dataset.label !== '总收益率') {
+                  if (chartState.sectionEstimates.has(ctx.dataset.returnSeriesKey)) {
+                    return `同花顺累计估算：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+                  }
                   return `${ctx.dataset.label}区间收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                 }
                 const visibleRows = chartState.visibleRows || [];
-                const row = visibleRows[ctx.dataIndex] || {};
+                const row = visibleRows.find(item => item.date === date) || {};
                 return [
                   `区间总收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
                   `单日收益率：${safeNum(row.daily_return_rate) * 100 >= 0 ? '+' : ''}${(safeNum(row.daily_return_rate) * 100).toFixed(2)}%`,
@@ -674,6 +690,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         dataset.pointRadius = sectionData.pointRadius;
       }
     });
+    showAvailableReturnSeries(chart.data.datasets);
+    renderInvestmentReturnToggle(chart, state.sectionSpecs, state);
     chart.update('none');
     hideReturnEventPopover();
     renderReturnEventHotspots(chart, state);
@@ -719,15 +737,15 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         const dataset = chart.data.datasets.find(row => row.label === item?.datasetLabel);
         const active = dataset ? !dataset.hidden : false;
         btn.classList.toggle('active', active);
-        btn.disabled = false;
-        btn.title = '';
+        btn.disabled = !dataset?.data.some(value => value != null);
+        btn.title = btn.disabled ? '此区间没有可用收益率' : '';
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     };
     const toggleSeries = (mode) => {
       const selected = options.find(item => item.key === mode) || options[0];
       const dataset = chart.data.datasets.find(row => row.label === selected.datasetLabel);
-      if (!dataset) return;
+      if (!dataset?.data.some(value => value != null)) return;
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;
