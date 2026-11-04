@@ -612,6 +612,10 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
 
 def test_investments_page_exposes_performance_dashboard_sections() -> None:
     html = _read_public("investments.html")
+    for removed_id in ("investmentReturnNote", "investmentNavRange", "investmentNavHint"):
+        assert f'id="{removed_id}"' not in html
+    assert "<h3>组合收益率</h3>" in html
+    assert "<h3>NAV变化</h3>" in html
     holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     chart_renderer = _read_public("assets/js/features/investment/charts/renderer.js")
     chart_model = _read_public("assets/js/features/investment/charts/legacy_model.js")
@@ -785,7 +789,6 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "份数",
         "税费",
         "展开更多",
-        "含多口径数据",
     ]:
         assert phrase in html + holdings_js + chart_source + tx_js
 
@@ -817,7 +820,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         daily_label = ("<strong>今日盈亏</strong>" if row_name == "r"
                        else "<strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong>")
         assert template.index(daily_label) < template.index("<strong>收益状态</strong>")
-    assert "assets/js/holdings_categories.js?v=20261104-available-returns-v2" in html
+    assert "assets/js/holdings_categories.js?v=20261104-trim-chart-copy-v1" in html
     assert "assets/js/lookthrough.js?v=20261031-modules-v1" in html
     assert "assets/js/portfolio_risk.js?v=20261031-modules-v1" in html
     assert "assets/js/portfolio_config.js?v=20261031-modules-v1" in html
@@ -1700,7 +1703,7 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "dailyPending ? 'muted'" not in hero
     assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in hero
     assert "holdings.js?v=20261102-verified-trade-snapshot-v1" in html
-    assert "holdings_categories.js?v=20261104-available-returns-v2" in html
+    assert "holdings_categories.js?v=20261104-trim-chart-copy-v1" in html
 
 
 def test_pending_daily_breakdown_preserves_existing_line_conditions() -> None:
