@@ -20,3 +20,14 @@ assert.equal(nav[0].market_value, null);
 assert.equal(model.buildInvestmentNavChartData(nav, true).values.length, 0);
 const knownZero = model.normalizeInvestmentNavRows([{date:'2026-01-01', netWorth:0}]);
 assert.equal(model.buildInvestmentNavChartData(knownZero, true).latest, 0);
+const partial = model.normalizeInvestmentNavRows([
+  {date:'2026-01-01',netWorth:null,availableNetWorth:'100',available_accounts:['bank']},
+  {date:'2026-01-02',netWorth:null},
+  {date:'2026-01-03',netWorth:null,availableNetWorth:'160',available_accounts:['broker','bank']},
+]);
+const chart = model.buildInvestmentNavChartData(partial, true);
+assert.deepEqual(Array.from(chart.values), [100,null,160]);
+assert.deepEqual(Array.from(chart.scopes), ['partial:bank','complete','partial:bank,broker']);
+assert.equal(chart.latest,160);
+assert.equal(chart.availableAccountCount,2);
+assert.equal(chart.change,null);

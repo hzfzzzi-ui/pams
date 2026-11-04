@@ -191,13 +191,17 @@ function normalizeInvestmentNavRows(rows) {
   return (rows || [])
     .map(row => {
       const date = row.date || row.asOfDate || row.snapshot_date;
-      const rawValue = row.netWorth ?? row.net_worth ?? row.market_value;
+      const fullValue = row.netWorth ?? row.net_worth ?? row.market_value;
+      const partial = fullValue == null && row.availableNetWorth != null && row.available_accounts?.length;
+      const rawValue = partial ? row.availableNetWorth : fullValue;
       const marketValue = rawValue == null || rawValue === '' ? null : Number(rawValue);
       if (!date || (marketValue !== null && !Number.isFinite(marketValue))) return null;
       return {
         ...row,
         date,
         market_value: marketValue,
+        nav_scope: partial ? 'partial:' + [...row.available_accounts].sort().join(',') : 'complete',
+        available_account_count: partial ? row.available_accounts.length : null,
         assets: safeNum(row.assets),
         liabilities: safeNum(row.liabilities),
       };
@@ -208,30 +212,38 @@ function normalizeInvestmentNavRows(rows) {
 
 function buildInvestmentNavChartData(windowRows, isMobile) {
   const rows = windowRows || [];
-  if (rows.some(row => row.market_value == null)) {
-    return { labels: [], values: [], first: null, latest: null, change: null,
+  const known = rows.filter(row => row.market_value != null);
+  if (!known.length) {
+    return { labels: [], values: [], scopes: [], latest: null, change: null,
       changeRate: null, maxDrawdown: null, pointRadius: 0 };
   }
   const labels = rows.map(row => row.date);
-  const values = rows.map(row => safeNum(row.market_value));
-  const first = values.length ? values[0] : 0;
-  const latest = values.length ? values[values.length - 1] : 0;
-  const change = latest - first;
-  const changeRate = Math.abs(first) > 0.005 ? change / first : 0;
+  const values = rows.map(row => row.market_value);
+  const scopes = rows.map(row => row.nav_scope || 'complete');
+  const latestRow = known[known.length - 1];
+  const first = known[0].market_value;
+  const latest = latestRow.market_value;
+  const comparable = known.length === rows.length && scopes.every(scope => scope === scopes[0]);
+  const change = comparable ? latest - first : null;
+  const changeRate = comparable && Math.abs(first) > 0.005 ? change / first : null;
   let peak = first;
   let maxDrawdown = 0;
-  for (const value of values) {
+  for (const { market_value: value } of known) {
     peak = Math.max(peak, value);
     if (peak > 0.005) maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
   }
   return {
     labels,
     values,
+    scopes,
     first,
     latest,
+    latestDate: latestRow.date,
+    availableAccountCount: latestRow.available_account_count,
+    estimated: latestRow.valuation_quality === 'estimated',
     change,
     changeRate,
-    maxDrawdown,
+    maxDrawdown: comparable ? maxDrawdown : null,
     pointRadius: pointRadiusForReturnSeries(values.length, isMobile),
   };
 }
