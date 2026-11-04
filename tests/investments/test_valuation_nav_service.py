@@ -56,6 +56,24 @@ def test_bank_nav_requires_fx_on_the_valuation_day():
     assert values[0]["net_worth"] == Decimal("700")
 
 
+def test_nav_keeps_available_accounts_separate_from_complete_total():
+    from domain.investments.valuation_nav import ValuationEvidenceSeries, build_weekly_nav_rows, normalize_nav_row
+
+    day = date(2026, 6, 4)
+    snapshots = ValuationEvidenceSeries({day: Decimal("40")})
+    snapshots.available_accounts_by_date[day] = ["broker"]
+    snapshots.unknown_accounts_by_date[day] = ["another"]
+    ths = ValuationEvidenceSeries({day: Decimal("500")}, unknown_dates={day})
+    bank = {day: {"net_worth": Decimal("0"), "available_accounts": ["bank"]}}
+    row, = build_weekly_nav_rows(dates=[day], bank_series=bank, snapshot_series=snapshots,
+                                  a_share_series=ths, ibkr_values={})
+    result = normalize_nav_row(row)
+    assert result["netWorth"] is None
+    assert result["availableNetWorth"] == "40"
+    assert result["available_accounts"] == ["bank", "broker"]
+    assert result["unavailable_accounts"] == ["another", "tonghuashun"]
+
+
 def test_nav_series_and_drawdown_propagate_missing_history():
     rows = [
         {"asOfDate": "2026-05-10", "netWorth": "100"},
