@@ -1,9 +1,9 @@
 data:
   default_owner_ratio: 1.0
-  # 非本人全额持有账户在这里配置个人占比；同花顺 A 股个股账户当前为 25万 / 40万 = 62.5%。
+  # 按账户代码配置个人归属。当前同花顺账户按全额归属计算。
   account_owner_ratios:
     a_share_stock: 0.625
-    tonghuashun: 0.625
+    tonghuashun: 1.0
   # 这里记录账户整体期初本金，系统会再乘以 owner_ratio 得到个人期初本金。
   account_initial_capital_cny:
     tonghuashun: 400000
