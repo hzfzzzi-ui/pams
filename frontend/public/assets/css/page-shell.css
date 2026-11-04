@@ -1,4 +1,8 @@
 /* Shared content geometry and the only definition of secondary navigation. */
+@media (pointer: coarse) {
+  /* Direct content links use the browser's safe viewport. Framed pages use the outer shell. */
+  html:not(.pams-content) body.app-shell { padding-top: var(--pams-space-2); }
+}
 html.pams-content body.app-shell { padding-bottom: 0 !important; }
 html.pams-content body.app-shell > .wrap {
   width: 100%;
