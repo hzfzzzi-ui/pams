@@ -68,7 +68,7 @@ const returns = { rows: nav.rows.map((row, index) => ({ date: row.date, market_v
 async function fixture({ fallback = false } = {}) {
   const requests = [], charts = [], storage = new Map();
   const ids = ['investmentReturnChart', 'investmentNavChart', 'investmentReturnToggle', 'investmentReturnWindowToggle',
-    'returnEventHotspots', 'returnEventPopover'];
+    'investmentReturnSeriesStatus', 'returnEventHotspots', 'returnEventPopover'];
   const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
   const document = { body: { dataset: {} }, getElementById: id => elements[id] || null };
   const window = Object.assign(new Target(), { matchMedia: () => ({ matches: true }), devicePixelRatio: 1 });
@@ -171,16 +171,26 @@ for (const fallback of [false, true]) {
   for (const req of test.requests) {
     if (req.url.startsWith('/nav/')) req.resolve(nav);
     else if (req.url.includes('section=a_stock')) req.resolve(estimated);
-    else req.resolve({rows: [], status: 'unavailable'});
+    else if (req.url.includes('section=us_stock')) {
+      req.resolve({rows: [], status: 'unavailable', reason: 'ibkr_position_history_unavailable'});
+    } else req.resolve({rows: [], status: 'unavailable'});
   }
   await loading;
   const chart = test.window.__investmentReturnChart;
   assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock').hidden, false);
   const button = key => test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === key);
-  assert.equal(button('total').disabled, true);
-  assert.equal(button('total').attrs['aria-pressed'], 'false');
+  const status = test.elements.investmentReturnSeriesStatus;
+  assert.equal(status.hidden, true);
+  assert.notEqual(button('us_stock').disabled, true);
+  button('us_stock').fire('click');
+  assert.equal(status.hidden, false);
+  assert.match(status.textContent, /IBKR/);
+  assert.equal(button('us_stock').attrs['aria-pressed'], 'false');
   assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
+  button('total').fire('click');
+  assert.match(status.textContent, /总收益率/);
   test.elements.investmentReturnWindowToggle.buttons.find(item => item.dataset.returnWindow === '1w').fire('click');
+  assert.equal(status.hidden, true);
   assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
   controller.dispose();
 }

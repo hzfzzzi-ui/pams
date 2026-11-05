@@ -43,6 +43,7 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
     rows,
     sectionRowsByKey,
     sectionEstimates,
+    sectionReasons: new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.reason])),
     sectionSpecs,
     events: buildReturnEvents(rows),
     visibleRows: [],
