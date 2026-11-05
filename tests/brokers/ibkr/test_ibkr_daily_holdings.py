@@ -12,7 +12,9 @@ from psycopg2.extras import RealDictCursor
 from tests.brokers.ibkr.test_ibkr_daily_close import ACCOUNT, DAY, compact, statement
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
 from scripts.bootstrap_isolated_sources import initialize_isolated_sources
-from domain.brokers.ibkr.ibkr_daily_holdings import ReportValidationError, publish_report, read_report
+from domain.brokers.ibkr.ibkr_daily_holdings import (
+    ReportValidationError, historical_us_position_values, publish_report, read_report,
+)
 from domain.imports.source_records_v2 import create_source
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 
@@ -45,6 +47,28 @@ def test_report_validates_account_date_scope_and_summary_rows():
     with pytest.raises(ReportValidationError):
         read_report(ET.tostring(root), ACCOUNT, DAY)
 
+
+
+def test_historical_us_values_require_each_days_verified_securities():
+    root = ET.Element('FlexQueryResponse')
+    first = report(DAY)
+    first.find('OpenPositions/OpenPosition').attrib.update(
+        listingExchange='NASDAQ', currency='USD', fxRateToBase='1',
+        position='10', positionValue='100', costBasisMoney='80',
+    )
+    root.append(first)
+    # A non-US holding and a US position with inconsistent report totals both leave gaps.
+    root.append(report(DAY + timedelta(days=1)))
+    inconsistent = report(DAY + timedelta(days=2))
+    inconsistent.find('OpenPositions/OpenPosition').attrib.update(
+        listingExchange='NASDAQ', currency='USD', fxRateToBase='1',
+        position='10', positionValue='900', costBasisMoney='80',
+    )
+    root.append(inconsistent)
+    content = ET.tostring(root)
+    digest = sha256(content).hexdigest()
+    assert historical_us_position_values(content, ACCOUNT, digest) == {DAY: (100, 80)}
+    assert historical_us_position_values(content + b' ', ACCOUNT, digest) == {}
 
 def test_broker_archives_and_snapshot_publication(empty_source_db):
     with psycopg2.connect(**empty_source_db) as conn:

@@ -195,6 +195,29 @@ for (const fallback of [false, true]) {
   controller.dispose();
 }
 
+{
+  const test = await fixture();
+  const controller = test.create();
+  const loading = controller.loadReturnsOnce();
+  const estimate = {label: 'IBKR 美股持仓估算', method: 'ibkr_unrealized_pnl_over_position_cost',
+    rows: [{date: '2026-09-30', display_return_rate: '0.25'}]};
+  for (const req of test.requests) {
+    if (req.url.startsWith('/nav/')) req.resolve(nav);
+    else if (req.url.includes('section=us_stock')) req.resolve({rows: [], estimated_series: estimate});
+    else req.resolve(returns);
+  }
+  await loading;
+  const chart = test.window.__investmentReturnChart;
+  const us = chart.data.datasets.find(row => row.returnSeriesKey === 'us_stock');
+  const button = test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === 'us_stock');
+  button.fire('click');
+  assert.equal(us.hidden, false);
+  assert.equal(us.data[chart.data.labels.indexOf('2026-09-30')], 25);
+  assert.equal(button.attrs['aria-pressed'], 'true');
+  assert.match(test.elements.investmentReturnSeriesStatus.textContent, /未实现盈亏/);
+  controller.dispose();
+}
+
 // Old reads settle after a new owner is already visible: they must be inert.
 for (const oldFirst of [false, true]) {
   const test = await fixture();

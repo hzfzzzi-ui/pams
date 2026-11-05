@@ -994,6 +994,28 @@ def test_us_stock_return_missing_history_has_no_zero_curve(monkeypatch: pytest.M
     assert payload["summary"]["total_return"] is None and payload["today_window"] is None
 
 
+
+def test_us_stock_return_preview_uses_requested_dates_before_first_live_snapshot(monkeypatch):
+    first = date(2026, 3, 2)
+    last = date(2026, 11, 4)
+    monkeypatch.setattr(investment_return_ibkr, '_table_exists', lambda *_: False)
+    monkeypatch.setattr(investment_returns, '_section_first_activity_date', lambda *_: last)
+    monkeypatch.setattr(investment_returns, 'load_fx_timelines', lambda *_: {})
+
+    def preview(cur, *, start_date, end_date, owner_ratio):
+        assert start_date == first and end_date == last
+        return {'rows': [{'date': first.isoformat(), 'display_return_rate': '0.25'}]}
+
+    monkeypatch.setattr(investment_returns, 'ibkr_us_holding_return_preview', preview)
+    payload = build_section_return_series_payload(
+        FakeCursor([[]]), section='us_stock', start_date=first, interval='daily',
+        base_currency='CNY', view_as_of=last, reported_returns_cfg={}, overview_payload={},
+        owner_ratio_case_sql=_owner_ratio_case_sql, account_owner_ratio=_account_owner_ratio,
+        excluded_holding_accounts=set(),
+    )
+    assert payload['estimated_series']['rows'][0]['date'] == first.isoformat()
+    assert payload['rows'][0]['time_weighted_return_rate'] is None
+
 def test_ibkr_today_window_uses_snapshot_price_against_latest_confirmed_close():
     cur = FakeCursor(
         [

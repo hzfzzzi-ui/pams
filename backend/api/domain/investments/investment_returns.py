@@ -53,6 +53,7 @@ from domain.investments.investment_return_ibkr import (
     _close_on_or_before,  # noqa: F401  # legacy import surface
     _fetch_yfinance_closes,  # noqa: F401  # legacy import surface
     _ibkr_full_trade_return_series,
+    ibkr_us_holding_return_preview,
     _ibkr_yfinance_symbol,  # noqa: F401  # legacy import surface
 )
 
@@ -1036,6 +1037,7 @@ def build_section_return_series_payload(
         start_date = terminal_date
     cfg = SECTION_RETURN_CONFIG[section]
 
+    requested_start = start_date
     first_activity = _section_first_activity_date(cur, section)
     if first_activity and section == "a_stock":
         start_date = first_activity
@@ -1098,6 +1100,13 @@ def build_section_return_series_payload(
                     "daily_return_rate", "time_weighted_return_rate", "display_return_rate",
                     "display_return_rate_raw")}} for day in dates],
             }
+            if 'ibkr' not in excluded_holding_accounts:
+                preview = ibkr_us_holding_return_preview(
+                    cur, start_date=requested_start, end_date=terminal_date,
+                    owner_ratio=account_owner_ratio('ibkr'),
+                )
+                if preview:
+                    payload['estimated_series'] = preview
             if today_label_date is not None:
                 payload["today_window"] = None
             return payload

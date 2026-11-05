@@ -151,8 +151,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                     : '关键事件';
                 }
                 if (ctx.dataset.label !== '总收益率') {
-                  if (chartState.sectionEstimates.has(ctx.dataset.returnSeriesKey)) {
-                    return `同花顺累计估算：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+                  const estimate = chartState.sectionEstimates.get(ctx.dataset.returnSeriesKey);
+                  if (estimate) {
+                    return `${estimate.label || ctx.dataset.label} · ${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                   }
                   return `${ctx.dataset.label}区间收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                 }
@@ -736,7 +737,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           : `${selected.label}在此区间暂无可用收益率。`);
         return;
       }
-      showStatus();
+      const estimate = state?.sectionEstimates.get(selected.key);
+      showStatus(dataset.hidden && estimate?.method === 'ibkr_unrealized_pnl_over_position_cost'
+        ? 'IBKR 美股持仓估算按未实现盈亏除以持仓成本计算。'
+        : '');
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;
