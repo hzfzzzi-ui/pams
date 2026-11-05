@@ -1,6 +1,7 @@
 """Normalize a single business day's Flex position summary for the common publisher."""
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
+from functools import lru_cache
 import os
 import re
 from uuid import uuid4
@@ -54,6 +55,11 @@ def _read_report(content: bytes, source_account: str, day: date):
     evidence, digest, error = _document(content.decode('utf8'), source_account, None)
     if error:
         raise ValueError(error)
+    rows, complete = _read_day(evidence, day)
+    return digest, rows, complete
+
+
+def _read_day(evidence, day):
     statements = evidence.by_day.get(day, [])
     if not statements and max(evidence.by_day) < day:
         raise ReportValidationError('stale_statement_date')
@@ -116,7 +122,32 @@ def _read_report(content: bytes, source_account: str, day: date):
         complete = False
     if not rows and not complete:
         raise ValueError('empty_positions_unverified')
-    return digest, rows, complete
+    return rows, complete
+
+
+@lru_cache(maxsize=2)
+def historical_us_position_values(content: bytes, source_account: str, digest: str):
+    """Read daily US holdings only when the broker's dated security totals reconcile."""
+    try:
+        evidence, _, error = _document(content.decode('utf8'), source_account, digest)
+    except UnicodeError:
+        return {}
+    if error:
+        return {}
+    values = {}
+    for day in sorted(evidence.by_day):
+        try:
+            rows, complete = _read_day(evidence, day)
+        except (ValueError, ArithmeticError):
+            continue
+        if not complete:
+            continue
+        positions = [row for _, row in rows.values() if row['major_category'] == '美股' and row['quantity']]
+        if not positions or any(row['currency'] != 'USD' or row['quantity'] < 0 or row['cost'] <= 0
+                                for row in positions):
+            continue
+        values[day] = (sum(row['market_value'] for row in positions), sum(row['cost'] for row in positions))
+    return values
 
 
 def last_publication(cur):

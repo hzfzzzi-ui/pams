@@ -151,8 +151,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                     : '关键事件';
                 }
                 if (ctx.dataset.label !== '总收益率') {
-                  if (chartState.sectionEstimates.has(ctx.dataset.returnSeriesKey)) {
-                    return `同花顺累计估算：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+                  const estimate = chartState.sectionEstimates.get(ctx.dataset.returnSeriesKey);
+                  if (estimate) {
+                    return `${estimate.label || ctx.dataset.label} · ${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                   }
                   return `${ctx.dataset.label}区间收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                 }
@@ -705,6 +706,13 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     clearBindings('series');
     const el = getElementById('investmentReturnToggle');
     if (!el || !chart) return;
+    const status = getElementById('investmentReturnSeriesStatus');
+    const showStatus = (message = '') => {
+      if (!status) return;
+      status.hidden = !message;
+      status.textContent = message;
+    };
+    showStatus();
     el.setAttribute('aria-multiselectable', 'true');
     const options = [
       { key: 'total', label: '总收益率', datasetLabel: '总收益率' },
@@ -716,15 +724,23 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         const dataset = chart.data.datasets.find(row => row.label === item?.datasetLabel);
         const active = dataset ? !dataset.hidden : false;
         btn.classList.toggle('active', active);
-        btn.disabled = !dataset?.data.some(value => value != null);
-        btn.title = btn.disabled ? '此区间没有可用收益率' : '';
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     };
     const toggleSeries = (mode) => {
       const selected = options.find(item => item.key === mode) || options[0];
       const dataset = chart.data.datasets.find(row => row.label === selected.datasetLabel);
-      if (!dataset?.data.some(value => value != null)) return;
+      if (!dataset?.data.some(value => value != null)) {
+        const reason = state?.sectionReasons?.get(selected.key);
+        showStatus(reason === 'ibkr_position_history_unavailable'
+          ? '美股缺少 IBKR 历史持仓，暂无法绘制收益曲线。'
+          : `${selected.label}在此区间暂无可用收益率。`);
+        return;
+      }
+      const estimate = state?.sectionEstimates.get(selected.key);
+      showStatus(dataset.hidden && estimate?.method === 'ibkr_unrealized_pnl_over_position_cost'
+        ? 'IBKR 美股持仓估算按未实现盈亏除以持仓成本计算。'
+        : '');
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;

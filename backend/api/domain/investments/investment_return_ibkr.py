@@ -8,6 +8,7 @@ full-trade IBKR stock/ETF value reconstruction used by
 from __future__ import annotations
 
 from datetime import date as Date, timedelta
+import os
 from decimal import Decimal
 from typing import Any
 
@@ -153,6 +154,47 @@ def _local_exact_closes(cur, symbols: list[str], dates: list[Date]) -> dict[str,
     for row in cur.fetchall():
         closes.setdefault(row['symbol'], {})[row['trade_date']] = row['close']
     return closes
+
+
+def ibkr_us_holding_return_preview(cur, *, start_date: Date, end_date: Date, owner_ratio: Decimal) -> dict[str, Any] | None:
+    """Read the published Flex original and value its verified daily US holdings."""
+    from domain.brokers.ibkr.ibkr_daily_holdings import historical_us_position_values
+
+    account = os.environ.get('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', '').strip()
+    if not account or owner_ratio <= 0 or not _table_exists(cur, 'ibkr_source_originals'):
+        return None
+    cur.execute("""SELECT r.period_end, r.sha256, o.content
+        FROM public.source_records r JOIN public.ibkr_source_originals o USING (sha256)
+        WHERE r.account_code='ibkr' AND r.source_name='ibkr_daily_holdings'
+          AND r.document_type='holding' AND r.acquisition_method='api'
+          AND r.status='published' AND r.period_start=r.period_end
+        ORDER BY r.period_end DESC LIMIT 1""")
+    report = cur.fetchone()
+    if not report:
+        return None
+    observations = historical_us_position_values(bytes(report['content']), account, report['sha256'])
+    through = min(end_date, report['period_end'])
+    rows = []
+    for day, (value, cost) in observations.items():
+        if not start_date <= day <= through:
+            continue
+        pnl = value - cost
+        rows.append({
+            'date': day.isoformat(),
+            'display_return_rate': str(pnl / cost),
+            'market_value': str(value * owner_ratio),
+            'cost': str(cost * owner_ratio),
+            'position_pnl': str(pnl * owner_ratio),
+        })
+    if not rows:
+        return None
+    return {
+        'label': 'IBKR 美股持仓估算',
+        'method': 'ibkr_unrealized_pnl_over_position_cost',
+        'source_through': rows[-1]['date'],
+        'base_currency': 'USD',
+        'rows': rows,
+    }
 
 
 def _ibkr_full_trade_return_series(
