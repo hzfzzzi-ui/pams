@@ -176,7 +176,7 @@ def _verify_deferred_source(cur, source_id, item):
         raise ValueError('deferred original evidence differs')
 
 
-def publish_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict:
+def publish_cash_source(cur, *, source_id: UUID, expected_revision: int, verified_ibkr_ids=False) -> dict:
     """Atomically publish reviewed cash facts, without making classification decisions."""
     from datetime import date
     from decimal import Decimal, InvalidOperation
@@ -198,6 +198,11 @@ def publish_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict
     source=dict(row) if isinstance(row, Mapping) else dict(zip(columns,row))
     if source['account_code'] != account or source['revision'] != expected_revision or source['status'] != 'draft' or source['document_type'] != 'cash':
         raise ValueError('source changed or cannot publish cashflow')
+    if verified_ibkr_ids:
+        cur.execute("SELECT source_name FROM source_records WHERE source_id=%s AND account_code='ibkr'", (str(source_id),))
+        match = cur.fetchone()
+        if not match or (match['source_name'] if isinstance(match, Mapping) else match[0]) != 'ibkr_historical_flex':
+            raise ValueError('official cash identity requires an IBKR historical source')
     content=source['content']
     if content is not None and sha256(bytes(content)).hexdigest() != source['sha256']:
         raise ValueError('source content hash mismatch')
@@ -229,11 +234,19 @@ def publish_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict
         except (KeyError,TypeError,ValueError,InvalidOperation) as exc:
             raise ValueError('cashflow required fields invalid') from exc
         signature=(day,amount,currency)
+        if verified_ibkr_ids:
+            signature = item['source_uid']
+            if not signature or not signature.startswith('ibkr_cash:'):
+                raise ValueError('missing official cash identity')
+            cur.execute('''SELECT 1 FROM public.pams_cashflow_fact f
+                JOIN public.source_items i USING(source_item_id)
+                WHERE f.account_code=%s AND i.source_uid=%s LIMIT 1''', (account,signature))
+        else:
+            cur.execute('''SELECT 1 FROM public.pams_cashflow_fact WHERE account_code=%s AND event_date=%s
+                AND amount=%s AND currency=%s LIMIT 1''', (account,day,amount,currency))
         if signature in seen:
             raise ValueError('potential duplicate cashflow requires review')
         seen.add(signature)
-        cur.execute('''SELECT 1 FROM public.pams_cashflow_fact WHERE account_code=%s AND event_date=%s
-            AND amount=%s AND currency=%s LIMIT 1''', (source['account_code'],day,amount,currency))
         if cur.fetchone():
             raise ValueError('potential duplicate cashflow requires review')
         prepared.append((item,fields,day,posting,amount,currency))

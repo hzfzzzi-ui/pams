@@ -30,7 +30,7 @@ def _number(attrs, keys, label):
     return nums[0]
 
 
-def _row(cur, trade, account, day, report_sha256, *, include_fx=True):
+def _row(cur, trade, account, day, report_sha256, *, include_fx=True, historical=False):
     raw = trade['raw']
     values = {str(key).lower(): str(value).strip() for key, value in raw.items()}
     if len(values) != len(raw):
@@ -53,6 +53,14 @@ def _row(cur, trade, account, day, report_sha256, *, include_fx=True):
     net = _number(values, ('netcash',), 'net cash')
     fee_currency = values.get('ibcommissioncurrency', '').upper() or None
     tax_currency = values.get('taxcurrency', '').upper() or None
+    if historical and values.get('taxes'):
+        reported_tax = abs(_number(values, ('taxes',), 'Flex taxes'))
+        if tax is not None and tax != reported_tax:
+            raise ValueError('current report trade has conflicting tax fields')
+        tax = reported_tax
+        if not tax_currency and fee_currency == currency and not is_fx:
+            # The net-cash reconciliation below verifies the denomination.
+            tax_currency = currency
     if tax is not None and tax != 0 and tax_currency != currency:
         raise ValueError('current report trade has unknown tax currency')
     if fee_currency is not None and not re.fullmatch(r'[A-Z]{3}', fee_currency):
