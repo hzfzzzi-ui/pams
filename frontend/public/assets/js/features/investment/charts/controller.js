@@ -7,13 +7,20 @@ import { RETURN_SECTION_SPECS, readInvestmentNav, readInvestmentReturnSeries } f
 import { createInvestmentChartRenderer } from './renderer.js';
 
 const owners = new WeakMap();
+const MARKET_RETURN_COLORS = new Map([
+  ['a_stock', '#ff6269'],
+  ['us_stock', '#69aaff'],
+]);
 
 export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart }) {
   owners.get(root)?.dispose();
   const reads = createReadScope({AbortController: host?.AbortController});
   const state = createInvestmentChartState(host);
   const renderer = createInvestmentChartRenderer({ root, host, state, presenters, ChartClass });
-  const sectionSpecs = RETURN_SECTION_SPECS.map((spec, index) => ({ ...spec, color: SERIES_COLORS[index] }));
+  const sectionSpecs = RETURN_SECTION_SPECS.map((spec, index) => ({
+    ...spec,
+    color: MARKET_RETURN_COLORS.get(spec.key) ?? SERIES_COLORS[index],
+  }));
   let disposed = false;
   let navPromise = null;
   let returnPromise = null;

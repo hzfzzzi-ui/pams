@@ -131,6 +131,10 @@ for (const fallback of [false, true]) {
   assert.equal(test.window.count('pagehide'), 1);
   const returnChart = test.window.__investmentReturnChart;
   const navChart = test.window.__investmentNavChart;
+  const series = key => returnChart.data.datasets.find(dataset => dataset.returnSeriesKey === key);
+  assert.equal(series('a_stock').borderColor, '#ff6269');
+  assert.equal(series('us_stock').borderColor, '#69aaff');
+  assert.notDeepEqual(series('a_stock').borderDash, series('us_stock').borderDash);
   const buttons = [...test.elements.investmentReturnToggle.buttons, ...test.elements.investmentReturnWindowToggle.buttons];
   assert.equal(buttons.length, 8);
   assert.ok(buttons.every(button => button.count('click') === 1));
