@@ -231,6 +231,7 @@ def ibkr_daily_close_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
 @router.get("/daily-holdings/status")
 def ibkr_daily_holdings_status() -> dict[str, Any]:
     from domain.brokers.ibkr import ibkr_daily_holdings as holdings
+    from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
     from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
 
     target = expected_statement_date()
@@ -240,10 +241,13 @@ def ibkr_daily_holdings_status() -> dict[str, Any]:
             cur.execute("SELECT to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready")
             ready = cur.fetchone()['ready']
             latest = holdings.last_publication(cur) if ready else None
+            facts_through = daily_facts_through(cur) if ready else None
     return {'configured': bool(ready and holdings.credentials()),
             'expected_statement_as_of': target.isoformat(),
             'statement_as_of': latest['period_end'].isoformat() if latest else None,
-            'publication_verified': bool(latest and latest['period_end'] == target)}
+            'publication_verified': bool(latest and latest['period_end'] == target),
+            'facts_as_of': facts_through.isoformat() if facts_through else None,
+            'facts_verified_for_target': bool(facts_through and facts_through >= target)}
 
 
 @router.post("/daily-holdings/sync")

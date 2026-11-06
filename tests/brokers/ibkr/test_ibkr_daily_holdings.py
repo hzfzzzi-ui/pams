@@ -1,6 +1,7 @@
 """Verified broker reports use the common source registry and holdings publisher."""
 from copy import deepcopy
 from datetime import timedelta
+from decimal import Decimal
 from hashlib import sha256
 from uuid import uuid4
 from xml.etree import ElementTree as ET
@@ -252,3 +253,94 @@ def test_daily_holdings_http_publishes_once(empty_source_db, monkeypatch):
         assert client.get(f'{path}/status').json()['publication_verified'] is True
         assert client.post(f'{path}/sync', json=body, headers=headers).json()['replayed'] is True
         assert requests == ['1234']
+
+def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(empty_source_db, monkeypatch):
+    from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
+    from domain.investments.ibkr_us_returns import build_verified_us_return
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    def day_report(day, quantity, price, *, trade_id=None):
+        root = report(day, stock=str(quantity * price))
+        root.find('OpenPositions/OpenPosition').attrib.update(
+            listingExchange='NASDAQ', currency='USD', fxRateToBase='1', position=str(quantity),
+            markPrice=str(price), positionValue=str(quantity * price), costBasisMoney=str(quantity * 100),
+            costBasisPrice='100',
+        )
+        trades = ET.SubElement(root, 'Trades')
+        if trade_id:
+            ET.SubElement(trades, 'Trade', accountId=ACCOUNT, tradeID=trade_id, assetCategory='STK',
+                          levelOfDetail='EXECUTION', conid='123456', listingExchange='NASDAQ',
+                          symbol='SYNTH', currency='USD', buySell='BUY', tradeDate=compact(day),
+                          quantity='1', tradePrice='100', tradeMoney='100', ibCommission='1',
+                          ibCommissionCurrency='USD', taxes='0', netCash='-101')
+        ET.SubElement(root, 'CashTransactions')
+        return root
+
+    def xml(*days):
+        root = ET.Element('FlexQueryResponse')
+        ET.SubElement(root, 'FlexStatements').extend(days)
+        return ET.tostring(root)
+
+    monkeypatch.setenv('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', ACCOUNT)
+    second = DAY + timedelta(days=1)
+    third = second + timedelta(days=1)
+    fourth = third + timedelta(days=1)
+    opening = day_report(DAY, 1, 100, trade_id='42')
+    addition = day_report(second, 2, 110, trade_id='43')
+    ET.SubElement(addition.find('CashTransactions'), 'CashTransaction', accountId=ACCOUNT,
+                  transactionID='fee-1', type='Other Fees', dateTime=compact(second),
+                  reportDate=compact(second), currency='USD', amount='-1')
+    no_activity = day_report(third, 2, 115)
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""INSERT INTO pams_accounts(account_code,display_name,base_currency)
+                VALUES ('ibkr','Synthetic IBKR','USD') ON CONFLICT (account_code) DO NOTHING""")
+
+            def publish(content, day):
+                return publish_report(cur, content=content, source_account=ACCOUNT, day=day)
+
+            def add_fx(day):
+                cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
+                    VALUES (%s,'CNY','USD',7,'openexchangerates')""", (day,))
+
+            def curve():
+                return build_verified_us_return(cur, start=DAY, end=fourth, interval='daily', owner_ratio=Decimal(1))
+
+            original = publish(xml(opening), DAY)
+            assert original['facts']['trade'] == {'published': 1, 'duplicate': 0}
+            add_fx(DAY)
+            assert curve()['source_through'] == str(DAY)
+            digest = sha256(xml(opening)).hexdigest()
+
+            rolling = xml(opening, addition)
+            next_run = publish(rolling, second)
+            assert next_run['facts']['trade'] == {'published': 1, 'duplicate': 1}
+            assert next_run['facts']['cash'] == {'published': 1, 'duplicate': 0}
+            assert publish(rolling, second)['replayed']
+            assert curve()['source_through'] == str(DAY)
+            assert curve()['missing_fx_date'] == str(second)
+            add_fx(second)
+            assert curve()['source_through'] == str(second)
+
+            empty = publish(xml(opening, addition, no_activity), third)
+            assert empty['facts']['trade'] == {'published': 0, 'duplicate': 2}
+            assert empty['facts']['cash'] == {'published': 0, 'duplicate': 1}
+            add_fx(third)
+            assert curve()['source_through'] == str(third)
+            assert daily_facts_through(cur) == third
+
+            conflicting = deepcopy(opening)
+            conflicting.find('Trades/Trade').set('conid', '654321')
+            last = publish(xml(conflicting, addition, no_activity, day_report(fourth, 2, 120)), fourth)
+            assert last['status'] == 'published'
+            assert last['facts']['reason'] == 'flex_fact_identity_conflict'
+            assert daily_facts_through(cur) == third
+            assert curve()['source_through'] == str(third)
+
+            trades = load_trade_rows(cur, account_code='ibkr', start=DAY, end=fourth)
+            assert len(trades) == 2
+            assert all(row['source_evidence_status'] == 'verified' for row in trades)
+            cur.execute("""SELECT r.sha256 FROM pams_investment_trade_fact f JOIN source_items i USING(source_item_id)
+                JOIN source_records r USING(source_id) WHERE f.trade_date=%s""", (DAY,))
+            assert cur.fetchone()['sha256'] == digest
