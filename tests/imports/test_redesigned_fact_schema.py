@@ -12,7 +12,7 @@ def install_redesign(cur):
     cur.execute('''CREATE TABLE redesign_test.pams_asset_master(asset_id varchar(120) PRIMARY KEY,
         primary_symbol text, exchange text, status text, currency text, asset_type text)''')
     cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('bank-a'), ('bank-b')")
-    for filename in ('079_source_records.sql', '080_source_items_redesign.sql', '081_fact_redesign.sql', '082_cashflow_classification.sql', '083_trade_review_redesign.sql', '077_confirmed_transfers.sql'):
+    for filename in ('079_source_records.sql', '080_source_items_redesign.sql', '081_fact_redesign.sql', '082_cashflow_classification.sql', '083_trade_review_redesign.sql', '077_confirmed_transfers.sql', '085_broker_source_originals.sql'):
         cur.execute((ROOT / filename).read_text(encoding='utf-8-sig').replace('public.', 'redesign_test.'))
 
 

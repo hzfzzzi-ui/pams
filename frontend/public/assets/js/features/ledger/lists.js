@@ -55,7 +55,7 @@ function renderRecentAccountScope() {
   events.listen('account-scope', el.querySelector('[data-clear-account-filter]'), 'click', () => {
     state.recentAccountFilter = '';
     renderRecentAccountScope();
-    renderRows('recentRows', filteredRecentRows(), 120);
+    renderRecentRows();
   });
 }
 
@@ -68,7 +68,7 @@ function openRecentForAccount(accountCode) {
     item.classList.toggle('active', (item.dataset.ledgerFlowFilter || '') === '');
   });
   renderRecentAccountScope();
-  renderRows('recentRows', filteredRecentRows(), 120);
+  renderRecentRows();
   replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.recent}`);
   setLedgerPanel('recent');
   host.scrollTo({ top: 0, behavior: 'smooth' });
@@ -150,6 +150,7 @@ function renderRows(id, rows, limit = 80) {
     const meta = rowMetaText(row);
     const dateText = rowDateText(row);
     const originalAmount = originalCurrencyText(row);
+    const showOriginal = row.amount_cny == null && originalAmount;
     const reviewAction = row.needs_review && isEditableLedgerRow(row)
       ? `<button type="button" class="ledgerInlineEditBtn" data-ledger-edit="${escapeHtml(String(row.id || ''))}">${escapeHtml(ledgerEditActionLabel(row))}</button>`
       : '';
@@ -161,11 +162,11 @@ function renderRows(id, rows, limit = 80) {
           <small class="ledgerListDate">${escapeHtml(dateText)}</small>
         </span>
         <span class="ledgerListSide">
-          <b class="${amountClass}">${signedMoney(amount)}</b>
-          ${originalAmount ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
+          <b class="${amountClass}">${escapeHtml(showOriginal || signedMoney(amount))}</b>
+          ${originalAmount && !showOriginal ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
           <small class="ledgerListMeta">
             <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(rowTagLabel(row))}</span>
-            ${row.needs_review ? '<span class="ledgerReviewHint">待确认支出</span>' : ''}
+            ${row.needs_review ? '<span class="ledgerReviewHint">待确认</span>' : ''}
           </small>
           ${reviewAction}
         </span>

@@ -674,9 +674,9 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
     return result
 
 
-def _load_latest_statement_date(cur, verifier=None) -> date | None:
+def _load_latest_statement_date(cur, verifier=None, originals=None) -> date | None:
     if _table_exists(cur, 'source_records'):
-        rows = _load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY')
+        rows = _load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY', originals=originals)
         return next((_as_date(row['transaction_date']) for row in rows
                      if row.get('source_evidence_status') == 'verified'), None)
     visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
@@ -799,10 +799,10 @@ def _mark_fact_source(cur, rows, *, table: str, verifier=None):
     return rows
 
 
-def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
+def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None) -> list[dict[str, Any]]:
     if _table_exists(cur, 'source_records'):
         from domain.ledger.cashflow_read_v2 import load_cash_rows
-        rows = load_cash_rows(cur, start=start, end=end, base_currency=base_currency)
+        rows = load_cash_rows(cur, start=start, end=end, base_currency=base_currency, originals=originals)
         for row in rows:
             row['account_kind'] = None
             row['bank'] = None
@@ -1002,7 +1002,7 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
     return _mark_fact_source(cur, rows, table='pams_investment_trade_fact', verifier=verifier)
 
 
-def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None) -> list[dict[str, Any]]:
+def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None) -> list[dict[str, Any]]:
     if _table_exists(cur, 'source_records'):
         from domain.investments.trade_read_v2 import load_trade_rows
         cur.execute("""SELECT DISTINCT account_code FROM pams_investment_trade_fact
@@ -1017,7 +1017,7 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
                     matched[trade['id']] = cash['id']
         rows = []
         for account in accounts:
-            for fact in load_trade_rows(cur, account_code=account, start=start, end=end):
+            for fact in load_trade_rows(cur, account_code=account, start=start, end=end, originals=originals):
                 if fact['trade_type'] not in {'deposit', 'withdraw'}:
                     continue
                 amount = fact['net_cash']
@@ -1182,13 +1182,13 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -
     return result
 
 
-def _load_pending_transfer_cases(cur, *, start: date, end: date) -> list[dict[str, Any]]:
+def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None) -> list[dict[str, Any]]:
     """Expose known open bank facts and invalidated decisions without confirming them."""
     if _table_exists(cur, 'source_records'):
         decisions = _confirmed_transfer_records(cur, start=start, end=end)
         linked = {leg['id'] for item, left, right, *_ in decisions if item['evidence_status'] == 'confirmed'
                   for leg in (left, right) if leg.get('kind') == 'cashflow'}
-        rows = _load_cash_rows(cur, start=start, end=end, base_currency='CNY')
+        rows = cash_rows if cash_rows is not None else _load_cash_rows(cur, start=start, end=end, base_currency='CNY')
         cases = []
         eligible = [row for row in rows if row['id'] not in linked
                     and row.get('classification_status') == 'confirmed'
@@ -1392,14 +1392,18 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
 
     redesigned = _table_exists(cur, 'source_records')
     verifier = None if redesigned else _source_fact_verifier(cur)
-    latest_date = _load_latest_statement_date(cur, verifier=verifier)
+    from domain.imports.source_original_read import SourceOriginals
+    original_args = {'originals': SourceOriginals(cur)} if redesigned else {}
+    latest_date = _load_latest_statement_date(cur, verifier=verifier, **original_args)
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
     account_config = _load_accounts_config()
     configured_accounts = _load_configured_account_codes(account_config)
-    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier)
+    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args)
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
-    pending_transfer_cases = _load_pending_transfer_cases(cur, start=ytd_start, end=month_end)
+    pending_transfer_cases = _load_pending_transfer_cases(
+        cur, start=ytd_start, end=month_end, **({'cash_rows': cash_rows} if redesigned else {}),
+    )
     payment_proxy_source_row_ids = {
         row_id
         for match in all_transfer_matches
@@ -1445,7 +1449,9 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         match["match_date_obj"] = _as_date(match.get("match_date"))
         match["amount_cny"] = _to_float(match["amount_cny"]) if match.get("amount_cny") is not None else None
 
-    investment_rows = _load_investment_account_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier)
+    investment_rows = _load_investment_account_rows(
+        cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args,
+    )
     account_rows = display_rows + investment_rows
     month_rows = [r for r in display_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
     ytd_rows = [r for r in display_rows if r.get("transaction_date_obj") and ytd_start <= r["transaction_date_obj"] <= month_end]
