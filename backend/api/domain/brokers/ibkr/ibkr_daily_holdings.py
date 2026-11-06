@@ -272,4 +272,7 @@ def publish_report(cur, *, content, source_account, day):
         partial_attestation={'securities_coverage': 'verified' if complete else 'observed',
                              'method': 'ibkr-flex-securities-v1', 'reported_positions': reported_positions},
     )
-    return {**result, 'status': 'published', 'as_of': day.isoformat(), 'replayed': False}
+    from domain.brokers.ibkr.ibkr_history_backfill import publish_daily_facts
+
+    facts = publish_daily_facts(cur, content=content, account=source_account, digest=digest, as_of=day)
+    return {**result, 'status': 'published', 'as_of': day.isoformat(), 'replayed': False, 'facts': facts}

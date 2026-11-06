@@ -1,5 +1,5 @@
 """Import historical IBKR facts from an already published Flex archive."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -8,8 +8,10 @@ from domain.brokers.ibkr.ibkr_cash_events import _business_date, normalize_cash_
 from domain.brokers.ibkr.ibkr_daily_close import _day, _document, _rows
 from domain.brokers.ibkr.ibkr_report_trade_source import _row
 from domain.imports import isolation, native_source, source_records_v2
+from domain.imports.source_original_read import SourceOriginals
 
 SOURCE = 'ibkr_historical_flex'
+DAILY_FACTS_SOURCE = 'ibkr_daily_facts'
 FACT_TABLES = {'trade': 'pams_investment_trade_fact', 'cash': 'pams_cashflow_fact'}
 
 
@@ -56,10 +58,16 @@ def _cash(raw, account, statement_day):
     return cash['source_key'], fields
 
 
-def read_candidates(content, account, digest, as_of):
+def read_candidates(content, account, digest, as_of, *, required_from=None):
     evidence, _, error = _document(content.decode('utf8'), account, digest)
     if error or max(evidence.by_day) != as_of:
         raise ValueError('archive does not prove the approved account and closing date')
+    if required_from is not None:
+        from domain.brokers.ibkr.ibkr_report_state import _calendar
+
+        sessions = _calendar().sessions_in_range(required_from.isoformat(), as_of.isoformat())
+        if any(session.date() not in evidence.by_day for session in sessions):
+            raise ValueError('archive does not cover all new sessions')
     candidates = {kind: {} for kind in FACT_TABLES}
     pending, excluded = [], 0
     for day, statements in sorted(evidence.by_day.items()):
@@ -107,6 +115,54 @@ def _existing_matches(row, fields, kind):
     return _matches(row)
 
 
+def _contract(origin):
+    official = origin['official_attributes']
+    return official.get('conid'), official.get('listingExchange') or official.get('exchange')
+
+
+def reconcile_candidates(cur, candidates, account, *, current_digest):
+    """Match official IDs to unchanged facts and their own verified originals."""
+    originals = SourceOriginals(cur)
+    archives = {current_digest: candidates}
+    matched = {kind: set() for kind in FACT_TABLES}
+    pending = []
+    for kind, table in FACT_TABLES.items():
+        rows = candidates[kind]
+        if not rows:
+            continue
+        cur.execute(f"""SELECT f.*,i.source_uid,i.raw_fields,i.parsed_fields,i.review_status,
+            r.source_id AS original_source_id,r.account_code AS source_account,
+            r.content IS NOT NULL AS inline_original,r.sha256,r.period_end,
+            r.source_name,r.status AS source_status
+            FROM public.{table} f JOIN public.source_items i USING(source_item_id)
+            JOIN public.source_records r USING(source_id)
+            WHERE f.account_code='ibkr' AND i.source_uid=ANY(%s::text[])""", (list(rows),))
+        seen = set()
+        for row in cur.fetchall():
+            uid = row['source_uid']
+            fields, origin, position = rows[uid]
+            digest = row['sha256']
+            previous = None
+            if row['source_account'] == 'ibkr' and _existing_matches(row, fields, kind):
+                if digest not in archives:
+                    content, verified = originals.read(row)
+                    try:
+                        archives[digest] = (read_candidates(bytes(content), account, digest, row['period_end'])[0]
+                                            if verified else None)
+                    except (ValueError, ArithmeticError, TypeError):
+                        archives[digest] = None
+                if archives[digest] is not None:
+                    previous = archives[digest][kind].get(uid)
+            if (uid in seen or not previous or previous[0] != fields or previous[1] != row['raw_fields']
+                    or _contract(previous[1]) != _contract(origin)):
+                pending.append({'kind': kind, **position, 'reason': 'existing fact conflicts with official identity'})
+                matched[kind].discard(uid)
+            else:
+                matched[kind].add(uid)
+            seen.add(uid)
+    return matched, pending
+
+
 def _publish(cur, kind, rows, content, start, end):
     source_id = uuid4()
     source_records_v2.create_source(cur, source_id=source_id, account_code='ibkr', source_name=SOURCE,
@@ -147,25 +203,13 @@ def backfill(cur, *, digest, account, as_of, apply=False, approved_counts=None):
     content = bytes(archives[0]['content'])
     rows_by_kind, pending, excluded = read_candidates(content, account, digest, as_of)
     result = {'as_of': as_of.isoformat(), 'sha256': digest, 'pending': pending, 'excluded_fx_trades': excluded}
+    matched, conflicts = reconcile_candidates(cur, rows_by_kind, account, current_digest=digest)
+    pending.extend(conflicts)
     for kind, rows in rows_by_kind.items():
-        cur.execute(f"""SELECT f.*,i.source_uid,i.parsed_fields,i.review_status,
-                r.source_name,r.status AS source_status
-            FROM {FACT_TABLES[kind]} f JOIN source_items i USING(source_item_id)
-            JOIN source_records r USING(source_id) WHERE f.account_code='ibkr' AND i.source_uid=ANY(%s::text[])""",
-                    (list(rows),))
-        matched = set()
-        duplicates = 0
-        for row in cur.fetchall():
-            uid = row['source_uid']
-            fields, _, position = rows[uid]
-            if uid in matched or not _existing_matches(row, fields, kind):
-                pending.append({'kind': kind, **position, 'reason': 'existing fact conflicts with official identity'})
-            else:
-                duplicates += 1
-            matched.add(uid)
-        for uid in matched:
+        duplicates = matched[kind]
+        for uid in duplicates:
             del rows[uid]
-        result[kind] = {'ready': len(rows), 'duplicate': duplicates, 'published': 0}
+        result[kind] = {'ready': len(rows), 'duplicate': len(duplicates), 'published': 0}
     if approved_counts is not None:
         ready = {kind: result[kind]['ready'] for kind in FACT_TABLES}
         duplicates = {kind: result[kind]['duplicate'] for kind in FACT_TABLES}
@@ -184,4 +228,56 @@ def backfill(cur, *, digest, account, as_of, apply=False, approved_counts=None):
             if rows:
                 start = min(fields['business_date'] for fields, _, _ in rows.values())
                 result[kind]['published'] = _publish(cur, kind, rows, content, start, as_of)
+    return result
+
+
+def daily_facts_through(cur):
+    cur.execute("""SELECT MAX(period_end) AS through FROM public.source_records
+        WHERE account_code='ibkr' AND status='published'
+          AND ((source_name=%s AND document_type='statement')
+            OR (source_name=%s AND document_type IN ('trade','cash')))""", (DAILY_FACTS_SOURCE, SOURCE))
+    return cur.fetchone()['through']
+
+
+def publish_daily_facts(cur, *, content, account, digest, as_of):
+    """Process the report under the same account lock as its securities snapshot."""
+    cur.execute("""SELECT MIN(period_start) AS start, MAX(period_end) AS through FROM public.source_records
+        WHERE account_code='ibkr' AND source_name=%s AND document_type='statement' AND status='published'""",
+                (DAILY_FACTS_SOURCE,))
+    progress = cur.fetchone()
+    if progress['through'] and progress['through'] >= as_of:
+        return {'status': 'published', 'through': progress['through'].isoformat(), 'replayed': True}
+
+    baseline = progress['through'] or daily_facts_through(cur)
+    if baseline is not None and baseline >= as_of:
+        return {'status': 'published', 'through': baseline.isoformat(), 'replayed': True}
+    required_from = baseline + timedelta(days=1) if baseline else as_of
+    # On first activation, only automate new activity after the approved history.
+    start = progress['start'] or required_from
+    try:
+        candidates, pending, _ = read_candidates(content, account, digest, as_of, required_from=required_from)
+    except (ValueError, ArithmeticError, KeyError):
+        return {'status': 'blocked', 'reason': 'flex_fact_scope_unverified'}
+    if pending:
+        return {'status': 'blocked', 'reason': 'flex_fact_rows_unverified', 'pending': len(pending)}
+
+    eligible = {kind: {uid: entry for uid, entry in rows.items()
+                       if date.fromisoformat(entry[2]['statement_day']) >= start}
+                for kind, rows in candidates.items()}
+    matched, conflicts = reconcile_candidates(cur, candidates, account, current_digest=digest)
+    if conflicts:
+        return {'status': 'blocked', 'reason': 'flex_fact_identity_conflict', 'pending': len(conflicts)}
+
+    result = {'status': 'published', 'through': as_of.isoformat(), 'replayed': False}
+    for kind, rows in eligible.items():
+        ready = {uid: row for uid, row in rows.items() if uid not in matched[kind]}
+        count = _publish(cur, kind, ready, content,
+                         min(row[0]['business_date'] for row in ready.values()), as_of) if ready else 0
+        result[kind] = {'published': count, 'duplicate': len(rows.keys() & matched[kind])}
+    source_id = uuid4()
+    source_records_v2.create_source(cur, source_id=source_id, account_code='ibkr', source_name=DAILY_FACTS_SOURCE,
+                                    acquisition_method='api', document_type='statement', filename='ibkr-flex.xml',
+                                    file_format='xml', content_type='application/xml', content=content)
+    cur.execute("""UPDATE public.source_records SET period_start=%s,period_end=%s,status='published',revision=revision+1
+        WHERE source_id=%s""", (start, as_of, str(source_id)))
     return result

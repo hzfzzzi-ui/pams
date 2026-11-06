@@ -8,7 +8,9 @@ import os
 
 from domain.brokers.ibkr.ibkr_daily_close import _document
 from domain.brokers.ibkr.ibkr_daily_holdings import MARKET_LABELS, _read_day
-from domain.brokers.ibkr.ibkr_history_backfill import FACT_TABLES, SOURCE, _existing_matches, read_candidates
+from domain.brokers.ibkr.ibkr_history_backfill import (
+    DAILY_FACTS_SOURCE, FACT_TABLES, SOURCE, read_candidates, reconcile_candidates,
+)
 from domain.investments.holdings_view import _table_exists
 from domain.investments.investment_return_math import (
     bucket_flow_events, cash_flow_adjusted_return_rows, norm, section_return_summary,
@@ -38,23 +40,23 @@ def _read_archive(content, account, digest, through):
     return candidates, positions
 
 
-def _verify_published(cur, digest, candidates):
+def _verify_published(cur, digest, account, through, candidates):
+    matched, conflicts = reconcile_candidates(cur, candidates, account, current_digest=digest)
+    if conflicts or any(matched[kind] != rows.keys() for kind, rows in candidates.items()):
+        raise ValueError('Flex facts are not all verified and published')
+
     for kind, table in FACT_TABLES.items():
-        cur.execute(f"""SELECT f.*, i.source_uid, i.raw_fields, i.parsed_fields, i.review_status,
-                   r.source_name,r.status AS source_status
-            FROM public.{table} f JOIN public.source_items i USING (source_item_id)
+        day = 'trade_date' if kind == 'trade' else 'event_date'
+        cur.execute(f"""SELECT EXISTS(
+            SELECT 1 FROM public.{table} f JOIN public.source_items i USING (source_item_id)
             JOIN public.source_records r USING (source_id)
-            WHERE f.account_code='ibkr' AND r.account_code='ibkr' AND r.sha256=%s AND r.source_name=%s""",
-                    (digest, SOURCE))
-        seen = set()
-        for row in cur.fetchall():
-            uid = row['source_uid']
-            entry = candidates[kind].get(uid)
-            if uid in seen or not entry or row['raw_fields'] != entry[1] or not _existing_matches(row, entry[0], kind):
-                raise ValueError('Flex row differs from the published fact')
-            seen.add(uid)
-        if seen != candidates[kind].keys():
-            raise ValueError('Flex facts are not all published')
+            WHERE f.account_code='ibkr' AND r.account_code='ibkr' AND r.source_name=%s
+              AND (i.source_position->>'statement_day'<=%s
+                OR (i.source_position->>'statement_day' IS NULL AND f.{day}<=%s))
+              AND NOT (i.source_uid=ANY(%s::text[]))) AS omitted""",
+                    (SOURCE, through.isoformat(), through, list(candidates[kind])))
+        if cur.fetchone()['omitted']:
+            raise ValueError('Flex archive omits earlier published activity')
 
 
 def _native_inputs(positions, candidates):
@@ -147,28 +149,64 @@ def build_verified_us_return(cur, *, start, end, interval, owner_ratio):
     account = os.environ.get('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', '').strip()
     if not account or owner_ratio <= 0 or not _table_exists(cur, 'ibkr_source_originals'):
         return None
-    cur.execute("""SELECT r.period_end,r.sha256,o.content
-        FROM public.source_records r JOIN public.ibkr_source_originals o USING (sha256)
+    cur.execute("""WITH reports AS (
+        SELECT r.period_end,r.sha256, EXISTS (
+            SELECT 1 FROM public.source_records p WHERE p.account_code=r.account_code
+              AND p.sha256=r.sha256 AND p.source_name=%s AND p.document_type='statement'
+              AND p.status='published' AND p.period_end=r.period_end
+        ) AS increment, EXISTS (
+            SELECT 1 FROM public.source_records t WHERE t.account_code=r.account_code
+              AND t.sha256=r.sha256 AND t.source_name=%s AND t.document_type='trade'
+              AND t.status='published' AND t.period_end=r.period_end
+        ) AS trade_archive
+        FROM public.source_records r
         WHERE r.account_code='ibkr' AND r.source_name='ibkr_daily_holdings'
           AND r.document_type='holding' AND r.acquisition_method='api'
           AND r.status='published' AND r.period_start=r.period_end
-          AND EXISTS (SELECT 1 FROM public.source_records t WHERE t.sha256=r.sha256
-                      AND t.account_code=r.account_code AND t.source_name=%s
-                      AND t.document_type='trade' AND t.status='published')
-        ORDER BY r.period_end DESC LIMIT 1""", (SOURCE,))
-    report = cur.fetchone()
-    if not report:
-        return None
-    try:
-        candidates, positions = _read_archive(bytes(report['content']), account, report['sha256'], report['period_end'])
-        _verify_published(cur, report['sha256'], candidates)
-        values, flows = _native_inputs(positions, candidates)
-    except (ValueError, ArithmeticError, KeyError):
+    ), latest AS (
+        SELECT period_end,sha256 FROM reports WHERE increment OR trade_archive
+        ORDER BY period_end DESC LIMIT 3
+    ), baseline AS (
+        SELECT period_end,sha256 FROM reports WHERE trade_archive AND NOT increment
+        ORDER BY period_end DESC LIMIT 1
+    )
+    SELECT period_end,sha256 FROM latest UNION SELECT period_end,sha256 FROM baseline
+    ORDER BY period_end DESC""", (DAILY_FACTS_SOURCE, SOURCE))
+    reports = cur.fetchall()
+    if not reports:
         return None
     cur.execute("""SELECT as_of, rate FROM public.pams_fx_rates_daily
         WHERE base_currency='CNY' AND quote_currency='USD' AND source=%s
           AND as_of BETWEEN %s AND %s AND rate>0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')""",
                 (FX_SOURCE, start, end))
     rates = {row['as_of']: row['rate'] for row in cur.fetchall()}
-    return _payload(values, flows, rates, start=start, through=min(end, report['period_end']),
-                    interval=interval, owner_ratio=owner_ratio)
+    best = None
+    for report in reports:
+        through = min(end, report['period_end'])
+        if best and best['end'] >= through.isoformat():
+            break
+        cur.execute('SELECT content FROM public.ibkr_source_originals WHERE sha256=%s', (report['sha256'],))
+        original = cur.fetchone()
+        if not original:
+            continue
+        try:
+            candidates, positions = _read_archive(
+                bytes(original['content']), account, report['sha256'], report['period_end'])
+            _verify_published(cur, report['sha256'], account, report['period_end'], candidates)
+            values, flows = _native_inputs(positions, candidates)
+        except (ValueError, ArithmeticError, KeyError):
+            continue
+        missing_fx = next((day for day in values if start <= day <= through and day not in rates), None)
+        if missing_fx:
+            # Keep the verified prefix, but do not substitute a pre-inception zero
+            # curve for a period where all actual valuations lack exchange rates.
+            through = missing_fx - timedelta(days=1)
+            if not any(start <= day <= through for day in values):
+                continue
+        payload = _payload(values, flows, rates, start=start, through=through,
+                           interval=interval, owner_ratio=owner_ratio)
+        if payload and (not best or payload['end'] > best['end']):
+            if missing_fx:
+                payload['missing_fx_date'] = missing_fx.isoformat()
+            best = payload
+    return best
