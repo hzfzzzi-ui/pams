@@ -72,6 +72,7 @@ function optionHtml(options, selectedValue) {
 
 function ledgerEditSheetHtml(row) {
   const amount = num(row.amount_cny ?? row.amount);
+  const displayAmount = (row.amount_cny == null && originalCurrencyText(row)) || signedMoney(amount);
   const account = accountLabel(row.account_code) || row.account_code || '-';
   const cashflowType = ledgerEditType(row);
   const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
@@ -83,7 +84,7 @@ function ledgerEditSheetHtml(row) {
     <form class="ledgerConfirmSheet ledgerEditSheet" data-ledger-edit-form="${escapeHtml(String(row.id || ''))}">
       <div class="ledgerConfirmLead">${row.needs_review ? '选择正确口径后保存，这条流水会从待确认中移除。' : '修改会写入底层现金流事实表，并刷新收支和账户统计。'}</div>
       <div class="ledgerConfirmTitle">${escapeHtml(rowTitle(row))}</div>
-      <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${signedMoney(amount)}</div>
+      <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${escapeHtml(displayAmount)}</div>
       <div class="ledgerConfirmMeta">
         <div>
           <span>日期 / 账户</span>

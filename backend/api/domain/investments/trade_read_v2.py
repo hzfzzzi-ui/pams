@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 
+from domain.imports.source_original_read import SourceOriginals
 from domain.imports.ths_asset_candidates import MARKETS, PROFILE
 
 
@@ -49,7 +50,7 @@ def _matches(row: dict) -> bool:
 
 
 def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None,
-                    source_id=None) -> list[dict]:
+                    source_id=None, originals: SourceOriginals | None = None) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
     fact_filter = ' AND f.trade_id=%s' if fact_id is not None else ''
     params = (account_code, start, end) if fact_id is None else (account_code, start, end, fact_id)
@@ -59,8 +60,8 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
     cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
         i.review_status AS item_review, i.source_uid AS item_source_uid,
         r.source_name,r.acquisition_method,r.file_format, r.status AS source_status,
-        r.account_code AS source_account, public.source_original_content(r.account_code,r.sha256,r.content) AS content,
-        r.sha256, i.parse_method,
+        r.account_code AS source_account, r.source_id AS original_source_id,
+        r.content IS NOT NULL AS inline_original, r.sha256, i.parse_method,
         json_build_object('primary_symbol', a.primary_symbol, 'exchange', a.exchange,
                           'status', a.status, 'currency', a.currency, 'asset_type', a.asset_type) AS asset_identity
         FROM public.pams_investment_trade_fact f
@@ -72,16 +73,18 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
     columns = [column[0] for column in cur.description]
     out = []
     ibkr_cache = {}
+    if originals is None:
+        originals = SourceOriginals(cur)
     for value in cur.fetchall():
         row = dict(value) if hasattr(value, 'keys') else dict(zip(columns, value))
         raw = json.dumps(row['raw_fields'], ensure_ascii=False, sort_keys=True,
                          separators=(',', ':'), allow_nan=False).encode('utf-8')
-        content, digest = row['content'], row['sha256']
         verified = (row['source_status'] == 'published' and row['item_review'] == 'confirmed'
-                    and row['source_account'] == row['account_code'] and _matches(row)
-                    and sha256(raw).hexdigest() == row['record_hash']
-                    and ((content is None and digest is None) or
-                         (content is not None and sha256(bytes(content)).hexdigest() == digest)))
+                    and row['source_account'] == row['account_code']
+                    and sha256(raw).hexdigest() == row['record_hash'])
+        if verified:
+            row['content'], original_verified = originals.read(row)
+            verified = original_verified and _matches(row)
         ibkr_report = ((row.get('raw_fields') or {}).get('provider') == 'ibkr_flex' or
                        (row.get('source_name') == 'ibkr' and row.get('acquisition_method') == 'api'
                         and row.get('file_format') == 'xml'))
@@ -93,7 +96,7 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
         origin = row['raw_fields'].get('source') if isinstance(row['raw_fields'], dict) else None
         row['source_market'] = origin.get('market') if isinstance(origin, dict) else None
         for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
-                    'source_account', 'content', 'sha256', 'item_source_uid', 'source_name',
+                    'source_account', 'content', 'original_source_id', 'inline_original', 'sha256', 'item_source_uid', 'source_name',
                     'acquisition_method', 'file_format', 'parse_method', 'asset_identity'):
             row.pop(key, None)
         out.append(row)

@@ -10,7 +10,10 @@ import pytest
 from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 from domain.brokers.ibkr.ibkr_history_backfill import backfill
 from domain.imports.source_records_v2 import create_source
+from domain.imports.source_original_read import SourceOriginals
 from domain.investments.trade_read_v2 import load_trade_rows
+from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.ledger_view import build_ledger_workbench_payload
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
 
 CLOSE = date(2026, 1, 5)
@@ -95,3 +98,34 @@ def test_historical_flex_backfill_is_atomic_on_cash_write_failure(empty_source_d
                 (SELECT count(*) FROM pams_cashflow_fact) AS cash,
                 (SELECT count(*) FROM source_records) AS sources""")
             assert cur.fetchone() == {'trades': 0, 'cash': 0, 'sources': 1}
+
+
+def test_cash_and_trade_reads_reuse_the_verified_flex_original(empty_source_db):
+    class CountingCursor(RealDictCursor):
+        original_queries = 0
+
+        def execute(self, query, vars=None):
+            if isinstance(query, str) and 'source_original_content(' in query:
+                self.original_queries += 1
+            return super().execute(query, vars)
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=CountingCursor) as cur:
+            digest = _archive(cur, REPORT)
+            backfill(cur, digest=digest, account=ACCOUNT, as_of=CLOSE, apply=True,
+                     approved_counts={'trade': 1, 'cash': 3})
+            start = date(2026, 1, 1)
+            cur.original_queries = 0
+            payload = build_ledger_workbench_payload(cur, month='2026-01')
+            assert len([row for row in payload['recent_rows_ytd'] if row['account_code'] == 'ibkr']) == 3
+            assert cur.original_queries == 1
+
+            cur.original_queries = 0
+            originals = SourceOriginals(cur)
+            cash = load_cash_rows(cur, start=start, end=CLOSE, base_currency='CNY', originals=originals)
+            trades = load_trade_rows(cur, account_code='ibkr', start=start, end=CLOSE, originals=originals)
+            assert [row['source_evidence_status'] for row in cash] == ['verified'] * 3
+            assert [row['source_evidence_status'] for row in trades] == ['verified']
+            assert all(row['amount_cny'] is None for row in cash)
+            assert cur.original_queries == 1
