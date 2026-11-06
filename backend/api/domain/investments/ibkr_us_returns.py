@@ -1,7 +1,7 @@
 """CNY performance of the verified IBKR US securities sleeve."""
 
 from collections import Counter, defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from functools import lru_cache
 import os
@@ -13,6 +13,7 @@ from domain.investments.holdings_view import _table_exists
 from domain.investments.investment_return_math import (
     bucket_flow_events, cash_flow_adjusted_return_rows, norm, section_return_summary,
 )
+from domain.investments.valuation_nav import series_dates
 
 
 FX_SOURCE = 'openexchangerates'
@@ -86,6 +87,8 @@ def _native_inputs(positions, candidates):
 
     if flows.keys() - positions.keys():
         raise ValueError('US cash movement has no corresponding broker valuation date')
+    if not transactions or min(flows) < min(transactions):
+        raise ValueError('US opening trade is not established')
     for day, rows in positions.items():
         for conid, quantity in transactions.get(day, ()):
             quantities[conid] += quantity
@@ -100,27 +103,38 @@ def _native_inputs(positions, candidates):
 
 
 def _payload(values, native_flows, rates, *, start, through, interval, owner_ratio):
+    if not values or start > through:
+        return None
+    first_trade = min(values)
+    pre_trade_end = min(through, first_trade - timedelta(days=1))
+    pre_trade_dates = series_dates(start, pre_trade_end, interval) if start <= pre_trade_end else []
     dates = [day for day in values if start <= day <= through]
-    if not dates:
+    if not dates and not pre_trade_dates:
         return None
     if any(day not in rates for day in dates):
         return None
     cny_values = {day: values[day] * rates[day] * owner_ratio for day in dates}
     events = [(day, amount * rates[day] * owner_ratio) for day, amount in native_flows.items()
-              if dates[0] < day <= dates[-1]]
+              if dates and dates[0] < day <= dates[-1]]
     flows = bucket_flow_events(dates, events)
     rows = cash_flow_adjusted_return_rows(dates=dates, values=cny_values, flows=flows)
     for row in rows:
         row['display_return_rate'] = row['time_weighted_return_rate']
     summary = section_return_summary(rows=rows, reported=None)
-    if interval == 'weekly':
+    if interval == 'weekly' and rows:
         # Compound every observed day first, then select each week's last observation.
         by_week = {row['date'].isocalendar()[:2]: row for row in rows}
         rows = [rows[0], *(row for row in by_week.values() if row is not rows[0])]
+    # Pad the chart before inception without moving the return's opening basis.
+    zero_fields = ('market_value', 'net_flow', 'cumulative_capital', 'capital_return_rate',
+                   'daily_return_rate', 'time_weighted_return_rate', 'display_return_rate')
+    pre_trade_rows = [dict.fromkeys(zero_fields, Decimal(0)) | {'date': day} for day in pre_trade_dates]
+    rows = pre_trade_rows + rows
     return {
         'section': 'us_stock', 'label': '美股', 'status': 'available',
         'base_currency': 'CNY', 'interval': interval, 'method': 'cash_flow_adjusted_time_weighted_return',
-        'start': dates[0].isoformat(), 'end': dates[-1].isoformat(), 'source_through': dates[-1].isoformat(),
+        'start': rows[0]['date'].isoformat(), 'end': rows[-1]['date'].isoformat(),
+        'source_through': dates[-1].isoformat() if dates else None, 'first_trade_date': first_trade.isoformat(),
         'fx_source': FX_SOURCE,
         'coverage_notes': ['按 IBKR 美股证券估值日计算，以区间首日收盘为基准，按日末资金流调整，计入已核对的股息及预扣税。'
                            '账户融资、账户级费用及其他市场不计入美股证券收益。'],
