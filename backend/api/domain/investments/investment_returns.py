@@ -1029,7 +1029,17 @@ def build_section_return_series_payload(
     excluded_holding_accounts: set[str],
     today_label_date: Date | None = None,
 ) -> dict[str, Any]:
-    """Return the legacy section return-rate payload without changing calculation semantics."""
+    """Return section returns, preferring verified IBKR observations when available."""
+    if section == 'us_stock' and base_currency.upper() == 'CNY' and 'ibkr' not in excluded_holding_accounts:
+        from domain.investments.ibkr_us_returns import build_verified_us_return
+        verified = build_verified_us_return(
+            cur, start=start_date, end=view_as_of, interval=interval,
+            owner_ratio=account_owner_ratio('ibkr'),
+        )
+        if verified is not None:
+            if today_label_date is not None:
+                verified['today_window'] = None
+            return verified
     reported = _reported_section_performance(section, reported_returns_cfg)
     terminal_date = view_as_of
     reported_as_of = _reported_as_of_date(reported, reported_returns_cfg)

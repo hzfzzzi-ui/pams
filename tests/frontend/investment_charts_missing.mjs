@@ -15,6 +15,20 @@ assert.deepEqual(Array.from(result.totalData), [null, null]);
 assert.deepEqual(Array.from(result.sectionDataByKey.get('a_stock').data), [null, null]);
 assert.equal(result.topContribution.unavailable, true);
 assert.equal(result.topContribution.totalPnl, null);
+const alignedDates = ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04'];
+const alignedSections = new Map([
+  ['a_stock', alignedDates.map((date, index) => ({date, display_return_rate: index / 4}))],
+  ['us_stock', [
+    {date: alignedDates[0], display_return_rate: '0'},
+    {date: alignedDates[1], display_return_rate: '0'},
+    {date: alignedDates[2], display_return_rate: '0.25'},
+  ]],
+]);
+const aligned = model.buildInvestmentReturnWindowData([], alignedSections,
+  [{key:'a_stock', label:'A股个股'}, {key:'us_stock', label:'美股'}], 'ytd', true);
+assert.deepEqual(Array.from(aligned.labels), alignedDates);
+assert.deepEqual(Array.from(aligned.sectionDataByKey.get('us_stock').data), [0, 0, 25, null]);
+
 const nav = model.normalizeInvestmentNavRows(dates.map(date => ({date, netWorth:null})));
 assert.equal(nav[0].market_value, null);
 assert.equal(model.buildInvestmentNavChartData(nav, true).values.length, 0);
