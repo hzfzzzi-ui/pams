@@ -54,6 +54,10 @@ def verify_trade_original(cur, row, cache):
             {str(k): str(v).strip() for k, v in matching[0].attrib.items()} != official):
         return False
     try:
+        if row.get('source_name') == 'ibkr_historical_flex':
+            from domain.brokers.ibkr.ibkr_history_backfill import _trade
+            uid, expected = _trade(official, account, day, digest)
+            return uid == row.get('item_source_uid') and expected == fields
         normalized = _row(cur, {'raw': official}, account, day, digest, include_fx=False)
         if normalized['source_key'] != row.get('item_source_uid'):
             return False
