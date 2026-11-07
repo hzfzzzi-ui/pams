@@ -656,7 +656,10 @@ def _build_accounts_overview(
     latest_reviews: dict[str, dict[str, Any]],
     fx_rates_by_base: dict[str, dict[str, Decimal]],
     canonical_balances: dict[str, dict[str, Any]] | None = None,
+    verified_bank_balances: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    from domain.accounts.balance_snapshot import prefer_verified_bank_balance
+
     defaults = account_cfg.get("defaults") or {}
     accounts = account_cfg.get("accounts") or {}
     excluded_accounts = _excluded_accounts(account_cfg)
@@ -703,6 +706,9 @@ def _build_accounts_overview(
             platform_balance=platform_balance,
             manual_balance=manual_balance,
         )
+        verified_bank_balance = (verified_bank_balances or {}).get(code)
+        if prefer_verified_bank_balance(verified_bank_balance, primary_balance):
+            primary_balance = _apply_owner_ratio_to_money(verified_bank_balance, owner_ratio)
         status = _reconcile_status(
             account_type=account_type,
             truth_source=truth_source,
@@ -787,6 +793,7 @@ def _overview_payload(cur=None) -> dict[str, Any]:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as shared_cur:
                 return _overview_payload(cur=shared_cur)
     from domain.brokers.ibkr import ibkr_daily_close_read
+    from domain.accounts.balance_snapshot import load_verified_bank_balances
     from domain.investments import portfolio_state
 
     account_cfg = _load_accounts_config()
@@ -818,6 +825,7 @@ def _overview_payload(cur=None) -> dict[str, Any]:
         latest_reviews,
         fx_rates_by_base,
         canonical_balances=canonical_balances,
+        verified_bank_balances=load_verified_bank_balances(cur, account_cfg, _view_as_of()),
     )
     summary = {
         "total_accounts": len(accounts),

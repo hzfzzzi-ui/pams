@@ -20,6 +20,8 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
+from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
+from domain.accounts.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.snapshot_coverage import annotate_snapshot_coverage, load_account_snapshot_coverage
 from domain.investments.valuation_state_reader import valuation_series_evidence, valuation_series_rows
@@ -463,6 +465,7 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
     fx_rates = _latest_fx_rates(cur, base_currency)
     statement = _statement_balances(cur)
     platform = _platform_balances(cur, base_currency, fx_rates)
+    bank_snapshots = load_verified_bank_balances(cur, account_cfg, _view_as_of())
     codes = sorted((set(accounts) | set(statement) | set(platform)) - excluded)
     rows: list[dict[str, Any]] = []
 
@@ -500,6 +503,9 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
             selected = statement.get(code) or platform.get(code)
             if selected and "currency" not in selected:
                 selected = {**selected, "currency": account_base}
+        bank_snapshot = bank_snapshots.get(code)
+        if prefer_verified_bank_balance(bank_snapshot, selected):
+            selected = bank_snapshot
 
         if not selected or selected.get('amount') in (None, ''):
             amount = None
@@ -544,6 +550,8 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
             "review_status": review_status,
             "include_in_nav": include_in_nav,
         }
+        if selected and selected.get('source') == VERIFIED_BANK_BALANCE_SOURCE:
+            row['balance_source'] = VERIFIED_BANK_BALANCE_SOURCE
         if selected and selected.get('source') == 'platform_snapshot':
             row['fx_precision'] = selected.get('fx_precision', 'unknown')
             row['fx_rate_dates'] = selected.get('fx_rate_dates', {})

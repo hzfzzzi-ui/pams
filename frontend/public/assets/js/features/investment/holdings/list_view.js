@@ -143,6 +143,10 @@ function renderRows(rows, options = {}){
 
 function holdingSyncTime(row) {
   const rows = row.__accountRows || [row];
+  const balanceDate = rows.length === 1 ? String(rows[0].balance_as_of || '') : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(balanceDate)) {
+    return `<span class="mobileHoldingSync">余额日 <time datetime="${balanceDate}">${balanceDate.slice(5)}</time></span>`;
+  }
   const dates = rows.map(item => {
     const raw = String(item.valuation_updated_at || '');
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(raw)) return null;
