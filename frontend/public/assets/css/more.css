@@ -30,3 +30,9 @@ body.page-more .moreSystem :is(dt,dd) { margin: 0; overflow-wrap: anywhere; }
 body.page-more .moreSystem dt { color: var(--pams-text-muted); }
 body.page-more .moreSystem dd { color: var(--pams-text-secondary); font-family: inherit; }
 body.page-more :is(a,summary):focus-visible { outline: 2px solid var(--pams-info); outline-offset: 2px; }
+body.page-more .moreAccountSync { border-bottom: 1px solid var(--pams-line-subtle); }
+body.page-more .moreAccountSync > summary { font-size: 16px; }
+body.page-more #accountSyncPanel { padding-inline: 8px; }
+body.page-more #accountSyncPanel section { border-top: 1px solid var(--pams-line-subtle); padding: 10px 2px; }
+body.page-more #accountSyncPanel p { margin: 5px 0; color: var(--pams-text-muted); overflow-wrap: anywhere; }
+body.page-more #accountSyncPanel a { display: inline-flex; min-height: 44px; align-items: center; }

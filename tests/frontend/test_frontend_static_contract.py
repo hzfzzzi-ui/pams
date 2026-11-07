@@ -1429,6 +1429,17 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "assets/css/style-phone.css" in html
 
 
+def test_more_page_exposes_account_sync_status() -> None:
+    html = _read_public("more.html")
+    controller = _read_public("assets/js/features/more/controller.js")
+    view = _read_public("assets/js/features/more/account_sync_view.js")
+    assert '<details id="accountSyncDetails"' in html
+    assert 'id="accountSyncPanel" aria-live="polite"' in html
+    assert "'/api/sync/accounts'" in controller
+    assert "describe('流水', row.cashflow)" in view
+    assert "describe('余额', row.balance, row.currency)" in view
+
+
 def test_more_page_consolidates_low_frequency_entries() -> None:
     html = _read_public("more.html")
     more_js = (_read_public("assets/js/more.js") +
@@ -1480,7 +1491,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
         "investments.html#asset-master-panel",
     ]:
         assert html.count(f'href="{href}"') == 1
-    for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", "同步中心", "投资交易记录", "内部转账匹配"]:
+    for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", ">同步中心<", "投资交易记录", "内部转账匹配"]:
         assert removed_text not in html
     assert "investments.html#investment-ledger" not in html
     assert "risk.html" not in html

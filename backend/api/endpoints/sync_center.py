@@ -7,6 +7,7 @@ health without changing portfolio data.
 from __future__ import annotations
 
 import os
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -17,7 +18,9 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
 from domain.operations.sync_health import read_overseas_quote_health, scheduler_health
+from domain.accounts.sync_status import read_account_sync
 from domain.imports.source_row_read import source_row_relation
+from domain.investments.portfolio_state import _load_accounts_config
 from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -53,6 +56,14 @@ def _now_local() -> datetime:
         return datetime.now(ZoneInfo(tz_name))
     except Exception:
         return datetime.now(ZoneInfo("Asia/Shanghai"))
+
+
+@router.get('/accounts')
+def account_sync_status():
+    with closing(get_conn()) as conn:
+        conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            return _norm(read_account_sync(cur, _load_accounts_config()))
 
 
 def _holding_summary(
@@ -323,8 +334,6 @@ def sync_center() -> dict[str, Any]:
                      f"最近尝试 {ibkr_quality['last_attempt_status'] or '未知'}。"
                      "失败、过期或未提交的原始文件不替代有效报告。"
                      "正常同步无需逐次确认；历史账目诊断独立保留。" + reconciliation['details']),
-            trigger_endpoint="/api/ibkr/flex/sync",
-            trigger_body={"align_to_latest_snapshot": False},
         ),
         _row(
             id="investment-ledger",
