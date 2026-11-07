@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 import sys
+from zoneinfo import ZoneInfo
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -9,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
 from domain.market.tencent_stock_history import parse_history, publish_history
+from domain.investments import ths_nav_history_refresh as refresh
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
 
 
@@ -60,3 +62,42 @@ def test_atomic_publish_replay_and_conflict_rollback(empty_source_db):
         assert cur.fetchall() == [('sz000001', Decimal('10.2000'))]
         cur.execute('SELECT count(*) FROM market_observations')
         assert cur.fetchone()[0] == 1
+
+
+def test_scheduled_history_retries_only_missing_completed_session(empty_source_db, monkeypatch):
+    from scripts.bootstrap_isolated_sources import initialize_isolated_sources
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        initialize_isolated_sources(conn)
+    day = date(2026, 11, 6)
+    zone = ZoneInfo('Asia/Shanghai')
+    events = [{'trade_date': day, 'trade_type': 'buy', 'symbol': '000001',
+               'quantity': Decimal(100), 'source_market': '深圳Ａ股'}]
+    monkeypatch.setattr(refresh, 'read_reconciled_events', lambda cur: events)
+    calls = []
+    ready = False
+
+    def fetch(symbol, *, start, end):
+        calls.append((symbol, start, end))
+        if symbol == 'sz000001' and not ready:
+            raise ValueError('provider has not published the day')
+        raw = [str(day), '10.0', '10.2', '10.5', '9.9', '100']
+        return parse_history({'code': 0, 'data': {symbol: {'day': [raw]}}}, symbol, start=start, end=end)
+
+    monkeypatch.setattr(refresh, 'fetch_history', fetch)
+    assert refresh.refresh_history(connect, now=datetime(2026, 11, 6, 15, 4, tzinfo=zone), start=day)['rows'] == 0
+    assert not calls
+    kwargs = {'now': datetime(2026, 11, 6, 15, 5, tzinfo=zone), 'start': day}
+    first = refresh.refresh_history(connect, **kwargs)
+    assert (first['status'], first['rows'], first['missing']) == ('incomplete', 1, 1)
+    ready = True
+    calls.clear()
+    second = refresh.refresh_history(connect, **kwargs)
+    assert (second['status'], second['rows']) == ('ok', 1)
+    assert calls == [('sz000001', day, day)]
+    calls.clear()
+    assert refresh.refresh_history(connect, **kwargs)['rows'] == 0
+    assert not calls
