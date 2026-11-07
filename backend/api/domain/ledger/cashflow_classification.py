@@ -19,7 +19,7 @@ def bank_classification_hint(row):
     if account == 'ccb_7332' and amount > 0:
         if summary.startswith('薪金报酬 '):
             return {'cashflow_type': 'operating_income', 'category': '工资薪酬', 'subcategory': '工资'}
-        if summary.startswith('利息存入 '):
+        if summary == '利息存入' or summary.startswith('利息存入 '):
             return {'cashflow_type': 'operating_income', 'category': '利息收入', 'subcategory': '利息'}
     if account == 'ccb_credit_0453' and amount < 0 and summary.startswith('消费 '):
         ambiguous = ('充值', 'charge', 'top up', 'top-up', 'wallet', '财付通', '支付宝', '理财', '基金',

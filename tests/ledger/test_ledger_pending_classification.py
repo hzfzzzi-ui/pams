@@ -54,6 +54,7 @@ def test_bank_hint_requires_verified_source_and_explicit_operation():
     assert bank_classification_hint({**row, 'summary': '消费 微信支付 理财通'}) is None
     assert bank_classification_hint({**row, 'summary': '信用卡约定还款 尾号0453', 'source_evidence_status': 'unknown'}) is None
     assert bank_classification_hint({**row, 'summary': '薪金报酬 代发', 'amount': 50})['cashflow_type'] == 'operating_income'
+    assert bank_classification_hint({**row, 'summary': '利息存入', 'amount': 1})['subcategory'] == '利息'
     card = {**row, 'account_code': 'ccb_credit_0453'}
     assert bank_classification_hint({**card, 'summary': '消费 Restaurant'})['cashflow_type'] == 'operating_expense'
     assert bank_classification_hint({**card, 'summary': '消费 Transit Card Charge'}) is None
