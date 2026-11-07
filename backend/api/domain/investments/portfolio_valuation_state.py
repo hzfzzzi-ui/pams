@@ -712,6 +712,22 @@ def published_daily_close_compatible(row: dict[str, Any] | None, *,
     return True
 
 
+def published_bank_balances_compatible(row, account_balances):
+    """Reject a published total if it still uses an older bank balance."""
+    from domain.accounts.balance_snapshot import SOURCE
+
+    raw = (row or {}).get('raw_json')
+    amounts = raw.get('account_values_cny') if isinstance(raw, dict) else None
+    if not isinstance(amounts, dict):
+        amounts = {}
+    return all(
+        _exact_amount(balance.get('amount_cny')) is not None
+        and _exact_amount(amounts.get(balance['account_code'])) == _exact_amount(balance['amount_cny'])
+        for balance in (account_balances or [])
+        if balance.get('balance_source') == SOURCE and balance.get('include_in_nav', True)
+    )
+
+
 def _exact_amount(value: Any) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None

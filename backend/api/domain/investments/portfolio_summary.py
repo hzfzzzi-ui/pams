@@ -513,7 +513,13 @@ def apply_published_valuation_state_to_summary(
                                                 'overlay_reason': 'snapshot_scope_incomplete' if payload.get('snapshot_scope_status') == 'incomplete' else 'current_valuation_incomplete'}}
     if not valuation_state or valuation_state.get("net_liquidation_value") in (None, ""):
         return payload
-    from domain.investments.portfolio_valuation_state import published_daily_close_compatible
+    from domain.investments.portfolio_valuation_state import (
+        published_bank_balances_compatible, published_daily_close_compatible,
+    )
+    if not published_bank_balances_compatible(valuation_state, account_balances):
+        return {**payload, 'valuation_state': {'source': 'published', 'overlay_applied': False,
+                'overlay_reason': 'bank_balance_evidence_mismatch',
+                'as_of': str(valuation_state.get('valuation_date') or '')}}
     if not published_daily_close_compatible(valuation_state, account_balances=account_balances):
         return {**payload, "valuation_state": {"source": "published", "overlay_applied": False,
                 "overlay_reason": "daily_close_evidence_basis_mismatch",

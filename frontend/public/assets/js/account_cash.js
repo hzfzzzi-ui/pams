@@ -101,6 +101,7 @@ export function makeAccountCashHoldingRows(accountOverview, fxRates = {}) {
     daily_pnl_cny: 0,
     current_price: null,
     quantity: null,
+    balance_as_of: row.source === 'verified_bank_balance_snapshot' ? row.asOf : null,
     data_source: row.source,
     asset_liability: row.amountCny < 0 ? '负债' : '资产',
   }));

@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
+from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
 
 
 def create_compatibility_router(
@@ -340,6 +341,7 @@ def create_compatibility_router(
             published_state
             and _is_published_valuation_fresh_for_date(published_state, current_view_as_of)
             and _published_daily_close_compatible(published_state, account_balances=account_balances)
+            and published_bank_balances_compatible(published_state, account_balances)
         )
         terminal_date = (
             published_state["valuation_date"]

@@ -12,6 +12,7 @@ from datetime import date as Date, timedelta
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
+from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 
 ANCHOR_NAV_DATE = Date(2026, 5, 31)
@@ -709,11 +710,17 @@ def _bank_backcast_series(
     """Back-cast cash-like account balances from confirmed terminal balances and statement flows."""
     values: dict[Date, dict[str, Any]] = {d: {"assets": Decimal("0"), "liabilities": Decimal("0"), "net_worth": Decimal("0")} for d in dates}
     for account in accounts:
+        verified_snapshot = (account.get('primary_balance') or {}).get('source') == VERIFIED_BANK_BALANCE_SOURCE
+        if verified_snapshot and account_anchor_date(account, terminal_date) > terminal_date:
+            prior = [balance for balance in (account.get('manual_balance'), account.get('statement_balance'))
+                     if balance and (_row_date(balance.get('as_of')) or Date.max) <= terminal_date]
+            account = {**account, 'primary_balance': max(prior, key=lambda balance: str(balance['as_of']), default=None)}
+            verified_snapshot = False
         anchor = account_anchor_amount(account)
         code = str(account.get("account_code") or "")
         rows = rows_by_account.get(code, [])
         problems = getattr(rows_by_account, 'evidence_problems', {}).get(code)
-        if problems:
+        if problems and not verified_snapshot:
             for sample_date in dates:
                 values[sample_date].setdefault('unavailable_accounts', []).append(code)
                 values[sample_date].setdefault('source_evidence_unavailable_accounts', []).append(code)
@@ -738,6 +745,26 @@ def _bank_backcast_series(
         effective_date = manual_effective_date(account, terminal_date)
 
         for sample_date in dates:
+            if verified_snapshot:
+                bucket = values[sample_date]
+                if problems and sample_date != anchor_date:
+                    bucket.setdefault('unavailable_accounts', []).append(code)
+                    bucket.setdefault('source_evidence_unavailable_accounts', []).append(code)
+                    continue
+                rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
+                if rate is None:
+                    bucket.setdefault('unavailable_accounts', []).append(code)
+                    continue
+                start, end = sorted((anchor_date, sample_date))
+                flow = sum((_dec(row['amount']) for row in rows
+                            if start < row['transaction_date'] <= end and row['currency'] == anchor_currency), Decimal(0))
+                flow *= Decimal(str(account.get('owner_ratio', 1)))
+                native_value = anchor_amount + (flow if sample_date >= anchor_date else -flow)
+                add_nav_amount(bucket, native_value * rate)
+                bucket.setdefault('available_accounts', []).append(code)
+                if sample_date != anchor_date:
+                    bucket.setdefault('estimated_accounts', []).append(code)
+                continue
             # Individual source rows do not prove the statement interval is
             # complete. Back-casts away from the confirmed anchor are estimates.
             if isinstance(rows_by_account, StatementRowsByAccount) and sample_date != anchor_date:
@@ -1264,10 +1291,12 @@ def build_nav_weekly_payload(
     bank_accounts, investment_snapshot_accounts = select_weekly_nav_accounts(overview_accounts)
 
     fx_timelines = load_fx_timelines(cur, base_currency)
+    bank_flow_start = min([start_date, *(account_anchor_date(account, terminal_date) for account in bank_accounts
+        if (account.get('primary_balance') or {}).get('source') == VERIFIED_BANK_BALANCE_SOURCE)])
     rows_by_account = _statement_rows_by_account(
         cur,
         [str(account.get("account_code")) for account in bank_accounts],
-        start_date,
+        bank_flow_start,
         terminal_date,
     )
     bank_series = _bank_backcast_series(
