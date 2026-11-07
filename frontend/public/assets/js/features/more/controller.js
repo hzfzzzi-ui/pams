@@ -1,4 +1,5 @@
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { renderAccountSync } from './account_sync_view.js';
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
   if (!summary || !['ok', 'warning', 'error'].includes(summary.status) ||
@@ -27,11 +28,26 @@ export function mount(root, context) {
   const assetPanel = find('moreAssetReview');
   const assetCount = find('assetPendingCount');
   const assetRefresh = find('refreshAssetReview');
+  const syncDetails = find('accountSyncDetails');
+  const syncPanel = find('accountSyncPanel');
   let alive = true;
   let navGrowthLoaded = false;
   let navGrowthPending;
   let assetLoaded = false;
   let assetLoading = false;
+
+  async function onSyncToggle() {
+    if (!syncDetails.open || !syncPanel) return;
+    syncPanel.textContent = '正在读取账户同步状态…';
+    try {
+      const data = await reads.get('account-sync', '/api/sync/accounts', {cache: false});
+      if (alive && syncDetails.open) renderAccountSync(syncPanel, data.groups);
+    } catch (error) {
+      if (alive && syncDetails.open && !isReadCancelled(error)) {
+        syncPanel.textContent = '暂时无法读取同步状态，收起后重新打开可重试。';
+      }
+    }
+  }
 
   async function loadAssetReview() {
     if (!alive || !assetPanel || assetLoaded || assetLoading) return;
@@ -134,6 +150,7 @@ export function mount(root, context) {
     details?.removeEventListener('toggle', onToggle);
     assetDetails?.removeEventListener('toggle', onAssetToggle);
     assetRefresh?.removeEventListener('click', onAssetRefresh);
+    syncDetails?.removeEventListener('toggle', onSyncToggle);
     win?.removeEventListener('pagehide', dispose);
     if (mounted.get(root) === controller) mounted.delete(root);
   }
@@ -146,8 +163,10 @@ export function mount(root, context) {
   details?.addEventListener('toggle', onToggle);
   assetDetails?.addEventListener('toggle', onAssetToggle);
   assetRefresh?.addEventListener('click', onAssetRefresh);
+  syncDetails?.addEventListener('toggle', onSyncToggle);
   win?.addEventListener('pagehide', dispose);
   if (details?.open) void loadNavGrowthExplanationOnce();
+  if (syncDetails?.open) void onSyncToggle();
   if (assetDetails?.open) void loadAssetReview();
   else if (assetDetails) void loadAssetReview();
   controller.ready = loadIssues();
