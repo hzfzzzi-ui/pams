@@ -2886,6 +2886,15 @@ def refresh_a_stock():
     if source_mode() == "development":
         raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     result = _refresh_category("A股", _fetch_a_stock_prices, exclude_minor_categories=("A股基金",))
+    from domain.investments.ths_nav_history_refresh import refresh_history
+    try:
+        history = refresh_history(_get_conn, now=datetime.now(ZoneInfo("Asia/Shanghai")))
+    except (OSError, ValueError, psycopg2.Error) as exc:
+        logger.warning("Tencent NAV history refresh failed: %s", type(exc).__name__)
+        history = {"status": "error", "rows": 0}
+    result["nav_history"] = history
+    if history["status"] in {"error", "incomplete"}:
+        result["errors"].append("tencent_nav_history_incomplete")
     return _json(result)
 
 
