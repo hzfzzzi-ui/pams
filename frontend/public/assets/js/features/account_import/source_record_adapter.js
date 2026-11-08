@@ -84,7 +84,7 @@ export function createSourceRecordAdapter(request, recovery) {
         return {batch_id:batch.batch_id,revision:value.revision,preview_token:value.preview_token || readyToken,ready_token:readyToken,
           can_publish:value.can_publish,can_publish_ready:value.can_publish_ready,
           counts:{new:value.counts.ready,duplicates:value.counts.duplicate,blocked:value.counts.invalid,pending:value.counts.pending},
-          rows:value.rows.map(item=>({row_id:item.source_item_id,status:item.status==='invalid'?'blocked':item.status}))};
+          rows:value.rows.map(item=>({row_id:item.source_item_id,status:item.status==='invalid'?'blocked':item.status,issues:item.issues}))};
       }
       const route = `${path(batch.batch_id)}/trade-preview`;
       const value = await request(route,'POST',{revision:batch.revision});
