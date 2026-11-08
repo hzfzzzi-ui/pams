@@ -18,19 +18,23 @@ def _text_kind(text: str) -> str | None:
     return 'trade' if trade and not holding else 'holding' if holding and not trade else None
 
 
-def detect(content: bytes, filename: str, account: str) -> dict:
+def detect(content: bytes, filename: str, account: str, *, statement_mapping=None,
+           include_statement: bool = False) -> dict:
     suffix = PurePath(filename).suffix.lower()
     if statement.is_statement(account):
         if suffix not in {'.csv', '.tsv', '.xls', '.xlsx', '.pdf', *IMAGES}:
             return {'kind': None, 'status': 'mismatch'}
         if suffix in IMAGES:
             return {'kind': 'cash', 'status': 'account_kind'}
-        parsed = statement.parse(content, filename, account, 'cash')
+        parsed = statement.parse(content, filename, account, 'cash', statement_mapping)
         rows = parsed.get('rows') or []
         if not rows or any((row.get('fields') or {}).get('action') in
                            {'buy', 'sell', 'subscribe', 'redeem', 'dividend'} for row in rows):
             return {'kind': None, 'status': 'mismatch'}
-        return {'kind': 'cash', 'status': 'detected'}
+        result = {'kind': 'cash', 'status': 'detected'}
+        if include_statement:
+            result['parsed_statement'] = parsed
+        return result
     if account not in INVESTMENT_PROFILES:
         raise ValueError('此账户不支持资料导入')
     if suffix in IMAGES:

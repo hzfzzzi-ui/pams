@@ -42,6 +42,13 @@ def _save_rows(cur, *, source_id, kind, parse_method, rows):
     return excluded
 
 
+def _saved_mapping(cur, account_code, kind):
+    cur.execute('SELECT mapping FROM public.source_templates WHERE account_code=%s AND document_type=%s',
+                (account_code, kind))
+    saved = cur.fetchone()
+    return saved['mapping'] if saved and hasattr(saved, 'keys') else saved[0] if saved else None
+
+
 def stage_document(cur, *, account_code: str, source_name: str, filename: str, content: bytes,
                    import_group_id: UUID | None = None) -> dict:
     if cur.connection.autocommit:
@@ -50,15 +57,19 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
         raise ValueError('invalid filename')
     if not isinstance(content, bytes) or not 0 < len(content) <= 10 * 1024 * 1024:
         raise ValueError('empty or oversized document')
-    kind_result = document_kind.detect(content, filename, account_code)
+    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account_code,))
+    is_statement = account_import_store.statement.is_statement(account_code)
+    mapping = _saved_mapping(cur, account_code, 'cash') if is_statement else None
+    kind_result = document_kind.detect(content, filename, account_code, statement_mapping=mapping,
+                                       include_statement=is_statement)
     kind = kind_result.get('kind')
     if kind not in {'cash','trade','holding'}:
         raise ValueError('document type could not be identified')
-    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account_code,))
-    cur.execute('SELECT mapping FROM public.source_templates WHERE account_code=%s AND document_type=%s', (account_code, kind))
-    saved = cur.fetchone()
-    mapping = saved['mapping'] if saved and hasattr(saved, 'keys') else saved[0] if saved else None
-    parsed = account_import_store.parse(content, filename, account_code, kind, mapping=mapping)
+    if not is_statement:
+        mapping = _saved_mapping(cur, account_code, kind)
+    parsed = kind_result.get('parsed_statement')
+    if parsed is None:
+        parsed = account_import_store.parse(content, filename, account_code, kind, mapping=mapping)
     rows = _rows(parsed, kind)
     suffix = PurePath(filename).suffix.lower().lstrip('.')
     method = 'screenshot' if suffix in {'png','jpg','jpeg'} else 'file'

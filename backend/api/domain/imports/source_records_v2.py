@@ -177,81 +177,33 @@ def _verify_deferred_source(cur, source_id, item):
 
 
 def publish_cash_source(cur, *, source_id: UUID, expected_revision: int, verified_ibkr_ids=False) -> dict:
-    """Atomically publish reviewed cash facts, without making classification decisions."""
-    from datetime import date
-    from decimal import Decimal, InvalidOperation
+    """Atomically publish reviewed cash facts without making classification decisions."""
+    from domain.imports.cash_preview_v2 import plan_cash
 
-    if cur.connection.autocommit:
-        raise ValueError('source publication requires a transaction')
-    cur.execute('SELECT account_code FROM public.source_records WHERE source_id=%s', (str(source_id),))
-    account_row = cur.fetchone()
-    if not account_row:
-        raise ValueError('source missing')
-    account = account_row['account_code'] if isinstance(account_row, Mapping) else account_row[0]
-    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account,))
-    cur.execute('''SELECT account_code,document_type,status,revision,public.source_original_content(account_code,sha256,content) AS content,sha256
-        FROM public.source_records WHERE source_id=%s FOR UPDATE''', (str(source_id),))
-    columns=('account_code','document_type','status','revision','content','sha256')
-    row=cur.fetchone()
-    if not row:
-        raise ValueError('source missing')
-    source=dict(row) if isinstance(row, Mapping) else dict(zip(columns,row))
-    if source['account_code'] != account or source['revision'] != expected_revision or source['status'] != 'draft' or source['document_type'] != 'cash':
-        raise ValueError('source changed or cannot publish cashflow')
-    if verified_ibkr_ids:
-        cur.execute("SELECT source_name FROM source_records WHERE source_id=%s AND account_code='ibkr'", (str(source_id),))
-        match = cur.fetchone()
-        if not match or (match['source_name'] if isinstance(match, Mapping) else match[0]) != 'ibkr_historical_flex':
-            raise ValueError('official cash identity requires an IBKR historical source')
-    content=source['content']
-    if content is not None and sha256(bytes(content)).hexdigest() != source['sha256']:
-        raise ValueError('source content hash mismatch')
-    cur.execute('''SELECT source_item_id,source_uid,source_position,parse_method,raw_fields,parsed_fields,record_hash,review_status
-        FROM public.source_items WHERE source_id=%s ORDER BY source_item_id FOR UPDATE''', (str(source_id),))
-    columns=('source_item_id','source_uid','source_position','parse_method','raw_fields','parsed_fields','record_hash','review_status')
-    items=[dict(row) if isinstance(row,Mapping) else dict(zip(columns,row)) for row in cur.fetchall()]
-    if not items or any(item['review_status'] == 'pending' for item in items):
-        raise ValueError('source contains unreviewed items')
-    prepared=[]; seen=set()
-    for item in items:
-        raw=json.dumps(item['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')
-        if sha256(raw).hexdigest() != item['record_hash']:
-            raise ValueError('source item hash mismatch')
-        if item['review_status']=='excluded':
-            continue
-        _verify_deferred_source(cur,source_id,item)
-        fields=item['parsed_fields']
-        try:
-            if (fields.get('action') == 'balance' or
-                    (item['raw_fields'].get('source') or {}).get('balance_candidate') is True):
-                raise ValueError('balance is not a cashflow')
-            day=date.fromisoformat(fields['business_date'])
-            posting=date.fromisoformat(fields['posting_date']) if fields.get('posting_date') else None
-            amount=Decimal(str(fields['net_cash']))
-            currency=fields['currency']
-            if not amount.is_finite() or amount.as_tuple().exponent < -4 or not isinstance(currency,str) or not currency.strip():
-                raise ValueError('invalid cashflow amount or currency')
-        except (KeyError,TypeError,ValueError,InvalidOperation) as exc:
-            raise ValueError('cashflow required fields invalid') from exc
-        signature=(day,amount,currency)
-        if verified_ibkr_ids:
-            signature = item['source_uid']
-            if not signature or not signature.startswith('ibkr_cash:'):
-                raise ValueError('missing official cash identity')
-            cur.execute('''SELECT 1 FROM public.pams_cashflow_fact f
-                JOIN public.source_items i USING(source_item_id)
-                WHERE f.account_code=%s AND i.source_uid=%s LIMIT 1''', (account,signature))
-        else:
-            cur.execute('''SELECT 1 FROM public.pams_cashflow_fact WHERE account_code=%s AND event_date=%s
-                AND amount=%s AND currency=%s LIMIT 1''', (account,day,amount,currency))
-        if signature in seen:
-            raise ValueError('potential duplicate cashflow requires review')
-        seen.add(signature)
-        if cur.fetchone():
-            raise ValueError('potential duplicate cashflow requires review')
-        prepared.append((item,fields,day,posting,amount,currency))
+    plan = plan_cash(cur, source_id=source_id, expected_revision=expected_revision,
+                     for_write=True, verified_ibkr_ids=verified_ibkr_ids)
+    return apply_cash_plan(cur, source_id=source_id, plan=plan)
+
+
+def apply_cash_plan(cur, *, source_id, plan, defer_unresolved=False):
+    """Apply a plan already built under the publication locks."""
+    unresolved = plan['unresolved']
+    prepared = plan['ready']
+    if not defer_unresolved and unresolved:
+        counts = plan['preview']['counts']
+        if counts['pending']:
+            raise ValueError('source contains unreviewed items')
+        if counts['invalid']:
+            raise ValueError('cashflow required fields invalid')
+        raise ValueError('potential duplicate cashflow requires review')
     if not prepared:
-        raise ValueError('source has no confirmed cashflows')
+        raise ValueError('no unambiguous confirmed cashflows' if defer_unresolved else 'source has no confirmed cashflows')
+    source = plan['source']
+    result = {'published': len(prepared), 'classification': 'pending'}
+    if unresolved:
+        deferred_id = _defer_source_items(cur, source_id, source, plan['items'], unresolved)
+        result.update(deferred_source_id=str(deferred_id), deferred_count=len(unresolved))
+
     for item,fields,day,posting,amount,currency in prepared:
         cur.execute('''INSERT INTO public.pams_cashflow_fact(account_code,event_date,posting_date,amount,currency,
             summary,description,counterparty,source_item_id,fact_role)
@@ -261,7 +213,7 @@ def publish_cash_source(cur, *, source_id: UUID, expected_revision: int, verifie
         row=cur.fetchone(); ident=row['cashflow_id'] if isinstance(row,Mapping) else row[0]
         cur.execute('INSERT INTO public.cashflow_classification(cashflow_id,status) VALUES (%s,\'pending\')',(ident,))
     cur.execute("UPDATE public.source_records SET status='published',revision=revision+1,updated_at=now() WHERE source_id=%s",(str(source_id),))
-    return {'published':len(prepared),'classification':'pending'}
+    return result
 
 
 def _ths_batch_duplicates(prepared):
@@ -454,62 +406,11 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
 
 
 def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict:
-    """Publish unambiguous reviewed cashflows and defer other evidence atomically."""
-    from datetime import date
-    from decimal import Decimal, InvalidOperation
+    """Publish unambiguous cashflows and defer other evidence atomically."""
+    from domain.imports.cash_preview_v2 import plan_cash
 
-    if cur.connection.autocommit:
-        raise ValueError('partial publication requires a transaction')
-    cur.execute('SELECT account_code FROM public.source_records WHERE source_id=%s',(str(source_id),))
-    row=cur.fetchone()
-    if not row: raise ValueError('source missing')
-    account=row['account_code'] if isinstance(row,Mapping) else row[0]
-    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",('account-import:'+account,))
-    cur.execute('''SELECT source_id,import_group_id,account_code,source_name,acquisition_method,document_type,
-        filename,file_format,content_type,public.source_original_content(account_code,sha256,content) AS content,sha256,period_start,period_end,scope_note,status,revision
-        FROM public.source_records WHERE source_id=%s FOR UPDATE''',(str(source_id),))
-    cols=('source_id','import_group_id','account_code','source_name','acquisition_method','document_type',
-          'filename','file_format','content_type','content','sha256','period_start','period_end','scope_note','status','revision')
-    row=cur.fetchone();src=dict(row) if isinstance(row,Mapping) else dict(zip(cols,row)) if row else None
-    if not src or src['account_code']!=account or src['document_type']!='cash' or src['status']!='draft' or src['revision']!=expected_revision:
-        raise ValueError('source changed or cannot partially publish')
-    if src['content'] is not None and sha256(bytes(src['content'])).hexdigest()!=src['sha256']:
-        raise ValueError('source content hash mismatch')
-    cur.execute('''SELECT source_item_id,source_uid,source_position,parse_method,raw_fields,parsed_fields,record_hash,review_status,review_note
-        FROM public.source_items WHERE source_id=%s ORDER BY source_item_id FOR UPDATE''',(str(source_id),))
-    cols=('source_item_id','source_uid','source_position','parse_method','raw_fields','parsed_fields','record_hash','review_status','review_note')
-    items=[dict(row) if isinstance(row,Mapping) else dict(zip(cols,row)) for row in cur.fetchall()]
-    signatures={}; unresolved=set(); checked=[]
-    for item in items:
-        raw=json.dumps(item['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')
-        if sha256(raw).hexdigest()!=item['record_hash']: raise ValueError('source item hash mismatch')
-        if item['review_status']=='excluded': continue
-        _verify_deferred_source(cur,source_id,item)
-        if item['review_status']!='confirmed': unresolved.add(str(item['source_item_id']))
-        f=item['parsed_fields']
-        try:
-            if f.get('action') == 'balance' or (item['raw_fields'].get('source') or {}).get('balance_candidate') is True:
-                raise ValueError('balance is not a cashflow')
-            day=date.fromisoformat(f['business_date']); amount=Decimal(str(f['net_cash'])); currency=f['currency']
-            if not amount.is_finite() or amount.as_tuple().exponent < -4 or not isinstance(currency,str) or not currency.strip(): raise ValueError('invalid fields')
-            if f.get('posting_date'): date.fromisoformat(f['posting_date'])
-        except (KeyError,TypeError,ValueError,InvalidOperation):
-            unresolved.add(str(item['source_item_id']));continue
-        sig=(day,amount,currency);signatures.setdefault(sig,[]).append(item)
-        if item['review_status']=='confirmed': checked.append((item,sig))
-    for item,sig in checked:
-        if len(signatures[sig])>1:
-            unresolved.update(str(x['source_item_id']) for x in signatures[sig]);continue
-        cur.execute('''SELECT 1 FROM public.pams_cashflow_fact WHERE account_code=%s AND event_date=%s
-            AND amount=%s AND currency=%s LIMIT 1''',(account,*sig))
-        if cur.fetchone(): unresolved.add(str(item['source_item_id']))
-    ready=[item for item,_ in checked if str(item['source_item_id']) not in unresolved]
-    if not ready: raise ValueError('no unambiguous confirmed cashflows')
-    if not unresolved: return publish_cash_source(cur,source_id=source_id,expected_revision=expected_revision)
-    deferred_id = _defer_source_items(cur, source_id, src, items, unresolved)
-    result=publish_cash_source(cur,source_id=source_id,expected_revision=expected_revision)
-    return {**result,'deferred_source_id':str(deferred_id),'deferred_count':len(unresolved)}
-
+    plan = plan_cash(cur, source_id=source_id, expected_revision=expected_revision, for_write=True)
+    return apply_cash_plan(cur, source_id=source_id, plan=plan, defer_unresolved=True)
 
 
 def _defer_source_items(cur, source_id, src, items, unresolved):

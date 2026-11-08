@@ -1,15 +1,18 @@
 """Exercise redesigned source HTTP endpoints using synthetic isolated data."""
 from pathlib import Path
 import sys
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import psycopg2
+import pytest
 from psycopg2.extras import RealDictCursor
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
-from domain.imports import account_import_access, account_import_statement, native_source, native_source_http
+from domain.imports import account_import_access, account_import_statement, ccb_spreadsheet, native_source, native_source_http
 from endpoints import account_import
 from tests.imports.test_redesigned_fact_schema import install_redesign
 from tests.imports.test_account_import_ths import event, export
@@ -27,16 +30,31 @@ class SchemaCursor:
     def fetchall(self): return self.inner.fetchall()
 
 
-def test_cash_source_upload_review_preview_and_publish(monkeypatch):
+@pytest.mark.parametrize('card', ['0453', '7332'])
+def test_cash_source_upload_review_preview_and_publish(monkeypatch, card):
+    account_code = f'ccb_test_{card}'
+    template = 'ccb_credit_pdf' if card == '0453' else 'ccb_debit_pdf'
     monkeypatch.setattr(account_import_statement, 'profiles', lambda *args: {
-        'ccb_test_1234': [{'statement_template': 'ccb_credit_pdf'}]})
+        account_code: [{'statement_template': template}]})
+    parse = Mock(wraps=ccb_spreadsheet.parse)
+    monkeypatch.setattr(ccb_spreadsheet, 'parse', parse)
     monkeypatch.setattr(native_source_http, '_token_key', lambda: b'synthetic-test-key')
     monkeypatch.setattr(native_source, 'enabled', lambda: True)
-    data = ('中国建设银行信用卡交易明细\n交易日,入账日,信用卡卡号,类型,入账币种,入账金额,交易描述\n'
-            '20260101,20260102,****1234,消费,人民币,20.00,示例商户\n').encode('gb18030')
+    if card == '0453':
+        filename = 'test.csv'
+        data = ('中国建设银行信用卡交易明细\n交易日,入账日,信用卡卡号,类型,入账币种,入账金额,交易描述\n'
+                '20260101,20260102,****0453,消费,人民币,20.00,示例商户\n').encode('gb18030')
+    else:
+        import xlrd
+        filename = 'test.xls'
+        data = bytes.fromhex('d0cf11e0a1b11ae1') + b'synthetic'
+        rows = [['中国建设银行个人活期账户全部交易明细'], ['卡号/账号:123456787332'], [], list(ccb_spreadsheet._DEBIT),
+                ['1', '消费', '人民币元', '钞', '20260101', '-20.00', '80', '示例商户', '']]
+        sheet = SimpleNamespace(nrows=len(rows), ncols=9, row_values=rows.__getitem__)
+        monkeypatch.setattr(xlrd, 'open_workbook', lambda **kwargs: SimpleNamespace(nsheets=1, sheet_by_index=lambda _: sheet))
     with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         install_redesign(cur)
-        cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('ccb_test_1234'),('tonghuashun')")
+        cur.execute("INSERT INTO redesign_test.pams_accounts VALUES (%s),('tonghuashun')", (account_code,))
         wrapped = SchemaCursor(cur)
 
         def execute(request, fn, *, write=False):
@@ -51,11 +69,12 @@ def test_cash_source_upload_review_preview_and_publish(monkeypatch):
         app = FastAPI()
         app.include_router(account_import.router, prefix='/api')
         with TestClient(app) as client:
-            url = '/api/account-import/source-records?account_code=ccb_test_1234&source_name=synthetic&filename=test.csv'
+            url = f'/api/account-import/source-records?account_code={account_code}&source_name=synthetic&filename={filename}'
             assert client.post(url, content=data, headers={'Origin': 'http://other'}).status_code == 403
             client.headers['Origin'] = 'http://testserver'
             staged = client.post(url, content=data)
             assert staged.status_code == 200, staged.text
+            parse.assert_called_once()
             source_id = staged.json()['source_id']
             source = client.get('/api/account-import/source-records/' + source_id).json()
             item = source['items'][0]
@@ -69,6 +88,10 @@ def test_cash_source_upload_review_preview_and_publish(monkeypatch):
             response = client.post('/api/account-import/source-records/' + source_id + '/cash-publish',
                 json={'revision': revision, 'mode': 'all', 'preview_token': preview['preview_token']})
             assert response.status_code == 200 and response.json()['published'] == 1
+            cur.execute('SELECT amount, posting_date FROM redesign_test.pams_cashflow_fact WHERE account_code=%s', (account_code,))
+            fact = cur.fetchone()
+            assert fact['amount'] == -20
+            assert (str(fact['posting_date']) if fact['posting_date'] else None) == ('2026-01-02' if card == '0453' else None)
             broker_url = '/api/account-import/source-records?account_code=tonghuashun&source_name=synthetic&filename=table.xls'
             staged = client.post(broker_url, content=export(event()))
             assert staged.status_code == 200, staged.text
