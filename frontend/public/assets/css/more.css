@@ -24,6 +24,15 @@ body.page-more .accountSyncBadge[data-status="stale"] { color: var(--pams-warnin
 body.page-more .accountSyncBadge[data-status="normal"] { background: color-mix(in srgb, var(--pams-profit) 15%, transparent); }
 body.page-more .accountSyncBadge[data-status="review"] { background: color-mix(in srgb, var(--pams-loss) 15%, transparent); }
 body.page-more .accountSyncBadge[data-status="stale"] { background: color-mix(in srgb, var(--pams-warning) 15%, transparent); }
+body.page-more button.accountSyncBadge { position: relative; min-height: 0; border: 0; line-height: 1.4; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+body.page-more button.accountSyncBadge::after { content: ""; position: absolute; inset: -7px -2px; }
+body.page-more button.accountSyncBadge:focus-visible { outline: 2px solid var(--pams-info); outline-offset: 2px; }
+body.page-more .accountReviewDetails section { margin-bottom: 16px; }
+body.page-more .accountReviewDetails :is(h4,p) { margin: 0 0 8px; overflow-wrap: anywhere; }
+body.page-more .accountReviewDetails p { color: var(--pams-text-muted); }
+body.page-more .accountReviewDetails ul { margin: 0; padding: 0; list-style: none; }
+body.page-more .accountReviewDetails li { padding-block: 9px; border-top: 1px solid var(--pams-line-subtle); overflow-wrap: anywhere; }
+body.page-more .accountReviewDetails a { display: inline-flex; min-height: 44px; align-items: center; text-decoration: underline; }
 body.page-more .accountSyncAmount { color: var(--pams-text-secondary); font-size: 17px; font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 body.page-more .accountSyncCompact dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 8px; margin: 6px 0 0; font-size: 13px; }
 body.page-more .accountSyncCompact dt { color: var(--pams-text-muted); }

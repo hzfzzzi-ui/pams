@@ -11,14 +11,14 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
 from domain.operations.sync_health import read_overseas_quote_health, scheduler_health
-from domain.accounts.sync_status import read_account_sync
+from domain.accounts.sync_status import read_account_sync, review_records
 from domain.imports.source_row_read import source_row_relation
 from domain.investments.portfolio_state import _load_accounts_config
 from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
@@ -67,13 +67,17 @@ def account_sync_status():
 
 
 @router.get('/accounts/{account_code}/source-anomalies')
-def account_source_anomalies(account_code: str, offset: int = 0):
+def account_source_anomalies(account_code: str, offset: int = 0,
+                             kind: Literal['duplicates', 'cashflow', 'investment', 'balance'] = 'duplicates'):
     from domain.accounts.bank_source_status import anomalies
 
     with closing(get_conn()) as conn:
         conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return _norm({'rows': anomalies(cur, account_code, max(0, offset))})
+            offset = max(0, offset)
+            rows = (anomalies(cur, account_code, offset) if kind == 'duplicates'
+                    else review_records(cur, _load_accounts_config(), account_code, kind, offset))
+            return _norm({'rows': rows})
 
 
 def _holding_summary(

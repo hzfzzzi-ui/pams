@@ -60,17 +60,66 @@ def _compact_summary(row, published_at, *, liability, now):
     amount = balance.get('amount')
     if liability and amount is not None:
         amount = str(-abs(Decimal(amount)))
+    reasons = []
+    if row['active']:
+        if source.get('duplicate_count', 0) > 0:
+            reasons.append({'kind': 'duplicates', 'count': source['duplicate_count']})
+        for kind, evidence in (('cashflow', row['cashflow']), ('investment', row['investment']), ('balance', balance)):
+            if evidence.get('status') == 'review' or evidence.get('has_unverified'):
+                reasons.append({'kind': kind})
+        if not synced_at:
+            reasons.append({'kind': 'no_sync'})
     if not row['active']:
         status = 'inactive'
-    elif (not synced_at or source.get('duplicate_count', 0) > 0 or
-          any(item.get('status') == 'review' or item.get('has_unverified') for item in (*activity, balance))):
+    elif reasons:
         status = 'review'
     else:
         local = synced_at.astimezone(_LOCAL)
         year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
         deadline = local.replace(year=year, month=month, day=min(local.day, monthrange(year, month)[1]))
         status = 'stale' if now > deadline else 'normal'
-    return {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day, 'last_synced_at': synced_at}
+    return {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day,
+            'last_synced_at': synced_at, 'review_reasons': reasons}
+
+
+def _latest_cash_snapshots(cur, codes):
+    cur.execute('''WITH latest AS (
+            SELECT account_code, currency, MAX(as_of) AS as_of FROM public.pams_holdings_snapshot
+            WHERE account_code=ANY(%s::text[]) AND major_category='现金'
+            GROUP BY account_code, currency
+        )
+        SELECT h.id, h.account_code, h.as_of, h.currency, h.market_value, h.source_item_id,
+            CASE WHEN r.status='published' THEN r.updated_at END AS published_at
+        FROM latest JOIN public.pams_holdings_snapshot h USING (account_code, currency, as_of)
+        LEFT JOIN public.source_items i ON i.source_item_id=h.source_item_id
+        LEFT JOIN public.source_records r ON r.source_id=i.source_id
+        WHERE h.major_category='现金' ''', (codes,))
+    return cur.fetchall()
+
+
+def review_records(cur, config, account_code, kind, offset):
+    """List the records behind an evidence warning using the same scope as the summary."""
+    account = config.get('accounts', {}).get(account_code)
+    if not account or account_code in _excluded_accounts(config):
+        return []
+    if kind == 'balance':
+        currency = account.get('base_currency', 'CNY')
+        snapshots = sorted((row for row in _latest_cash_snapshots(cur, [account_code])
+                            if row['currency'] == currency), key=lambda row: row['id'])
+        return [{'record_id': row['id'], 'day': row['as_of'], 'currency': currency,
+                 'amount': str(row['market_value']) if row['market_value'] is not None else None}
+                for row in snapshots[offset:offset + 100]]
+    if kind == 'cashflow':
+        rows = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY', account_codes=[account_code])
+        id_key, day_key, amount_key, label_key = 'fact_id', 'transaction_date', 'amount', 'summary'
+    else:
+        rows = load_trade_rows(cur, account_code=account_code, start=date.min, end=date.max)
+        id_key, day_key, amount_key, label_key = 'trade_id', 'trade_date', 'net_cash', 'name'
+    flagged = sorted((row for row in rows if row['source_evidence_status'] != 'verified'),
+                     key=lambda row: (row[day_key], row[id_key]), reverse=True)
+    return [{'record_id': row[id_key], 'day': row[day_key], 'currency': row['currency'],
+             'amount': str(row[amount_key]) if row.get(amount_key) is not None else None,
+             'summary': row.get(label_key)} for row in flagged[offset:offset + 100]]
 
 
 def read_account_sync(cur, config):
@@ -95,19 +144,8 @@ def read_account_sync(cur, config):
     trade_accounts = [row['account_code'] for row in cur.fetchall()]
     trades = {code: load_trade_rows(cur, account_code=code, start=date.min, end=date.max, originals=originals)
               for code in trade_accounts}
-    cur.execute('''WITH latest AS (
-            SELECT account_code, currency, MAX(as_of) AS as_of FROM public.pams_holdings_snapshot
-            WHERE account_code=ANY(%s::text[]) AND major_category='现金'
-            GROUP BY account_code, currency
-        )
-        SELECT h.id, h.account_code, h.as_of, h.currency, h.market_value, h.source_item_id,
-            CASE WHEN r.status='published' THEN r.updated_at END AS published_at
-        FROM latest JOIN public.pams_holdings_snapshot h USING (account_code, currency, as_of)
-        LEFT JOIN public.source_items i ON i.source_item_id=h.source_item_id
-        LEFT JOIN public.source_records r ON r.source_id=i.source_id
-        WHERE h.major_category='现金' ''', (active,))
     balances = defaultdict(list)
-    for row in cur.fetchall():
+    for row in _latest_cash_snapshots(cur, active):
         code = row['account_code']
         if row['currency'] == accounts[code].get('base_currency', 'CNY'):
             balances[code].append(row)
