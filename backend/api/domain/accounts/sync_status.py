@@ -7,7 +7,8 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
-from domain.accounts.credit_card_debt import confirmed_table_net, statement_debts
+from domain.accounts.bank_statement_balance import statement_balances
+from domain.accounts.credit_card_debt import confirmed_table_net
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
@@ -86,6 +87,8 @@ def _compact_summary(row, published_at, *, liability, now, source_balance=None):
               'last_synced_at': synced_at, 'review_reasons': reasons}
     if amount is not None:
         result.update(balance_as_of=as_of, balance_basis=basis)
+        if basis == 'bank_statement':
+            result['balance_label'] = '账单余额'
     return result
 
 
@@ -162,13 +165,19 @@ def read_account_sync(cur, config):
     roots = config.get('account_roots', {})
     groups = {}
     now = datetime.now(_LOCAL)
-    liabilities = {code: accounts[code].get('base_currency', 'CNY') for code in source_status
-                   if accounts[code].get('account_type') == 'liability'}
-    source_balances = statement_debts(cur, liabilities, now.date())
-    if 'ccb_credit_0453' in liabilities and 'ccb_credit_0453' not in source_balances:
+    statement_accounts = {}
+    for code in active:
+        cfg = accounts[code]
+        liability = cfg.get('account_type') == 'liability'
+        if (liability and code in source_status) or (
+            cfg.get('account_type') == 'funding' and cfg.get('truth_source') in {'bank_statement', 'official_statement'}
+        ):
+            statement_accounts[code] = (cfg.get('base_currency', 'CNY'), liability)
+    source_balances = statement_balances(cur, statement_accounts, now.date(), originals=originals)
+    if 'ccb_credit_0453' in statement_accounts and 'ccb_credit_0453' not in source_balances:
         # The user approved table net for this card before an archived balance is available.
         source_balances['ccb_credit_0453'] = confirmed_table_net(
-            cur, 'ccb_credit_0453', currency=liabilities['ccb_credit_0453'], today=now.date(),
+            cur, 'ccb_credit_0453', currency=statement_accounts['ccb_credit_0453'][0], today=now.date(),
             has_duplicate_alerts=bool(source_status['ccb_credit_0453']['duplicate_count']),
         )
     for code, cfg in accounts.items():
