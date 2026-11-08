@@ -159,7 +159,8 @@ export function mount(root, context = {}) {
     for (const [id, step] of [['step-one', 1], ['step-two', 2]]) {
       if (step === state.step) $(id).setAttribute('aria-current', 'step'); else $(id).removeAttribute('aria-current');
     }
-    for (const id of ['save-draft', 'next']) $(id).hidden = state.step !== 1;
+    $('save-draft').hidden = state.step !== 1 || (state.useSourceRecords && state.mode === 'upload' && !state.suspended);
+    $('next').hidden = state.step !== 1;
     for (const id of ['back', 'publish']) $(id).hidden = state.step !== 2 || imageReview;
     $('publish-ready').hidden = state.step !== 2 || imageReview || !state.preview?.can_publish_ready;
     if (!$('publish-ready').hidden) $('publish').hidden = true;
@@ -369,7 +370,12 @@ export function mount(root, context = {}) {
       if (files.length !== 1) throw new Error('新来源模式每次选择一份资料，请分别导入。');
       message(`正在识别 ${files[0].name}…`);
       const batch = await sourceAdapter.stageFile(account().account_code, files[0]);
-      if (useBatch(batch)) message('文件已暂存，请逐条核对识别结果。');
+      if (useBatch(batch)) {
+        if (state.mode === 'upload' && batch.rows.length) {
+          await advanceToReview();
+          message('文件解析成功，请核对识别结果。');
+        } else message('文件已暂存，请核对识别结果。');
+      }
       await history();
       return;
     }
@@ -548,7 +554,7 @@ export function mount(root, context = {}) {
     if (state.suspended) throw new Error('请先继续并保存未完成的记录编辑。');
     if (mappingDirty()) throw new Error('请先保存字段映射后再继续。');
     if (!(state.batch?.rows?.length || images().length)) throw new Error('请先选择文件、截图或填写记录，再进入核对。');
-    await saveDraft();
+    if (state.dirty || !state.useSourceRecords) await saveDraft();
     if (images().length) { state.step = 2; state.imageIndex = 0; render(); } else await makePreview();
     pushFlow(); window.scrollTo(0, 0);
   }

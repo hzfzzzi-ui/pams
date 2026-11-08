@@ -10,12 +10,15 @@ try {
   await page.goto(process.env.PAMS_IMPORT_TEST_URL+'/account_import.html');
   await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
   await page.locator('#account').selectOption(account);
+  const beforeUpload=requests.length;
   await page.locator('#files').setInputFiles({name,mimeType:'application/octet-stream',buffer:Buffer.from(content,'base64')});
-  await page.waitForFunction(()=>document.querySelector('#batch-meta').textContent.includes('草稿'));
-  await page.locator('#next').click();await page.locator('#review').waitFor({state:'visible'});
-  assert.equal(await page.locator('#publish').isDisabled(),true);
-  await page.locator('#preview-rows button').first().click();await page.locator('#editor').waitFor({state:'visible'});
-  await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});
+  await page.locator('#review').waitFor({state:'visible'});
+  assert.ok(requests.slice(beforeUpload).every(url=>!url.endsWith('-publish')));
+  if(account==='ccb_test_1234') {
+   assert.equal(await page.locator('#publish').isDisabled(),true);
+   await page.locator('#preview-rows button').first().click();await page.locator('#editor').waitFor({state:'visible'});
+   await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});
+  }
   await page.waitForFunction(()=>!document.querySelector('#publish').disabled);
   await page.locator('#publish').click();await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('已发布'));
  }
