@@ -32,8 +32,11 @@ def _save_rows(cur, *, source_id, kind, parse_method, rows):
         position = {'row': evidence['row']} if evidence.get('row') is not None else {'row': index}
         if evidence.get('sheet') is not None:
             position['sheet'] = evidence['sheet']
+        if evidence.get('page') is not None:
+            position['page'] = evidence['page']
         item_id = uuid4()
-        source_records_v2.add_item(cur, source_id=source_id, item_id=item_id, parse_method=parse_method,
+        method = 'ocr' if evidence.get('parse_method') == 'ocr' else parse_method
+        source_records_v2.add_item(cur, source_id=source_id, item_id=item_id, parse_method=method,
             raw_fields={'source': evidence, 'initial_fields': row.get('fields') or {}, 'initial_issues': row.get('issues') or []},
             parsed_fields=fields, source_position=position)
         if row.get('excluded'):

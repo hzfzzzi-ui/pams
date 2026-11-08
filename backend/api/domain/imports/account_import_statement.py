@@ -63,17 +63,23 @@ def parse(content, filename, account, kind, mapping=None):
     else:
         # Standard mapped tables share the bounded parser, including formula checks.
         tables = _xlsx(content) if suffix == ".xlsx" else _csv(content) if suffix in {".csv", ".tsv"} else []
-        standard = mapping or any(any("net_cash" in row or "净收付" in row or "现金发生额" in row for row in table[:20]) for _, table in tables)
+        standard = bool(tables) and (mapping or any(
+            any("net_cash" in row or "净收付" in row or "现金发生额" in row for row in table[:20])
+            for _, table in tables))
         if standard:
             result = parse_document(content, filename, "tonghuashun", "cash", mapping)
         else:
             from collectors.bank_statement_parser import parse_statement
-            candidates = profiles().get(account, [])
             if len(candidates) != 1 or suffix not in {".csv", ".xlsx", ".pdf"}:
                 raise ValueError("未识别到唯一账单来源；请核对账户、文件格式或列映射")
+            template = candidates[0].get("statement_template")
+            if template == "guangfa_credit_pdf" and suffix != ".pdf":
+                raise ValueError("广发信用卡请上传银行原始 PDF 账单")
+            if template == "santander_mx_account_csv" and suffix not in {".pdf", ".csv"}:
+                raise ValueError("Santander 请上传银行原始 PDF 月结单或 CSV 明细")
             if suffix == ".pdf" and not content.startswith(b"%PDF-"):
                 raise ValueError("PDF文件签名无效")
-            if suffix == ".pdf":
+            if suffix == ".pdf" and template != "santander_mx_account_csv":
                 from io import BytesIO
                 import pdfplumber
                 with pdfplumber.open(BytesIO(content), password=str(candidates[0].get("pdf_password") or "")) as pdf:
@@ -83,6 +89,8 @@ def parse(content, filename, account, kind, mapping=None):
                 path = Path(directory) / filename
                 path.write_bytes(content)
                 statement = parse_statement(path, candidates[0], since=None)
+            if suffix == ".pdf" and template in {"guangfa_credit_pdf", "santander_mx_account_csv"} and not statement.rows:
+                raise ValueError("本期账单没有所选账户的非零流水，无需导入；余额仍独立核对")
             result = {"rows": [], "headers": [], "warnings": [], "suggested_mapping": {}}
             raw = asdict(statement)
             for index, row in enumerate(raw["rows"], 1):
@@ -94,7 +102,14 @@ def parse(content, filename, account, kind, mapping=None):
                 evidence = _serial(row)
                 if isinstance(evidence.get("raw"), dict):
                     evidence["raw"]["source_file"] = filename
-                result["rows"].append({"fields": fields, "source": {"row": index, "statement_row": evidence}, "issues": []})
+                source = {"row": index, "statement_row": evidence}
+                issues = []
+                if evidence.get("raw", {}).get("parse_method") == "ocr":
+                    source["parse_method"] = "ocr"
+                    source["page"] = evidence["raw"]["page"]
+                    issues.append({"code": "ocr_review_required", "severity": "warning",
+                                   "message": "请对照 Santander 月结单核对识别结果"})
+                result["rows"].append({"fields": fields, "source": source, "issues": issues})
             if statement.statement_balance is not None and statement.statement_end:
                 result["rows"].append({"fields": {"kind": "cash", "asset_type": "cash", "action": "balance",
                     "business_date": str(statement.statement_end), "currency": candidates[0].get("currency", "CNY"),

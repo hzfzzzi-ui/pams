@@ -313,7 +313,7 @@ def _parse_santander_account_row(row: list[str], *, row_idx: int, path: Path, pr
 _GUANGFA_CREDIT_ROW_RE = re.compile(
     r"^(?P<transaction_date>\d{4}/\d{2}/\d{2})\s+"
     r"(?P<posting_date>\d{4}/\d{2}/\d{2})\s+"
-    r"(?P<description>.*?)"
+    r"(?:(?P<description>.+?)\s+)?"
     r"(?P<original_amount>[+-]?[0-9][0-9,]*(?:\.[0-9]+)?)\s*"
     r"(?P<original_currency>人民币|美元|日元|墨西哥比索|其他货币)\s+"
     r"(?P<settlement_amount>[+-]?[0-9][0-9,]*(?:\.[0-9]+)?)\s*"
@@ -687,6 +687,8 @@ def parse_guangfa_credit_pdf(path: Path, profile: dict[str, Any], since: date | 
         if cycle_match:
             statement_start = _parse_date_yyyy_slash(cycle_match.group(1))
             statement_end = _parse_date_yyyy_slash(cycle_match.group(2))
+        if not statement_start or not statement_end or statement_start > statement_end:
+            raise ValueError("无法确认广发账单周期")
 
         for table in pdf.pages[0].extract_tables() or []:
             for row in table:
@@ -708,7 +710,11 @@ def parse_guangfa_credit_pdf(path: Path, profile: dict[str, Any], since: date | 
                 continue
             parsed = _parse_guangfa_credit_transaction_line(raw_line)
             if not parsed:
+                if re.match(r"^\s*\d{4}/\d{2}/\d{2}\s+\d{4}/\d{2}/\d{2}", raw_line):
+                    raise ValueError("广发账单有无法识别的交易行，未生成流水草稿")
                 continue
+            if profile.get("currency") and parsed["settlement_currency"] != profile["currency"]:
+                raise ValueError("广发账单入账币种与所选卡账户不符")
             tx_date = parsed["transaction_date"]
             if since and tx_date < since:
                 continue
@@ -1100,6 +1106,9 @@ def parse_statement(path: str | Path, profile: dict[str, Any], since: date | Non
     if template == "guangfa_credit_pdf":
         return parse_guangfa_credit_pdf(p, profile, since)
     if template == "santander_mx_account_csv":
+        if p.suffix.lower() == ".pdf":
+            from collectors.santander_statement_pdf import parse_santander_pdf
+            return parse_santander_pdf(p, profile, since)
         return parse_santander_mx_account_csv(p, profile, since)
     if template == "manual_statement_csv":
         return parse_manual_statement_csv(p, profile, since)
