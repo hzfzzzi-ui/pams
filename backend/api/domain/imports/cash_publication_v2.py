@@ -7,7 +7,7 @@ import json
 import time
 
 from domain.imports import native_source, native_source_http, source_records_v2
-from domain.imports.cash_preview_v2 import preview_cash
+from domain.imports.cash_preview_v2 import plan_cash, preview_cash
 
 
 def _token(preview: dict, mode: str, bucket: int) -> str:
@@ -32,10 +32,10 @@ def publish(cur, *, source_id, revision: int, mode: str, preview_token: str) -> 
         raise ValueError('import publication is disabled')
     if mode not in {'all', 'ready'} or not isinstance(preview_token, str) or len(preview_token) != 64:
         raise ValueError('invalid publication request')
-    value = preview_cash(cur, source_id=source_id, expected_revision=revision)
+    plan = plan_cash(cur, source_id=source_id, expected_revision=revision, for_write=True)
+    value = plan['preview']
     allowed = value['can_publish'] if mode == 'all' else value['can_publish_ready']
     now = int(time.time() // 30)
     if not allowed or not any(hmac.compare_digest(preview_token, _token(value, mode, now - n)) for n in range(31)):
         raise ValueError('preview expired or source changed')
-    writer = source_records_v2.publish_cash_source if mode == 'all' else source_records_v2.publish_ready_cash_source
-    return writer(cur, source_id=source_id, expected_revision=revision)
+    return source_records_v2.apply_cash_plan(cur, source_id=source_id, plan=plan, defer_unresolved=mode == 'ready')
