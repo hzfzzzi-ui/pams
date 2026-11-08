@@ -447,6 +447,7 @@ _core_router, (
     _build_holdings_summary_payload=lambda *args, **kwargs: _build_holdings_summary_payload(*args, **kwargs),
     _build_holdings_by_account_payload=lambda *args, **kwargs: _build_holdings_by_account_payload(*args, **kwargs),
     _build_latest_fx_rates_payload=lambda *args, **kwargs: _build_latest_fx_rates_payload(*args, **kwargs),
+    _account_owner_ratio=lambda account_code: _account_owner_ratio(account_code),
 )
 app.include_router(_core_router)
 

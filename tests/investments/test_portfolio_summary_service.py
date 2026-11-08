@@ -17,6 +17,7 @@ from domain.investments.portfolio_summary import (  # noqa: E402
     build_holdings_summary_payload,
     build_summary2_from_holdings_latest_payload,
 )
+from domain.investments import account_portfolio_value, nav_trade_source_v2
 
 
 class FakeCursor:
@@ -109,6 +110,35 @@ def test_build_holdings_by_account_payload_preserves_legacy_shape():
     assert "FROM latest_known_holding hs" in sql
     assert "latest_position" not in sql
     assert params == (date(2026, 6, 1), "CNY", date(2026, 6, 1))
+
+
+def test_holdings_by_account_adds_reconciled_cash_once_and_preserves_coverage(monkeypatch):
+    holdings_day, cash_day = date(2026, 6, 2), date(2026, 6, 1)
+    events = [{"trade_date": cash_day, "broker_cash": Decimal("500"),
+               "net_cash": Decimal("-50"), "source_digest": "sheet"}]
+    monkeypatch.setattr(nav_trade_source_v2, "_read_event_prefix", lambda cur: (events, None))
+    row = {"account_code": "tonghuashun", "total_value_base": Decimal("1000.00"),
+           "known_value_base": Decimal("1000.00"), "fx_missing_count": 0,
+           "has_snapshot_cash": False, "single_snapshot_day": True, "holdings_as_of": holdings_day}
+    cur = FakeCursor([{"as_of": holdings_day}, [row], [{"account_code": "tonghuashun", "as_of": holdings_day}]])
+    monkeypatch.setattr("domain.investments.snapshot_coverage.load_account_snapshot_coverage",
+                        lambda cur, pairs: {pair: {"status": "incomplete"} for pair in pairs})
+    item, = build_holdings_by_account_payload(
+        cur, base_currency="CNY", view_as_of=holdings_day, owner_ratio_sql="0.5",
+        owner_ratio_params=[], portfolio_owner_ratio=lambda code: Decimal("0.5"),
+    )["by_account"]
+    assert item["total_value_base"] is None and item["known_value_base"] == "1000.00"
+    assert item["portfolio_value"] == {
+        "amount_base": "1250.00", "cash_base": "250.00", "as_of": "2026-06-02",
+        "cash_as_of": "2026-06-01", "status": "cash_carried_forward",
+    }
+    assert "has_snapshot_cash" not in item
+    assert account_portfolio_value.read_account_portfolio_value(
+        None, {**row, "has_snapshot_cash": True}, as_of=holdings_day,
+        base_currency="CNY", owner_ratio=Decimal("0.5"),
+    ) is None
+    monkeypatch.setattr(nav_trade_source_v2, "_read_event_prefix", lambda cur: (events, holdings_day))
+    assert nav_trade_source_v2.read_reconciled_cash(None, as_of=holdings_day) is None
 
 
 def test_build_summary2_from_holdings_latest_payload_nets_liabilities():

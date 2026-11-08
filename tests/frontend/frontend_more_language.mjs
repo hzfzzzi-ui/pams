@@ -31,10 +31,13 @@ await page.route('**/*',async route=>{
   if(url.pathname==='/api/sync/accounts') return route.fulfill({status:accountUnavailable?503:200,contentType:'application/json',body:JSON.stringify(accountUnavailable?{}:sync)});
   if(url.pathname==='/api/holdings/by-account'){
    assert.equal(url.searchParams.get('base_currency'),'CNY');
+   assert.equal(url.searchParams.get('include_portfolio_cash'),'true');
    return route.fulfill({status:holdingsUnavailable?503:200,contentType:'application/json',
     body:JSON.stringify({base_currency:'CNY',as_of:'2026-11-06',by_account:[
-      {account_code:'tonghuashun',known_value_base:'1234.56',total_value_base:null},
-      {account_code:'ibkr',known_value_base:'7890.12',total_value_base:null},
+      {account_code:'tonghuashun',known_value_base:'1234.56',total_value_base:null,
+        portfolio_value:{amount_base:'1434.56',cash_base:'200.00',as_of:'2026-11-05',cash_as_of:'2026-10-23',status:'cash_carried_forward'}},
+      {account_code:'ibkr',known_value_base:'7890.12',total_value_base:null,
+        portfolio_value:{amount_base:'6890.12',cash_base:'-1000.00',as_of:'2026-11-06',cash_as_of:'2026-11-06',status:'official_close'}},
     ]})});
   }
   if(url.pathname==='/api/sync/accounts/fixture_card/source-anomalies'){
@@ -92,8 +95,8 @@ try{
   assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral','positive','positive']);
   assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
   assert.equal(await page.locator('.accountSyncAmount').nth(2).textContent(),'—');
-  assert.deepEqual(await page.locator('.accountSyncAmount').allTextContents().then(values=>values.slice(3)),['¥1,234.56','¥7,890.12']);
-  assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['已覆盖市值 · 2026-11-06','已覆盖市值 · 2026-11-06']);
+  assert.deepEqual(await page.locator('.accountSyncAmount').allTextContents().then(values=>values.slice(3)),['¥1,434.56','¥6,890.12']);
+  assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
   assert.deepEqual(await page.locator('.accountSyncCompact').first().locator('dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
   assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),1);
   const review=page.getByRole('button',{name:'合成信用卡：待核查'});

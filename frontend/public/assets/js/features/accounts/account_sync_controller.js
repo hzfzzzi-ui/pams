@@ -9,11 +9,14 @@ function withPortfolioAmounts(groups, holdings) {
   return groups.map(group => ({...group, rows: group.rows.map(row => {
     if (!row.active || !portfolioAccounts.has(row.account_code)) return row;
     const value = values.get(row.account_code);
+    const portfolio = value?.portfolio_value;
     const fullAmount = value?.total_value_base;
-    const amount = fullAmount ?? value?.known_value_base ?? null;
+    const amount = portfolio?.amount_base ?? fullAmount ?? value?.known_value_base ?? null;
+    const label = portfolio?.status === 'cash_carried_forward' ? '组合估值' :
+      portfolio || fullAmount != null ? '组合价值' : '已覆盖市值';
     return {...row, summary: {...row.summary, balance_amount: amount,
-      balance_currency: holdings?.base_currency, balance_as_of: holdings?.as_of,
-      balance_label: amount == null ? null : fullAmount == null ? '已覆盖市值' : '组合价值'}};
+      balance_currency: holdings?.base_currency, balance_as_of: portfolio?.as_of ?? holdings?.as_of,
+      balance_label: amount == null ? null : label}};
   })}));
 }
 
@@ -28,7 +31,7 @@ export function createAccountSyncLoader(root, { reads, isActive, compact = false
     try {
       const [data, holdings] = await Promise.all([
         reads.get('account-sync', '/api/sync/accounts', {cache: false}),
-        compact ? reads.get('account-holdings', '/api/holdings/by-account?base_currency=CNY', {cache: false})
+        compact ? reads.get('account-holdings', '/api/holdings/by-account?base_currency=CNY&include_portfolio_cash=true', {cache: false})
           .catch(error => readFallback(error, null)) : null,
       ]);
       if (!isActive()) return;

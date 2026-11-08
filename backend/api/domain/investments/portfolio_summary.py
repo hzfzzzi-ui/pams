@@ -9,6 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from domain.investments.account_portfolio_value import read_account_portfolio_value
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.portfolio_valuation_state import (
     is_published_valuation_fresh_for_date,
@@ -167,6 +168,7 @@ def build_holdings_by_account_payload(
     view_as_of,
     owner_ratio_sql: str,
     owner_ratio_params: tuple[Any, ...] | list[Any],
+    portfolio_owner_ratio=None,
 ) -> dict[str, Any]:
     """Return the legacy /api/holdings/by-account payload."""
     cur.execute("SELECT MAX(as_of) as as_of FROM pams_holdings_snapshot")
@@ -176,6 +178,11 @@ def build_holdings_by_account_payload(
     if not as_of:
         return {"as_of": None, "by_account": []}
 
+    portfolio_columns = """
+            MAX(h.as_of) AS holdings_as_of,
+            COUNT(DISTINCT h.as_of) FILTER (WHERE h.market_value <> 0) <= 1 AS single_snapshot_day,
+            BOOL_OR(h.major_category = '现金' OR LEFT(h.symbol, 5) = 'CASH_') AS has_snapshot_cash,
+    """ if portfolio_owner_ratio is not None else ""
     cur.execute(
         f"""
         WITH {LATEST_KNOWN_HOLDINGS_CTE}, config AS (
@@ -221,6 +228,7 @@ def build_holdings_by_account_payload(
             ) base_fx ON TRUE
         )
         SELECT h.account_code, a.display_name, a.base_currency AS account_currency,
+            {portfolio_columns}
             COUNT(*) AS holdings_count,
             COUNT(*) FILTER (WHERE h.fx_rate IS NULL) AS fx_missing_count,
             MIN(h.fx_rate_as_of) FILTER (WHERE h.currency <> h.base_currency) AS fx_rate_as_of,
@@ -239,12 +247,23 @@ def build_holdings_by_account_payload(
     incomplete = _incomplete_snapshot_accounts(cur, view_as_of)
     items = []
     for raw in rows:
-        item = {key: _norm(value) for key, value in dict(raw).items()}
+        item = {key: _norm(value) for key, value in raw.items()
+                if key not in {'holdings_as_of', 'single_snapshot_day', 'has_snapshot_cash'}}
         if str(item.get('account_code')) in incomplete:
             item.update(known_value_base=item.get('known_value_base', item['total_value_base']),
                         total_value_base=None, snapshot_scope_status='incomplete')
         if item.get('fx_missing_count'):
             item['fx_status'] = 'incomplete'
+        if portfolio_owner_ratio is not None and (
+            item['account_code'] == 'ibkr' or
+            (item['account_code'] == 'tonghuashun' and item['account_code'] in incomplete)
+        ):
+            portfolio = read_account_portfolio_value(
+                cur, raw, as_of=view_as_of, base_currency=base_currency,
+                owner_ratio=portfolio_owner_ratio(item['account_code']),
+            )
+            if portfolio is not None:
+                item['portfolio_value'] = portfolio
         items.append(item)
 
     return {
