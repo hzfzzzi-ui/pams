@@ -6,7 +6,7 @@ const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT
 const browser=await chromium.launch({headless:true});
 const page=await browser.newPage({viewport:{width:390,height:844}});
 const root=path.resolve('frontend/public'), calls=[], errors=[];
-let source=null, kind='cash', publishes=0;
+let source=null, kind='cash', publishes=0, previewUnavailable=true;
 page.on('pageerror',e=>errors.push(e.message));
 await page.route('**/*',async route=>{
  const req=route.request(),url=new URL(req.url()),p=url.pathname;
@@ -25,8 +25,11 @@ await page.route('**/*',async route=>{
   }
   if(p.endsWith('/source-records/s') && req.method()==='GET') return send(source);
   if(p.endsWith('/source-records/s/reviews')) {const body=req.postDataJSON();assert.equal(body.revision,source.revision);source.items[0].parsed_fields=body.items[0].parsed_fields;source.items[0].review_status=body.items[0].review_status;source.revision++;return send({revision:source.revision});}
-  if(p.endsWith('/cash-preview')) {const ready=source.items[0].review_status==='confirmed';return send({revision:source.revision,counts:{ready:ready?1:0,pending:ready?0:1,duplicate:0,invalid:0},rows:[{source_item_id:'i',status:ready?'ready':'pending'}],can_publish:ready,can_publish_ready:false,preview_token:ready?'a'.repeat(64):null});}
-  if(p.endsWith('/trade-preview')) return send({revision:source.revision,items:[{source_item_id:'i'}],preview_token:'b'.repeat(64)});
+  if(p.endsWith('/cash-preview')) {
+   if(previewUnavailable) { previewUnavailable=false; return send({detail:{message:'合成预检暂不可用'}},503); }
+   const ready=source.items[0].review_status==='confirmed';return send({revision:source.revision,counts:{ready:ready?1:0,pending:ready?0:1,duplicate:0,invalid:0},rows:[{source_item_id:'i',status:ready?'ready':'pending'}],can_publish:ready,can_publish_ready:false,preview_token:ready?'a'.repeat(64):null});
+  }
+  if(p.endsWith('/trade-preview')) return send({revision:source.revision,items:[{source_item_id:'i'}],rows:[{source_item_id:'i',status:'ready'}],can_publish:true,preview_token:'b'.repeat(64)});
   if(p.endsWith('/holding-preview')) {
    assert.deepEqual(req.postDataJSON().scope,{revision:source.revision,as_of:'2026-01-02',member_count:1,cash_amount:'12.34',note:'合成范围',confirmed:true});
    return send({revision:source.revision,holdings:[{source_item_id:'i'}],preview_token:'c'.repeat(64)});
@@ -42,21 +45,34 @@ try {
  for(kind of ['cash','trade','holding']) {
   source=null;await page.goto('http://import.invalid/account_import.html');
   await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
+  const uploadStart=calls.length;
+  assert.equal(await page.locator('#save-draft').isVisible(),false);
   await page.locator('#files').setInputFiles({name:'synthetic.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});
-  await page.waitForFunction(()=>document.querySelector('#batch-meta').textContent.includes('草稿'));
+  if(kind==='cash') {
+   await page.getByText('合成预检暂不可用',{exact:true}).waitFor();
+   assert.equal(await page.locator('#intake').isVisible(),true);
+   await page.locator('#next').click();
+  }
+  await page.locator('#review').waitFor({state:'visible'});
+  assert.equal(source.status,'draft');
+  assert.ok(calls.slice(uploadStart).every(([,p])=>!p.endsWith('/reviews')&&!p.endsWith('-publish')));
+  assert.equal(calls.slice(uploadStart).filter(([method,p])=>method==='POST'&&p.endsWith('/source-records')).length,1);
   if(kind==='holding') {
+   await page.locator('#back').click();
+   await page.locator('#intake').waitFor({state:'visible'});
    await page.locator('#completeness').selectOption('complete');
    await page.locator('#holding-scope-date').fill('2026-01-02');
    await page.locator('#holding-scope-count').fill('1');
    await page.locator('#holding-scope-cash').fill('12.34');
    await page.locator('#holding-scope-note').fill('合成范围');
    await page.locator('#holding-scope-confirm').check();
+   await page.locator('#next').click();await page.locator('#review').waitFor({state:'visible'});
   }
-  await page.locator('#next').click();await page.locator('#review').waitFor({state:'visible'});
   assert.equal(await page.locator('#publish').isDisabled(),true);
   await page.locator('#preview-rows button').first().click();await page.locator('#editor').waitFor({state:'visible'});
   await page.locator('#record-form [type=submit]').click();await page.locator('#editor').waitFor({state:'hidden'});
-  await page.waitForFunction(()=>!document.querySelector('#publish').disabled);
+  try { await page.waitForFunction(()=>!document.querySelector('#publish').disabled, null, {timeout:8000}); }
+  catch (error) { throw new Error(`${kind}: ${await page.locator('#notice').textContent()}; ${JSON.stringify(calls.slice(-8))}`, {cause:error}); }
   await page.locator('#publish').click();await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('已发布'));
   assert.equal(source.status,'published');
  }

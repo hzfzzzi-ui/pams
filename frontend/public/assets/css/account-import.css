@@ -79,6 +79,7 @@ body.page-account-import .import-shell { max-width: 430px; height: auto !importa
 .page-account-import .import-values dt { color: var(--pams-text-secondary); }
 .page-account-import .import-values dd { text-align: right; white-space: pre-wrap; }
 .page-account-import .import-actions { position: fixed; z-index: 75; bottom: var(--import-keyboard); left: 50%; transform: translateX(-50%); width: min(430px,100%); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--pams-line-subtle); background: var(--pams-bg-canvas); }
+.page-account-import #save-draft[hidden] + #next { grid-column: 1 / -1; }
 
 
 .page-account-import dialog { position: fixed; inset: auto 0 var(--import-keyboard); width: min(430px,100%); max-width: 100%; max-height: calc(var(--import-view-height, 100dvh) - 12px); margin: 0 auto; padding: 0; border: 1px solid var(--pams-line-strong); border-bottom: 0; border-radius: 8px 8px 0 0; color: var(--pams-text-primary); background: var(--pams-bg-surface); }
