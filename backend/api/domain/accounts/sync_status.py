@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from domain.accounts.bank_source_status import summaries
+from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
@@ -131,7 +131,9 @@ def read_account_sync(cur, config):
               and cfg.get('active', True) and registered.get(code, True)]
     source_status = summaries(cur, active)
     cur.execute("""SELECT account_code, MAX(updated_at) AS synced_at FROM public.source_records
-        WHERE account_code=ANY(%s::text[]) AND status='published' GROUP BY account_code""", (active,))
+        WHERE account_code=ANY(%s::text[]) AND status='published'
+          AND NOT (source_name=%s AND document_type='statement')
+        GROUP BY account_code""", (active, BANK_DUPLICATE_REVIEW_SOURCE))
     published_at = {row['account_code']: row['synced_at'] for row in cur.fetchall()}
     originals = SourceOriginals(cur)
     flows = defaultdict(list)
