@@ -1,7 +1,7 @@
 """Build the same cash publication plan for preview and locked writes."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -37,6 +37,20 @@ def _exists(cur, account, signature, *, official):
             WHERE account_code=%s AND event_date=%s AND amount=%s AND currency=%s LIMIT 1''',
                     (account, *signature))
     return cur.fetchone() is not None
+
+
+def _separate_statement_rows(source, items):
+    if source['acquisition_method'] != 'file' or source['content'] is None:
+        return False
+    positions = set()
+    for item in items:
+        evidence = item['raw_fields'].get('source') or {}
+        position = (item['source_position'] or {}).get('row')
+        if (item['parse_method'] != 'template' or evidence.get('statement') is not True
+                or type(position) is not int or position < 1 or position in positions):
+            return False
+        positions.add(position)
+    return True
 
 
 def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verified_ibkr_ids=False) -> dict:
@@ -75,7 +89,7 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
         record_hash,review_status,review_note FROM public.source_items
         WHERE source_id=%s ORDER BY source_item_id''' + lock, (ident,))
     items = [_record(cur, row) for row in cur.fetchall()]
-    signatures = Counter()
+    groups = defaultdict(list)
     candidates = {}
     statuses = {}
     for item in items:
@@ -98,15 +112,26 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
         except (KeyError, TypeError, ValueError, InvalidOperation):
             statuses[item_id] = 'invalid'
             continue
-        signatures[signature] += 1
+        groups[signature].append(item)
         statuses[item_id] = 'candidate' if item['review_status'] == 'confirmed' else 'pending'
         candidates[item_id] = (signature, (item, item['parsed_fields'], day, posting, amount, currency))
 
+    reviewable = {signature for signature, group in groups.items()
+                  if not verified_ibkr_ids and len(group) > 1 and _separate_statement_rows(source, group)
+                  and not _exists(cur, account, signature, official=False)}
+    distinct = {signature for signature in reviewable if all(
+        item['review_status'] == 'confirmed' and item['parsed_fields'].get('duplicate_decision') == 'distinct'
+        for item in groups[signature])}
     ready = []
+    issues = {}
     for item_id, (signature, fact) in candidates.items():
+        if signature in reviewable and signature not in distinct:
+            issues[item_id] = [{'code': 'possible_duplicate',
+                                'message': '同一账单有同日同额记录，请对照原件逐笔核对。'}]
         if statuses[item_id] != 'candidate':
             continue
-        if signatures[signature] > 1 or _exists(cur, account, signature, official=verified_ibkr_ids):
+        if ((len(groups[signature]) > 1 and signature not in distinct)
+                or _exists(cur, account, signature, official=verified_ibkr_ids)):
             statuses[item_id] = 'duplicate'
         else:
             statuses[item_id] = 'ready'
@@ -116,7 +141,8 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
     preview = {
         'source_id': ident, 'revision': expected_revision,
         'counts': {key: counts[key] for key in ('ready', 'pending', 'duplicate', 'invalid', 'excluded')},
-        'rows': [{'source_item_id': item_id, 'status': status} for item_id, status in statuses.items()],
+        'rows': [{'source_item_id': item_id, 'status': status,
+                  **({'issues': issues[item_id]} if item_id in issues else {})} for item_id, status in statuses.items()],
         'can_publish': bool(ready) and not unresolved,
         'can_publish_ready': bool(ready) and bool(unresolved),
     }
