@@ -18,7 +18,9 @@ function describe(label, data, balanceCurrency = null) {
   return parts.join(' · ');
 }
 
-export function renderAccountSync(panel, groups, loadAnomalies, { showActions = true } = {}) {
+const compactStatuses = { normal: '正常', review: '待核查', stale: '超月未同步', inactive: '已停用' };
+
+export function renderAccountSync(panel, groups, loadAnomalies, { compact = false } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   panel.replaceChildren();
   const doc = panel.ownerDocument;
@@ -27,9 +29,37 @@ export function renderAccountSync(panel, groups, loadAnomalies, { showActions = 
     node.textContent = text;
     return node;
   }
+  function compactEntry(item, row) {
+    const data = row.summary || {};
+    const heading = element('div');
+    heading.className = 'accountSyncCompactHeading';
+    const name = element('div');
+    name.className = 'accountSyncCompactName';
+    const status = Object.hasOwn(compactStatuses, data.status) ? data.status : 'review';
+    const badge = element('span', compactStatuses[status]);
+    badge.className = 'accountSyncBadge';
+    badge.dataset.status = status;
+    name.append(element('h4', row.label), badge);
+    const amount = data.balance_amount;
+    const balance = element('span', amount == null ? '—' :
+      new Intl.NumberFormat('zh-CN', { style: 'currency', currency: row.currency }).format(amount));
+    balance.className = 'accountSyncAmount';
+    balance.dataset.sign = Number(amount) > 0 ? 'positive' : Number(amount) < 0 ? 'negative' : 'neutral';
+    balance.setAttribute('aria-label', '余额 ' + balance.textContent);
+    heading.append(name, balance);
+    const metadata = element('dl');
+    const syncedAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
+    const syncedLabel = syncedAt && Number.isFinite(syncedAt.valueOf())
+      ? localTime.format(syncedAt).replaceAll('/', '-') : '—';
+    metadata.append(element('dt', '最近交易'), element('dd', data.latest_trade_on || '—'),
+      element('dt', '上次同步'), element('dd', syncedLabel));
+    item.classList.add('accountSyncCompact');
+    item.append(heading, metadata);
+  }
   for (const group of groups) {
     const section = element('details');
     section.className = 'accountSyncGroup';
+    section.open = compact;
     const summary = element('summary', group.label);
     const arrow = element('span', '›');
     arrow.setAttribute('aria-hidden', 'true');
@@ -38,6 +68,11 @@ export function renderAccountSync(panel, groups, loadAnomalies, { showActions = 
     for (const row of group.rows) {
       const item = element('article');
       item.className = 'accountSyncEntry';
+      if (compact) {
+        compactEntry(item, row);
+        section.append(item);
+        continue;
+      }
       item.append(element('h4', `${row.label} · ${row.currency}`));
       if (!row.active) {
         item.append(element('p', '已停用'));
@@ -89,18 +124,16 @@ export function renderAccountSync(panel, groups, loadAnomalies, { showActions = 
         item.append(element('p', describe('流水', row.cashflow)));
         if (row.show_investment) item.append(element('p', describe('投资交易', row.investment)));
         item.append(element('p', describe('余额', row.balance, row.currency)));
-        if (showActions) {
-          const review = element('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
-          review.type = 'button';
-          review.className = 'btn';
-          review.dataset.syncBalanceReview = row.account_code;
-          item.append(review);
-        }
+        const review = element('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
+        review.type = 'button';
+        review.className = 'btn';
+        review.dataset.syncBalanceReview = row.account_code;
+        item.append(review);
       }
       if (row.balance.historical_as_of) {
         item.append(element('p', `历史参考 · ${row.balance.historical_as_of}`));
       }
-      if (showActions && row.can_import) {
+      if (row.can_import) {
         const link = element('a', '导入资料');
         link.href = `account_import.html?account=${encodeURIComponent(row.account_code)}`;
         item.append(link);

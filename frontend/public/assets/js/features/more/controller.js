@@ -29,7 +29,7 @@ export function mount(root, context) {
   let alive = true;
   let navGrowthLoaded = false;
   let navGrowthPending;
-  const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, showActions: false });
+  const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true });
 
   function onAccountRetry() { void loadAccountSync(); }
 
