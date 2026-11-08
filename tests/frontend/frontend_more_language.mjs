@@ -7,7 +7,7 @@ const root=path.resolve(process.argv[2]),output=process.env.PAMS_MORE_ARTIFACT_D
 if(output)await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],reports=[];
-let status='ok', accountUnavailable=false, reviewUnavailable=false;
+let status='ok', accountUnavailable=false, reviewUnavailable=false, holdingsUnavailable=false;
 const sync = {groups: [
   {label:'合成银行',rows:[
     {label:'合成人民币',currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
@@ -17,6 +17,10 @@ const sync = {groups: [
   {label:'合成旧账户',rows:[
     {label:'很长的合成外币账户名称',currency:'MXN',summary:{status:'stale',balance_amount:null}},
   ]},
+  {label:'合成券商',rows:[
+    {account_code:'tonghuashun',active:true,label:'合成 A 股账户',currency:'CNY',summary:{status:'normal'}},
+    {account_code:'ibkr',active:true,label:'合成海外券商',currency:'USD',summary:{status:'normal'}},
+  ]},
 ]};
 page.on('pageerror',error=>errors.push(error.message));
 await page.route('**/*',async route=>{
@@ -25,6 +29,17 @@ await page.route('**/*',async route=>{
   calls.push(url.pathname);
   assert.equal(req.method(),'GET');
   if(url.pathname==='/api/sync/accounts') return route.fulfill({status:accountUnavailable?503:200,contentType:'application/json',body:JSON.stringify(accountUnavailable?{}:sync)});
+  if(url.pathname==='/api/holdings/by-account'){
+   assert.equal(url.searchParams.get('base_currency'),'CNY');
+   assert.equal(url.searchParams.get('include_portfolio_cash'),'true');
+   return route.fulfill({status:holdingsUnavailable?503:200,contentType:'application/json',
+    body:JSON.stringify({base_currency:'CNY',as_of:'2026-11-06',by_account:[
+      {account_code:'tonghuashun',known_value_base:'1234.56',total_value_base:null,
+        portfolio_value:{amount_base:'1434.56',cash_base:'200.00',as_of:'2026-11-05',cash_as_of:'2026-10-23',status:'cash_carried_forward'}},
+      {account_code:'ibkr',known_value_base:'7890.12',total_value_base:null,
+        portfolio_value:{amount_base:'6890.12',cash_base:'-1000.00',as_of:'2026-11-06',cash_as_of:'2026-11-06',status:'official_close'}},
+    ]})});
+  }
   if(url.pathname==='/api/sync/accounts/fixture_card/source-anomalies'){
    assert.equal(url.searchParams.get('kind'),'duplicates');
    if(reviewUnavailable)return route.fulfill({status:503,contentType:'application/json',body:'{}'});
@@ -73,13 +88,15 @@ try{
   assert.equal(wrap.gutter,investment.wrap.gutter);assert.ok(wrap.width<=430);assert.equal(await page.locator('.moreHub').evaluate(n=>getComputedStyle(n).display),'block');
   assert.equal(await page.locator('.nav a').count(),0);
   assert.equal(await page.locator('#moreAssetManagement,[data-account-tab],a[href^="account_import.html"],a[href^="accounts.html"]').count(),0);
-  assert.deepEqual(calls.slice(before).sort(),['/api/portfolio/data-quality','/api/sync/accounts']);
+  assert.deepEqual(calls.slice(before).sort(),['/api/holdings/by-account','/api/portfolio/data-quality','/api/sync/accounts']);
   await child.waitFor({state:'visible'});
-  assert.equal(await page.locator('#accountSyncPanel > details[open]').count(),2);
-  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','超月未同步']);
-  assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral']);
+  assert.equal(await page.locator('#accountSyncPanel > details[open]').count(),3);
+  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','超月未同步','正常','正常']);
+  assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral','positive','positive']);
   assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
-  assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
+  assert.equal(await page.locator('.accountSyncAmount').nth(2).textContent(),'—');
+  assert.deepEqual(await page.locator('.accountSyncAmount').allTextContents().then(values=>values.slice(3)),['¥1,434.56','¥6,890.12']);
+  assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
   assert.deepEqual(await page.locator('.accountSyncCompact').first().locator('dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
   assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),1);
   const review=page.getByRole('button',{name:'合成信用卡：待核查'});
@@ -120,6 +137,10 @@ try{
   status='failed';await page.reload();await page.getByText('数据状态暂不可用',{exact:true}).waitFor();await capture(width+'-unknown');
   accountUnavailable=true;await page.reload();await page.getByText('暂时无法读取账户状态。',{exact:true}).waitFor();
   accountUnavailable=false;await page.getByRole('button',{name:'重新读取账户状态'}).click();await account.waitFor();
+  holdingsUnavailable=true;await page.reload();await account.waitFor();
+  assert.equal(await page.locator('.accountSyncAmount').first().textContent(),'¥18,971.58');
+  assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
+  holdingsUnavailable=false;
   reports.push({width,investment,more:{body,primary,wrap,children},states:['normal','advanced','audit-error','long-label','warning','unknown'],overflow:false});
  }
  assert.deepEqual(errors,[]);const report={reports,errors,productionRequests:0,writes:0,fonts:'shared system fallbacks; no external font download'};

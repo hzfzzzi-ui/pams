@@ -150,12 +150,14 @@ def historical_us_position_values(content: bytes, source_account: str, digest: s
     return values
 
 
-def last_publication(cur):
+def last_publication(cur, *, through=None):
+    cutoff = " AND r.period_end <= %s" if through is not None else ""
+    params = (ACCOUNT, SOURCE, through) if through is not None else (ACCOUNT, SOURCE)
     cur.execute("""SELECT r.source_id, r.period_end, r.sha256 FROM public.source_records r
         JOIN public.ibkr_source_originals o ON o.sha256=r.sha256
         WHERE r.account_code=%s AND r.source_name=%s AND r.document_type='holding'
           AND r.status='published' AND r.acquisition_method='api' AND r.period_start=r.period_end
-        ORDER BY r.period_end DESC LIMIT 1""", (ACCOUNT, SOURCE))
+        """ + cutoff + " ORDER BY r.period_end DESC LIMIT 1", params)
     return cur.fetchone()
 
 

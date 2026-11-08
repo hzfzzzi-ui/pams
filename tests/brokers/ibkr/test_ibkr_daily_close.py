@@ -87,6 +87,31 @@ def run(root=None, *, day=DAY, start=None, **kwargs):
     return close.parse_daily_close_evidence(text, account_id=ACCOUNT, as_of=day, period_start=start, **kwargs)
 
 
+def test_account_center_uses_archived_nav_with_negative_cash_and_accruals(monkeypatch):
+    from domain.investments import account_portfolio_value as value
+
+    content = ET.tostring(statement())
+    digest = hashlib.sha256(content).hexdigest()
+
+    class Cursor:
+        def execute(self, sql, params):
+            assert params == (digest,)
+
+        def fetchone(self):
+            return {"content": content}
+
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", ACCOUNT)
+    monkeypatch.setattr(value, "last_publication", lambda cur, *, through: {"period_end": DAY, "sha256": digest})
+    monkeypatch.setattr(value, "historical_fx", lambda cur, **kwargs: {"status": "ok", "rate": D("7")})
+    inputs = {"as_of": DAY, "base_currency": "CNY", "owner_ratio": D("0.5")}
+    assert value.read_account_portfolio_value(Cursor(), {"account_code": "ibkr"}, **inputs) == {
+        "amount_base": "276.50", "cash_base": "-70.00", "as_of": DAY.isoformat(),
+        "cash_as_of": DAY.isoformat(), "status": "official_close",
+    }
+    monkeypatch.setattr(value, "historical_fx", lambda cur, **kwargs: {"status": "unavailable"})
+    assert value.read_account_portfolio_value(Cursor(), {"account_code": "ibkr"}, **inputs) is None
+
+
 def current(root):
     return list(root.iter("EquitySummaryByReportDateInBase"))[-1]
 

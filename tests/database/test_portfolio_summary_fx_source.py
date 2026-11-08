@@ -50,6 +50,16 @@ def test_summary_http_requires_fx_source_and_preserves_estimate(empty_source_db,
         total, account = read()
         assert Decimal(total['total']['value']) == Decimal(account['total_value_base']) == 700
         assert account['fx_precision'] == 'daily_exact'
+        assert 'portfolio_value' not in account
+
+        from domain.investments import account_portfolio_value
+        monkeypatch.setattr(portfolio_summary, '_incomplete_snapshot_accounts', lambda *_: {'tonghuashun'})
+        monkeypatch.setattr(account_portfolio_value, 'read_reconciled_cash', lambda cur, *, as_of: (day, Decimal('20')))
+        result = web.get('/api/holdings/by-account?base_currency=CNY&include_portfolio_cash=true')
+        assert result.status_code == 200, result.text
+        account = next(r for r in result.json()['by_account'] if r['account_code'] == 'tonghuashun')
+        assert account['portfolio_value']['amount_base'] == '720.00'
+        assert account['portfolio_value']['status'] == 'reconciled_cash'
 
 
 def test_summary_cross_rate_requires_both_sources(empty_source_db, monkeypatch):

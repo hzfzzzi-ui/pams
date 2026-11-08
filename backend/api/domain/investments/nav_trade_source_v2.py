@@ -2,6 +2,7 @@
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from itertools import groupby
 
 from domain.imports.account_import_parse import _csv, _xlsx
 from domain.imports.account_import_ths import stable_reference
@@ -159,6 +160,31 @@ def _cash_chain(activity, opening_cash):
     return ordered
 
 
+def _reconciled_day_cash(activity, opening_cash):
+    closing_cash = opening_cash + sum(event['net_cash'] for event in activity)
+    return closing_cash if any(event['broker_cash'] == closing_cash for event in activity) else None
+
+
+def read_reconciled_cash(cur, *, as_of):
+    """Return the last original-backed cash balance on or before the valuation day."""
+    events, gap = _read_event_prefix(cur)
+    if not events or (gap is not None and gap <= as_of):
+        return None
+    cash = events[0]['broker_cash'] - events[0]['net_cash']
+    observed = None
+    for day, group in groupby(events, key=lambda event: event['trade_date']):
+        if day > as_of:
+            break
+        activity = list(group)
+        if len({event['source_digest'] for event in activity}) > 1 and not _cash_chain(activity, cash):
+            return None
+        cash = _reconciled_day_cash(activity, cash)
+        if cash is None:
+            return None
+        observed = day
+    return (observed, cash) if observed is not None else None
+
+
 def daily_estimates(events, prices, dates, symbols):
     """Validate end-of-day cash against the original; return only covered valuations."""
     if not events or not dates:
@@ -181,15 +207,16 @@ def daily_estimates(events, prices, dates, symbols):
             activity = _cash_chain(activity, cash)
             if not activity:
                 return result
+        if activity:
+            cash = _reconciled_day_cash(activity, cash)
+            if cash is None:
+                return result
         for event in activity:
-            cash += event['net_cash']
             if event['trade_type'] in {'buy', 'sell'}:
                 direction = 1 if event['trade_type'] == 'buy' else -1
                 quantities[event['symbol']] += event['quantity'] * direction
                 if quantities[event['symbol']] < 0:
                     return result
-        if activity and cash not in {event['broker_cash'] for event in activity}:
-            return result
         for provider_symbol in symbols.values():
             current = prices.get(provider_symbol, {}).get(day)
             if current is not None:

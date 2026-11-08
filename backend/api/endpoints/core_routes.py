@@ -16,6 +16,7 @@ def create_core_router(
     _build_holdings_summary_payload,
     _build_holdings_by_account_payload,
     _build_latest_fx_rates_payload,
+    _account_owner_ratio,
 ):
     router = APIRouter()
 
@@ -87,7 +88,7 @@ def create_core_router(
 
 
     @router.get("/api/holdings/by-account")
-    def holdings_by_account(base_currency: str = Query("CNY")):
+    def holdings_by_account(base_currency: str = Query("CNY"), include_portfolio_cash: bool = Query(False)):
         """按账户汇总持仓（含汇率换算）"""
         owner_ratio_sql, owner_ratio_params = _owner_ratio_case_sql("h")
         with get_conn() as conn:
@@ -100,6 +101,7 @@ def create_core_router(
                         view_as_of=_holdings_market_view_as_of(cur),
                         owner_ratio_sql=owner_ratio_sql,
                         owner_ratio_params=owner_ratio_params,
+                        portfolio_owner_ratio=_account_owner_ratio if include_portfolio_cash else None,
                     )
                 )
 
