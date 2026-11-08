@@ -41,8 +41,8 @@
     <section class="appWorkHeader">
       <div class="appWorkHeaderTop">
         <div>
-          <h2>账户</h2>
-          <p>查看账户余额、核对差异与内部转账。</p>
+          <h2>账户管理</h2>
+          <p>查看来源确认、流水入库和余额状态。</p>
         </div>
         <div class="appWorkLinks">
           <a class="pill" href="ledger.html">流水</a>
@@ -82,6 +82,12 @@
     </div>
 
     <section id="overview" class="accountPanel" data-account-panel="overview">
+      <p id="accountSyncStatus" role="status">正在读取账户状态…</p>
+      <button id="retryAccountSync" type="button" hidden>重新读取账户状态</button>
+      <div id="accountSyncPanel" aria-label="各账户状态"></div>
+    </section>
+
+    <section id="balance" class="accountPanel" data-account-panel="balance" hidden>
       <div id="accountMobileHero" class="accountMobileHero"></div>
       <div id="accountKpis" class="summaryCards"></div>
       <div id="accountIssueQueue" class="accountIssueQueue"></div>
@@ -113,10 +119,7 @@
         </div>
         <div id="mobileAccountList" class="mobileAccountList"></div>
       </div>
-    </section>
-
-    <section id="balance" class="accountPanel" data-account-panel="balance" hidden>
-      <div class="card">
+      <div class="card" style="margin-top: var(--sp-3);">
         <div class="sectionTitle">
           <h3>余额核准矩阵</h3>
           <div class="muted">首次核准时重点看账单余额、平台余额、手动/在途余额是否符合你的真实资产</div>

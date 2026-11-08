@@ -28,11 +28,13 @@ export function renderAccountSync(panel, groups, loadAnomalies) {
     return node;
   }
   for (const group of groups) {
-    const section = doc.createElement('details');
-    section.append(element('summary', group.label));
+    const section = element('section');
+    section.className = 'accountSyncGroup';
+    section.append(element('h3', group.label));
     for (const row of group.rows) {
-      const item = doc.createElement('section');
-      item.append(element('strong', `${row.label} · ${row.currency}`));
+      const item = element('article');
+      item.className = 'accountSyncEntry';
+      item.append(element('h4', `${row.label} · ${row.currency}`));
       if (!row.active) {
         item.append(element('p', '已停用'));
       } else {
@@ -77,10 +79,17 @@ export function renderAccountSync(panel, groups, loadAnomalies) {
             details.append(element('summary', '疑似重复 · ' + source.duplicate_count + ' 笔'), rows, next);
             item.append(details);
           }
+        } else {
+          item.append(element('p', '来源确认 · 暂无汇总'));
         }
         item.append(element('p', describe('流水', row.cashflow)));
         if (row.show_investment) item.append(element('p', describe('投资交易', row.investment)));
         item.append(element('p', describe('余额', row.balance, row.currency)));
+        const review = element('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
+        review.type = 'button';
+        review.className = 'btn';
+        review.dataset.syncBalanceReview = row.account_code;
+        item.append(review);
       }
       if (row.balance.historical_as_of) {
         item.append(element('p', `历史参考 · ${row.balance.historical_as_of}`));

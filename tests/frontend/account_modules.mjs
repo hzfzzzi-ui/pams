@@ -71,7 +71,7 @@ const {mount} = await load('features/accounts/controller.js');
   const location = {hash: '#balance', pathname: '/accounts.html', search: '?content=1'};
   const context = {win, location, replaceAddress: url => urls.push(url), get: url => {const item = deferred(); reads.push({url, ...item}); return item.promise;}, post: () => {throw new Error('No write during entry');}};
   const page = mount(root, context); assert.equal(mount(root, context), page);
-  assert.equal(root.count('click'), 1); assert.equal(reads.length, 1);
+  assert.equal(root.count('click'), 1); assert.equal(reads.length, 2);
   for (let i = 0; i < initialUrls.length; i++) {
     assert.equal(reads[i].url, initialUrls[i]); reads[i].resolve(responseFor(reads[i].url)); await settle();
   }
@@ -82,14 +82,16 @@ const {mount} = await load('features/accounts/controller.js');
   const snapshot = page.captureUiState(); assert.equal(snapshot.tab, 'balance'); assert.equal(snapshot.since, '2026-08-08');
   page.dispose(); assert.equal(root.count('click'), 0); assert.equal(win.count('pagehide'), 0);
   const restored = mount(root, {...context, restoreState: snapshot});
-  for (let i = 5; i < 10; i++) {reads[i].resolve(responseFor(reads[i].url)); await settle();}
+  const secondStart = initialUrls.length;
+  for (let i = secondStart; i < 2 * secondStart; i++) {reads[i].resolve(responseFor(reads[i].url)); await settle();}
   await restored.ready;
-  assert.equal(reads[8].url, '/api/bank-reconcile/unmatched-rows?since=2026-08-08&limit=500');
+  assert.equal(reads[secondStart + 4].url, '/api/bank-reconcile/unmatched-rows?since=2026-08-08&limit=500');
   assert.equal(root.querySelector('#since').value, '2026-08-08'); assert.equal(root.querySelector('#profileCode').value, 'synthetic_hkd');
   restored.dispose();
   const late = mount(root, context); late.dispose(); root.querySelector('#err').textContent = 'preserve';
-  reads[10].reject(new Error('late config failure')); await late.ready;
-  assert.equal(reads.length, 11); assert.equal(root.querySelector('#err').textContent, 'preserve');
+  reads[2 * secondStart].reject(new Error('late status failure'));
+  reads[2 * secondStart + 1].reject(new Error('late config failure')); await late.ready;
+  assert.equal(reads.length, 2 * secondStart + 2); assert.equal(root.querySelector('#err').textContent, 'preserve');
 }
 const {createActions} = await load('features/accounts/actions.js');
 {
