@@ -7,9 +7,17 @@ const CATEGORY_PIE_COLORS = {
   expense: ['#f85149', '#d29922', '#ff7b72', '#a371f7', '#f0883e', '#db6d28', '#8b949e'],
 };
 
+function displayedOperatingPeriod(period) {
+  return period.classification_status === 'incomplete' ? period.confirmed_operating || {} : period;
+}
+
+function knownAmount(value, formatter = money) {
+  return value == null ? '—' : formatter(value);
+}
+
 export function createLedgerOverview({ root, host, state, model, dom, ChartClass = host.Chart }) {
   const { $, setText } = dom;
-  const { overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, overviewDisposableNet, overviewInvestmentTransfer, overviewOtherTransfer, overviewCashNet, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, overviewPieRows } = model;
+  const { overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, overviewInvestmentTransfer, overviewOtherTransfer, overviewCashNet, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, overviewPieRows } = model;
   let trendChart = null;
   let pieChart = null;
 
@@ -27,18 +35,19 @@ function renderOverviewFlowButtons() {
 
 function renderKpis(data) {
   const period = currentOverviewPeriod(data);
+  const operating = displayedOperatingPeriod(period);
   const investmentTransfer = overviewInvestmentTransfer(data, period);
   const internalTransfer = overviewOtherTransfer(data, period);
-  const disposableNet = overviewDisposableNet(period);
-  setText('kpiMonthIncome', money(period.income || 0));
-  setText('kpiMonthExpense', money(period.expense || 0));
-  setText('kpiDisposableNet', signedMoney(disposableNet));
+  const disposableNet = operating.disposable_net ?? operating.net;
+  setText('kpiMonthIncome', knownAmount(operating.income));
+  setText('kpiMonthExpense', knownAmount(operating.expense));
+  setText('kpiDisposableNet', knownAmount(disposableNet, signedMoney));
   setText('kpiInvestmentTransfer', money(investmentTransfer || 0));
   setText('kpiTransfer', money(internalTransfer || 0));
   setText('kpiPending', String(period.pending_count || 0));
   const netEl = $('kpiDisposableNet');
   if (netEl) {
-    netEl.classList.toggle('up', disposableNet >= 0);
+    netEl.classList.toggle('up', disposableNet != null && disposableNet >= 0);
     netEl.classList.toggle('down', disposableNet < 0);
   }
   const pendingEl = $('kpiPending');
@@ -49,19 +58,24 @@ function renderLedgerMobileHero(data) {
   const el = $('ledgerMobileHero');
   if (!el) return;
   const period = currentOverviewPeriod(data);
-  const disposableNet = overviewDisposableNet(period);
+  const operating = displayedOperatingPeriod(period);
+  const disposableNet = operating.disposable_net ?? operating.net;
+  const partial = period.classification_status === 'incomplete';
+  const prefix = partial ? '已核对' : '';
+  const balanceLabel = partial ? `${overviewPeriodLabel()}已核对可支配结余` : `${overviewPeriodLabel()}可支配结余`;
+  const tone = disposableNet == null ? '' : disposableNet >= 0 ? 'up' : 'down';
   const pending = num(period.pending_count || 0);
   el.innerHTML = `
-    <div class="ledgerMobileLabel">${overviewPeriodLabel()}可支配结余</div>
-    <div class="ledgerMobileValue ${disposableNet >= 0 ? 'up' : 'down'}">${signedMoney(disposableNet)}</div>
+    <div class="ledgerMobileLabel">${balanceLabel}</div>
+    <div class="ledgerMobileValue ${tone}">${knownAmount(disposableNet, signedMoney)}</div>
     <div class="ledgerMobileStats">
       <div class="ledgerMobileStat">
-        <span>收入</span>
-        <strong>${money(period.income || 0)}</strong>
+        <span>${prefix}收入</span>
+        <strong>${knownAmount(operating.income)}</strong>
       </div>
       <div class="ledgerMobileStat">
-        <span>消费</span>
-        <strong class="down">${signedMoney(-Math.abs(num(period.expense || 0)))}</strong>
+        <span>${prefix}消费</span>
+        <strong class="down">${knownAmount(operating.expense, value => signedMoney(-Math.abs(value)))}</strong>
       </div>
       <div class="ledgerMobileStat">
         <span>待确认</span>
@@ -192,7 +206,9 @@ function renderOverviewCategoryInsight(data) {
   renderCategoryBars(
     'overviewCategoryRank',
     rows,
-    `${overviewPeriodLabel()}暂无${overviewFlowLabel(flowType)}流水。`,
+    currentOverviewPeriod(data).classification_status === 'incomplete'
+      ? `暂未核对${overviewFlowLabel(flowType)}分类，待分类流水见流水列表。`
+      : `${overviewPeriodLabel()}暂无${overviewFlowLabel(flowType)}流水。`,
     flowType,
   );
   renderOverviewCategoryPie(rows, flowType);
@@ -205,11 +221,11 @@ function renderCashflowBridge(data) {
   const investmentMovement = overviewInvestmentTransfer(data, period);
   const otherTransfer = overviewOtherTransfer(data, period);
   const internalMovement = num(period.internal_transfer ?? (investmentMovement + otherTransfer));
-  const cashNet = overviewCashNet(data, period);
+  const cashNet = Object.hasOwn(period, 'cash_net') ? period.cash_net : overviewCashNet(data, period);
   const fundingItems = [
     ['内部资金流动', money(internalMovement), 'data'],
     ['投资账户流动', money(investmentMovement), 'data'],
-    ['现金净变化', signedMoney(cashNet), cashNet >= 0 ? 'good' : 'bad'],
+    ['现金净变化', knownAmount(cashNet, signedMoney), cashNet == null ? 'data' : cashNet >= 0 ? 'good' : 'bad'],
   ];
   el.innerHTML = `
     <div class="cashflowBridgeLine">
@@ -271,7 +287,7 @@ function renderTrendChart(data) {
         {
           type: 'bar',
           label: '收入',
-          data: rows.map((r) => num(r.income)),
+          data: rows.map((r) => r.income == null ? null : num(r.income)),
           backgroundColor: 'rgba(63,185,80,.42)',
           borderColor: 'rgba(63,185,80,.8)',
           borderWidth: 1,
@@ -279,7 +295,7 @@ function renderTrendChart(data) {
         {
           type: 'bar',
           label: '消费',
-          data: rows.map((r) => num(r.expense)),
+          data: rows.map((r) => r.expense == null ? null : num(r.expense)),
           backgroundColor: 'rgba(248,81,73,.38)',
           borderColor: 'rgba(248,81,73,.82)',
           borderWidth: 1,
@@ -289,7 +305,7 @@ function renderTrendChart(data) {
           label: '净流入',
           borderDash: [5, 3],
           pointStyle: 'rectRot',
-          data: rows.map((r) => num(r.net)),
+          data: rows.map((r) => r.net == null ? null : num(r.net)),
           borderColor: '#58a6ff',
           backgroundColor: 'rgba(88,166,255,.12)',
           tension: 0.25,

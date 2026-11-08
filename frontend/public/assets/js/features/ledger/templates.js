@@ -74,15 +74,17 @@ function ledgerEditSheetHtml(row) {
   const amount = num(row.amount_cny ?? row.amount);
   const displayAmount = (row.amount_cny == null && originalCurrencyText(row)) || signedMoney(amount);
   const account = accountLabel(row.account_code) || row.account_code || '-';
-  const cashflowType = ledgerEditType(row);
+  const hint = row.classification_hint;
+  const pending = row.flow_type === 'unclassified';
+  const cashflowType = pending ? (hint?.cashflow_type || '') : ledgerEditType(row);
   const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
-  const rawCategory = String(row.category || '').trim();
-  const rawSubcategory = String(row.subcategory || '').trim();
+  const rawCategory = String(hint?.category || row.category || '').trim();
+  const rawSubcategory = String(hint?.subcategory || row.subcategory || '').trim();
   const category = rawCategory && rawCategory !== '未分类' ? rawCategory : (defaultEdit.category || '');
   const subcategory = rawSubcategory || defaultEdit.subcategory || '';
   return `
     <form class="ledgerConfirmSheet ledgerEditSheet" data-ledger-edit-form="${escapeHtml(String(row.id || ''))}">
-      <div class="ledgerConfirmLead">${row.needs_review ? '选择正确口径后保存，这条流水会从待确认中移除。' : '修改会写入底层现金流事实表，并刷新收支和账户统计。'}</div>
+      <div class="ledgerConfirmLead">${hint ? '已按银行摘要预填分类，请核对后保存。' : '核对并保存分类后，收支统计会刷新。'}</div>
       <div class="ledgerConfirmTitle">${escapeHtml(rowTitle(row))}</div>
       <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${escapeHtml(displayAmount)}</div>
       <div class="ledgerConfirmMeta">
@@ -92,7 +94,7 @@ function ledgerEditSheetHtml(row) {
         </div>
         <div>
           <span>当前口径</span>
-          <strong>${escapeHtml(ledgerEditTypeLabel(cashflowType))} / ${escapeHtml(row.coarse_category || '-')}</strong>
+          <strong>${escapeHtml(pending ? '待分类' : ledgerEditTypeLabel(cashflowType))} / ${escapeHtml(row.coarse_category || '-')}</strong>
         </div>
         <div>
           <span>对方</span>
@@ -106,7 +108,8 @@ function ledgerEditSheetHtml(row) {
       <div class="ledgerEditGrid">
         <label>
           <span>流水口径</span>
-          <select class="formInput" data-edit-field="cashflow_type">
+          <select class="formInput" data-edit-field="cashflow_type" required>
+            ${pending ? '<option value="">选择流水口径</option>' : ''}
             ${LEDGER_EDIT_TYPES.map(([value, label]) => `
               <option value="${escapeHtml(value)}" ${value === cashflowType ? 'selected' : ''}>${escapeHtml(label)}</option>
             `).join('')}

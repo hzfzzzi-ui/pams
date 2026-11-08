@@ -287,6 +287,13 @@ def classify_ledger_row(
     subcategory = str(row.get("subcategory") or "")
     cashflow_type = str(row.get("cashflow_type") or "")
     text = _row_text(row)
+    if row.get('classification_status') == 'confirmed' and cashflow_type in {'operating_income', 'operating_expense'}:
+        is_matched = row.get('id') in transfer_row_ids or _payment_proxy_role(row) == 'source'
+        if not is_matched:
+            is_income = cashflow_type == 'operating_income'
+            label = category or ('其他收入' if is_income else '其他支出')
+            return {'flow_type': 'income' if is_income else 'expense', 'coarse_category': label,
+                    'needs_review': False, 'is_operating': True}
 
     if category == "福利资产" and amount >= 0:
         return {
@@ -403,6 +410,13 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     unclassified_count = sum(1 for row in period_rows if row.get("flow_type") == "unclassified")
     if unclassified_count:
         result.update(classification_status="incomplete", unclassified_count=unclassified_count)
+        known_income_count = sum(1 for row in known_rows if row['flow_type'] == 'income' and row['amount_cny'] > 0)
+        known_expense_count = sum(1 for row in known_rows if row['flow_type'] == 'expense' and row['amount_cny'] < 0)
+        result['confirmed_operating'] = {
+            'income': round(income, 2) if known_income_count else None,
+            'expense': round(expense, 2) if known_expense_count else None,
+            'net': round(disposable_net, 2) if known_income_count or known_expense_count else None,
+        }
         for key in ("income", "expense", "net", "disposable_net", "cash_net"):
             result[key] = None
     if missing_fx or missing_transfer_row_fx:
@@ -1338,6 +1352,7 @@ def _serialize_row(row: Mapping[str, Any], *, base_currency: str = 'CNY') -> dic
         "transfer_group_id",
         "review_status",
         "classification_source",
+        "classification_hint",
     ]
     out = {key: row.get(key) for key in keys}
     transaction_date = out.get("transaction_date")
@@ -1429,6 +1444,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
                 confirmed_proxy_roles[decision['from_cashflow_id']] = 'source'
                 confirmed_proxy_roles[decision['to_cashflow_id']] = 'target'
     enriched_rows: list[dict[str, Any]] = []
+    from domain.ledger.cashflow_classification import bank_classification_hint
+
     for raw in cash_rows:
         row = dict(raw)
         if row.get("id") in confirmed_proxy_roles:
@@ -1438,6 +1455,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if row["amount_cny"] is None and not row.get('source_issue'):
             row["fx_status"] = "unavailable"
         row.update(classify_ledger_row(row, transfer_row_ids, payment_proxy_source_row_ids))
+        if row['flow_type'] == 'unclassified':
+            row['classification_hint'] = bank_classification_hint(row)
         if row.get("fx_status") == "unavailable":
             row["needs_review"] = True
         if str(row.get('source_issue') or '').startswith('source_evidence_'):
