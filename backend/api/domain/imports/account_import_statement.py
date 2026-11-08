@@ -38,7 +38,9 @@ def is_statement(account):
 
 
 def public_profile(account):
+    from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
     return {"label": account, "profile": "statement", "default_asset_type": "cash", "kinds": ["cash"],
+            "source_only_cash": account in SOURCE_ONLY_ACCOUNTS,
             "trade_actions": {"cash": ["income", "expense", "transfer", "balance"]}}
 
 
@@ -89,9 +91,13 @@ def parse(content, filename, account, kind, mapping=None):
                 path = Path(directory) / filename
                 path.write_bytes(content)
                 statement = parse_statement(path, candidates[0], since=None)
-            if suffix == ".pdf" and template in {"guangfa_credit_pdf", "santander_mx_account_csv"} and not statement.rows:
+            balance_only = (suffix == ".pdf" and template == "santander_mx_account_csv"
+                            and not statement.rows and statement.statement_balance is not None and statement.statement_end)
+            if suffix == ".pdf" and template in {"guangfa_credit_pdf", "santander_mx_account_csv"} and not statement.rows and not balance_only:
                 raise ValueError("本期账单没有所选账户的非零流水，无需导入；余额仍独立核对")
             result = {"rows": [], "headers": [], "warnings": [], "suggested_mapping": {}}
+            if balance_only:
+                result["verified_balance_only"] = True
             raw = asdict(statement)
             for index, row in enumerate(raw["rows"], 1):
                 fields = {"kind": "cash", "asset_type": "cash", "business_date": str(row["transaction_date"]),

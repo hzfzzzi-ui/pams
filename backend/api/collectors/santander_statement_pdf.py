@@ -63,10 +63,10 @@ def _tesseract(image, deadline, *options):
     return result.stdout.decode("utf-8")
 
 
-def _ocr_page(page, deadline):
+def _ocr_page(page, deadline, resolution=280):
     if not 0 < page.width <= 1000 or not 0 < page.height <= 1000:
         raise ValueError("Santander PDF 页面尺寸不受支持")
-    image = page.to_image(resolution=280).original
+    image = page.to_image(resolution=resolution).original
     tsv = _tesseract(image, deadline, "--psm", "6", "tsv")
     grouped = {}
     for word in csv.DictReader(StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE):
@@ -216,7 +216,7 @@ def parse_santander_pdf(path, profile, since=None):
             if not 1 <= len(pdf.pages) <= 12:
                 raise ValueError("Santander PDF 请一次上传一期月结单（最多 12 页）")
 
-            def pages():
+            def pages(resolution):
                 for index, page in enumerate(pdf.pages, 1):
                     text = page.extract_text(layout=True) or ""
                     remaining = deadline - time.monotonic()
@@ -225,8 +225,17 @@ def parse_santander_pdf(path, profile, since=None):
                     if text.strip():
                         yield index, text, False
                     else:
-                        yield index, _ocr_page(page, deadline), True
+                        yield index, _ocr_page(page, deadline, resolution), True
 
-            return _parse_pages(pages(), path, profile, since)
+            last_error = None
+            # Each rendering must independently pass the account and totals checks.
+            for resolution in (280, 300, 250, 320):
+                try:
+                    return _parse_pages(pages(resolution), path, profile, since)
+                except ValueError as exc:
+                    if '账户号' in str(exc) or 'OCR' in str(exc) or time.monotonic() >= deadline:
+                        raise
+                    last_error = exc
+            raise last_error
     except (KeyError, OverflowError) as exc:
         raise ValueError("Santander PDF 的日期无法核对") from exc

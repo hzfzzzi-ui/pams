@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import date
 
+from domain.accounts.bank_source_status import summaries
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
@@ -52,6 +53,7 @@ def read_account_sync(cur, config):
     accounts = {code: cfg for code, cfg in config.get('accounts', {}).items() if code not in excluded}
     active = [code for code, cfg in accounts.items() if code != 'ccb_fund_subscription_pending'
               and cfg.get('active', True) and registered.get(code, True)]
+    source_status = summaries(cur, active)
     originals = SourceOriginals(cur)
     flows = defaultdict(list)
     for row in load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY',
@@ -93,6 +95,7 @@ def read_account_sync(cur, config):
             'can_import': bool(code in active and registered.get(code) and code != 'tencent_licaitong'),
             'show_investment': cfg.get('account_type') in {'brokerage', 'fund_platform', 'cash_management'} or bool(trades.get(code)),
             'cashflow': _activity(flows[code], 'transaction_date'),
+            'source_data': source_status.get(code),
             'investment': _activity(trades.get(code, ()), 'trade_date'),
             'balance': _balance(cur, balances[code], cfg),
         })

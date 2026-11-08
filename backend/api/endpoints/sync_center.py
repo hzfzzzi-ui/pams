@@ -66,6 +66,16 @@ def account_sync_status():
             return _norm(read_account_sync(cur, _load_accounts_config()))
 
 
+@router.get('/accounts/{account_code}/source-anomalies')
+def account_source_anomalies(account_code: str, offset: int = 0):
+    from domain.accounts.bank_source_status import anomalies
+
+    with closing(get_conn()) as conn:
+        conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            return _norm({'rows': anomalies(cur, account_code, max(0, offset))})
+
+
 def _holding_summary(
     cur,
     *,

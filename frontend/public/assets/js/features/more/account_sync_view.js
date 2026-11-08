@@ -5,7 +5,8 @@ const localTime = new Intl.DateTimeFormat('zh-CN', {
 
 function describe(label, data, balanceCurrency = null) {
   const isBalance = balanceCurrency !== null;
-  const status = { recorded: isBalance ? '已初始化' : '已入库', review: '来源待核对', uninitialized: '待初始化' };
+  const status = { recorded: isBalance ? '已确认' : '已入库', review: '来源待核对',
+    uninitialized: isBalance ? '尚未确认' : '尚未入库' };
   const parts = [`${label} ${status[data.status]}`];
   if (isBalance && data.amount != null) {
     parts.push(new Intl.NumberFormat('zh-CN', { style: 'currency', currency: balanceCurrency }).format(data.amount));
@@ -17,7 +18,7 @@ function describe(label, data, balanceCurrency = null) {
   return parts.join(' · ');
 }
 
-export function renderAccountSync(panel, groups) {
+export function renderAccountSync(panel, groups, loadAnomalies) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   panel.replaceChildren();
   const doc = panel.ownerDocument;
@@ -35,6 +36,48 @@ export function renderAccountSync(panel, groups) {
       if (!row.active) {
         item.append(element('p', '已停用'));
       } else {
+        if (row.source_data) {
+          const source = row.source_data;
+          item.append(element('p', source.documents
+            ? '来源已确认 · ' + source.documents + ' 份 · 流水明细 ' + source.count + ' 笔'
+            : '尚无已确认的来源资料'));
+          if (source.duplicate_count > 0 && loadAnomalies) {
+            const details = element('details');
+            const rows = element('div');
+            const next = element('button', '加载明细');
+            next.type = 'button';
+            let offset = 0;
+            async function load() {
+              if (next.disabled) return;
+              next.disabled = true;
+              next.textContent = '读取中…';
+              try {
+                const result = await loadAnomalies(row.account_code, offset);
+                if (!details.isConnected) return;
+                for (const entry of result.rows) {
+                  const link = element('a', [entry.day, entry.summary, entry.amount + ' ' + entry.currency,
+                    entry.filename, entry.source_position?.row == null ? null : '行 ' + entry.source_position.row]
+                    .filter(Boolean).join(' · '));
+                  link.href = '/api/account-import/source-records/' + encodeURIComponent(entry.source_id) + '/original';
+                  const line = element('p');
+                  line.append(link);
+                  rows.append(line);
+                }
+                offset += result.rows.length;
+                next.hidden = offset >= source.duplicate_count || result.rows.length < 100;
+                next.textContent = '加载更多';
+              } catch {
+                next.textContent = '读取失败，点击重试';
+              } finally { next.disabled = false; }
+            }
+            next.addEventListener('click', load);
+            details.addEventListener('toggle', () => {
+              if (details.open && offset === 0 && !next.hidden) load();
+            });
+            details.append(element('summary', '疑似重复 · ' + source.duplicate_count + ' 笔'), rows, next);
+            item.append(details);
+          }
+        }
         item.append(element('p', describe('流水', row.cashflow)));
         if (row.show_investment) item.append(element('p', describe('投资交易', row.investment)));
         item.append(element('p', describe('余额', row.balance, row.currency)));

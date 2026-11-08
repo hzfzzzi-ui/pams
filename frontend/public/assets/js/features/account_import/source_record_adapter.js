@@ -105,6 +105,10 @@ export function createSourceRecordAdapter(request, recovery) {
       const result = await request(`${path(batch.batch_id)}/${suffix}`,'POST',body);
       return {batch:await loadAfterWrite(batch.batch_id),deferred_batch_id:result.deferred_source_id};
     },
+    async confirmBankSource(batch) {
+      await request(`${path(batch.batch_id)}/confirm-bank-source`, 'POST', {revision:batch.revision});
+      return loadAfterWrite(batch.batch_id);
+    },
     async remove(batch) { return request(`${path(batch.batch_id)}/delete-draft`,'POST',{revision:batch.revision}); },
     original:id => `/api/account-import${path(id)}/original`,
   };
