@@ -223,3 +223,46 @@ def test_published_distinct_review_preserves_source_and_reopens_for_new_member()
         assert set(ids) <= {row["source_item_id"] for row in reopened}
         with pytest.raises(ValueError, match="分组已变化"):
             confirm_distinct(db, [review])
+
+
+def test_account_center_credit_debt_reads_card_sources_without_posting_a_balance():
+    from datetime import date
+
+    from domain.accounts.credit_card_debt import confirmed_table_net, statement_debts
+    from domain.imports.bank_source_confirmation import confirm
+
+    with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        install_redesign(cur)
+        cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('gf_9711'), ('ccb_credit_0453')")
+        db = SchemaCursor(cur)
+        for day, due in (("2026-10-02", "80.00"), ("2026-11-02", "125.30")):
+            sid = uuid4()
+            source_records_v2.create_source(db, source_id=sid, account_code="gf_9711", source_name="synthetic",
+                acquisition_method="file", document_type="cash", filename="statement.pdf", file_format="pdf", content=day.encode())
+            fields = {"business_date": day, "currency": "USD", "net_cash": due, "action": "balance"}
+            source_records_v2.add_item(db, source_id=sid, item_id=uuid4(), parse_method="template",
+                source_position={"row": "statement_balance"}, parsed_fields=fields,
+                raw_fields={"initial_fields": fields, "source": {"balance_candidate": True}})
+            cur.execute("UPDATE redesign_test.source_items SET review_status='excluded' WHERE source_id=%s", (str(sid),))
+            confirm(db, sid, 2)
+
+        sid = uuid4()
+        source_records_v2.create_source(db, source_id=sid, account_code="ccb_credit_0453", source_name="synthetic",
+            acquisition_method="file", document_type="cash", filename="card.csv", file_format="csv", content=b"test")
+        for amount in ("-230.00", "40.60"):
+            fields = {"business_date": "2026-10-31", "posting_date": "2026-11-01", "currency": "CNY", "net_cash": amount}
+            source_records_v2.add_item(db, source_id=sid, item_id=uuid4(), parse_method="template",
+                parsed_fields=fields, raw_fields={"initial_fields": fields})
+        confirm(db, sid, 3)
+
+        today = date(2026, 11, 8)
+        assert statement_debts(db, {"gf_9711": "USD"}, today)["gf_9711"] == {
+            "amount": "-125.30", "as_of": date(2026, 11, 2), "basis": "credit_card_statement",
+        }
+        assert not statement_debts(db, {"gf_9711": "CNY"}, today)
+        assert confirmed_table_net(db, "ccb_credit_0453", currency="CNY", today=today, has_duplicate_alerts=False) == {
+            "amount": "-189.40", "as_of": date(2026, 11, 1), "basis": "credit_card_flow_net",
+        }
+        assert not confirmed_table_net(db, "ccb_credit_0453", currency="CNY", today=today, has_duplicate_alerts=True)
+        cur.execute("SELECT count(*) AS n FROM redesign_test.pams_cashflow_fact")
+        assert cur.fetchone()["n"] == 0

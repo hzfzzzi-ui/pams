@@ -7,6 +7,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
+from domain.accounts.credit_card_debt import confirmed_table_net, statement_debts
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
@@ -50,7 +51,7 @@ def _balance(cur, candidates, config):
             'synced_at': None, 'historical_as_of': history}
 
 
-def _compact_summary(row, published_at, *, liability, now):
+def _compact_summary(row, published_at, *, liability, now, source_balance=None):
     source = row['source_data'] or {}
     activity = (source, row['cashflow'], row['investment'])
     balance = row['balance']
@@ -58,8 +59,11 @@ def _compact_summary(row, published_at, *, liability, now):
     synced_at = max((stamp for stamp in (published_at, *(item.get('synced_at') for item in (*activity, balance)))
                      if stamp is not None), default=None)
     amount = balance.get('amount')
+    as_of, basis = balance.get('as_of'), 'confirmed_snapshot'
     if liability and amount is not None:
         amount = str(-abs(Decimal(amount)))
+    if amount is None and source_balance:
+        amount, as_of, basis = (source_balance[key] for key in ('amount', 'as_of', 'basis'))
     reasons = []
     if row['active']:
         if source.get('duplicate_count', 0) > 0:
@@ -78,8 +82,11 @@ def _compact_summary(row, published_at, *, liability, now):
         year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
         deadline = local.replace(year=year, month=month, day=min(local.day, monthrange(year, month)[1]))
         status = 'stale' if now > deadline else 'normal'
-    return {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day,
-            'last_synced_at': synced_at, 'review_reasons': reasons}
+    result = {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day,
+              'last_synced_at': synced_at, 'review_reasons': reasons}
+    if amount is not None:
+        result.update(balance_as_of=as_of, balance_basis=basis)
+    return result
 
 
 def _latest_cash_snapshots(cur, codes):
@@ -155,6 +162,15 @@ def read_account_sync(cur, config):
     roots = config.get('account_roots', {})
     groups = {}
     now = datetime.now(_LOCAL)
+    liabilities = {code: accounts[code].get('base_currency', 'CNY') for code in source_status
+                   if accounts[code].get('account_type') == 'liability'}
+    source_balances = statement_debts(cur, liabilities, now.date())
+    if 'ccb_credit_0453' in liabilities and 'ccb_credit_0453' not in source_balances:
+        # The user approved table net for this card before an archived balance is available.
+        source_balances['ccb_credit_0453'] = confirmed_table_net(
+            cur, 'ccb_credit_0453', currency=liabilities['ccb_credit_0453'], today=now.date(),
+            has_duplicate_alerts=bool(source_status['ccb_credit_0453']['duplicate_count']),
+        )
     for code, cfg in accounts.items():
         parent, label = _GROUPS.get(code, (cfg.get('parent_account_code') or code, None))
         root = roots.get(parent, {})
@@ -170,7 +186,8 @@ def read_account_sync(cur, config):
             'investment': _activity(trades.get(code, ()), 'trade_date'),
             'balance': _balance(cur, balances[code], cfg),
         }
-        row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability', now=now)
+        row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability',
+                                          now=now, source_balance=source_balances.get(code))
         group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}

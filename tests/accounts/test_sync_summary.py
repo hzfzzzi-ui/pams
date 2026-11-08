@@ -45,6 +45,20 @@ def test_no_successful_sync_does_not_report_normal():
     assert result["review_reasons"] == [{"kind": "no_sync"}]
 
 
+def test_account_center_uses_the_same_amount_field_for_snapshot_and_statement():
+    now = datetime.fromisoformat("2026-11-08T09:00:00+08:00")
+    day = date(2026, 11, 2)
+    row = {"active": True, "source_data": None, "cashflow": {}, "investment": {}, "balance": {}}
+    source = {"amount": "-125.30", "as_of": day, "basis": "credit_card_statement"}
+    result = _compact_summary(row, now, liability=True, now=now, source_balance=source)
+    assert result["balance_amount"] == "-125.30"
+    assert result["balance_as_of"] == day
+    row["balance"] = {"amount": "100.50", "as_of": day}
+    result = _compact_summary(row, now, liability=True, now=now, source_balance=source)
+    assert result["balance_amount"] == "-100.50"
+    assert result["balance_basis"] == "confirmed_snapshot"
+
+
 def test_other_review_reasons_use_same_evidence_as_status_and_list_only_flagged_rows(monkeypatch):
     now = datetime.fromisoformat("2026-11-08T09:00:00+08:00")
     row = {"active": True, "source_data": None, "cashflow": {"has_unverified": True},
