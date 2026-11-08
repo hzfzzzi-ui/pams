@@ -1,5 +1,6 @@
 """Bank PDFs share the source draft, cash preview and publication contract."""
 from contextlib import contextmanager
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -15,8 +16,10 @@ from tests.imports.test_source_record_http import SchemaCursor
 from tests.imports.test_redesigned_fact_schema import install_redesign
 from tests.support.account_import_support import scratch_database
 from collectors import bank_statement_parser, santander_statement_pdf as santander
+from domain.accounts.bank_statement_balance import statement_balances
 from domain.imports import account_import_statement, document_stage_v2, source_records_v2
 from domain.imports.cash_preview_v2 import preview_cash
+from domain.imports.source_original_read import SourceOriginals
 
 
 CHEQUES_PAGE = """PERIODO DEL 01-ENE-2026 AL 31-ENE-2026
@@ -113,6 +116,12 @@ def test_bank_pdf_stages_source_and_publishes_only_cash(monkeypatch, account, cu
         assert {(f["currency"], f["status"]) for f in facts} == {(currency, "pending")}
         expected_posting = {"gf_7443": "2026-01-03", "gf_9711": "2026-01-04"}.get(account)
         assert {f["posting_date"].isoformat() if f["posting_date"] else None for f in facts} == {expected_posting}
+        accounts = {account: (currency, account != "santander")}
+        observed = statement_balances(db, accounts, date(2026, 2, 1), originals=SourceOriginals(db))
+        if account == "santander":
+            assert observed == {account: {"amount": "75.00", "as_of": date(2026, 1, 31), "basis": "bank_statement"}}
+        else:
+            assert observed[account]["basis"] == "credit_card_statement"
 
 
 def test_cash_distinct_review_does_not_bypass_existing_facts():
@@ -226,9 +235,7 @@ def test_published_distinct_review_preserves_source_and_reopens_for_new_member()
 
 
 def test_account_center_credit_debt_reads_card_sources_without_posting_a_balance():
-    from datetime import date
-
-    from domain.accounts.credit_card_debt import confirmed_table_net, statement_debts
+    from domain.accounts.credit_card_debt import confirmed_table_net
     from domain.imports.bank_source_confirmation import confirm
 
     with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -256,10 +263,11 @@ def test_account_center_credit_debt_reads_card_sources_without_posting_a_balance
         confirm(db, sid, 3)
 
         today = date(2026, 11, 8)
-        assert statement_debts(db, {"gf_9711": "USD"}, today)["gf_9711"] == {
+        originals = SourceOriginals(db)
+        assert statement_balances(db, {"gf_9711": ("USD", True)}, today, originals=originals)["gf_9711"] == {
             "amount": "-125.30", "as_of": date(2026, 11, 2), "basis": "credit_card_statement",
         }
-        assert not statement_debts(db, {"gf_9711": "CNY"}, today)
+        assert not statement_balances(db, {"gf_9711": ("CNY", True)}, today, originals=originals)
         assert confirmed_table_net(db, "ccb_credit_0453", currency="CNY", today=today, has_duplicate_alerts=False) == {
             "amount": "-189.40", "as_of": date(2026, 11, 1), "basis": "credit_card_flow_net",
         }

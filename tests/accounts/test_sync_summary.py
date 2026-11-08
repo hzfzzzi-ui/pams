@@ -53,6 +53,9 @@ def test_account_center_uses_the_same_amount_field_for_snapshot_and_statement():
     result = _compact_summary(row, now, liability=True, now=now, source_balance=source)
     assert result["balance_amount"] == "-125.30"
     assert result["balance_as_of"] == day
+    bank = {"amount": "75.00", "as_of": day, "basis": "bank_statement"}
+    result = _compact_summary(row, now, liability=False, now=now, source_balance=bank)
+    assert (result["balance_amount"], result["balance_as_of"], result["balance_label"]) == ("75.00", day, "账单余额")
     row["balance"] = {"amount": "100.50", "as_of": day}
     result = _compact_summary(row, now, liability=True, now=now, source_balance=source)
     assert result["balance_amount"] == "-100.50"
