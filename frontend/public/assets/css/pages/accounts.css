@@ -18,6 +18,14 @@
 .accountTabs button { min-height:44px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--muted); border-radius:0; padding: 0 0 8px; cursor: pointer; font-weight:600; }
 .accountTabs button.active { color:var(--text); border-bottom-color:var(--accent); background:transparent; }
 .accountPanel[hidden] { display: none; }
+.page-accounts .accountSyncGroup { margin: 0 0 var(--sp-4); }
+.page-accounts .accountSyncGroup > h3 { margin: 0 0 var(--sp-2); }
+.page-accounts .accountSyncEntry { padding: var(--sp-3) 0; border-top: 1px solid var(--pams-line-subtle); }
+.page-accounts .accountSyncEntry h4 { margin: 0 0 var(--sp-2); }
+.page-accounts .accountSyncEntry p { margin: 5px 0; color: var(--pams-text-muted); overflow-wrap: anywhere; }
+.page-accounts .accountSyncEntry a { display: inline-flex; min-height: 44px; align-items: center; }
+.page-accounts .accountSyncEntry > button { margin-right: var(--sp-2); }
+.page-accounts #accountSyncStatus:empty { display: none; }
 .accountTable { min-width: 880px; }
 .balanceTable { min-width: 1080px; }
 .accountTable th, .accountTable td,

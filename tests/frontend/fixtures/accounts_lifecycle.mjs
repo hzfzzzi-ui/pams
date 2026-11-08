@@ -30,5 +30,12 @@ export const imports = {
   imports: [{imported_at: '2026-10-30 12:00:00', profile_code: 'synthetic_cny', account_code: 'fixture/cny', source_file: '/synthetic/accounts.csv', row_count: 9, statement_balance: 1000}],
   summary: [{profile_code: 'synthetic_cny', row_count: 9, latest_balance: 999, net_asset_balance: 1000, inflow: 120, outflow: 20, net_flow: 100, latest_balance_date: '2026-10-29', balance_source: 'holding_snapshot'}],
 };
-export const initialUrls = ['/api/bank-reconcile/config', '/api/accounts/overview', '/api/bank-reconcile/transfer-matches', '/api/bank-reconcile/unmatched-rows?since=2026-01-01&limit=500', '/api/bank-reconcile/imports'];
-export const responseFor = url => url.includes('/config') ? config : url.includes('/overview') ? overview : url.includes('/unmatched-rows') ? unmatched : url.includes('/imports') ? imports : matches;
+export const sync = {groups: [{label: '合成银行', rows: [
+  {account_code:'fixture/cny', label:'合成人民币', currency:'CNY', active:true, can_import:true,
+    source_data:{documents:2,count:9,duplicate_count:1}, cashflow:{status:'recorded',count:7},
+    balance:{status:'review'}},
+]}]};
+export const anomalies = {rows:[{source_id:'synthetic-original', source_position:{row:12},
+  day:'2026-10-30', summary:'同日同额', amount:'12.50', currency:'CNY', filename:'synthetic.csv'}]};
+export const initialUrls = ['/api/sync/accounts', '/api/bank-reconcile/config', '/api/accounts/overview', '/api/bank-reconcile/transfer-matches', '/api/bank-reconcile/unmatched-rows?since=2026-01-01&limit=500', '/api/bank-reconcile/imports'];
+export const responseFor = url => url.includes('/source-anomalies') ? anomalies : url.includes('/api/sync/accounts') ? sync : url.includes('/config') ? config : url.includes('/overview') ? overview : url.includes('/unmatched-rows') ? unmatched : url.includes('/imports') ? imports : matches;

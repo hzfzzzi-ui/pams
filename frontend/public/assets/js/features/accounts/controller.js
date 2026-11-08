@@ -1,6 +1,7 @@
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createView } from './view.js';
 import { createActions } from './actions.js';
+import { renderAccountSync } from './account_sync_view.js';
 
 const mounted = new WeakMap();
 const filterValues = {'缺数据': 'missing', '金额差异': 'diff', '日期过期': 'stale', '负余额': 'negative', '在途资金': 'transit'};
@@ -13,6 +14,7 @@ export function mount(root, context) {
   const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const location = context.location || win?.location;
   const find = id => root.querySelector(`#${id}`);
+  const syncPanel = find('accountSyncPanel');
   const restore = context.restoreState;
   const state = {config: null, accountOverview: null, collapsedAccountGroups: new Set(restore?.collapsedGroups || [])};
   if (restore) root.dataset.accountFilter = restore.accountFilter || '';
@@ -62,6 +64,26 @@ export function mount(root, context) {
   }
 
   const loadAccountOverview = () => readInto('overview', '/api/accounts/overview', renderOverview);
+  async function loadAccountSync() {
+    if (!syncPanel) return;
+    const status = find('accountSyncStatus');
+    const retry = find('retryAccountSync');
+    retry.hidden = true;
+    status.textContent = '正在读取账户状态…';
+    try {
+      const data = await reads.get('account-sync', '/api/sync/accounts', {cache: false});
+      if (!alive) return;
+      renderAccountSync(syncPanel, data.groups, (code, offset) =>
+        reads.get('bank-source-anomalies:' + code,
+          '/api/sync/accounts/' + encodeURIComponent(code) + '/source-anomalies?offset=' + offset, {cache:false}));
+      status.textContent = '';
+    } catch (error) {
+      if (alive && !isReadCancelled(error)) {
+        status.textContent = '暂时无法读取账户状态。';
+        retry.hidden = false;
+      }
+    }
+  }
   const loadTransferMatches = () => readInto('matches', '/api/bank-reconcile/transfer-matches', view.renderTransferMatches);
   const loadUnmatchedRows = () => {
     const since = find('since')?.value || state.config?.defaults?.since || '2026-01-01';
@@ -119,6 +141,14 @@ export function mount(root, context) {
     if (!alive || !target || !root.contains(target)) return;
     const tab = target.closest('[data-account-tab]');
     if (tab && root.contains(tab)) {showTab(tab.dataset.accountTab); return;}
+    if (target.closest('#retryAccountSync')) {void loadAccountSync(); return;}
+    const balanceReview = target.closest('[data-sync-balance-review]');
+    if (balanceReview) {
+      const account = state.accountOverview?.accounts?.find(item => item.account_code === balanceReview.dataset.syncBalanceReview);
+      if (account) showDetail(account.subaccount_label || account.display_name || '余额核对', view.accountDetailGrid(account));
+      else showTab('balance');
+      return;
+    }
     // The root also stores data-account-filter; only a filter button is an action.
     const filterChip = target.closest('button[data-account-filter]');
     if (filterChip && root.contains(filterChip)) {
@@ -210,7 +240,7 @@ export function mount(root, context) {
   win?.addEventListener('pagehide', dispose);
   const initial = restore?.tab || (location.hash ? location.hash.slice(1) : 'overview');
   showTab(['overview', 'balance', 'transfers', 'sources'].includes(initial) ? initial : 'overview');
-  controller.ready = load().catch(showError);
+  controller.ready = Promise.all([loadAccountSync(), load().catch(showError)]);
   return controller;
 }
 

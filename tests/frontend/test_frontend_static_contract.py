@@ -1429,12 +1429,12 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "assets/css/style-phone.css" in html
 
 
-def test_more_page_exposes_account_sync_status() -> None:
-    html = _read_public("more.html")
-    controller = _read_public("assets/js/features/more/controller.js")
-    view = _read_public("assets/js/features/more/account_sync_view.js")
-    assert '<details id="accountSyncDetails"' in html
-    assert 'id="accountSyncPanel" aria-live="polite"' in html
+def test_account_management_owns_sync_status() -> None:
+    assert '账户同步中心' not in _read_public("more.html")
+    html = _read_public("accounts.html")
+    controller = _read_public("assets/js/features/accounts/controller.js")
+    view = _read_public("assets/js/features/accounts/account_sync_view.js")
+    assert 'id="accountSyncPanel"' in html
     assert "'/api/sync/accounts'" in controller
     assert "describe('流水', row.cashflow)" in view
     assert "describe('余额', row.balance, row.currency)" in view

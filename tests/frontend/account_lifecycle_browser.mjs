@@ -8,7 +8,7 @@ const {chromium} = await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIG
 const publicRoot = path.resolve(process.argv[2]);
 const html = await readFile(path.join(publicRoot, 'accounts.html'), 'utf8');
 const markup = html.match(/<body[^>]*>([\s\S]*?)<\/body>/)[1].replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
-const fixtureData = JSON.stringify({config: fixtures.config, overview: fixtures.overview, matches: fixtures.matches, unmatched: fixtures.unmatched, imports: fixtures.imports});
+const fixtureData = JSON.stringify({config: fixtures.config, overview: fixtures.overview, matches: fixtures.matches, unmatched: fixtures.unmatched, imports: fixtures.imports, sync: fixtures.sync, anomalies: fixtures.anomalies});
 const browser = await chromium.launch({headless: true, channel: process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL || undefined});
 const page = await browser.newPage({viewport: {width: 390, height: 844}});
 const errors = [], unexpected = [], entryReads = [];
@@ -18,7 +18,7 @@ await page.route('**/*', async route => {
   const request = route.request(), url = new URL(request.url());
   if (url.origin !== 'http://accounts-fixture.invalid' || request.method() !== 'GET') {unexpected.push(`${request.method()} ${url.href}`); return route.abort();}
   if (url.pathname.startsWith('/api/')) {
-    if (!entryMode || !['/api/bank-reconcile/config', '/api/accounts/overview', '/api/bank-reconcile/transfer-matches', '/api/bank-reconcile/unmatched-rows', '/api/bank-reconcile/imports'].includes(url.pathname)) {unexpected.push(url.href); return route.abort();}
+    if (!entryMode || !fixtures.initialUrls.some(item => item.split('?')[0] === url.pathname)) {unexpected.push(url.href); return route.abort();}
     entryReads.push(url.pathname + url.search); return route.fulfill({json: fixtures.responseFor(url.pathname)});
   }
   if (url.pathname === '/') return route.fulfill({contentType: 'text/html', body: `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>固定账户生命周期测试</title>
@@ -29,7 +29,7 @@ import {mount} from '/assets/js/features/accounts/controller.js';
 import {openBottomSheet, closeBottomSheet} from '/assets/js/ui.js';
 window.fixtures = ${fixtureData}; window.markup = ${JSON.stringify(markup)};
 window.reads = []; window.writes = []; window.pendingReads = []; window.holdReads = false;
-window.responseFor = url => url.includes('/config') ? fixtures.config : url.includes('/overview') ? fixtures.overview : url.includes('/unmatched-rows') ? fixtures.unmatched : url.includes('/imports') ? fixtures.imports : fixtures.matches;
+window.responseFor = url => url.includes('/source-anomalies') ? fixtures.anomalies : url.includes('/api/sync/accounts') ? fixtures.sync : url.includes('/config') ? fixtures.config : url.includes('/overview') ? fixtures.overview : url.includes('/unmatched-rows') ? fixtures.unmatched : url.includes('/imports') ? fixtures.imports : fixtures.matches;
 window.context = {
   get: url => {reads.push(url); return holdReads ? new Promise((resolve, reject) => pendingReads.push({resolve,reject})) : Promise.resolve(responseFor(url));},
   post: (url, body) => new Promise((resolve, reject) => writes.push({url, body, resolve, reject})),
@@ -61,7 +61,13 @@ try {
   await page.locator('#b #btnMatchTransfers').evaluate(button => button.click());
   assert.equal(await page.evaluate(() => writes.length), 0);
 
-  await page.locator('#a #mobileAccountList [data-mobile-account-index]').first().click();
+  const accountCard = page.locator('#a #accountSyncPanel article');
+  assert.match(await accountCard.textContent(), /来源已确认.*流水 已入库.*余额 来源待核对/);
+  await accountCard.getByText('疑似重复 · 1 笔', {exact:true}).click();
+  const evidence = accountCard.getByRole('link', {name:/同日同额.*synthetic.csv.*行 12/});
+  await evidence.waitFor({state:'visible'});
+  assert.equal(await evidence.getAttribute('href'), '/api/account-import/source-records/synthetic-original/original');
+  await accountCard.getByRole('button', {name:'核对余额'}).click();
   assert.match(await page.locator('#appBottomSheetBody').textContent(), /核对合成金额/);
   assert.match(await page.locator('#appBottomSheetBody').textContent(), /1,000.00/);
   assert.match(await page.locator('#appBottomSheetBody').textContent(), /980.00/);
@@ -69,6 +75,7 @@ try {
   await page.waitForFunction(() => writes.length === 1);
   assert.deepEqual(await page.evaluate(() => ({url: writes[0].url, body: writes[0].body})), {url: '/api/accounts/fixture%2Fcny/review', body: {action: 'approve', note: '账户核准中心确认当前余额'}});
   await page.evaluate(() => writes[0].resolve(fixtures.overview)); await page.keyboard.press('Escape');
+  await page.locator('#a [data-account-tab="balance"]').click();
   await page.locator('#a #mobileAccountList [data-mobile-account-index]').nth(1).click();
   await page.locator('#appBottomSheetBody [data-account-review]').click(); await page.waitForFunction(() => writes.length === 2);
   assert.deepEqual(await page.evaluate(() => ({url: writes[1].url, body: writes[1].body})), {url: '/api/accounts/fixture%2Fhkd/review', body: {action: 'defer_missing', note: '账户核准中心暂缓当前缺数据项'}});
@@ -84,19 +91,20 @@ try {
   await page.locator('#a #btnMatchTransfers').evaluate(button => {button.click(); button.click();}); await page.waitForFunction(() => writes.length === 3);
   assert.deepEqual(await page.evaluate(() => ({url: writes[2].url, body: writes[2].body})), {url: '/api/bank-reconcile/transfer-matches/run', body: {}});
   await page.evaluate(() => writes[2].resolve(fixtures.matches));
-  await page.waitForFunction(() => reads.length === 8);
+  const readsAfterMatch = fixtures.initialUrls.length + 4;
+  await page.waitForFunction(count => reads.length === count, readsAfterMatch);
   assert.deepEqual(await page.evaluate(() => reads.slice(-3)), ['/api/bank-reconcile/unmatched-rows?since=2026-09-01&limit=500', '/api/bank-reconcile/imports', '/api/accounts/overview']);
   await page.waitForFunction(() => document.querySelector('#a #opMsg').textContent.startsWith('匹配完成：1'));
 
   await page.locator('#a #btnMatchTransfers').click(); await page.waitForFunction(() => writes.length === 4);
   await page.evaluate(() => {accounts.dispose(); rootA.querySelector('#opMsg').textContent = '销毁后保留'; writes[3].resolve(fixtures.matches);});
   await page.waitForTimeout(20);
-  assert.equal(await page.evaluate(() => reads.length), 8); assert.equal(await page.locator('#a #opMsg').textContent(), '销毁后保留');
+  assert.equal(await page.evaluate(() => reads.length), readsAfterMatch); assert.equal(await page.locator('#a #opMsg').textContent(), '销毁后保留');
   assert.equal(await page.evaluate(() => rootA.clickListeners.size), 0);
   await page.locator('#a #btnMatchTransfers').click(); assert.equal(await page.evaluate(() => writes.length), 4);
-  await page.evaluate(() => {holdReads = true; window.late = mountAccounts(rootA, context); late.dispose(); rootA.querySelector('#err').textContent = '新的页面'; pendingReads[0].reject(new Error('旧请求失败'));});
+  await page.evaluate(() => {holdReads = true; window.late = mountAccounts(rootA, context); late.dispose(); rootA.querySelector('#err').textContent = '新的页面'; for (const request of pendingReads) request.reject(new Error('旧请求失败'));});
   await page.evaluate(() => late.ready);
-  assert.equal(await page.locator('#a #err').textContent(), '新的页面'); assert.equal(await page.evaluate(() => reads.length), 9);
+  assert.equal(await page.locator('#a #err').textContent(), '新的页面'); assert.equal(await page.evaluate(() => reads.length), readsAfterMatch + 2);
 
   // Direct entry and persisted lifecycle replay use the real entry module. Only
   // GET fixtures are available, so a replayed review/match would fail this test.
@@ -105,6 +113,7 @@ try {
   await page.goto('http://accounts-fixture.invalid/accounts.html?content=1');
   await page.evaluate(async () => {window.entry = await import('/assets/js/bank_reconcile.js'); await entry.mount().ready;});
   assert.deepEqual(entryReads, fixtures.initialUrls);
+  await page.locator('[data-account-tab="balance"]').click();
   await page.locator('[data-account-filter="缺数据"]').click();
   await page.locator('[data-account-tab="sources"]').click(); await page.locator('[data-profile="synthetic_hkd"]').click();
   assert.equal(await page.locator('#profileCode').inputValue(), 'synthetic_hkd');
@@ -122,7 +131,7 @@ try {
   await page.evaluate(() => entry.mount().ready);
   // The existing API layer retains its account overview TTL across BFCache.
   // Logical read ordering is asserted above/in VM; this verifies no cache bypass.
-  assert.deepEqual(entryReads.slice(5), ['/api/bank-reconcile/config', '/api/bank-reconcile/transfer-matches', '/api/bank-reconcile/unmatched-rows?since=2026-08-08&limit=500', '/api/bank-reconcile/imports']);
+  assert.deepEqual(entryReads.slice(fixtures.initialUrls.length), ['/api/sync/accounts', '/api/bank-reconcile/config', '/api/bank-reconcile/transfer-matches', '/api/bank-reconcile/unmatched-rows?since=2026-08-08&limit=500', '/api/bank-reconcile/imports']);
   assert.equal(await page.locator('#profileCode').inputValue(), 'synthetic_hkd');
   assert.equal(await page.locator('#since').inputValue(), '2026-08-08');
   assert.equal(await page.locator('[data-account-tab="transfers"]').evaluate(el => el.classList.contains('active')), true);

@@ -597,7 +597,7 @@ export function mount(root, context = {}) {
     if (sourceOnly()) {
       if (!editable() || !state.preview || state.dirty || state.conflict || state.needsRefresh) return;
       useBatch(await sourceAdapter.confirmBankSource(state.batch));
-      message('资料已确认，可在账户同步中心查看。');
+      message('资料已确认，可在「账户管理」查看。');
       await history();
       return;
     }
