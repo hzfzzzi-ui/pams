@@ -49,11 +49,20 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     name.append(element('h4', row.label), badge);
     const amount = data.balance_amount;
     const balance = element('span', amount == null ? '—' :
-      new Intl.NumberFormat('zh-CN', { style: 'currency', currency: row.currency }).format(amount));
+      new Intl.NumberFormat('zh-CN', { style: 'currency', currency: data.balance_currency || row.currency }).format(amount));
     balance.className = 'accountSyncAmount';
     balance.dataset.sign = Number(amount) > 0 ? 'positive' : Number(amount) < 0 ? 'negative' : 'neutral';
-    balance.setAttribute('aria-label', '余额 ' + balance.textContent);
-    heading.append(name, balance);
+    const amountLabel = data.balance_label || '余额';
+    balance.setAttribute('aria-label', amountLabel + ' ' + balance.textContent);
+    if (data.balance_label) {
+      const value = element('div');
+      value.className = 'accountSyncAmountWithLabel';
+      const label = element('small', [amountLabel, data.balance_as_of].filter(Boolean).join(' · '));
+      value.append(balance, label);
+      heading.append(name, value);
+    } else {
+      heading.append(name, balance);
+    }
     const metadata = element('dl');
     const syncedAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
     const syncedLabel = syncedAt && Number.isFinite(syncedAt.valueOf())
