@@ -27,7 +27,7 @@ for(const value of [null,{}, {data_quality:{summary:{status:'ok'}}}]) assert.thr
 
 def test_only_hub_scoped_style_and_confirmed_navigation():
     html = (PUBLIC / "more.html").read_text(encoding="utf-8")
-    assert html.count('href="account_import.html"') == 1
+    assert 'href="account_import.html"' not in html
     assert 'class="statusbar"' not in html and "LIVE" not in html
     assert 'id="moreAdvanced" class="moreAdvanced">' in html
     assert 'id="moreIssues"' in html and 'hidden>' in html
@@ -47,7 +47,7 @@ def test_more_uses_investment_tokens_without_new_font_or_financial_code():
     html = (PUBLIC / "more.html").read_text(encoding="utf-8")
     assert "more.css" in html
     assert "more.js" in html
-    assert html.count('class="moreRow" href=') == 4
+    assert html.count('class="moreRow" href=') == 2
     assert 'href="research.html"' not in html
 
 
