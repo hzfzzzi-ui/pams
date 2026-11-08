@@ -228,7 +228,7 @@ def test_published_distinct_review_preserves_source_and_reopens_for_new_member()
 def test_account_center_credit_debt_reads_card_sources_without_posting_a_balance():
     from datetime import date
 
-    from domain.accounts.credit_card_debt import ccb_0453_table_debt, statement_debts
+    from domain.accounts.credit_card_debt import confirmed_table_net, statement_debts
     from domain.imports.bank_source_confirmation import confirm
 
     with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -257,12 +257,12 @@ def test_account_center_credit_debt_reads_card_sources_without_posting_a_balance
 
         today = date(2026, 11, 8)
         assert statement_debts(db, {"gf_9711": "USD"}, today)["gf_9711"] == {
-            "balance_amount": "-125.30", "balance_as_of": date(2026, 11, 2), "balance_basis": "credit_card_statement",
+            "amount": "-125.30", "as_of": date(2026, 11, 2), "basis": "credit_card_statement",
         }
         assert not statement_debts(db, {"gf_9711": "CNY"}, today)
-        assert ccb_0453_table_debt(db, currency="CNY", today=today, has_duplicate_alerts=False) == {
-            "balance_amount": "-189.40", "balance_as_of": date(2026, 11, 1), "balance_basis": "credit_card_flow_net",
+        assert confirmed_table_net(db, "ccb_credit_0453", currency="CNY", today=today, has_duplicate_alerts=False) == {
+            "amount": "-189.40", "as_of": date(2026, 11, 1), "basis": "credit_card_flow_net",
         }
-        assert not ccb_0453_table_debt(db, currency="CNY", today=today, has_duplicate_alerts=True)
+        assert not confirmed_table_net(db, "ccb_credit_0453", currency="CNY", today=today, has_duplicate_alerts=True)
         cur.execute("SELECT count(*) AS n FROM redesign_test.pams_cashflow_fact")
         assert cur.fetchone()["n"] == 0
