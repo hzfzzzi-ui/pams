@@ -52,8 +52,18 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
       new Intl.NumberFormat('zh-CN', { style: 'currency', currency: row.currency }).format(amount));
     balance.className = 'accountSyncAmount';
     balance.dataset.sign = Number(amount) > 0 ? 'positive' : Number(amount) < 0 ? 'negative' : 'neutral';
-    balance.setAttribute('aria-label', '余额 ' + balance.textContent);
-    heading.append(name, balance);
+    const basis = data.balance_basis === 'credit_card_statement' ? '账单应还'
+      : data.balance_basis === 'credit_card_flow_net' ? '表内推算' : '';
+    balance.setAttribute('aria-label', (basis || '余额') + ' ' + balance.textContent);
+    if (basis && data.balance_as_of) {
+      const value = element('div');
+      value.className = 'accountSyncBalanceDisplay';
+      const note = element('small', basis + ' · ' + data.balance_as_of);
+      value.append(balance, note);
+      heading.append(name, value);
+    } else {
+      heading.append(name, balance);
+    }
     const metadata = element('dl');
     const syncedAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
     const syncedLabel = syncedAt && Number.isFinite(syncedAt.valueOf())

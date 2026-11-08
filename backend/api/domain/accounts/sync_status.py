@@ -7,6 +7,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
+from domain.accounts.credit_card_debt import ccb_0453_table_debt, statement_debts
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
@@ -155,6 +156,14 @@ def read_account_sync(cur, config):
     roots = config.get('account_roots', {})
     groups = {}
     now = datetime.now(_LOCAL)
+    liabilities = {code: accounts[code].get('base_currency', 'CNY') for code in active
+                   if accounts[code].get('account_type') == 'liability'}
+    card_amounts = statement_debts(cur, liabilities, now.date())
+    if 'ccb_credit_0453' in liabilities:
+        card_amounts['ccb_credit_0453'] = ccb_0453_table_debt(
+            cur, currency=liabilities['ccb_credit_0453'], today=now.date(),
+            has_duplicate_alerts=bool(source_status['ccb_credit_0453']['duplicate_count']),
+        )
     for code, cfg in accounts.items():
         parent, label = _GROUPS.get(code, (cfg.get('parent_account_code') or code, None))
         root = roots.get(parent, {})
@@ -171,6 +180,7 @@ def read_account_sync(cur, config):
             'balance': _balance(cur, balances[code], cfg),
         }
         row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability', now=now)
+        row['summary'].update(card_amounts.get(code, {}))
         group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}

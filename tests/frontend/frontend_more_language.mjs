@@ -12,6 +12,7 @@ const sync = {groups: [
   {label:'合成银行',rows:[
     {label:'合成人民币',currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
     {account_code:'fixture_card',label:'合成信用卡',currency:'CNY',summary:{status:'review',balance_amount:'-1286.40',
+      balance_as_of:'2026-11-02',balance_basis:'credit_card_statement',
       review_reasons:[{kind:'duplicates',count:101}]}},
   ]},
   {label:'合成旧账户',rows:[
@@ -79,6 +80,7 @@ try{
   assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','超月未同步']);
   assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral']);
   assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
+  await page.getByText('账单应还 · 2026-11-02',{exact:true}).waitFor();
   assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
   assert.deepEqual(await page.locator('.accountSyncCompact').first().locator('dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
   assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),1);
