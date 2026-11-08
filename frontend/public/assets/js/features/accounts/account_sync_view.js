@@ -20,7 +20,7 @@ function describe(label, data, balanceCurrency = null) {
 
 const compactStatuses = { normal: '正常', review: '待核查', stale: '超月未同步', inactive: '已停用' };
 
-export function renderAccountSync(panel, groups, loadAnomalies, { compact = false } = {}) {
+export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   panel.replaceChildren();
   const doc = panel.ownerDocument;
@@ -36,7 +36,14 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     const name = element('div');
     name.className = 'accountSyncCompactName';
     const status = Object.hasOwn(compactStatuses, data.status) ? data.status : 'review';
-    const badge = element('span', compactStatuses[status]);
+    const actionable = status === 'review' && openReview;
+    const badge = element(actionable ? 'button' : 'span', compactStatuses[status]);
+    if (actionable) {
+      badge.type = 'button';
+      badge.setAttribute('aria-label', row.label + '：待核查');
+      badge.setAttribute('aria-haspopup', 'dialog');
+      badge.addEventListener('click', () => openReview(row));
+    }
     badge.className = 'accountSyncBadge';
     badge.dataset.status = status;
     name.append(element('h4', row.label), badge);

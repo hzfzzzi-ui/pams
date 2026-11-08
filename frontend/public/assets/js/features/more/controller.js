@@ -1,5 +1,6 @@
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createAccountSyncLoader } from '../accounts/account_sync_controller.js';
+import { showAccountReview } from '../accounts/account_review_sheet.js';
 
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
@@ -18,7 +19,7 @@ export function mount(root, context) {
   if (!root?.querySelector) throw new TypeError('More page root is required');
   const current = mounted.get(root);
   if (current) return current;
-  const {get, renderExplanation, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
+  const {get, renderExplanation, openSheet, closeSheet, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
   const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const find = id => root.querySelector(`#${id}`);
   const row = find('moreIssues');
@@ -29,7 +30,17 @@ export function mount(root, context) {
   let alive = true;
   let navGrowthLoaded = false;
   let navGrowthPending;
-  const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true });
+  let reviewPanel;
+  function openReview(account) {
+    reviewPanel = openSheet(account.label + ' · 待核查');
+    if (!reviewPanel) return;
+    showAccountReview(reviewPanel, account, (kind, offset) =>
+      reads.get('account-review:' + account.account_code + ':' + kind,
+        '/api/sync/accounts/' + encodeURIComponent(account.account_code) +
+        '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}));
+  }
+  const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true,
+    openReview: openSheet ? openReview : undefined });
 
   function onAccountRetry() { void loadAccountSync(); }
 
@@ -80,6 +91,7 @@ export function mount(root, context) {
     if (!alive) return;
     alive = false;
     reads.dispose();
+    if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
     accountRetry?.removeEventListener('click', onAccountRetry);
     win?.removeEventListener('pagehide', dispose);

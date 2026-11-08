@@ -7,11 +7,12 @@ const root=path.resolve(process.argv[2]),output=process.env.PAMS_MORE_ARTIFACT_D
 if(output)await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],reports=[];
-let status='ok', accountUnavailable=false;
+let status='ok', accountUnavailable=false, reviewUnavailable=false;
 const sync = {groups: [
   {label:'合成银行',rows:[
     {label:'合成人民币',currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
-    {label:'合成信用卡',currency:'CNY',source_data:{duplicate_count:88},summary:{status:'review',balance_amount:'-1286.40'}},
+    {account_code:'fixture_card',label:'合成信用卡',currency:'CNY',summary:{status:'review',balance_amount:'-1286.40',
+      review_reasons:[{kind:'duplicates',count:101}]}},
   ]},
   {label:'合成旧账户',rows:[
     {label:'很长的合成外币账户名称',currency:'MXN',summary:{status:'stale',balance_amount:null}},
@@ -24,6 +25,15 @@ await page.route('**/*',async route=>{
   calls.push(url.pathname);
   assert.equal(req.method(),'GET');
   if(url.pathname==='/api/sync/accounts') return route.fulfill({status:accountUnavailable?503:200,contentType:'application/json',body:JSON.stringify(accountUnavailable?{}:sync)});
+  if(url.pathname==='/api/sync/accounts/fixture_card/source-anomalies'){
+   assert.equal(url.searchParams.get('kind'),'duplicates');
+   if(reviewUnavailable)return route.fulfill({status:503,contentType:'application/json',body:'{}'});
+   const offset=Number(url.searchParams.get('offset'));
+   assert.ok([0,100].includes(offset));
+   const rows=Array.from({length:offset?1:100},(_,i)=>({day:'2026-11-01',currency:'CNY',amount:-12.5,
+     summary:'合成摘要',source_id:'fixture-source',filename:'合成账单.xls',source_position:{row:offset+i+2}}));
+   return route.fulfill({contentType:'application/json',body:JSON.stringify({rows})});
+  }
   assert.ok(['/api/portfolio/data-quality','/api/portfolio/equity-bridge'].includes(url.pathname),url.pathname);
   if(status==='failed'||url.pathname.endsWith('/equity-bridge'))return route.fulfill({status:503,contentType:'application/json',body:'{}'});
   return route.fulfill({contentType:'application/json',body:JSON.stringify({data_quality:{summary:{status,error_count:0,warning_count:status==='ok'?0:2}}})});
@@ -71,7 +81,23 @@ try{
   assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
   assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
   assert.deepEqual(await page.locator('.accountSyncCompact').first().locator('dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
-  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),0);
+  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),1);
+  const review=page.getByRole('button',{name:'合成信用卡：待核查'});
+  const sheet=page.getByRole('dialog');
+  reviewUnavailable=true;
+  await review.focus();await page.keyboard.press('Enter');
+  await sheet.getByText('疑似重复 · 101 笔',{exact:true}).waitFor();
+  await sheet.getByText('记录读取失败。',{exact:true}).waitFor();
+  reviewUnavailable=false;
+  await sheet.getByRole('button',{name:'重试'}).click();
+  const original=sheet.getByRole('link',{name:'合成账单.xls · 第 2 行',exact:true});
+  await original.waitFor();
+  assert.equal(await original.getAttribute('href'),'/api/account-import/source-records/fixture-source/original');
+  await sheet.getByRole('button',{name:'加载更多'}).click();
+  await sheet.getByRole('link',{name:'合成账单.xls · 第 102 行',exact:true}).waitFor();
+  assert.equal(await sheet.getByRole('link').count(),101);
+  await page.keyboard.press('Escape');await sheet.waitFor({state:'hidden'});
+  assert.equal(await review.evaluate(n=>n===document.activeElement),true);
   assert.equal(new URL(page.url()).pathname,'/more.html');
   await capture(width+'-account-open');
   await account.click();
