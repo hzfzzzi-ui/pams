@@ -4,7 +4,7 @@ from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from PIL import Image
 import psycopg2
@@ -113,3 +113,44 @@ def test_bank_pdf_stages_source_and_publishes_only_cash(monkeypatch, account, cu
         assert {(f["currency"], f["status"]) for f in facts} == {(currency, "pending")}
         expected_posting = {"gf_7443": "2026-01-03", "gf_9711": "2026-01-04"}.get(account)
         assert {f["posting_date"].isoformat() if f["posting_date"] else None for f in facts} == {expected_posting}
+
+
+def test_cash_distinct_review_does_not_bypass_existing_facts():
+    source = source_records_v2
+    with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        install_redesign(cur)
+        db = SchemaCursor(cur)
+        fields = {"business_date": "2026-10-26", "net_cash": "1.00", "currency": "USD"}
+
+        def draft(account, content):
+            sid = uuid4()
+            source.create_source(db, source_id=sid, account_code=account, source_name="synthetic",
+                                 acquisition_method="file", document_type="cash", filename="test.pdf",
+                                 file_format="pdf", content=content)
+            item_ids = [uuid4(), uuid4()]
+            for idx, item in enumerate(item_ids, 1):
+                source.add_item(db, source_id=sid, item_id=item, parse_method="template",
+                    source_position={"row": idx}, raw_fields={"source": {"statement": True, "row": idx}},
+                    parsed_fields=fields)
+            return sid, item_ids
+
+        def review(sid, item, revision, distinct):
+            return source.review_item(db, source_id=sid, item_id=item, expected_revision=revision,
+                parsed_fields={**fields, **({"duplicate_decision": "distinct"} if distinct else {})},
+                review_status="confirmed")
+
+        sid, (first, second) = draft("bank-a", b"synthetic original")
+        revision = review(sid, first, 3, True)
+        preview = preview_cash(db, source_id=sid, expected_revision=revision)
+        assert not preview["can_publish"] and preview["counts"]["duplicate"] == 1
+        assert all(row["issues"][0]["code"] == "possible_duplicate" for row in preview["rows"])
+        revision = review(sid, second, revision, True)
+        assert preview_cash(db, source_id=sid, expected_revision=revision)["counts"]["ready"] == 2
+        assert source.publish_cash_source(db, source_id=sid, expected_revision=revision)["published"] == 2
+
+        other, (first, second) = draft("bank-a", b"another synthetic original")
+        revision = review(other, first, 3, True)
+        revision = review(other, second, revision, True)
+        preview = preview_cash(db, source_id=other, expected_revision=revision)
+        assert not preview["can_publish"] and preview["counts"]["duplicate"] == 2
+        assert all("issues" not in row for row in preview["rows"])
