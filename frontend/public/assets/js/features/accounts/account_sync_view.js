@@ -28,9 +28,13 @@ export function renderAccountSync(panel, groups, loadAnomalies) {
     return node;
   }
   for (const group of groups) {
-    const section = element('section');
+    const section = element('details');
     section.className = 'accountSyncGroup';
-    section.append(element('h3', group.label));
+    const summary = element('summary', group.label);
+    const arrow = element('span', '›');
+    arrow.setAttribute('aria-hidden', 'true');
+    summary.append(arrow);
+    section.append(summary);
     for (const row of group.rows) {
       const item = element('article');
       item.className = 'accountSyncEntry';

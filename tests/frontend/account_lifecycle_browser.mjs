@@ -62,6 +62,10 @@ try {
   assert.equal(await page.evaluate(() => writes.length), 0);
 
   const accountCard = page.locator('#a #accountSyncPanel article');
+  const accountGroup = page.locator('#a #accountSyncPanel > details');
+  assert.equal(await accountCard.isVisible(), false);
+  await accountGroup.locator(':scope > summary').click();
+  assert.equal(await accountCard.isVisible(), true);
   assert.match(await accountCard.textContent(), /来源已确认.*流水 已入库.*余额 来源待核对/);
   await accountCard.getByText('疑似重复 · 1 笔', {exact:true}).click();
   const evidence = accountCard.getByRole('link', {name:/同日同额.*synthetic.csv.*行 12/});
