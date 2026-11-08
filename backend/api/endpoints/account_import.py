@@ -131,6 +131,16 @@ class SourceBatchReview(Revision):
     items: list[SourceReviewItem] = Field(min_length=1, max_length=store.MAX_ROWS)
 
 
+class BankDuplicateReview(StrictRequest):
+    account_code: str = Field(min_length=1, max_length=80)
+    source_item_ids: list[UUID] = Field(min_length=2, max_length=store.MAX_ROWS)
+    note: str = Field(min_length=1, max_length=500)
+
+
+class BankDuplicateReviewBatch(StrictRequest):
+    accounts: list[BankDuplicateReview] = Field(min_length=1, max_length=5)
+
+
 class SourceMapping(Revision):
     mapping: dict[str, str] = Field(max_length=40)
 
@@ -281,12 +291,23 @@ async def stage_ibkr_source_record(request: Request):
 
 @router.get('/source-records')
 def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50)):
+    from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE
+
     def read(cur):
         cur.execute('''SELECT source_id,account_code,source_name,acquisition_method,document_type,filename,
             status,revision,created_at,updated_at FROM public.source_records
-            ORDER BY updated_at DESC,source_id DESC LIMIT %s''', (limit,))
+            WHERE source_name<>%s OR document_type<>'statement'
+            ORDER BY updated_at DESC,source_id DESC LIMIT %s''', (BANK_DUPLICATE_REVIEW_SOURCE, limit))
         return {'sources': [dict(row) for row in cur.fetchall()]}
     return execute_source_record(request, read)
+
+
+@router.post('/bank-duplicate-reviews')
+def confirm_bank_duplicate_reviews(body: BankDuplicateReviewBatch, request: Request):
+    from domain.accounts.bank_source_status import confirm_distinct
+
+    return execute_source_record(request, lambda cur: {'accounts': confirm_distinct(
+        cur, [account.model_dump() for account in body.accounts])}, write=True)
 
 
 @router.get('/source-records/context')

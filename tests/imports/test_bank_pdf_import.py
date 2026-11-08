@@ -179,3 +179,47 @@ def test_confirm_bank_source_keeps_all_original_rows_and_reports_suspected_dupli
         assert {row["source_position"]["row"] for row in anomalies(db, "gf_9711")} == {1, 2}
         cur.execute("SELECT count(*) AS n FROM redesign_test.pams_cashflow_fact")
         assert cur.fetchone()["n"] == 0
+
+
+def test_published_distinct_review_preserves_source_and_reopens_for_new_member():
+    from domain.accounts.bank_source_status import anomalies, confirm_distinct, summaries
+    from domain.imports.bank_source_confirmation import confirm
+
+    with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        install_redesign(cur)
+        cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('gf_9711')")
+        db = SchemaCursor(cur)
+
+        def publish(name, count):
+            sid = uuid4()
+            source_records_v2.create_source(db, source_id=sid, account_code="gf_9711", source_name="synthetic",
+                acquisition_method="file", document_type="cash", filename=name, file_format="pdf", content=name.encode())
+            for n in range(count):
+                source_records_v2.add_item(db, source_id=sid, item_id=uuid4(), parse_method="template",
+                    source_position={"row": n + 1}, raw_fields={"row": n + 1},
+                    parsed_fields={"business_date": "2026-10-26", "net_cash": "1", "currency": "USD"})
+            confirm(db, sid, count + 1)
+            return sid
+
+        sid = publish("before.pdf", 2)
+        ids = [row["source_item_id"] for row in anomalies(db, "gf_9711")]
+        review = {"account_code": "gf_9711", "source_item_ids": ids, "note": "原账单确认两次独立入账"}
+        with pytest.raises(ValueError, match="分组已变化"):
+            confirm_distinct(db, [{**review, "source_item_ids": ids[:1]}])
+        with pytest.raises(ValueError, match="支持来源核查"):
+            confirm_distinct(db, [{**review, "account_code": "icbc_6689_cny"}])
+        before = summaries(db, ["gf_9711"])["gf_9711"]
+        result = confirm_distinct(db, [review])[0]
+        assert result["added"] == 2 and result["review_source_id"] != str(sid)
+        assert confirm_distinct(db, [review])[0]["added"] == 0
+        assert summaries(db, ["gf_9711"])["gf_9711"] == {**before, "duplicate_count": 0}
+        assert anomalies(db, "gf_9711") == []
+        cur.execute("SELECT parsed_fields,review_note FROM redesign_test.source_items WHERE source_id=%s", (str(sid),))
+        assert all("duplicate_decision" not in row["parsed_fields"] and row["review_note"] is None for row in cur.fetchall())
+
+        publish("later.pdf", 1)
+        reopened = anomalies(db, "gf_9711")
+        assert len(reopened) == 3
+        assert set(ids) <= {row["source_item_id"] for row in reopened}
+        with pytest.raises(ValueError, match="分组已变化"):
+            confirm_distinct(db, [review])
