@@ -1429,12 +1429,13 @@ def test_investment_trade_attribution_is_rendered_from_api() -> None:
     assert "assets/css/style-phone.css" in html
 
 
-def test_account_management_owns_sync_status() -> None:
-    assert '账户同步中心' not in _read_public("more.html")
-    html = _read_public("accounts.html")
-    controller = _read_public("assets/js/features/accounts/controller.js")
+def test_more_account_center_reuses_sync_status() -> None:
+    html = _read_public("more.html")
+    controller = _read_public("assets/js/features/accounts/account_sync_controller.js")
     view = _read_public("assets/js/features/accounts/account_sync_view.js")
     assert 'id="accountSyncPanel"' in html
+    assert 'data-account-tab=' not in html
+    assert 'href="accounts.html#overview"' not in html
     assert "'/api/sync/accounts'" in controller
     assert "describe('流水', row.cashflow)" in view
     assert "describe('余额', row.balance, row.currency)" in view
@@ -1487,7 +1488,6 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
 
     for href in [
         "data_sources.html?view=issues#dataQuality",
-        "accounts.html#overview",
         "investments.html#asset-master-panel",
     ]:
         assert html.count(f'href="{href}"') == 1

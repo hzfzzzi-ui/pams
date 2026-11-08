@@ -18,7 +18,7 @@ function describe(label, data, balanceCurrency = null) {
   return parts.join(' · ');
 }
 
-export function renderAccountSync(panel, groups, loadAnomalies) {
+export function renderAccountSync(panel, groups, loadAnomalies, { showActions = true } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   panel.replaceChildren();
   const doc = panel.ownerDocument;
@@ -89,16 +89,18 @@ export function renderAccountSync(panel, groups, loadAnomalies) {
         item.append(element('p', describe('流水', row.cashflow)));
         if (row.show_investment) item.append(element('p', describe('投资交易', row.investment)));
         item.append(element('p', describe('余额', row.balance, row.currency)));
-        const review = element('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
-        review.type = 'button';
-        review.className = 'btn';
-        review.dataset.syncBalanceReview = row.account_code;
-        item.append(review);
+        if (showActions) {
+          const review = element('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
+          review.type = 'button';
+          review.className = 'btn';
+          review.dataset.syncBalanceReview = row.account_code;
+          item.append(review);
+        }
       }
       if (row.balance.historical_as_of) {
         item.append(element('p', `历史参考 · ${row.balance.historical_as_of}`));
       }
-      if (row.can_import) {
+      if (showActions && row.can_import) {
         const link = element('a', '导入资料');
         link.href = `account_import.html?account=${encodeURIComponent(row.account_code)}`;
         item.append(link);

@@ -125,8 +125,13 @@ try {
       });
     });
     delayAccountLoad = true;
-    await page.frameLocator('#page-content').locator('a[href="accounts.html#overview"]').evaluate(node => { node.href = 'accounts.html'; });
-    await page.frameLocator('#page-content').locator('a[href="accounts.html"]').click();
+    await page.frameLocator('#page-content').locator('body').evaluate(node => {
+      const link = document.createElement('a');
+      link.href = 'accounts.html';
+      link.textContent = '兼容跳转测试';
+      node.append(link);
+    });
+    await page.frameLocator('#page-content').getByText('兼容跳转测试', {exact:true}).click();
     await page.waitForFunction(() => window.accountRouteNotice?.endsWith('#overview'));
     assert.equal(new URL(page.url()).searchParams.get('view'), 'more.html');
     releaseAccountLoad(); releaseAccountLoad = null;
@@ -169,7 +174,7 @@ try {
   const firstControls = {
     investments: '[data-invest-tab="analysis"]',
     ledger: '[data-ledger-tab="recent"]',
-    more: 'a.moreRow[href="account_import.html"]',
+    more: '#moreAdvanced > summary',
     accounts: '[data-account-tab="overview"]',
     data_sources: '.issueDiagnostics',
     account_import: '#flow-back',

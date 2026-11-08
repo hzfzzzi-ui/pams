@@ -1,0 +1,11 @@
+#accountSyncPanel .accountSyncGroup { border-bottom: 1px solid var(--pams-line-subtle); }
+#accountSyncPanel .accountSyncGroup > summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; cursor: pointer; font-weight: 650; list-style: none; }
+#accountSyncPanel .accountSyncGroup > summary::-webkit-details-marker { display: none; }
+#accountSyncPanel .accountSyncGroup > summary span { color: var(--pams-text-muted); }
+#accountSyncPanel .accountSyncGroup[open] > summary span { transform: rotate(90deg); }
+#accountSyncPanel .accountSyncEntry { margin-inline-start: var(--sp-3); padding: var(--sp-3) 0; border-top: 1px solid var(--pams-line-subtle); }
+#accountSyncPanel .accountSyncEntry h4 { margin: 0 0 var(--sp-2); }
+#accountSyncPanel .accountSyncEntry p { margin: 5px 0; color: var(--pams-text-muted); overflow-wrap: anywhere; }
+#accountSyncPanel .accountSyncEntry a { display: inline-flex; min-height: 44px; align-items: center; }
+#accountSyncPanel .accountSyncEntry > button { margin-right: var(--sp-2); }
+#accountSyncStatus:empty { display: none; }

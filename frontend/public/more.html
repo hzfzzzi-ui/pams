@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="assets/css/style-phone.css" />
   <link rel="stylesheet" href="assets/css/design-system-phone.css" />
   <link rel="stylesheet" href="assets/css/more.css" />
+  <link rel="stylesheet" href="assets/css/account-sync.css" />
   <link rel="stylesheet" href="assets/css/page-shell.css" />
 </head>
 <body class="page-more app-shell app-low-frequency" data-page-role="low-frequency">
@@ -22,16 +23,12 @@
       <a id="moreIssues" class="moreRow moreIssue" href="data_sources.html?view=issues#dataQuality" hidden>
         <span><strong>待处理</strong><small id="moreIssueText" aria-live="polite"></small></span><span aria-hidden="true">›</span>
       </a>
-      <div class="morePrimary">
-        <a class="moreRow" href="account_import.html"><strong>导入资料</strong><span aria-hidden="true">›</span></a>
-        <a class="moreRow" href="accounts.html#overview"><strong>账户管理</strong><span aria-hidden="true">›</span></a>
-        <details id="moreAssetManagement" class="moreAdvanced moreAssetManagement">
-          <summary>资产管理 <span id="assetPendingCount" aria-live="polite"></span></summary>
-          <button id="refreshAssetReview" type="button">刷新待补充资产</button>
-          <div id="moreAssetReview" aria-live="polite"></div>
-        </details>
-
-      </div>
+      <section id="account-center" aria-labelledby="accountCenterTitle">
+        <h2 id="accountCenterTitle">账户中心</h2>
+        <p id="accountSyncStatus" role="status">正在读取账户状态…</p>
+        <button id="retryAccountSync" type="button" hidden>重新读取账户状态</button>
+        <div id="accountSyncPanel" aria-label="各账户状态"></div>
+      </section>
       <details id="moreAdvanced" class="moreAdvanced">
         <summary>高级工具</summary>
         <a class="moreRow" href="data_sources.html"><strong>数据诊断</strong><span aria-hidden="true">›</span></a>
