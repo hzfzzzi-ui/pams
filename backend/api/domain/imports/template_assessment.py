@@ -9,6 +9,8 @@ def assess_template(parsed: dict, kind: str) -> str:
     codes = {warning.get('code') for warning in parsed.get('warnings', []) if isinstance(warning, dict)}
     if codes & {'headers_changed', 'ambiguous_header'}:
         return 'needs_mapping'
+    if kind == 'cash' and parsed.get('verified_balance_only') is True:
+        return 'matched'
     if any(row.get('source', {}).get('profile') == 'ths_broker_ledger_v1' for row in rows):
         return 'matched'
     if kind == 'cash' and any(row.get('source', {}).get('statement') is True and not row.get('excluded') for row in rows):

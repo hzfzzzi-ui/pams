@@ -37,6 +37,7 @@ export function mount(root, context = {}) {
   const message = text => { $('notice').textContent = text; };
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
+  const sourceOnly = () => state.useSourceRecords && state.batch?.kind === 'cash' && account()?.source_only_cash === true;
   const editable = () => !state.batch || state.batch.status === 'draft';
   const canPublishReady = () => state.caps?.publish_enabled === true && state.batch?.status === 'draft' &&
     !state.dirty && state.preview?.can_publish_ready === true && state.preview.batch_id === state.batch.batch_id &&
@@ -143,7 +144,9 @@ export function mount(root, context = {}) {
     for (const id of ['completeness', 'files', 'images', 'add-row', 'save-draft', 'confirm-image', 'previous-image']) $(id).disabled = locked;
     $('file-list').querySelectorAll('.import-mapping button, .import-mapping select').forEach(control => { control.disabled = locked; });
     $('next').disabled = locked || !(state.batch?.rows?.length || images().length) || !!state.suspended;
-    $('publish').disabled = state.busy || state.conflict || state.needsRefresh || !publishable(state.caps, state.batch, state.preview, state.dirty);
+    $('publish').textContent = sourceOnly() ? '确认资料' : '确认入库';
+    $('publish').disabled = state.busy || state.conflict || state.needsRefresh ||
+      (sourceOnly() ? !editable() || !state.preview || state.dirty : !publishable(state.caps, state.batch, state.preview, state.dirty));
     $('publish-ready').disabled = state.busy || state.conflict || state.needsRefresh || !canPublishReady();
     $('back').disabled = state.busy; $('reload').disabled = state.busy;
     $('refresh-result').disabled = state.busy;
@@ -180,7 +183,7 @@ export function mount(root, context = {}) {
     $('deferred-notice').hidden = !batch?.rows?.some(row => row.source?.deferred_from && !row.excluded);
     const uploadedFiles = (batch?.files || []).filter(file => !file.content_type?.startsWith('image/'));
     $('file-selection-status').textContent = uploadedFiles.length ? `已暂存：${uploadedFiles.map(file => file.filename).join('、')}` : '请选择要导入的文件。';
-    $('batch-meta').textContent = batch ? `${batch.status === 'published' ? '已录入' : TEXT[batch.status] || batch.status} · ${batch.batch_id} · 版本 ${batch.revision}${state.dirty ? ' · 未保存' : ''}${batch.updated_at ? ` · ${batch.updated_at}` : ''}` : '尚无暂存记录';
+    $('batch-meta').textContent = batch ? `${batch.status === 'published' ? (sourceOnly() ? '资料已确认' : '已录入') : TEXT[batch.status] || batch.status} · ${batch.batch_id} · 版本 ${batch.revision}${state.dirty ? ' · 未保存' : ''}${batch.updated_at ? ` · ${batch.updated_at}` : ''}` : '尚无暂存记录';
     $('rows').replaceChildren();
     for (const [index, row] of (batch?.rows || []).entries()) {
       const f = row.fields || {}, node = el('article', undefined, 'import-row');
@@ -293,7 +296,7 @@ export function mount(root, context = {}) {
 
   function abandon() { return !(state.dirty || state.suspended || mappingDirty()) || window.confirm('有未保存输入，放弃本地修改？'); }
   function writeUsesRevision(operation) {
-    return operation?.method === 'PUT' || /\/(?:publish|publish-ready|review|preview|void)$/.test(operation?.path || '');
+    return operation?.method === 'PUT' || /\/(?:publish|publish-ready|review|preview|void|confirm-bank-source)$/.test(operation?.path || '');
   }
   function recoveryNotice() {
     if (scope.hasPendingWrite()) return '上次操作仍在处理中；读取草稿不能确认结果。请等待后再载入服务器版本，期间不会继续或重复写入。';
@@ -447,9 +450,9 @@ export function mount(root, context = {}) {
     const fileName = state.batch.files?.length === 1 ? state.batch.files[0].filename : '';
     $('review-title').textContent = fileName ? `草稿 · ${fileName}` : '草稿';
     $('review-meta').textContent = `草稿编号 · ${state.batch.batch_id}`;
-    $('counts').replaceChildren(...['new', 'duplicates', 'blocked', 'pending'].map(key => {
+    $('counts').replaceChildren(...(sourceOnly() ? ['new'] : ['new', 'duplicates', 'blocked', 'pending']).map(key => {
       const node = el('div'); node.dataset.count = key; node.dataset.active = String(Number(p.counts?.[key]) > 0);
-      node.append(el('dt', { new: '新增', duplicates: '重复', blocked: '阻断', pending: '待确认' }[key]), el('dd', p.counts?.[key] ?? '未知')); return node;
+      node.append(el('dt', { new: sourceOnly() ? '流水明细' : '新增', duplicates: '重复', blocked: '阻断', pending: '待确认' }[key]), el('dd', p.counts?.[key] ?? '未知')); return node;
     }));
     const impact = p.impact || {};
     const knownImpact = impact.nav_estimate_status === 'known' && impact.nav_change != null;
@@ -470,7 +473,10 @@ export function mount(root, context = {}) {
       const heading = el('div', undefined, 'import-review-heading');
       heading.append(el('strong', `${record.symbol || '现金'} · ${record.name || ''}`));
       if (row.asset_created_first_row === true) heading.append(el('span', '本批首次 · 已建资产标的条目', 'import-created-asset'));
-      node.append(heading, el('p', row.status === 'excluded' ? '已排除' : state.useSourceRecords && row.status === 'duplicate' ? '疑似重复，待处理' : TEXT[row.status] || row.status, 'import-status'));
+      const status = sourceOnly() && row.status !== 'excluded' ? '待确认资料'
+        : row.status === 'excluded' ? (record.action === 'balance' ? '账单余额参考' : '已排除')
+        : state.useSourceRecords && row.status === 'duplicate' ? '疑似重复，待处理' : TEXT[row.status] || row.status;
+      node.append(heading, el('p', status, 'import-status'));
       if (row.issues?.length) node.append(el('p', issues(row.issues), 'import-warning'));
       node.append(el('p',[record.business_date, TEXT[record.action] || ({income:'收入',expense:'支出'})[record.action],record.market_value ?? record.gross_amount ?? record.net_cash,record.currency].filter(value=>value!=null&&value!=='').join(' · '),'import-meta'));
       const allValues=el('details'); allValues.append(el('summary','前后值与底表条目'));
@@ -544,8 +550,14 @@ export function mount(root, context = {}) {
     return scope;
   }
   async function makePreview() {
-    message('正在核验服务端清单…');
-    state.preview = state.useSourceRecords ? await sourceAdapter.preview(state.batch, holdingScope()) : await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
+    if (sourceOnly()) {
+      const rows = state.batch.rows.map(row => ({row_id:row.row_id, fields:row.fields,
+        status:row.excluded ? 'excluded' : 'pending'}));
+      state.preview = {rows, counts:{new:rows.filter(row => row.status !== 'excluded').length}};
+    } else {
+      message('正在核验服务端清单…');
+      state.preview = state.useSourceRecords ? await sourceAdapter.preview(state.batch, holdingScope()) : await api(`${path()}/preview`, 'POST', { revision: state.batch.revision });
+    }
     state.step = 2; state.imageIndex = null; message(''); renderPreview();
   }
   async function advanceToReview() {
@@ -582,6 +594,13 @@ export function mount(root, context = {}) {
   listen($('preview-filter'), 'change', renderPreview);
   listen($('close-image-viewer'), 'click', () => $('image-viewer').close());
   listen($('publish'), 'click', () => run(async () => {
+    if (sourceOnly()) {
+      if (!editable() || !state.preview || state.dirty || state.conflict || state.needsRefresh) return;
+      useBatch(await sourceAdapter.confirmBankSource(state.batch));
+      message('资料已确认，可在账户同步中心查看。');
+      await history();
+      return;
+    }
     if (state.needsRefresh || !publishable(state.caps, state.batch, state.preview, state.dirty) || state.conflict) return;
     const result = state.useSourceRecords ? await sourceAdapter.publish(state.batch, state.preview) : await api(`${path()}/publish`, 'POST', { revision: state.batch.revision, preview_token: state.preview.preview_token });
     useBatch(result.batch); message('批次已发布。'); await history();

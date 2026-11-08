@@ -154,3 +154,26 @@ def test_cash_distinct_review_does_not_bypass_existing_facts():
         preview = preview_cash(db, source_id=other, expected_revision=revision)
         assert not preview["can_publish"] and preview["counts"]["duplicate"] == 2
         assert all("issues" not in row for row in preview["rows"])
+
+
+def test_confirm_bank_source_keeps_all_original_rows_and_reports_suspected_duplicates():
+    from domain.accounts.bank_source_status import anomalies, summaries
+    from domain.imports.bank_source_confirmation import confirm
+
+    with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        install_redesign(cur)
+        cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('gf_9711')")
+        db = SchemaCursor(cur)
+        sid = uuid4()
+        source_records_v2.create_source(db, source_id=sid, account_code="gf_9711", source_name="synthetic",
+            acquisition_method="file", document_type="cash", filename="sample.pdf", file_format="pdf", content=b"synthetic")
+        for n in (1, 2):
+            source_records_v2.add_item(db, source_id=sid, item_id=uuid4(), parse_method="template",
+                source_position={"row": n}, raw_fields={"row": n},
+                parsed_fields={"business_date": "2026-10-26", "net_cash": "1", "currency": "USD"})
+        assert confirm(db, sid, 3) == {"source_id": str(sid), "revision": 4}
+        assert confirm(db, sid, 3)["revision"] == 4
+        assert summaries(db, ["gf_9711"])["gf_9711"]["count"] == 2
+        assert {row["source_position"]["row"] for row in anomalies(db, "gf_9711")} == {1, 2}
+        cur.execute("SELECT count(*) AS n FROM redesign_test.pams_cashflow_fact")
+        assert cur.fetchone()["n"] == 0

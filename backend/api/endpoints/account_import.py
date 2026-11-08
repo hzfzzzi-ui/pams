@@ -402,9 +402,24 @@ def preview_cash_source_record(source_id: UUID, body: CashSourcePreview, request
 
 @router.post('/source-records/{source_id}/cash-publish')
 def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request: Request):
+    from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
     from domain.imports.cash_publication_v2 import publish
-    return execute_source_record(request, lambda cur: publish(cur, source_id=source_id, revision=body.revision,
-        mode=body.mode, preview_token=body.preview_token), write=True)
+
+    def publish_ledger(cur):
+        cur.execute('SELECT account_code FROM public.source_records WHERE source_id=%s', (str(source_id),))
+        row = cur.fetchone()
+        if row and row['account_code'] in SOURCE_ONLY_ACCOUNTS:
+            raise ValueError('此银行账户请先确认来源资料，流水异常在同步中心处理')
+        return publish(cur, source_id=source_id, revision=body.revision,
+                       mode=body.mode, preview_token=body.preview_token)
+
+    return execute_source_record(request, publish_ledger, write=True)
+
+
+@router.post('/source-records/{source_id}/confirm-bank-source')
+def confirm_bank_source_record(source_id: UUID, body: Revision, request: Request):
+    from domain.imports.bank_source_confirmation import confirm
+    return execute_source_record(request, lambda cur: confirm(cur, source_id, body.revision), write=True)
 
 
 @router.post('/source-records/{source_id}/holding-preview')

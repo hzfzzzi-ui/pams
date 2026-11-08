@@ -41,7 +41,9 @@ export function mount(root, context) {
     syncPanel.textContent = '正在读取账户同步状态…';
     try {
       const data = await reads.get('account-sync', '/api/sync/accounts', {cache: false});
-      if (alive && syncDetails.open) renderAccountSync(syncPanel, data.groups);
+      if (alive && syncDetails.open) renderAccountSync(syncPanel, data.groups, (code, offset) =>
+        reads.get('bank-source-anomalies:' + code,
+          '/api/sync/accounts/' + encodeURIComponent(code) + '/source-anomalies?offset=' + offset, {cache:false}));
     } catch (error) {
       if (alive && syncDetails.open && !isReadCancelled(error)) {
         syncPanel.textContent = '暂时无法读取同步状态，收起后重新打开可重试。';
