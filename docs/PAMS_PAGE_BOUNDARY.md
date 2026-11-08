@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | investments.html | 默认首页；持仓、交易、分析、风险、目标配置 | holdings、holdings_categories、transactions、lookthrough、portfolio_risk、portfolio_config；由对应 API 服务给出业务结果 |
 | ledger.html | 收支、资金流转、待确认与异常摘要 | ledger_cashflow；cashflow fact 与 ledger 服务 |
-| more.html | 账户中心、待处理和高级工具；父账户可展开查看子账户状态及来源异常 | more、account_sync；sync/accounts、portfolio/data-quality |
+| more.html | 账户中心、待处理和高级工具；默认展开子账户的余额、最近交易、上次同步和状态标签 | more、account_sync；sync/accounts、portfolio/data-quality |
 | accounts.html | 账户状态总览、来源异常核对、余额核准、银行账单与划转匹配 | bank_reconcile；sync/accounts、accounts、bank-reconcile 服务 |
 | data_sources.html | 同步状态、覆盖与数据质量 | data_sources；sync center |
 | account_import.html | 导入暂存、核对、预检和显式发布入口 | account_import；访问、schema、预检和发布开关分别生效 |

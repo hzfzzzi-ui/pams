@@ -1,7 +1,10 @@
 """Read account sync evidence separately for activity and balance."""
 
+from calendar import monthrange
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from domain.accounts.bank_source_status import summaries
 from domain.imports.source_original_read import SourceOriginals
@@ -21,6 +24,7 @@ _GROUPS = {
     'tencent_licaitong': ('tencent', None),
     'huawei_stock': ('ccb', None),
 }
+_LOCAL = ZoneInfo('Asia/Shanghai')
 
 
 def _activity(rows, date_key):
@@ -46,6 +50,29 @@ def _balance(cur, candidates, config):
             'synced_at': None, 'historical_as_of': history}
 
 
+def _compact_summary(row, published_at, *, liability, now):
+    source = row['source_data'] or {}
+    activity = (source, row['cashflow'], row['investment'])
+    balance = row['balance']
+    transaction_day = max((str(item['as_of']) for item in activity if item.get('as_of')), default=None)
+    synced_at = max((stamp for stamp in (published_at, *(item.get('synced_at') for item in (*activity, balance)))
+                     if stamp is not None), default=None)
+    amount = balance.get('amount')
+    if liability and amount is not None:
+        amount = str(-abs(Decimal(amount)))
+    if not row['active']:
+        status = 'inactive'
+    elif (not synced_at or source.get('duplicate_count', 0) > 0 or
+          any(item.get('status') == 'review' or item.get('has_unverified') for item in (*activity, balance))):
+        status = 'review'
+    else:
+        local = synced_at.astimezone(_LOCAL)
+        year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
+        deadline = local.replace(year=year, month=month, day=min(local.day, monthrange(year, month)[1]))
+        status = 'stale' if now > deadline else 'normal'
+    return {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day, 'last_synced_at': synced_at}
+
+
 def read_account_sync(cur, config):
     cur.execute('SELECT account_code, active FROM public.pams_accounts')
     registered = {row['account_code']: row['active'] for row in cur.fetchall()}
@@ -54,6 +81,9 @@ def read_account_sync(cur, config):
     active = [code for code, cfg in accounts.items() if code != 'ccb_fund_subscription_pending'
               and cfg.get('active', True) and registered.get(code, True)]
     source_status = summaries(cur, active)
+    cur.execute("""SELECT account_code, MAX(updated_at) AS synced_at FROM public.source_records
+        WHERE account_code=ANY(%s::text[]) AND status='published' GROUP BY account_code""", (active,))
+    published_at = {row['account_code']: row['synced_at'] for row in cur.fetchall()}
     originals = SourceOriginals(cur)
     flows = defaultdict(list)
     for row in load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY',
@@ -84,12 +114,13 @@ def read_account_sync(cur, config):
 
     roots = config.get('account_roots', {})
     groups = {}
+    now = datetime.now(_LOCAL)
     for code, cfg in accounts.items():
         parent, label = _GROUPS.get(code, (cfg.get('parent_account_code') or code, None))
         root = roots.get(parent, {})
         group = groups.setdefault(parent, {'code': parent, 'label': '腾讯' if parent == 'tencent'
             else root.get('display_name', parent), 'rows': []})
-        group['rows'].append({
+        row = {
             'account_code': code, 'label': label or cfg.get('display_name', code),
             'currency': cfg.get('base_currency', 'CNY'), 'active': code in active,
             'can_import': bool(code in active and registered.get(code) and code != 'tencent_licaitong'),
@@ -98,6 +129,8 @@ def read_account_sync(cur, config):
             'source_data': source_status.get(code),
             'investment': _activity(trades.get(code, ()), 'trade_date'),
             'balance': _balance(cur, balances[code], cfg),
-        })
+        }
+        row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability', now=now)
+        group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}

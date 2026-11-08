@@ -13,6 +13,21 @@ body.page-more .moreIssue small { color: var(--pams-warning); }
 body.page-more #accountCenterTitle { margin: 12px 0 0; color: var(--pams-text-muted); font-size: var(--pams-font-size-base); font-weight: 600; }
 body.page-more #accountSyncPanel .accountSyncGroup > summary { font-size: 16px; font-weight: 600; line-height: 1.28; overflow-wrap: anywhere; }
 body.page-more #accountSyncPanel .accountSyncGroup > summary::after { content: none; }
+body.page-more #accountSyncPanel .accountSyncCompact { padding-block: 12px; }
+body.page-more .accountSyncCompactHeading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, max-content); align-items: baseline; gap: 8px; }
+body.page-more .accountSyncCompactName { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+body.page-more #accountSyncPanel .accountSyncCompact h4 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+body.page-more .accountSyncBadge { display: inline-block; padding: 2px 6px; border-radius: 5px; color: var(--pams-text-muted); background: var(--pams-bg-raised); font-size: 11px; font-weight: 600; white-space: nowrap; }
+body.page-more .accountSyncBadge[data-status="normal"], body.page-more .accountSyncAmount[data-sign="positive"] { color: var(--pams-profit); }
+body.page-more .accountSyncBadge[data-status="review"], body.page-more .accountSyncAmount[data-sign="negative"] { color: var(--pams-loss); }
+body.page-more .accountSyncBadge[data-status="stale"] { color: var(--pams-warning); }
+body.page-more .accountSyncBadge[data-status="normal"] { background: color-mix(in srgb, var(--pams-profit) 15%, transparent); }
+body.page-more .accountSyncBadge[data-status="review"] { background: color-mix(in srgb, var(--pams-loss) 15%, transparent); }
+body.page-more .accountSyncBadge[data-status="stale"] { background: color-mix(in srgb, var(--pams-warning) 15%, transparent); }
+body.page-more .accountSyncAmount { color: var(--pams-text-secondary); font-size: 17px; font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+body.page-more .accountSyncCompact dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 8px; margin: 6px 0 0; font-size: 13px; }
+body.page-more .accountSyncCompact dt { color: var(--pams-text-muted); }
+body.page-more .accountSyncCompact dd { margin: 0; color: var(--pams-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 body.page-more .moreAdvanced { margin-top: 24px; border-top: 1px solid var(--pams-line-subtle); }
 body.page-more summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 12px 2px; color: var(--pams-text-primary) !important; background: transparent !important; list-style: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1.4; }
 body.page-more summary::-webkit-details-marker { display: none; }

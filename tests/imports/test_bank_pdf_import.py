@@ -173,7 +173,9 @@ def test_confirm_bank_source_keeps_all_original_rows_and_reports_suspected_dupli
                 parsed_fields={"business_date": "2026-10-26", "net_cash": "1", "currency": "USD"})
         assert confirm(db, sid, 3) == {"source_id": str(sid), "revision": 4}
         assert confirm(db, sid, 3)["revision"] == 4
-        assert summaries(db, ["gf_9711"])["gf_9711"]["count"] == 2
+        summary = summaries(db, ["gf_9711"])["gf_9711"]
+        assert summary["count"] == 2
+        assert summary["as_of"] == "2026-10-26"
         assert {row["source_position"]["row"] for row in anomalies(db, "gf_9711")} == {1, 2}
         cur.execute("SELECT count(*) AS n FROM redesign_test.pams_cashflow_fact")
         assert cur.fetchone()["n"] == 0

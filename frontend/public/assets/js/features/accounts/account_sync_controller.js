@@ -1,7 +1,7 @@
 import { isReadCancelled } from '../../shared/read_scope.js';
 import { renderAccountSync } from './account_sync_view.js';
 
-export function createAccountSyncLoader(root, { reads, isActive, showActions }) {
+export function createAccountSyncLoader(root, { reads, isActive, compact = false }) {
   const panel = root.querySelector('#accountSyncPanel');
   const status = root.querySelector('#accountSyncStatus');
   const retry = root.querySelector('#retryAccountSync');
@@ -14,7 +14,7 @@ export function createAccountSyncLoader(root, { reads, isActive, showActions }) 
       if (!isActive()) return;
       renderAccountSync(panel, data.groups, (code, offset) => reads.get('bank-source-anomalies:' + code,
         '/api/sync/accounts/' + encodeURIComponent(code) + '/source-anomalies?offset=' + offset, { cache: false }),
-      { showActions });
+      { compact });
       status.textContent = '';
     } catch (error) {
       if (isActive() && !isReadCancelled(error)) {

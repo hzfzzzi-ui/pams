@@ -30,7 +30,9 @@ def summaries(cur, active):
     if not accounts:
         return {}
     cur.execute("""SELECT r.account_code,count(DISTINCT r.source_id) AS documents,
-        count(i.source_item_id) AS count,max(r.updated_at) AS synced_at
+        count(i.source_item_id) AS count,max(r.updated_at) AS synced_at,
+        max(i.parsed_fields->>'business_date') FILTER (
+            WHERE i.parsed_fields->>'business_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') AS as_of
         FROM public.source_records r LEFT JOIN public.source_items i ON i.source_id=r.source_id
           AND i.review_status='confirmed' AND i.parsed_fields->>'action' IS DISTINCT FROM 'balance'
         WHERE r.account_code=ANY(%s::text[]) AND r.status='published' AND r.document_type='cash'

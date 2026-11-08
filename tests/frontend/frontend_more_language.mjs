@@ -2,13 +2,21 @@ import assert from 'node:assert/strict';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {sync, anomalies} from './fixtures/accounts_lifecycle.mjs';
 const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE).href);
 const root=path.resolve(process.argv[2]),output=process.env.PAMS_MORE_ARTIFACT_DIR;
 if(output)await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],reports=[];
 let status='ok', accountUnavailable=false;
+const sync = {groups: [
+  {label:'合成银行',rows:[
+    {label:'合成人民币',currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
+    {label:'合成信用卡',currency:'CNY',source_data:{duplicate_count:88},summary:{status:'review',balance_amount:'-1286.40'}},
+  ]},
+  {label:'合成旧账户',rows:[
+    {label:'很长的合成外币账户名称',currency:'MXN',summary:{status:'stale',balance_amount:null}},
+  ]},
+]};
 page.on('pageerror',error=>errors.push(error.message));
 await page.route('**/*',async route=>{
  const req=route.request(),url=new URL(req.url());assert.equal(url.origin,'http://language.invalid');
@@ -16,7 +24,6 @@ await page.route('**/*',async route=>{
   calls.push(url.pathname);
   assert.equal(req.method(),'GET');
   if(url.pathname==='/api/sync/accounts') return route.fulfill({status:accountUnavailable?503:200,contentType:'application/json',body:JSON.stringify(accountUnavailable?{}:sync)});
-  if(decodeURIComponent(url.pathname)==='/api/sync/accounts/fixture/cny/source-anomalies') return route.fulfill({contentType:'application/json',body:JSON.stringify(anomalies)});
   assert.ok(['/api/portfolio/data-quality','/api/portfolio/equity-bridge'].includes(url.pathname),url.pathname);
   if(status==='failed'||url.pathname.endsWith('/equity-bridge'))return route.fulfill({status:503,contentType:'application/json',body:'{}'});
   return route.fulfill({contentType:'application/json',body:JSON.stringify({data_quality:{summary:{status,error_count:0,warning_count:status==='ok'?0:2}}})});
@@ -48,7 +55,7 @@ try{
   const investment={body:await style('body'),name:await style('.mobileHoldingText strong'),wrap:await style('.wrap')};
   status='ok';const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
   await page.locator('#moreIssues').waitFor({state:'hidden'});assert.equal(await page.locator('#moreAdvanced').getAttribute('open'),null);
-  const account=page.locator('#accountSyncPanel > details > summary').first(), child=page.getByRole('heading',{name:'合成人民币 · CNY'});
+  const account=page.locator('#accountSyncPanel > details > summary').first(), child=page.getByRole('heading',{name:'合成人民币',exact:true});
   await account.waitFor();
   const body=await style('body'),primary=await style('#accountSyncPanel > details > summary'),wrap=await style('.wrap');
   assert.equal(body.font,investment.body.font);assert.equal(body.background,investment.body.background);
@@ -57,17 +64,20 @@ try{
   assert.equal(await page.locator('.nav a').count(),0);
   assert.equal(await page.locator('#moreAssetManagement,[data-account-tab],a[href^="account_import.html"],a[href^="accounts.html"]').count(),0);
   assert.deepEqual(calls.slice(before).sort(),['/api/portfolio/data-quality','/api/sync/accounts']);
-  await child.waitFor({state:'hidden'});
-  await account.click();await child.waitFor();
-  await page.getByText('流水 已入库 · 7 笔',{exact:true}).waitFor();
-  await page.getByText('余额 来源待核对',{exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'核对余额'}).count(),0);
-  await page.getByText('疑似重复 · 1 笔',{exact:true}).click();
-  const original=page.getByRole('link',{name:/同日同额/});
-  await original.waitFor();assert.equal(await original.getAttribute('href'),'/api/account-import/source-records/synthetic-original/original');
+  await child.waitFor({state:'visible'});
+  assert.equal(await page.locator('#accountSyncPanel > details[open]').count(),2);
+  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','超月未同步']);
+  assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral']);
+  assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
+  assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
+  assert.deepEqual(await page.locator('.accountSyncCompact').first().locator('dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
+  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),0);
   assert.equal(new URL(page.url()).pathname,'/more.html');
   await capture(width+'-account-open');
   await account.click();
+  await child.waitFor({state:'hidden'});
+  await account.click();
+  await child.waitFor({state:'visible'});
   await capture(width+'-home');
   await page.locator('#moreAdvanced>summary').click();await page.getByText('资产底表与映射',{exact:true}).waitFor();await page.mouse.move(0,0);
   const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));
