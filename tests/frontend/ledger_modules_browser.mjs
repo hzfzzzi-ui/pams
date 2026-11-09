@@ -33,6 +33,9 @@ const fixture = {
 };
 fixture.recent_rows_month = fixture.recent_rows_ytd.slice(0, 3);
 fixture.review_rows = [fixture.recent_rows_ytd[0]];
+fixture.periods.month.investment_funding = 35;
+fixture.periods.month.cash_net = null;
+fixture.periods.ytd.investment_funding = 160;
 const accounts = { accounts: [
   { account_code: 'ccb_7332', display_name: '建行测试储蓄卡', primary_balance: { amount: '9876.54321', currency: 'CNY', as_of: '2026-10-30' } },
   { account_code: 'ibkr', display_name: 'IBKR测试', primary_balance: { amount: '1200.12', currency: 'USD', as_of: '2026-10-30' }, platform_balances: [{ amount: 1300.12, currency: 'USD', holding_pnl: 5 }, { amount: -100, currency: 'USD', asset_liability: '负债' }] },
@@ -100,7 +103,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
 
 async function capture(page, label, legacy) {
   const snapshot = await page.evaluate(() => {
-    const ids = ['ledgerMobileHero', 'kpiMonthIncome', 'kpiMonthExpense', 'kpiDisposableNet', 'kpiInvestmentTransfer', 'kpiTransfer', 'kpiPending', 'categoryInsightTitle', 'overviewCategoryRank', 'cashflowBridge', 'transferSummary', 'classificationRules', 'recentAccountScope', 'recentRows'];
+    const ids = ['ledgerMobileHero', 'categoryInsightTitle', 'overviewCategoryRank', 'transferSummary', 'classificationRules', 'recentAccountScope', 'recentRows'];
     return { markup: Object.fromEntries(ids.map(id => [id, document.getElementById(id)?.innerHTML])),
       charts: [window.__cashflowTrendChart?.data, window.__overviewCategoryPieChart?.data],
       panel: document.body.dataset.ledgerTab, hash: location.hash };
@@ -111,10 +114,25 @@ async function capture(page, label, legacy) {
 
 async function browse(legacy) {
   const { page, context } = await makePage(legacy);
+  if (!legacy) {
+    assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥2,250.25');
+    assert.equal(await page.locator('#overviewCategoryRank .categoryBarRank').first().evaluate(
+      el => el.style.getPropertyValue('--ledger-rank-color')), '#3fb950');
+  }
   await capture(page, 'overview', legacy);
   await page.locator('[data-overview-period="month"]').click();
   await page.locator('[data-overview-flow="expense"]').click();
   await page.locator('#trendWeekly').click();
+  if (!legacy) {
+    assert.equal(await page.locator('#overviewCategoryTotalLabel').textContent(), '消费合计');
+    assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥24.50');
+    assert.equal(await page.locator('#overviewCategoryRank .categoryBarRank').first().evaluate(
+      el => el.style.getPropertyValue('--ledger-rank-color')), '#f85149');
+    assert.deepEqual(await page.locator('.ledgerFundingStats strong').allTextContents(), ['¥35.00', '—']);
+    assert.equal(await page.locator('[data-overview-period="month"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-overview-flow="expense"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#trendWeekly').getAttribute('aria-pressed'), 'true');
+  }
   await capture(page, 'month-expense-weekly', legacy);
   await page.locator('[data-ledger-tab="recent"]').click();
   await page.locator('[data-ledger-flow-filter="investment_transfer"]').click();
@@ -153,8 +171,10 @@ async function checkNarrowSummaryGeometry() {
     formatExpected(layoutFixture.periods.ytd.income),
     formatExpected(-Math.abs(layoutFixture.periods.ytd.expense), true),
     String(layoutFixture.periods.ytd.pending_count),
+    formatExpected(layoutFixture.periods.ytd.investment_funding),
+    formatExpected(layoutFixture.periods.ytd.cash_net, true),
   ];
-  const widths = [320, 360, 389];
+  const widths = [320, 360, 389, 1280];
   for (const width of widths) {
     await page.setViewportSize({ width, height: 1084 });
     await page.evaluate(() => new Promise(requestAnimationFrame));
@@ -182,10 +202,10 @@ async function checkNarrowSummaryGeometry() {
     assert.equal(metrics.viewport, width);
     assert.ok(metrics.pageScrollWidth <= metrics.pageClientWidth, `page horizontal overflow at ${width}px`);
     assert.equal(metrics.overlaps, false, `summary values overlap at ${width}px`);
-    assert.equal(metrics.items.length, 3);
+    assert.equal(metrics.items.length, expectedValues.length);
     for (const [index, item] of metrics.items.entries()) {
       assert.equal(item.text, expectedValues[index], `summary value is incomplete at ${width}px`);
-      assert.equal(item.lines, 1, `summary amount wraps at ${width}px`);
+      if (width <= 389) assert.equal(item.lines, 1, `summary amount wraps at ${width}px`);
       assert.equal(item.overflow, false, `summary amount overflows its cell at ${width}px`);
       assert.equal(item.insideCell, true, `summary amount exceeds its cell at ${width}px`);
     }

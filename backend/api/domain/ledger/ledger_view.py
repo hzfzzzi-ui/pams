@@ -412,6 +412,11 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     transfer = sum(abs(t["amount_cny"]) for t in known_transfers)
     investment_transfer = sum(abs(t["amount_cny"]) for t in known_transfers if _investment_transfer_sign(t))
     investment_transfer_net = sum(abs(t["amount_cny"]) * _investment_transfer_sign(t) for t in known_transfers)
+    funding_transfers = [t for t in period_transfers if _investment_transfer_sign(t) < 0]
+    investment_funding = (
+        None if any(t["amount_cny"] is None for t in funding_transfers)
+        else round(sum(abs(t["amount_cny"]) for t in funding_transfers), 2)
+    )
     disposable_net = income - expense
     cash_net = disposable_net + investment_transfer_net
     other_transfer = max(transfer - investment_transfer, 0.0)
@@ -422,6 +427,7 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         "disposable_net": round(disposable_net, 2),
         "cash_net": round(cash_net, 2),
         "investment_transfer": round(investment_transfer, 2),
+        "investment_funding": investment_funding,
         "investment_transfer_net": round(investment_transfer_net, 2),
         "other_transfer": round(other_transfer, 2),
         "internal_transfer": round(transfer, 2),

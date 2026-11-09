@@ -409,7 +409,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
 
     assert 'id="accountFlowRows"' not in html
     assert 'data-ledger-tab="account"' not in html
-    assert 'href="#transfers">查看资金流转</a>' in html
+    assert 'href="#transfers">查看资金流转' in html
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html
     assert 'id="recentSearch" class="formInput" type="search"' not in html
@@ -485,19 +485,10 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert '<h3 id="overviewTitle">总览</h3>' in html
     assert "overviewTitle', `${overviewPeriodLabel()}现金流`" not in js
     assert "${overviewPeriodLabel()}可支配结余" in js
-    assert "cashflowBridgeLine" in js
-    assert "cashflowTransferGrid" in js
-    assert "NAV 内部迁移，不计入消费" in js
-    assert "内部资金流动" in js
-    assert "投资账户流动" in js
-    assert "投资转账" not in js
-    assert "['内部转账', signedMoney(otherTransfer)" not in js
-    assert "cashflowBridgeChip" not in html
-    assert "cashflowBridgeChip" not in js
-    assert "['收入', money(period.income || 0), 'good']" not in js
+    assert 'id="cashflowBridge"' not in html
     assert 'data-overview-period="month"' in html
     assert 'data-overview-period="ytd"' in html
-    assert 'class="accountPeriodButton active" type="button" data-overview-period="ytd"' in html
+    assert 'data-overview-period="ytd" aria-pressed="true"' in html
     assert 'id="monthPicker"' not in html
     assert "overviewPeriod: 'ytd'" in js
     assert "overviewFlow: 'income'" in js
@@ -570,7 +561,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert ".ledgerListSide b.transfer" in page_css
     assert "ledgerOriginalAmount" in page_css
     assert "jget(`/api/ledger/workbench?${params.toString()}`, { cache: false, signal })" in js
-    assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
 
 
 def test_investments_page_exposes_performance_dashboard_sections() -> None:

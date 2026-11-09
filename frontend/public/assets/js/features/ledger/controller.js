@@ -32,7 +32,7 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const events = createLedgerEvents(current);
   const sheets = createLedgerSheets(sheetService || createBottomSheet(root.ownerDocument || root), events, current);
   const overview = createLedgerOverview({ root, host, state, model, dom, ChartClass });
-  const { renderOverviewPeriodButtons, renderOverviewFlowButtons, renderKpis, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderCashflowBridge, renderTransferSummary, renderRules, renderTrendChart } = overview;
+  const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderOverviewCategoryInsight, renderTransferSummary, renderRules, renderTrendChart } = overview;
   const editor = createLedgerEditor({ model, templates, sheets, dom, current, reload: loadWorkbench });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails });
   const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
@@ -63,17 +63,21 @@ async function loadWorkbench() {
 function renderAll(data) {
   renderOverviewPeriodButtons();
   renderLedgerMobileHero(data);
-  renderKpis(data);
   renderOverviewCategoryInsight(data);
   renderTransferSummary(currentOverviewTransferSummary(data));
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
-  renderCashflowBridge(data);
   renderRecentSearchButton();
   renderRecentPeriodButtons();
   renderRecentSortButton();
   renderRecentAccountScope();
   renderRecentRows();
+}
+
+function selectTrendMode(mode) {
+  state.trendMode = mode;
+  $('trendMonthly')?.setAttribute('aria-pressed', String(mode === 'monthly'));
+  $('trendWeekly')?.setAttribute('aria-pressed', String(mode === 'weekly'));
 }
 
 function bindEvents() {
@@ -92,15 +96,11 @@ function bindEvents() {
     });
   });
   events.listen('page', $('trendMonthly'), 'click', () => {
-    state.trendMode = 'monthly';
-    $('trendMonthly')?.classList.add('active');
-    $('trendWeekly')?.classList.remove('active');
+    selectTrendMode('monthly');
     if (state.data) renderTrendChart(state.data);
   });
   events.listen('page', $('trendWeekly'), 'click', () => {
-    state.trendMode = 'weekly';
-    $('trendWeekly')?.classList.add('active');
-    $('trendMonthly')?.classList.remove('active');
+    selectTrendMode('weekly');
     if (state.data) renderTrendChart(state.data);
   });
   root.querySelectorAll('[data-ledger-flow-filter]').forEach((btn) => {
@@ -179,8 +179,7 @@ function bindLedgerAnchors() {
       root.querySelectorAll('[data-ledger-flow-filter]').forEach(btn => {
         btn.classList.toggle('active', (btn.dataset.ledgerFlowFilter || '') === state.recentFlowFilter);
       });
-      $('trendMonthly')?.classList.toggle('active', state.trendMode === 'monthly');
-      $('trendWeekly')?.classList.toggle('active', state.trendMode === 'weekly');
+      selectTrendMode(state.trendMode);
       events.listen('page', host, 'pagehide', () => controller.dispose());
       initialLoad = loadWorkbench().catch(error => { if (current()) showError(error); });
       return initialLoad;
