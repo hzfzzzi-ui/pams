@@ -211,7 +211,7 @@ try {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
-  assert.deepEqual(await page.evaluate(() => __ledgerTest.writes), [{ url: '/api/ledger/rows/1/update', body: { cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counter_account_code: '', counterparty: '新测试商户' } }]);
+  assert.deepEqual(await page.evaluate(() => __ledgerTest.writes), [{ url: '/api/ledger/rows/1/update', body: { cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counterparty: '新测试商户' } }]);
   await page.evaluate(() => __ledgerTest.pendingPosts.shift().reject(new Error('fixture rejection')));
   await page.waitForFunction(() => !document.querySelector('[data-ledger-edit-form] button[type="submit"]').disabled);
   assert.match(await page.locator('#err').textContent(), /fixture rejection/);
@@ -359,11 +359,35 @@ try {
     await subcategory.selectOption(options.at(-1));
   }
   await type.selectOption('operating_expense');
-  await category.selectOption('交通出行');
-  await subcategory.selectOption('交通卡');
-  await category.selectOption('其他支出');
-  await subcategory.selectOption('利息支出');
-  assert.equal(await subcategory.locator('option[value="交通卡"]').count(), 0);
+  const expense = form.locator('[data-ledger-expense-picker]');
+  const details = expense.locator('[data-expense-details]');
+  const counterAccount = form.locator('[data-edit-field="counter_account_code"]');
+  const submit = form.locator('button[type="submit"]');
+  assert.equal(await details.isVisible(), false);
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await counterAccount.isVisible(), false);
+  assert.equal(await counterAccount.isDisabled(), true);
+  assert.equal(await form.locator('[data-edit-field="counterparty"]').isVisible(), true);
+  for (const width of [320, 390, 1280]) {
+    await hintPage.page.setViewportSize({ width, height: 900 });
+    assert.equal(await expense.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  }
+  const transport = expense.getByRole('button', { name: '交通出行', exact: true });
+  await transport.focus();
+  await transport.press('Enter');
+  await details.getByRole('button', { name: '交通卡', exact: true }).click();
+  assert.equal(await transport.getAttribute('aria-pressed'), 'true');
+  assert.equal(await subcategory.inputValue(), '交通卡');
+  assert.equal(await submit.isEnabled(), true);
+  await expense.getByRole('button', { name: '其他支出', exact: true }).click();
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await details.getByRole('button', { name: '交通卡', exact: true }).count(), 0);
+  await details.getByRole('button', { name: '利息支出', exact: true }).click();
+  assert.equal(await subcategory.inputValue(), '利息支出');
+  await type.selectOption('internal_transfer');
+  assert.equal(await expense.isVisible(), false);
+  assert.equal(await counterAccount.isEnabled(), true);
+  assert.equal(await counterAccount.isVisible(), true);
   await type.selectOption('operating_income');
   await category.selectOption('退款返现');
   await subcategory.selectOption('退货退税');
