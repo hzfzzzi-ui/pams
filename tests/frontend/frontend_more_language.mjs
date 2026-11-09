@@ -83,7 +83,12 @@ try{
   const investment={body:await style('body'),name:await style('.mobileHoldingText strong'),wrap:await style('.wrap')};
   status='ok';const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
   await page.locator('#moreIssues').waitFor({state:'hidden'});assert.equal(await page.locator('#moreAdvanced').getAttribute('open'),null);
+  const center=page.locator('#account-center > summary');
   const account=page.locator('#accountSyncPanel > details > summary').first(), child=page.getByRole('heading',{name:'合成人民币',exact:true});
+  assert.equal(await page.locator('#account-center').getAttribute('open'),null);
+  assert.equal(await page.locator('#accountSyncPanel').isVisible(),false);
+  assert.equal(await page.locator('#moreImport').isVisible(),false);
+  await center.click();
   await account.waitFor();
   const body=await style('body'),primary=await style('#accountSyncPanel > details > summary'),wrap=await style('.wrap');
   assert.equal(body.font,investment.body.font);assert.equal(body.background,investment.body.background);
@@ -125,6 +130,10 @@ try{
   await child.waitFor({state:'hidden'});
   await account.click();
   await child.waitFor({state:'visible'});
+  await center.click();
+  await child.waitFor({state:'hidden'});
+  await center.click();
+  await child.waitFor({state:'visible'});
   await capture(width+'-home');
   await page.locator('#moreAdvanced>summary').click();await page.getByText('数据诊断',{exact:true}).waitFor();await page.mouse.move(0,0);
   const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));
@@ -139,9 +148,9 @@ try{
   assert.equal(await account.locator('[aria-hidden]').isVisible(),true);
   status='warning';await page.reload();await page.getByText('错误 0 · 警告 2',{exact:true}).waitFor();await capture(width+'-issues');
   status='failed';await page.reload();await page.getByText('数据状态暂不可用',{exact:true}).waitFor();await capture(width+'-unknown');
-  accountUnavailable=true;await page.reload();await page.getByText('暂时无法读取账户状态。',{exact:true}).waitFor();
+  accountUnavailable=true;await page.reload();await center.click();await page.getByText('暂时无法读取账户状态。',{exact:true}).waitFor();
   accountUnavailable=false;await page.getByRole('button',{name:'重新读取账户状态'}).click();await account.waitFor();
-  holdingsUnavailable=true;await page.reload();await account.waitFor();
+  holdingsUnavailable=true;await page.reload();await center.click();await account.waitFor();
   assert.equal(await page.locator('.accountSyncAmount').first().textContent(),'¥18,971.58');
   assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
   holdingsUnavailable=false;

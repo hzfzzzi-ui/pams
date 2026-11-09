@@ -177,6 +177,7 @@ try {
       await page.frameLocator('#page-content').locator('body').waitFor();
       if (target.startsWith('accounts.html')) {
         await page.waitForFunction(() => location.hash === '#account-center');
+        await page.frameLocator('#page-content').locator('#account-center[open]').waitFor();
         const accountList = page.frameLocator('#page-content').locator('#account-center #accountSyncPanel');
         assert.equal(await accountList.evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
         assert.equal(await accountList.evaluate(node => getComputedStyle(node).borderRadius), '0px');

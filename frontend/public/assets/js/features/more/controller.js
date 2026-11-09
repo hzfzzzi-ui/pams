@@ -27,8 +27,10 @@ export function mount(root, context) {
   const label = find('moreIssueText');
   const panel = find('moreNavGrowthExplanationPanel');
   const details = find('moreNavGrowthDetails');
+  const accountCenter = find('account-center');
   const accountRetry = find('retryAccountSync');
-  const query = new URLSearchParams((context.location || win?.location)?.search);
+  const location = context.location || win?.location;
+  const query = new URLSearchParams(location?.search);
   const targetAccount = query.get('account');
   let alive = true;
   let navGrowthLoaded = false;
@@ -76,6 +78,10 @@ export function mount(root, context) {
     openReview: openSheet ? account => openAccount(account, true) : undefined, onRendered: locateAccount });
 
   function onAccountRetry() { void loadAccountSync(); }
+
+  function openRequestedAccounts() {
+    if (accountCenter && (targetAccount || location?.hash === '#account-center')) accountCenter.open = true;
+  }
 
   async function loadIssues() {
     try {
@@ -127,6 +133,7 @@ export function mount(root, context) {
     if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
     accountRetry?.removeEventListener('click', onAccountRetry);
+    win?.removeEventListener('hashchange', openRequestedAccounts);
     win?.removeEventListener('pagehide', dispose);
     if (mounted.get(root) === controller) mounted.delete(root);
   }
@@ -135,10 +142,12 @@ export function mount(root, context) {
   mounted.set(root, controller);
   bootstrap();
   const origin = find('moreOrigin');
-  if (origin) origin.textContent = (context.location || win?.location)?.origin || '';
+  if (origin) origin.textContent = location?.origin || '';
   details?.addEventListener('toggle', onToggle);
   accountRetry?.addEventListener('click', onAccountRetry);
+  win?.addEventListener('hashchange', openRequestedAccounts);
   win?.addEventListener('pagehide', dispose);
+  openRequestedAccounts();
   if (details?.open) void loadNavGrowthExplanationOnce();
   controller.ready = Promise.all([loadIssues(), loadAccountSync()]);
   return controller;

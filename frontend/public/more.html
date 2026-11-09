@@ -23,13 +23,13 @@
       <a id="moreIssues" class="moreRow moreIssue" href="data_sources.html?view=issues#dataQuality" hidden>
         <span><strong>待处理</strong><small id="moreIssueText" aria-live="polite"></small></span><span aria-hidden="true">›</span>
       </a>
-      <section id="account-center" aria-labelledby="accountCenterTitle">
-        <h2 id="accountCenterTitle">账户中心</h2>
+      <details id="account-center">
+        <summary>账户中心</summary>
         <a id="moreImport" href="account_import.html" data-return-route>导入资料</a>
         <p id="accountSyncStatus" role="status">正在读取账户状态…</p>
         <button id="retryAccountSync" type="button" hidden>重新读取账户状态</button>
         <div id="accountSyncPanel" aria-label="各账户状态"></div>
-      </section>
+      </details>
       <details id="moreAdvanced" class="moreAdvanced">
         <summary>高级工具</summary>
         <a class="moreRow" href="data_sources.html"><strong>数据诊断</strong><span aria-hidden="true">›</span></a>
