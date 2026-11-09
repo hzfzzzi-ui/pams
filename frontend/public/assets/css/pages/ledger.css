@@ -21,10 +21,42 @@
   color:var(--bad);
 }
 .ledgerTop { padding-top:0; border-color:transparent; box-shadow:none; background:transparent }
-.ledgerKpiGrid { display:grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap:10px; margin-top:8px; padding-bottom:8px; border-bottom:1px solid var(--line) }
-.ledgerKpi { padding:0; min-height:auto; border:0; border-radius:0; background:transparent }
-.ledgerKpi .label { color:var(--muted); font-size:12px; font-weight:600; letter-spacing:0 }
-.ledgerKpi .value { margin-top:4px; font-size:20px; line-height:1.15; font-weight:600; font-family:var(--pams-font-sans); font-variant-numeric:tabular-nums; letter-spacing:0 }
+.ledgerTextSwitch {
+  display:flex;
+  align-items:center;
+  flex-shrink:0;
+}
+.ledgerTextSwitch button {
+  position:relative;
+  min-height:44px;
+  padding:0 10px;
+  border:0;
+  border-radius:5px;
+  background:transparent;
+  box-shadow:none;
+  color:var(--text-secondary);
+  font:inherit;
+  font-size:13px;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.ledgerTextSwitch button + button { margin-left:9px }
+.ledgerTextSwitch button + button::before {
+  position:absolute;
+  top:50%;
+  left:-5px;
+  width:1px;
+  height:12px;
+  background:var(--line);
+  transform:translateY(-50%);
+  content:"";
+}
+.ledgerTextSwitch button[aria-pressed="true"] {
+  background:rgba(255,255,255,.1);
+  color:var(--text);
+  font-weight:600;
+}
+.ledgerTextSwitch button:focus-visible { outline:2px solid var(--text); outline-offset:2px }
 .page-ledger .cashflowBodyGrid {
   display:grid !important;
   grid-template-columns:minmax(0,1fr);
@@ -58,8 +90,6 @@
 .categoryBarMeta b { color:var(--text); font-family:var(--pams-font-sans); font-size:14px; line-height:1.15; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }
 .categoryBarMeta span { color:var(--muted); font-size:12px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums }
 .categoryInsightPanel { display:grid; gap:12px; min-width:0 }
-.categoryModeSwitch { display:flex; gap:6px; justify-content:flex-end; margin-bottom:0 }
-.categoryModeSwitch .tab-btn { min-height:44px; padding:0 11px }
 .categoryInsightGrid { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; align-items:center; min-width:0 }
 .categoryPieWrap { position:relative; width:128px; height:128px; min-width:128px; justify-self:center }
 .categoryPieWrap canvas { width:128px !important; height:128px !important }
@@ -148,28 +178,6 @@
 .accountSubRow .accountFlowStats { gap:8px }
 .accountSubRow .accountFlowSide { min-width:118px }
 .accountFlowRow.is-empty { cursor:default; opacity:.52 }
-.cashflowBridge { display:block; margin-top:10px; padding:0 0 12px; border:0; border-bottom:1px solid var(--line); background:transparent; overflow:visible }
-.cashflowBridgeLine { display:grid; gap:9px; padding:10px 0 11px; border:0; border-top:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent }
-.cashflowBridgeHead { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0 }
-.cashflowBridgeHead span { color:var(--muted); font-size:12px; font-weight:600 }
-.cashflowBridgeHead strong { color:var(--pams-text-muted); font-size:12px; font-weight:600; white-space:nowrap }
-.cashflowTransferGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 }
-.cashflowTransferStat { min-width:0; padding:0 10px; border-left:1px solid rgba(255,255,255,.08) }
-.cashflowTransferStat:first-child { border-left:0; padding-left:0 }
-.cashflowTransferStat span { display:block; color:var(--muted); font-size:12px; font-weight:600 }
-.cashflowTransferStat strong { display:block; overflow-wrap:anywhere; white-space:normal; margin-top:3px; color:var(--text); font-family:var(--pams-font-sans); font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }
-.cashflowTransferStat.good strong { color:var(--good); text-shadow:none}
-.cashflowTransferStat.bad strong { color:var(--bad); text-shadow:none}
-.cashflowTransferStat.data strong { color:var(--text) }
-.cashflowBridgeItem { min-width:0; border:0; border-left:1px solid rgba(255,255,255,.08); border-radius:0; background:transparent; padding:2px 0 2px 10px }
-.cashflowBridgeItem:first-child { border-left:0; padding-left:0 }
-.cashflowBridgeItem.good,
-.cashflowBridgeItem.bad,
-.cashflowBridgeItem.data,
-.cashflowBridgeItem.pending { border-left-color:rgba(255,255,255,.08) }
-.cashflowBridgeLabel { color:var(--muted); font-size:12px; font-weight:600 }
-.cashflowBridgeValue { margin-top:2px; font-weight:600; font-size:14px; font-family:var(--pams-font-sans); font-variant-numeric:tabular-nums; letter-spacing:0 }
-.cashflowBridgeOp { display:none }
 .ledgerJumpCard { scroll-margin-top:16px }
 .ledgerList { display:grid; border-top:1px solid var(--line) }
 .ledgerListRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
@@ -211,7 +219,58 @@
 .cashflowSidePanel { display:grid; gap:10px; margin-top:0 }
 .ledgerRules { margin-top:10px; border:0; border-top:1px solid var(--line); border-radius:0; padding:10px 0 0; background:transparent; }
 .ledgerRules summary { cursor:pointer; color:var(--text); font-weight:600; }
-.ledgerMobileHero { display:none; }
+.ledgerMobileHero {
+  display:block;
+  margin:0 0 16px;
+  padding:16px;
+  border-radius:var(--pams-radius-panel);
+  background:var(--pams-bg-panel);
+}
+.ledgerMobileLabel { color:var(--muted); font-size:12px; font-weight:600; }
+.ledgerMobileValue {
+  margin-top:5px;
+  font-family:var(--pams-font-sans);
+  font-size:clamp(28px, 8vw, 32px);
+  line-height:1;
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0;
+  overflow-wrap:anywhere;
+}
+.ledgerMobileStats {
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:0;
+  margin-top:12px;
+  padding-top:10px;
+  border-top:1px solid rgba(255,255,255,.08);
+}
+.ledgerMobileStats.ledgerFundingStats { grid-template-columns:repeat(2,minmax(0,1fr)) }
+.ledgerMobileStat {
+  min-width:0;
+  padding:0 9px;
+  border:0;
+  border-left:1px solid rgba(255,255,255,.08);
+  border-radius:0;
+  background:transparent;
+}
+.ledgerMobileStat:first-child { border-left:0; padding-left:0; }
+.ledgerMobileStat span {
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:600;
+}
+.ledgerMobileStat strong {
+  display:block;
+  margin-top:3px;
+  font-family:var(--pams-font-sans);
+  font-size:15px;
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0;
+  overflow-wrap:anywhere;
+}
 .ledgerConfirmSheet { display:grid; gap:12px }
 .ledgerConfirmLead {
   padding:0;
@@ -401,9 +460,7 @@
 .ledgerExpenseSubcategories { display:flex; flex-wrap:wrap; gap:6px }
 .ledgerExpenseSubcategories button { min-height:44px; padding:6px 12px }
 @media (max-width: 880px) {
-  .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
   .page-ledger .cashflowBodyGrid { grid-template-columns:1fr !important }
-  .cashflowBridge { grid-template-columns:repeat(2,minmax(0,1fr)) }
 
 }
 @media (max-width: 760px) {
@@ -413,7 +470,6 @@
     padding-top: 8px;
   }
 
-  .ledgerKpiGrid { grid-template-columns:1fr 1fr }
   body.page-ledger.app-shell .ledgerToolbar { justify-content:flex-start }
   .ledgerFilterGrid { grid-template-columns:1fr }
   .page-ledger .pageHeader { display:none; }
@@ -441,69 +497,6 @@
     white-space:nowrap;
     line-height:1.08;
   }
-  body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle {
-    min-width:0;
-  }
-  body.page-ledger.app-shell .ledgerTop .ledgerOverviewPeriodToggle .accountPeriodButton {
-    padding:0 8px;
-  }
-  .ledgerMobileHero {
-    display:block;
-    margin:0 0 16px;
-    padding:16px;
-    border-radius:var(--pams-radius-panel);
-    background:var(--pams-bg-panel);
-  }
-  .ledgerMobileLabel { color:var(--muted); font-size:12px; font-weight:600; }
-  .ledgerMobileValue {
-    margin-top:5px;
-    font-family:var(--pams-font-sans);
-    font-size:clamp(28px, 8vw, 32px);
-    line-height:1;
-    font-weight:600;
-    font-variant-numeric:tabular-nums;
-    letter-spacing:0;
-    overflow-wrap:anywhere;
-  }
-  .ledgerMobileStats {
-    display:grid;
-    grid-template-columns:repeat(3, minmax(0,1fr));
-    gap:0;
-    margin-top:12px;
-    padding-top:10px;
-    border-top:1px solid rgba(255,255,255,.08);
-  }
-  .ledgerMobileStat {
-    min-width:0;
-    padding:0 9px;
-    border:0;
-    border-left:1px solid rgba(255,255,255,.08);
-    border-radius:0;
-    background:transparent;
-  }
-  .ledgerMobileStat:first-child { border-left:0; padding-left:0; }
-  .ledgerMobileStat span {
-    display:block;
-    color:var(--muted);
-    font-size:12px;
-    font-weight:600;
-  }
-  .ledgerMobileStat strong {
-    display:block;
-    margin-top:3px;
-    font-family:var(--pams-font-sans);
-    font-size:15px;
-    font-weight:600;
-    font-variant-numeric:tabular-nums;
-    letter-spacing:0;
-    overflow-wrap:anywhere;
-  }
-  .cashflowBridgeLine { padding:9px 0 10px; border-radius:0 }
-  .cashflowBridgeHead { align-items:flex-start; flex-direction:column; gap:3px }
-  .cashflowBridgeHead strong { white-space:normal }
-  .cashflowTransferStat { padding:0 8px }
-  .cashflowTransferStat strong { font-size:13px }
-  .page-ledger .ledgerKpiGrid { display:none; }
   .page-ledger .cashflowBodyGrid {
     display:grid !important;
     grid-template-columns:1fr !important;
@@ -566,7 +559,4 @@
     border-left:0;
   }
   .ledgerMobileStat strong { font-size:clamp(10.5px,3.4vw,13px); white-space:nowrap; overflow-wrap:normal; }
-}
-@media (max-width: 520px) {
-  .ledgerKpiGrid { grid-template-columns:1fr }
 }

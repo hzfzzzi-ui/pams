@@ -30,49 +30,21 @@
       <section class="ledgerSection ledgerTop ledgerJumpCard" id="cashflow-workbench">
         <div class="sectionTitle">
           <h3 id="overviewTitle">总览</h3>
-          <div class="accountPeriodToggle ledgerOverviewPeriodToggle" aria-label="总览统计周期">
-            <button class="accountPeriodButton" type="button" data-overview-period="month">本月至今</button>
-            <button class="accountPeriodButton active" type="button" data-overview-period="ytd">本年至今</button>
+          <div class="ledgerTextSwitch" role="group" aria-label="总览统计周期">
+            <button type="button" data-overview-period="month" aria-pressed="false">本月至今</button>
+            <button type="button" data-overview-period="ytd" aria-pressed="true">本年至今</button>
           </div>
         </div>
 
         <div id="ledgerMobileHero" class="ledgerMobileHero"></div>
-        <div class="ledgerKpiGrid">
-          <div class="ledgerKpi">
-            <div class="label">收入</div>
-            <div class="value up" id="kpiMonthIncome">--</div>
-          </div>
-          <div class="ledgerKpi">
-            <div class="label">消费</div>
-            <div class="value down" id="kpiMonthExpense">--</div>
-          </div>
-          <div class="ledgerKpi">
-            <div class="label">可支配净流入</div>
-            <div class="value" id="kpiDisposableNet">--</div>
-          </div>
-          <div class="ledgerKpi ledgerMiniMetric">
-            <div class="label">投资转账</div>
-            <div class="value" id="kpiInvestmentTransfer">--</div>
-          </div>
-          <div class="ledgerKpi ledgerMiniMetric">
-            <div class="label">内部转账</div>
-            <div class="value" id="kpiTransfer">--</div>
-          </div>
-          <div class="ledgerKpi ledgerMiniMetric">
-            <div class="label">待确认流水</div>
-            <div class="value" id="kpiPending">--</div>
-          </div>
-        </div>
-
-        <div id="cashflowBridge" class="cashflowBridge"></div>
         <a href="#transfers">查看资金流转</a>
         <div class="cashflowBodyGrid">
           <div>
             <div class="sectionTitle" style="margin-top:var(--sp-3)">
               <h3>收支趋势</h3>
-              <div class="tab-buttons" style="margin-bottom:0">
-                <button id="trendMonthly" class="tab-btn active">按月</button>
-                <button id="trendWeekly" class="tab-btn">按周</button>
+              <div class="ledgerTextSwitch" role="group" aria-label="趋势统计周期">
+                <button id="trendMonthly" type="button" aria-pressed="true">按月</button>
+                <button id="trendWeekly" type="button" aria-pressed="false">按周</button>
               </div>
             </div>
             <div class="chartWrap" style="height:320px"><canvas id="cashflowTrendChart"></canvas></div>
@@ -82,9 +54,9 @@
               <div class="categoryInsightPanel">
                 <div class="sectionTitle">
                   <h3 id="categoryInsightTitle">收入排行</h3>
-                  <div class="tab-buttons categoryModeSwitch" aria-label="分类视图">
-                    <button class="tab-btn active" type="button" data-overview-flow="income">收入</button>
-                    <button class="tab-btn" type="button" data-overview-flow="expense">消费</button>
+                  <div class="ledgerTextSwitch" role="group" aria-label="分类视图">
+                    <button type="button" data-overview-flow="income" aria-pressed="true">收入</button>
+                    <button type="button" data-overview-flow="expense" aria-pressed="false">消费</button>
                   </div>
                 </div>
                 <div class="categoryInsightGrid">
