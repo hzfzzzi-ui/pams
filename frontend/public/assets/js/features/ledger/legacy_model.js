@@ -799,6 +799,7 @@ function overviewPieRows(rows) {
 function findLedgerRowById(rowId) {
   const idText = String(rowId || '');
   const groups = [
+    state.streamRows || [],
     state.data?.review_rows || [],
     state.data?.recent_rows_ytd || [],
     state.data?.recent_rows_month || [],

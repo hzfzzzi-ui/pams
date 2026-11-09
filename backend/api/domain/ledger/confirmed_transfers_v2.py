@@ -5,11 +5,14 @@ from hashlib import sha256
 import json
 from uuid import uuid4
 from psycopg2.extras import Json
+from domain.imports.source_original_read import SourceOriginals
 
 
-def _leg(cur, kind, ident, *, lock=True):
-    if kind not in {'cashflow','trade'} or not isinstance(ident,int) or isinstance(ident,bool) or ident < 1:
-        raise ValueError('invalid fact identity')
+def _valid_id(ident):
+    return type(ident) is int and ident > 0
+
+
+def _leg_rows(cur, kind, ids, *, lock):
     if kind=='cashflow':
         table,pk,amount,day,kind_clause='pams_cashflow_fact','cashflow_id','amount','event_date','TRUE'
     else:
@@ -17,11 +20,15 @@ def _leg(cur, kind, ident, *, lock=True):
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
         i.source_item_id,i.source_uid,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,
-        r.source_id,r.status,r.account_code AS source_account,public.source_original_content(r.account_code,r.sha256,r.content) AS content,r.sha256
+        r.source_id AS original_source_id,r.status,r.account_code AS source_account,
+        r.content IS NOT NULL AS inline_original,r.sha256
         FROM public.{table} f JOIN public.source_items i ON i.source_item_id=f.source_item_id
-        JOIN public.source_records r ON r.source_id=i.source_id WHERE f.{pk}=%s AND {kind_clause}
-        {"FOR UPDATE OF f FOR SHARE OF i,r" if lock else ""}''',(ident,))
-    row=cur.fetchone()
+        JOIN public.source_records r ON r.source_id=i.source_id WHERE f.{pk}=ANY(%s) AND {kind_clause}
+        {"FOR UPDATE OF f FOR SHARE OF i,r" if lock else ""}''',(ids,))
+    return cur.fetchall()
+
+
+def _verified_leg(row, kind, originals):
     if not row: raise ValueError('transfer fact not found')
     data=dict(row)
     try:
@@ -32,13 +39,19 @@ def _leg(cur, kind, ident, *, lock=True):
             and (kind!='trade' or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
             and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
-            and ((data['content'] is None and data['sha256'] is None) or
-                 (data['content'] is not None and sha256(bytes(data['content'])).hexdigest()==data['sha256'])))
+            and originals.read(data)[1])
     except (KeyError,TypeError,ValueError,InvalidOperation): valid=False
     if not valid: raise ValueError('transfer fact source is unverified or inconsistent')
-    return {'kind':kind,'id':ident,'account_code':data['account_code'],'currency':data['currency'],
+    return {'kind':kind,'id':data['id'],'account_code':data['account_code'],'currency':data['currency'],
             'amount':str(data['amount']),'day':str(data['day']),'source_item_id':str(data['source_item_id']),
-            'source_id':str(data['source_id']),'source_hash':data['sha256']}
+            'source_id':str(data['original_source_id']),'source_hash':data['sha256']}
+
+
+def _leg(cur, kind, ident, *, lock=True):
+    if kind not in {'cashflow', 'trade'} or not _valid_id(ident):
+        raise ValueError('invalid fact identity')
+    rows = _leg_rows(cur, kind, [ident], lock=lock)
+    return _verified_leg(rows[0] if rows else None, kind, SourceOriginals(cur))
 
 
 def is_independent_equal_pair(left, right):
@@ -92,20 +105,38 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
     return {'transfer_id':str(transfer_id), 'replayed':False}
 
 
-def read(cur, *, limit=200):
+def read(cur, *, limit=200, originals=None):
     """Revalidate both legs of every decision without locking in read-only views."""
     sql = """SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c
         WHERE c.confirmation_type='transfer' ORDER BY c.confirmed_at DESC,c.confirmation_id DESC"""
     cur.execute(sql + (' LIMIT %s' if limit is not None else ''), (limit,) if limit is not None else ())
     rows = [dict(row) for row in cur.fetchall()]
+    ids = {'cashflow': set(), 'trade': set()}
+    for row in rows:
+        if row['revoked_at'] is None:
+            for evidence in (row['from_evidence'], row['to_evidence']):
+                if isinstance(evidence, dict):
+                    kind, ident = evidence.get('kind'), evidence.get('id')
+                    if isinstance(kind, str) and kind in ids and _valid_id(ident):
+                        ids[kind].add(ident)
+    originals = originals if originals is not None else SourceOriginals(cur)
+    verified = {}
+    for kind, fact_ids in ids.items():
+        if fact_ids:
+            for fact in _leg_rows(cur, kind, sorted(fact_ids), lock=False):
+                try:
+                    verified[kind, fact['id']] = _verified_leg(fact, kind, originals)
+                except ValueError:
+                    continue
     for row in rows:
         if row['revoked_at'] is not None:
             row['evidence_status'] = 'revoked'
             continue
         try:
             left, right = row['from_evidence'], row['to_evidence']
-            valid = (_leg(cur, left['kind'], left['id'], lock=False) == left and
-                     _leg(cur, right['kind'], right['id'], lock=False) == right)
+            valid = (_valid_id(left['id']) and _valid_id(right['id'])
+                     and verified.get((left['kind'], left['id'])) == left
+                     and verified.get((right['kind'], right['id'])) == right)
         except (ValueError, KeyError, TypeError):
             valid = False
         row['evidence_status'] = 'confirmed' if valid else 'invalidated'

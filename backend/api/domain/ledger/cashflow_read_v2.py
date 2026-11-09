@@ -12,7 +12,7 @@ from domain.imports.source_original_read import SourceOriginals
 
 def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None = None,
                    account_codes: list[str] | None = None, originals: SourceOriginals | None = None,
-                   include_pair_evidence: bool = False) -> list[dict[str, Any]]:
+                   include_pair_evidence: bool = False, before=None, limit=None) -> list[dict[str, Any]]:
     if base_currency != 'CNY':
         raise ValueError('only evidenced CNY projection is supported')
     filters, params = [], [base_currency, start, end]
@@ -22,6 +22,12 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
     if account_codes is not None:
         filters.append(' AND f.account_code=ANY(%s::text[])')
         params.append(account_codes)
+    if before is not None:
+        filters.append(' AND (f.event_date,f.cashflow_id)<(%s,%s)')
+        params.extend(before)
+    pagination = ' LIMIT %s' if limit is not None else ''
+    if limit is not None:
+        params.append(limit)
     cur.execute('''SELECT f.cashflow_id AS id,f.cashflow_id AS fact_id,f.source_item_id,f.account_code,
         f.event_date AS transaction_date,f.amount,f.currency,f.summary,f.description,f.counterparty,
         f.posting_date,f.created_at,f.updated_at,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status AS item_review,
@@ -38,7 +44,7 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
             AND x.rate>0 AND x.rate::text NOT IN ('NaN','Infinity','-Infinity')
             AND NULLIF(btrim(x.source),'') IS NOT NULL LIMIT 1) fx ON TRUE
         WHERE f.event_date >= %s AND f.event_date <= %s''' + ''.join(filters) +
-        ' ORDER BY f.event_date DESC,f.cashflow_id DESC', params)
+        ' ORDER BY f.event_date DESC,f.cashflow_id DESC' + pagination, params)
     names=[x[0] for x in cur.description]
     out=[]
     if originals is None:

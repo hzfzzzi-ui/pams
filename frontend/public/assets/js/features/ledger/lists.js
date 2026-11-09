@@ -2,7 +2,8 @@ import { accountLabel } from '../../api.js';
 import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
 
-export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails }) {
+export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
+  reloadRecent = () => renderRecentRows(), loadMore }) {
   const { $ } = dom;
   const { flowClass, isEditableLedgerRow, ledgerEditActionLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, originalCurrencyText, accountDisplayName, filteredRecentRows } = model;
   const { recentSearchSheetHtml, rowDetailHtml, recentSortSheetHtml } = templates;
@@ -26,13 +27,13 @@ function openRecentSearchSheet() {
     event.preventDefault();
     state.recentSearch = String(input?.value || '').trim();
     renderRecentSearchButton();
-    renderRecentRows();
+    reloadRecent();
     session.close();
   });
   session.listen(session.body.querySelector('[data-recent-search-clear]'), 'click', () => {
     state.recentSearch = '';
     renderRecentSearchButton();
-    renderRecentRows();
+    reloadRecent();
     session.close();
   });
 }
@@ -55,7 +56,7 @@ function renderRecentAccountScope() {
   events.listen('account-scope', el.querySelector('[data-clear-account-filter]'), 'click', () => {
     state.recentAccountFilter = '';
     renderRecentAccountScope();
-    renderRecentRows();
+    reloadRecent();
   });
 }
 
@@ -101,7 +102,7 @@ function bindRecentPeriod() {
     state.recentPeriod = form.elements.namedItem('recentPeriod').value;
     renderRecentPeriodButton();
     renderRecentAccountScope();
-    renderRecentRows();
+    reloadRecent();
     closeRecentPeriod({ restoreFocus: true });
   });
   events.listen('page', root, 'click', event => {
@@ -133,7 +134,7 @@ function openRecentSortSheet() {
     if (!option || !session.body.contains(option)) return;
     state.recentAmountSort = option.dataset.recentSortOption || '';
     renderRecentSortButton();
-    renderRecentRows();
+    reloadRecent();
     session.close();
   });
 }
@@ -208,8 +209,14 @@ function renderRows(id, rows, limit = 80) {
 }
 
 function renderRecentRows() {
-  const rows = filteredRecentRows();
+  const rows = state.streamRows || filteredRecentRows();
   renderRows('recentRows', rows, rows.length);
+  const element = $('recentRows');
+  if (element && state.streamNext != null) {
+    element.insertAdjacentHTML('beforeend', '<button type="button" class="btn ledgerPairMore" data-more-stream>展开更多</button>');
+    const button = element.querySelector('[data-more-stream]');
+    events.listen('rows:recentRows', button, 'click', () => loadMore());
+  }
 }
 
   return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButton,

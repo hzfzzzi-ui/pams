@@ -564,7 +564,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert ".transferRoute" in page_css
     assert ".ledgerListSide b.transfer" in page_css
     assert "ledgerOriginalAmount" in page_css
-    assert "jget(`/api/ledger/workbench?${params.toString()}`, { cache: false, signal })" in js
+    assert "jget('/api/ledger/workbench?view=overview', { cache: false, signal })" in js
 
 
 def test_investments_page_exposes_performance_dashboard_sections() -> None:
@@ -1523,7 +1523,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" in _read_public("assets/js/features/investment/charts/requests.js")
     assert "/api/analysis/lookthrough?baseCurrency=CNY" in lookthrough_js
     assert "/api/analysis/return-attribution?baseCurrency=CNY" in lookthrough_js
-    preload_block = bootstrap_js.split("function warmupPaths(now)", 1)[1].split("export function createPageBootstrap", 1)[0]
+    preload_block = bootstrap_js.split("function warmupPaths()", 1)[1].split("export function createPageBootstrap", 1)[0]
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
@@ -1531,8 +1531,9 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "collectPrefetchResources(doc)" in bootstrap_js
     assert "script[type=\"module\"][src]" in bootstrap_js
     for path in ["/api/accounts/overview", "/api/sync/center",
-                 "/api/portfolio/data-quality?baseCurrency=CNY", "/api/ledger/workbench?month="]:
+                 "/api/portfolio/data-quality?baseCurrency=CNY"]:
         assert path in preload_block
+    assert "/api/ledger/workbench" not in preload_block
     assert "/api/account-import" not in preload_block
     assert "risk_metrics.js" not in ui_js
     assert "/api/risk/summary" not in api_js + ui_js

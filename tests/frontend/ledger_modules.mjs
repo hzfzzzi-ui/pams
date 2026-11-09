@@ -39,7 +39,7 @@ async function fixture(width = 390) {
     if (cache.has(url.href)) return cache.get(url.href);
     const name = url.pathname.split('/').pop();
     let values = null;
-    if (name === 'api.js') values = { accountLabel: String, jget: (url, options) => { const item = { url, options, ...deferred() }; reads.push(item); return item.promise; }, jpost: (url, body) => { const item = { url, body, ...deferred() }; writes.push(item); return item.promise; } };
+    if (name === 'api.js') values = { accountLabel: String, accountCodesForLabel: () => [], jget: (url, options) => { const item = { url, options, ...deferred() }; reads.push(item); return item.promise; }, jpost: (url, body) => { const item = { url, body, ...deferred() }; writes.push(item); return item.promise; } };
     if (name === 'utils.js') values = { escapeHtml: String, formatCurrency: String, formatMoneyAxis: String, formatMoneyFixed2: String, formatPercent: String, formatSignedMoneyFixed2: String, toFiniteNumber: value => Number.isFinite(Number(value)) ? Number(value) : 0 };
     if (name === 'routes.js') values = { replaceContentAddress() {} };
     if (name === 'ui.js') values = { setActiveNav() {} };
@@ -57,7 +57,7 @@ async function fixture(width = 390) {
   }
   const { createLedgerController } = await api('controller');
   const create = () => createLedgerController({ root: document, host: window });
-  const resolveRead = (index, value) => { reads[index].resolve(value); reads[index + 1].resolve({ accounts: [] }); };
+  const resolveRead = (index, value) => reads[index].resolve(value);
   return { reads, writes, charts, errors, document, window, elements, api, create, resolveRead, setWidth: width => { viewportWidth = width; } };
 }
 const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [{ category: '工资薪酬', amount: 10 }], monthly_trend: [{ period: '2026-10', income: 10, expense: 1, net: 9 }] });
@@ -105,13 +105,13 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   const options = {root: test.document, host: test.window};
   const page = mountLedgerPage(options);
   assert.equal(mountLedgerPage(options), page);
-  assert.equal(test.reads.length, 2);
+  assert.equal(test.reads.length, 1);
   test.resolveRead(0, data(10)); await page.ready;
   await test.window.emit('pagehide', {persisted: true});
   await test.window.emit('pageshow', {persisted: true});
   await test.window.emit('pageshow', {persisted: true});
-  assert.equal(test.reads.length, 4, 'A restored page starts only one read sequence');
-  test.resolveRead(2, data(11)); await page.ready;
+  assert.equal(test.reads.length, 2, 'A restored page starts only one read sequence');
+  test.resolveRead(1, data(11)); await page.ready;
   page.dispose();
   assert.equal(test.window.count('pagehide'), 0);
   assert.equal(test.window.count('pageshow'), 0);
@@ -121,30 +121,30 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   const test = await fixture(), controller = test.create();
   const initial = controller.init();
   assert.equal(initial, controller.init());
-  assert.deepEqual(test.reads.map(({ url, options }) => [url, options?.cache]), [['/api/ledger/workbench?baseCurrency=CNY&recentDays=30', false], ['/api/accounts/overview', undefined]]);
+  assert.deepEqual(test.reads.map(({ url, options }) => [url, options?.cache]), [['/api/ledger/workbench?view=overview', false]]);
   test.resolveRead(0, data(10)); await initial;
   assert.equal(test.charts.length, 2);
   assert.equal(test.charts.find(chart => chart.config.type === 'doughnut').data.datasets[0].backgroundColor[0], '#3fb950');
   const older = controller.loadWorkbench(), newer = controller.loadWorkbench();
-  test.resolveRead(4, data(20)); await newer;
-  test.resolveRead(2, data(15)); await assert.rejects(older, error => error.name === 'AbortError');
+  test.resolveRead(2, data(20)); await newer;
+  test.resolveRead(1, data(15)); await assert.rejects(older, error => error.name === 'AbortError');
   assert.equal(controller.state.data.periods.ytd.income, 20);
   assert.equal(test.charts.length, 4);
   const pending = controller.loadWorkbench();
   controller.dispose(); controller.dispose();
-  test.resolveRead(6, data(99)); await assert.rejects(pending, error => error.name === 'AbortError');
+  test.resolveRead(3, data(99)); await assert.rejects(pending, error => error.name === 'AbortError');
   assert.ok(test.charts.every(chart => chart.destroyCount === 1));
   assert.equal(test.document.count('click'), 0);
   assert.equal(test.window.count('hashchange'), 0);
   assert.equal(test.window.count('pagehide'), 0);
   assert.equal(await controller.loadWorkbench(), null);
-  assert.equal(test.reads.length, 8);
+  assert.equal(test.reads.length, 4);
 }
 {
   const test = await fixture(), old = test.create(), pending = old.init();
   const replacement = test.create(), ready = replacement.init();
   assert.equal(old.disposed, true);
-  test.resolveRead(2, data(30)); await ready;
+  test.resolveRead(1, data(30)); await ready;
   test.resolveRead(0, data(1)); await pending;
   assert.equal(replacement.state.data.periods.ytd.income, 30);
   assert.equal(test.charts.length, 2);

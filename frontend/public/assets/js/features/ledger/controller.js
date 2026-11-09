@@ -10,7 +10,7 @@ import { createLedgerOverview } from './overview.js';
 import { createLedgerLists } from './lists.js';
 import { createLedgerEditor } from './editor.js';
 import { createLedgerTransfers } from './transfers.js';
-import { readLedgerWorkbench } from './requests.js';
+import { readLedgerStream, readLedgerWorkbench } from './requests.js';
 
 const owners = new WeakMap();
 
@@ -21,6 +21,8 @@ export function createLedgerController({ root = document, host = window, sheetSe
   let initialized = false;
   let initialLoad = null;
   let readGeneration = 0;
+  let streamGeneration = 0;
+  let streamLoading = false;
   const current = () => !disposed && owners.get(root) === controller;
   const state = createLedgerState();
   restoreLedgerViewState(state, viewState);
@@ -35,7 +37,10 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderOverviewCategoryInsight, renderRules, renderTrendChart } = overview;
   const transfers = createLedgerTransfers({ root, state, model, dom, events, reads, current, reloadWorkbench: loadWorkbench });
   const editor = createLedgerEditor({ model, templates, sheets, dom, current, reload: loadWorkbench });
-  const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails });
+  const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
+    reloadRecent: () => loadStream().catch(showError),
+    loadMore: () => loadStream(state.streamNext).catch(showError),
+  });
   const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButton,
     bindRecentPeriod, closeRecentPeriod, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
 
@@ -46,20 +51,43 @@ function showDetails(title, html) {
 
 async function loadWorkbench() {
   if (!current()) return null;
+  if (state.activePanel === 'recent') return loadStream();
+  if (state.activePanel === 'transfer') return null;
   const generation = ++readGeneration;
   clearError();
   try {
-    const { data, accounts } = await reads.run('workbench', signal => readLedgerWorkbench({signal}));
+    const data = await reads.run('workbench', signal => readLedgerWorkbench({signal}));
     if (!current() || generation !== readGeneration) return null;
     state.data = data;
-    state.accounts = accounts;
     renderAll(data);
-    if (state.activePanel === 'transfer') transfers.render();
     return data;
   } catch (error) {
     if (isReadCancelled(error)) throw error;
     if (!current() || generation !== readGeneration) return null;
     throw error;
+  }
+}
+
+async function loadStream(offset = 0) {
+  if (!current() || state.activePanel !== 'recent' || offset == null) return null;
+  if (offset > 0 && streamLoading) return null;
+  const generation = ++streamGeneration;
+  if (offset === 0) {
+    state.streamRows = [];
+    state.streamNext = null;
+    renderRecentRows();
+  }
+  streamLoading = true;
+  try {
+    const result = await reads.run('stream', signal => readLedgerStream(state, {offset, signal}));
+    if (!current() || generation !== streamGeneration || state.activePanel !== 'recent') return null;
+    const existing = new Set(state.streamRows.map(row => String(row.id)));
+    state.streamRows.push(...result.rows.filter(row => !existing.has(String(row.id))));
+    state.streamNext = result.next_offset;
+    renderRecentRows();
+    return result;
+  } finally {
+    if (generation === streamGeneration) streamLoading = false;
   }
 }
 
@@ -114,7 +142,7 @@ function bindEvents() {
         item.classList.toggle('active', active);
         item.setAttribute('aria-pressed', String(active));
       });
-      renderRecentRows();
+      loadStream().catch(showError);
     });
   });
   bindRecentPeriod();
@@ -133,6 +161,7 @@ function bindEvents() {
 }
 
 function setLedgerPanel(panel = 'overview') {
+  const previous = state.activePanel;
   state.activePanel = LEDGER_PANEL_HASH[panel] ? panel : 'overview';
   if (state.activePanel !== 'recent') closeRecentPeriod();
   (root.body || root).dataset.ledgerTab = state.activePanel;
@@ -145,7 +174,13 @@ function setLedgerPanel(panel = 'overview') {
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
+  if (state.activePanel !== previous) {
+    if (previous === 'recent') reads.cancel('stream');
+    if (previous === 'overview') reads.cancel('workbench');
+    if (previous === 'transfer') reads.cancel('transfers');
+  }
   if (state.activePanel === 'transfer') transfers.load();
+  else if (initialLoad && state.activePanel !== previous) loadWorkbench().catch(showError);
 }
 
 function bindLedgerAnchors() {

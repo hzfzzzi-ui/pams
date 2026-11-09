@@ -298,6 +298,11 @@ export function accountLabel(a) {
   return ACCOUNT_LABELS[a] || a || "";
 }
 
+export function accountCodesForLabel(search) {
+  const needle = search.trim().toLowerCase();
+  return needle ? Object.keys(ACCOUNT_LABELS).filter(code => ACCOUNT_LABELS[code].toLowerCase().includes(needle)) : [];
+}
+
 export function typeLabel(t) {
   return TYPE_LABELS[t] || t || "";
 }

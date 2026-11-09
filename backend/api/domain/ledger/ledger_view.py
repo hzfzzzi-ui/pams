@@ -762,9 +762,18 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
 
 def _load_latest_statement_date(cur, verifier=None, originals=None) -> date | None:
     if _table_exists(cur, 'source_records'):
-        rows = _load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY', originals=originals)
-        return next((_as_date(row['transaction_date']) for row in rows
-                     if row.get('source_evidence_status') == 'verified'), None)
+        from domain.ledger.cashflow_read_v2 import load_cash_rows
+
+        before = None
+        while True:
+            rows = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY',
+                                  originals=originals, before=before, limit=32)
+            for row in rows:
+                if row['source_evidence_status'] == 'verified':
+                    return _as_date(row['transaction_date'])
+            if len(rows) < 32:
+                return None
+            before = (rows[-1]['transaction_date'], rows[-1]['id'])
     visibility = _visible_fact_sql(cur, alias='cf', cashflow=True)
     cur.execute(f"""SELECT cf.cashflow_id,cf.event_date,cf.source_table,to_jsonb(cf)->>'source_item_id' AS source_item_id
                     FROM pams_cashflow_fact cf WHERE {visibility} ORDER BY cf.event_date DESC,cf.cashflow_id DESC""")
@@ -1090,14 +1099,17 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
     return _mark_fact_source(cur, rows, table='pams_investment_trade_fact', verifier=verifier)
 
 
-def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None) -> list[dict[str, Any]]:
+def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None,
+                                  decisions=None) -> list[dict[str, Any]]:
     if _table_exists(cur, 'source_records'):
         from domain.investments.trade_read_v2 import load_trade_rows
         cur.execute("""SELECT DISTINCT account_code FROM pams_investment_trade_fact
             WHERE trade_date BETWEEN %s AND %s AND trade_type IN ('deposit','withdraw')""", (start, end))
         accounts = [row['account_code'] for row in cur.fetchall()]
         matched = {}
-        for item, left, right, *_ in _confirmed_transfer_records(cur, start=start, end=end):
+        if decisions is None:
+            decisions = _confirmed_transfer_records(cur, start=start, end=end)
+        for item, left, right, *_ in decisions:
             if item['evidence_status'] != 'confirmed':
                 continue
             for trade, cash in ((left, right), (right, left)):
@@ -1230,14 +1242,16 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
     return _merge_investment_account_rows(rows, trade_rows)
 
 
-def _confirmed_transfer_records(cur, *, start: date, end: date):
+def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
     """Read immutable decisions and recheck both source-backed facts."""
     if _table_exists(cur, 'source_records'):
         from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+        decisions = confirmed_transfers.read(cur, limit=None, originals=originals)
     else:
         from domain.ledger import confirmed_transfers
+        decisions = confirmed_transfers.read(cur, limit=None)
     result = []
-    for item in confirmed_transfers.read(cur, limit=None):
+    for item in decisions:
         left, right = item['from_evidence'], item['to_evidence']
         left_day = _as_date(left.get('day'))
         right_day = _as_date(right.get('day'))
@@ -1250,11 +1264,13 @@ def _confirmed_transfer_records(cur, *, start: date, end: date):
 
 
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
-                           account_profiles=None) -> list[dict[str, Any]]:
+                           account_profiles=None, decisions=None) -> list[dict[str, Any]]:
     from domain.ledger.cash_transfer_pairs import cash_pair_type
 
     result = []
-    for item, left, right, left_day, right_day, kind in _confirmed_transfer_records(cur, start=start, end=end):
+    if decisions is None:
+        decisions = _confirmed_transfer_records(cur, start=start, end=end)
+    for item, left, right, left_day, right_day, kind in decisions:
         if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
             continue
         if cash_pairs_only and (left['kind'] != 'cashflow' or right['kind'] != 'cashflow'):
@@ -1296,13 +1312,14 @@ def _transfer_pair_details(cur, matches):
             for match in matches]
 
 
-def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None) -> list[dict[str, Any]]:
+def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None, decisions=None) -> list[dict[str, Any]]:
     """Expose known open bank facts and invalidated decisions without confirming them."""
     if _table_exists(cur, 'source_records'):
         from domain.ledger.cash_transfer_pairs import has_transfer_hint, suggest
         from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
 
-        decisions = _confirmed_transfer_records(cur, start=start, end=end)
+        if decisions is None:
+            decisions = _confirmed_transfer_records(cur, start=start, end=end)
         linked = occupied_cashflow_ids(cur)
         rows = cash_rows if cash_rows is not None else _load_cash_rows(
             cur, start=start, end=end, base_currency='CNY', include_pair_evidence=True)
@@ -1493,8 +1510,46 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def _ledger_stream_page(rows, *, profiles, base_currency, account, flow, search, sort, offset, limit,
+                        matching_accounts=None):
+    labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转',
+              'investment_return': '投资收益', 'investment_inflow': '投资流入',
+              'investment_outflow': '投资流出', 'investment_fee': '投资费用',
+              'investment_transfer': '投资划转'}
+    filtered = []
+    for row in rows:
+        code = row['account_code']
+        row_flow = row.get('flow_type')
+        if not row.get('transaction_date_obj') or (account and code != account):
+            continue
+        if flow == 'internal_transfer' and not (row_flow == 'transfer' or row.get('is_internal_transfer') is True):
+            continue
+        if flow in {'income', 'expense'} and row_flow != flow:
+            continue
+        if search and code not in (matching_accounts or ()):
+            values = [row.get(key) for key in ('summary', 'description', 'counterparty', 'counter_account_code',
+                                              'category', 'subcategory', 'coarse_category', 'account_code')]
+            values += [labels.get(row_flow, row_flow or '未知'), (profiles.get(code) or {}).get('display_name')]
+            if search not in ' '.join(str(value) for value in values if value).lower():
+                continue
+        filtered.append(row)
+    filtered.sort(key=lambda row: (row['transaction_date_obj'], str(row['id'])), reverse=True)
+    if sort:
+        def magnitude(row):
+            amount = row.get('amount_cny') if base_currency == 'CNY' else None
+            return abs(round(_to_float(row.get('amount') if amount is None else amount), 2))
+        filtered.sort(key=magnitude, reverse=sort == 'amount_desc')
+    return {
+        'rows': [_serialize_row(row, base_currency=base_currency) for row in filtered[offset:offset + limit]],
+        'next_offset': offset + limit if offset + limit < len(filtered) else None,
+    }
+
+
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30,
-                                   include_transfer_pairs: bool = False) -> dict[str, Any]:
+                                   include_transfer_pairs: bool = False, view: str = "full",
+                                   period: str = "ytd", account: str = "", flow: str = "", search: str = "",
+                                   sort: str = "", offset: int = 0, limit: int = 80,
+                                   matching_accounts: set[str] | None = None) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
     redesigned = _table_exists(cur, 'source_records')
@@ -1507,13 +1562,17 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     account_config = _load_accounts_config()
     account_profiles = account_config.get("accounts") or {}
     configured_accounts = _load_configured_account_codes(account_config)
-    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier,
-                                include_pair_evidence=redesigned, **original_args)
-    all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
-                                                   cash_pairs_only=redesigned, account_profiles=account_profiles)
-    pending_transfer_cases = _load_pending_transfer_cases(
-        cur, start=ytd_start, end=month_end, **({'cash_rows': cash_rows} if redesigned else {}),
+    cash_start = month_start if view == 'stream' and period == 'month' else ytd_start
+    cash_rows = [] if view == 'transfers' else _load_cash_rows(
+        cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier,
+        include_pair_evidence=redesigned and view == 'full', **original_args,
     )
+    decision_args = {'decisions': _confirmed_transfer_records(cur, start=ytd_start, end=month_end, **original_args)} if redesigned else {}
+    all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
+                                                   cash_pairs_only=redesigned, account_profiles=account_profiles, **decision_args)
+    pending_transfer_cases = _load_pending_transfer_cases(
+        cur, start=ytd_start, end=month_end, **({'cash_rows': cash_rows} if redesigned else {}), **decision_args,
+    ) if view == 'full' else []
     payment_proxy_source_row_ids = {
         row_id
         for match in all_transfer_matches
@@ -1563,12 +1622,44 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         match["match_date_obj"] = _as_date(match.get("match_date"))
         match["amount_cny"] = _to_float(match["amount_cny"]) if match.get("amount_cny") is not None else None
 
-    investment_rows = _load_investment_account_rows(
-        cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args,
-    )
-    account_rows = display_rows + investment_rows
     month_rows = [r for r in display_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end]
     ytd_rows = [r for r in display_rows if r.get("transaction_date_obj") and ytd_start <= r["transaction_date_obj"] <= month_end]
+    month_transfer_matches = [m for m in transfer_matches if m.get('match_date_obj') and month_start <= m['match_date_obj'] <= month_end]
+    ytd_transfer_matches = [m for m in transfer_matches if m.get('match_date_obj') and ytd_start <= m['match_date_obj'] <= month_end]
+    if view == 'transfers':
+        return {
+            'month': month_start.strftime('%Y-%m'),
+            'transfer_summary_month': _transfer_summary(month_transfer_matches),
+            'transfer_summary_ytd': _transfer_summary(ytd_transfer_matches),
+            'transfer_pairs': _transfer_pair_details(cur, ytd_transfer_matches) if redesigned else [],
+        }
+    if view in {'overview', 'full'}:
+        overview = {
+            'as_of': latest_date.isoformat() if latest_date else None,
+            'month': month_start.strftime('%Y-%m'),
+            'base_currency': base_currency,
+            'periods': {
+                'month': summarize_period(display_rows, transfer_matches, month_start, month_end),
+                'ytd': summarize_period(display_rows, transfer_matches, ytd_start, month_end),
+            },
+            'expense_categories_month': _group_amounts(month_rows, 'expense'),
+            'income_categories_month': _group_amounts(month_rows, 'income'),
+            'expense_categories_ytd': _group_amounts(ytd_rows, 'expense'),
+            'income_categories_ytd': _group_amounts(ytd_rows, 'income'),
+            'monthly_trend': _trend(display_rows, ytd_start, month_end, 'monthly'),
+            'weekly_trend': _trend(display_rows, ytd_start, month_end, 'weekly'),
+            'classification_rules': SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,
+        }
+        if view == 'overview':
+            return overview
+    investment_rows = _load_investment_account_rows(
+        cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args, **decision_args,
+    )
+    account_rows = display_rows + investment_rows
+    if view == 'stream':
+        return _ledger_stream_page(account_rows, profiles=account_profiles, base_currency=base_currency,
+                                   account=account, flow=flow, search=search.strip().lower(), sort=sort,
+                                   offset=offset, limit=limit, matching_accounts=matching_accounts)
     month_account_rows = [
         r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end
     ]
@@ -1586,36 +1677,17 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     recent_rows_month = [_serialize_row(r,base_currency=base_currency) for r in month_account_rows]
     recent_rows_ytd = [_serialize_row(r,base_currency=base_currency) for r in ytd_account_rows]
     review_rows = [_serialize_row(r,base_currency=base_currency) for r in display_rows if r.get("needs_review")][:100]
-    month_transfer_matches = [
-        match for match in transfer_matches if match.get("match_date_obj") and month_start <= match["match_date_obj"] <= month_end
-    ]
-    ytd_transfer_matches = [
-        match for match in transfer_matches if match.get("match_date_obj") and ytd_start <= match["match_date_obj"] <= month_end
-    ]
-
     return {
-        "as_of": latest_date.isoformat() if latest_date else None,
-        "month": month_start.strftime("%Y-%m"),
-        "base_currency": base_currency,
+        **overview,
         "pending_transfer_count": pending_transfer_cases[0]['total_count'] if pending_transfer_cases else 0,
         "known_pending_transfer_count": pending_transfer_cases[0]['total_count'] if pending_transfer_cases else 0,
         "pending_transfer_coverage": "partial",
         "pending_transfer_count_status": "known_subset",
         "pending_transfer_cases": pending_transfer_cases,
-        "periods": {
-            "month": summarize_period(display_rows, transfer_matches, month_start, month_end),
-            "ytd": summarize_period(display_rows, transfer_matches, ytd_start, month_end),
-        },
-        "expense_categories": _group_amounts(month_rows, "expense"),
-        "income_categories": _group_amounts(month_rows, "income"),
-        "expense_categories_month": _group_amounts(month_rows, "expense"),
-        "income_categories_month": _group_amounts(month_rows, "income"),
-        "expense_categories_ytd": _group_amounts(ytd_rows, "expense"),
-        "income_categories_ytd": _group_amounts(ytd_rows, "income"),
+        "expense_categories": overview["expense_categories_month"],
+        "income_categories": overview["income_categories_month"],
         "account_summary": _account_summary(month_account_rows, configured_accounts,base_currency=base_currency),
         "account_summary_ytd": _account_summary(ytd_account_rows, configured_accounts, account_config,base_currency=base_currency),
-        "monthly_trend": _trend(display_rows, ytd_start, month_end, "monthly"),
-        "weekly_trend": _trend(display_rows, ytd_start, month_end, "weekly"),
         "recent_rows": recent_rows,
         "recent_rows_month": recent_rows_month,
         "recent_rows_ytd": recent_rows_ytd,
@@ -1625,5 +1697,4 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "transfer_summary_ytd": _transfer_summary(ytd_transfer_matches),
         **({'transfer_pairs': _transfer_pair_details(cur, ytd_transfer_matches) if redesigned else []}
            if include_transfer_pairs else {}),
-        "classification_rules": SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,
     }

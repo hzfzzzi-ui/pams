@@ -22,19 +22,17 @@ export function collectPrefetchResources(doc) {
   return [...resources].map(([href, as]) => ({href, as}));
 }
 
-function warmupPaths(now) {
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+function warmupPaths() {
   // This is the pre-existing read-only warmup scope; import/preflight data stays out.
   return [
     '/api/accounts/overview',
     '/api/sync/center',
     '/api/portfolio/data-quality?baseCurrency=CNY',
-    `/api/ledger/workbench?month=${month}`,
   ];
 }
 
 export function createPageBootstrap({
-  doc = document, win = window, afterStartup, warmCache, now = () => new Date(),
+  doc = document, win = window, afterStartup, warmCache,
   AbortController: Controller = win.AbortController || globalThis.AbortController,
 }) {
   let started = false;
@@ -89,7 +87,7 @@ export function createPageBootstrap({
     win.addEventListener('pagehide', dispose, {once: true});
     const connection = win.navigator.connection || win.navigator.mozConnection || win.navigator.webkitConnection;
     if (connection?.saveData) return;
-    const paths = warmupPaths(now());
+    const paths = warmupPaths();
     schedule(prefetchResources, 250);
     schedule(() => warmCache(paths, {signal: warmup.signal}), 900);
   }
