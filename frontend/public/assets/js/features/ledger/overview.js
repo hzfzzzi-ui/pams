@@ -33,7 +33,8 @@ function renderLedgerMobileHero(data) {
   const disposableNet = amounts.disposable_net ?? amounts.net;
   const cashNet = amounts.cash_net;
   const unclassified = num(period.unclassified_count);
-  const otherPending = Math.max(0, num(period.pending_count) - unclassified);
+  const subcategoryPending = num(period.subcategory_pending_count);
+  const otherPending = Math.max(0, num(period.pending_count) - unclassified - subcategoryPending);
   const amountText = (value, formatter = money) => value == null ? '—' : formatter(value);
   const amountTone = value => value == null ? '' : value < 0 ? 'down' : 'up';
   el.innerHTML = `
@@ -49,8 +50,8 @@ function renderLedgerMobileHero(data) {
         <strong class="${amounts.expense == null ? '' : 'down'}">${amountText(amounts.expense, value => signedMoney(-Math.abs(value)))}</strong>
       </div>
       <div class="ledgerMobileStat">
-        <span>待分类</span>
-        <strong class="${unclassified ? 'down' : ''}">${unclassified}</strong>
+        <span>${unclassified ? '待分类' : '子类待补'}</span>
+        <strong class="${unclassified ? 'down' : ''}">${unclassified || subcategoryPending}</strong>
       </div>
     </div>
     ${unclassified || otherPending ? `<p class="ledgerOverviewCoverage">${unclassified
