@@ -60,6 +60,7 @@ function bindLedgerEditSheet(row, session) {
     const category = fieldValue('category');
     const details = expensePicker.querySelector('[data-expense-details]');
     details.hidden = !category;
+    details.dataset.expenseTone = category;
     details.querySelector('.ledgerExpenseLegend').textContent = category ? `${category} · 细分类` : '';
     const options = category
       ? ledgerSubcategoryOptions('operating_expense', category, fieldValue('subcategory'))

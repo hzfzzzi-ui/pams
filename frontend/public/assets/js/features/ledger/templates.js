@@ -91,6 +91,7 @@ function expenseChoicesHtml(options, selectedValue, field) {
     const icon = field === 'category' ? EXPENSE_CATEGORY_ICONS[value] || EXPENSE_CATEGORY_ICONS.其他支出 : '';
     return `
       <button type="button" data-expense-choice="${field}" data-value="${escapeHtml(value)}"
+        ${field === 'category' ? `data-expense-tone="${escapeHtml(value)}"` : ''}
         aria-pressed="${value === selectedValue}">
         ${icon ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg>` : ''}
         <span>${escapeHtml(value)}</span>

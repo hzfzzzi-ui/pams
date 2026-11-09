@@ -299,7 +299,24 @@
 }
 .ledgerEditFull { grid-column:1 / -1 }
 .ledgerEditGrid [hidden] { display:none }
-.ledgerExpensePicker { min-width:0; display:grid; gap:12px }
+.ledgerExpensePicker {
+  --expense-accent:#aab5c8;
+  min-width:0;
+  display:grid;
+  gap:12px;
+}
+.ledgerExpensePicker [data-expense-tone="餐饮"] { --expense-accent:#ffad77 }
+.ledgerExpensePicker [data-expense-tone="交通出行"] { --expense-accent:#82bcff }
+.ledgerExpensePicker [data-expense-tone="居住"] { --expense-accent:#88dcb9 }
+.ledgerExpensePicker [data-expense-tone="通讯网络"] { --expense-accent:#79d5e7 }
+.ledgerExpensePicker [data-expense-tone="工具订阅"] { --expense-accent:#b7a2fb }
+.ledgerExpensePicker [data-expense-tone="购物"] { --expense-accent:#f4a5cf }
+.ledgerExpensePicker [data-expense-tone="医疗健康"] { --expense-accent:#f4a4a0 }
+.ledgerExpensePicker [data-expense-tone="娱乐休闲"] { --expense-accent:#e0a4f4 }
+.ledgerExpensePicker [data-expense-tone="学习成长"] { --expense-accent:#edd182 }
+.ledgerExpensePicker [data-expense-tone="人情往来"] { --expense-accent:#eea592 }
+.ledgerExpensePicker [data-expense-tone="借还款/往来"] { --expense-accent:#91cbc8 }
+.ledgerExpensePicker [data-expense-tone="待确认支出"] { --expense-accent:#e7bc7d }
 .ledgerExpenseLegend {
   margin-bottom:7px;
   color:var(--text-secondary);
@@ -331,6 +348,9 @@
   padding:5px 2px;
   overflow-wrap:anywhere;
   text-align:center;
+  background:color-mix(in srgb, var(--expense-accent) 9%, transparent);
+  border-color:color-mix(in srgb, var(--expense-accent) 22%, transparent);
+  color:var(--text);
 }
 .ledgerExpenseCategories svg {
   width:19px;
@@ -340,14 +360,16 @@
   stroke-width:1.6;
   stroke-linecap:round;
   stroke-linejoin:round;
+  color:var(--expense-accent);
 }
 .ledgerExpensePicker button[aria-pressed="true"] {
-  border-color:var(--text-secondary);
-  background:rgba(255,255,255,.12);
+  border-color:var(--expense-accent);
+  background:color-mix(in srgb, var(--expense-accent) 20%, transparent);
   color:var(--text);
 }
 .ledgerExpensePicker button:focus-visible { outline:2px solid var(--text); outline-offset:2px }
 .ledgerExpenseDetails { padding:10px 0 0; border-top:1px solid var(--line) }
+.ledgerExpenseDetails .ledgerExpenseLegend { color:var(--expense-accent) }
 .ledgerExpenseSubcategories { display:flex; flex-wrap:wrap; gap:6px }
 .ledgerExpenseSubcategories button { min-height:44px; padding:6px 12px }
 @media (max-width: 880px) {
