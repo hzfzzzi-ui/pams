@@ -15,12 +15,22 @@ rules:
     cashflow_type: operating_income
     category: 退款返现
     subcategory: 消费退款
-    keywords: [消费退款, 购物退款, 退货退款, purchase refund]
+    keywords: [消费退款, 消费退货, 购物退款, 退货退款, purchase refund]
   - direction: outflow
     cashflow_type: debt_repayment
     category: 内部划转
     subcategory: 信用卡还款
-    keywords: [信用卡约定还款, 信用卡还款, credit card repayment, pago de tarjeta de crédito]
+    keywords: [信用卡约定还款, 信用卡卡号还款, 信用卡还款, credit card repayment, pago de tarjeta de crédito]
+  - direction: inflow
+    cashflow_type: debt_repayment
+    category: 内部划转
+    subcategory: 信用卡还款
+    keywords: [存入 约定还款]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 其他支出
+    subcategory: 利息支出
+    keywords: [信用卡利息, 利息 利息, credit card interest]
   - direction: outflow
     cashflow_type: investment_funding
     category: 内部划转
@@ -36,6 +46,11 @@ rules:
     category: 交通出行
     subcategory: 打车
     keywords: [滴滴出行, 滴滴打车, uber ride, uber rides, uberrides, uber trip, uber* trip, uber *trip, uber * trip, uber*trip]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 交通出行
+    subcategory: 交通卡
+    keywords: [suica, pasmo]
   - direction: outflow
     cashflow_type: operating_expense
     category: 购物

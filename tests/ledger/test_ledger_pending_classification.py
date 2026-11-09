@@ -85,6 +85,30 @@ def test_merchant_aliases_require_an_identifiable_purchase(summary, subcategory)
     assert (view['classification_hint'] or {}).get('subcategory') == subcategory
 
 
+@pytest.mark.parametrize('summary,amount,expected', [
+    ('消费退货 原交易退款', 100, ('operating_income', '消费退款')),
+    ('消费退货 原交易退款', -100, None),
+    ('信用卡卡号还款', -100, ('debt_repayment', '信用卡还款')),
+    ('信用卡卡号还款', 100, None),
+    ('存入 约定还款', 100, ('debt_repayment', '信用卡还款')),
+    ('存入 约定还款', -100, None),
+    ('利息 利息', -100, ('operating_expense', '利息支出')),
+    ('利息 利息', 100, None),
+    ('利息存入', 100, ('operating_income', '利息')),
+    ('モバイルSUICA', -100, ('operating_expense', '交通卡')),
+    ('PASMO', -100, ('operating_expense', '交通卡')),
+    ('PASMO', 100, None),
+    ('财付通-理财通', -100, None),
+    ('跨行转出', -100, None),
+])
+def test_statement_aliases_respect_cashflow_direction(summary, amount, expected):
+    view = classify_ledger_row({'summary': summary, 'amount': amount,
+                                'source_evidence_status': 'verified', 'classification_status': 'pending'})
+    hint = view['classification_hint']
+    assert view['flow_type'] == 'unclassified'
+    assert (None if hint is None else (hint['cashflow_type'], hint['subcategory'])) == expected
+
+
 def test_confirmed_classification_is_not_overridden_by_text():
     row = {'id': 7, 'amount': -20, 'summary': '证券 美团外卖',
            'classification_status': 'confirmed', 'cashflow_type': 'operating_expense', 'category': '购物'}
