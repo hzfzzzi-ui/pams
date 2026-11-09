@@ -9,17 +9,28 @@ body.page-more .moreRow > span:first-child { min-width: 0; }
 body.page-more .moreRow small { display: block; max-width: none; margin-top: 5px; font-family: inherit; font-size: var(--pams-font-size-md); font-weight: 600; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
 body.page-more .moreRow > span[aria-hidden="true"] { width: 16px; flex: 0 0 16px; color: var(--pams-text-muted); font-size: 20px; font-weight: 400; line-height: 20px; text-align: center; }
 body.page-more .moreIssue small { color: var(--pams-warning); }
-body.page-more #accountSyncPanel .accountSyncGroup > summary { font-size: 16px; font-weight: 600; line-height: 1.28; overflow-wrap: anywhere; }
-body.page-more #accountSyncPanel .accountSyncGroup > summary::after { content: none; }
-body.page-more #accountSyncPanel .accountSyncCompact { padding-block: 12px; }
-body.page-more .accountSyncCompactHeading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, max-content); align-items: baseline; gap: 8px; }
+body.page-more .accountInstitutionPicker { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(62px, calc((100% - 8px) / 5)), 1fr)); gap: 7px 2px; margin: 4px 0 14px; }
+body.page-more #accountSyncPanel .accountInstitutionButton { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; padding: 4px 1px 5px; border: 0; border-radius: 12px; background: transparent; color: var(--pams-text-muted); font: inherit; cursor: pointer; }
+body.page-more .accountInstitutionLogo { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--pams-bg-raised); color: var(--pams-text-primary); font-weight: 650; }
+body.page-more .accountInstitutionLogo img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+body.page-more .accountInstitutionLabel { max-width: 100%; font-size: 11px; line-height: 1.25; overflow-wrap: anywhere; }
+body.page-more #accountSyncPanel .accountInstitutionButton[aria-pressed="true"] { color: var(--pams-text-primary); font-weight: 650; }
+body.page-more .accountInstitutionButton[aria-pressed="true"] .accountInstitutionLogo { outline: 1px solid #47b5ff; outline-offset: 3px; }
+body.page-more .accountInstitutionButton:focus-visible, body.page-more .accountSyncNameButton:focus-visible { outline: 2px solid var(--pams-info); outline-offset: 1px; }
+body.page-more .accountInstitutionFlag { position: absolute; top: 1px; left: calc(50% + 12px); display: grid; place-items: center; width: 15px; height: 15px; border: 1px solid var(--pams-bg-canvas); border-radius: 50%; background: var(--pams-warning); color: var(--pams-bg-canvas); font-size: 10px; font-weight: 750; }
+body.page-more .accountInstitutionFlag[data-status="review"] { background: var(--pams-loss); }
+body.page-more .accountInstitutionPanel { margin-bottom: 14px; padding-inline: 12px; border: 1px solid var(--pams-line-subtle); border-radius: 16px; background: var(--pams-bg-panel); }
+body.page-more .accountInstitutionPanel > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-block: 10px; }
+body.page-more .accountInstitutionPanel h3 { margin: 0; font: inherit; font-weight: 650; overflow-wrap: anywhere; }
+body.page-more .accountInstitutionPanel small { color: var(--pams-text-muted); }
+body.page-more #accountSyncPanel .accountSyncCompact { margin: 0; padding-block: 4px; }
+body.page-more .accountSyncCompactHeading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, max-content); align-items: center; gap: 8px; min-height: 46px; }
 body.page-more .accountSyncCompactName { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 body.page-more #accountSyncPanel .accountSyncCompact h4 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 body.page-more .accountSyncBadge { display: inline-block; padding: 2px 6px; border-radius: 5px; color: var(--pams-text-muted); background: var(--pams-bg-raised); font-size: 11px; font-weight: 600; white-space: nowrap; }
-body.page-more .accountSyncBadge[data-status="normal"], body.page-more .accountSyncAmount[data-sign="positive"] { color: var(--pams-profit); }
+body.page-more .accountSyncAmount[data-sign="positive"] { color: var(--pams-profit); }
 body.page-more .accountSyncBadge[data-status="review"], body.page-more .accountSyncAmount[data-sign="negative"] { color: var(--pams-loss); }
 body.page-more .accountSyncBadge[data-status="stale"] { color: var(--pams-warning); }
-body.page-more .accountSyncBadge[data-status="normal"] { background: color-mix(in srgb, var(--pams-profit) 15%, transparent); }
 body.page-more .accountSyncBadge[data-status="review"] { background: color-mix(in srgb, var(--pams-loss) 15%, transparent); }
 body.page-more .accountSyncBadge[data-status="stale"] { background: color-mix(in srgb, var(--pams-warning) 15%, transparent); }
 body.page-more button.accountSyncBadge { position: relative; min-height: 0; border: 0; line-height: 1.4; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
@@ -34,9 +45,9 @@ body.page-more .accountReviewDetails a { display: inline-flex; min-height: 44px;
 body.page-more .accountSyncAmount { color: var(--pams-text-secondary); font-size: 17px; font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 body.page-more .accountSyncAmountWithLabel { text-align: right; }
 body.page-more .accountSyncAmountWithLabel small { display: block; color: var(--pams-text-muted); font-size: 11px; }
-body.page-more .accountSyncCompact dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 8px; margin: 6px 0 0; font-size: 13px; }
-body.page-more .accountSyncCompact dt { color: var(--pams-text-muted); }
-body.page-more .accountSyncCompact dd { margin: 0; color: var(--pams-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+body.page-more .accountSyncMetadata { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 8px; margin: 0 0 16px; font-size: 13px; }
+body.page-more .accountSyncMetadata dt { color: var(--pams-text-muted); }
+body.page-more .accountSyncMetadata dd { margin: 0; color: var(--pams-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 body.page-more summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 12px 2px; color: var(--pams-text-primary) !important; background: transparent !important; list-style: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600; line-height: 1.4; }
 body.page-more summary::-webkit-details-marker { display: none; }
 body.page-more summary::after { content: "›"; width: 16px; flex: 0 0 16px; color: var(--pams-text-muted); font-size: 20px; font-weight: 400; line-height: 20px; text-align: center; transform: rotate(90deg); }
@@ -53,6 +64,6 @@ body.page-more .moreSystem dt { color: var(--pams-text-muted); }
 body.page-more .moreSystem dd { color: var(--pams-text-secondary); font-family: inherit; }
 body.page-more :is(a,summary):focus-visible { outline: 2px solid var(--pams-info); outline-offset: 2px; }
 body.page-more #moreImport { display: flex; width: fit-content; margin-inline-start: auto; align-items: center; min-height: 44px; color: var(--pams-text-primary); }
-body.page-more #accountSyncPanel .accountSyncNameButton { border: 0; padding: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+body.page-more #accountSyncPanel .accountSyncNameButton { min-height: 44px; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 body.page-more .accountCenterActions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 body.page-more .accountCenterActions a { display: inline-flex; align-items: center; min-height: 44px; }

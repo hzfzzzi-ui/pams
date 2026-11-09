@@ -1,5 +1,6 @@
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createAccountSyncLoader } from '../accounts/account_sync_controller.js';
+import { accountSyncMetadata } from '../accounts/account_sync_view.js';
 import { showAccountReview } from '../accounts/account_review_sheet.js';
 import { accountCenterHref } from '../../app/routes.js';
 
@@ -45,6 +46,7 @@ export function mount(root, context) {
           '/api/sync/accounts/' + encodeURIComponent(account.account_code) +
           '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}));
     }
+    reviewPanel.prepend(accountSyncMetadata(reviewPanel.ownerDocument, account.summary));
     if (!account.active) return;
     const actions = reviewPanel.ownerDocument.createElement('div');
     actions.className = 'accountCenterActions';
@@ -68,12 +70,11 @@ export function mount(root, context) {
       find('accountSyncStatus').textContent = '未找到指定账户。';
       return;
     }
-    item.closest('details').open = true;
     item.scrollIntoView({block: 'center'});
     item.querySelector('h4 button')?.focus({preventScroll: true});
     if (query.get('review') === 'balance' && openSheet) openAccount(account, true);
   }
-  const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true,
+  const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true, targetAccount,
     openAccount: openSheet ? openAccount : undefined,
     openReview: openSheet ? account => openAccount(account, true) : undefined, onRendered: locateAccount });
 
