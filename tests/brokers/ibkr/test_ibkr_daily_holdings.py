@@ -344,3 +344,61 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
             cur.execute("""SELECT r.sha256 FROM pams_investment_trade_fact f JOIN source_items i USING(source_item_id)
                 JOIN source_records r USING(source_id) WHERE f.trade_date=%s""", (DAY,))
             assert cur.fetchone()['sha256'] == digest
+
+
+def test_cumulative_pnl_uses_verified_flex_across_quotes_and_snapshots(empty_source_db, monkeypatch):
+    from domain.brokers.ibkr.ibkr_holding_pnl import enrich_ibkr_holding_pnl
+
+    monkeypatch.setenv('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', ACCOUNT)
+    next_day = DAY + timedelta(days=1)
+    first = report(DAY)
+    second = report(next_day, stock='112.5')
+    second.find('OpenPositions/OpenPosition').attrib.update(position='9', markPrice='100',
+        positionValue='900', costBasisMoney='630')
+    for root in (first, second):
+        ET.SubElement(root, 'Trades')
+        ET.SubElement(root, 'CashTransactions')
+    for root, day, ident, side, shares, price, proceeds, net, pnl in (
+        (first, DAY, 'buy-1', 'BUY', '10', '70', '700', '-700', '0'),
+        (second, next_day, 'sell-1', 'SELL', '-1', '100', '-100', '100', '30'),
+    ):
+        ET.SubElement(root.find('Trades'), 'Trade', accountId=ACCOUNT, tradeID=ident, assetCategory='STK',
+            levelOfDetail='EXECUTION', conid='123456', listingExchange='SEHK', symbol='SYNTH', currency='HKD',
+            buySell=side, tradeDate=compact(day), quantity=shares, tradePrice=price, tradeMoney=proceeds,
+            ibCommission='0', ibCommissionCurrency='HKD', taxes='0', netCash=net, fifoPnlRealized=pnl)
+    for ident, kind, amount in (('d1', 'Dividends', '10'), ('d2', 'Payment In Lieu Of Dividends', '5'),
+                                ('w1', 'Withholding Tax', '-2')):
+        ET.SubElement(second.find('CashTransactions'), 'CashTransaction', accountId=ACCOUNT, transactionID=ident,
+            type=kind, dateTime=compact(next_day), reportDate=compact(next_day), currency='HKD',
+            symbol='SYNTH', conid='123456', description='Synthetic dividend', amount=amount)
+    archive = ET.Element('FlexQueryResponse')
+    ET.SubElement(archive, 'FlexStatements').extend((first, second))
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            assert publish_report(cur, content=ET.tostring(first), source_account=ACCOUNT,
+                                  day=DAY)['facts']['trade']['published'] == 1
+            result = publish_report(cur, content=ET.tostring(archive), source_account=ACCOUNT, day=next_day)
+            assert result['facts']['trade']['published'] == 1
+            assert result['facts']['cash']['published'] == 3
+
+            def shown(day, market, rate):
+                cur.execute("""SELECT id AS holding_id,account_code AS account,symbol,currency,quantity,cost,
+                    holding_pnl FROM pams_holdings_snapshot WHERE account_code='ibkr' AND as_of=%s""", (day,))
+                holding = dict(cur.fetchone(), market_value=Decimal(market),
+                               market_value_cny=Decimal(market) * rate if rate is not None else None)
+                return enrich_ibkr_holding_pnl(cur, [holding])[0]
+
+            before = shown(DAY, 800, None)
+            assert before['holding_pnl_native'] == 100
+            assert before['holding_pnl_cny'] is None
+            after = shown(next_day, 900, Decimal('.9'))
+            assert after['holding_pnl_native'] == 313
+            assert after['realized_trade_pnl'] == 30 and after['net_distributions'] == 13
+            assert after['holding_pnl_cny'] == Decimal('281.7')
+            refreshed = shown(next_day, 990, Decimal('.9'))
+            assert refreshed['holding_pnl_native'] == 403
+            assert refreshed['realized_trade_pnl'] == 30 and refreshed['net_distributions'] == 13
+            cur.execute("UPDATE pams_cashflow_fact SET amount=9 WHERE amount=10 AND account_code='ibkr'")
+            assert 'net_distributions' not in shown(next_day, 990, Decimal('.9'))
