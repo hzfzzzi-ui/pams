@@ -128,10 +128,18 @@
               <form id="recentPeriodForm" class="ledgerPeriodPopover" hidden>
                 <fieldset>
                   <legend>时间范围</legend>
-                  <label><input type="radio" name="recentPeriod" value="ytd" checked /> 年初至今</label>
-                  <label><input type="radio" name="recentPeriod" value="month" /> 本月至今</label>
+                  <label>
+                    <input type="radio" name="recentPeriod" value="ytd" checked />
+                    <span>年初至今</span>
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"></path></svg>
+                  </label>
+                  <label>
+                    <input type="radio" name="recentPeriod" value="month" />
+                    <span>本月至今</span>
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"></path></svg>
+                  </label>
                 </fieldset>
-                <button class="btn" type="submit">确认</button>
+                <button class="ledgerPeriodApply" type="submit">确认</button>
               </form>
             </div>
             <button id="recentSearchToggle" class="ledgerIconButton" type="button" aria-label="搜索流水" aria-pressed="false">
