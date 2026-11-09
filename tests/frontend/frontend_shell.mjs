@@ -246,9 +246,18 @@ try {
   const lastRow = workflow.locator('#recentRows .ledgerListRow').last();
   await lastRow.waitFor();
   assert.match(await lastRow.innerText(), /示例流水 12/);
-  await workflow.locator('body').evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await workflow.locator('.appBottomSheetPanel').waitFor({state:'hidden'});
+  await lastRow.evaluate(row => {
+    row.scrollIntoView({block:'end', behavior:'instant'});
+    for (let node = row.parentElement; node; node = node.parentElement) {
+      if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) {
+        node.scrollTop = node.scrollHeight;
+      }
+    }
+    window.scrollTo({top:document.scrollingElement.scrollHeight, behavior:'instant'});
+  });
   const lastRowBox = await lastRow.boundingBox();
-  assert.ok(lastRowBox.y + lastRowBox.height < ledgerNav.y);
+  assert.ok(lastRowBox.y + lastRowBox.height < ledgerNav.y, JSON.stringify({lastRowBox, ledgerNav}));
   await session.send('Emulation.setEmulatedMedia', {
     features: [{name:'prefers-reduced-transparency', value:'reduce'}],
   });
