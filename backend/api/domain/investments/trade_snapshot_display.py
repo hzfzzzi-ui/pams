@@ -11,6 +11,12 @@ from domain.investments.valuation_input_evidence import _bound_input, _hash, ver
 
 
 _REPRICE_FIELDS = frozenset({'current_price', 'holding_pnl', 'market_value', 'updated_at'})
+_ROLL_FORWARD_FIELDS = _REPRICE_FIELDS | {'id', 'as_of', 'created_at'}
+
+
+def _same_holding_basis(left, right, *, ignored):
+    return _hash({key: value for key, value in left.items() if key not in ignored}) == _hash(
+        {key: value for key, value in right.items() if key not in ignored})
 
 
 def enrich_trade_snapshot_costs(cur, rows):
@@ -45,15 +51,19 @@ def enrich_trade_snapshot_costs(cur, rows):
                 evidence = (cur.fetchone() or {}).get('inputs') or []
                 original = current
                 if _hash(current) != record['holding_hash']:
-                    if row['holding_id'] != holding_id:
-                        continue
                     saved = [item['evidence']['snapshot']['content'] for item in evidence
                              if item['input_kind'] == 'holding']
                     if len(saved) != 1 or _hash(saved[0]) != record['holding_hash']:
                         continue
                     original = saved[0]
-                    if _hash({k: v for k, v in original.items() if k not in _REPRICE_FIELDS}) != _hash(
-                            {k: v for k, v in current.items() if k not in _REPRICE_FIELDS}):
+                    if not _same_holding_basis(original, current, ignored=_REPRICE_FIELDS):
+                        continue
+                if row['holding_id'] != holding_id:
+                    # A later daily quote can copy the position under a new ID.
+                    # Compare the stored position, then verify the full trade set below.
+                    _, repriced = _bound_input(cur, 'holding', {'id': row['holding_id']}, locking=False)
+                    if (not repriced or not str(original['as_of']) < str(repriced['as_of']) <= str(row['as_of'])[:10]
+                            or not _same_holding_basis(original, repriced, ignored=_ROLL_FORWARD_FIELDS)):
                         continue
                 if (original.get('account_code') != 'tonghuashun' or original.get('symbol') != row.get('symbol')
                         or original.get('currency') != row.get('currency')

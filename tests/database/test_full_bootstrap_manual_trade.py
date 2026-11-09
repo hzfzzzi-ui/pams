@@ -10,7 +10,7 @@ from tests.imports.test_account_import_publish import trade
 
 
 def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch):
-    from datetime import date, datetime
+    from datetime import date, datetime, timedelta
     from decimal import Decimal
     from uuid import UUID
     from zoneinfo import ZoneInfo
@@ -19,6 +19,7 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
     from domain.imports import account_import_store as store
     from domain.investments import trade_snapshot_http
     from domain.investments.trade_snapshot_display import enrich_trade_snapshot_costs
+    from endpoints import prices
     from scripts.link_ths_trade_assets import link_assets
     from tests.imports.test_account_import_ths import event, export
 
@@ -27,6 +28,7 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
     monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a1' * 32)
     monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
     monkeypatch.setattr(store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(prices, '_get_conn', lambda: psycopg2.connect(**empty_source_db))
     day = date(2025, 10, 22)
     quote = {'symbol': 'sz003123', 'price': Decimal('12'), 'price_date': day, 'source': 'tencent',
              'price_time': datetime(2025, 10, 22, 14, tzinfo=ZoneInfo('Asia/Shanghai'))}
@@ -34,8 +36,16 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
     root = '/api/account-import'
     with TestClient(main.app, base_url='http://localhost') as web:
         web.headers['Origin'] = 'http://localhost'
+        identity = {'证券代码': '003123', '交易市场': '深圳Ａ股'}
         uploaded = web.post(root + '/source-records?account_code=tonghuashun&source_name=tonghuashun&filename=table.xls',
-                            content=export(event(**{'证券代码': '003123', '交易市场': '深圳Ａ股'})))
+                            content=export(
+                                event(**identity, **{'成交数量': '200', '成交金额': '2000', '发生金额': '-2000',
+                                      '手续费': '0', '其他杂费': '0'}),
+                                event('证券卖出', **identity, **{'成交均价': '12', '成交金额': '1200', '发生金额': '1200',
+                                      '手续费': '0', '其他杂费': '0', '成交编号': 'sell', '定位串': 'sell', '成交时间': '10:00:00'}),
+                                event('红利入账', **identity, **{'成交金额': '30', '发生金额': '30',
+                                      '定位串': 'dividend', '成交时间': '11:00:00'}),
+                                event('红利税补扣', **identity, **{'发生金额': '-5', '定位串': 'tax', '成交时间': '12:00:00'})))
         assert uploaded.status_code == 200, uploaded.text
         source = uploaded.json()
         source_path = root + '/source-records/' + source['source_id']
@@ -51,9 +61,9 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
                 cur.execute('SELECT raw_fields,parsed_fields,record_hash FROM source_items')
                 before = cur.fetchall()
                 source_id = UUID(source['source_id'])
-                assert link_assets(cur, source_id, expected_count=1, apply=False)['new_links'] == 1
-                assert link_assets(cur, source_id, expected_count=1, apply=True)['new_links'] == 1
-                assert link_assets(cur, source_id, expected_count=1, apply=True)['new_links'] == 0
+                assert link_assets(cur, source_id, expected_count=4, apply=False)['new_links'] == 4
+                assert link_assets(cur, source_id, expected_count=4, apply=True)['new_links'] == 4
+                assert link_assets(cur, source_id, expected_count=4, apply=True)['new_links'] == 0
                 cur.execute('SELECT raw_fields,parsed_fields,record_hash FROM source_items')
                 assert cur.fetchall() == before
 
@@ -64,7 +74,8 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
         holding, = value['candidates']
         assert Decimal(holding['quantity']) == 100
         assert Decimal(holding['market_value']) == 1200
-        assert Decimal(holding['remaining_cost']) == Decimal(holding['diluted_cost'])
+        assert Decimal(holding['remaining_cost']) == 1000
+        assert Decimal(holding['diluted_cost']) == 775
         body = {'preview_token': value['preview_token']}
         assert web.post(root + '/trade-snapshot/publish', json=body).status_code == 400
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
@@ -75,32 +86,44 @@ def test_ths_snapshot_reuses_published_trade_source(empty_source_db, monkeypatch
         assert saved.status_code == 200, saved.text
         assert web.post(root + '/trade-snapshot/publish', json=body).json()['replayed'] is True
 
-    with psycopg2.connect(**empty_source_db) as conn:
-        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot')
-            row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
-        assert row['diluted_cost'] == Decimal(holding['diluted_cost'])
+    def displayed():
+        with psycopg2.connect(**empty_source_db) as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot ORDER BY as_of DESC LIMIT 1')
+                return enrich_trade_snapshot_costs(cur, cur.fetchall())[0]
+
+    original = displayed()
+    assert original['diluted_cost'] == 775
+    assert original['holding_pnl'] == 425
 
     with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
         cur.execute("""UPDATE pams_holdings_snapshot
                        SET market_value=1300, current_price=13, updated_at=now()""")
-    with psycopg2.connect(**empty_source_db) as conn:
-        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot')
-            row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
-        assert row['diluted_cost'] == Decimal(holding['diluted_cost'])
-        assert row['holding_pnl'] == Decimal(1300) - row['cost']
+    same_day = displayed()
+    assert same_day['holding_pnl'] == 525
+
+    next_day = day + timedelta(days=1)
+    assert prices._upsert_price_snapshots([same_day], {'003123': 14}, next_day) == 1
+    later = displayed()
+    assert later['holding_id'] != original['holding_id']
+    assert later['holding_pnl_before_realized_trade'] == 400
+    assert later['realized_trade_pnl'] == 200
+    assert later['net_distributions'] == 25
+    assert later['diluted_cost'] == 775
+    assert later['holding_pnl'] == 625
 
     with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
-        cur.execute('UPDATE pams_holdings_snapshot SET cost=cost+1')
-    with psycopg2.connect(**empty_source_db) as conn:
-        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute('SELECT *, id AS holding_id FROM pams_holdings_snapshot')
-            row, = enrich_trade_snapshot_costs(cur, cur.fetchall())
-        assert 'diluted_cost' not in row
+        cur.execute('UPDATE pams_holdings_snapshot SET cost=cost+1 WHERE id=%s', (later['holding_id'],))
+    assert 'diluted_cost' not in displayed()
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute('UPDATE pams_holdings_snapshot SET cost=cost-1 WHERE id=%s', (later['holding_id'],))
+        cur.execute("""INSERT INTO pams_investment_trade_fact
+            (account_code, symbol, asset_id, currency, trade_date, trade_type, net_cash, source_item_id, fact_role)
+            SELECT account_code, symbol, asset_id, currency, %s, 'dividend', 10, source_item_id, 'test_new_event'
+            FROM pams_investment_trade_fact WHERE trade_type='dividend'""", (next_day,))
+        assert cur.rowcount == 1
+    assert 'diluted_cost' not in displayed()
 
 
 def test_new_database_manual_trade_publish_replay_and_read(empty_source_db, monkeypatch):
