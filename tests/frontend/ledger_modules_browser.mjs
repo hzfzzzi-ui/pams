@@ -100,7 +100,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
 
 async function capture(page, label, legacy) {
   const snapshot = await page.evaluate(() => {
-    const ids = ['ledgerMobileHero', 'kpiMonthIncome', 'kpiMonthExpense', 'kpiDisposableNet', 'kpiInvestmentTransfer', 'kpiTransfer', 'kpiPending', 'categoryInsightTitle', 'overviewCategoryRank', 'cashflowBridge', 'transferSummary', 'classificationRules', 'accountFlowRows', 'recentAccountScope', 'recentRows'];
+    const ids = ['ledgerMobileHero', 'kpiMonthIncome', 'kpiMonthExpense', 'kpiDisposableNet', 'kpiInvestmentTransfer', 'kpiTransfer', 'kpiPending', 'categoryInsightTitle', 'overviewCategoryRank', 'cashflowBridge', 'transferSummary', 'classificationRules', 'recentAccountScope', 'recentRows'];
     return { markup: Object.fromEntries(ids.map(id => [id, document.getElementById(id)?.innerHTML])),
       charts: [window.__cashflowTrendChart?.data, window.__overviewCategoryPieChart?.data],
       panel: document.body.dataset.ledgerTab, hash: location.hash };
@@ -127,12 +127,6 @@ async function browse(legacy) {
   await page.locator('#recentSearchToggle').click(); await page.locator('[data-recent-search-clear]').click();
   await page.locator('#recentSortToggle').click(); await page.locator('[data-recent-sort-option="amount_desc"]').click();
   await capture(page, 'sorted', legacy);
-  await page.locator('[data-ledger-tab="account"]').click();
-  await page.locator('[data-account-group-toggle="ccb"]').click();
-  await capture(page, 'account-expanded', legacy);
-  await page.locator('[data-account-flow-filter="ccb_7332"]').click();
-  await capture(page, 'account-drilldown', legacy);
-  await page.locator('[data-clear-account-filter]').click();
   await page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
   await page.locator('[data-ledger-edit-form]').waitFor();
   const editTemplate = await page.locator('[data-ledger-edit-form]').innerHTML();
@@ -255,8 +249,6 @@ try {
 
   // Preserve ordinary view state over BFCache, never resume the edit operation.
   await page.locator('#recentSortToggle').click(); await page.locator('[data-recent-sort-option="amount_desc"]').click();
-  await page.locator('[data-ledger-tab="account"]').click(); await page.locator('[data-account-group-toggle="ccb"]').click();
-  await page.locator('[data-account-flow-filter="ccb_7332"]').click();
   await page.locator('[data-ledger-flow-filter="review"]').click();
   await page.locator('[data-recent-period="month"]').click();
   await page.locator('#recentSearchToggle').click();

@@ -1,11 +1,11 @@
 import { accountLabel } from '../../api.js';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
-import { LEDGER_PANEL_HASH, RECENT_SORT_OPTIONS } from './state.js';
+import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
+import { RECENT_SORT_OPTIONS } from './state.js';
 
-export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, replaceContentAddress, setLedgerPanel, showDetails }) {
+export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails }) {
   const { $ } = dom;
-  const { flowClass, isEditableLedgerRow, ledgerEditActionLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, originalCurrencyText, accountDisplayName, buildAccountFlowGroups, filteredRecentRows } = model;
-  const { recentSearchSheetHtml, rowDetailHtml, renderAccountGroup, recentSortSheetHtml } = templates;
+  const { flowClass, isEditableLedgerRow, ledgerEditActionLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, originalCurrencyText, accountDisplayName, filteredRecentRows } = model;
+  const { recentSearchSheetHtml, rowDetailHtml, recentSortSheetHtml } = templates;
 
 function renderRecentSearchButton() {
   const btn = $('recentSearchToggle');
@@ -59,21 +59,6 @@ function renderRecentAccountScope() {
   });
 }
 
-function openRecentForAccount(accountCode) {
-  state.recentAccountFilter = accountCode || '';
-  state.recentFlowFilter = '';
-  state.recentPeriod = 'ytd';
-  renderRecentPeriodButtons();
-  root.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
-    item.classList.toggle('active', (item.dataset.ledgerFlowFilter || '') === '');
-  });
-  renderRecentAccountScope();
-  renderRecentRows();
-  replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.recent}`);
-  setLedgerPanel('recent');
-  host.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
 function renderRecentPeriodButtons() {
   root.querySelectorAll('[data-recent-period]').forEach((btn) => {
     btn.classList.toggle('active', (btn.dataset.recentPeriod || 'month') === state.recentPeriod);
@@ -100,35 +85,6 @@ function openRecentSortSheet() {
     renderRecentSortButton();
     renderRecentRows();
     session.close();
-  });
-}
-
-function renderAccountFlowSummary(rows) {
-  events.clear('accounts');
-  const el = $('accountFlowRows');
-  if (!el) return;
-  const hint = $('accountFlowHint');
-  if (hint) {
-    hint.textContent = '账户余额优先展示；现金流变化统一按年初至今计算。';
-  }
-  if (!rows?.length) {
-    el.innerHTML = '<div class="ledgerEmpty">年初至今暂无账户流水</div>';
-    return;
-  }
-  el.innerHTML = buildAccountFlowGroups(rows).map(renderAccountGroup).join('');
-  el.querySelectorAll('[data-account-flow-filter]').forEach((btn) => {
-    events.listen('accounts', btn, 'click', () => openRecentForAccount(btn.dataset.accountFlowFilter || ''));
-  });
-  el.querySelectorAll('[data-account-group-toggle]').forEach((btn) => {
-    events.listen('accounts', btn, 'click', () => {
-      const groupCode = btn.dataset.accountGroupToggle || '';
-      if (state.expandedAccountGroups.has(groupCode)) {
-        state.expandedAccountGroups.delete(groupCode);
-      } else {
-        state.expandedAccountGroups.add(groupCode);
-      }
-      renderAccountFlowSummary(rows);
-    });
   });
 }
 
@@ -206,5 +162,5 @@ function renderRecentRows() {
   renderRows('recentRows', rows, rows.length);
 }
 
-  return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, openRecentForAccount, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderAccountFlowSummary, renderRows, renderRecentRows };
+  return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderRecentRows };
 }
