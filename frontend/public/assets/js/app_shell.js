@@ -85,7 +85,11 @@ for (const link of links) link.addEventListener('click', event => {
   let current = '';
   try { current = frame.contentWindow.location.pathname.split('/').pop(); }
   catch { /* A failed or external document must not disable the main navigation. */ }
-  if (current !== link.dataset.page) navigate(new URL(link.dataset.page, location.href));
+  if (current === link.dataset.page) return;
+  if (event.isTrusted && event.detail > 0 && !link.hasAttribute('aria-current')) {
+    navigator.vibrate?.(10);
+  }
+  navigate(new URL(link.dataset.page, location.href));
 });
 
 frame.addEventListener('load', () => {

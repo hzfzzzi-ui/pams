@@ -262,6 +262,32 @@ try {
     features: [{name:'prefers-reduced-transparency', value:'reduce'}],
   });
   assert.equal(await page.locator('.pams-primary-nav').evaluate(node => getComputedStyle(node).backdropFilter), 'none');
+  await session.send('Emulation.setEmulatedMedia', {features: [
+    {name:'prefers-reduced-transparency', value:'no-preference'},
+    {name:'prefers-reduced-motion', value:'no-preference'},
+  ]});
+  const primaryNav = page.locator('.pams-primary-nav');
+  assert.equal(await primaryNav.evaluate(node => getComputedStyle(node).backdropFilter), 'blur(12px) saturate(1.45)');
+  await page.evaluate(() => {
+    window.navVibrations = [];
+    navigator.vibrate = duration => { window.navVibrations.push(duration); return true; };
+    window.navSelectionMoved = false;
+    document.querySelector('.pams-primary-nav').addEventListener('transitionrun', event => {
+      if (event.pseudoElement === '::before' && event.propertyName === 'transform') {
+        window.navSelectionMoved = true;
+      }
+    });
+  });
+  const moreLink = primaryNav.locator('[data-page="more.html"]');
+  await moreLink.click();
+  await page.waitForFunction(() => window.navSelectionMoved);
+  await moreLink.click();
+  assert.deepEqual(await page.evaluate(() => window.navVibrations), [10]);
+  await session.send('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion', value:'reduce'}]});
+  await primaryNav.locator('[data-page="ledger.html"]').press('Enter');
+  await primaryNav.locator('[data-page="ledger.html"][aria-current="page"]').waitFor();
+  assert.equal(await primaryNav.evaluate(node => getComputedStyle(node, '::before').transitionDuration), '0s');
+  assert.deepEqual(await page.evaluate(() => window.navVibrations), [10]);
   workflowFixtures = false;
   // A desktop viewport alone reports zero insets. Emulate the phone's
   // obstruction so the test catches an iframe starting behind the status bar.
