@@ -60,6 +60,31 @@ def test_weak_conflicting_or_unverified_evidence_has_no_hint(overrides):
     assert classify_ledger_row(row)['classification_hint'] is None
 
 
+@pytest.mark.parametrize('summary,subcategory', [
+    ('消费 DLO*Uber Rides CDMX', '打车'),
+    ('消费 UBER   *TRIP', '打车'),
+    ('消费 DLO UBERRIDES CA2', '打车'),
+    ('消费 UBER* EATS', '外卖'),
+    ('消费 DLO UBEREATS CA2', '外卖'),
+    ('消费 OXXOCITY WALK', '超市便利'),
+    ('消费 7-ELEVEN', '超市便利'),
+    ('消费 REST PICKUP COFFEE', '咖啡饮品'),
+    ('消费 STARBUCKS CITY WALK', '咖啡饮品'),
+    ('OXXO PAY', None),
+    ('OXXOGAS TAMAULIPAS', None),
+    ('UBER *ONE MEMBERSHIP', None),
+    ('消费 财付通-理财通-腾安基金', None),
+    ('财付通 微信转账', None),
+    ('PAGO TRANSFERENCIA SPEI', None),
+])
+def test_merchant_aliases_require_an_identifiable_purchase(summary, subcategory):
+    row = {'summary': summary, 'amount': -20, 'source_evidence_status': 'verified',
+           'classification_status': 'pending'}
+    view = classify_ledger_row(row)
+    assert view['flow_type'] == 'unclassified'
+    assert (view['classification_hint'] or {}).get('subcategory') == subcategory
+
+
 def test_confirmed_classification_is_not_overridden_by_text():
     row = {'id': 7, 'amount': -20, 'summary': '证券 美团外卖',
            'classification_status': 'confirmed', 'cashflow_type': 'operating_expense', 'category': '购物'}

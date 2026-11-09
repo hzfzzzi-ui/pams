@@ -30,12 +30,37 @@ rules:
     cashflow_type: operating_expense
     category: 餐饮
     subcategory: 外卖
-    keywords: [美团外卖, 饿了么外卖, uber eats]
+    keywords: [美团外卖, 饿了么外卖, uber eats, uber* eats, uber *eats, uber * eats, uber*eats, ubereats]
   - direction: outflow
     cashflow_type: operating_expense
     category: 交通出行
     subcategory: 打车
-    keywords: [滴滴出行, 滴滴打车, uber ride]
+    keywords: [滴滴出行, 滴滴打车, uber ride, uber rides, uberrides, uber trip, uber* trip, uber *trip, uber * trip, uber*trip]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 购物
+    subcategory: 超市便利
+    keywords:
+      - oxxocity walk
+      - oxxo city walk
+      - oxxo santa fe
+      - oxxo lerdo
+      - oxxoamberes
+      - oxxo vistas del sol
+      - oxxo auditorio
+      - oxxo trillenium
+      - oxxo moliere
+      - oxxo constituyentes
+      - oxxo gonzalez camarena
+      - 7 eleven
+      - 7-eleven
+      - 7eleven
+      - city market
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 餐饮
+    subcategory: 咖啡饮品
+    keywords: [starbucks, 星巴克, pickup coffee]
   - direction: outflow
     cashflow_type: operating_expense
     category: 工具订阅
