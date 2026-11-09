@@ -141,14 +141,20 @@ async function browse(legacy) {
     await page.setViewportSize({ width: 320, height: viewport.height });
     const bar = await page.locator('.ledgerRecentBar').evaluate(element => {
       const chips = element.querySelector('#recentFlowChips');
-      const controls = [...element.querySelectorAll('button:not([type="submit"])')].map(button => button.getBoundingClientRect());
+      const buttons = [...element.querySelectorAll('button:not([type="submit"])')];
+      const controls = buttons.map(button => button.getBoundingClientRect());
       return {
         aligned: controls.every(rect => Math.abs(rect.top - controls[0].top) < 1),
         ordered: controls.slice(1).every((rect, index) => rect.left >= controls[index].right),
         fits: chips.scrollWidth <= chips.clientWidth && controls.at(-1).right <= window.innerWidth,
+        borderless: buttons.every(button => {
+          const style = getComputedStyle(button);
+          return style.borderTopWidth === '0px' && style.backgroundColor === 'rgba(0, 0, 0, 0)';
+        }),
+        selectedUnderline: getComputedStyle(chips.querySelector('[aria-pressed="true"]'), '::after').height === '2px',
       };
     });
-    assert.deepEqual(bar, { aligned: true, ordered: true, fits: true });
+    assert.deepEqual(bar, { aligned: true, ordered: true, fits: true, borderless: true, selectedUnderline: true });
     await page.setViewportSize(viewport);
     await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
     assert.deepEqual(await page.locator('#recentRows .ledgerListRow').evaluateAll(

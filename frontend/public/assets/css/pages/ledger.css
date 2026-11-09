@@ -192,13 +192,60 @@
 .ledgerPanelGroup[hidden] { display:none !important }
 .ledgerRecentBar { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:10px }
 .ledgerFlowChips { display:flex; gap:4px; min-width:0; overflow:auto hidden; scrollbar-width:none }
-.ledgerFlowChip { flex:0 0 auto; min-height:44px; padding:0 6px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--muted); font-size:12px; font-weight:600; white-space:nowrap; cursor:pointer }
-.ledgerFlowChip.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text); }
+.ledgerFlowChip {
+  position:relative;
+  flex:0 0 auto;
+  min-height:44px;
+  padding:0 6px;
+  border:0;
+  border-radius:0;
+  background:none;
+  color:var(--pams-text-secondary);
+  font-size:12px;
+  font-weight:600;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.ledgerFlowChip[aria-pressed="true"] { color:var(--pams-text-primary) }
+.ledgerFlowChip[aria-pressed="true"]::after {
+  position:absolute;
+  inset:auto 0 5px;
+  width:16px;
+  height:2px;
+  margin-inline:auto;
+  background:currentColor;
+  content:"";
+}
 .ledgerSectionToolbar { display:flex; flex:0 0 auto; align-items:center; gap:4px }
-.ledgerIconButton { width:44px; height:44px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-secondary); cursor:pointer }
-.ledgerIconButton:hover,
-.ledgerIconButton:focus,
-.ledgerIconButton.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text) }
+.ledgerIconButton {
+  position:relative;
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  width:44px;
+  height:44px;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:none;
+  color:var(--pams-text-secondary);
+  cursor:pointer;
+}
+.ledgerIconButton:is(:hover, [aria-pressed="true"], [aria-expanded="true"]) { color:var(--pams-text-primary) }
+.ledgerIconButton:is([aria-pressed="true"], [aria-expanded="true"])::after {
+  position:absolute;
+  inset:auto 0 5px;
+  width:4px;
+  height:4px;
+  margin-inline:auto;
+  border-radius:50%;
+  background:currentColor;
+  content:"";
+}
+.ledgerRecentBar :is(.ledgerFlowChip, .ledgerIconButton):focus-visible {
+  outline:1px solid var(--pams-text-primary);
+  outline-offset:-2px;
+}
 .ledgerIconButton svg { width:16px; height:16px; stroke:currentColor; stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round }
 .ledgerSearchSheet { display:grid; gap:12px }
 .ledgerSearchSheetActions { display:grid; grid-template-columns:1fr 1fr; gap:8px }
