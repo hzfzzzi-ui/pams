@@ -125,7 +125,7 @@ function ledgerEditSheetHtml(row) {
         <label>
           <span>细分类</span>
           <select class="formInput" data-edit-field="subcategory">
-            ${optionHtml(ledgerSubcategoryOptions(category, subcategory), subcategory)}
+            ${optionHtml(ledgerSubcategoryOptions(cashflowType, category, subcategory), subcategory)}
           </select>
         </label>
         <label>

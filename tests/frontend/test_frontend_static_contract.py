@@ -551,9 +551,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "LEDGER_EDIT_SUBCATEGORY_OPTIONS" in js
     assert 'data-edit-field="category"' in js
     assert 'data-edit-field="subcategory"' in js
-    assert "function updateLedgerSubcategoryOptions(form, preferredValue)" in js
+    assert "function updateLedgerSubcategoryOptions(" in js
     assert "工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认']" in js
-    assert "内部划转: ['换汇转账', '转账退回', '投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认']" in js
     assert "ledgerInlineEditBtn" in page_css
     assert "ledgerInlineEditBtn" in js
     assert "${transferRouteHtml(row)}\n      ${editButton}" in js

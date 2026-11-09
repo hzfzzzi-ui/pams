@@ -118,7 +118,7 @@ const LEDGER_EDIT_CATEGORY_OPTIONS = {
 
 const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {
   餐饮: ['餐饮', '工作餐', '咖啡饮品', '外卖', '聚餐', '手动确认'],
-  交通出行: ['打车', '公共交通', '停车', '机票火车', '手动确认'],
+  交通出行: ['打车', '公共交通', '交通卡', '停车', '机票火车', '手动确认'],
   居住: ['房租', '物业水电', '网络通讯', '家居维修', '手动确认'],
   通讯网络: ['手机话费', '宽带网络', '流量套餐', '手动确认'],
   工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认'],
@@ -128,17 +128,26 @@ const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {
   学习成长: ['课程培训', '图书资料', '考试认证', '手动确认'],
   人情往来: ['红包转账', '礼金', '代付代收', '手动确认'],
   '借还款/往来': ['借款', '还款', '往来款', '手动确认'],
-  其他支出: ['其他支出', '手动确认'],
+  其他支出: ['其他支出', '利息支出', '手动确认'],
   待确认支出: ['手动确认'],
   工资薪酬: ['工资', '薪金', '手动确认'],
   奖金: ['年终奖', '绩效奖金', '手动确认'],
   报销补贴: ['差旅报销补助', '费用报销', '补贴', '手动确认'],
   福利保障: ['公积金', '医保', '社保', '手动确认'],
-  退款返现: ['消费退款', '返现', '退货退款', '手动确认'],
+  退款返现: ['消费退款', '返现', '退货退款', '退货退税', '手动确认'],
   人情往来收入: ['红包收入', '转账收入', '礼金收入', '手动确认'],
   利息收入: ['利息', '现金收益', '手动确认'],
   其他收入: ['其他收入', '手动确认'],
-  内部划转: ['换汇转账', '转账退回', '投资入金', '投资出金', '内部转账', '信用卡还款', '资金在途', '手动确认'],
+};
+
+const LEDGER_EDIT_SUBCATEGORY_OPTIONS_BY_TYPE = {
+  investment_funding: { 内部划转: ['投资入金', '基金定投申购', '积存金买入', '手动确认'] },
+  investment_withdrawal: { 内部划转: ['投资出金', '基金赎回', '理财赎回', '手动确认'] },
+  internal_transfer: { 内部划转: ['内部转账', '转账退回', '资金在途', '手动确认'] },
+  debt_repayment: { 内部划转: ['信用卡还款', '手动确认'] },
+  fx_conversion: { 内部划转: ['换汇转账', '手动确认'] },
+  debt_drawdown: { 融资: ['信用卡取现', '手动确认'] },
+  fee: { 其他支出: ['银行费用', '手动确认'] },
 };
 
 export function createLedgerLegacyModel(state) {
@@ -441,11 +450,11 @@ function ledgerCategoryOptions(cashflowType, currentValue = '') {
   ]);
 }
 
-function ledgerSubcategoryOptions(category, currentValue = '') {
-  return uniqueOptionValues([
-    ...(LEDGER_EDIT_SUBCATEGORY_OPTIONS[category] || ['手动确认']),
-    currentValue,
-  ]);
+function ledgerSubcategoryOptions(cashflowType, category, currentValue = '') {
+  const options = LEDGER_EDIT_SUBCATEGORY_OPTIONS_BY_TYPE[cashflowType]?.[category]
+    || LEDGER_EDIT_SUBCATEGORY_OPTIONS[category]
+    || ['手动确认'];
+  return uniqueOptionValues([...options, currentValue]);
 }
 
 function overviewPeriodKey() {

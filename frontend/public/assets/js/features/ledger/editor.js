@@ -17,24 +17,22 @@ function updateLedgerCategoryOptions(form, preferredValue) {
   return category.value;
 }
 
-function updateLedgerSubcategoryOptions(form, preferredValue) {
+function updateLedgerSubcategoryOptions(form, preferredValue = '') {
+  const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
   const categoryValue = form.querySelector('[data-edit-field="category"]')?.value || '';
   const subcategory = form.querySelector('[data-edit-field="subcategory"]');
-  if (!subcategory) return '';
-  const options = ledgerSubcategoryOptions(categoryValue, preferredValue ?? subcategory.value);
-  const nextValue = preferredValue === null
-    ? (options[0] || '')
-    : String((preferredValue ?? subcategory.value) || '').trim();
+  if (!subcategory) return;
+  const options = ledgerSubcategoryOptions(cashflowType, categoryValue);
+  const nextValue = options.includes(preferredValue) ? preferredValue : (options[0] || '');
   subcategory.innerHTML = optionHtml(options, nextValue);
-  subcategory.value = options.includes(nextValue) ? nextValue : (options[0] || '');
-  return subcategory.value;
+  subcategory.value = nextValue;
 }
 
 function applyLedgerEditDefaults(form) {
   const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
   const defaults = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
   updateLedgerCategoryOptions(form, defaults.category || undefined);
-  updateLedgerSubcategoryOptions(form, defaults.subcategory || undefined);
+  updateLedgerSubcategoryOptions(form, defaults.subcategory);
 }
 
 function bindLedgerEditSheet(row, session) {
@@ -46,7 +44,7 @@ function bindLedgerEditSheet(row, session) {
     session.close();
   });
   session.listen(form.querySelector('[data-edit-field="cashflow_type"]'), 'change', () => applyLedgerEditDefaults(form));
-  session.listen(form.querySelector('[data-edit-field="category"]'), 'change', () => updateLedgerSubcategoryOptions(form, null));
+  session.listen(form.querySelector('[data-edit-field="category"]'), 'change', () => updateLedgerSubcategoryOptions(form));
   session.listen(form, 'submit', async event => {
     event.preventDefault();
     if (pending || !current() || !session.active()) return;

@@ -333,13 +333,40 @@ try {
   await hintPage.page.locator('[data-ledger-tab="recent"]').click();
   await hintPage.page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
   const form = hintPage.page.locator('[data-ledger-edit-form]');
+  const type = form.locator('[data-edit-field="cashflow_type"]');
+  const category = form.locator('[data-edit-field="category"]');
+  const subcategory = form.locator('[data-edit-field="subcategory"]');
   await form.getByText('词典建议，匹配到「取现」。').waitFor();
-  assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), 'debt_drawdown');
-  assert.equal(await form.locator('[data-edit-field="category"]').inputValue(), '融资');
+  assert.equal(await type.inputValue(), 'debt_drawdown');
+  assert.equal(await category.inputValue(), '融资');
+  assert.equal(await subcategory.inputValue(), '信用卡取现');
   await form.locator('[data-sheet-close]').click();
   await hintPage.page.locator('[data-ledger-edit="2"]').filter({ visible: true }).first().click();
-  assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), '');
+  assert.equal(await type.inputValue(), '');
   await form.locator('button[type="submit"]').click();
+  for (const [value, options] of [
+    ['investment_funding', ['投资入金', '基金定投申购', '积存金买入']],
+    ['investment_withdrawal', ['投资出金', '基金赎回', '理财赎回']],
+    ['internal_transfer', ['内部转账', '转账退回', '资金在途']],
+    ['debt_repayment', ['信用卡还款']],
+    ['fx_conversion', ['换汇转账']],
+    ['debt_drawdown', ['信用卡取现']],
+    ['fee', ['银行费用']],
+  ]) {
+    await type.selectOption(value);
+    assert.deepEqual(await subcategory.locator('option').allTextContents(), [...options, '手动确认']);
+    assert.equal(await subcategory.inputValue(), options[0]);
+    await subcategory.selectOption(options.at(-1));
+  }
+  await type.selectOption('operating_expense');
+  await category.selectOption('交通出行');
+  await subcategory.selectOption('交通卡');
+  await category.selectOption('其他支出');
+  await subcategory.selectOption('利息支出');
+  assert.equal(await subcategory.locator('option[value="交通卡"]').count(), 0);
+  await type.selectOption('operating_income');
+  await category.selectOption('退款返现');
+  await subcategory.selectOption('退货退税');
   assert.equal(await hintPage.page.evaluate(() => __ledgerTest.writes.length), 0);
   await hintPage.context.close();
   assert.deepEqual(errors, []);
