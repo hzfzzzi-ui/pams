@@ -190,10 +190,11 @@
 
 .ledgerPanelGroup { display:grid; gap:12px }
 .ledgerPanelGroup[hidden] { display:none !important }
-.ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
-.ledgerFlowChip { min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer; }
+.ledgerRecentBar { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:10px }
+.ledgerFlowChips { display:flex; gap:4px; min-width:0; overflow:auto hidden; scrollbar-width:none }
+.ledgerFlowChip { flex:0 0 auto; min-height:44px; padding:0 6px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--muted); font-size:12px; font-weight:600; white-space:nowrap; cursor:pointer }
 .ledgerFlowChip.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text); }
-.ledgerSectionToolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; margin-left:auto }
+.ledgerSectionToolbar { display:flex; flex:0 0 auto; align-items:center; gap:4px }
 .ledgerIconButton { width:44px; height:44px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-secondary); cursor:pointer }
 .ledgerIconButton:hover,
 .ledgerIconButton:focus,
@@ -212,6 +213,10 @@
 .recentAccountScope button { border:0; background:transparent; color:var(--pams-text-primary); font-size:12px; font-weight:600; cursor:pointer }
 .accountFlowList { display:grid; border-top:1px solid var(--line) }
 .ledgerPeriodControl { position:relative }
+@media (max-width:380px) {
+  .ledgerFlowChip { padding-inline:4px }
+  .ledgerSectionToolbar .ledgerIconButton { width:34px }
+}
 .ledgerPeriodPopover {
   position:absolute;
   z-index:5;
@@ -568,10 +573,6 @@
   .ledgerFilterGrid { grid-template-columns:1fr }
   .page-ledger .pageHeader { display:none; }
 
-  .ledgerFlowChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none; }
-  .ledgerFlowChips::-webkit-scrollbar { display:none; }
-  .ledgerFlowChip { flex:0 0 auto; border-radius:var(--pams-radius-control) !important; }
-  .ledgerSectionToolbar { gap:6px; min-width:0 }
   .page-ledger .ledgerPanelGroup {
     padding-left: 0;
     padding-right: 0;

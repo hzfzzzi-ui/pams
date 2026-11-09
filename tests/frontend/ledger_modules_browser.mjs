@@ -137,6 +137,19 @@ async function browse(legacy) {
   await capture(page, 'month-expense-weekly', legacy);
   await page.locator('[data-ledger-tab="recent"]').click();
   if (!legacy) {
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: viewport.height });
+    const bar = await page.locator('.ledgerRecentBar').evaluate(element => {
+      const chips = element.querySelector('#recentFlowChips');
+      const controls = [...element.querySelectorAll('button:not([type="submit"])')].map(button => button.getBoundingClientRect());
+      return {
+        aligned: controls.every(rect => Math.abs(rect.top - controls[0].top) < 1),
+        ordered: controls.slice(1).every((rect, index) => rect.left >= controls[index].right),
+        fits: chips.scrollWidth <= chips.clientWidth && controls.at(-1).right <= window.innerWidth,
+      };
+    });
+    assert.deepEqual(bar, { aligned: true, ordered: true, fits: true });
+    await page.setViewportSize(viewport);
     await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
     assert.deepEqual(await page.locator('#recentRows .ledgerListRow').evaluateAll(
       rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-3', 'recentRows-detail-4']);

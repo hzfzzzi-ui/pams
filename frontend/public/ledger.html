@@ -109,7 +109,13 @@
 
     <div class="ledgerPanelGroup" data-ledger-panel="recent" hidden>
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section" aria-label="流水">
-        <div class="sectionTitle">
+        <div class="ledgerRecentBar">
+          <div id="recentFlowChips" class="ledgerFlowChips" aria-label="流水类型筛选">
+            <button class="ledgerFlowChip active" type="button" data-ledger-flow-filter="" aria-pressed="true">全部</button>
+            <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="income" aria-pressed="false">收入</button>
+            <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="expense" aria-pressed="false">消费</button>
+            <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="internal_transfer" aria-pressed="false">内部划转</button>
+          </div>
           <div class="ledgerSectionToolbar">
             <div class="ledgerPeriodControl" id="recentPeriodControl">
               <button id="recentPeriodToggle" class="ledgerIconButton" type="button"
@@ -144,12 +150,6 @@
           </div>
         </div>
         <div id="recentAccountScope" class="recentAccountScope" hidden></div>
-        <div id="recentFlowChips" class="ledgerFlowChips" aria-label="流水类型筛选">
-          <button class="ledgerFlowChip active" type="button" data-ledger-flow-filter="" aria-pressed="true">全部</button>
-          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="income" aria-pressed="false">收入</button>
-          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="expense" aria-pressed="false">消费</button>
-          <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="internal_transfer" aria-pressed="false">内部划转</button>
-        </div>
         <div id="recentRows" class="ledgerList"></div>
       </section>
     </div>
