@@ -405,8 +405,10 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     missing_income_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "income" for r in period_rows)
     missing_expense_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "expense" for r in period_rows)
     missing_transfer_row_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "transfer" for r in period_rows)
-    income = sum(r["amount_cny"] for r in known_rows if r["flow_type"] == "income" and r["amount_cny"] > 0)
-    expense = sum(abs(r["amount_cny"]) for r in known_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0)
+    income_amounts = [r["amount_cny"] for r in known_rows if r["flow_type"] == "income" and r["amount_cny"] > 0]
+    expense_amounts = [-r["amount_cny"] for r in known_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0]
+    income = sum(income_amounts)
+    expense = sum(expense_amounts)
     known_transfers = [t for t in period_transfers if t.get("amount_cny") is not None]
     missing_fx = len(period_transfers) - len(known_transfers)
     transfer = sum(abs(t["amount_cny"]) for t in known_transfers)
@@ -437,8 +439,17 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         "expense_count": sum(1 for r in period_rows if r["flow_type"] == "expense"),
     }
     unclassified_count = sum(1 for row in period_rows if row.get("flow_type") == "unclassified")
+    result["unclassified_count"] = unclassified_count
     if unclassified_count:
-        result.update(classification_status="incomplete", unclassified_count=unclassified_count)
+        # Keep full-period totals unknown and expose the valued, classified subset separately.
+        has_operating_amounts = bool(income_amounts or expense_amounts)
+        result["classification_status"] = "incomplete"
+        result["confirmed_subtotal"] = {
+            "income": result["income"] if has_operating_amounts else None,
+            "expense": result["expense"] if has_operating_amounts else None,
+            "net": result["net"] if has_operating_amounts else None,
+            "cash_net": result["cash_net"] if has_operating_amounts and not (missing_fx or missing_transfer_row_fx) else None,
+        }
         for key in ("income", "expense", "net", "disposable_net", "cash_net"):
             result[key] = None
     if missing_fx or missing_transfer_row_fx:
@@ -688,7 +699,8 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
         else:
             key = d.strftime("%Y-%m")
         if row.get("flow_type") == "unclassified":
-            buckets[key]["unclassified"] = True
+            bucket = buckets[key]
+            bucket["unclassified_count"] = bucket.get("unclassified_count", 0) + 1
             continue
         if row.get("amount_cny") is None and row["flow_type"] in {"income", "expense"}:
             buckets[key]["fx_missing_" + row["flow_type"]] = True
@@ -702,11 +714,21 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
     for key in sorted(buckets):
         income = round(buckets[key]["income"], 2)
         expense = round(buckets[key]["expense"], 2)
-        missing_income = buckets[key].get("fx_missing_income") or buckets[key].get("unclassified")
-        missing_expense = buckets[key].get("fx_missing_expense") or buckets[key].get("unclassified")
-        result.append({"period": key, "income": None if missing_income else income,
-                       "expense": None if missing_expense else expense,
-                       "net": None if missing_income or missing_expense else round(income - expense, 2)})
+        unclassified_count = buckets[key].get("unclassified_count", 0)
+        missing_income = buckets[key].get("fx_missing_income") or unclassified_count
+        missing_expense = buckets[key].get("fx_missing_expense") or unclassified_count
+        item = {"period": key, "income": None if missing_income else income,
+                "expense": None if missing_expense else expense,
+                "net": None if missing_income or missing_expense else round(income - expense, 2)}
+        if unclassified_count:
+            item["unclassified_count"] = unclassified_count
+            has_operating_amounts = bool(buckets[key]["income"] or buckets[key]["expense"])
+            item["confirmed_subtotal"] = {
+                "income": income if has_operating_amounts else None,
+                "expense": expense if has_operating_amounts else None,
+                "net": round(income - expense, 2) if has_operating_amounts else None,
+            }
+        result.append(item)
     return result
 
 
