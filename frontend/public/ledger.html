@@ -36,20 +36,12 @@
           </div>
         </div>
 
-        <div id="ledgerMobileHero" class="ledgerMobileHero"></div>
-        <a href="#transfers">查看资金流转</a>
+        <div class="ledgerOverviewCard">
+          <div id="ledgerMobileHero" class="ledgerMobileHero"></div>
+          <a class="ledgerOverviewTransfer" href="#transfers">查看资金流转 <span aria-hidden="true">›</span></a>
+        </div>
         <div class="cashflowBodyGrid">
-          <div>
-            <div class="sectionTitle" style="margin-top:var(--sp-3)">
-              <h3>收支趋势</h3>
-              <div class="ledgerTextSwitch" role="group" aria-label="趋势统计周期">
-                <button id="trendMonthly" type="button" aria-pressed="true">按月</button>
-                <button id="trendWeekly" type="button" aria-pressed="false">按周</button>
-              </div>
-            </div>
-            <div class="chartWrap" style="height:320px"><canvas id="cashflowTrendChart"></canvas></div>
-          </div>
-          <div>
+          <div class="ledgerOverviewCard">
             <div class="cashflowSidePanel">
               <div class="categoryInsightPanel">
                 <div class="sectionTitle">
@@ -62,12 +54,26 @@
                 <div class="categoryInsightGrid">
                   <div class="categoryPieWrap">
                     <canvas id="overviewCategoryPieChart"></canvas>
+                    <div class="ledgerRingTotal" id="overviewCategoryTotal" hidden>
+                      <span id="overviewCategoryTotalLabel"></span>
+                      <strong id="overviewCategoryTotalValue"></strong>
+                    </div>
                     <div id="overviewCategoryPieEmpty" class="categoryPieEmpty" hidden></div>
                   </div>
                   <div id="overviewCategoryRank"></div>
                 </div>
               </div>
             </div>
+          </div>
+          <div class="ledgerOverviewCard">
+            <div class="sectionTitle">
+              <h3>收支趋势</h3>
+              <div class="ledgerTextSwitch" role="group" aria-label="趋势统计周期">
+                <button id="trendMonthly" type="button" aria-pressed="true">按月</button>
+                <button id="trendWeekly" type="button" aria-pressed="false">按周</button>
+              </div>
+            </div>
+            <div class="chartWrap"><canvas id="cashflowTrendChart"></canvas></div>
           </div>
         </div>
       </section>

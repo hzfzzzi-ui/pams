@@ -409,7 +409,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
 
     assert 'id="accountFlowRows"' not in html
     assert 'data-ledger-tab="account"' not in html
-    assert 'href="#transfers">查看资金流转</a>' in html
+    assert 'href="#transfers">查看资金流转' in html
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html
     assert 'id="recentSearch" class="formInput" type="search"' not in html

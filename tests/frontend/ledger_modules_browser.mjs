@@ -114,11 +114,20 @@ async function capture(page, label, legacy) {
 
 async function browse(legacy) {
   const { page, context } = await makePage(legacy);
+  if (!legacy) {
+    assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥2,250.25');
+    assert.equal(await page.locator('#overviewCategoryRank .categoryBarRank').first().evaluate(
+      el => el.style.getPropertyValue('--ledger-rank-color')), '#3fb950');
+  }
   await capture(page, 'overview', legacy);
   await page.locator('[data-overview-period="month"]').click();
   await page.locator('[data-overview-flow="expense"]').click();
   await page.locator('#trendWeekly').click();
   if (!legacy) {
+    assert.equal(await page.locator('#overviewCategoryTotalLabel').textContent(), '消费合计');
+    assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥24.50');
+    assert.equal(await page.locator('#overviewCategoryRank .categoryBarRank').first().evaluate(
+      el => el.style.getPropertyValue('--ledger-rank-color')), '#f85149');
     assert.deepEqual(await page.locator('.ledgerFundingStats strong').allTextContents(), ['¥35.00', '—']);
     assert.equal(await page.locator('[data-overview-period="month"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-overview-flow="expense"]').getAttribute('aria-pressed'), 'true');

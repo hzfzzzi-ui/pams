@@ -71,14 +71,14 @@ function renderCategoryBars(id, rows, emptyText, flowType = 'income') {
     el.innerHTML = `<div class="muted">${escapeHtml(emptyText)}</div>`;
     return;
   }
+  const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
   el.innerHTML = `
     <div class="categoryBarList ${flowType === 'expense' ? 'expense' : 'income'}">
       ${rows.map((row, index) => `
         <div class="categoryBarRow">
-          <div class="categoryBarRank">${index + 1}</div>
+          <div class="categoryBarRank" style="--ledger-rank-color:${colors[Math.min(index, colors.length - 1)]}">${index + 1}</div>
           <div class="categoryBarMain">
             <div class="categoryBarName">${escapeHtml(row.category)}</div>
-            <div class="categoryTrack"><div class="categoryFill" style="width:${Math.max(num(row.share) * 100, 2)}%"></div></div>
             <div class="categoryBarCount">${row.count || 0} 笔</div>
           </div>
           <div class="categoryBarMeta">
@@ -145,7 +145,7 @@ function renderOverviewCategoryPie(rows, flowType) {
 
   const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
   pieChart = new ChartClass(canvas, {
-    type: 'pie',
+    type: 'doughnut',
     data: {
       labels: chartRows.map((row) => row.category),
       datasets: [{
@@ -159,6 +159,7 @@ function renderOverviewCategoryPie(rows, flowType) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      cutout: '74%',
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -180,6 +181,13 @@ function renderOverviewCategoryPie(rows, flowType) {
 function renderOverviewCategoryInsight(data) {
   const flowType = overviewFlowKey();
   const rows = currentOverviewCategories(data, flowType);
+  const total = $('overviewCategoryTotal');
+  if (total) {
+    const amount = currentOverviewPeriod(data)[flowType];
+    total.hidden = !rows.some(row => num(row.amount) > 0);
+    setText('overviewCategoryTotalLabel', `${overviewFlowLabel(flowType)}合计`);
+    setText('overviewCategoryTotalValue', amount == null ? '—' : money(amount));
+  }
   setText('categoryInsightTitle', `${overviewFlowLabel(flowType)}排行`);
   renderOverviewFlowButtons();
   renderCategoryBars(
