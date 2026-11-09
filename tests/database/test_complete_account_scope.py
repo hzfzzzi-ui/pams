@@ -144,7 +144,7 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
         account=next(r for r in response.json()['accounts'] if r['account_code']=='tonghuashun')
         assert Decimal(account['primary_balance']['amount'])==Decimal('1050')
     actual_overview=accounts._overview_payload
-    monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None:{'accounts':[]})
+    monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[]})
     with TestClient(main.app) as web:
         response=web.get('/holdings/latest')
         assert response.status_code==200,response.text
@@ -154,7 +154,7 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
         nav=web.get('/nav/weekly',params={'start':DAY,'baseCurrency':'CNY','latest':'true','interval':'daily'})
         assert nav.status_code==200,nav.text
         assert Decimal(nav.json()['rows'][-1]['netWorth'])==Decimal('1050')
-        monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None:{'accounts':[{
+        monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[{
             'account_code':'tonghuashun','account_type':'brokerage','include_in_nav':True,
             'primary_balance':{'amount':'1050','currency':'CNY','as_of':DAY}}]})
         from datetime import timedelta
@@ -163,7 +163,7 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
         assert scoped.status_code==200,scoped.text
         assert scoped.json()['rows'][0]['netWorth'] is None
         assert Decimal(scoped.json()['rows'][-1]['netWorth'])==Decimal('1050')
-        monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None:{'accounts':[]})
+        monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[]})
         series=web.get('/nav/series?limit=1&baseCurrency=CNY')
         assert series.status_code==200,series.text
         assert Decimal(str(series.json()['rows'][-1]['netWorth']))==Decimal('1050')
@@ -197,7 +197,7 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
             assert response.status_code==200,response.text
             account=next(r for r in response.json()['accounts'] if r['account_code']=='tonghuashun')
             assert account['primary_balance'] is None
-        monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None:{'accounts':[]})
+        monkeypatch.setattr(accounts,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[]})
         nav=web.get('/nav/weekly',params={'start':DAY,'baseCurrency':'CNY','latest':'true','interval':'daily'})
         assert nav.status_code==200,nav.text
         assert nav.json()['rows'][-1]['netWorth'] is None

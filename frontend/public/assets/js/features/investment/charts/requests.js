@@ -15,9 +15,7 @@ export function readInvestmentNav({signal} = {}) {
     .catch(error => readFallback(error, { rows: [] }));
 }
 
-export function readInvestmentReturnSeries({signal} = {}) {
-  return Promise.all([
-    jget('/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY', {signal}).catch(error => readFallback(error, { rows: [] })),
-    ...RETURN_SECTION_SPECS.map(spec => jget(spec.url, {signal}).catch(error => readFallback(error, { rows: [] }))),
-  ]).then(([resp, ...sectionResponses]) => ({ resp, sectionResponses }));
+export function readInvestmentReturnSeries({signal, section} = {}) {
+  return jget(section?.url || '/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY', {signal})
+    .catch(error => readFallback(error, { rows: [] }));
 }

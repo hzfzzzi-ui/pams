@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import date as Date
 from decimal import Decimal
+from collections.abc import Callable
 from typing import Any
 
 from domain.investments.investment_return_math import annualized_rate, dec, norm
@@ -20,6 +21,48 @@ _TOTAL_REQUIRED = ("market_value", "cost", "position_pnl", "realized_income", "t
 _SECTION_REQUIRED = ("market_value", "net_flow", "cumulative_capital", "capital_return_rate",
                      "daily_return_rate", "time_weighted_return_rate", "display_return_rate")
 _INCOMPLETE_STATES = {"unavailable", "unknown", "incomplete", "partial", "estimated", "pending"}
+
+_RETURN_INPUT_TABLES = (
+    "pams_accounts", "pams_asset_master", "pams_holdings_snapshot", "pams_investment_trade_fact",
+    "pams_cashflow_fact", "pams_fx_rates_daily", "market_observations", "source_records",
+    "source_items", "evidence_confirmation", "broker_processing_state", "valuation_results",
+)
+
+
+def return_snapshot_revision(cur, *, settings: dict[str, Any]) -> str:
+    """Fingerprint the input rows visible in the same transaction as the curve."""
+    cur.execute("""SELECT name FROM unnest(%s::text[]) AS inputs(name)
+        JOIN pg_class ON pg_class.oid=to_regclass('public.' || name)
+        WHERE relkind IN ('r','p','m')""",
+                (list(_RETURN_INPUT_TABLES),))
+    existing = {row['name'] for row in cur.fetchall()}
+    revisions = []
+    for table in _RETURN_INPUT_TABLES:
+        if table not in existing:
+            continue
+        # MVCC row identity detects inserts, corrections and deletes, including
+        # corrections made without touching a business timestamp.
+        scope = " WHERE result_type <> 'holding_return'" if table == "valuation_results" else ""
+        cur.execute(f"""SELECT count(*) AS row_count,
+            bit_xor(hashtextextended(xmin::text || ':' || ctid::text, 0)) AS revision
+            FROM public.{table}{scope}""")
+        row = cur.fetchone()
+        revisions.append((table, row['row_count'], row['revision']))
+    encoded = json.dumps([settings, revisions], sort_keys=True, default=str).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _verified_snapshot_response(rows, current_revision):
+    """Restore the exact response, including partial coverage and estimates."""
+    revisions = {_raw_payload_meta(row).get("input_revision") for row in rows}
+    metadata = _raw_payload_meta(rows[-1]).get("response")
+    if not isinstance(metadata, dict) or len(revisions) != 1 or None in revisions:
+        return None
+    if current_revision() not in revisions or metadata.get("row_count") != len(rows):
+        return None
+    response = {key: value for key, value in metadata.items() if key != "row_count"}
+    response["rows"] = [_raw_payload_row(row) for row in rows]
+    return response
 
 
 def _nullable_decimal(value: Any) -> Decimal | None:
@@ -307,6 +350,7 @@ def build_investment_return_series_payload_from_snapshot(
     view_as_of: Date,
     today_label_date: Date | None = None,
     require_data_completeness: bool = False,
+    current_revision: Callable[[], str] | None = None,
 ) -> dict[str, Any] | None:
     """Read the total investment return series from precomputed snapshots."""
     if not holding_return_snapshot_table_exists(cur):
@@ -338,6 +382,8 @@ def build_investment_return_series_payload_from_snapshot(
     raw_rows = [dict(row) for row in cur.fetchall()]
     if not raw_rows:
         return None
+    if current_revision is not None:
+        return _verified_snapshot_response(raw_rows, current_revision)
     if _row_date(raw_rows[-1]) < view_as_of:
         return None
     if require_data_completeness and any(
@@ -407,6 +453,7 @@ def build_section_return_series_payload_from_snapshot(
     view_as_of: Date,
     today_label_date: Date | None = None,
     require_data_completeness: bool = False,
+    current_revision: Callable[[], str] | None = None,
 ) -> dict[str, Any] | None:
     """Read a section return-rate series from precomputed snapshots."""
     if section not in SNAPSHOT_SECTIONS or section == SNAPSHOT_SECTION_TOTAL:
@@ -439,6 +486,8 @@ def build_section_return_series_payload_from_snapshot(
     raw_rows = [dict(row) for row in cur.fetchall()]
     if not raw_rows:
         return None
+    if current_revision is not None:
+        return _verified_snapshot_response(raw_rows, current_revision)
     if _row_date(raw_rows[-1]) < view_as_of:
         return None
     if require_data_completeness and any(
@@ -526,6 +575,7 @@ def upsert_investment_return_series_snapshot(
     payload: dict[str, Any],
     base_currency: str,
     section: str = SNAPSHOT_SECTION_TOTAL,
+    input_revision: str | None = None,
 ) -> int:
     """Persist a computed return-series payload for future fast reads."""
     if not holding_return_snapshot_table_exists(cur):
@@ -541,6 +591,7 @@ def upsert_investment_return_series_snapshot(
         "status": payload.get("status"),
         "reason": payload.get("reason"),
         "data_completeness": payload.get("data_completeness"),
+        "input_revision": input_revision,
     }
     rows_count = len(rows)
     holdings_count = int(payload.get("holdings_count") or rows_count)
@@ -548,7 +599,7 @@ def upsert_investment_return_series_snapshot(
     declared_completeness = payload.get("data_completeness")
     required = _TOTAL_REQUIRED if section == SNAPSHOT_SECTION_TOTAL else _SECTION_REQUIRED
     written = 0
-    for row in rows:
+    for index, row in enumerate(rows):
         if not row.get("date"):
             continue
         snapshot_date = _row_date(row)
@@ -566,7 +617,13 @@ def upsert_investment_return_series_snapshot(
                       or any(row.get(field) is None for field in required))
         data_completeness = "partial" if incomplete else "complete"
         source_hash = _snapshot_source_hash(section, base_currency, row)
-        raw_json = json.dumps({**payload_meta, "row": row}, ensure_ascii=False, sort_keys=True, default=str)
+        metadata = payload_meta
+        if input_revision is not None and index == rows_count - 1:
+            metadata = {**payload_meta, "response": {
+                **{key: value for key, value in payload.items() if key != "rows"},
+                "row_count": rows_count,
+            }}
+        raw_json = json.dumps({**metadata, "row": row}, ensure_ascii=False, sort_keys=True, default=str)
         cur.execute(
             """
             INSERT INTO valuation_results (

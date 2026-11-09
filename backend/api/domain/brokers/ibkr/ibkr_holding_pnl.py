@@ -1,6 +1,7 @@
 """Build IBKR holding P&L from verified positions, executions and cash events."""
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import lru_cache
 
 from domain.imports.source_original_read import SourceOriginals
 
@@ -29,18 +30,31 @@ def _ledger_counts(cur, day):
     return cur.fetchall()
 
 
-def _report_components(cur, originals, source, holdings):
+@lru_cache(maxsize=4)
+def _parse_report(content, account, digest, day):
+    """Reuse only source-derived inputs; callers must verify bytes and current facts."""
     from domain.brokers.ibkr.ibkr_daily_holdings import read_report
-    from domain.brokers.ibkr.ibkr_history_backfill import read_candidates, reconcile_candidates
+    from domain.brokers.ibkr.ibkr_history_backfill import read_candidates
+
+    report_digest, positions, _ = read_report(content, account, day)
+    if report_digest != digest:
+        raise ValueError('Flex source hash mismatch')
+    candidates, pending, _ = read_candidates(content, account, digest, day)
+    return positions, candidates, pending
+
+
+def _report_components(cur, originals, source, holdings):
+    from domain.brokers.ibkr.ibkr_history_backfill import reconcile_candidates
 
     day = source['period_end']
     account = source['attributes']['accountId']
     content, verified = originals.read(source)
     if not verified:
         return {}
-    content = bytes(content)
-    digest, positions, _ = read_report(content, account, day)
-    candidates, pending, _ = read_candidates(content, account, digest, day)
+    digest = source['sha256']
+    if content is None or digest is None:
+        return {}
+    positions, candidates, pending = _parse_report(bytes(content), account, digest, day)
     if pending:
         return {}
     matched, _ = reconcile_candidates(cur, candidates, account, current_digest=digest)

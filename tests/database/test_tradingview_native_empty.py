@@ -214,7 +214,7 @@ def test_partial_snapshot_visible_without_false_account_nav(empty_source_db, mon
     monkeypatch.setattr(main, '_load_portfolio_accounts_config', lambda: cfg)
     monkeypatch.setattr(main, '_latest_published_portfolio_valuation_state', lambda cur, **kwargs: None)
     monkeypatch.setattr(main, '_account_owner_ratio', lambda account: Decimal('1'))
-    monkeypatch.setattr(accounts, '_overview_payload', lambda cur=None: {'accounts': []})
+    monkeypatch.setattr(accounts, '_overview_payload', lambda cur=None, **kwargs: {'accounts': []})
     with TestClient(main.app) as web:
         response = web.get('/holdings/latest')
         assert response.status_code == 200, response.text

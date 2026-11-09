@@ -466,27 +466,27 @@ def _get_base_currency(cur) -> str:
 
 def _build_summary2_latest_payload_for_request(cur) -> dict[str, Any]:
     base_currency = _get_base_currency(cur)
-    holdings_payload = _build_holdings_latest_payload(
-        cur,
-        limit=5000,
-        include_closed=False,
-        view_as_of=_holdings_market_view_as_of(cur),
-        excluded_accounts=_excluded_holding_accounts(),
-        owner_ratios=_account_owner_ratios(),
-        default_owner_ratio=_default_owner_ratio(),
-        daily_pnl_start_as_of=_daily_pnl_view_as_of(),
-    )
+    holdings_args = {
+        'limit': 5000, 'include_closed': False, 'view_as_of': _holdings_market_view_as_of(cur),
+        'excluded_accounts': _excluded_holding_accounts(), 'owner_ratios': _account_owner_ratios(),
+        'default_owner_ratio': _default_owner_ratio(), 'daily_pnl_start_as_of': _daily_pnl_view_as_of(),
+    }
+    holdings_payload = _build_holdings_latest_payload(cur, **holdings_args)
+    account_config = _load_portfolio_accounts_config()
     account_balances = _load_account_balances(
         cur,
         base_currency,
-        _load_portfolio_accounts_config(),
+        account_config,
     )
     summary_payload = _build_summary2_from_holdings_latest_payload(
         holdings_payload,
         base_currency=base_currency,
         account_balances=account_balances,
     )
-    attribution_payload = _build_return_attribution_payload(cur, base_currency=base_currency)
+    attribution_payload = _build_return_attribution_payload(
+        cur, base_currency=base_currency, reuse_holdings=(holdings_args, holdings_payload),
+        reuse_balances=(account_config, account_balances),
+    )
     summary_payload = _apply_return_attribution_pnl_to_summary(summary_payload, attribution_payload)
     valuation_state = _latest_published_portfolio_valuation_state(
         cur,

@@ -94,7 +94,7 @@ def test_nav_endpoint_rebuilds_terminal_bucket_when_projection_basis_is_old(enab
         def cursor(self, **kwargs):
             return nullcontext(object())
     monkeypatch.setattr(main, "get_conn", lambda: nullcontext(Connection()))
-    monkeypatch.setattr(main.accounts_endpoint, "_overview_payload", lambda cur=None: {})
+    monkeypatch.setattr(main.accounts_endpoint, "_overview_payload", lambda cur=None, **kwargs: {})
     monkeypatch.setattr(main, "_investment_return_view_as_of", lambda cur: DAY)
     monkeypatch.setattr(main, "_latest_published_portfolio_valuation_state", lambda *args, **kwargs:
                         {"valuation_date": DAY, "net_liquidation_value": "99999"})

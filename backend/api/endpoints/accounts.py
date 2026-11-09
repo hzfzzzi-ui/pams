@@ -785,13 +785,14 @@ def _build_accounts_overview(
     )
 
 
-def _overview_payload(cur=None) -> dict[str, Any]:
+def _overview_payload(cur=None, *, include_transfers=True, valuation_balances=None) -> dict[str, Any]:
     """Use the caller's transaction when composing account and asset responses."""
     if cur is None:
         with get_conn() as conn:
             conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as shared_cur:
-                return _overview_payload(cur=shared_cur)
+                return _overview_payload(cur=shared_cur, include_transfers=include_transfers,
+                                         valuation_balances=valuation_balances)
     from domain.brokers.ibkr import ibkr_daily_close_read
     from domain.accounts.balance_snapshot import load_verified_bank_balances
     from domain.investments import portfolio_state
@@ -803,11 +804,12 @@ def _overview_payload(cur=None) -> dict[str, Any]:
     statement_balances = _fetch_statement_balances(cur)
     holding_balances = _fetch_holding_balances(cur)
     fx_rates_by_base = _fetch_daily_fx_rates_by_date(cur, holding_balances)
-    transfer_rollups = _fetch_transfer_rollups(cur)
+    transfer_rollups = _fetch_transfer_rollups(cur) if include_transfers else {}
     latest_reviews = _fetch_latest_reviews(cur)
     if ibkr_daily_close_read.configured():
         canonical_balances = {}
-        for row in portfolio_state.load_account_balances(cur, "CNY", account_cfg):
+        rows = valuation_balances if valuation_balances is not None else portfolio_state.load_account_balances(cur, "CNY", account_cfg)
+        for row in rows:
             code = row["account_code"]
             if code in canonical_balances:
                 canonical_balances[code] = {"daily_close": {"status": "unconfirmed",

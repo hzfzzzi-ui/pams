@@ -163,7 +163,7 @@ for (const fallback of [false, true]) {
   assert.equal(await controller.loadNavOnce(), null);
   assert.equal(await controller.loadReturnsOnce(), null);
   assert.equal(await controller.renderReturns(), null);
-  assert.equal(test.requests.length, 6);
+  assert.equal(test.requests.length, 2);
 }
 
 {
@@ -172,13 +172,11 @@ for (const fallback of [false, true]) {
   const loading = controller.loadReturnsOnce();
   const estimated = {rows: [], estimated_series: {label: '同花顺估算', source_through: '2026-09-30',
     rows: [{date: '2026-09-30', display_return_rate: '0.1'}, {date: '2026-10-26', display_return_rate: '0.2'}]}};
-  for (const req of test.requests) {
-    if (req.url.startsWith('/nav/')) req.resolve(nav);
-    else if (req.url.includes('section=a_stock')) req.resolve(estimated);
-    else if (req.url.includes('section=us_stock')) {
-      req.resolve({rows: [], status: 'unavailable', reason: 'ibkr_position_history_unavailable'});
-    } else req.resolve({rows: [], status: 'unavailable'});
-  }
+  test.resolve(test.requests, nav, {rows: [], status: 'unavailable'});
+  await settle();
+  assert.equal(test.requests.length, 3);
+  assert.match(test.requests[2].url, /section=a_stock/);
+  test.requests[2].resolve(estimated);
   await loading;
   const chart = test.window.__investmentReturnChart;
   assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock').hidden, false);
@@ -187,6 +185,9 @@ for (const fallback of [false, true]) {
   assert.equal(status.hidden, true);
   assert.notEqual(button('us_stock').disabled, true);
   button('us_stock').fire('click');
+  assert.match(test.requests[3].url, /section=us_stock/);
+  test.requests[3].resolve({rows: [], status: 'unavailable', reason: 'ibkr_position_history_unavailable'});
+  await settle();
   assert.equal(status.hidden, false);
   assert.match(status.textContent, /IBKR/);
   assert.equal(button('us_stock').attrs['aria-pressed'], 'false');
@@ -205,19 +206,18 @@ for (const fallback of [false, true]) {
   const loading = controller.loadReturnsOnce();
   const estimate = {label: 'IBKR 美股持仓估算', method: 'ibkr_unrealized_pnl_over_position_cost',
     rows: [{date: '2026-09-30', display_return_rate: '0.25'}]};
-  for (const req of test.requests) {
-    if (req.url.startsWith('/nav/')) req.resolve(nav);
-    else if (req.url.includes('section=us_stock')) req.resolve({rows: [], estimated_series: estimate});
-    else req.resolve(returns);
-  }
+  test.resolve();
   await loading;
   const chart = test.window.__investmentReturnChart;
   const us = chart.data.datasets.find(row => row.returnSeriesKey === 'us_stock');
-  const button = test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === 'us_stock');
-  button.fire('click');
+  const button = () => test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === 'us_stock');
+  button().fire('click');
+  assert.match(test.requests[2].url, /section=us_stock/);
+  test.requests[2].resolve({rows: [], estimated_series: estimate});
+  await settle();
   assert.equal(us.hidden, false);
   assert.equal(us.data[chart.data.labels.indexOf('2026-09-30')], 25);
-  assert.equal(button.attrs['aria-pressed'], 'true');
+  assert.equal(button().attrs['aria-pressed'], 'true');
   assert.match(test.elements.investmentReturnSeriesStatus.textContent, /未实现盈亏/);
   controller.dispose();
 }
@@ -230,7 +230,7 @@ for (const oldFirst of [false, true]) {
   const replacement = test.create(), currentLoading = replacement.loadReturnsOnce();
   assert.equal(old.disposed, true);
   assert.ok(oldRequests.every(request => request.options.signal.aborted));
-  const freshRequests = test.requests.slice(6);
+  const freshRequests = test.requests.slice(2);
   if (oldFirst) { test.resolve(oldRequests); assert.equal(await oldLoading, null); assert.equal(test.charts.length, 0); }
   test.resolve(freshRequests); await currentLoading; await replacement.loadNavOnce();
   const currentChart = test.window.__investmentReturnChart;
@@ -249,8 +249,8 @@ for (const oldFirst of [false, true]) {
   const older = controller.renderReturns();
   const oldReturnRequests = test.requests.slice(1);
   const newer = controller.renderReturns();
-  const newReturnRequests = test.requests.slice(6);
-  assert.equal(test.requests.length, 11);
+  const newReturnRequests = test.requests.slice(2);
+  assert.equal(test.requests.length, 3);
   assert.ok(oldReturnRequests.every(request => request.options.signal.aborted));
   assert.ok(newReturnRequests.every(request => !request.options.signal.aborted));
   test.requests[0].resolve(nav);

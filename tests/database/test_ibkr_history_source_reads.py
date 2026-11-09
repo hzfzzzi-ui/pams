@@ -124,7 +124,7 @@ def test_return_http_reads_verified_ibkr_facts_when_isolated_writes_are_disabled
         conn.commit()
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED','false')
     monkeypatch.setattr(main,'get_conn',lambda:psycopg2.connect(**empty_source_db))
-    monkeypatch.setattr(main.accounts_endpoint,'_overview_payload',lambda cur=None:{'accounts':[]})
+    monkeypatch.setattr(main.accounts_endpoint,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[]})
     monkeypatch.setattr(main,'_investment_return_view_as_of',lambda cur:sample)
     monkeypatch.setattr(main,'_investment_today_label_date',lambda:sample)
     monkeypatch.setattr(main,'_build_section_return_series_payload_from_snapshot',lambda *a,**k:None)
