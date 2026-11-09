@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 from domain.imports.source_row_read import source_row_relation
+from domain.ledger.cashflow_classification import classification_hint
 
 
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
@@ -100,6 +101,26 @@ CLASSIFICATION_RULES = [
         "description": "分类不根据 500、520 等固定金额判断，避免未来流水规模变化后口径漂移。",
     },
 ]
+
+SOURCE_RECORD_CLASSIFICATION_RULES = [
+    {"name": "共用分类词典", "description": "各子账户共用关键词。已核验的待分类流水命中唯一类别时，编辑页会预填建议。"},
+    {"name": "人工确认", "description": "建议需保存确认后才进入收支统计。确认分类用于展示，已核对资金关系独立生效。"},
+]
+
+CONFIRMED_FLOW_TYPES = {
+    'operating_income': ('income', '其他收入'),
+    'operating_expense': ('expense', '其他支出'),
+    'internal_transfer': ('transfer', '资金流转'),
+    'investment_funding': ('transfer', '资金流转'),
+    'investment_withdrawal': ('transfer', '资金流转'),
+    'debt_repayment': ('transfer', '资金流转'),
+    'balance_adjustment': ('transfer', '资金流转'),
+    'fx_conversion': ('transfer', '换汇'),
+    'investment_return_cash': ('investment_return', '投资收益'),
+    'debt_drawdown': ('other', '借款到账'),
+    'fee': ('expense', '费用'),
+    'tax': ('expense', '税费'),
+}
 
 
 def _to_float(value: Any) -> float:
@@ -278,10 +299,19 @@ def classify_ledger_row(
     """
 
     transfer_row_ids = transfer_row_ids or set()
-    if row.get("classification_status") in {"pending", "suggested"}:
+    status = row.get("classification_status")
+    if status in {"pending", "suggested", "confirmed"}:
+        if status == "confirmed" and _payment_proxy_role(row) == "source":
+            return {"flow_type": "payment_proxy_dedup", "coarse_category": "支付通道去重",
+                    "needs_review": False, "is_operating": False}
         if isinstance(row.get('id'), int) and row['id'] in transfer_row_ids:
             return {"flow_type": "transfer", "coarse_category": "资金流转", "needs_review": False, "is_operating": False}
-        return {"flow_type": "unclassified", "coarse_category": "待分类", "needs_review": True, "is_operating": False}
+        if status != "confirmed":
+            return {"flow_type": "unclassified", "coarse_category": "待分类", "needs_review": True,
+                    "is_operating": False, "classification_hint": classification_hint(row)}
+        flow_type, fallback = CONFIRMED_FLOW_TYPES.get(row.get('cashflow_type'), ('other', '其他流水'))
+        return {"flow_type": flow_type, "coarse_category": row.get('category') or fallback,
+                "needs_review": False, "is_operating": flow_type in {'income', 'expense'}}
     amount = _to_float(row.get("amount") if row.get("amount_cny") is None else row.get("amount_cny"))
     category = str(row.get("category") or "")
     subcategory = str(row.get("subcategory") or "")
@@ -1340,6 +1370,9 @@ def _serialize_row(row: Mapping[str, Any], *, base_currency: str = 'CNY') -> dic
         "classification_source",
     ]
     out = {key: row.get(key) for key in keys}
+    for key in ('classification_status', 'classification_hint'):
+        if key in row:
+            out[key] = row[key]
     transaction_date = out.get("transaction_date")
     if isinstance(transaction_date, (date, datetime)):
         out["transaction_date"] = transaction_date.isoformat()[:10]
@@ -1398,6 +1431,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
     account_config = _load_accounts_config()
+    account_profiles = account_config.get("accounts") or {}
     configured_accounts = _load_configured_account_codes(account_config)
     cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args)
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
@@ -1431,6 +1465,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     enriched_rows: list[dict[str, Any]] = []
     for raw in cash_rows:
         row = dict(raw)
+        row["account_type"] = (account_profiles.get(row.get("account_code")) or {}).get("account_type")
         if row.get("id") in confirmed_proxy_roles:
             row["confirmed_payment_proxy_role"] = confirmed_proxy_roles[row["id"]]
         row["transaction_date_obj"] = _as_date(row.get("transaction_date"))
@@ -1509,5 +1544,5 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "transfer_summary": _transfer_summary(ytd_transfer_matches),
         "transfer_summary_month": _transfer_summary(month_transfer_matches),
         "transfer_summary_ytd": _transfer_summary(ytd_transfer_matches),
-        "classification_rules": CLASSIFICATION_RULES,
+        "classification_rules": SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,
     }

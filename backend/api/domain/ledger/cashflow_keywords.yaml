@@ -1,0 +1,122 @@
+# Shared suggestions for all subaccounts. Add specific phrases, not account IDs
+# or amount thresholds. Multiple distinct matches require manual review.
+# summary_labels match the first token of the original statement summary only.
+rules:
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 工资薪酬
+    subcategory: 工资
+    keywords: [薪金报酬, 工资入账, 代发工资, payroll deposit, nómina]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 利息收入
+    subcategory: 利息
+    keywords: [利息存入, 存款利息, deposit interest, intereses de depósito]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 退款返现
+    subcategory: 消费退款
+    keywords: [消费退款, 消费退货, 购物退款, 退货退款, purchase refund]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 退款返现
+    subcategory: 退货退税
+    summary_labels: [退货退税]
+  - direction: both
+    cashflow_type: fx_conversion
+    category: 内部划转
+    subcategory: 换汇转账
+    summary_labels: [汇兑, 普通汇兑]
+  - direction: inflow
+    cashflow_type: investment_withdrawal
+    category: 内部划转
+    subcategory: 基金赎回
+    summary_labels: [基金赎回]
+  - direction: inflow
+    cashflow_type: investment_withdrawal
+    category: 内部划转
+    subcategory: 理财赎回
+    summary_labels: [理财产品赎回, 理财赎回]
+  - direction: outflow
+    cashflow_type: investment_funding
+    category: 内部划转
+    subcategory: 积存金买入
+    summary_labels: [积存金买入]
+  - direction: outflow
+    account_type: liability
+    cashflow_type: debt_drawdown
+    category: 融资
+    subcategory: 信用卡取现
+    summary_labels: [取现, 信用卡取现]
+  - direction: outflow
+    cashflow_type: fee
+    category: 其他支出
+    subcategory: 银行费用
+    summary_labels: [费用]
+  - direction: outflow
+    cashflow_type: debt_repayment
+    category: 内部划转
+    subcategory: 信用卡还款
+    keywords: [信用卡约定还款, 信用卡卡号还款, 信用卡还款, credit card repayment, pago de tarjeta de crédito]
+  - direction: inflow
+    cashflow_type: debt_repayment
+    category: 内部划转
+    subcategory: 信用卡还款
+    keywords: [存入 约定还款]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 其他支出
+    subcategory: 利息支出
+    keywords: [信用卡利息, 利息 利息, credit card interest]
+  - direction: outflow
+    cashflow_type: investment_funding
+    category: 内部划转
+    subcategory: 基金定投申购
+    keywords: [基金定投申购]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 餐饮
+    subcategory: 外卖
+    keywords: [美团外卖, 饿了么外卖, uber eats, uber* eats, uber *eats, uber * eats, uber*eats, ubereats]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 交通出行
+    subcategory: 打车
+    keywords: [滴滴出行, 滴滴打车, uber ride, uber rides, uberrides, uber trip, uber* trip, uber *trip, uber * trip, uber*trip]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 交通出行
+    subcategory: 交通卡
+    keywords: [suica, pasmo]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 购物
+    subcategory: 超市便利
+    keywords:
+      - oxxocity walk
+      - oxxo city walk
+      - oxxo santa fe
+      - oxxo lerdo
+      - oxxoamberes
+      - oxxo vistas del sol
+      - oxxo auditorio
+      - oxxo trillenium
+      - oxxo moliere
+      - oxxo constituyentes
+      - oxxo gonzalez camarena
+      - 7 eleven
+      - 7-eleven
+      - 7eleven
+      - city market
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 餐饮
+    subcategory: 咖啡饮品
+    keywords: [starbucks, 星巴克, pickup coffee]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 工具订阅
+    subcategory: AI订阅
+    keywords: [chatgpt subscription, chatgpt plus, claude subscription]
+
+exclude_keywords: [冲正, 撤销, 还款失败, 退回, reversal, reversed, cancelled, cancelado, payment failed]

@@ -211,7 +211,7 @@ try {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
-  assert.deepEqual(await page.evaluate(() => __ledgerTest.writes), [{ url: '/api/ledger/rows/1/update', body: { cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counter_account_code: '', counterparty: '新测试商户' } }]);
+  assert.deepEqual(await page.evaluate(() => __ledgerTest.writes), [{ url: '/api/ledger/rows/1/update', body: { cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counterparty: '新测试商户' } }]);
   await page.evaluate(() => __ledgerTest.pendingPosts.shift().reject(new Error('fixture rejection')));
   await page.waitForFunction(() => !document.querySelector('[data-ledger-edit-form] button[type="submit"]').disabled);
   assert.match(await page.locator('#err').textContent(), /fixture rejection/);
@@ -318,5 +318,81 @@ try {
   assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 0);
   assert.deepEqual(errors, []);
   await context.close();
+
+  const hintFixture = structuredClone(fixture);
+  const [hinted, unknown] = hintFixture.recent_rows_ytd;
+  for (const row of [hinted, unknown]) Object.assign(row, {
+    classification_status: 'pending', flow_type: 'unclassified', coarse_category: '待分类',
+    cashflow_type: null, category: null, subcategory: null, needs_review: true,
+  });
+  hinted.classification_hint = {
+    cashflow_type: 'debt_drawdown', category: '融资', subcategory: '信用卡取现',
+    matched_keyword: '取现',
+  };
+  const hintPage = await makePage(false, hintFixture);
+  await hintPage.page.locator('[data-ledger-tab="recent"]').click();
+  await hintPage.page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  const form = hintPage.page.locator('[data-ledger-edit-form]');
+  const type = form.locator('[data-edit-field="cashflow_type"]');
+  const category = form.locator('[data-edit-field="category"]');
+  const subcategory = form.locator('[data-edit-field="subcategory"]');
+  await form.getByText('词典建议，匹配到「取现」。').waitFor();
+  assert.equal(await type.inputValue(), 'debt_drawdown');
+  assert.equal(await category.inputValue(), '融资');
+  assert.equal(await subcategory.inputValue(), '信用卡取现');
+  await form.locator('[data-sheet-close]').click();
+  await hintPage.page.locator('[data-ledger-edit="2"]').filter({ visible: true }).first().click();
+  assert.equal(await type.inputValue(), '');
+  await form.locator('button[type="submit"]').click();
+  for (const [value, options] of [
+    ['investment_funding', ['投资入金', '基金定投申购', '积存金买入']],
+    ['investment_withdrawal', ['投资出金', '基金赎回', '理财赎回']],
+    ['internal_transfer', ['内部转账', '转账退回', '资金在途']],
+    ['debt_repayment', ['信用卡还款']],
+    ['fx_conversion', ['换汇转账']],
+    ['debt_drawdown', ['信用卡取现']],
+    ['fee', ['银行费用']],
+  ]) {
+    await type.selectOption(value);
+    assert.deepEqual(await subcategory.locator('option').allTextContents(), [...options, '手动确认']);
+    assert.equal(await subcategory.inputValue(), options[0]);
+    await subcategory.selectOption(options.at(-1));
+  }
+  await type.selectOption('operating_expense');
+  const expense = form.locator('[data-ledger-expense-picker]');
+  const details = expense.locator('[data-expense-details]');
+  const counterAccount = form.locator('[data-edit-field="counter_account_code"]');
+  const submit = form.locator('button[type="submit"]');
+  assert.equal(await details.isVisible(), false);
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await counterAccount.isVisible(), false);
+  assert.equal(await counterAccount.isDisabled(), true);
+  assert.equal(await form.locator('[data-edit-field="counterparty"]').isVisible(), true);
+  for (const width of [320, 390, 1280]) {
+    await hintPage.page.setViewportSize({ width, height: 900 });
+    assert.equal(await expense.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  }
+  const transport = expense.getByRole('button', { name: '交通出行', exact: true });
+  await transport.focus();
+  await transport.press('Enter');
+  await details.getByRole('button', { name: '交通卡', exact: true }).click();
+  assert.equal(await transport.getAttribute('aria-pressed'), 'true');
+  assert.equal(await subcategory.inputValue(), '交通卡');
+  assert.equal(await submit.isEnabled(), true);
+  await expense.getByRole('button', { name: '其他支出', exact: true }).click();
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await details.getByRole('button', { name: '交通卡', exact: true }).count(), 0);
+  await details.getByRole('button', { name: '利息支出', exact: true }).click();
+  assert.equal(await subcategory.inputValue(), '利息支出');
+  await type.selectOption('internal_transfer');
+  assert.equal(await expense.isVisible(), false);
+  assert.equal(await counterAccount.isEnabled(), true);
+  assert.equal(await counterAccount.isVisible(), true);
+  await type.selectOption('operating_income');
+  await category.selectOption('退款返现');
+  await subcategory.selectOption('退货退税');
+  assert.equal(await hintPage.page.evaluate(() => __ledgerTest.writes.length), 0);
+  await hintPage.context.close();
+  assert.deepEqual(errors, []);
   console.log(JSON.stringify({ status: 'passed', fixedEquivalenceStates: baselineEntry ? snapshots.size : 0, mobileSummaryWidths, controls: 'tabs/period/flow/trend/search/sort/account drilldown/cancel', edits: 'one POST per submit; explicit retry after failure; exact payload', lifecycle: 'latest read wins; dispose; replacement; BFCache restores view only; late POST inert', pageErrors: errors.length }));
 } finally { await browser.close(); }

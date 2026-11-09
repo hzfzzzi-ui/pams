@@ -180,7 +180,7 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   const submission = session.form.emit('submit'); await session.form.emit('submit');
   assert.equal(test.writes.length, 1);
   assert.equal(test.writes[0].url, '/api/ledger/rows/1/update');
-  assert.deepEqual(JSON.parse(JSON.stringify(test.writes[0].body)), { cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counter_account_code: '', counterparty: '测试' });
+  assert.deepEqual(JSON.parse(JSON.stringify(test.writes[0].body)), { cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counterparty: '测试' });
   test.writes[0].reject(new Error('retryable')); await submission;
   assert.equal(session.form.submit.disabled, false);
   const retry = session.form.emit('submit'); assert.equal(test.writes.length, 2);

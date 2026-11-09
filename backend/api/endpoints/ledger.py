@@ -43,6 +43,8 @@ LEDGER_MANUAL_CASHFLOW_TYPES = {
     "debt_repayment",
 }
 
+LEDGER_NEW_MANUAL_CASHFLOW_TYPES = {"fx_conversion", "debt_drawdown", "fee"}
+
 LEDGER_MANUAL_DEFAULTS = {
     "operating_income": ("其他收入", "手动确认"),
     "operating_expense": ("其他支出", "手动确认"),
@@ -50,6 +52,9 @@ LEDGER_MANUAL_DEFAULTS = {
     "investment_withdrawal": ("内部划转", "投资出金"),
     "internal_transfer": ("内部划转", "内部转账"),
     "debt_repayment": ("内部划转", "信用卡还款"),
+    "fx_conversion": ("内部划转", "换汇转账"),
+    "debt_drawdown": ("融资", "信用卡取现"),
+    "fee": ("其他支出", "银行费用"),
 }
 
 
@@ -168,11 +173,10 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
     """Manually update one cashflow fact row's business classification."""
 
     cashflow_type = (payload.cashflow_type or "").strip().lower()
-    if cashflow_type not in LEDGER_MANUAL_CASHFLOW_TYPES:
+    if cashflow_type not in LEDGER_MANUAL_CASHFLOW_TYPES | LEDGER_NEW_MANUAL_CASHFLOW_TYPES:
         raise HTTPException(status_code=400, detail="unsupported cashflow_type")
 
     category, subcategory = _manual_category(cashflow_type, payload.category, payload.subcategory)
-    flags = cashflow_flags_for_type(cashflow_type)
     counterparty = _clean_optional(payload.counterparty)
     counter_account_code = _clean_optional(payload.counter_account_code)
 
@@ -188,6 +192,9 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
                 confirm(cur, cashflow_id=row_id, cashflow_type=cashflow_type, category=category, subcategory=subcategory)
                 return {'ok': True, 'row_id': row_id, 'cashflow_type': cashflow_type,
                         'category': category, 'subcategory': subcategory}
+            if cashflow_type in LEDGER_NEW_MANUAL_CASHFLOW_TYPES:
+                raise HTTPException(status_code=400, detail="unsupported cashflow_type")
+            flags = cashflow_flags_for_type(cashflow_type)
             cur.execute(
                 """
                 SELECT cashflow_id AS id, counterparty, counter_account_code

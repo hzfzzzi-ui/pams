@@ -298,6 +298,108 @@
   font-weight:600;
 }
 .ledgerEditFull { grid-column:1 / -1 }
+.ledgerEditGrid [hidden] { display:none }
+.ledgerEditSummary { display:grid; gap:12px }
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) {
+  --expense-accent:#ffbc20;
+  --expense-accent-ink:#2a1d05;
+}
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmAmount.down {
+  color:var(--expense-accent);
+}
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerEditSummary {
+  order:1;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:8px;
+  padding:12px;
+  border-radius:var(--pams-radius-control);
+  background:rgba(0,0,0,.19);
+}
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerEditSummary > :is(.ledgerConfirmLead,.ledgerConfirmMeta) {
+  grid-column:1 / -1;
+}
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerEditType {
+  grid-column:1 / -1;
+}
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmActions { order:2 }
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmActions .confirm:not(:disabled) {
+  border-color:var(--expense-accent);
+  background:var(--expense-accent);
+  color:var(--expense-accent-ink);
+}
+.ledgerExpensePicker {
+  min-width:0;
+  display:grid;
+  gap:12px;
+}
+.ledgerExpenseLegend {
+  margin-bottom:7px;
+  color:var(--text-secondary);
+  font-size:12px;
+  font-weight:600;
+}
+.ledgerExpenseCategories {
+  display:grid;
+  grid-template-columns:repeat(5, minmax(0,1fr));
+  gap:8px 4px;
+}
+.ledgerExpensePicker button {
+  border:1px solid var(--line);
+  border-radius:var(--pams-radius-control);
+  background:rgba(255,255,255,.035);
+  color:var(--text-secondary);
+  cursor:pointer;
+  font:inherit;
+  font-size:12px;
+  line-height:1.25;
+}
+.ledgerExpenseCategories button {
+  display:grid;
+  justify-items:center;
+  align-content:start;
+  gap:5px;
+  min-width:0;
+  min-height:64px;
+  padding:3px 1px;
+  overflow-wrap:anywhere;
+  text-align:center;
+  border:0;
+  background:transparent;
+}
+.ledgerExpenseIcon {
+  display:grid;
+  place-items:center;
+  width:42px;
+  height:42px;
+  border-radius:50%;
+  background:rgba(255,255,255,.075);
+  color:var(--text);
+}
+.ledgerExpenseIcon svg {
+  width:22px;
+  height:22px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.6;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.ledgerExpenseCategories button[aria-pressed="true"] { color:var(--expense-accent) }
+.ledgerExpenseCategories button[aria-pressed="true"] .ledgerExpenseIcon {
+  background:var(--expense-accent);
+  color:var(--expense-accent-ink);
+}
+.ledgerExpenseSubcategories button[aria-pressed="true"] {
+  border-color:var(--expense-accent);
+  background:color-mix(in srgb, var(--expense-accent) 20%, transparent);
+  color:var(--text);
+}
+.ledgerExpensePicker button:focus-visible { outline:2px solid var(--text); outline-offset:2px }
+.ledgerExpenseDetails { padding:10px 0 0; border-top:1px solid var(--line) }
+.ledgerExpenseDetails .ledgerExpenseLegend { color:var(--expense-accent) }
+.ledgerExpenseSubcategories { display:flex; flex-wrap:wrap; gap:6px }
+.ledgerExpenseSubcategories button { min-height:44px; padding:6px 12px }
 @media (max-width: 880px) {
   .ledgerKpiGrid { grid-template-columns: repeat(3, minmax(0,1fr)) }
   .page-ledger .cashflowBodyGrid { grid-template-columns:1fr !important }
@@ -446,6 +548,10 @@
   .ledgerConfirmMeta,
   .ledgerConfirmActions,
   .ledgerEditGrid { grid-template-columns:1fr }
+  .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmMeta,
+  .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmActions {
+    grid-template-columns:repeat(2, minmax(0,1fr));
+  }
   .ledgerDetailActions { justify-content:stretch }
   .ledgerDetailActions .ledgerActionBtn { width:100% }
   .transferRoute { grid-template-columns:1fr; gap:7px }
