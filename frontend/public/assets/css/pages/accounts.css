@@ -207,3 +207,8 @@ tr.accountCollapsed { display:none; }
   }
   .page-accounts [data-account-panel="overview"] .sectionTitle { display:none; }
 }
+.page-accounts .accountTabs[hidden], .page-accounts .appWorkHeader[hidden] { display: none !important; }
+.page-accounts :is(#accountMobileHero, #accountKpis, #accountIssueQueue)[hidden] { display: none !important; }
+#accountTaskHeader a { display: inline-flex; align-items: center; min-height: 44px; }
+#accountTaskHeader h1 { margin: 0 0 var(--sp-3); font-size: 1.25rem; }
+#accountTaskMessage:empty { display: none; }

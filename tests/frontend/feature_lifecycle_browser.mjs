@@ -20,6 +20,8 @@ await page.route('**/*', async route => {
       '/api/portfolio/data-quality': {as_of: '2026-10-29', data_quality: quality},
       '/api/accounts/overview': {accounts: [{account_code: 'fixture', display_name: '固定 <账户>'}]},
       '/api/sync/center': syncPayload,
+      '/api/sync/accounts': {groups: []},
+      '/api/holdings/by-account': {base_currency:'CNY', by_account:[]},
     };
     if (entrySmoke && fixtures[url.pathname]) return route.fulfill({json: fixtures[url.pathname]});
     network.push(`${request.method()} ${request.url()}`); await route.abort(); return;
@@ -105,7 +107,7 @@ try {
   assert.equal(await page.locator('#issues-a .issueRow').count(), 2);
   assert.match(await page.locator('#issues-a #issuesContent').textContent(), /固定 <账户>/);
   assert.match(await page.locator('#issues-a #issuesContent').textContent(), /2026-06-18.*2026-10-29/);
-  assert.equal(await page.locator('#issues-a .issueRow a').first().getAttribute('href'), 'accounts.html#overview');
+  assert.equal(await page.locator('#issues-a .issueRow a').first().getAttribute('href'), 'more.html?account=fixture&review=balance#account-center');
   assert.equal(await page.locator('#issues-b #issuesContent').textContent(), '');
   await page.evaluate(() => issues.dispose());
   assert.equal(await page.locator('#issues-a #issuesView').evaluate(el => el.hidden), true);

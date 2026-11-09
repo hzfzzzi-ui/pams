@@ -54,3 +54,9 @@ body.page-more .moreSystem :is(dt,dd) { margin: 0; overflow-wrap: anywhere; }
 body.page-more .moreSystem dt { color: var(--pams-text-muted); }
 body.page-more .moreSystem dd { color: var(--pams-text-secondary); font-family: inherit; }
 body.page-more :is(a,summary):focus-visible { outline: 2px solid var(--pams-info); outline-offset: 2px; }
+body.page-more #account-center { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+body.page-more #account-center > :not(#accountCenterTitle, #moreImport) { grid-column: 1 / -1; }
+body.page-more #moreImport { display: inline-flex; align-items: center; min-height: 44px; color: var(--pams-text-primary); }
+body.page-more #accountSyncPanel .accountSyncNameButton { border: 0; padding: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+body.page-more .accountCenterActions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+body.page-more .accountCenterActions a { display: inline-flex; align-items: center; min-height: 44px; }

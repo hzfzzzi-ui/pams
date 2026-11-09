@@ -18,7 +18,8 @@ function clearError() {
 }
 
 function setMsg(msg) {
-  find("opMsg").textContent = msg || "";
+  const target = find("accountTaskHeader")?.hidden === false ? find("accountTaskMessage") : find("opMsg");
+  target.textContent = msg || "";
 }
 
 function profileCurrency(code) {
@@ -527,6 +528,7 @@ function selectProfile(code) {
   find("profileCode").value = code;
   find("since").value = p.since || state.config?.defaults?.since || "2026-01-01";
   find("btnImport").href = `account_import.html?kind=cash&account=${encodeURIComponent(p.pams_target?.account_code || p.account_code || '')}`;
+  find("btnImport").dataset.returnRoute = '';
   root.querySelectorAll(".profileItem").forEach((el) => {
     el.classList.toggle("active", el.dataset.profile === code);
   });

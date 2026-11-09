@@ -2,13 +2,13 @@ const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
   recent: '#recent-flow-section',
   account: '#account-cashflow-section',
+  transfer: '#transfers',
 };
 
 const LEDGER_HASH_PANEL = {
   ...Object.fromEntries(Object.entries(LEDGER_PANEL_HASH).map(([panel, hash]) => [hash, panel])),
   '#income-section': 'recent',
   '#accountIssueStrip': 'account',
-  '#transfers': 'recent',
   '#review-section': 'account',
 };
 

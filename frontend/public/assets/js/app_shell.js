@@ -1,9 +1,10 @@
 // Keep one navigation DOM node; existing page controllers stay in their own document.
-import { CONTENT_PAGES, primaryPageFor, resolveContentRoute } from './app/routes.js';
+import { CONTENT_PAGES, canonicalContent, contentHref, primaryPageFor, resolveContentRoute, withReturnRoute } from './app/routes.js';
 const pages = new Set(CONTENT_PAGES);
 const frame = document.getElementById('page-content');
 const links = [...document.querySelectorAll('[data-page]')];
 let loadedDocument = null;
+let replaceOnLoad = true;
 
 function contentUrl() {
   const url = new URL(location.href);
@@ -18,15 +19,18 @@ function contentUrl() {
   url.searchParams.delete('view');
   url.searchParams.delete('content_view');
   for (const value of contentViews) url.searchParams.append('view', value);
-  url.searchParams.set('content', '1');
-  return url;
+  const target = canonicalContent(url);
+  target.searchParams.set('content', '1');
+  return target;
 }
 
-function navigate(url) {
+function navigate(url, replace = false) {
   if (!resolveContentRoute(url, location.href)) return;
+  url = canonicalContent(url);
   url.searchParams.set('content', '1');
   // replace avoids adding a second frame-history entry for a shell navigation.
   // Native beforeunload protection in the import editor remains effective.
+  replaceOnLoad = replace;
   frame.contentWindow.location.replace(url.href);
 }
 
@@ -41,7 +45,10 @@ function syncAddress(replace = false) {
   for (const value of child.searchParams.getAll('view')) outer.searchParams.append('content_view', value);
   outer.searchParams.set('view', page);
   outer.hash = child.hash;
-  if (outer.href !== location.href) history[replace ? 'replaceState' : 'pushState']({}, '', outer);
+  if (outer.href !== location.href) {
+    if (replace) history.replaceState(history.state, '', outer);
+    else history.pushState({from: contentHref(contentUrl())}, '', outer);
+  }
   const active = primaryPageFor(page);
   for (const link of links) {
     if (link.dataset.page === active) link.setAttribute('aria-current', 'page');
@@ -59,6 +66,12 @@ window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
   try {
     if (event.data?.type === 'pams-shell-route') navigate(new URL(event.data.href));
+    if (event.data?.type === 'pams-content-back') {
+      const route = resolveContentRoute(event.data.href, location.href);
+      if (!route) return;
+      if (history.state?.from === contentHref(route.url)) history.back();
+      else navigate(route.url, true);
+    }
     // Initialization can normalize a tab before this document's load event.
     // Its first route must still push the destination, preserving the source.
     if (event.data?.type === 'pams-content-route' && loadedDocument === frame.contentDocument
@@ -84,7 +97,8 @@ frame.addEventListener('load', () => {
   const doc = frame.contentDocument;
   doc.documentElement.classList.add('pams-content');
   doc.querySelector('.nav')?.remove();
-  syncAddress();
+  syncAddress(replaceOnLoad);
+  replaceOnLoad = false;
   loadedDocument = doc;
   doc.addEventListener('click', event => {
     if (event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -94,11 +108,20 @@ frame.addEventListener('load', () => {
     if (!resolveContentRoute(url, location.href)) return;
     if (url.pathname === doc.location.pathname && url.search === doc.location.search) return;
     event.preventDefault();
+    if (anchor.hasAttribute('data-content-back')) {
+      if (history.state?.from === contentHref(url)) history.back();
+      else navigate(url, true);
+      return;
+    }
+    if (anchor.hasAttribute('data-return-route') && !url.searchParams.has('return')) {
+      navigate(new URL(withReturnRoute(url, doc.location.href), doc.location.href));
+      return;
+    }
     navigate(url);
   });
   frame.contentWindow.addEventListener('hashchange', () => syncAddress(true));
 });
-window.addEventListener('popstate', () => navigate(contentUrl()));
+window.addEventListener('popstate', () => navigate(contentUrl(), true));
 frame.src = contentUrl().href;
 
 }

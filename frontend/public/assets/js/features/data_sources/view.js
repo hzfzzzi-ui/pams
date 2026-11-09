@@ -1,4 +1,5 @@
 import { renderDataState } from '../../ui.js';
+import { accountCenterHref } from '../../app/routes.js';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -34,9 +35,20 @@ export function issuesHtml(quality, accounts = []) {
     if (check.id === 'account_balance_coverage') {
       title = '部分账户缺少余额确认';
       const missing = Array.isArray(check.details?.missing_accounts) ? check.details.missing_accounts : [];
-      const accounts = missing.map(code => names.get(code) || code);
-      description = `${accounts.length ? accounts.join('、') + '。' : ''}核对最新余额和日期，然后在账户管理中确认。`;
-      href = 'accounts.html#overview'; action = '核对账户';
+      const accounts = [...new Set(missing.filter(code => typeof code === 'string' && code))];
+      if (accounts.length) {
+        const links = accounts.map(code => `<li><a href="${esc(accountCenterHref(code, true))}">核对 ${esc(names.get(code) || code)} ›</a></li>`).join('');
+        return `<section class="issueRow"><h2>${title}</h2><p>选择需要核对余额的账户。</p><ul>${links}</ul></section>`;
+      }
+      description = '打开账户中心，核对最新余额和日期。';
+      href = accountCenterHref(); action = '核对账户';
+    } else if (check.id === 'component_coverage') {
+      const missing = Array.isArray(check.details?.missing_components) ? check.details.missing_components : [];
+      if (missing.includes('transfer_matches')) {
+        const diagnostics = missing.some(component => component !== 'transfer_matches')
+          ? '<li><a href="data_sources.html#dataQuality">查看其他数据缺口 ›</a></li>' : '';
+        return `<section class="issueRow"><h2>转账匹配待核对</h2><p>查看资金流转中的匹配结果和待确认记录。</p><ul><li><a href="ledger.html#transfers">核对转账 ›</a></li>${diagnostics}</ul></section>`;
+      }
     } else if (check.id === 'valuation_series_freshness') {
       title = '估值曲线日期落后';
       const detail = check.details || {};
@@ -69,7 +81,7 @@ export function renderQuality(portfolio, el) {
     valuation_series: '估值曲线',
   };
   const actionLinks = {
-    account_balances: { label: '补录账户余额', href: 'ledger.html#accountIssueStrip' },
+    account_balances: { label: '核对账户余额', href: accountCenterHref() },
     transfer_matches: { label: '核准内部转账', href: 'ledger.html#transfers' },
     investment_positions: { label: '刷新投资持仓', href: 'investments.html' },
     investment_transactions: { label: '核对投资交易', href: 'investments.html#investment-ledger' },

@@ -32,9 +32,10 @@ try {
     assert.equal(await page.locator('#issuesContent .issueRow').count(),2);
     assert.equal(await page.locator('#sourceList').isVisible(),false);
     assert.equal(await page.locator('#syncMatrix').isVisible(),false);
-    assert.match(await page.locator('#issuesContent').innerText(),/示例账户甲、示例账户乙/);
+    assert.match(await page.locator('#issuesContent').innerText(),/示例账户甲[\s\S]*示例账户乙/);
     assert.match(await page.locator('#issuesContent').innerText(),/2026-06-18.*2026-10-29/);
-    assert.equal(await page.getByRole('link',{name:'核对账户 ›'}).getAttribute('href'),'accounts.html#overview');
+    assert.equal(await page.getByRole('link',{name:'核对 示例账户甲 ›'}).getAttribute('href'),'more.html?account=example-a&review=balance#account-center');
+    assert.equal(await page.getByRole('link',{name:'核对 示例账户乙 ›'}).getAttribute('href'),'more.html?account=example-b&review=balance#account-center');
     assert.equal(await page.getByRole('link',{name:'数据诊断 ›'}).getAttribute('href'),'data_sources.html');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth > innerWidth),false);
     if(output) await page.screenshot({path:path.join(output,`${width}-pending.png`),fullPage:true});

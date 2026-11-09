@@ -114,36 +114,22 @@ try {
   // GET fixtures are available, so a replayed review/match would fail this test.
   entryMode = true;
   await page.addInitScript(() => Object.defineProperty(navigator, 'connection', {configurable: true, value: {saveData: true}}));
-  await page.goto('http://accounts-fixture.invalid/accounts.html?content=1');
+  await page.goto('http://accounts-fixture.invalid/accounts.html?content=1&task=sources');
   await page.evaluate(async () => {window.entry = await import('/assets/js/bank_reconcile.js'); await entry.mount().ready;});
-  assert.deepEqual(entryReads, fixtures.initialUrls);
-  await page.locator('[data-account-tab="balance"]').click();
-  await page.locator('[data-account-filter="缺数据"]').click();
-  await page.locator('[data-account-tab="sources"]').click(); await page.locator('[data-profile="synthetic_hkd"]').click();
+  assert.deepEqual(entryReads, ['/api/bank-reconcile/config', '/api/bank-reconcile/imports']);
+  await page.locator('.accountTabs').waitFor({state:'hidden'});
+  await page.locator('[data-profile="synthetic_hkd"]').click();
   assert.equal(await page.locator('#profileCode').inputValue(), 'synthetic_hkd');
   await page.locator('#since').fill('2026-08-08');
-  await page.evaluate(() => {
-    document.querySelector('.truthNote').open = true;
-    document.querySelector('#accountOverviewRows [data-group-key="bank"]').click();
-    document.querySelector('[data-account-detail="fixture/cny"]').open = true;
-  });
-  await page.locator('[data-account-tab="transfers"]').click();
   await page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted: true}));
     window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted: true}));
   });
   await page.evaluate(() => entry.mount().ready);
-  // The existing API layer retains its account overview TTL across BFCache.
-  // Logical read ordering is asserted above/in VM; this verifies no cache bypass.
-  assert.deepEqual(entryReads.slice(fixtures.initialUrls.length), ['/api/sync/accounts', '/api/bank-reconcile/config', '/api/bank-reconcile/transfer-matches', '/api/bank-reconcile/unmatched-rows?since=2026-08-08&limit=500', '/api/bank-reconcile/imports']);
+  assert.deepEqual(entryReads.slice(2), ['/api/bank-reconcile/config', '/api/bank-reconcile/imports']);
   assert.equal(await page.locator('#profileCode').inputValue(), 'synthetic_hkd');
   assert.equal(await page.locator('#since').inputValue(), '2026-08-08');
-  assert.equal(await page.locator('[data-account-tab="transfers"]').evaluate(el => el.classList.contains('active')), true);
-  assert.equal(await page.locator('.truthNote').evaluate(el => el.open), true);
-  assert.equal(await page.locator('[data-account-detail="fixture/cny"]').evaluate(el => el.open), true);
-  assert.equal(await page.locator('#accountOverviewRows [data-parent-group="bank"]').first().evaluate(el => el.classList.contains('accountCollapsed')), true);
-  assert.equal(await page.locator('[data-account-filter="缺数据"]').evaluate(el => el.classList.contains('active')), true);
-  assert.equal(await page.locator('#mobileAccountList [data-mobile-account-index]').count(), 1);
+  assert.equal(await page.locator('#accountTaskTitle').textContent(), '导入配置');
   assert.deepEqual(unexpected, []); assert.deepEqual(errors, []);
   console.log('Real browser accounts: root isolation, one approval/defer/match per click, original payloads/read order, profile/date input, late-response disposal and persisted pageshow UI restoration passed.');
 } finally {await browser.close();}

@@ -28,6 +28,7 @@
     <main id="workspace" hidden>
       <section id="intake" aria-label="填写或识别">
         <label for="account">账户</label><select id="account" required></select>
+        <button id="import-settings" type="button" class="small" hidden>导入配置</button>
         <div id="kind-prompt" hidden><label for="kind">无法确定资料类别，请选择</label><select id="kind"><option value="">请选择</option><option value="trade">交易</option><option value="holding">持仓快照</option><option value="cash">账单</option></select></div>
         <div class="import-modes" role="group" aria-label="录入方式">
           <button id="mode-upload" type="button" aria-pressed="true">上传文件</button>
@@ -75,6 +76,7 @@
       <button id="save-draft" type="button">保存草稿</button><button id="next" type="button" class="primary">继续 →</button>
       <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认入库</button><button id="publish-ready" type="button" class="primary" hidden disabled>录入已核对记录</button>
       <button id="previous-image" type="button" hidden>← 上一张</button><button id="confirm-image" type="button" class="primary" hidden>确认本图并继续</button>
+      <button id="return-completed" type="button" class="primary" hidden>完成并返回</button>
     </footer>
   </div>
   <dialog id="editor" aria-labelledby="editor-title">
