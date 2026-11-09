@@ -99,13 +99,15 @@ def ledger_workbench(
     month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
     baseCurrency: str = Query("CNY", min_length=3, max_length=3),
     recentDays: int = Query(30, ge=1, le=120),
+    includeTransferPairs: bool = False,
 ):
     """Return cashflow KPI, category, trend, and review rows for the ledger page."""
 
     with get_conn() as conn:
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return build_ledger_workbench_payload(cur, month=month, base_currency=baseCurrency.upper(), recent_days=recentDays)
+            return build_ledger_workbench_payload(cur, month=month, base_currency=baseCurrency.upper(),
+                                                  recent_days=recentDays, include_transfer_pairs=includeTransferPairs)
 
 
 @router.post("/ledger/review/{row_id}/confirm")

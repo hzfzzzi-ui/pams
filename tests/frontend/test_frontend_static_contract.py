@@ -382,7 +382,7 @@ def test_legacy_frontend_entrypoints_stay_removed() -> None:
 
 def test_ledger_page_uses_card_list_navigation_contract() -> None:
     html = _read_public("ledger.html")
-    js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
+    js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/transfers.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
     css = _read_public("assets/css/style.css")
 
     assert 'class="ledgerAnchorNav"' in html
@@ -403,13 +403,14 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
         assert f'href="{href}"' in html
     assert 'href="#review-section"' not in html
     assert 'data-ledger-tab="review"' not in html
-    for removed_href in ["#income-section", "#accountIssueStrip", "#transfers"]:
+    for removed_href in ["#income-section", "#accountIssueStrip"]:
         assert 'data-ledger-tab' in html
         assert f'href="{removed_href}" data-ledger-tab=' not in html
 
     assert 'id="accountFlowRows"' not in html
     assert 'data-ledger-tab="account"' not in html
-    assert 'href="#transfers">查看资金流转' in html
+    assert 'href="#transfers" data-ledger-tab="transfer">内部划转' in html
+    assert 'href="#transfers" data-ledger-tab="transfer">查看内部划转' in html
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html
     assert 'id="recentSearch" class="formInput" type="search"' not in html
@@ -868,7 +869,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
 
 def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
     utils_js = _read_public("assets/js/utils.js")
-    ledger_js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
+    ledger_js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/transfers.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
     tx_js = _transactions_source()
     ledger_html = _read_public("ledger.html")
     investments_html = _read_public("investments.html")

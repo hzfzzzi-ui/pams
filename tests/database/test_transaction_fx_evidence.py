@@ -319,8 +319,17 @@ def test_new_source_transfer_confirmation_http_is_replay_safe(empty_source_db, m
         assert matches.json()['matches'][0]['match_type'] == 'investment_funding'
         assert Decimal(str(matches.json()['matches'][0]['source_amount'])) == -10
         assert client.post('/api/bank-reconcile/transfer-matches/run').json()['matches'] == []
-        after = client.get('/api/ledger/workbench?month=2026-10').json()['periods']['month']
+        result = client.get('/api/ledger/workbench?month=2026-10&includeTransferPairs=true')
+        assert result.status_code == 200, result.text
+        workbench = result.json()
+        after = workbench['periods']['month']
         assert (after['income'], after['expense'], after['investment_funding'], after['cash_net']) == (0, 0, 10, 0)
+        pair, = workbench['transfer_pairs']
+        assert (pair['id'], pair['match_type'], pair['source_date'], pair['target_date']) == (
+            transfer_id, 'investment_funding', '2026-10-22', '2026-10-23')
+        assert pair['source']['source_item_id'] and pair['target']['source_item_id']
+        assert pair['source']['source_item_id'] != pair['target']['source_item_id']
+        assert client.get('/api/ledger/workbench?month=2025-12&includeTransferPairs=true').json()['transfer_pairs'] == []
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
             cur.execute('UPDATE pams_cashflow_fact SET amount=-11 WHERE cashflow_id=%s', (first,))
         matches = client.get('/api/bank-reconcile/transfer-matches')

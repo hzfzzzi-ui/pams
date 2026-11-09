@@ -25,6 +25,8 @@ export function createLedgerState() {
   activePanel: 'overview',
   overviewPeriod: 'ytd',
   overviewFlow: 'income',
+  transferPeriod: 'ytd',
+  transferMonth: '',
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',
@@ -35,7 +37,8 @@ export function createLedgerState() {
 
 export { LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RETIRED_ACCOUNT_HASHES, RECENT_SORT_OPTIONS };
 
-const VIEW_FIELDS = ['trendMode', 'activePanel', 'overviewPeriod', 'overviewFlow', 'recentFlowFilter', 'recentAccountFilter', 'recentPeriod', 'recentSearch', 'recentAmountSort'];
+const VIEW_FIELDS = ['trendMode', 'activePanel', 'overviewPeriod', 'overviewFlow', 'transferPeriod', 'transferMonth',
+  'recentFlowFilter', 'recentAccountFilter', 'recentPeriod', 'recentSearch', 'recentAmountSort'];
 
 export function snapshotLedgerViewState(state) {
   return Object.fromEntries(VIEW_FIELDS.map(key => [key, state[key]]));
