@@ -326,16 +326,16 @@ try {
     cashflow_type: null, category: null, subcategory: null, needs_review: true,
   });
   hinted.classification_hint = {
-    cashflow_type: 'debt_repayment', category: '内部划转', subcategory: '信用卡还款',
-    matched_keyword: '信用卡还款',
+    cashflow_type: 'debt_drawdown', category: '融资', subcategory: '信用卡取现',
+    matched_keyword: '取现',
   };
   const hintPage = await makePage(false, hintFixture);
   await hintPage.page.locator('[data-ledger-tab="recent"]').click();
   await hintPage.page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
   const form = hintPage.page.locator('[data-ledger-edit-form]');
-  await form.getByText('词典建议，匹配到「信用卡还款」。').waitFor();
-  assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), 'debt_repayment');
-  assert.equal(await form.locator('[data-edit-field="category"]').inputValue(), '内部划转');
+  await form.getByText('词典建议，匹配到「取现」。').waitFor();
+  assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), 'debt_drawdown');
+  assert.equal(await form.locator('[data-edit-field="category"]').inputValue(), '融资');
   await form.locator('[data-sheet-close]').click();
   await hintPage.page.locator('[data-ledger-edit="2"]').filter({ visible: true }).first().click();
   assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), '');

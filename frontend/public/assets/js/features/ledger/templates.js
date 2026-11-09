@@ -110,7 +110,8 @@ function ledgerEditSheetHtml(row) {
           <span>流水口径</span>
           <select class="formInput" data-edit-field="cashflow_type" required>
             ${cashflowType ? '' : '<option value="" selected disabled>请选择流水口径</option>'}
-            ${LEDGER_EDIT_TYPES.map(([value, label]) => `
+            ${LEDGER_EDIT_TYPES.filter(([value, , redesignedOnly]) =>
+              !redesignedOnly || row.classification_status || value === cashflowType).map(([value, label]) => `
               <option value="${escapeHtml(value)}" ${value === cashflowType ? 'selected' : ''}>${escapeHtml(label)}</option>
             `).join('')}
           </select>

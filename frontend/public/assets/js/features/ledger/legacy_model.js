@@ -87,6 +87,9 @@ const LEDGER_EDIT_TYPES = [
   ['investment_withdrawal', '投资出金'],
   ['internal_transfer', '内部转账'],
   ['debt_repayment', '信用卡还款'],
+  ['fx_conversion', '换汇', true],
+  ['debt_drawdown', '融资取现', true],
+  ['fee', '银行费用', true],
 ];
 
 const LEDGER_EDIT_DEFAULTS = {
@@ -96,6 +99,9 @@ const LEDGER_EDIT_DEFAULTS = {
   investment_withdrawal: { category: '内部划转', subcategory: '投资出金' },
   internal_transfer: { category: '内部划转', subcategory: '内部转账' },
   debt_repayment: { category: '内部划转', subcategory: '信用卡还款' },
+  fx_conversion: { category: '内部划转', subcategory: '换汇转账' },
+  debt_drawdown: { category: '融资', subcategory: '信用卡取现' },
+  fee: { category: '其他支出', subcategory: '银行费用' },
 };
 
 const LEDGER_EDIT_CATEGORY_OPTIONS = {
@@ -105,6 +111,9 @@ const LEDGER_EDIT_CATEGORY_OPTIONS = {
   investment_withdrawal: ['内部划转'],
   internal_transfer: ['内部划转'],
   debt_repayment: ['内部划转'],
+  fx_conversion: ['内部划转'],
+  debt_drawdown: ['融资'],
+  fee: ['其他支出'],
 };
 
 const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {

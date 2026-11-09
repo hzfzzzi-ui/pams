@@ -1431,6 +1431,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     month_start, month_end = _month_bounds(month, latest_date)
     ytd_start = date(month_start.year, 1, 1)
     account_config = _load_accounts_config()
+    account_profiles = account_config.get("accounts") or {}
     configured_accounts = _load_configured_account_codes(account_config)
     cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args)
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
@@ -1464,6 +1465,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     enriched_rows: list[dict[str, Any]] = []
     for raw in cash_rows:
         row = dict(raw)
+        row["account_type"] = (account_profiles.get(row.get("account_code")) or {}).get("account_type")
         if row.get("id") in confirmed_proxy_roles:
             row["confirmed_payment_proxy_role"] = confirmed_proxy_roles[row["id"]]
         row["transaction_date_obj"] = _as_date(row.get("transaction_date"))

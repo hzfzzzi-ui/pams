@@ -24,8 +24,10 @@ def _keyword_dictionary():
     path = Path(__file__).with_name('cashflow_keywords.yaml')
     data = yaml.safe_load(path.read_text(encoding='utf-8'))
     rules = [
-        (rule['direction'], {key: rule[key] for key in ('cashflow_type', 'category', 'subcategory')},
-         [(keyword, _keyword_pattern(keyword)) for keyword in rule['keywords']])
+        (rule['direction'], rule.get('account_type'),
+         {key: rule[key] for key in ('cashflow_type', 'category', 'subcategory')},
+         [(keyword, _keyword_pattern(keyword)) for keyword in rule.get('keywords', ())],
+         [(label, _normalize(label)) for label in rule.get('summary_labels', ())])
         for rule in data['rules']
     ]
     return rules, [_keyword_pattern(keyword) for keyword in data['exclude_keywords']]
@@ -44,14 +46,19 @@ def classification_hint(row):
     if any(pattern.search(text) for pattern in exclusions for text in texts):
         return None
     matches = {}
-    for rule_direction, result, keywords in rules:
-        if rule_direction != direction:
+    summary_label = texts[0].partition(' ')[0]
+    for rule_direction, account_type, result, keywords, summary_labels in rules:
+        if rule_direction not in (direction, 'both'):
             continue
-        for keyword, pattern in keywords:
-            if any(pattern.search(text) for text in texts):
-                identity = (result['cashflow_type'], result['category'], result['subcategory'])
-                matches.setdefault(identity, {**result, 'matched_keyword': keyword})
-                break
+        if account_type and account_type != row.get('account_type'):
+            continue
+        matched = next((label for label, normalized in summary_labels if normalized == summary_label), None)
+        if matched is None:
+            matched = next((keyword for keyword, pattern in keywords
+                            if any(pattern.search(text) for text in texts)), None)
+        if matched is not None:
+            identity = (result['cashflow_type'], result['category'], result['subcategory'])
+            matches.setdefault(identity, {**result, 'matched_keyword': matched})
     return next(iter(matches.values())) if len(matches) == 1 else None
 
 

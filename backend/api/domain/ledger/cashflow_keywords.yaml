@@ -1,5 +1,6 @@
 # Shared suggestions for all subaccounts. Add specific phrases, not account IDs
 # or amount thresholds. Multiple distinct matches require manual review.
+# summary_labels match the first token of the original statement summary only.
 rules:
   - direction: inflow
     cashflow_type: operating_income
@@ -16,6 +17,42 @@ rules:
     category: 退款返现
     subcategory: 消费退款
     keywords: [消费退款, 消费退货, 购物退款, 退货退款, purchase refund]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 退款返现
+    subcategory: 退货退税
+    summary_labels: [退货退税]
+  - direction: both
+    cashflow_type: fx_conversion
+    category: 内部划转
+    subcategory: 换汇转账
+    summary_labels: [汇兑, 普通汇兑]
+  - direction: inflow
+    cashflow_type: investment_withdrawal
+    category: 内部划转
+    subcategory: 基金赎回
+    summary_labels: [基金赎回]
+  - direction: inflow
+    cashflow_type: investment_withdrawal
+    category: 内部划转
+    subcategory: 理财赎回
+    summary_labels: [理财产品赎回, 理财赎回]
+  - direction: outflow
+    cashflow_type: investment_funding
+    category: 内部划转
+    subcategory: 积存金买入
+    summary_labels: [积存金买入]
+  - direction: outflow
+    account_type: liability
+    cashflow_type: debt_drawdown
+    category: 融资
+    subcategory: 信用卡取现
+    summary_labels: [取现, 信用卡取现]
+  - direction: outflow
+    cashflow_type: fee
+    category: 其他支出
+    subcategory: 银行费用
+    summary_labels: [费用]
   - direction: outflow
     cashflow_type: debt_repayment
     category: 内部划转

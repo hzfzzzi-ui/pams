@@ -98,6 +98,22 @@ def test_merchant_aliases_require_an_identifiable_purchase(summary, subcategory)
     ('モバイルSUICA', -100, ('operating_expense', '交通卡')),
     ('PASMO', -100, ('operating_expense', '交通卡')),
     ('PASMO', 100, None),
+    ('普通汇兑 银行渠道', 100, ('fx_conversion', '换汇转账')),
+    ('汇兑 银行渠道', -100, ('fx_conversion', '换汇转账')),
+    ('基金赎回 资金到账', 100, ('investment_withdrawal', '基金赎回')),
+    ('基金赎回 资金到账', -100, None),
+    ('理财产品赎回 资金到账', 100, ('investment_withdrawal', '理财赎回')),
+    ('理财产品赎回 资金到账', -100, None),
+    ('积存金买入 银行渠道', -100, ('investment_funding', '积存金买入')),
+    ('积存金买入 银行渠道', 100, None),
+    ('费用 银行手续费', -100, ('fee', '银行费用')),
+    ('费用 银行手续费', 100, None),
+    ('消费 服务费用', -100, None),
+    ('退货退税 账单退款', 100, ('operating_income', '退货退税')),
+    ('退货退税 账单退款', -100, None),
+    ('汇兑 冲正', 100, None),
+    ('基金上账 银行渠道', 100, None),
+    ('基金下账 银行渠道', -100, None),
     ('财付通-理财通', -100, None),
     ('跨行转出', -100, None),
 ])
@@ -107,6 +123,18 @@ def test_statement_aliases_respect_cashflow_direction(summary, amount, expected)
     hint = view['classification_hint']
     assert view['flow_type'] == 'unclassified'
     assert (None if hint is None else (hint['cashflow_type'], hint['subcategory'])) == expected
+
+
+@pytest.mark.parametrize('account_type,amount,expected', [
+    ('liability', -100, 'debt_drawdown'),
+    ('liability', 100, None),
+    ('cash', -100, None),
+    (None, -100, None),
+])
+def test_cash_advance_requires_liability_account_and_debit(account_type, amount, expected):
+    view = classify_ledger_row({'summary': '取现 ATM', 'amount': amount, 'account_type': account_type,
+                                'source_evidence_status': 'verified', 'classification_status': 'pending'})
+    assert (view['classification_hint'] or {}).get('cashflow_type') == expected
 
 
 def test_confirmed_classification_is_not_overridden_by_text():
