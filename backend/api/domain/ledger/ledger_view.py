@@ -1272,12 +1272,28 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
         result.append({'id': str(item['transfer_id']), 'relation_code': None, 'match_type': kind,
             'match_date': left_day, 'from_account_code': item['from_account_code'],
             'to_account_code': item['to_account_code'],
+            'source_date': left_day, 'target_date': right_day,
             'source_row_id': left['id'] if left['kind'] == 'cashflow' else None,
             'target_row_id': right['id'] if right['kind'] == 'cashflow' else None,
             'amount': item['amount'], 'currency_norm': item['currency'], 'status': 'confirmed',
             'both_cash_legs': cash_pairs_only,
             'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
     return result
+
+
+def _transfer_pair_details(cur, matches):
+    row_ids = sorted({row_id for match in matches for row_id in (match['source_row_id'], match['target_row_id'])
+                      if row_id is not None})
+    if not row_ids:
+        return []
+    cur.execute('''SELECT f.cashflow_id, i.parsed_fields->>'summary' AS summary,
+                          i.parsed_fields->>'description' AS description, i.source_item_id::text AS source_item_id
+                   FROM public.pams_cashflow_fact f
+                   JOIN public.source_items i ON i.source_item_id = f.source_item_id
+                   WHERE f.cashflow_id = ANY(%s)''', (row_ids,))
+    details = {row['cashflow_id']: dict(row) for row in cur.fetchall()}
+    return [{**match, 'source': details.get(match['source_row_id']), 'target': details.get(match['target_row_id'])}
+            for match in matches]
 
 
 def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None) -> list[dict[str, Any]]:
@@ -1477,7 +1493,8 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
-def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30) -> dict[str, Any]:
+def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30,
+                                   include_transfer_pairs: bool = False) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
     redesigned = _table_exists(cur, 'source_records')
@@ -1606,5 +1623,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "transfer_summary": _transfer_summary(ytd_transfer_matches),
         "transfer_summary_month": _transfer_summary(month_transfer_matches),
         "transfer_summary_ytd": _transfer_summary(ytd_transfer_matches),
+        **({'transfer_pairs': _transfer_pair_details(cur, ytd_transfer_matches) if redesigned else []}
+           if include_transfer_pairs else {}),
         "classification_rules": SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,
     }

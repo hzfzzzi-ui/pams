@@ -205,24 +205,6 @@ function renderOverviewCategoryInsight(data) {
   renderOverviewCategoryPie(rows, flowType);
 }
 
-function renderTransferSummary(rows) {
-  const el = $('transferSummary');
-  if (!el) return;
-  if (!rows?.length) {
-    el.innerHTML = '<div class="muted">本期未识别到资金流转匹配。</div>';
-    return;
-  }
-  el.innerHTML = rows.slice(0, 10).map((row) => `
-    <div class="analysisRow">
-      <div>
-        <div class="analysisLabel">${escapeHtml(row.relation_code)}</div>
-        <div class="analysisSub">${escapeHtml(row.match_type)} / ${row.count || 0} 笔</div>
-      </div>
-      <div class="analysisValue">${money(row.amount)}</div>
-    </div>
-  `).join('');
-}
-
 function renderRules(rows) {
   const el = $('classificationRules');
   if (!el) return;
@@ -304,7 +286,7 @@ function renderTrendChart(data) {
 }
 
   return {
-    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderTransferSummary, renderRules, renderTrendChart,
+    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderRules, renderTrendChart,
     dispose() {
       trendChart?.destroy();
       pieChart?.destroy();

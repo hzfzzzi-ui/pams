@@ -65,6 +65,8 @@ def suggest(rows, profiles, occupied, *, limit=None):
             'match_date': source['transaction_date'], 'source_date': source['transaction_date'],
             'target_date': target['transaction_date'], 'source_summary': source.get('summary'),
             'target_summary': target.get('summary'), 'date_delta_days': delta, 'transfer_hint_count': hints,
+            'source': {key: source.get(key) for key in ('summary', 'description', 'source_item_id')},
+            'target': {key: target.get(key) for key in ('summary', 'description', 'source_item_id')},
             'amount': -source['amount'], 'currency': source['currency'], 'status': 'review_required',
             'ambiguity_status': 'ambiguous' if ambiguous else 'unique_candidate', 'confirmation_supported': True,
             'note': '同币种等额，' + ('两边有划转线索' if hints == 2 else '单边有划转线索'),

@@ -94,6 +94,65 @@
   text-decoration:none;
 }
 .ledgerOverviewTransfer span { font-size:20px }
+.page-ledger [data-ledger-panel="transfer"] {
+  --ledger-overview-accent:#ffbc20;
+}
+.ledgerTransferSummary {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1px;
+  margin-top:12px;
+  border-radius:16px;
+  overflow:hidden;
+  background:var(--pams-line-subtle);
+}
+.ledgerTransferSummary > div {
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:5px;
+  min-width:0;
+  padding:12px;
+  background:var(--pams-bg-soft);
+}
+.ledgerTransferSummary strong { grid-column:1 / -1; grid-row:2; font-variant-numeric:tabular-nums }
+.ledgerTransferSummary small, .ledgerPair small { color:var(--text-secondary); overflow-wrap:anywhere }
+.ledgerTransferMonth:not([hidden]) { display:flex; align-items:center; gap:8px; margin-top:10px }
+.ledgerTransferMonth input {
+  min-height:44px;
+  padding:0 10px;
+  border:1px solid var(--pams-line-subtle);
+  border-radius:10px;
+  background:var(--pams-bg-soft);
+  color:var(--text);
+  font:inherit;
+  color-scheme:dark;
+}
+.ledgerPair { border-bottom:1px solid var(--pams-line-subtle) }
+.ledgerPair summary {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  min-height:54px;
+  padding:10px 0;
+  cursor:pointer;
+  list-style:none;
+}
+.ledgerPair summary::-webkit-details-marker { display:none }
+.ledgerPair summary small { display:block; margin-top:4px }
+.ledgerPairAmount { text-align:right; font-variant-numeric:tabular-nums }
+.ledgerPairAmount strong::after { content:" ›"; color:var(--text-secondary) }
+.ledgerPair[open] .ledgerPairAmount strong::after { content:" ⌄" }
+.ledgerPairDetails { display:grid; gap:8px; padding:2px 0 12px; overflow-wrap:anywhere }
+.ledgerPairLeg {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:5px;
+  padding:10px;
+  border-radius:10px;
+  background:var(--pams-bg-soft);
+}
+.ledgerPairLeg > :nth-child(n+3) { grid-column:1 / -1 }
+.ledgerPairMore { margin-top:10px }
 .ledgerOverviewCoverage { margin:0 0 10px; color:var(--text-secondary); font-size:12px; line-height:1.5 }
 .page-ledger .cashflowBodyGrid .chartWrap {
   width:100%;

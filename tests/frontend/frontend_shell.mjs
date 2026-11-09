@@ -217,11 +217,11 @@ try {
   await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).waitFor();
   await page.waitForFunction(() => new URL(location).searchParams.get('account') === 'fixture');
   await page.locator('[data-page="ledger.html"]').click();
-  await workflow.getByRole('link',{name:'查看资金流转'}).click();
-  await workflow.getByRole('link',{name:'核对转账匹配'}).click();
-  await workflow.getByRole('button',{name:'运行匹配'}).waitFor();
-  await workflow.locator('#accountTaskBack').click();
-  await workflow.getByRole('link',{name:'核对转账匹配'}).waitFor();
+  await workflow.getByRole('link',{name:'查看内部划转'}).click();
+  await workflow.getByRole('heading',{name:'划转汇总'}).waitFor();
+  await workflow.getByRole('heading',{name:'已确认'}).waitFor();
+  await workflow.getByRole('heading',{name:'待配对'}).waitFor();
+  await page.waitForFunction(() => location.hash === '#transfers');
   workflowFixtures = false;
   // A desktop viewport alone reports zero insets. Emulate the phone's
   // obstruction so the test catches an iframe starting behind the status bar.

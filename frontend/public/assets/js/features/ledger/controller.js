@@ -9,6 +9,7 @@ import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runti
 import { createLedgerOverview } from './overview.js';
 import { createLedgerLists } from './lists.js';
 import { createLedgerEditor } from './editor.js';
+import { createLedgerTransfers } from './transfers.js';
 import { readLedgerWorkbench } from './requests.js';
 
 const owners = new WeakMap();
@@ -28,11 +29,11 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const dom = createLedgerDom(root);
   const { $, clearError } = dom;
   const showError = error => {if (current() && !isReadCancelled(error)) dom.showError(error);};
-  const { currentOverviewTransferSummary } = model;
   const events = createLedgerEvents(current);
   const sheets = createLedgerSheets(sheetService || createBottomSheet(root.ownerDocument || root), events, current);
   const overview = createLedgerOverview({ root, host, state, model, dom, ChartClass });
-  const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderOverviewCategoryInsight, renderTransferSummary, renderRules, renderTrendChart } = overview;
+  const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderOverviewCategoryInsight, renderRules, renderTrendChart } = overview;
+  const transfers = createLedgerTransfers({ root, state, model, dom, events, reads, current, reloadWorkbench: loadWorkbench });
   const editor = createLedgerEditor({ model, templates, sheets, dom, current, reload: loadWorkbench });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails });
   const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
@@ -52,6 +53,7 @@ async function loadWorkbench() {
     state.data = data;
     state.accounts = accounts;
     renderAll(data);
+    if (state.activePanel === 'transfer') transfers.render();
     return data;
   } catch (error) {
     if (isReadCancelled(error)) throw error;
@@ -64,7 +66,6 @@ function renderAll(data) {
   renderOverviewPeriodButtons();
   renderLedgerMobileHero(data);
   renderOverviewCategoryInsight(data);
-  renderTransferSummary(currentOverviewTransferSummary(data));
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
   renderRecentSearchButton();
@@ -81,6 +82,7 @@ function selectTrendMode(mode) {
 }
 
 function bindEvents() {
+  transfers.bind();
   bindLedgerAnchors();
   events.listen('page', $('btnReloadLedger'), 'click', () => loadWorkbench().catch(showError));
   root.querySelectorAll('[data-overview-period]').forEach((btn) => {
@@ -140,12 +142,16 @@ function setLedgerPanel(panel = 'overview') {
     group.hidden = group.dataset.ledgerPanel !== state.activePanel;
   });
   root.querySelectorAll('.ledgerAnchorNav a').forEach((link) => {
-    link.classList.toggle('is-active', link.dataset.ledgerTab === state.activePanel);
+    const active = link.dataset.ledgerTab === state.activePanel;
+    link.classList.toggle('is-active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
   });
+  if (state.activePanel === 'transfer') transfers.load();
 }
 
 function bindLedgerAnchors() {
-  root.querySelectorAll('.ledgerAnchorNav a').forEach((link) => {
+  root.querySelectorAll('a[data-ledger-tab]').forEach((link) => {
     events.listen('page', link, 'click', (event) => {
       event.preventDefault();
       const panel = link.dataset.ledgerTab || 'overview';
