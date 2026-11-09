@@ -38,6 +38,7 @@ export function mount(root, context = {}) {
   const message = text => { $('notice').textContent = text; };
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
+  const accountLabel = a => a.selection_label || a.label || a.account_code;
   const sourceOnly = () => state.useSourceRecords && state.batch?.kind === 'cash' && account()?.source_only_cash === true;
   const editable = () => !state.batch || state.batch.status === 'draft';
   const canPublishReady = () => state.caps?.publish_enabled === true && state.batch?.status === 'draft' &&
@@ -123,10 +124,26 @@ export function mount(root, context = {}) {
     await history(); state.initialized = true; render();
   }
   function renderAccounts(preferred = $('account').value) {
-    const available = state.accounts;
-    $('account').replaceChildren(...available.map(a => new Option(a.label || a.account_code, a.account_code)));
-    if (available.some(a => a.account_code === preferred)) $('account').value = preferred;
-    if (!available.length) message('没有可用的导入账户。');
+    const select = $('account');
+    const groups = new Map();
+    select.replaceChildren();
+    for (const a of state.accounts) {
+      const option = new Option(accountLabel(a), a.account_code);
+      if (!a.group_label) {
+        select.append(option);
+        continue;
+      }
+      let group = groups.get(a.group_code);
+      if (!group) {
+        group = el('optgroup');
+        group.label = a.group_label;
+        groups.set(a.group_code, group);
+        select.append(group);
+      }
+      group.append(option);
+    }
+    if (state.accounts.some(a => a.account_code === preferred)) select.value = preferred;
+    if (!state.accounts.length) message('没有可用的导入账户。');
   }
   function configureKind(preferred = '') {
     const allowed = account()?.kinds || [];
@@ -270,7 +287,8 @@ export function mount(root, context = {}) {
       if (!group.rows.length) section.append(el('p', group.empty, 'import-meta'));
       for (const item of group.rows) {
         const node = el('div', undefined, 'import-history-row');
-        const label = state.accounts.find(a => a.account_code === item.account_code)?.label || item.account_code;
+        const target = state.accounts.find(a => a.account_code === item.account_code);
+        const label = target ? accountLabel(target) : item.account_code;
         const status = item.status === 'published' ? '已录入' : TEXT[item.status] || item.status;
         const open = button('', () => run(async () => {
           if (!abandon()) return;

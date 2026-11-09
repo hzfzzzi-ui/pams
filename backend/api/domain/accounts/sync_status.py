@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from domain.accounts.account_identity import account_display
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net
@@ -16,16 +17,6 @@ from domain.investments.trade_read_v2 import load_trade_rows
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 
 
-_GROUPS = {
-    'santander': ('santander', 'Santander 4209 储蓄卡'),
-    'alipay': ('alipay', '支付宝余额'),
-    'ibkr': ('ibkr', 'IBKR 证券账户'),
-    'tonghuashun': ('tonghuashun', '同花顺 A 股证券账户'),
-    'wechat_balance': ('tencent', None),
-    'wechat_lqt': ('tencent', None),
-    'tencent_licaitong': ('tencent', None),
-    'huawei_stock': ('ccb', None),
-}
 _LOCAL = ZoneInfo('Asia/Shanghai')
 
 
@@ -181,12 +172,10 @@ def read_account_sync(cur, config):
             has_duplicate_alerts=bool(source_status['ccb_credit_0453']['duplicate_count']),
         )
     for code, cfg in accounts.items():
-        parent, label = _GROUPS.get(code, (cfg.get('parent_account_code') or code, None))
-        root = roots.get(parent, {})
-        group = groups.setdefault(parent, {'code': parent, 'label': '腾讯' if parent == 'tencent'
-            else root.get('display_name', parent), 'rows': []})
+        parent, group_label, label = account_display(config, code, code)
+        group = groups.setdefault(parent, {'code': parent, 'label': group_label or parent, 'rows': []})
         row = {
-            'account_code': code, 'label': label or cfg.get('display_name', code),
+            'account_code': code, 'label': label,
             'currency': cfg.get('base_currency', 'CNY'), 'active': code in active,
             'can_import': bool(code in active and registered.get(code) and code != 'tencent_licaitong'),
             'show_investment': cfg.get('account_type') in {'brokerage', 'fund_platform', 'cash_management'} or bool(trades.get(code)),

@@ -15,9 +15,13 @@ await page.route('**/*',async route=>{
  if(p.startsWith('/api/')) {
   calls.push([req.method(),p]);
   if(p.endsWith('/capabilities')) return send({schema_ready:false,source_record_schema_ready:true,source_record_publish_enabled:true,limits:{files:10,file_bytes:10485760}});
-  if(p.endsWith('/source-records/context')) return send({accounts:[{account_code:'bank',label:'合成账户',currency:'CNY',default_asset_type:'cash',kinds:['cash','trade','holding'],trade_actions:{cash:['income'],stock:['buy']}}],counter_accounts:[]});
+  if(p.endsWith('/source-records/context')) return send({accounts:[
+   {account_code:'bank_other',label:'合成另一张卡',group_code:'group',group_label:'合成银行',kinds:['cash']},
+   {account_code:'bank',label:'旧名称',selection_label:'合成 4209 储蓄卡',group_code:'group',group_label:'合成银行',currency:'CNY',default_asset_type:'cash',kinds:['cash','trade','holding'],trade_actions:{cash:['income'],stock:['buy']}},
+  ],counter_accounts:[]});
   if(p.endsWith('/source-records') && req.method()==='GET') return send({sources:source?[source]:[]});
   if(p.endsWith('/source-records') && req.method()==='POST') {
+   assert.equal(url.searchParams.get('account_code'),'bank');
    const fields=kind==='cash'?{business_date:'2026-01-02',action:'income',currency:'CNY',net_cash:'12.34'}:{business_date:'2026-01-02',action:'buy',currency:'CNY',symbol:'000001',name:'合成股票',quantity:'100',price:'10',gross_amount:'1000',net_cash:'-1000'};
    if(kind==='holding') Object.assign(fields,{asset_type:'cash',action:'balance',net_cash:'12.34'});
    source={source_id:'s',account_code:'bank',document_type:kind,acquisition_method:'file',status:'draft',revision:2,filename:'synthetic.csv',file_format:'csv',items:[{source_item_id:'i',parse_method:'template',parsed_fields:fields,review_status:'pending',raw_fields:{source:{row:1}},source_position:{row:1}}]};
@@ -43,8 +47,15 @@ await page.route('**/*',async route=>{
 });
 try {
  for(kind of ['cash','trade','holding']) {
-  source=null;await page.goto('http://import.invalid/account_import.html');
+  source=null;await page.goto('http://import.invalid/account_import.html'+(kind==='cash'?'':'?account=bank'));
   await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
+  const picker=page.getByLabel('子账户',{exact:true});
+  if(kind==='cash') {
+   assert.equal(await picker.locator('optgroup').getAttribute('label'),'合成银行');
+   assert.deepEqual(await picker.locator('optgroup option').allTextContents(),['合成另一张卡','合成 4209 储蓄卡']);
+   await picker.selectOption({label:'合成 4209 储蓄卡'});
+  }
+  assert.equal(await picker.inputValue(),'bank');
   const uploadStart=calls.length;
   assert.equal(await page.locator('#save-draft').isVisible(),false);
   await page.locator('#files').setInputFiles({name:'synthetic.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic')});
