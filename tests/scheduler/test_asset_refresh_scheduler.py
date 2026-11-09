@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 
@@ -40,13 +40,15 @@ def test_post_close_investment_scheduler_job_calls_price_endpoints(monkeypatch) 
     monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "stored": 1, "found": 0, "updated": 0, "processed": 0, "rows": []})
     monkeypatch.setattr(module, "_get", lambda endpoint, label: calls.append((endpoint, label)))
     monkeypatch.setattr(module, "_post_root", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "written": 1})
-    monkeypatch.setattr(module, "run_flex_confirmation", lambda: calls.append(("ibkr/flex/sync", "IBKR Flex")) or {"status": "ok", "statement_as_of": "2099-01-01"})
+    monkeypatch.setattr(module, "run_daily_holdings_confirmation", lambda: calls.append(("ibkr/daily-holdings", "IBKR holdings")) or {
+        "status": "ok", "statement_as_of": "2026-06-19", "publication_verified": True,
+    })
 
-    module.refresh_post_close_investments()
+    module.refresh_post_close_investments(date(2026, 6, 22))
 
     assert [endpoint for endpoint, _label in calls] == [
         "fx-rates/refresh",
-        "ibkr/flex/sync",
+        "ibkr/daily-holdings",
         "prices/refresh/a-stock",
         "prices/refresh/us-stock?market=kr&priceBasis=close",
         "prices/refresh/fund-nav-estimates?useIntradayEstimate=true",
@@ -68,13 +70,15 @@ def test_north_america_post_close_scheduler_job_calls_us_endpoints(monkeypatch) 
     monkeypatch.setattr(module, "_call", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "stored": 1, "found": 0, "updated": 0, "processed": 0, "rows": []})
     monkeypatch.setattr(module, "_get", lambda endpoint, label: calls.append((endpoint, label)))
     monkeypatch.setattr(module, "_post_root", lambda endpoint, label: calls.append((endpoint, label)) or {"status": "ok", "written": 1})
-    monkeypatch.setattr(module, "run_flex_confirmation", lambda: calls.append(("ibkr/flex/sync", "IBKR Flex")) or {"status": "ok", "statement_as_of": "2099-01-01"})
+    monkeypatch.setattr(module, "run_daily_holdings_confirmation", lambda: calls.append(("ibkr/daily-holdings", "IBKR holdings")) or {
+        "status": "ok", "statement_as_of": "2026-06-22", "publication_verified": True,
+    })
 
-    module.refresh_north_america_post_close_investments()
+    module.refresh_north_america_post_close_investments(date(2026, 6, 22))
 
     assert [endpoint for endpoint, _label in calls] == [
         "fx-rates/refresh",
-        "ibkr/flex/sync",
+        "ibkr/daily-holdings",
         "prices/refresh/fund-nav-estimates?useIntradayEstimate=false",
         "prices/refresh/us-stock?market=hk&priceBasis=close",
         "prices/refresh/us-stock?market=us&priceBasis=close&scheduled=true",
@@ -84,6 +88,25 @@ def test_north_america_post_close_scheduler_job_calls_us_endpoints(monkeypatch) 
         "investment/return-series/snapshot?start=2026-01-01&interval=daily&baseCurrency=CNY",
     ]
     assert all("refreshSnapshot" not in endpoint for endpoint, _label in calls)
+
+
+def test_delayed_ibkr_holdings_does_not_block_independent_sections(monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    writes = []
+    monkeypatch.setattr(module, "refresh_investment_return_snapshots", lambda sections: writes.append(sections) or {"status": "ok"})
+    steps = [
+        ("ibkr_holdings", lambda: {"status": "deferred", "statement_as_of": "2026-06-18"}),
+        ("a_stock", lambda: {"found": 1, "updated": 1}),
+        ("us", lambda: {"found": 1, "updated": 1}),
+    ]
+    sections = ("a_stock", "us_stock", "total")
+    assert module._refresh_window(date(2026, 6, 22), steps, sections)["status"] == "blocked"
+    assert writes == [("a_stock",)]
+    steps[0] = ("ibkr_holdings", lambda: {
+        "status": "success", "statement_as_of": "2026-06-19", "publication_verified": True,
+    })
+    assert module._refresh_window(date(2026, 6, 22), steps, sections)["status"] == "ok"
+    assert writes[-1] == sections
 
 
 def test_post_close_investment_startup_catch_up_uses_asia_shanghai_cutoff(monkeypatch) -> None:
