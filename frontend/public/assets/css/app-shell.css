@@ -27,6 +27,8 @@ html {
 .pams-viewport { min-height: 0; }
 #page-content { display: block; width: 100%; height: 100%; border: 0; background: var(--pams-bg-canvas); }
 .pams-primary-nav {
+  --nav-padding: 5px;
+  --nav-selection: rgba(255, 255, 255, .15);
   position: absolute;
   z-index: 1;
   inset: auto 0 var(--primary-nav-inset);
@@ -34,7 +36,7 @@ html {
   margin-inline: auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 5px;
+  padding: var(--nav-padding);
   border: 1px solid rgba(255, 255, 255, .17);
   border-radius: 999px;
   background: var(--pams-bg-panel);
@@ -43,13 +45,14 @@ html {
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   @media (prefers-reduced-transparency: no-preference) {
     .pams-primary-nav {
-      background: rgba(33, 33, 36, .63);
-      -webkit-backdrop-filter: blur(16px) saturate(165%);
-      backdrop-filter: blur(16px) saturate(165%);
+      background: linear-gradient(180deg, rgba(255, 255, 255, .055), transparent 48%), rgba(28, 28, 31, .46);
+      -webkit-backdrop-filter: blur(12px) saturate(145%);
+      backdrop-filter: blur(12px) saturate(145%);
     }
   }
 }
 .pams-primary-nav a {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -59,16 +62,40 @@ html {
   border-radius: 999px;
   color: var(--pams-text-primary);
   text-decoration: none;
+  touch-action: manipulation;
   font-size: 11px;
   line-height: 1.2;
   font-weight: 500;
 }
 .pams-primary-nav a[aria-current="page"] {
   color: #47b5ff;
-  background: rgba(255, 255, 255, .13);
+  background: var(--nav-selection);
   font-weight: 650;
 }
 .pams-primary-nav a:focus-visible { outline: 2px solid var(--pams-text-primary); outline-offset: -4px; }
+@supports selector(:has(*)) {
+  .pams-primary-nav::before {
+    content: "";
+    position: absolute;
+    inset: var(--nav-padding) auto var(--nav-padding) var(--nav-padding);
+    width: calc((100% - 2 * var(--nav-padding)) / 3);
+    border-radius: inherit;
+    background: var(--nav-selection);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, .11);
+    pointer-events: none;
+    display: none;
+    transform: translateX(var(--nav-offset, 0%));
+  }
+  .pams-primary-nav:has(a[aria-current="page"])::before { display: block; }
+  .pams-primary-nav:has(a:nth-child(2)[aria-current="page"]) { --nav-offset: 100%; }
+  .pams-primary-nav:has(a:nth-child(3)[aria-current="page"]) { --nav-offset: 200%; }
+  .pams-primary-nav a[aria-current="page"] { background: transparent; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pams-primary-nav::before { transition: transform 320ms cubic-bezier(.24, .85, .28, 1.08); }
+  .pams-primary-nav a { transition: transform 200ms ease-out; }
+  .pams-primary-nav a:active { transform: scale(.94); transition-duration: 85ms; }
+}
 .pams-primary-nav svg {
   width: 23px;
   height: 23px;
