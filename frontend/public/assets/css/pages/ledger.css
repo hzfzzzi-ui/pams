@@ -301,8 +301,8 @@
 .ledgerEditGrid [hidden] { display:none }
 .ledgerEditSummary { display:grid; gap:12px }
 .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) {
-  --expense-accent:#ffa43c;
-  --expense-accent-ink:#291805;
+  --expense-accent:#ffbc20;
+  --expense-accent-ink:#2a1d05;
 }
 .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmAmount.down {
   color:var(--expense-accent);
