@@ -1,16 +1,15 @@
 const LEDGER_PANEL_HASH = {
   overview: '#cashflow-workbench',
   recent: '#recent-flow-section',
-  account: '#account-cashflow-section',
   transfer: '#transfers',
 };
 
 const LEDGER_HASH_PANEL = {
   ...Object.fromEntries(Object.entries(LEDGER_PANEL_HASH).map(([panel, hash]) => [hash, panel])),
   '#income-section': 'recent',
-  '#accountIssueStrip': 'account',
-  '#review-section': 'account',
 };
+
+const RETIRED_ACCOUNT_HASHES = new Set(['#account-cashflow-section', '#accountIssueStrip', '#review-section']);
 
 const RECENT_SORT_OPTIONS = [
   { value: '', label: '默认排序', hint: '按流水日期显示' },
@@ -31,22 +30,18 @@ export function createLedgerState() {
   recentPeriod: 'ytd',
   recentSearch: '',
   recentAmountSort: '',
-  expandedAccountGroups: new Set(),
 };
 }
 
-export { LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RECENT_SORT_OPTIONS };
+export { LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RETIRED_ACCOUNT_HASHES, RECENT_SORT_OPTIONS };
 
 const VIEW_FIELDS = ['trendMode', 'activePanel', 'overviewPeriod', 'overviewFlow', 'recentFlowFilter', 'recentAccountFilter', 'recentPeriod', 'recentSearch', 'recentAmountSort'];
 
 export function snapshotLedgerViewState(state) {
-  const snapshot = Object.fromEntries(VIEW_FIELDS.map(key => [key, state[key]]));
-  snapshot.expandedAccountGroups = [...state.expandedAccountGroups];
-  return snapshot;
+  return Object.fromEntries(VIEW_FIELDS.map(key => [key, state[key]]));
 }
 
 export function restoreLedgerViewState(state, snapshot) {
   if (!snapshot) return;
   for (const key of VIEW_FIELDS) if (key in snapshot) state[key] = snapshot[key];
-  state.expandedAccountGroups = new Set(snapshot.expandedAccountGroups || []);
 }

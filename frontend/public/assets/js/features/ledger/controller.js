@@ -2,7 +2,7 @@ import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { replaceContentAddress } from '../../app/routes.js';
 import { createBottomSheet } from '../../components/bottom_sheet.js';
 import { setActiveNav } from '../../ui.js';
-import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL } from './state.js';
+import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RETIRED_ACCOUNT_HASHES } from './state.js';
 import { createLedgerLegacyModel } from './legacy_model.js';
 import { createLedgerTemplates } from './templates.js';
 import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js';
@@ -28,14 +28,14 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const dom = createLedgerDom(root);
   const { $, clearError } = dom;
   const showError = error => {if (current() && !isReadCancelled(error)) dom.showError(error);};
-  const { currentAccountSummary, currentOverviewTransferSummary } = model;
+  const { currentOverviewTransferSummary } = model;
   const events = createLedgerEvents(current);
   const sheets = createLedgerSheets(sheetService || createBottomSheet(root.ownerDocument || root), events, current);
   const overview = createLedgerOverview({ root, host, state, model, dom, ChartClass });
   const { renderOverviewPeriodButtons, renderOverviewFlowButtons, renderKpis, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderCashflowBridge, renderTransferSummary, renderRules, renderTrendChart } = overview;
   const editor = createLedgerEditor({ model, templates, sheets, dom, current, reload: loadWorkbench });
-  const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, replaceContentAddress, setLedgerPanel, showDetails });
-  const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, openRecentForAccount, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderAccountFlowSummary, renderRows, renderRecentRows } = listView;
+  const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails });
+  const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
 
 function showDetails(title, html) {
   const session = sheets.open(title, html);
@@ -64,7 +64,6 @@ function renderAll(data) {
   renderOverviewPeriodButtons();
   renderLedgerMobileHero(data);
   renderKpis(data);
-  renderAccountFlowSummary(currentAccountSummary(data));
   renderOverviewCategoryInsight(data);
   renderTransferSummary(currentOverviewTransferSummary(data));
   renderRules(data.classification_rules || []);
@@ -158,10 +157,14 @@ function bindLedgerAnchors() {
       host.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
-  events.listen('page', host, 'hashchange', () => {
+  function selectPanelFromHash() {
+    if (RETIRED_ACCOUNT_HASHES.has(host.location.hash)) {
+      replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.overview}`);
+    }
     setLedgerPanel(LEDGER_HASH_PANEL[host.location.hash] || 'overview');
-  });
-  setLedgerPanel(LEDGER_HASH_PANEL[host.location.hash] || 'overview');
+  }
+  events.listen('page', host, 'hashchange', selectPanelFromHash);
+  selectPanelFromHash();
 }
 
   const controller = {
