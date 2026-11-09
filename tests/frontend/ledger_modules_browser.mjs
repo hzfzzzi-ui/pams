@@ -137,6 +137,25 @@ async function browse(legacy) {
   await capture(page, 'month-expense-weekly', legacy);
   await page.locator('[data-ledger-tab="recent"]').click();
   if (!legacy) {
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 320, height: viewport.height });
+    const bar = await page.locator('.ledgerRecentBar').evaluate(element => {
+      const chips = element.querySelector('#recentFlowChips');
+      const buttons = [...element.querySelectorAll('button:not([type="submit"])')];
+      const controls = buttons.map(button => button.getBoundingClientRect());
+      return {
+        aligned: controls.every(rect => Math.abs(rect.top - controls[0].top) < 1),
+        ordered: controls.slice(1).every((rect, index) => rect.left >= controls[index].right),
+        fits: chips.scrollWidth <= chips.clientWidth && controls.at(-1).right <= window.innerWidth,
+        borderless: buttons.every(button => {
+          const style = getComputedStyle(button);
+          return style.borderTopWidth === '0px' && style.backgroundColor === 'rgba(0, 0, 0, 0)';
+        }),
+        selectedUnderline: getComputedStyle(chips.querySelector('[aria-pressed="true"]'), '::after').height === '2px',
+      };
+    });
+    assert.deepEqual(bar, { aligned: true, ordered: true, fits: true, borderless: true, selectedUnderline: true });
+    await page.setViewportSize(viewport);
     await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
     assert.deepEqual(await page.locator('#recentRows .ledgerListRow').evaluateAll(
       rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-3', 'recentRows-detail-4']);
@@ -300,14 +319,18 @@ try {
   await page.locator('[data-ledger-flow-filter="expense"]').click();
   const periodToggle = page.locator('#recentPeriodToggle');
   const periodForm = page.locator('#recentPeriodForm');
+  assert.equal(await page.locator('#recentAccountScope').isVisible(), false);
   await periodToggle.click();
-  await periodForm.getByLabel('本月至今').check();
+  await periodForm.getByText('本月至今', { exact: true }).click();
+  assert.equal(await periodForm.getByLabel('本月至今').isChecked(), true);
+  assert.equal(await periodForm.locator('label').filter({ hasText: '本月至今' }).locator('svg').isVisible(), true);
+  assert.equal(await periodForm.locator('label').filter({ hasText: '年初至今' }).locator('svg').isVisible(), false);
   assert.equal(await page.evaluate(() => __ledgerPage.controller.state.recentPeriod), 'ytd');
   await page.keyboard.press('Escape');
   assert.equal(await periodForm.isVisible(), false);
   await periodToggle.click();
   assert.equal(await periodForm.getByLabel('年初至今').isChecked(), true);
-  await periodForm.getByLabel('本月至今').check();
+  await periodForm.getByText('本月至今', { exact: true }).click();
   await periodForm.getByRole('button', { name: '确认' }).click();
   assert.equal(await periodForm.isVisible(), false);
   assert.equal(await periodToggle.getAttribute('aria-expanded'), 'false');

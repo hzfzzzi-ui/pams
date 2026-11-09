@@ -190,14 +190,62 @@
 
 .ledgerPanelGroup { display:grid; gap:12px }
 .ledgerPanelGroup[hidden] { display:none !important }
-.ledgerFlowChips { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
-.ledgerFlowChip { min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer; }
-.ledgerFlowChip.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text); }
-.ledgerSectionToolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; margin-left:auto }
-.ledgerIconButton { width:44px; height:44px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--line); border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-secondary); cursor:pointer }
-.ledgerIconButton:hover,
-.ledgerIconButton:focus,
-.ledgerIconButton.active { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft); color:var(--text) }
+.ledgerRecentBar { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:10px }
+.ledgerFlowChips { display:flex; gap:4px; min-width:0; overflow:auto hidden; scrollbar-width:none }
+.ledgerFlowChip {
+  position:relative;
+  flex:0 0 auto;
+  min-height:44px;
+  padding:0 6px;
+  border:0;
+  border-radius:0;
+  background:none;
+  color:var(--pams-text-secondary);
+  font-size:12px;
+  font-weight:600;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.ledgerFlowChip[aria-pressed="true"] { color:var(--pams-text-primary) }
+.ledgerFlowChip[aria-pressed="true"]::after {
+  position:absolute;
+  inset:auto 0 5px;
+  width:16px;
+  height:2px;
+  margin-inline:auto;
+  background:currentColor;
+  content:"";
+}
+.ledgerSectionToolbar { display:flex; flex:0 0 auto; align-items:center; gap:4px }
+.ledgerIconButton {
+  position:relative;
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  width:44px;
+  height:44px;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:none;
+  color:var(--pams-text-secondary);
+  cursor:pointer;
+}
+.ledgerIconButton:is(:hover, [aria-pressed="true"], [aria-expanded="true"]) { color:var(--pams-text-primary) }
+.ledgerIconButton[aria-pressed="true"]::after {
+  position:absolute;
+  inset:auto 0 5px;
+  width:4px;
+  height:4px;
+  margin-inline:auto;
+  border-radius:50%;
+  background:currentColor;
+  content:"";
+}
+.ledgerRecentBar :is(.ledgerFlowChip, .ledgerIconButton):focus-visible {
+  outline:1px solid var(--pams-text-primary);
+  outline-offset:-2px;
+}
 .ledgerIconButton svg { width:16px; height:16px; stroke:currentColor; stroke-width:2.4; fill:none; stroke-linecap:round; stroke-linejoin:round }
 .ledgerSearchSheet { display:grid; gap:12px }
 .ledgerSearchSheetActions { display:grid; grid-template-columns:1fr 1fr; gap:8px }
@@ -207,11 +255,15 @@
 .ledgerOptionButton strong { font-size:14px; line-height:1.2; font-weight:600 }
 .ledgerOptionButton small { margin-top:3px; display:block; color:var(--muted); font-size:12px; line-height:1.2; font-weight:600 }
 .ledgerOptionButton em { width:18px; height:18px; display:grid; place-items:center; border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-primary); font-style:normal; font-size:12px; font-weight:600 }
-.recentAccountScope { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; font-weight:600 }
+.recentAccountScope:not([hidden]) { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; color:var(--muted); font-size:12px; font-weight:600 }
 .recentAccountScope strong { color:var(--text); font-weight:600 }
 .recentAccountScope button { border:0; background:transparent; color:var(--pams-text-primary); font-size:12px; font-weight:600; cursor:pointer }
 .accountFlowList { display:grid; border-top:1px solid var(--line) }
 .ledgerPeriodControl { position:relative }
+@media (max-width:380px) {
+  .ledgerFlowChip { padding-inline:4px }
+  .ledgerSectionToolbar .ledgerIconButton { width:34px }
+}
 .ledgerPeriodPopover {
   position:absolute;
   z-index:5;
@@ -220,13 +272,17 @@
   padding:10px;
   border:1px solid var(--pams-line-subtle);
   border-radius:var(--pams-radius-control);
-  background:var(--pams-bg-soft);
+  background:var(--pams-bg-surface);
 }
 .ledgerPeriodPopover fieldset { min-width:0; margin:0; padding:0; border:0 }
 .ledgerPeriodPopover legend { padding:0 4px; color:var(--pams-text-secondary); font-size:12px }
-.ledgerPeriodPopover label { display:flex; align-items:center; min-height:44px; gap:8px; padding:0 4px; cursor:pointer }
-.ledgerPeriodPopover input { accent-color:var(--pams-text-primary) }
-.ledgerPeriodPopover .btn { width:100%; min-height:44px; margin-top:4px }
+.ledgerPeriodPopover label { position:relative; display:flex; align-items:center; justify-content:space-between; min-height:44px; gap:8px; padding:0 4px; cursor:pointer }
+.ledgerPeriodPopover input { position:absolute; width:1px; height:1px; margin:0; clip-path:inset(50%) }
+.ledgerPeriodPopover label svg { width:16px; height:16px; visibility:hidden; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
+.ledgerPeriodPopover input:checked ~ svg { visibility:visible }
+.ledgerPeriodPopover label:has(input:focus-visible),
+.ledgerPeriodApply:focus-visible { outline:1px solid var(--pams-text-primary); outline-offset:-2px }
+.ledgerPeriodApply { width:100%; min-height:44px; padding:0; border:0; background:none; color:var(--pams-text-primary); font:inherit; font-weight:600; cursor:pointer }
 .accountFlowRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
 .accountGroupBlock { border-bottom:1px solid var(--line) }
 .accountGroupBlock:last-child { border-bottom:0 }
@@ -568,10 +624,6 @@
   .ledgerFilterGrid { grid-template-columns:1fr }
   .page-ledger .pageHeader { display:none; }
 
-  .ledgerFlowChips { flex-wrap:nowrap; overflow:auto hidden; padding:0 0 2px; scrollbar-width:none; }
-  .ledgerFlowChips::-webkit-scrollbar { display:none; }
-  .ledgerFlowChip { flex:0 0 auto; border-radius:var(--pams-radius-control) !important; }
-  .ledgerSectionToolbar { gap:6px; min-width:0 }
   .page-ledger .ledgerPanelGroup {
     padding-left: 0;
     padding-right: 0;
