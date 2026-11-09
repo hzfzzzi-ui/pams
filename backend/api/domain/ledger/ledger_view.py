@@ -392,6 +392,14 @@ def _investment_transfer_sign(match: Mapping[str, Any]) -> int:
     return 0
 
 
+def _expense_contribution(row: Mapping[str, Any]) -> float:
+    """A confirmed credit classified as expense reduces the period's consumption."""
+    amount = row["amount_cny"]
+    if amount < 0 or row.get("classification_status") == "confirmed":
+        return -amount
+    return 0.0
+
+
 def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]], start: date, end: date) -> dict[str, Any]:
     """Summarize operating cashflow and one-way internal fund movement for a period."""
 
@@ -406,7 +414,7 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     missing_expense_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "expense" for r in period_rows)
     missing_transfer_row_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "transfer" for r in period_rows)
     income_amounts = [r["amount_cny"] for r in known_rows if r["flow_type"] == "income" and r["amount_cny"] > 0]
-    expense_amounts = [-r["amount_cny"] for r in known_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0]
+    expense_amounts = [_expense_contribution(r) for r in known_rows if r["flow_type"] == "expense"]
     income = sum(income_amounts)
     expense = sum(expense_amounts)
     known_transfers = [t for t in period_transfers if t.get("amount_cny") is not None]
@@ -442,7 +450,7 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     result["unclassified_count"] = unclassified_count
     if unclassified_count:
         # Keep full-period totals unknown and expose the valued, classified subset separately.
-        has_operating_amounts = bool(income_amounts or expense_amounts)
+        has_operating_amounts = bool(income_amounts or any(expense_amounts))
         result["classification_status"] = "incomplete"
         result["confirmed_subtotal"] = {
             "income": result["income"] if has_operating_amounts else None,
@@ -481,10 +489,10 @@ def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str,
         if row.get("amount_cny") is None:
             item["fx_missing"] = True
         else:
-            item["amount"] += abs(row["amount_cny"])
+            item["amount"] += _expense_contribution(row) if flow_type == "expense" else abs(row["amount_cny"])
         item["count"] += 1
     total = sum(item["amount"] for item in grouped.values())
-    missing_fx = any(item["fx_missing"] for item in grouped.values())
+    shares_unavailable = any(item["fx_missing"] or item["amount"] < 0 for item in grouped.values())
     result = []
     for item in grouped.values():
         amount = round(item["amount"], 2)
@@ -493,7 +501,7 @@ def _group_amounts(rows: list[dict[str, Any]], flow_type: str) -> list[dict[str,
                 "category": item["category"],
                 "amount": None if item["fx_missing"] else amount,
                 "count": item["count"],
-                "share": None if missing_fx else round(amount / total, 4) if total else 0,
+                "share": None if shares_unavailable else round(amount / total, 4) if total else 0,
             }
         )
     return sorted(result, key=lambda item: item["amount"] if item["amount"] is not None else -1, reverse=True)
@@ -707,8 +715,12 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
             continue
         if row["flow_type"] == "income" and row["amount_cny"] > 0:
             buckets[key]["income"] += row["amount_cny"]
-        elif row["flow_type"] == "expense" and row["amount_cny"] < 0:
-            buckets[key]["expense"] += abs(row["amount_cny"])
+            buckets[key]["has_operating_amounts"] = True
+        elif row["flow_type"] == "expense":
+            contribution = _expense_contribution(row)
+            if contribution:
+                buckets[key]["expense"] += contribution
+                buckets[key]["has_operating_amounts"] = True
 
     result = []
     for key in sorted(buckets):
@@ -722,7 +734,7 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
                 "net": None if missing_income or missing_expense else round(income - expense, 2)}
         if unclassified_count:
             item["unclassified_count"] = unclassified_count
-            has_operating_amounts = bool(buckets[key]["income"] or buckets[key]["expense"])
+            has_operating_amounts = buckets[key].get("has_operating_amounts", False)
             item["confirmed_subtotal"] = {
                 "income": income if has_operating_amounts else None,
                 "expense": expense if has_operating_amounts else None,

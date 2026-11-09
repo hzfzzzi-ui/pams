@@ -31,6 +31,7 @@ function renderLedgerMobileHero(data) {
   const period = currentOverviewPeriod(data);
   const amounts = period.confirmed_subtotal ?? period;
   const disposableNet = amounts.disposable_net ?? amounts.net;
+  const expenseImpact = amounts.expense == null ? null : -amounts.expense;
   const cashNet = amounts.cash_net;
   const unclassified = num(period.unclassified_count);
   const otherPending = Math.max(0, num(period.pending_count) - unclassified);
@@ -46,7 +47,7 @@ function renderLedgerMobileHero(data) {
       </div>
       <div class="ledgerMobileStat">
         <span>消费</span>
-        <strong class="${amounts.expense == null ? '' : 'down'}">${amountText(amounts.expense, value => signedMoney(-Math.abs(value)))}</strong>
+        <strong class="${amountTone(expenseImpact)}">${amountText(expenseImpact, signedMoney)}</strong>
       </div>
       <div class="ledgerMobileStat">
         <span>待分类</span>
@@ -133,12 +134,13 @@ function renderOverviewCategoryPie(rows, flowType) {
   canvas?.parentElement?.querySelector('.categoryPieFallback')?.remove();
   if (!canvas) return;
 
-  const chartRows = overviewPieRows(rows);
+  const hasNegativeCategory = rows.some(row => num(row.amount) < 0);
+  const chartRows = hasNegativeCategory ? [] : overviewPieRows(rows);
   const hasRows = chartRows.length > 0;
   canvas.hidden = !hasRows;
   if (empty) {
     empty.hidden = hasRows;
-    empty.textContent = hasRows ? '' : `暂无${overviewFlowLabel(flowType)}分类`;
+    empty.textContent = hasRows ? '' : hasNegativeCategory ? '分类净额含退款，见下方排行。' : `暂无${overviewFlowLabel(flowType)}分类`;
   }
   if (!hasRows) return;
   if (typeof ChartClass !== 'function') {
@@ -189,7 +191,7 @@ function renderOverviewCategoryInsight(data) {
   if (total) {
     const period = currentOverviewPeriod(data);
     const amount = (period.confirmed_subtotal ?? period)[flowType];
-    total.hidden = !rows.some(row => num(row.amount) > 0);
+    total.hidden = !rows.some(row => row.amount != null);
     setText('overviewCategoryTotalLabel', `${overviewFlowLabel(flowType)}合计`);
     setText('overviewCategoryTotalValue', amount == null ? '—' : money(amount));
   }
