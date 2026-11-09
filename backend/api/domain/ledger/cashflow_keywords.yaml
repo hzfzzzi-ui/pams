@@ -1,0 +1,45 @@
+# Shared suggestions for all subaccounts. Add specific phrases, not account IDs
+# or amount thresholds. Multiple distinct matches require manual review.
+rules:
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 工资薪酬
+    subcategory: 工资
+    keywords: [薪金报酬, 工资入账, 代发工资, payroll deposit, nómina]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 利息收入
+    subcategory: 利息
+    keywords: [利息存入, 存款利息, deposit interest, intereses de depósito]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 退款返现
+    subcategory: 消费退款
+    keywords: [消费退款, 购物退款, 退货退款, purchase refund]
+  - direction: outflow
+    cashflow_type: debt_repayment
+    category: 内部划转
+    subcategory: 信用卡还款
+    keywords: [信用卡约定还款, 信用卡还款, credit card repayment, pago de tarjeta de crédito]
+  - direction: outflow
+    cashflow_type: investment_funding
+    category: 内部划转
+    subcategory: 基金定投申购
+    keywords: [基金定投申购]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 餐饮
+    subcategory: 外卖
+    keywords: [美团外卖, 饿了么外卖, uber eats]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 交通出行
+    subcategory: 打车
+    keywords: [滴滴出行, 滴滴打车, uber ride]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 工具订阅
+    subcategory: AI订阅
+    keywords: [chatgpt subscription, chatgpt plus, claude subscription]
+
+exclude_keywords: [冲正, 撤销, 还款失败, 退回, reversal, reversed, cancelled, cancelado, payment failed]

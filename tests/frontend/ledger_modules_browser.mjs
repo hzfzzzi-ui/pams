@@ -318,5 +318,30 @@ try {
   assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 0);
   assert.deepEqual(errors, []);
   await context.close();
+
+  const hintFixture = structuredClone(fixture);
+  const [hinted, unknown] = hintFixture.recent_rows_ytd;
+  for (const row of [hinted, unknown]) Object.assign(row, {
+    classification_status: 'pending', flow_type: 'unclassified', coarse_category: '待分类',
+    cashflow_type: null, category: null, subcategory: null, needs_review: true,
+  });
+  hinted.classification_hint = {
+    cashflow_type: 'debt_repayment', category: '内部划转', subcategory: '信用卡还款',
+    matched_keyword: '信用卡还款',
+  };
+  const hintPage = await makePage(false, hintFixture);
+  await hintPage.page.locator('[data-ledger-tab="recent"]').click();
+  await hintPage.page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  const form = hintPage.page.locator('[data-ledger-edit-form]');
+  await form.getByText('词典建议，匹配到「信用卡还款」。').waitFor();
+  assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), 'debt_repayment');
+  assert.equal(await form.locator('[data-edit-field="category"]').inputValue(), '内部划转');
+  await form.locator('[data-sheet-close]').click();
+  await hintPage.page.locator('[data-ledger-edit="2"]').filter({ visible: true }).first().click();
+  assert.equal(await form.locator('[data-edit-field="cashflow_type"]').inputValue(), '');
+  await form.locator('button[type="submit"]').click();
+  assert.equal(await hintPage.page.evaluate(() => __ledgerTest.writes.length), 0);
+  await hintPage.context.close();
+  assert.deepEqual(errors, []);
   console.log(JSON.stringify({ status: 'passed', fixedEquivalenceStates: baselineEntry ? snapshots.size : 0, mobileSummaryWidths, controls: 'tabs/period/flow/trend/search/sort/account drilldown/cancel', edits: 'one POST per submit; explicit retry after failure; exact payload', lifecycle: 'latest read wins; dispose; replacement; BFCache restores view only; late POST inert', pageErrors: errors.length }));
 } finally { await browser.close(); }

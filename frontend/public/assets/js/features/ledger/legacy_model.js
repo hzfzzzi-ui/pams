@@ -204,6 +204,10 @@ function isEditableLedgerRow(row) {
 
 function ledgerEditType(row) {
   const cashflowType = cashflowTypeText(row);
+  if (row?.classification_status && row.flow_type === 'unclassified') {
+    return row.classification_hint?.cashflow_type ||
+      (row.classification_status === 'suggested' && LEDGER_EDIT_DEFAULTS[cashflowType] ? cashflowType : '');
+  }
   if (LEDGER_EDIT_DEFAULTS[cashflowType]) return cashflowType;
   if (row?.flow_type === 'income') return 'operating_income';
   if (row?.flow_type === 'expense') return 'operating_expense';
