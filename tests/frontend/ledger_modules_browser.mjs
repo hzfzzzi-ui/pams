@@ -36,6 +36,7 @@ fixture.review_rows = [fixture.recent_rows_ytd[0]];
 fixture.periods.month.investment_funding = 35;
 fixture.periods.month.cash_net = null;
 fixture.periods.ytd.investment_funding = 160;
+fixture.periods.ytd.unclassified_count = 1;
 const accounts = { accounts: [
   { account_code: 'ccb_7332', display_name: '建行测试储蓄卡', primary_balance: { amount: '9876.54321', currency: 'CNY', as_of: '2026-10-30' } },
   { account_code: 'ibkr', display_name: 'IBKR测试', primary_balance: { amount: '1200.12', currency: 'USD', as_of: '2026-10-30' }, platform_balances: [{ amount: 1300.12, currency: 'USD', holding_pnl: 5 }, { amount: -100, currency: 'USD', asset_liability: '负债' }] },
@@ -154,6 +155,29 @@ async function browse(legacy) {
   await context.close();
 }
 
+async function checkConfirmedSubtotal() {
+  const partial = structuredClone(fixture);
+  Object.assign(partial.periods.ytd, {
+    income: null, expense: null, disposable_net: null, cash_net: null,
+    unclassified_count: 12, pending_count: 13,
+    confirmed_subtotal: { income: 2250.25, expense: 124.5, net: 2125.75, cash_net: 1925.75 },
+  });
+  partial.monthly_trend = [
+    { period: '2026-09', unclassified_count: 5, income: null, expense: null, net: null,
+      confirmed_subtotal: { income: null, expense: null, net: null } },
+    { period: '2026-10', unclassified_count: 7, income: null, expense: null, net: null,
+      confirmed_subtotal: { income: 2250.25, expense: 124.5, net: 2125.75 } },
+  ];
+  const { page, context } = await makePage(false, partial);
+  assert.equal(await page.locator('.ledgerMobileValue').textContent(), '+¥2,125.75');
+  assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥2,250.25');
+  assert.equal(await page.locator('.ledgerMobileStat').filter({ hasText: '待分类' }).locator('strong').textContent(), '12');
+  assert.equal(await page.locator('#ledgerTrendCoverage').isVisible(), true);
+  assert.deepEqual(await page.evaluate(() => window.__cashflowTrendChart.data.datasets.map(series => series.data)),
+    [[null, 2250.25], [null, 124.5], [null, 2125.75]]);
+  await context.close();
+}
+
 async function checkNarrowSummaryGeometry() {
   const layoutFixture = structuredClone(fixture);
   Object.assign(layoutFixture.periods.ytd, {
@@ -217,6 +241,7 @@ async function checkNarrowSummaryGeometry() {
 try {
   if (baselineEntry) await browse(true);
   await browse(false);
+  await checkConfirmedSubtotal();
   const mobileSummaryWidths = await checkNarrowSummaryGeometry();
   const { page, context } = await makePage(false);
   await page.locator('[data-overview-period="month"]').click();

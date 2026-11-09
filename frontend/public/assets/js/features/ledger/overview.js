@@ -29,28 +29,32 @@ function renderLedgerMobileHero(data) {
   const el = $('ledgerMobileHero');
   if (!el) return;
   const period = currentOverviewPeriod(data);
-  const disposableNet = period.disposable_net ?? period.net;
-  const cashNet = period.cash_net;
-  const pending = num(period.pending_count || 0);
+  const amounts = period.confirmed_subtotal ?? period;
+  const disposableNet = amounts.disposable_net ?? amounts.net;
+  const cashNet = amounts.cash_net;
+  const unclassified = num(period.unclassified_count);
+  const otherPending = Math.max(0, num(period.pending_count) - unclassified);
   const amountText = (value, formatter = money) => value == null ? '—' : formatter(value);
   const amountTone = value => value == null ? '' : value < 0 ? 'down' : 'up';
   el.innerHTML = `
-    <div class="ledgerMobileLabel">${overviewPeriodLabel()}可支配结余</div>
+    <div class="ledgerMobileLabel">${overviewPeriodLabel()}可支配结余${unclassified ? '（已确认小计）' : ''}</div>
     <div class="ledgerMobileValue ${amountTone(disposableNet)}">${amountText(disposableNet, signedMoney)}</div>
     <div class="ledgerMobileStats">
       <div class="ledgerMobileStat">
         <span>收入</span>
-        <strong>${amountText(period.income)}</strong>
+        <strong>${amountText(amounts.income)}</strong>
       </div>
       <div class="ledgerMobileStat">
         <span>消费</span>
-        <strong class="${period.expense == null ? '' : 'down'}">${amountText(period.expense, value => signedMoney(-Math.abs(value)))}</strong>
+        <strong class="${amounts.expense == null ? '' : 'down'}">${amountText(amounts.expense, value => signedMoney(-Math.abs(value)))}</strong>
       </div>
       <div class="ledgerMobileStat">
-        <span>待确认</span>
-        <strong class="${pending ? 'down' : ''}">${pending}</strong>
+        <span>待分类</span>
+        <strong class="${unclassified ? 'down' : ''}">${unclassified}</strong>
       </div>
     </div>
+    ${unclassified || otherPending ? `<p class="ledgerOverviewCoverage">${unclassified
+      ? (disposableNet == null ? '暂无已确认且可计入的收支。' : '仅统计已确认且金额可用的收支。') : ''}${otherPending ? `另有 ${otherPending} 笔待核对。` : ''}</p>` : ''}
     <div class="ledgerMobileStats ledgerFundingStats">
       <div class="ledgerMobileStat">
         <span>投资入金</span>
@@ -82,8 +86,8 @@ function renderCategoryBars(id, rows, emptyText, flowType = 'income') {
             <div class="categoryBarCount">${row.count || 0} 笔</div>
           </div>
           <div class="categoryBarMeta">
-            <b>${money(row.amount)}</b>
-            <span>${formatPercent(row.share, 1)}</span>
+            <b>${row.amount == null ? '—' : money(row.amount)}</b>
+            <span>${row.share == null ? '—' : formatPercent(row.share, 1)}</span>
           </div>
         </div>
       `).join('')}
@@ -183,7 +187,8 @@ function renderOverviewCategoryInsight(data) {
   const rows = currentOverviewCategories(data, flowType);
   const total = $('overviewCategoryTotal');
   if (total) {
-    const amount = currentOverviewPeriod(data)[flowType];
+    const period = currentOverviewPeriod(data);
+    const amount = (period.confirmed_subtotal ?? period)[flowType];
     total.hidden = !rows.some(row => num(row.amount) > 0);
     setText('overviewCategoryTotalLabel', `${overviewFlowLabel(flowType)}合计`);
     setText('overviewCategoryTotalValue', amount == null ? '—' : money(amount));
@@ -230,6 +235,12 @@ function renderRules(rows) {
 
 function renderTrendChart(data) {
   const rows = state.trendMode === 'weekly' ? data.weekly_trend || [] : data.monthly_trend || [];
+  const coverage = $('ledgerTrendCoverage');
+  if (coverage) {
+    coverage.hidden = !rows.some(row => row.unclassified_count);
+    coverage.textContent = coverage.hidden ? '' : '有待分类流水的期间仅显示已确认小计。';
+  }
+  const amounts = rows.map(row => row.confirmed_subtotal ?? row);
   const ctx = $('cashflowTrendChart');
   if (!ctx || typeof ChartClass !== 'function') return;
   const tickFont = () => ({ size: host?.matchMedia?.('(max-width: 389px)').matches ? 10 : 12 });
@@ -241,7 +252,7 @@ function renderTrendChart(data) {
         {
           type: 'bar',
           label: '收入',
-          data: rows.map((r) => num(r.income)),
+          data: amounts.map(row => row.income ?? null),
           backgroundColor: 'rgba(63,185,80,.42)',
           borderColor: 'rgba(63,185,80,.8)',
           borderWidth: 1,
@@ -249,7 +260,7 @@ function renderTrendChart(data) {
         {
           type: 'bar',
           label: '消费',
-          data: rows.map((r) => num(r.expense)),
+          data: amounts.map(row => row.expense ?? null),
           backgroundColor: 'rgba(248,81,73,.38)',
           borderColor: 'rgba(248,81,73,.82)',
           borderWidth: 1,
@@ -259,7 +270,7 @@ function renderTrendChart(data) {
           label: '净流入',
           borderDash: [5, 3],
           pointStyle: 'rectRot',
-          data: rows.map((r) => num(r.net)),
+          data: amounts.map(row => row.net ?? null),
           borderColor: '#58a6ff',
           backgroundColor: 'rgba(88,166,255,.12)',
           tension: 0.25,

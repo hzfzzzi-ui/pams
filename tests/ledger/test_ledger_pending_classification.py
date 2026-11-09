@@ -16,6 +16,28 @@ def test_unconfirmed_classification_does_not_create_income_or_expense():
     result = summarize_period([row], [], day, day)
     assert result["income"] is None and result["expense"] is None and result["net"] is None
     assert result["classification_status"] == "incomplete" and result["unclassified_count"] == 1
+    assert all(value is None for value in result["confirmed_subtotal"].values())
+
+
+def test_pending_classification_preserves_confirmed_period_and_trend_subtotals():
+    day = date(2026, 1, 1)
+    rows = [
+        {"transaction_date_obj": day, "amount_cny": 120, "flow_type": "income"},
+        {"transaction_date_obj": day, "amount_cny": -35, "flow_type": "expense"},
+        {"transaction_date_obj": day, "amount_cny": -500, "flow_type": "unclassified", "needs_review": True},
+        {"transaction_date_obj": day, "amount_cny": None, "flow_type": "expense"},
+    ]
+    transfers = [{"match_date_obj": day, "amount_cny": 20, "match_type": "investment_funding"}]
+    summary = summarize_period(rows, transfers, day, day)
+    assert summary["income"] is None and summary["net"] is None
+    assert summary["unclassified_count"] == 1 and summary["pending_count"] == 2
+    assert summary["confirmed_subtotal"] == {"income": 120, "expense": 35, "net": 85, "cash_net": 65}
+    for grain in ("monthly", "weekly"):
+        point = _trend(rows, day, day, grain)[0]
+        assert point["net"] is None and point["unclassified_count"] == 1
+        assert point["confirmed_subtotal"] == {"income": 120, "expense": 35, "net": 85}
+    transfers[0]["amount_cny"] = None
+    assert summarize_period(rows, transfers, day, day)["confirmed_subtotal"]["cash_net"] is None
 
 
 def test_pending_classification_makes_trend_and_account_totals_incomplete():

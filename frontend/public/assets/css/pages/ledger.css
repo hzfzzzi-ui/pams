@@ -94,6 +94,7 @@
   text-decoration:none;
 }
 .ledgerOverviewTransfer span { font-size:20px }
+.ledgerOverviewCoverage { margin:0 0 10px; color:var(--text-secondary); font-size:12px; line-height:1.5 }
 .page-ledger .cashflowBodyGrid .chartWrap {
   width:100%;
   min-width:0;
