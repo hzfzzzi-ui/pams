@@ -6,6 +6,7 @@ from uuid import UUID
 from decimal import Decimal
 from typing import Any
 
+from domain.accounts.account_identity import account_display
 from domain.imports.account_import_types import asset_type
 from domain.imports.account_import_parse import FIELDS as PARSE_FIELDS
 from domain.imports import account_import_statement as statement
@@ -58,13 +59,22 @@ def parse(content, filename, profile, kind, mapping=None):
 
 
 def context(cur) -> dict:
+    from domain.investments.portfolio_state import _load_accounts_config
+
     cur.execute("SELECT account_code,display_name,base_currency FROM pams_accounts WHERE active ORDER BY account_code")
     all_accounts = [dict(r) for r in cur.fetchall()]
+    config = _load_accounts_config()
     sources = {**{key: statement.public_profile(key) for key in statement.profiles()},
                **{key: {**value, "profile": key, "kinds": ["trade", "holding"]} for key, value in PROFILES.items()}}
-    accounts = [{**sources[r["account_code"]], "account_code": r["account_code"],
-                 "label": r["display_name"], "currency": r["base_currency"]}
-                for r in all_accounts if r["account_code"] in sources]
+    accounts = []
+    for row in all_accounts:
+        code = row["account_code"]
+        if code not in sources:
+            continue
+        group_code, group_label, label = account_display(config, code, row["display_name"])
+        accounts.append({**sources[code], "account_code": code, "label": row["display_name"],
+                         "currency": row["base_currency"], "selection_label": label,
+                         "group_code": group_code, "group_label": group_label})
     return {"accounts": accounts, "counter_accounts": norm(all_accounts),
             "profiles": [{"profile": key, **value} for key, value in PROFILES.items()]}
 

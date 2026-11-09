@@ -18,6 +18,34 @@ from tests.support.account_import_support import scratch_database  # noqa: E402
 BASE = "/api/account-import"
 
 
+def test_import_context_groups_supported_subaccounts_without_changing_codes(monkeypatch):
+    from domain.imports import account_import_statement
+
+    cur = MagicMock()
+    cur.fetchall.return_value = [
+        {"account_code": code, "display_name": label, "base_currency": currency}
+        for code, label, currency in (
+            ("ccb_7332", "7332", "CNY"), ("ccb_credit_0453", "0453", "CNY"),
+            ("santander", "Santander", "MXN"), ("wechat", "WeChat", "CNY"),
+            ("tencent_licaitong", "Tencent Licaitong", "CNY"),
+            ("wechat_balance", "微信零钱", "CNY"),
+        )
+    ]
+    monkeypatch.setattr(account_import_statement, "profiles",
+                        lambda: dict.fromkeys(("ccb_7332", "ccb_credit_0453", "santander", "wechat")))
+
+    payload = store.context(cur)
+    choices = {row["account_code"]: row for row in payload["accounts"]}
+    assert set(choices) == {"ccb_7332", "ccb_credit_0453", "santander", "wechat", "tencent_licaitong"}
+    assert choices["ccb_7332"]["group_code"] == choices["ccb_credit_0453"]["group_code"] == "ccb"
+    assert choices["ccb_7332"]["group_label"] == "建设银行"
+    assert choices["santander"]["selection_label"] == "Santander 4209 储蓄卡"
+    assert choices["santander"]["currency"] == "MXN"
+    assert choices["tencent_licaitong"]["group_code"] == "tencent"
+    assert choices["wechat"]["selection_label"] == "微信支付账单（全渠道）"
+    assert payload["counter_accounts"] == cur.fetchall.return_value
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.delenv("PAMS_IMPORT_ACCESS_TOKEN", raising=False)
