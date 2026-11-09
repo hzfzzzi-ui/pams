@@ -4,6 +4,13 @@
   html:not(.pams-content) body.app-shell { padding-top: var(--pams-space-2); }
 }
 html.pams-content body.app-shell { padding-bottom: 0 !important; }
+html.pams-content body.app-shell:not(.page-account-import) {
+  padding-bottom: var(--pams-primary-nav-clearance) !important;
+}
+html.pams-content body.app-shell:not(.page-account-import) .appBottomSheetPanel {
+  bottom: var(--pams-primary-nav-clearance);
+  max-height: min(78vh, 620px, calc(100dvh - var(--pams-primary-nav-clearance)));
+}
 html.pams-content body.app-shell > .wrap {
   width: 100%;
   max-width: var(--pams-shell-max-width);

@@ -60,6 +60,7 @@
   --pams-row-min: 58px;
   --pams-chip-height: 32px;
   --pams-shell-max-width: 430px;
+  --pams-primary-nav-clearance: 78px;
   --pams-mobile-gutter: 16px;
   --pams-shell-gutter: var(--pams-mobile-gutter);
   --pams-shell-gap: 24px;

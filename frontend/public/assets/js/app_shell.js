@@ -50,6 +50,7 @@ function syncAddress(replace = false) {
     else history.pushState({from: contentHref(contentUrl())}, '', outer);
   }
   const active = primaryPageFor(page);
+  document.body.dataset.contentPage = page;
   for (const link of links) {
     if (link.dataset.page === active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -122,6 +123,8 @@ frame.addEventListener('load', () => {
   frame.contentWindow.addEventListener('hashchange', () => syncAddress(true));
 });
 window.addEventListener('popstate', () => navigate(contentUrl(), true));
-frame.src = contentUrl().href;
+const initialContent = contentUrl();
+document.body.dataset.contentPage = initialContent.pathname.split('/').pop();
+frame.src = initialContent.href;
 
 }
