@@ -279,6 +279,58 @@ def test_summarize_period_uses_one_way_transfer_matches() -> None:
     assert summary["internal_transfer"] == 1000.0
 
 
+def test_source_ledger_uses_original_direction_until_both_legs_are_matched():
+    jan = date(2026, 1, 31)
+    feb = date(2026, 2, 1)
+    facts = [
+        {"id": 1, "amount": -100, "amount_cny": -100, "transaction_date_obj": jan,
+         "classification_status": "confirmed", "cashflow_type": "investment_funding"},
+        {"id": 2, "amount": 100, "amount_cny": 100, "transaction_date_obj": feb,
+         "classification_status": "pending"},
+        {"id": 3, "amount": 20, "amount_cny": 20, "transaction_date_obj": feb,
+         "classification_status": "confirmed", "cashflow_type": "operating_expense", "subcategory": "消费退款"},
+        {"id": 4, "amount": 0, "amount_cny": 0, "transaction_date_obj": feb, "classification_status": "pending"},
+    ]
+    before = [dict(row, **ledger_view._classify_cash_direction(row, set())) for row in facts]
+    assert [row["flow_type"] for row in before] == ["expense", "income", "income", "other"]
+    assert summarize_period(before, [], jan, feb)["subcategory_pending_count"] == 2
+    assert summarize_period(before, [], jan, feb)["income"] == 120
+    assert summarize_period(before, [], jan, feb)["expense"] == 100
+
+    after = [dict(row, **ledger_view._classify_cash_direction(row, {1, 2})) for row in facts]
+    assert [row.get("account_flow_type") for row in after] == ["expense", "income", "income", None]
+    assert summarize_period(after, [], jan, feb)["income"] == 20
+    assert summarize_period(after, [], jan, feb)["expense"] == 0
+    monthly = ledger_view._trend(after, jan, feb, "monthly")
+    assert sum(point["income"] for point in monthly) == 20
+    assert sum(point["expense"] for point in monthly) == 0
+
+
+def test_transfer_reader_requires_confirmed_cash_legs_and_accepts_different_dates(monkeypatch):
+    jan, feb = date(2026, 1, 31), date(2026, 2, 1)
+    item = {"evidence_status": "confirmed", "currency": "CNY", "transfer_id": "pair", "amount": 100,
+            "from_account_code": "bank", "to_account_code": "broker"}
+    outflow = {"kind": "cashflow", "id": 1}
+    inflow = {"kind": "cashflow", "id": 2}
+    trade = {"kind": "trade", "id": 3}
+    monkeypatch.setattr(ledger_view, "_confirmed_transfer_records", lambda *args, **kwargs: [
+        (item, outflow, inflow, jan, feb, "internal_transfer"),
+        (item, outflow, trade, jan, jan, "investment_funding"),
+        ({**item, "evidence_status": "revoked"}, outflow, inflow, jan, jan, "internal_transfer"),
+    ])
+    monkeypatch.setattr(ledger_view, "_daily_fx_join", lambda *args, **kwargs: "")
+
+    class Cursor:
+        def execute(self, sql, params):
+            assert params["day"] == jan
+
+        def fetchone(self):
+            return {"fx_rate": 1}
+
+    matches = ledger_view._load_transfer_matches(Cursor(), start=jan, end=feb, base_currency="CNY", cash_pairs_only=True)
+    assert [(match["source_row_id"], match["target_row_id"]) for match in matches] == [(1, 2)]
+
+
 def test_missing_transfer_fx_does_not_erase_known_operating_income():
     day=date(2026,5,1)
     rows=[{'transaction_date_obj':day,'amount_cny':1000.0,'flow_type':'income','needs_review':False},

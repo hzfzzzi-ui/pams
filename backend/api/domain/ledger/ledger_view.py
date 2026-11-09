@@ -103,8 +103,8 @@ CLASSIFICATION_RULES = [
 ]
 
 SOURCE_RECORD_CLASSIFICATION_RULES = [
-    {"name": "共用分类词典", "description": "各子账户共用关键词。已核验的待分类流水命中唯一类别时，编辑页会预填建议。"},
-    {"name": "人工确认", "description": "建议需保存确认后才进入收支统计。确认分类用于展示，已核对资金关系独立生效。"},
+    {"name": "账户收支方向", "description": "流入计入收入，流出计入消费。子类可以后补。"},
+    {"name": "内部划转", "description": "两个子账户的流水配对确认后，按各自入账日期从收入和消费中扣减。"},
 ]
 
 CONFIRMED_FLOW_TYPES = {
@@ -383,6 +383,29 @@ def classify_ledger_row(
     }
 
 
+def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int]) -> dict[str, Any]:
+    amount = row["amount"]
+    if amount == 0:
+        return {"flow_type": "other", "coarse_category": "零金额", "needs_review": False, "is_operating": False}
+
+    direction = "income" if amount > 0 else "expense"
+    if row["id"] in matched_cash_ids:
+        return {"account_flow_type": direction, "flow_type": "transfer", "coarse_category": "内部划转",
+                "needs_review": False, "is_operating": False, "is_internal_transfer": True}
+
+    confirmed = row.get("classification_status") == "confirmed"
+    subcategory = row.get("subcategory") if confirmed else None
+    category = row.get("category") if confirmed else None
+    if category in {"收入", "消费", "内部划转", "待分类", "未分类"}:
+        category = None
+    result = {"account_flow_type": direction, "flow_type": direction, "coarse_category": subcategory or category or "子类待补",
+              "subcategory_pending": not subcategory, "needs_review": not subcategory,
+              "is_operating": True, "is_internal_transfer": False}
+    if not confirmed:
+        result["classification_hint"] = classification_hint(row)
+    return result
+
+
 def _investment_transfer_sign(match: Mapping[str, Any]) -> int:
     match_type = str(match.get("match_type") or "").lower()
     if match_type == "investment_funding":
@@ -437,6 +460,7 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         "row_count": len(period_rows),
         "income_count": sum(1 for r in period_rows if r["flow_type"] == "income"),
         "expense_count": sum(1 for r in period_rows if r["flow_type"] == "expense"),
+        "subcategory_pending_count": sum(1 for r in period_rows if r.get("subcategory_pending")),
     }
     unclassified_count = sum(1 for row in period_rows if row.get("flow_type") == "unclassified")
     result["unclassified_count"] = unclassified_count
@@ -714,19 +738,20 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
     for key in sorted(buckets):
         income = round(buckets[key]["income"], 2)
         expense = round(buckets[key]["expense"], 2)
+        net = round(buckets[key]["income"] - buckets[key]["expense"], 2)
         unclassified_count = buckets[key].get("unclassified_count", 0)
         missing_income = buckets[key].get("fx_missing_income") or unclassified_count
         missing_expense = buckets[key].get("fx_missing_expense") or unclassified_count
         item = {"period": key, "income": None if missing_income else income,
                 "expense": None if missing_expense else expense,
-                "net": None if missing_income or missing_expense else round(income - expense, 2)}
+                "net": None if missing_income or missing_expense else net}
         if unclassified_count:
             item["unclassified_count"] = unclassified_count
             has_operating_amounts = bool(buckets[key]["income"] or buckets[key]["expense"])
             item["confirmed_subtotal"] = {
                 "income": income if has_operating_amounts else None,
                 "expense": expense if has_operating_amounts else None,
-                "net": round(income - expense, 2) if has_operating_amounts else None,
+                "net": net if has_operating_amounts else None,
             }
         result.append(item)
     return result
@@ -1219,10 +1244,14 @@ def _confirmed_transfer_records(cur, *, start: date, end: date):
     return result
 
 
-def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str) -> list[dict[str, Any]]:
+def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False) -> list[dict[str, Any]]:
     result = []
     for item, left, right, left_day, right_day, kind in _confirmed_transfer_records(cur, start=start, end=end):
-        if item['evidence_status'] != 'confirmed' or left_day != right_day or not left_day:
+        if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
+            continue
+        if cash_pairs_only and (left['kind'] != 'cashflow' or right['kind'] != 'cashflow'):
+            continue
+        if not cash_pairs_only and left_day != right_day:
             continue
         fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
         cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
@@ -1245,14 +1274,16 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None)
     if _table_exists(cur, 'source_records'):
         decisions = _confirmed_transfer_records(cur, start=start, end=end)
         linked = {leg['id'] for item, left, right, *_ in decisions if item['evidence_status'] == 'confirmed'
-                  for leg in (left, right) if leg.get('kind') == 'cashflow'}
+                  and left.get('kind') == right.get('kind') == 'cashflow' for leg in (left, right)}
         rows = cash_rows if cash_rows is not None else _load_cash_rows(cur, start=start, end=end, base_currency='CNY')
         cases = []
         eligible = [row for row in rows if row['id'] not in linked
                     and row.get('classification_status') == 'confirmed'
                     and row.get('cashflow_type') in {'internal_transfer', 'investment_funding', 'investment_withdrawal'}]
         groups = defaultdict(list)
-        for row in eligible:
+        for row in rows:
+            if row['id'] in linked:
+                continue
             amount = row.get('amount')
             if (row.get('source_evidence_status') == 'verified' and amount is not None and amount != 0
                     and row.get('currency') and row.get('transaction_date')):
@@ -1398,7 +1429,7 @@ def _serialize_row(row: Mapping[str, Any], *, base_currency: str = 'CNY') -> dic
         "classification_source",
     ]
     out = {key: row.get(key) for key in keys}
-    for key in ('classification_status', 'classification_hint'):
+    for key in ('classification_status', 'classification_hint', 'account_flow_type', 'subcategory_pending'):
         if key in row:
             out[key] = row[key]
     transaction_date = out.get("transaction_date")
@@ -1462,7 +1493,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     account_profiles = account_config.get("accounts") or {}
     configured_accounts = _load_configured_account_codes(account_config)
     cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args)
-    all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency)
+    all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
+                                                   cash_pairs_only=redesigned)
     pending_transfer_cases = _load_pending_transfer_cases(
         cur, start=ytd_start, end=month_end, **({'cash_rows': cash_rows} if redesigned else {}),
     )
@@ -1474,7 +1506,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if isinstance(row_id, int)
     }
     transfer_matches = [
-        match for match in all_transfer_matches if _is_configured_transfer_match(match, configured_accounts)
+        match for match in all_transfer_matches if redesigned or _is_configured_transfer_match(match, configured_accounts)
     ]
     transfer_row_ids = {
         row_id
@@ -1484,7 +1516,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     }
 
     confirmed_proxy_roles = {}
-    if _table_exists(cur, 'evidence_confirmation'):
+    if not redesigned and _table_exists(cur, 'evidence_confirmation'):
         from domain.ledger.payment_proxy_confirmation import decisions
         for decision in decisions(cur):
             if decision['evidence_status'] == 'confirmed':
@@ -1500,7 +1532,10 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         row["amount_cny"] = _to_float(row["amount_cny"]) if row.get("amount_cny") is not None else None
         if row["amount_cny"] is None and not row.get('source_issue'):
             row["fx_status"] = "unavailable"
-        row.update(classify_ledger_row(row, transfer_row_ids, payment_proxy_source_row_ids))
+        if redesigned:
+            row.update(_classify_cash_direction(row, transfer_row_ids))
+        else:
+            row.update(classify_ledger_row(row, transfer_row_ids, payment_proxy_source_row_ids))
         if row.get("fx_status") == "unavailable":
             row["needs_review"] = True
         if str(row.get('source_issue') or '').startswith('source_evidence_'):

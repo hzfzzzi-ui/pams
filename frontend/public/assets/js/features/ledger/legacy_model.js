@@ -222,6 +222,9 @@ function isEditableLedgerRow(row) {
 
 function ledgerEditType(row) {
   const cashflowType = cashflowTypeText(row);
+  if (row?.subcategory_pending) {
+    return row.account_flow_type === 'income' ? 'operating_income' : 'operating_expense';
+  }
   if (row?.classification_status && row.flow_type === 'unclassified') {
     return row.classification_hint?.cashflow_type ||
       (row.classification_status === 'suggested' && LEDGER_EDIT_DEFAULTS[cashflowType] ? cashflowType : '');
@@ -268,6 +271,7 @@ function routeEndpointLabel(value, maxLength = 14) {
 }
 
 function rowTagLabel(row) {
+  if (row.account_flow_type && row.flow_type !== 'transfer') return flowLabel(row.flow_type);
   if (isInvestmentFundingRow(row)) return '投资入金';
   if (isInvestmentWithdrawalRow(row)) return '投资出金';
   return flowLabel(row.flow_type);
@@ -275,6 +279,7 @@ function rowTagLabel(row) {
 
 function rowAmountClass(row, amount) {
   const flowType = String(row.flow_type || '').toLowerCase();
+  if (row.account_flow_type && flowType !== 'transfer') return amount >= 0 ? 'up' : 'down';
   if (isInvestmentFundingRow(row) || isInvestmentWithdrawalRow(row) || flowType === 'transfer' || flowType === 'investment_transfer') {
     return 'transfer';
   }

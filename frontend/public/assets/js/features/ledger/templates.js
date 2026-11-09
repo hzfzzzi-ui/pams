@@ -106,7 +106,8 @@ function ledgerEditSheetHtml(row) {
   const cashflowType = ledgerEditType(row);
   const isExpense = cashflowType === 'operating_expense';
   const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
-  const hint = row.flow_type === 'unclassified' ? row.classification_hint : null;
+  const hint = (row.flow_type === 'unclassified' || row.subcategory_pending) && row.classification_hint?.cashflow_type === cashflowType
+    ? row.classification_hint : null;
   const rawCategory = String(hint?.category || row.category || '').trim();
   const rawSubcategory = String(hint?.subcategory || row.subcategory || '').trim();
   const category = rawCategory && rawCategory !== '未分类' ? rawCategory : (isExpense ? '' : defaultEdit.category || '');
