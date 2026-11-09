@@ -36,7 +36,8 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const transfers = createLedgerTransfers({ root, state, model, dom, events, reads, current, reloadWorkbench: loadWorkbench });
   const editor = createLedgerEditor({ model, templates, sheets, dom, current, reload: loadWorkbench });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails });
-  const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
+  const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButton,
+    bindRecentPeriod, closeRecentPeriod, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
 
 function showDetails(title, html) {
   const session = sheets.open(title, html);
@@ -69,7 +70,7 @@ function renderAll(data) {
   renderRules(data.classification_rules || []);
   renderTrendChart(data);
   renderRecentSearchButton();
-  renderRecentPeriodButtons();
+  renderRecentPeriodButton();
   renderRecentSortButton();
   renderRecentAccountScope();
   renderRecentRows();
@@ -109,19 +110,14 @@ function bindEvents() {
     events.listen('page', btn, 'click', () => {
       state.recentFlowFilter = btn.dataset.ledgerFlowFilter || '';
       root.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
-        item.classList.toggle('active', item === btn);
+        const active = item === btn;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-pressed', String(active));
       });
       renderRecentRows();
     });
   });
-  root.querySelectorAll('[data-recent-period]').forEach((btn) => {
-    events.listen('page', btn, 'click', () => {
-      state.recentPeriod = btn.dataset.recentPeriod || 'month';
-      renderRecentPeriodButtons();
-      renderRecentAccountScope();
-      renderRecentRows();
-    });
-  });
+  bindRecentPeriod();
   const recentSearchToggle = $('recentSearchToggle');
   events.listen('page', recentSearchToggle, 'click', () => {
     openRecentSearchSheet();
@@ -132,11 +128,13 @@ function bindEvents() {
   events.listen('page', root, 'click', event => editor.onEditClick(event, root));
 
   renderRecentSearchButton();
+  renderRecentPeriodButton();
   renderRecentSortButton();
 }
 
 function setLedgerPanel(panel = 'overview') {
   state.activePanel = LEDGER_PANEL_HASH[panel] ? panel : 'overview';
+  if (state.activePanel !== 'recent') closeRecentPeriod();
   (root.body || root).dataset.ledgerTab = state.activePanel;
   root.querySelectorAll('[data-ledger-panel]').forEach((group) => {
     group.hidden = group.dataset.ledgerPanel !== state.activePanel;
@@ -183,7 +181,9 @@ function bindLedgerAnchors() {
       setActiveNav();
       bindEvents();
       root.querySelectorAll('[data-ledger-flow-filter]').forEach(btn => {
-        btn.classList.toggle('active', (btn.dataset.ledgerFlowFilter || '') === state.recentFlowFilter);
+        const active = (btn.dataset.ledgerFlowFilter || '') === state.recentFlowFilter;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', String(active));
       });
       selectTrendMode(state.trendMode);
       events.listen('page', host, 'pagehide', () => controller.dispose());
@@ -194,6 +194,7 @@ function bindLedgerAnchors() {
     dispose() {
       if (disposed) return;
       disposed = true;
+      closeRecentPeriod();
       reads.dispose();
       readGeneration += 1;
       events.dispose();

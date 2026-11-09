@@ -26,7 +26,7 @@ const fixture = {
   recent_rows_ytd: [
     { id: '1', transaction_date: '2026-10-30', flow_type: 'expense', cashflow_type: 'operating_expense', amount_cny: -24.5, amount: '-24.50', currency: 'CNY', account_code: 'ccb_7332', summary: '午餐 测试商户', category: '餐饮', coarse_category: '餐饮', subcategory: '工作餐', counterparty: '测试商户', needs_review: true },
     { id: '2', transaction_date: '2026-10-29', flow_type: 'income', cashflow_type: 'operating_income', amount_cny: 1250.25, amount: '1250.25', currency: 'CNY', account_code: 'ccb_7332', summary: '工资薪酬', category: '工资薪酬', coarse_category: '工资薪酬', subcategory: '工资', needs_review: false },
-    { id: '3', transaction_date: '2026-10-28', flow_type: 'investment_inflow', cashflow_type: 'investment_funding', amount_cny: 200, amount: '28.10', currency: 'USD', account_code: 'ibkr', counterparty: 'ccb_7332', summary: '测试投资入金', category: '内部划转', coarse_category: '内部划转', needs_review: false },
+    { id: '3', transaction_date: '2026-10-28', flow_type: 'investment_inflow', cashflow_type: 'investment_funding', amount_cny: 200, amount: '28.10', currency: 'USD', account_code: 'ibkr', counterparty: 'ccb_7332', summary: '测试投资入金', category: '内部划转', coarse_category: '内部划转', is_internal_transfer: true, needs_review: false },
     { id: '4', transaction_date: '2026-09-28', flow_type: 'transfer', cashflow_type: 'internal_transfer', amount_cny: -200, amount: '-200', currency: 'CNY', account_code: 'ccb_7332', counter_account_code: 'wechat', summary: '内部转账', category: '内部划转', needs_review: false },
     { id: '5', transaction_date: '2026-01-28', flow_type: 'expense', cashflow_type: 'operating_expense', amount_cny: -100, amount: '-100', currency: 'CNY', account_code: 'ccb_7332', summary: '零散支出', category: '其他支出', needs_review: false },
   ],
@@ -136,8 +136,11 @@ async function browse(legacy) {
   }
   await capture(page, 'month-expense-weekly', legacy);
   await page.locator('[data-ledger-tab="recent"]').click();
-  await page.locator('[data-ledger-flow-filter="investment_transfer"]').click();
-  await capture(page, 'recent-investment', legacy);
+  if (!legacy) {
+    await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
+    assert.deepEqual(await page.locator('#recentRows .ledgerListRow').evaluateAll(
+      rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-3', 'recentRows-detail-4']);
+  }
   await page.locator('[data-ledger-flow-filter=""]').click();
   await page.locator('#recentSearchToggle').click();
   await page.locator('[data-recent-search-input]').fill('测试商户');
@@ -294,8 +297,21 @@ try {
 
   // Preserve ordinary view state over BFCache, never resume the edit operation.
   await page.locator('#recentSortToggle').click(); await page.locator('[data-recent-sort-option="amount_desc"]').click();
-  await page.locator('[data-ledger-flow-filter="review"]').click();
-  await page.locator('[data-recent-period="month"]').click();
+  await page.locator('[data-ledger-flow-filter="expense"]').click();
+  const periodToggle = page.locator('#recentPeriodToggle');
+  const periodForm = page.locator('#recentPeriodForm');
+  await periodToggle.click();
+  await periodForm.getByLabel('本月至今').check();
+  assert.equal(await page.evaluate(() => __ledgerPage.controller.state.recentPeriod), 'ytd');
+  await page.keyboard.press('Escape');
+  assert.equal(await periodForm.isVisible(), false);
+  await periodToggle.click();
+  assert.equal(await periodForm.getByLabel('年初至今').isChecked(), true);
+  await periodForm.getByLabel('本月至今').check();
+  await periodForm.getByRole('button', { name: '确认' }).click();
+  assert.equal(await periodForm.isVisible(), false);
+  assert.equal(await periodToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.evaluate(() => __ledgerPage.controller.state.recentPeriod), 'month');
   await page.locator('#recentSearchToggle').click();
   await page.locator('[data-recent-search-input]').fill('测试');
   await page.locator('[data-recent-search-form] button[type="submit"]').click();

@@ -422,8 +422,10 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'data-recent-sort="amount_asc"' not in html
     assert ">金额从大到小</button>" not in html
     assert ">金额从小到大</button>" not in html
-    for flow_filter in ["income", "expense", "investment_transfer", "internal_transfer", "review"]:
+    assert html.count('data-ledger-flow-filter=') == 4
+    for flow_filter in ["", "income", "expense", "internal_transfer"]:
         assert f'data-ledger-flow-filter="{flow_filter}"' in html
+    assert '<h3>现金流水</h3>' not in html
 
     assert 'id="reviewRows" class="ledgerList"' not in html
     assert 'id="recentRows" class="ledgerList"' in html
@@ -475,7 +477,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "return 'ccb_7332'" in js
     infer_account_fn = js[js.index("function inferInvestmentAccountCode") : js.index("function transferEndpointName")]
     assert infer_account_fn.index("156010860") < infer_account_fn.index("direct_investment")
-    assert "isInvestmentTransferRow" in js
     assert "isInternalTransferRow" in js
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
@@ -509,10 +510,10 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "income_categories_ytd" in js
     assert "transfer_summary_month" in js
     assert "transfer_summary_ytd" in js
-    assert 'data-recent-period="month"' in html
-    assert 'data-recent-period="ytd"' in html
+    assert 'aria-controls="recentPeriodForm"' in html
+    assert 'name="recentPeriod" value="month"' in html
+    assert 'name="recentPeriod" value="ytd" checked' in html
     assert "recentPeriod: 'ytd'" in js
-    assert 'class="accountPeriodButton active" type="button" data-recent-period="ytd"' in html
     assert "recent_rows_month" in js
     assert "recent_rows_ytd" in js
     assert "originalCurrencyText" in js

@@ -776,16 +776,8 @@ function currentAccountSummary(data) {
   return data.account_summary_ytd || data.account_summary || [];
 }
 
-function isInvestmentTransferRow(row) {
-  const cashflowType = String(row.cashflow_type || '').toLowerCase();
-  const flowType = String(row.flow_type || '').toLowerCase();
-  return cashflowType === 'investment_funding'
-    || cashflowType === 'investment_withdrawal'
-    || flowType.startsWith('investment_');
-}
-
 function isInternalTransferRow(row) {
-  return row.flow_type === 'transfer' && !isInvestmentTransferRow(row);
+  return row.flow_type === 'transfer' || row.is_internal_transfer === true;
 }
 
 function overviewPieRows(rows) {
@@ -823,10 +815,8 @@ function filteredRecentRows() {
     : (state.data?.recent_rows_month || state.data?.recent_rows || []);
   const filtered = rows.filter((row) => {
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
-    if (flow === 'review' && !row.needs_review) return false;
-    if (flow === 'investment_transfer' && !isInvestmentTransferRow(row)) return false;
     if (flow === 'internal_transfer' && !isInternalTransferRow(row)) return false;
-    if (flow && !['review', 'investment_transfer', 'internal_transfer'].includes(flow) && row.flow_type !== flow) return false;
+    if ((flow === 'income' || flow === 'expense') && row.flow_type !== flow) return false;
     if (search && !rowSearchText(row).includes(search)) {
       return false;
     }
@@ -835,7 +825,7 @@ function filteredRecentRows() {
   return sortRecentRows(filtered);
 }
 
-  return { flowLabel, flowClass, compactText, stripLongDetail, accountFriendlyName, accountShortLabel, counterpartyShortLabel, rowCategoryText, cashflowTypeText, isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, isAccountValidationRow, isInvestmentFundingRow, isInvestmentWithdrawalRow, routeEndpointLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, recentAmountValue, sortRecentRows, originalCurrencyText, inferInvestmentAccountCode, transferEndpointName, isImporterCounterparty, investmentFundingSourceAccount, transferRoute, uniqueOptionValues, ledgerCategoryOptions, ledgerSubcategoryOptions, overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, accountDisplayName, subAccountDisplayName, accountOverviewMap, accountOverview, accountPrimaryBalance, hasAccountBalance, accountBalanceItems, formatBalanceItem, accountBalanceSummary, accountPlatformBalances, platformBalanceAmount, addCurrencyAmount, sortedCurrencyItems, formatCurrencyItems, formatCurrencyItemsCompact, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, maxSyncAt, emptyAccountRow, mergeAccountRows, hasAccountActivity, buildAccountFlowGroups, accountFlowStatsEntries, formatSyncDate, accountFlowCountText, currentAccountSummary, isInvestmentTransferRow, isInternalTransferRow, overviewPieRows, findLedgerRowById, filteredRecentRows };
+  return { flowLabel, flowClass, compactText, stripLongDetail, accountFriendlyName, accountShortLabel, counterpartyShortLabel, rowCategoryText, cashflowTypeText, isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, isAccountValidationRow, isInvestmentFundingRow, isInvestmentWithdrawalRow, routeEndpointLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, recentAmountValue, sortRecentRows, originalCurrencyText, inferInvestmentAccountCode, transferEndpointName, isImporterCounterparty, investmentFundingSourceAccount, transferRoute, uniqueOptionValues, ledgerCategoryOptions, ledgerSubcategoryOptions, overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, accountDisplayName, subAccountDisplayName, accountOverviewMap, accountOverview, accountPrimaryBalance, hasAccountBalance, accountBalanceItems, formatBalanceItem, accountBalanceSummary, accountPlatformBalances, platformBalanceAmount, addCurrencyAmount, sortedCurrencyItems, formatCurrencyItems, formatCurrencyItemsCompact, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, maxSyncAt, emptyAccountRow, mergeAccountRows, hasAccountActivity, buildAccountFlowGroups, accountFlowStatsEntries, formatSyncDate, accountFlowCountText, currentAccountSummary, isInternalTransferRow, overviewPieRows, findLedgerRowById, filteredRecentRows };
 }
 
 export { ACCOUNT_GROUPS, ACCOUNT_GROUP_CHILD_CODES, ACCOUNT_SUBACCOUNT_LABELS, TRANSFER_ENDPOINT_LABELS, ACCOUNT_KIND_OVERRIDES, ACCOUNT_NUMERIC_FIELDS, LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS, LEDGER_EDIT_CATEGORY_OPTIONS, LEDGER_EDIT_SUBCATEGORY_OPTIONS };

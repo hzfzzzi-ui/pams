@@ -47,7 +47,7 @@ function renderRecentAccountScope() {
     return;
   }
   el.hidden = false;
-  const periodLabel = state.recentPeriod === 'ytd' ? '年初至今' : '本月';
+  const periodLabel = recentPeriodLabel();
   el.innerHTML = `
     <span>账户筛选 <strong>${escapeHtml(accountDisplayName(state.recentAccountFilter))}</strong><small> · ${escapeHtml(periodLabel)}</small></span>
     <button type="button" data-clear-account-filter>清除</button>
@@ -59,9 +59,59 @@ function renderRecentAccountScope() {
   });
 }
 
-function renderRecentPeriodButtons() {
-  root.querySelectorAll('[data-recent-period]').forEach((btn) => {
-    btn.classList.toggle('active', (btn.dataset.recentPeriod || 'month') === state.recentPeriod);
+function recentPeriodLabel() {
+  return state.recentPeriod === 'month' ? '本月至今' : '年初至今';
+}
+
+function renderRecentPeriodButton() {
+  const toggle = $('recentPeriodToggle');
+  if (!toggle) return;
+  const label = `流水时间范围（${recentPeriodLabel()}）`;
+  toggle.title = label;
+  toggle.setAttribute('aria-label', label);
+}
+
+function closeRecentPeriod({ restoreFocus = false } = {}) {
+  const form = $('recentPeriodForm');
+  if (!form || form.hidden) return;
+  form.hidden = true;
+  const toggle = $('recentPeriodToggle');
+  toggle.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) toggle.focus();
+}
+
+function bindRecentPeriod() {
+  const control = $('recentPeriodControl');
+  if (!control) return;
+  const toggle = $('recentPeriodToggle');
+  const form = $('recentPeriodForm');
+  events.listen('page', toggle, 'click', () => {
+    if (!form.hidden) {
+      closeRecentPeriod();
+      return;
+    }
+    const selected = form.elements.namedItem('recentPeriod');
+    selected.value = state.recentPeriod;
+    form.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    form.querySelector('input:checked')?.focus();
+  });
+  events.listen('page', form, 'submit', event => {
+    event.preventDefault();
+    state.recentPeriod = form.elements.namedItem('recentPeriod').value;
+    renderRecentPeriodButton();
+    renderRecentAccountScope();
+    renderRecentRows();
+    closeRecentPeriod({ restoreFocus: true });
+  });
+  events.listen('page', root, 'click', event => {
+    if (!control.contains(event.target)) closeRecentPeriod();
+  });
+  events.listen('page', control, 'keydown', event => {
+    if (event.key === 'Escape' && !form.hidden) {
+      event.preventDefault();
+      closeRecentPeriod({ restoreFocus: true });
+    }
   });
 }
 
@@ -162,5 +212,6 @@ function renderRecentRows() {
   renderRows('recentRows', rows, rows.length);
 }
 
-  return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButtons, renderRecentSortButton, openRecentSortSheet, renderRecentRows };
+  return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButton,
+    bindRecentPeriod, closeRecentPeriod, renderRecentSortButton, openRecentSortSheet, renderRecentRows };
 }
