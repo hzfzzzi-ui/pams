@@ -50,7 +50,7 @@ function fixture({saveData = false, gate} = {}) {
   await f.expire();
   assert.equal(f.calls.length, 1);
   assert.deepEqual(f.calls[0], ['/api/accounts/overview', '/api/sync/center',
-    '/api/portfolio/data-quality?baseCurrency=CNY', '/api/ledger/workbench?month=2026-10']);
+    '/api/portfolio/data-quality?baseCurrency=CNY']);
   assert.equal(f.nodes.length, 4);
   assert.equal(new Set(f.nodes.map(n => n.href)).size, f.nodes.length);
   assert.ok(f.nodes.some(n => n.href.endsWith('/assets/build-12345678901234567890/css/tokens.css')));

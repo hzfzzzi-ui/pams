@@ -45,7 +45,9 @@ await context.route('**/*', async route => {
       '/api/portfolio/data-quality': {data_quality:{summary:{status:'warning',warning_count:1,error_count:0},checks:[
         {id:'account_balance_coverage',status:'attention',details:{missing_accounts:['fixture']}}]}},
       '/api/accounts/overview': {accounts},
-      '/api/ledger/workbench': {periods:{}, recent_rows_ytd:recentRows},
+      '/api/ledger/workbench': url.searchParams.get('view') === 'stream'
+        ? {rows:recentRows, next_offset:null}
+        : {periods:{}, recent_rows_ytd:recentRows},
       '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
       '/api/bank-reconcile/imports': {},
       '/api/bank-reconcile/transfer-matches': {},

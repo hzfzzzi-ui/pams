@@ -56,8 +56,25 @@ async function makePage(legacy = false, fixtureData = fixture) {
       const test = window.__ledgerTest;
       test.reads.push({ url, options });
       if (url.startsWith('/api/ledger/workbench')) {
-        if (test.deferReads) return new Promise((resolve, reject) => test.pendingReads.push({ resolve, reject }));
-        return Promise.resolve(structuredClone(test.fixture));
+        const query = new URL(url, location.origin).searchParams;
+        const select = payload => {
+          if (query.get('view') !== 'stream') return payload;
+          const period = query.get('period') || 'ytd';
+          const flow = query.get('flow');
+          const search = query.get('search')?.toLowerCase() || '';
+          const rows = (payload[`recent_rows_${period}`] || []).filter(row => {
+            if (flow === 'internal_transfer' && row.flow_type !== 'transfer' && !row.is_internal_transfer) return false;
+            if (['income','expense'].includes(flow) && row.flow_type !== flow) return false;
+            if (query.get('account') && row.account_code !== query.get('account')) return false;
+            return Object.values(row).join(' ').toLowerCase().includes(search);
+          });
+          const sort = query.get('sort');
+          if (sort) rows.sort((a, b) => (sort === 'amount_asc' ? 1 : -1) *
+            (Math.abs(a.amount_cny ?? a.amount) - Math.abs(b.amount_cny ?? b.amount)));
+          return { rows, next_offset: null };
+        };
+        if (test.deferReads) return new Promise((resolve, reject) => test.pendingReads.push({ resolve: value => resolve(select(value)), reject }));
+        return Promise.resolve(select(structuredClone(test.fixture)));
       }
       if (url === '/api/accounts/overview') return Promise.resolve(structuredClone(test.accounts));
       return Promise.resolve({});
@@ -98,7 +115,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
     } catch { return route.fulfill({ status: 404, body: '' }); }
   });
   await page.goto(origin + '/ledger.html?content=1');
-  await page.waitForFunction(() => document.querySelector('#recentRows .ledgerListRow') && window.__cashflowTrendChart && window.__overviewCategoryPieChart);
+  await page.waitForFunction(() => window.__cashflowTrendChart && window.__overviewCategoryPieChart);
   return { page, context };
 }
 

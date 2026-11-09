@@ -100,6 +100,15 @@ def ledger_workbench(
     baseCurrency: str = Query("CNY", min_length=3, max_length=3),
     recentDays: int = Query(30, ge=1, le=120),
     includeTransferPairs: bool = False,
+    view: str = Query("full", pattern="^(full|overview|stream|transfers)$"),
+    period: str = Query("ytd", pattern="^(month|ytd)$"),
+    account: str = Query("", max_length=120),
+    flow: str = Query("", pattern="^(|income|expense|internal_transfer)$"),
+    search: str = Query("", max_length=200),
+    matchingAccounts: str = Query("", max_length=1800),
+    sort: str = Query("", pattern="^(|amount_asc|amount_desc)$"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(80, ge=1, le=100),
 ):
     """Return cashflow KPI, category, trend, and review rows for the ledger page."""
 
@@ -107,7 +116,10 @@ def ledger_workbench(
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return build_ledger_workbench_payload(cur, month=month, base_currency=baseCurrency.upper(),
-                                                  recent_days=recentDays, include_transfer_pairs=includeTransferPairs)
+                                                  recent_days=recentDays, include_transfer_pairs=includeTransferPairs,
+                                                  view=view, period=period, account=account, flow=flow, search=search,
+                                                  sort=sort, offset=offset, limit=limit,
+                                                  matching_accounts=set(matchingAccounts.split(",")) if matchingAccounts else None)
 
 
 @router.post("/ledger/review/{row_id}/confirm")

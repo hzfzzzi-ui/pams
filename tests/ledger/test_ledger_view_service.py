@@ -23,6 +23,27 @@ from domain.ledger.ledger_view import (  # noqa: E402
 )
 
 
+def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
+    rows = [
+        {'id': ident, 'account_code': account, 'flow_type': flow, 'summary': 'Coffee',
+         'transaction_date': date(2026, 10, day), 'transaction_date_obj': date(2026, 10, day),
+         'amount': amount, 'amount_cny': amount}
+        for ident, account, flow, day, amount in [
+            (1, 'bank', 'expense', 1, -10), (2, 'bank', 'expense', 2, -10),
+            (3, 'bank', 'income', 3, 100), (4, 'other', 'expense', 4, -30),
+        ]
+    ]
+    filters = dict(profiles={}, base_currency='CNY', account='bank', flow='expense',
+                   search='coffee', sort='amount_desc', limit=1)
+    first = ledger_view._ledger_stream_page(rows, offset=0, **filters)
+    second = ledger_view._ledger_stream_page(rows, offset=first['next_offset'], **filters)
+    assert [page['rows'][0]['id'] for page in (first, second)] == [2, 1]
+    assert second['next_offset'] is None
+    alias = ledger_view._ledger_stream_page(rows, offset=0, matching_accounts={'bank'},
+                                           **{**filters, 'search': '账户旧称'})
+    assert alias['rows'][0]['id'] == 2
+
+
 def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
     class FixedDate(date):
         @classmethod

@@ -1,12 +1,18 @@
-import { readFallback } from '../../shared/read_scope.js';
-import { jget, jpost } from '../../api.js';
+import { accountCodesForLabel, jget, jpost } from '../../api.js';
 
 export function readLedgerWorkbench({signal} = {}) {
-  const params = new URLSearchParams({ baseCurrency: 'CNY', recentDays: '30' });
-  return Promise.all([
-    jget(`/api/ledger/workbench?${params.toString()}`, { cache: false, signal }),
-    jget('/api/accounts/overview', {signal}).catch(error => readFallback(error, { summary: {}, accounts: [] })),
-  ]).then(([data, accounts]) => ({ data, accounts }));
+  return jget('/api/ledger/workbench?view=overview', { cache: false, signal });
+}
+
+export function readLedgerStream(state, { offset, signal }) {
+  const search = (state.recentSearch || '').slice(0, 200);
+  const params = new URLSearchParams({
+    view: 'stream', period: state.recentPeriod, account: state.recentAccountFilter || '',
+    flow: state.recentFlowFilter || '', search,
+    matchingAccounts: accountCodesForLabel(search).join(','),
+    sort: state.recentAmountSort || '', offset,
+  });
+  return jget(`/api/ledger/workbench?${params}`, { cache: false, signal });
 }
 
 export function updateLedgerRow(row, fields) {
@@ -14,7 +20,7 @@ export function updateLedgerRow(row, fields) {
 }
 
 export function readLedgerTransfers({ month, signal }) {
-  const params = new URLSearchParams({ includeTransferPairs: 'true' });
+  const params = new URLSearchParams({ view: 'transfers' });
   if (month) params.set('month', month);
   return jget(`/api/ledger/workbench?${params}`, { cache: false, signal });
 }
