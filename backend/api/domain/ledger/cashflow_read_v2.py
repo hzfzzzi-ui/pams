@@ -11,7 +11,8 @@ from domain.imports.source_original_read import SourceOriginals
 
 
 def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None = None,
-                   account_codes: list[str] | None = None, originals: SourceOriginals | None = None) -> list[dict[str, Any]]:
+                   account_codes: list[str] | None = None, originals: SourceOriginals | None = None,
+                   include_pair_evidence: bool = False) -> list[dict[str, Any]]:
     if base_currency != 'CNY':
         raise ValueError('only evidenced CNY projection is supported')
     filters, params = [], [base_currency, start, end]
@@ -65,6 +66,10 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
         row['transaction_date_obj']=row['transaction_date']
         row['source_table']='source_items';row['source_id']=str(row['source_item_id'])
         row['counter_account_code']=None;row['is_internal_transfer']=False;row['transfer_group_id']=None
+        if include_pair_evidence:
+            row['pair_evidence'] = {'account_code': row['account_code'], 'source_item_id': row['source_item_id'],
+                                    'source_id': row['original_source_id'], 'source_hash': row['sha256'],
+                                    'currency': row['currency'], 'amount': row['amount']}
         for key in ('raw_fields','parsed_fields','record_hash','original_source_id','inline_original','sha256',
                     'source_account','item_review','source_status','fx_rate'):
             row.pop(key,None)

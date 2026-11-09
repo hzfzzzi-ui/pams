@@ -26,8 +26,17 @@ export function createActions({post, isActive, view, acceptOverview, loadUnmatch
     if (!isActive()) return;
     await loadAccountOverview();
     if (!isActive()) return;
-    view.setMsg(`匹配完成：${resp.matched || 0} 条关系。内部划转不会作为生活消费统计；支付通道映射用于去重。`);
+    const count = (resp.matches || []).filter(row => row.status === 'review_required' && row.match_key?.startsWith('candidate:')).length;
+    view.setMsg(`找到 ${count} 对流水候选，确认配对后才会扣减两边的收支。`);
   }
 
-  return {reviewAccount, runTransferMatching};
+  async function confirmCashPair(fromId, toId) {
+    await post('/api/bank-reconcile/transfers/confirm', {
+      from_kind: 'cashflow', from_id: fromId, to_kind: 'cashflow', to_id: toId,
+      note: '在收支配对页面人工核对确认', confirmed: true,
+    });
+    if (isActive()) await runTransferMatching();
+  }
+
+  return {reviewAccount, runTransferMatching, confirmCashPair};
 }

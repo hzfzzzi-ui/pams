@@ -41,6 +41,22 @@ def _leg(cur, kind, ident, *, lock=True):
             'source_id':str(data['source_id']),'source_hash':data['sha256']}
 
 
+def is_independent_equal_pair(left, right):
+    return (left['account_code'] != right['account_code'] and left['source_item_id'] != right['source_item_id']
+            and left['source_id'] != right['source_id']
+            and (left['source_hash'] is None or left['source_hash'] != right['source_hash'])
+            and left['currency'] == right['currency']
+            and Decimal(left['amount']) < 0 < Decimal(right['amount'])
+            and -Decimal(left['amount']) == Decimal(right['amount']))
+
+
+def occupied_cashflow_ids(cur):
+    """Use the same active-confirmation scope as the write path."""
+    cur.execute('''SELECT from_cashflow_id, to_cashflow_id FROM public.evidence_confirmation
+        WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL''')
+    return {row[key] for row in cur.fetchall() for key in ('from_cashflow_id', 'to_cashflow_id') if row[key] is not None}
+
+
 def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
     if cur.connection.autocommit or confirmed is not True or not isinstance(note,str) or not note.strip() or len(note)>1000:
         raise ValueError('explicit transfer confirmation and a transaction are required')
@@ -53,9 +69,7 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
         accounts.add(row['account_code'])
     for account in sorted(accounts): cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",('account-import:'+account,))
     legs={key:_leg(cur,*key) for key in sorted(keys)};a,b=legs[keys[0]],legs[keys[1]]
-    if (a['account_code']==b['account_code'] or a['source_item_id']==b['source_item_id'] or a['source_id']==b['source_id']
-        or (a['source_hash'] is not None and a['source_hash']==b['source_hash']) or a['currency']!=b['currency']
-        or Decimal(a['amount'])>=0 or Decimal(b['amount'])<=0 or -Decimal(a['amount'])!=Decimal(b['amount'])):
+    if not is_independent_equal_pair(a, b):
         raise ValueError('transfer facts conflict or are not independent')
     cur.execute('''SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
         ((%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s)) OR

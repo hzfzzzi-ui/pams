@@ -277,20 +277,32 @@ def test_zero_trade_amounts_remain_zero_without_fx(empty_source_db,monkeypatch):
 
 
 def test_new_source_transfer_confirmation_http_is_replay_safe(empty_source_db, monkeypatch):
-    from endpoints import bank_reconcile
+    from domain.ledger import ledger_view
+    from endpoints import bank_reconcile, ledger
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor() as cur:
             cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('bank_a','A'),('bank_b','B')")
-        for account, amount in [('bank_a', '-10'), ('bank_b', '10')]:
-            _publish_synthetic_cashflow(conn, account=account, fields={'business_date': '2026-10-22',
-                'net_cash': amount, 'currency': 'USD'}, classification='internal_transfer')
+        for account, amount, day in [('bank_a', '-10', '2026-10-22'), ('bank_b', '10', '2026-10-23')]:
+            _publish_synthetic_cashflow(conn, account=account, fields={'business_date': day,
+                'net_cash': amount, 'currency': 'CNY'}, classification='internal_transfer')
         with conn.cursor() as cur:
             cur.execute('SELECT cashflow_id FROM pams_cashflow_fact ORDER BY account_code')
             first, second = [row[0] for row in cur.fetchall()]
     monkeypatch.setattr(bank_reconcile, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
-    app = FastAPI(); app.include_router(bank_reconcile.router, prefix='/api')
+    monkeypatch.setattr(ledger, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(ledger_view, '_load_accounts_config', lambda: {'accounts': {
+        'bank_a': {'account_type': 'funding'}, 'bank_b': {'account_type': 'brokerage'}}})
+    app = FastAPI(); app.include_router(bank_reconcile.router, prefix='/api'); app.include_router(ledger.router, prefix='/api')
     with TestClient(app) as client:
+        candidates = client.post('/api/bank-reconcile/transfer-matches/run')
+        assert candidates.status_code == 200, candidates.text
+        matches = candidates.json()['matches']
+        assert [(m['source_row_id'], m['target_row_id'], m['match_type'], m['date_delta_days']) for m in matches] == [
+            (first, second, 'investment_funding', 1)]
+        before = client.get('/api/ledger/workbench?month=2026-10').json()['periods']['month']
+        assert (before['income'], before['expense'], before['investment_funding']) == (10, 10, 0)
+        assert client.get('/api/bank-reconcile/transfer-matches').json()['matches'] == []
         payload = {'from_kind': 'cashflow', 'from_id': first, 'to_kind': 'cashflow', 'to_id': second,
                    'note': 'synthetic verified', 'confirmed': True}
         first_result = client.post('/api/bank-reconcile/transfers/confirm', json=payload)
@@ -304,7 +316,11 @@ def test_new_source_transfer_confirmation_http_is_replay_safe(empty_source_db, m
         matches = client.get('/api/bank-reconcile/transfer-matches')
         assert matches.status_code == 200, matches.text
         assert matches.json()['matches'][0]['evidence_status'] == 'confirmed'
+        assert matches.json()['matches'][0]['match_type'] == 'investment_funding'
         assert Decimal(str(matches.json()['matches'][0]['source_amount'])) == -10
+        assert client.post('/api/bank-reconcile/transfer-matches/run').json()['matches'] == []
+        after = client.get('/api/ledger/workbench?month=2026-10').json()['periods']['month']
+        assert (after['income'], after['expense'], after['investment_funding'], after['cash_net']) == (0, 0, 10, 0)
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
             cur.execute('UPDATE pams_cashflow_fact SET amount=-11 WHERE cashflow_id=%s', (first,))
         matches = client.get('/api/bank-reconcile/transfer-matches')
