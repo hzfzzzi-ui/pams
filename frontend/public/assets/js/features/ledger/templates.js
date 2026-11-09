@@ -1,10 +1,10 @@
 import { accountLabel } from '../../api.js';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
+import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
 import { LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
 
 export function createLedgerTemplates({ state, model }) {
-  const { isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, rowTitle, originalCurrencyText, transferEndpointName, transferRoute, ledgerCategoryOptions, ledgerSubcategoryOptions, accountDisplayName, subAccountDisplayName, accountBalanceSummary, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, hasAccountActivity, accountFlowStatsEntries, formatSyncDate, accountFlowCountText } = model;
+  const { isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, rowTitle, originalCurrencyText, transferEndpointName, transferRoute, ledgerCategoryOptions, ledgerSubcategoryOptions } = model;
 
 function recentSearchSheetHtml() {
   return `
@@ -141,144 +141,6 @@ function ledgerEditSheetHtml(row) {
   `;
 }
 
-function accountFlowStatsHtml(row) {
-  const entries = accountFlowStatsEntries(row);
-  if (!entries.length) {
-    return '<span>暂无流水</span>';
-  }
-  return entries.map(([label, value]) => {
-    const formatted = typeof value === 'string' ? value : money(value);
-    return `<span>${escapeHtml(label)} ${escapeHtml(formatted)}</span>`;
-  }).join('');
-}
-
-function syncBadgeHtml(row) {
-  return `<span class="accountSyncBadge">同步 ${escapeHtml(formatSyncDate(row.latest_sync_at))}</span>`;
-}
-
-function accountPendingBadgeHtml(row) {
-  const pending = Number(row?.pending_count || 0);
-  if (!pending) return '';
-  return `<span class="accountPendingBadge">${pending} 笔待确认</span>`;
-}
-
-function renderAccountFlowSide(row, balanceRows = null) {
-  const rowsForBalance = Array.isArray(balanceRows) && balanceRows.length ? balanceRows : [row];
-  const balance = accountBalanceSummary(rowsForBalance);
-  return `
-    <span class="accountFlowSide">
-      <b class="accountBalanceValue ${balance.tone}">${escapeHtml(balance.value)}</b>
-      <small>${escapeHtml(balance.meta)}</small>
-    </span>
-  `;
-}
-
-function renderAccountFlowFooter(row, childCountText = '', { showStats = true } = {}) {
-  const net = num(row.net);
-  const deltaTone = net > 0 ? 'up' : net < 0 ? 'down' : '';
-  const stats = showStats ? accountFlowStatsHtml(row) : '';
-  return `
-    <span class="accountFlowFooter ${stats ? '' : 'is-compact'}">
-      ${stats ? `<span class="accountFlowStats">${stats}</span>` : ''}
-      <span class="accountFlowFooterMeta">
-        <span class="accountFlowNetBadge ${deltaTone}">年初净流入 ${escapeHtml(signedMoney(net))}</span>
-        <span>${escapeHtml(accountFlowCountText(row, childCountText))}</span>
-      </span>
-    </span>
-  `;
-}
-
-function investmentAccountChipHtml(entry) {
-  return `
-    <span class="accountInvestmentChip ${entry.tone || ''}">
-      <span>${escapeHtml(entry.label)}</span>
-      <strong>${escapeHtml(entry.value)}</strong>
-    </span>
-  `;
-}
-
-function renderInvestmentAccountFooter(row, childCountText = '') {
-  const normalized = normalizeAccountRow(row);
-  const flowEntries = investmentAccountStatsEntries(normalized);
-  const balanceEntries = accountInvestmentBalanceEntries(normalized.account_code);
-  const entries = [...flowEntries, ...balanceEntries];
-  const content = entries.length
-    ? entries.map(investmentAccountChipHtml).join('')
-    : '<span class="accountInvestmentChip"><span>资金流</span><strong>暂无入金记录</strong></span>';
-  return `
-    <span class="accountFlowFooter accountInvestmentFooter">
-      <span class="accountInvestmentStats">${content}</span>
-      <span class="accountFlowFooterMeta">
-        <span>${escapeHtml(accountFlowCountText(normalized, childCountText))}</span>
-      </span>
-    </span>
-  `;
-}
-
-function renderAccountFlowRow(row, { label, detail, classes = '', filterable = true } = {}) {
-  const normalized = normalizeAccountRow(row);
-  const active = hasAccountActivity(row);
-  const tagName = filterable && active ? 'button' : 'div';
-  const typeAttr = tagName === 'button' ? ' type="button"' : '';
-  const filterAttr = tagName === 'button' ? ` data-account-flow-filter="${escapeHtml(normalized.account_code || '')}"` : '';
-  const rowClasses = [
-    classes,
-    normalized.account_kind === 'investment' ? 'accountInvestmentRow' : '',
-    active ? '' : 'is-empty',
-  ].filter(Boolean).join(' ');
-  return `
-    <${tagName}${typeAttr} class="accountFlowRow ${rowClasses}"${filterAttr}>
-      <span class="accountFlowHeader">
-        <span class="accountFlowMain">
-          <strong>${escapeHtml(label || accountDisplayName(normalized.account_code))}</strong>
-          <small class="accountFlowMetaLine"><span>${escapeHtml(detail || normalized.account_code || '')}</span>${syncBadgeHtml(normalized)}${accountPendingBadgeHtml(normalized)}</small>
-        </span>
-        ${renderAccountFlowSide(normalized)}
-      </span>
-      ${normalized.account_kind === 'investment' ? renderInvestmentAccountFooter(normalized) : renderAccountFlowFooter(normalized)}
-    </${tagName}>
-  `;
-}
-
-function renderAccountGroup(group) {
-  const summary = group.summary;
-  const childRows = group.children || [];
-  const shouldShowChildren = group.forceChildren || childRows.length > 1;
-  if (group.standalone && !shouldShowChildren) {
-    const row = childRows[0] || summary;
-    return renderAccountFlowRow(row, {
-      label: group.label,
-      detail: row.account_code,
-      classes: 'accountStandaloneRow',
-    });
-  }
-
-  const collapsed = shouldShowChildren && !state.expandedAccountGroups.has(group.code);
-  const activeChildren = childRows.filter(hasAccountActivity).length;
-  const childCountText = `${activeChildren}/${childRows.length} 子 · ${summary.row_count || 0} 笔${summary.pending_count ? ` · ${summary.pending_count} 待确认` : ''}`;
-  return `
-    <div class="accountGroupBlock" data-account-group="${escapeHtml(group.code)}">
-      <button type="button" class="accountFlowRow accountGroupRow" data-account-group-toggle="${escapeHtml(group.code)}" aria-expanded="${collapsed ? 'false' : 'true'}">
-        <span class="accountFlowHeader">
-          <span class="accountFlowMain">
-            <strong>${escapeHtml(group.label)}</strong>
-            <small class="accountFlowMetaLine">${syncBadgeHtml(summary)}${accountPendingBadgeHtml(summary)}<span class="accountGroupToggle">${collapsed ? '展开' : '收起'}</span></small>
-          </span>
-          ${renderAccountFlowSide(summary, childRows)}
-        </span>
-        ${renderAccountFlowFooter(summary, childCountText, { showStats: false })}
-      </button>
-      <div class="accountSubList" ${collapsed ? 'hidden' : ''}>
-        ${childRows.map((row) => renderAccountFlowRow(row, {
-          label: subAccountDisplayName(row.account_code),
-          detail: row.account_code,
-          classes: 'accountSubRow',
-        })).join('')}
-      </div>
-    </div>
-  `;
-}
-
 function recentSortSheetHtml() {
   return `
     <div class="ledgerOptionSheet">
@@ -295,5 +157,5 @@ function recentSortSheetHtml() {
   `;
 }
 
-  return { recentSearchSheetHtml, transferRouteHtml, rowDetailHtml, optionHtml, ledgerEditSheetHtml, accountFlowStatsHtml, syncBadgeHtml, accountPendingBadgeHtml, renderAccountFlowSide, renderAccountFlowFooter, investmentAccountChipHtml, renderInvestmentAccountFooter, renderAccountFlowRow, renderAccountGroup, recentSortSheetHtml };
+  return { recentSearchSheetHtml, transferRouteHtml, rowDetailHtml, optionHtml, ledgerEditSheetHtml, recentSortSheetHtml };
 }

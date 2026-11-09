@@ -23,7 +23,6 @@
     <nav class="ledgerAnchorNav" aria-label="收支模块">
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
-      <a href="#account-cashflow-section" data-ledger-tab="account">账户</a>
     </nav>
 <div id="err" class="ledgerError"></div>
 
@@ -66,6 +65,7 @@
         </div>
 
         <div id="cashflowBridge" class="cashflowBridge"></div>
+        <a href="#transfers">查看资金流转</a>
         <div class="cashflowBodyGrid">
           <div>
             <div class="sectionTitle" style="margin-top:var(--sp-3)">
@@ -98,17 +98,6 @@
             </div>
           </div>
         </div>
-      </section>
-    </div>
-
-    <div class="ledgerPanelGroup" data-ledger-panel="account" hidden>
-      <section class="ledgerSection ledgerJumpCard" id="account-cashflow-section">
-        <div class="sectionTitle">
-          <h3>按账户统计</h3>
-        </div>
-        <div id="accountFlowHint" class="muted" style="margin:-4px 0 8px">账户余额优先展示；现金流变化统一按年初至今计算。</div>
-        <a href="#transfers">查看资金流转</a>
-        <div id="accountFlowRows" class="accountFlowList"></div>
       </section>
     </div>
 

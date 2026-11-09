@@ -100,7 +100,8 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
       if (key==='ledger') {
         assert.equal(await frame.locator('.pageHeader').count(),0);
-        for (const tab of ['recent','account','overview']) {
+        assert.equal(await frame.locator('[data-ledger-tab="account"], #account-cashflow-section').count(),0);
+        for (const tab of ['recent','overview']) {
           const link = frame.locator(`[data-ledger-tab="${tab}"]`);
           const hash = await link.getAttribute('href');
           await link.click();
@@ -128,11 +129,10 @@ try {
     await page.waitForFunction(() => location.hash === '#return-trend');
     await page.reload();
     await page.frameLocator('#page-content').locator('[data-invest-tab="analysis"].is-active').waitFor();
-    await page.locator('[data-page="ledger.html"]').click();
-    await page.frameLocator('#page-content').locator('[data-ledger-tab="account"]').click();
-    await page.waitForFunction(() => location.hash === '#account-cashflow-section');
+    await page.goto(`${base}/app.html?view=ledger.html#account-cashflow-section`);
+    await page.waitForFunction(() => location.hash === '#cashflow-workbench');
     await page.reload();
-    await page.frameLocator('#page-content').locator('[data-ledger-tab="account"].is-active').waitFor();
+    await page.frameLocator('#page-content').locator('[data-ledger-tab="overview"].is-active').waitFor();
     await page.frameLocator('#page-content').locator('body').evaluate(() => location.assign('more.html'));
     await page.locator('[data-page="more.html"][aria-current]').waitFor();
     assert.equal(await page.frameLocator('#page-content').locator('iframe').count(),0);
@@ -216,7 +216,6 @@ try {
   await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).waitFor();
   await page.waitForFunction(() => new URL(location).searchParams.get('account') === 'fixture');
   await page.locator('[data-page="ledger.html"]').click();
-  await workflow.locator('[data-ledger-tab="account"]').click();
   await workflow.getByRole('link',{name:'查看资金流转'}).click();
   await workflow.getByRole('link',{name:'核对转账匹配'}).click();
   await workflow.getByRole('button',{name:'运行匹配'}).waitFor();

@@ -155,13 +155,10 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   const { createLedgerState, snapshotLedgerViewState, restoreLedgerViewState } = await test.api('state');
   const state = createLedgerState();
   Object.assign(state, { recentSearch: '测试', recentAmountSort: 'amount_desc', recentAccountFilter: 'ccb_7332', data: data(10), accounts: { private: true } });
-  state.expandedAccountGroups.add('ccb');
   const snapshot = snapshotLedgerViewState(state);
   assert.equal('data' in snapshot, false); assert.equal('accounts' in snapshot, false);
   const restored = createLedgerState(); restoreLedgerViewState(restored, snapshot);
   assert.equal(restored.recentSearch, '测试'); assert.equal(restored.recentAmountSort, 'amount_desc');
-  assert.equal(restored.expandedAccountGroups.has('ccb'), true);
-  restored.expandedAccountGroups.add('wechat'); assert.equal(state.expandedAccountGroups.has('wechat'), false);
 }
 {
   const test = await fixture();

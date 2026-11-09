@@ -399,7 +399,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     for href in [
         "#cashflow-workbench",
         "#recent-flow-section",
-        "#account-cashflow-section",
     ]:
         assert f'href="{href}"' in html
     assert 'href="#review-section"' not in html
@@ -408,7 +407,9 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
         assert 'data-ledger-tab' in html
         assert f'href="{removed_href}" data-ledger-tab=' not in html
 
-    assert 'id="accountFlowRows" class="accountFlowList"' in html
+    assert 'id="accountFlowRows"' not in html
+    assert 'data-ledger-tab="account"' not in html
+    assert 'href="#transfers">查看资金流转</a>' in html
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html
     assert 'id="recentSearch" class="formInput" type="search"' not in html
@@ -438,7 +439,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "消费 Top 5" not in html
     assert "reviewEntryHeader" not in html
     assert "reviewEntryStatus" not in html
-    assert "accountPendingBadge" in page_css and "accountPendingBadgeHtml" in js
     assert "ledgerRowsTable" not in html
     assert "mobileReviewRows" not in html
     assert 'id="accountIssueStrip"' not in html
@@ -452,9 +452,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "categoryBarHead" not in js
     assert "reviewEntryRow" not in js
     assert "reviewEntryStatus" not in js
-    assert "accountPendingBadgeHtml" in js
-    assert "renderAccountFlowSummary" in js
-    assert "openRecentForAccount" in js
     assert "recentAccountFilter" in js
     assert "account_summary" in js
     assert "account_summary_ytd" in js
@@ -481,7 +478,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "isInternalTransferRow" in js
     assert "renderMobileLedgerRows" not in js
     assert "<tr" not in js
-    assert "'#review-section': 'account'" in js
     assert "assets/js/ledger_cashflow.js" in html
     assert "./features/ledger/page.js" in _read_public("assets/js/ledger_cashflow.js")
     assert "./controller.js" in _read_public("assets/js/features/ledger/page.js")
@@ -575,34 +571,6 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert ".ledgerListSide b.transfer" in page_css
     assert "ledgerOriginalAmount" in page_css
     assert "jget(`/api/ledger/workbench?${params.toString()}`, { cache: false, signal })" in js
-    assert "ACCOUNT_GROUPS" in js
-    assert "buildAccountFlowGroups" in js
-    assert "accountPrimaryBalance" in js
-    assert "accountBalanceSummary" in js
-    assert "accountBalanceValue" in page_css
-    assert "accountFlowHeader" in page_css
-    assert "accountFlowFooter" in page_css
-    assert "accountFlowNetBadge" in page_css
-    assert "accountInvestmentBalanceEntries" in js
-    assert "investmentAccountStatsEntries" in js
-    assert "accountInvestmentChip" in page_css
-    assert "融资负债" in js
-    assert "净入金" in js
-    assert "个人入金" in js
-    assert "funding_scope === 'personal_capital'" in js
-    assert ".accountFlowFooterMeta" in page_css
-    assert "white-space:nowrap" in page_css
-    assert "年初净流入" in js
-    assert "账户余额优先展示；现金流变化统一按年初至今计算。" in html
-    assert "return data.account_summary_ytd || data.account_summary || [];" in js
-    assert "{ code: 'icbc_6689', label: '工商银行', children: ['icbc_6689_cny', 'icbc_6689_usd'], forceChildren: true }" in js
-    assert "icbc_6689_cny: '6689 人民币'" in js
-    assert "icbc_6689_usd: '6689 美元'" in js
-    assert "accountGroupRow" in page_css
-    assert "accountSubRow" in page_css
-    assert "accountSyncBadge" in page_css
-    assert "syncBadgeHtml" in js
-    assert "latest_sync_at" in js
     assert ".page-ledger .cashflowBridge,\n  .page-ledger .ledgerRules" not in css
 
 
