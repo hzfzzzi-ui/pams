@@ -301,7 +301,11 @@
 .ledgerEditGrid [hidden] { display:none }
 .ledgerEditSummary { display:grid; gap:12px }
 .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) {
-  --expense-accent:#ff806c;
+  --expense-accent:#ffa43c;
+  --expense-accent-ink:#291805;
+}
+.ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmAmount.down {
+  color:var(--expense-accent);
 }
 .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerEditSummary {
   order:1;
@@ -322,7 +326,7 @@
 .ledgerEditSheet:has(.ledgerExpensePicker:not([hidden])) .ledgerConfirmActions .confirm:not(:disabled) {
   border-color:var(--expense-accent);
   background:var(--expense-accent);
-  color:#27110e;
+  color:var(--expense-accent-ink);
 }
 .ledgerExpensePicker {
   min-width:0;
@@ -384,7 +388,7 @@
 .ledgerExpenseCategories button[aria-pressed="true"] { color:var(--expense-accent) }
 .ledgerExpenseCategories button[aria-pressed="true"] .ledgerExpenseIcon {
   background:var(--expense-accent);
-  color:#27110e;
+  color:var(--expense-accent-ink);
 }
 .ledgerExpenseSubcategories button[aria-pressed="true"] {
   border-color:var(--expense-accent);
