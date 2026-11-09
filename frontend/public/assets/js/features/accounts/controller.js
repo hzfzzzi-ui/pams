@@ -180,6 +180,13 @@ export function mount(root, context) {
     if (button && root.contains(button)) {review(button); return;}
     const profile = target.closest('.profileItem[data-profile]');
     if (profile && root.contains(profile) && state.config) {view.selectProfile(profile.dataset.profile); return;}
+    const candidate = target.closest('button[data-transfer-source][data-transfer-target]');
+    if (candidate && ready) {
+      if (win.confirm(`确认这两笔流水属于同一笔划转？\n${candidate.dataset.transferDetail}`)) {
+        runAction('matches', candidate, () => actions.confirmCashPair(Number(candidate.dataset.transferSource), Number(candidate.dataset.transferTarget)));
+      }
+      return;
+    }
     const match = target.closest('#btnMatchTransfers');
     if (match && root.contains(match) && ready) runAction('matches', match, actions.runTransferMatching);
   }

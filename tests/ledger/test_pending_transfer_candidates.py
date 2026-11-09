@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
-from domain.ledger import bank_source_read, confirmed_transfers, ledger_view  # noqa: E402
+from domain.ledger import bank_source_read, confirmed_transfers, confirmed_transfers_v2, ledger_view  # noqa: E402
 from domain.ledger.ledger_view import _load_pending_transfer_cases  # noqa: E402
 
 
@@ -39,6 +39,7 @@ def test_new_source_schema_keeps_missing_evidence_unmatched(monkeypatch):
     day = date(2026, 10, 22)
     monkeypatch.setattr(ledger_view, '_table_exists', lambda cur, name: True)
     monkeypatch.setattr(ledger_view, '_confirmed_transfer_records', lambda *args, **kwargs: [])
+    monkeypatch.setattr(confirmed_transfers_v2, 'occupied_cashflow_ids', lambda cur: set())
     rows = [{'id': 1, 'account_code': 'a', 'amount': Decimal('-10'), 'currency': 'CNY',
              'transaction_date': day, 'cashflow_type': 'internal_transfer',
              'classification_status': 'confirmed', 'source_evidence_status': 'verified'},
@@ -57,8 +58,11 @@ def test_new_source_schema_suggests_only_verified_unique_or_ambiguous_pairs(monk
     day = date(2026, 10, 22)
     monkeypatch.setattr(ledger_view, '_table_exists', lambda cur, name: True)
     monkeypatch.setattr(ledger_view, '_confirmed_transfer_records', lambda *args, **kwargs: [])
+    monkeypatch.setattr(confirmed_transfers_v2, 'occupied_cashflow_ids', lambda cur: set())
     def fact(ident, account, amount):
-        return {'id': ident, 'account_code': account, 'amount': Decimal(amount), 'currency': 'CNY',
+        evidence = {'account_code': account, 'amount': Decimal(amount), 'currency': 'CNY',
+                    'source_item_id': ident, 'source_id': ident, 'source_hash': None}
+        return {'id': ident, **evidence, 'pair_evidence': evidence,
                 'transaction_date': day, 'cashflow_type': 'internal_transfer',
                 'classification_status': 'confirmed', 'source_evidence_status': 'verified'}
     rows = [fact(1, 'a', '-10'), fact(2, 'b', '10')]

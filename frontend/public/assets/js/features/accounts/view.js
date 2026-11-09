@@ -314,7 +314,9 @@ function relationTypeLabel(type) {
 
 function matchTypeLabel(type) {
   return {
-    investment_funding: "内部投资划转",
+    investment_funding: "投资入金",
+    investment_withdrawal: "投资出金",
+    internal_transfer: "普通转账",
     benefit_income: "福利收入确认",
     account_transfer: "银行转账匹配",
     credit_card_payment: "信用卡还款匹配",
@@ -599,30 +601,36 @@ function renderTransferMatches(data) {
   const summaryEl = find("transferMatchSummary");
   const rowsEl = find("transferMatchRows");
   const summary = data?.summary || [];
+  const matches = data?.matches || [];
+  const candidateCount = matches.filter(row => row.status === 'review_required' && row.match_key?.startsWith('candidate:')).length;
   summaryEl.innerHTML = summary.length ? summary.map((r) => `
     <div class="metricPanel">
       <div class="label">${matchTypeLabel(r.match_type)}</div>
       <div class="value">${r.match_count || 0} 笔</div>
       <div class="muted" style="margin-top:6px">合计 ${money(r.total_amount, r.currency || "CNY")}</div>
     </div>
-  `).join("") : '<div class="muted">暂无匹配结果</div>';
+  `).join("") : `<div class="muted">${candidateCount ? `${candidateCount} 对流水候选待确认` : '暂无已确认配对'}</div>`;
 
-  const matches = data?.matches || [];
   rowsEl.innerHTML = matches.map((r) => {
     const source = `${r.source_date || "-"} ${compactText(r.source_summary)} / ${compactText(r.source_description)}`;
     const target = r.target_row_id
       ? `${r.target_date || "-"} ${compactText(r.target_summary)} / ${compactText(r.target_description)}`
       : "无平台侧成对流水";
+    const candidate = r.status === 'review_required' && r.match_type !== 'payment_proxy'
+      && r.match_key?.startsWith('candidate:') && r.confirmation_supported;
+    const label = r.ambiguity_status === 'ambiguous' ? '有多个候选' : '待确认';
+    const confirm = candidate ? `<button type="button" class="btn" data-transfer-source="${esc(r.source_row_id)}"
+        data-transfer-target="${esc(r.target_row_id)}" data-transfer-detail="${esc(`${r.from_account_code} → ${r.to_account_code}\n${r.source_date} → ${r.target_date}\n${money(r.amount, r.currency)}`)}">确认配对</button>` : '';
     return `
       <tr>
-        <td>${r.match_date || "-"}</td>
+        <td>${esc(r.match_date || r.source_date || "-")}</td>
         <td>${matchTypeLabel(r.match_type)}</td>
-        <td>${r.from_account_code || "-"} → ${r.to_account_code || "-"}</td>
+        <td>${esc(r.from_account_code || "-")} → ${esc(r.to_account_code || "-")}</td>
         <td class="num">${money(r.amount, r.currency || "CNY")}</td>
-        <td class="num">${confidence(r.confidence)}</td>
-        <td>${r.note || "-"}</td>
-        <td>${source}</td>
-        <td>${target}</td>
+        <td class="num">${candidate ? label : confidence(r.confidence)}</td>
+        <td>${esc(r.note || "-")}${confirm}</td>
+        <td>${esc(source)}</td>
+        <td>${esc(target)}</td>
       </tr>
     `;
   }).join("") || '<tr><td colspan="8" class="muted" style="text-align:center;padding:20px">暂无匹配结果</td></tr>';

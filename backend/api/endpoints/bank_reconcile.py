@@ -529,10 +529,19 @@ def list_transfer_matches(limit: int = 200):
             else:
                 from domain.ledger import confirmed_transfers
             matches = confirmed_transfers.read(cur, limit=max(1, min(limit, 1000)))
+            from domain.ledger.cash_transfer_pairs import cash_pair_type
+            from domain.ledger.ledger_view import _load_accounts_config
+            profiles = _load_accounts_config().get('accounts') or {}
             for match in matches:
                 left, right = match['from_evidence'], match['to_evidence']
+                if right['kind'] == 'trade':
+                    match_type = 'investment_funding'
+                elif left['kind'] == 'trade':
+                    match_type = 'investment_withdrawal'
+                else:
+                    match_type = cash_pair_type(match['from_account_code'], match['to_account_code'], profiles)
                 match.update(id=match['transfer_id'], match_key=str(match['transfer_id']),
-                    match_type='investment_funding' if 'trade' in {left['kind'],right['kind']} else 'internal_transfer',
+                    match_type=match_type,
                     relation_code='manual_confirmed', source_row_id=left['id'], target_row_id=right['id'],
                     source_ref_table='pams_cashflow_fact' if left['kind']=='cashflow' else 'pams_investment_trade_fact',
                     target_ref_table='pams_cashflow_fact' if right['kind']=='cashflow' else 'pams_investment_trade_fact',

@@ -443,7 +443,10 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         else round(sum(abs(t["amount_cny"]) for t in funding_transfers), 2)
     )
     disposable_net = income - expense
-    cash_net = disposable_net + investment_transfer_net
+    # Cash-to-cash pairs have already been removed from both directional totals.
+    one_sided_investment_net = sum(abs(t['amount_cny']) * _investment_transfer_sign(t)
+                                  for t in known_transfers if not t.get('both_cash_legs'))
+    cash_net = disposable_net + one_sided_investment_net
     other_transfer = max(transfer - investment_transfer, 0.0)
     result = {
         "income": round(income, 2),
@@ -882,10 +885,12 @@ def _mark_fact_source(cur, rows, *, table: str, verifier=None):
     return rows
 
 
-def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None) -> list[dict[str, Any]]:
+def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None,
+                    include_pair_evidence: bool = False) -> list[dict[str, Any]]:
     if _table_exists(cur, 'source_records'):
         from domain.ledger.cashflow_read_v2 import load_cash_rows
-        rows = load_cash_rows(cur, start=start, end=end, base_currency=base_currency, originals=originals)
+        rows = load_cash_rows(cur, start=start, end=end, base_currency=base_currency, originals=originals,
+                              include_pair_evidence=include_pair_evidence)
         for row in rows:
             row['account_kind'] = None
             row['bank'] = None
@@ -1244,7 +1249,10 @@ def _confirmed_transfer_records(cur, *, start: date, end: date):
     return result
 
 
-def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False) -> list[dict[str, Any]]:
+def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
+                           account_profiles=None) -> list[dict[str, Any]]:
+    from domain.ledger.cash_transfer_pairs import cash_pair_type
+
     result = []
     for item, left, right, left_day, right_day, kind in _confirmed_transfer_records(cur, start=start, end=end):
         if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
@@ -1253,6 +1261,8 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
             continue
         if not cash_pairs_only and left_day != right_day:
             continue
+        if cash_pairs_only:
+            kind = cash_pair_type(item['from_account_code'], item['to_account_code'], account_profiles or {})
         fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
         cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
             SELECT CASE WHEN matches.currency_norm = %(base)s THEN 1 ELSE fx_hist.rate END AS fx_rate
@@ -1265,6 +1275,7 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
             'source_row_id': left['id'] if left['kind'] == 'cashflow' else None,
             'target_row_id': right['id'] if right['kind'] == 'cashflow' else None,
             'amount': item['amount'], 'currency_norm': item['currency'], 'status': 'confirmed',
+            'both_cash_legs': cash_pairs_only,
             'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
     return result
 
@@ -1272,47 +1283,34 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
 def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None) -> list[dict[str, Any]]:
     """Expose known open bank facts and invalidated decisions without confirming them."""
     if _table_exists(cur, 'source_records'):
+        from domain.ledger.cash_transfer_pairs import has_transfer_hint, suggest
+        from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+
         decisions = _confirmed_transfer_records(cur, start=start, end=end)
-        linked = {leg['id'] for item, left, right, *_ in decisions if item['evidence_status'] == 'confirmed'
-                  and left.get('kind') == right.get('kind') == 'cashflow' for leg in (left, right)}
-        rows = cash_rows if cash_rows is not None else _load_cash_rows(cur, start=start, end=end, base_currency='CNY')
+        linked = occupied_cashflow_ids(cur)
+        rows = cash_rows if cash_rows is not None else _load_cash_rows(
+            cur, start=start, end=end, base_currency='CNY', include_pair_evidence=True)
+        by_leg = defaultdict(list)
+        for match in suggest(rows, {}, linked):
+            left, right = match['source_row_id'], match['target_row_id']
+            by_leg[left].append((right, match['ambiguity_status']))
+            by_leg[right].append((left, match['ambiguity_status']))
         cases = []
-        eligible = [row for row in rows if row['id'] not in linked
-                    and row.get('classification_status') == 'confirmed'
-                    and row.get('cashflow_type') in {'internal_transfer', 'investment_funding', 'investment_withdrawal'}]
-        groups = defaultdict(list)
-        for row in rows:
-            if row['id'] in linked:
-                continue
-            amount = row.get('amount')
-            if (row.get('source_evidence_status') == 'verified' and amount is not None and amount != 0
-                    and row.get('currency') and row.get('transaction_date')):
-                groups[(row['transaction_date'], row['currency'], abs(amount), amount > 0)].append(row)
-
-        def candidates_for(row):
-            amount = row.get('amount')
-            if (row.get('source_evidence_status') != 'verified' or amount is None or amount == 0
-                    or not row.get('currency') or not row.get('transaction_date')):
-                return []
-            return [other for other in groups.get((row['transaction_date'], row['currency'], abs(amount), amount < 0), [])
-                    if other.get('account_code') != row.get('account_code')]
-
+        eligible = [row for row in rows if row['id'] not in linked and (row['id'] in by_leg or has_transfer_hint(row))]
         for row in eligible:
             verified = (row.get('source_evidence_status') == 'verified' and row.get('amount') is not None
                         and row.get('currency') and row.get('transaction_date'))
             amount = row.get('amount') if verified else None
-            candidates = candidates_for(row) if verified else []
-            status = ('source_unknown' if not verified else 'unmatched' if not candidates else
-                      'unique_candidate' if len(candidates) == 1 and len(candidates_for(candidates[0])) == 1
-                      else 'ambiguous')
-            cases.append({'case_id': 'cashflow:' + str(row['id']), 'case_type': row['cashflow_type'],
+            candidates = by_leg[row['id']]
+            status = 'source_unknown' if not verified else candidates[0][1] if candidates else 'unmatched'
+            cases.append({'case_id': 'cashflow:' + str(row['id']), 'case_type': row.get('cashflow_type') or 'internal_transfer',
                 'from_account_code': row['account_code'] if amount is not None and amount < 0 else None,
                 'to_account_code': row['account_code'] if amount is not None and amount > 0 else None,
                 'case_date': _serialize_date(row.get('transaction_date')), 'amount': _to_float(amount) if amount is not None else None,
                 'currency': row.get('currency'), 'status': status,
                 'source_evidence_status': row.get('source_evidence_status'),
                 'candidate_count': len(candidates) if verified else None,
-                'candidate_ids': sorted(other['id'] for other in candidates)[:20]})
+                'candidate_ids': sorted(other_id for other_id, _ in candidates)[:20]})
         for item, left, right, left_day, _, kind in decisions:
             if item['evidence_status'] not in {'confirmed', 'revoked'}:
                 cases.append({'case_id': str(item['transfer_id']), 'case_type': kind,
@@ -1492,9 +1490,10 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     account_config = _load_accounts_config()
     account_profiles = account_config.get("accounts") or {}
     configured_accounts = _load_configured_account_codes(account_config)
-    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args)
+    cash_rows = _load_cash_rows(cur, start=ytd_start, end=month_end, base_currency=base_currency, verifier=verifier,
+                                include_pair_evidence=redesigned, **original_args)
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
-                                                   cash_pairs_only=redesigned)
+                                                   cash_pairs_only=redesigned, account_profiles=account_profiles)
     pending_transfer_cases = _load_pending_transfer_cases(
         cur, start=ytd_start, end=month_end, **({'cash_rows': cash_rows} if redesigned else {}),
     )
