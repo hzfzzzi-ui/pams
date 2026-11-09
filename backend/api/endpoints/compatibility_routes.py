@@ -4,6 +4,8 @@ from decimal import Decimal
 from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
+from domain.brokers.ibkr import ibkr_daily_close_read
+from domain.investments.holding_return_snapshot import return_snapshot_revision
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
 
 
@@ -55,6 +57,16 @@ def create_compatibility_router(
     json,
 ):
     router = APIRouter()
+
+    def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg):
+        broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
+        return return_snapshot_revision(cur, settings={
+            "version": 1, "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
+            "today_label_date": today_label_date,
+            "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
+            "portfolio_accounts": _load_portfolio_accounts_config(), "reported_returns": reported_returns_cfg,
+            "broker_close": {key: broker_close.get(key) for key in ("status", "as_of", "sha256", "reasons")},
+        })
 
     @router.get("/summary2/latest")
     def summary2_latest():
@@ -235,8 +247,9 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                payload = accounts_endpoint._overview_payload(cur=cur)
                 view_as_of = _investment_return_view_as_of(cur)
+                today_label_date = _investment_today_label_date()
+                reported_returns_cfg = _reported_returns_cfg()
                 snapshot_payload = _build_section_return_series_payload_from_snapshot(
                     cur,
                     section=section,
@@ -244,11 +257,15 @@ def create_compatibility_router(
                     interval=interval,
                     base_currency=baseCurrency,
                     view_as_of=view_as_of,
-                    today_label_date=_investment_today_label_date(),
+                    today_label_date=today_label_date,
                     require_data_completeness=True,
+                    current_revision=lambda: _return_revision(
+                        cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
+                        reported_returns_cfg=reported_returns_cfg,
+                    ),
                 )
                 if snapshot_payload is not None:
-                    return json(_apply_section_holdings_pnl_overlay(cur, section=section, payload=snapshot_payload))
+                    return json(snapshot_payload)
                 payload = _build_section_return_series_payload(
                     cur,
                     section=section,
@@ -256,12 +273,12 @@ def create_compatibility_router(
                     interval=interval,
                     base_currency=baseCurrency,
                     view_as_of=view_as_of,
-                    reported_returns_cfg=_reported_returns_cfg(),
-                    overview_payload=payload,
+                    reported_returns_cfg=reported_returns_cfg,
+                    overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                     owner_ratio_case_sql=_owner_ratio_case_sql,
                     account_owner_ratio=_account_owner_ratio,
                     excluded_holding_accounts=_excluded_holding_accounts(),
-                    today_label_date=_investment_today_label_date(),
+                    today_label_date=today_label_date,
                 )
                 payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                 return json(payload)
@@ -284,8 +301,13 @@ def create_compatibility_router(
             with get_conn() as conn:
                 conn.set_session(isolation_level='REPEATABLE READ')
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    overview_payload = accounts_endpoint._overview_payload(cur=cur)
+                    overview_payload = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
                     view_as_of = _investment_return_view_as_of(cur)
+                    today_label_date = _investment_today_label_date()
+                    reported_returns_cfg = _reported_returns_cfg()
+                    revision_args = dict(start_date=start_date, interval=interval, view_as_of=view_as_of,
+                                         today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg)
+                    input_revision = _return_revision(cur, **revision_args)
                     payload = _build_section_return_series_payload(
                         cur,
                         section=section,
@@ -293,19 +315,22 @@ def create_compatibility_router(
                         interval=interval,
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
-                        reported_returns_cfg=_reported_returns_cfg(),
+                        reported_returns_cfg=reported_returns_cfg,
                         overview_payload=overview_payload,
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         excluded_holding_accounts=_excluded_holding_accounts(),
-                        today_label_date=_investment_today_label_date(),
+                        today_label_date=today_label_date,
                     )
                     payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
+                    if input_revision != _return_revision(cur, **revision_args):
+                        raise HTTPException(status_code=409, detail="收益输入已更新，请重试")
                     written = _upsert_investment_return_series_snapshot(
                         cur,
                         payload=payload,
                         base_currency=baseCurrency,
                         section=section,
+                        input_revision=input_revision,
                     )
                 conn.commit()
         except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected) as exc:
@@ -323,10 +348,13 @@ def create_compatibility_router(
 
 
     def _verified_nav_weekly(cur, *, start_date, baseCurrency, latest, interval):
-        payload = accounts_endpoint._overview_payload(cur=cur)
         current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
         account_cfg = _load_portfolio_accounts_config()
         account_balances = _load_account_balances(cur, baseCurrency, account_cfg)
+        payload = accounts_endpoint._overview_payload(
+            cur=cur, include_transfers=False,
+            valuation_balances=account_balances if baseCurrency == 'CNY' else None,
+        )
         investment_positions = _load_investment_positions(
             cur, baseCurrency, account_cfg, account_balances=account_balances)
         incomplete_snapshot_accounts = {str(row.get("account_code")) for row in [*account_balances, *investment_positions]
@@ -418,45 +446,39 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                payload = accounts_endpoint._overview_payload(cur=cur)
                 view_as_of = _investment_return_view_as_of(cur)
                 if start_date > view_as_of:
                     start_date = view_as_of
+                today_label_date = _investment_today_label_date()
+                reported_returns_cfg = _reported_returns_cfg()
                 snapshot_payload = _build_investment_return_series_payload_from_snapshot(
                     cur,
                     start_date=start_date,
                     interval=interval,
                     base_currency=baseCurrency,
                     view_as_of=view_as_of,
-                    today_label_date=_investment_today_label_date(),
+                    today_label_date=today_label_date,
                     require_data_completeness=True,
+                    current_revision=lambda: _return_revision(
+                        cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
+                        reported_returns_cfg=reported_returns_cfg,
+                    ),
                 )
                 if snapshot_payload is not None:
-                    valuation_state = _latest_published_portfolio_valuation_state(
-                        cur,
-                        base_currency=baseCurrency,
-                    )
-                    payload_with_valuation = (
-                        _apply_published_valuation_state_to_return_series_payload(
-                            snapshot_payload,
-                            valuation_state,
-                        )
-                    )
-                    summary_payload = _build_summary2_latest_payload_for_request(cur)
-                    return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
+                    return json(snapshot_payload)
                 payload = _build_investment_return_series_payload(
                     cur,
                     start_date=start_date,
                     interval=interval,
                     base_currency=baseCurrency,
                     view_as_of=view_as_of,
-                    overview_payload=payload,
-                    reported_returns_cfg=_reported_returns_cfg(),
+                    overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+                    reported_returns_cfg=reported_returns_cfg,
                     owner_ratio_case_sql=_owner_ratio_case_sql,
                     account_owner_ratio=_account_owner_ratio,
                     account_initial_capital_cny=_account_initial_capital_cny,
                     excluded_holding_accounts=_excluded_holding_accounts(),
-                    today_label_date=_investment_today_label_date(),
+                    today_label_date=today_label_date,
                 )
                 valuation_state = _latest_published_portfolio_valuation_state(
                     cur,
@@ -488,10 +510,15 @@ def create_compatibility_router(
             with get_conn() as conn:
                 conn.set_session(isolation_level='REPEATABLE READ')
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    overview_payload = accounts_endpoint._overview_payload(cur=cur)
+                    overview_payload = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
                     view_as_of = _investment_return_view_as_of(cur)
                     if start_date > view_as_of:
                         start_date = view_as_of
+                    today_label_date = _investment_today_label_date()
+                    reported_returns_cfg = _reported_returns_cfg()
+                    revision_args = dict(start_date=start_date, interval=interval, view_as_of=view_as_of,
+                                         today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg)
+                    input_revision = _return_revision(cur, **revision_args)
                     payload = _build_investment_return_series_payload(
                         cur,
                         start_date=start_date,
@@ -499,17 +526,23 @@ def create_compatibility_router(
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
                         overview_payload=overview_payload,
-                        reported_returns_cfg=_reported_returns_cfg(),
+                        reported_returns_cfg=reported_returns_cfg,
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         account_initial_capital_cny=_account_initial_capital_cny,
                         excluded_holding_accounts=_excluded_holding_accounts(),
-                        today_label_date=_investment_today_label_date(),
+                        today_label_date=today_label_date,
                     )
+                    valuation_state = _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
+                    payload = _apply_published_valuation_state_to_return_series_payload(payload, valuation_state)
+                    payload = _apply_summary_pnl_to_return_series_payload(payload, _build_summary2_latest_payload_for_request(cur))
+                    if input_revision != _return_revision(cur, **revision_args):
+                        raise HTTPException(status_code=409, detail="收益输入已更新，请重试")
                     written = _upsert_investment_return_series_snapshot(
                         cur,
                         payload=payload,
                         base_currency=baseCurrency,
+                        input_revision=input_revision,
                     )
                 conn.commit()
         except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected) as exc:

@@ -90,30 +90,30 @@ try {
     records[start + 1].respond(nav);
     await page.evaluate(() => bNavLoading);
     await page.evaluate(() => {window.bLoading = b.loadReturnsOnce();});
-    await waitFor(() => records.length === start + 7, 'five return requests after independent NAV');
-    for (const record of records.slice(start + 2, start + 7)) record.respond(returns);
+    await waitFor(() => records.length === start + 3, 'one return request after independent NAV');
+    records[start + 2].respond(returns);
     await page.evaluate(() => bLoading);
     assert.deepEqual(await page.evaluate(() => b.state.navRows.map(row => row.netWorth)), ['1000.125', '1040.5']);
     assert.equal(await page.evaluate(() => b.state.navRows[1].confirmation_status), 'unconfirmed');
     assert.equal(await page.evaluate(() => Chart.instances.length), 2);
     await page.evaluate(() => replacement.dispose());
 
-    // Same-owner replacement cancels all five old series, with NAV kept intact.
+    // Same-owner replacement cancels the old series, with NAV kept intact.
     let index = records.length;
     await page.evaluate(() => {api.clearApiCache(); window.older = b.renderReturns();});
-    await waitFor(() => records.length === index + 5, 'old return refresh');
+    await waitFor(() => records.length === index + 1, 'old return refresh');
     await page.evaluate(() => {window.newer = b.renderReturns();});
-    await waitFor(() => records.length === index + 10, 'replacement return refresh');
-    await waitFor(() => records.slice(index, index + 5).every(record => record.cancelled), 'same-key physical cancellation');
+    await waitFor(() => records.length === index + 2, 'replacement return refresh');
+    await waitFor(() => records[index].cancelled, 'same-key physical cancellation');
     assert.equal(await page.evaluate(() => older), null);
-    for (const record of records.slice(index + 5)) record.respond(returns);
+    records[index + 1].respond(returns);
     await page.evaluate(() => newer);
     assert.deepEqual(await page.evaluate(() => b.state.navRows.map(row => row.netWorth)), ['1000.125', '1040.5']);
     assert.equal(await page.evaluate(() => rootB.dataset.investmentReturnChartError), undefined);
 
     index = records.length;
     await page.evaluate(() => {api.clearApiCache(); window.exiting = b.renderReturns();});
-    await waitFor(() => records.length === index + 5, 'pending returns before disposal');
+    await waitFor(() => records.length === index + 1, 'pending returns before disposal');
     await page.evaluate(() => b.dispose());
     await waitFor(() => records.slice(index).every(record => record.cancelled), 'disposal physical cancellation');
     assert.equal(await page.evaluate(() => exiting), null);
@@ -121,7 +121,7 @@ try {
     assert.ok(await page.evaluate(() => Chart.instances.every(chart => chart.destroyCount === 1)));
 
     // Actual warmApiCache starts only after its original startup gate; disposing
-    // it cancels four reads, while an independent foreground read keeps running.
+    // it cancels three reads, while an independent foreground read keeps running.
     index = records.length;
     await page.evaluate(() => {
       api.clearApiCache();
@@ -142,16 +142,16 @@ try {
     assert.deepEqual(await page.evaluate(() => delays), [250, 900]);
     assert.equal(records.length, index, 'startup gate still prevents prefetch GETs');
     await page.evaluate(() => allowStartup());
-    await waitFor(() => records.length === index + 4, 'four warmup GETs');
+    await waitFor(() => records.length === index + 3, 'three warmup GETs');
     assert.deepEqual(records.slice(index).map(record => record.url).sort(), [
-      '/api/accounts/overview', '/api/sync/center', '/api/portfolio/data-quality?baseCurrency=CNY', '/api/ledger/workbench?month=2026-10',
+      '/api/accounts/overview', '/api/sync/center', '/api/portfolio/data-quality?baseCurrency=CNY',
     ].sort());
     await page.evaluate(() => {window.foregroundOwner = new AbortController(); window.foreground = api.jget('/api/accounts/overview', {signal: foregroundOwner.signal});});
-    await waitFor(() => records.length === index + 5, 'foreground reader overlapping warmup');
+    await waitFor(() => records.length === index + 4, 'foreground reader overlapping warmup');
     await page.evaluate(() => warmup.dispose());
-    await waitFor(() => records.slice(index, index + 4).every(record => record.cancelled), 'warmup physical cancellation');
-    assert.equal(records[index + 4].cancelled, false);
-    records[index + 4].respond({synthetic: true, amount: '123.456'});
+    await waitFor(() => records.slice(index, index + 3).every(record => record.cancelled), 'warmup physical cancellation');
+    assert.equal(records[index + 3].cancelled, false);
+    records[index + 3].respond({synthetic: true, amount: '123.456'});
     assert.equal(await page.evaluate(async () => (await foreground).amount), '123.456');
     const segment = records.slice(start);
     assert.equal(segment.length, 27); assert.equal(segment.filter(record => record.cancelled).length, 15);
@@ -160,7 +160,7 @@ try {
     await page.close();
   }
   assert.deepEqual(unexpected, []); assert.deepEqual(errors, []);
-  console.log(JSON.stringify({investment_and_warmup_cancellation: totals, independent_readers: true, cancellation_does_not_draw_empty_chart: true, startup_and_four_warmup_paths_preserved: true}));
+  console.log(JSON.stringify({investment_and_warmup_cancellation: totals, independent_readers: true, cancellation_does_not_draw_empty_chart: true, warmup_excludes_ledger_workbench: true}));
 } finally {
   await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
 }

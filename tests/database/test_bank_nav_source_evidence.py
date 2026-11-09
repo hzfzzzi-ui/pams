@@ -84,7 +84,7 @@ def test_published_bank_source_proof_and_tamper_fail_closed(empty_source_db, mon
     monkeypatch.setattr(main, '_latest_published_portfolio_valuation_state', lambda *args, **kwargs: None)
     monkeypatch.setattr(main, '_current_nav_bucket_from_parts', lambda **kwargs: {'assets':Decimal(70), 'liabilities':Decimal(0), 'net_worth':Decimal(70)})
     monkeypatch.setattr(main, '_current_nav_account_values_from_parts', lambda **kwargs: {'bank_a':Decimal(70)})
-    monkeypatch.setattr(accounts, '_overview_payload', lambda cur=None: {'accounts': [account]})
+    monkeypatch.setattr(accounts, '_overview_payload', lambda cur=None, **kwargs: {'accounts': [account]})
     with TestClient(main.app) as web:
         response = web.get('/nav/weekly', params={'start':day.isoformat(), 'latest':'true', 'interval':'daily'})
         assert response.status_code == 200, response.text

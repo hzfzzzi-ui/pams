@@ -1,7 +1,7 @@
 import { createReadScope, isReadCancelled } from '../../../shared/read_scope.js';
 import { SERIES_COLORS } from '../../../shared/chart_theme.js';
 import { trackInvestmentNav } from '../../../investment_startup.js';
-import { normalizeInvestmentNavRows } from './legacy_model.js';
+import { normalizeInvestmentNavRows, returnRateForChart } from './legacy_model.js';
 import { createInvestmentChartState } from './state.js';
 import { RETURN_SECTION_SPECS, readInvestmentNav, readInvestmentReturnSeries } from './requests.js';
 import { createInvestmentChartRenderer } from './renderer.js';
@@ -25,6 +25,8 @@ export function createInvestmentChartController({ root = document, host = window
   let navPromise = null;
   let returnPromise = null;
   let returnGeneration = 0;
+  let contributionObserver = null;
+  const sectionReads = new Map();
   const current = () => !disposed && owners.get(root) === controller;
   const publishCharts = () => {
     if (!current()) return;
@@ -60,17 +62,60 @@ export function createInvestmentChartController({ root = document, host = window
     if (!el) return null;
     loadNavOnce().catch(() => null);
     const generation = ++returnGeneration;
-    let response;
+    contributionObserver?.disconnect();
+    for (const key of sectionReads.keys()) reads.cancel(key);
     try {
-      response = await reads.run('returns', signal => readInvestmentReturnSeries({signal}));
+      const resp = await reads.run('returns', signal => readInvestmentReturnSeries({signal}));
+      if (!current() || generation !== returnGeneration) return null;
+      sectionReads.clear();
+      const sectionResponses = [];
+      function loadSection(key) {
+        const index = sectionSpecs.findIndex(spec => spec.key === key);
+        if (index < 0) return Promise.resolve(false);
+        if (sectionResponses[index]) return Promise.resolve(true);
+        if (!sectionReads.has(key)) {
+          const promise = reads.run(key, signal => readInvestmentReturnSeries({signal, section: sectionSpecs[index]}))
+            .then(data => {
+              if (!current() || generation !== returnGeneration) return false;
+              sectionResponses[index] = data;
+              renderer.updateReturnSeries({ resp, sectionResponses, sectionSpecs });
+              return true;
+            })
+            .catch(error => {
+              if (isReadCancelled(error)) return false;
+              throw error;
+            })
+            .finally(() => {
+              if (sectionReads.get(key) === promise) sectionReads.delete(key);
+            });
+          sectionReads.set(key, promise);
+        }
+        return sectionReads.get(key);
+      }
+      const result = renderer.renderReturns({ resp, sectionResponses, sectionSpecs, loadSection });
+      publishCharts();
+      const contribution = root.getElementById?.('profitContributionPanel') || root.querySelector?.('#profitContributionPanel');
+      if (contribution && typeof host.IntersectionObserver === 'function') {
+        const observer = new host.IntersectionObserver(async entries => {
+          if (!entries.some(entry => entry.isIntersecting)) return;
+          observer.disconnect();
+          for (const {key} of sectionSpecs) {
+            if (!current() || generation !== returnGeneration) break;
+            await loadSection(key).catch(() => false);
+          }
+        });
+        contributionObserver = observer;
+        observer.observe(contribution);
+      }
+      // Preserve the established first available A-share curve for partial totals.
+      if (!(resp.rows || []).some(row => returnRateForChart(row) != null)) {
+        await loadSection('a_stock');
+      }
+      return result;
     } catch (error) {
       if (isReadCancelled(error)) return null;
       throw error;
     }
-    if (!current() || generation !== returnGeneration) return null;
-    const result = renderer.renderReturns({ ...response, sectionSpecs });
-    publishCharts();
-    return result;
   }
 
   function loadReturnsOnce() {
@@ -104,6 +149,7 @@ export function createInvestmentChartController({ root = document, host = window
     dispose() {
       if (disposed) return;
       disposed = true;
+      contributionObserver?.disconnect();
       reads.dispose();
       returnGeneration += 1;
       host.removeEventListener?.('pagehide', onPageHide);

@@ -43,12 +43,14 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     }
   }
 
-  function renderInvestmentReturnChart({ resp, sectionResponses, sectionSpecs }) {
+  function renderInvestmentReturnChart({ resp, sectionResponses, sectionSpecs, loadSection }) {
     if (disposed) return null;
     const el = getElementById('investmentReturnChart');
     if (!el) return null;
     const rows = resp.rows || [];
     const chartState = state;
+    chartState.loadSection = loadSection;
+    chartState.loadedSections = new Set(sectionSpecs.filter((_, index) => sectionResponses[index]).map(spec => spec.key));
     const isMobileReturnChart = chartState.isMobile;
     const initialWindowData = initializeReturnState(chartState, resp, sectionResponses, sectionSpecs);
     const sectionDatasets = sectionSpecs.map((spec, index) => {
@@ -727,8 +729,14 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     };
-    const toggleSeries = (mode) => {
+    const toggleSeries = async (mode) => {
       const selected = options.find(item => item.key === mode) || options[0];
+      const wasVisible = chart.data.datasets.some(row => row.returnSeriesKey === mode && !row.hidden);
+      if (mode !== 'total' && state?.loadSection && !state.loadedSections.has(mode)) {
+        showStatus(`正在加载${selected.label}…`);
+        if (!await state.loadSection(mode) || disposed || chart !== returnChart) return;
+        if (!wasVisible && chart.data.datasets.some(row => row.returnSeriesKey === mode && !row.hidden)) return;
+      }
       const dataset = chart.data.datasets.find(row => row.label === selected.datasetLabel);
       if (!dataset?.data.some(value => value != null)) {
         const reason = state?.sectionReasons?.get(selected.key);
@@ -756,7 +764,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     `;
     }).join('');
     el.querySelectorAll('[data-return-series]').forEach(btn => {
-      listen('series', btn, 'click', () => toggleSeries(btn.dataset.returnSeries));
+      listen('series', btn, 'click', () => {
+        toggleSeries(btn.dataset.returnSeries).catch(() => showStatus('曲线加载失败，请重试。'));
+      });
     });
     syncButtons();
     chart.update('none');
@@ -765,6 +775,12 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
 
   return {
     renderReturns: renderInvestmentReturnChart,
+    updateReturnSeries({ resp, sectionResponses, sectionSpecs }) {
+      if (!returnChart || disposed) return;
+      state.loadedSections = new Set(sectionSpecs.filter((_, index) => sectionResponses[index]).map(spec => spec.key));
+      initializeReturnState(state, resp, sectionResponses, sectionSpecs);
+      applyInvestmentReturnWindow(returnChart, state, state.activeWindow, false);
+    },
     renderNav: renderInvestmentNavChart,
     renderWindowToggle: renderInvestmentReturnWindowToggle,
     applyWindow: applyInvestmentReturnWindow,

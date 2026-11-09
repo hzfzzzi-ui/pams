@@ -81,7 +81,7 @@ for (const fallback of [false, true]) {
     const loading = api.renderInvestmentReturnChart();
     const navPromise = api.loadInvestmentNavChartOnce();
     assert.equal(navPromise, api.loadInvestmentNavChartOnce());
-    assert.equal(requests.length, 6);
+    assert.equal(requests.length, 2);
     assert.match(requests[0].url, /^\/nav\/weekly/);
     const completeReturns = () => requests.slice(1).forEach(request => request.resolve(structuredClone(returns)));
     if (navFirst) {
@@ -104,7 +104,7 @@ for (const fallback of [false, true]) {
     assert.deepEqual(plain(window.__investmentNavChart.data.datasets[0].data), plain(expected.values));
     assert.equal(plain(state.navRows)[2].confirmation_status, 'unconfirmed');
     assert.equal(plain(state.navRows)[1].confirmation_status, 'last_valid');
-    assert.equal(requests.length, 6);
+    assert.equal(requests.length, 2);
     if (!fallback) assert.equal(test.charts.filter(chart => chart.canvas.id === 'investmentNavChart').length, 1);
     api.applyInvestmentReturnWindow(window.__investmentReturnChart, state, '1w');
     assert.deepEqual(plain(window.__investmentNavChart.data.labels), ['2026-10-26']);
@@ -118,6 +118,9 @@ for (const fallback of [false, true]) {
   const loading = api.renderInvestmentReturnChart();
   requests[0].resolve(structuredClone(nav)); await api.loadInvestmentNavChartOnce();
   requests.slice(1).forEach(request => request.reject(new Error('unavailable return series')));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(requests[2].url, /section=a_stock/);
+  requests[2].reject(new Error('unavailable A-share series'));
   assert.equal(await loading, null);
   assert.deepEqual(plain(window.__investmentNavChart.data.datasets[0].data), [1000.125, 1030.25, 1040.5]);
 }

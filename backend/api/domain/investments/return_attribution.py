@@ -1444,10 +1444,13 @@ def build_return_attribution_payload(
     *,
     base_currency: str = "CNY",
     sync_asset_master: bool = False,
+    reuse_holdings: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    reuse_balances: tuple[dict[str, Any], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Build the /api/analysis/return-attribution payload from current holdings."""
     account_cfg = _load_accounts_config()
-    account_balances = load_account_balances(cur, base_currency, account_cfg)
+    account_balances = (reuse_balances[1] if reuse_balances and reuse_balances[0] == account_cfg
+                        else load_account_balances(cur, base_currency, account_cfg))
     investment_positions = load_investment_positions(
         cur,
         base_currency,
@@ -1456,16 +1459,13 @@ def build_return_attribution_payload(
     )
     view_as_of = _latest_snapshot_date(cur)
     owner_ratios, default_owner_ratio = _owner_ratios(account_cfg)
-    holdings = build_holdings_latest_payload(
-        cur,
-        limit=5000,
-        include_closed=False,
-        view_as_of=view_as_of,
-        excluded_accounts=_excluded_accounts(account_cfg),
-        owner_ratios=owner_ratios,
-        default_owner_ratio=default_owner_ratio,
-        daily_pnl_start_as_of=daily_pnl_window_date(),
-    )
+    holdings_args = {
+        'limit': 5000, 'include_closed': False, 'view_as_of': view_as_of,
+        'excluded_accounts': _excluded_accounts(account_cfg), 'owner_ratios': owner_ratios,
+        'default_owner_ratio': default_owner_ratio, 'daily_pnl_start_as_of': daily_pnl_window_date(),
+    }
+    holdings = (reuse_holdings[1] if reuse_holdings and reuse_holdings[0] == holdings_args
+                else build_holdings_latest_payload(cur, **holdings_args))
     excluded_from_nav = {str(row.get('account_code')) for row in account_balances
                          if row.get('account_code') and not row.get('include_in_nav', True)}
     incomplete_accounts = sorted({str(row.get('account_code') or row.get('account'))
