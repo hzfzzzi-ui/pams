@@ -91,9 +91,8 @@ function expenseChoicesHtml(options, selectedValue, field) {
     const icon = field === 'category' ? EXPENSE_CATEGORY_ICONS[value] || EXPENSE_CATEGORY_ICONS.其他支出 : '';
     return `
       <button type="button" data-expense-choice="${field}" data-value="${escapeHtml(value)}"
-        ${field === 'category' ? `data-expense-tone="${escapeHtml(value)}"` : ''}
         aria-pressed="${value === selectedValue}">
-        ${icon ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg>` : ''}
+        ${icon ? `<span class="ledgerExpenseIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${icon}"/></svg></span>` : ''}
         <span>${escapeHtml(value)}</span>
       </button>
     `;
@@ -114,30 +113,32 @@ function ledgerEditSheetHtml(row) {
   const subcategory = isExpense ? (category ? rawSubcategory : '') : rawSubcategory || defaultEdit.subcategory || '';
   return `
     <form class="ledgerConfirmSheet ledgerEditSheet" data-ledger-edit-form="${escapeHtml(String(row.id || ''))}">
-      <div class="ledgerConfirmLead">${row.needs_review ? '请核对后保存分类。' : '保存后更新流水分类和收支统计。'}</div>
       ${hint ? `<p class="ledgerConfirmLead">词典建议，匹配到「${escapeHtml(hint.matched_keyword)}」。</p>` : ''}
-      <div class="ledgerConfirmTitle">${escapeHtml(rowTitle(row))}</div>
-      <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${escapeHtml(displayAmount)}</div>
-      <div class="ledgerConfirmMeta">
-        <div>
-          <span>日期 / 账户</span>
-          <strong>${escapeHtml(row.transaction_date || '--')} / ${escapeHtml(account)}</strong>
-        </div>
-        <div>
-          <span>当前口径</span>
-          <strong>${escapeHtml(row.flow_type === 'unclassified' ? '待分类' : ledgerEditTypeLabel(cashflowType))} / ${escapeHtml(row.coarse_category || '-')}</strong>
-        </div>
-        <div>
-          <span>对方</span>
-          <strong>${escapeHtml(row.counterparty || row.summary || '未提供')}</strong>
-        </div>
-        <div>
-          <span>说明</span>
-          <strong>${escapeHtml(row.description || row.summary || '无')}</strong>
+      <div class="ledgerEditSummary">
+        <div class="ledgerConfirmLead">${row.needs_review ? '请核对后保存分类。' : '保存后更新流水分类和收支统计。'}</div>
+        <div class="ledgerConfirmTitle">${escapeHtml(rowTitle(row))}</div>
+        <div class="ledgerConfirmAmount ${amount >= 0 ? 'up' : 'down'}">${escapeHtml(displayAmount)}</div>
+        <div class="ledgerConfirmMeta">
+          <div>
+            <span>日期 / 账户</span>
+            <strong>${escapeHtml(row.transaction_date || '--')} / ${escapeHtml(account)}</strong>
+          </div>
+          <div>
+            <span>当前口径</span>
+            <strong>${escapeHtml(row.flow_type === 'unclassified' ? '待分类' : ledgerEditTypeLabel(cashflowType))} / ${escapeHtml(row.coarse_category || '-')}</strong>
+          </div>
+          <div>
+            <span>对方</span>
+            <strong>${escapeHtml(row.counterparty || row.summary || '未提供')}</strong>
+          </div>
+          <div>
+            <span>说明</span>
+            <strong>${escapeHtml(row.description || row.summary || '无')}</strong>
+          </div>
         </div>
       </div>
       <div class="ledgerEditGrid">
-        <label>
+        <label class="ledgerEditType">
           <span>流水口径</span>
           <select class="formInput" data-edit-field="cashflow_type" required>
             ${cashflowType ? '' : '<option value="" selected disabled>请选择流水口径</option>'}
