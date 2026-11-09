@@ -7,6 +7,7 @@ import { createListView } from './list_view.js';
 import { createAttributionView } from './attribution_view.js';
 import { createEditor } from './editor.js';
 import { createCommands } from './commands.js';
+import { openContent, withReturnRoute } from '../../app/routes.js';
 
 const mounted = new WeakMap();
 
@@ -16,7 +17,7 @@ export function mount(root, context) {
   if (current) return current;
   const {get, post, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
   const location = context.location || win.location;
-  const navigate = context.navigate || (url => win.location.assign(url));
+  const navigate = context.navigate || (url => openContent(win, url));
   const restore = context.restoreState;
   const scope = createScope(root, {...context, win});
   const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
@@ -154,7 +155,7 @@ async function loadCampaignSummary() {
 }
 
 async function createTrade() {
-  navigate('account_import.html?kind=trade&mode=manual');
+  navigate(withReturnRoute('account_import.html?kind=trade&mode=manual', location.href || win.location.href));
 }
 
 function bindEvents() {

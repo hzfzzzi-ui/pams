@@ -20,7 +20,7 @@ function describe(label, data, balanceCurrency = null) {
 
 const compactStatuses = { normal: '正常', review: '待核查', stale: '超月未同步', inactive: '已停用' };
 
-export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview } = {}) {
+export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   panel.replaceChildren();
   const doc = panel.ownerDocument;
@@ -46,7 +46,16 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     badge.className = 'accountSyncBadge';
     badge.dataset.status = status;
-    name.append(element('h4', row.label), badge);
+    const title = element('h4', row.label);
+    if (row.active && openAccount) {
+      const button = element('button', row.label);
+      button.type = 'button';
+      button.className = 'accountSyncNameButton';
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.addEventListener('click', () => openAccount(row));
+      title.replaceChildren(button);
+    }
+    name.append(title, badge);
     const amount = data.balance_amount;
     const balance = element('span', amount == null ? '—' :
       new Intl.NumberFormat('zh-CN', { style: 'currency', currency: data.balance_currency || row.currency }).format(amount));
@@ -84,6 +93,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     for (const row of group.rows) {
       const item = element('article');
       item.className = 'accountSyncEntry';
+      if (row.account_code) item.dataset.accountCode = row.account_code;
       if (compact) {
         compactEntry(item, row);
         section.append(item);

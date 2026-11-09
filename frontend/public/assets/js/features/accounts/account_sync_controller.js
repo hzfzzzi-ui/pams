@@ -20,7 +20,7 @@ function withPortfolioAmounts(groups, holdings) {
   })}));
 }
 
-export function createAccountSyncLoader(root, { reads, isActive, compact = false, openReview }) {
+export function createAccountSyncLoader(root, { reads, isActive, compact = false, openReview, openAccount, onRendered }) {
   const panel = root.querySelector('#accountSyncPanel');
   const status = root.querySelector('#accountSyncStatus');
   const retry = root.querySelector('#retryAccountSync');
@@ -38,8 +38,9 @@ export function createAccountSyncLoader(root, { reads, isActive, compact = false
       const groups = compact ? withPortfolioAmounts(data.groups, holdings) : data.groups;
       renderAccountSync(panel, groups, (code, offset) => reads.get('bank-source-anomalies:' + code,
         '/api/sync/accounts/' + encodeURIComponent(code) + '/source-anomalies?offset=' + offset, { cache: false }),
-      { compact, openReview });
+      { compact, openReview, openAccount });
       status.textContent = '';
+      onRendered?.(panel, groups);
     } catch (error) {
       if (isActive() && !isReadCancelled(error)) {
         status.textContent = '暂时无法读取账户状态。';

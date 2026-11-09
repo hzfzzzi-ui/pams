@@ -4,6 +4,7 @@ import { createRequestScope } from './request_scope.js';
 import { createRecordsEditor } from './records_editor.js';
 import { createMappingEditor } from './mapping_editor.js';
 import { createSourceRecordAdapter } from './source_record_adapter.js';
+import { accountCenterHref, leaveContent, openContent, withReturnRoute } from '../../app/routes.js';
 
 const mounted = new WeakMap();
 
@@ -134,6 +135,10 @@ export function mount(root, context = {}) {
     state.needsKind = state.mode === 'manual' && !$('kind').value;
   }
   function renderControls() {
+    const settings = $('import-settings');
+    if (settings) settings.hidden = Boolean(state.batch) || state.step !== 1 || !account()?.kinds?.includes('cash');
+    const done = $('return-completed');
+    if (done) done.disabled = state.busy;
     const locked = state.busy || state.conflict || state.needsRefresh || !editable() || !state.accounts.length;
     $('workspace').inert = state.busy;
     $('record-form').inert = state.busy;
@@ -167,6 +172,11 @@ export function mount(root, context = {}) {
     for (const id of ['back', 'publish']) $(id).hidden = state.step !== 2 || imageReview;
     $('publish-ready').hidden = state.step !== 2 || imageReview || !state.preview?.can_publish_ready;
     if (!$('publish-ready').hidden) $('publish').hidden = true;
+    const completed = state.batch?.status === 'published';
+    if ($('return-completed')) $('return-completed').hidden = !completed;
+    if (completed) {
+      for (const id of ['save-draft', 'next', 'back', 'publish', 'publish-ready']) $(id).hidden = true;
+    }
     for (const id of ['previous-image','confirm-image']) $(id).hidden = !imageReview;
     $('upload-area').hidden = state.mode !== 'upload';
     $('kind-prompt').hidden = !state.needsKind;
@@ -580,6 +590,15 @@ export function mount(root, context = {}) {
   }));
   listen($('back'), 'click', () => run(goBack));
   listen($('flow-back'), 'click', () => run(goBack));
+  listen($('return-completed'), 'click', () => run(goBack));
+  listen($('import-settings'), 'click', () => run(() => {
+    if (state.batch || state.dirty || state.suspended || mappingDirty()) return;
+    const selected = $('account').value;
+    const origin = new URL(location.href);
+    if (selected) origin.searchParams.set('account', selected);
+    const params = new URLSearchParams({task: 'sources', account: selected});
+    openContent(window, withReturnRoute('accounts.html?' + params, origin.href));
+  }));
   listen($('previous-image'), 'click', () => run(goBack));
   listen($('confirm-image'), 'click', () => run(async () => {
     if (state.suspended) { resumeEditor(); return; }
@@ -597,7 +616,7 @@ export function mount(root, context = {}) {
     if (sourceOnly()) {
       if (!editable() || !state.preview || state.dirty || state.conflict || state.needsRefresh) return;
       useBatch(await sourceAdapter.confirmBankSource(state.batch));
-      message('资料已确认，可在「账户管理」查看。');
+      message('资料已确认，可在「账户中心」查看。');
       await history();
       return;
     }
@@ -657,7 +676,7 @@ export function mount(root, context = {}) {
   async function goBack() {
     if ($('image-viewer').open) { $('image-viewer').close(); return; }
     if ($('editor').open) { rememberEditor(); $('editor').close(); clearSearch(); render(); return; }
-    if (state.step === 2) {
+    if (state.step === 2 && state.batch?.status !== 'published') {
       if (state.imageIndex !== null && state.imageIndex > 0) state.imageIndex--;
       else if (state.imageIndex === null && images().length) state.imageIndex = images().length-1;
       else { state.step=1; state.imageIndex=null; state.preview=null; }
@@ -665,7 +684,7 @@ export function mount(root, context = {}) {
     }
     if (state.suspended || mappingDirty()) { message('请先保存或取消未完成的编辑，再返回。'); return; }
     if (state.dirty) await saveDraft();
-    window.location.assign('more.html');
+    leaveContent(window, accountCenterHref());
   }
   function renderImageReview() {
     const file=images()[state.imageIndex]; if (!file) return;

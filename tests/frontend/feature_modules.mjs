@@ -100,7 +100,7 @@ const data = await loadFeatureModule(publicRoot, 'features/data_sources/controll
   await page.ready;
   const html = root.querySelector('#issuesContent').innerHTML;
   assert.match(html, /&lt;合成账户&gt;/); assert.match(html, /2026-06-18/); assert.match(html, /2026-10-29/);
-  assert.match(html, /accounts.html#overview/); assert.match(html, /data_sources.html#dataQuality/);
+  assert.match(html, /more.html\?account=a&amp;review=balance#account-center/); assert.match(html, /data_sources.html#dataQuality/);
   assert.equal(other.querySelector('#issuesContent').innerHTML, '');
   page.dispose();
   assert.equal(root.classList.contains('issues-only'), false); assert.equal(root.querySelector('#issuesView').hidden, true);

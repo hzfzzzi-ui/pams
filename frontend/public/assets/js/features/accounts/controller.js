@@ -2,6 +2,7 @@ import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createView } from './view.js';
 import { createActions } from './actions.js';
 import { createAccountSyncLoader } from './account_sync_controller.js';
+import { ACCOUNT_TASKS, accountCenterHref, returnRoute } from '../../app/routes.js';
 
 const mounted = new WeakMap();
 const filterValues = {'缺数据': 'missing', '金额差异': 'diff', '日期过期': 'stale', '负余额': 'negative', '在途资金': 'transit'};
@@ -13,6 +14,9 @@ export function mount(root, context) {
   const {get, post, replaceAddress, openSheet, closeSheet, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
   const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const location = context.location || win?.location;
+  const query = new URLSearchParams(location.search);
+  const task = Object.hasOwn(ACCOUNT_TASKS, query.get('task')) ? query.get('task') : null;
+  const targetAccount = query.get('account');
   const find = id => root.querySelector(`#${id}`);
   const restore = context.restoreState;
   const state = {config: null, accountOverview: null, collapsedAccountGroups: new Set(restore?.collapsedGroups || [])};
@@ -28,6 +32,11 @@ export function mount(root, context) {
   let restoreDetails = Boolean(restore);
 
   function renderOverview(data) {
+    if (task === 'balance' && targetAccount) {
+      const accounts = (data.accounts || []).filter(account => account.account_code === targetAccount);
+      if (!accounts.length) view.setMsg('未找到该账户的余额核准记录。');
+      data = {...data, accounts};
+    }
     view.renderAccountCenter(data);
     if (restoreDetails) {
       root.querySelectorAll('[data-account-detail]').forEach(details => {
@@ -70,7 +79,9 @@ export function mount(root, context) {
     return readInto('unmatched', `/api/bank-reconcile/unmatched-rows?since=${encodeURIComponent(since)}&limit=500`, view.renderUnmatchedRows);
   };
   const loadImports = () => readInto('imports', '/api/bank-reconcile/imports', view.renderImports);
-  const actions = createActions({post, isActive: () => alive, view, acceptOverview, loadUnmatchedRows, loadImports, loadAccountOverview});
+  const actions = createActions({post, isActive: () => alive, view, acceptOverview, loadUnmatchedRows,
+    loadImports: task === 'transfers' ? () => {} : loadImports,
+    loadAccountOverview: task === 'transfers' ? () => {} : loadAccountOverview});
 
   function runAction(key, button, action) {
     if (!alive || button.disabled || pendingActions.has(key)) return;
@@ -174,14 +185,27 @@ export function mount(root, context) {
   }
 
   async function load() {
+    if (task === 'balance') {
+      await loadAccountOverview();
+      return;
+    }
     state.config = await reads.get('config', '/api/bank-reconcile/config');
     if (!alive) return;
-    await loadAccountOverview();
+    if (!task) await loadAccountOverview();
     if (!alive) return;
     find('since').value = state.config?.defaults?.since || '2026-01-01';
-    view.renderProfiles();
-    if (restore && Object.hasOwn(state.config?.profiles || {}, restore.profileCode)) view.selectProfile(restore.profileCode);
+    if (task !== 'transfers') {
+      view.renderProfiles();
+      const profiles = state.config?.profiles || {};
+      const profileCode = restore?.profileCode || Object.keys(profiles).find(code => targetAccount &&
+        (profiles[code].pams_target?.account_code || profiles[code].account_code) === targetAccount);
+      if (Object.hasOwn(profiles, profileCode)) view.selectProfile(profileCode);
+    }
     if (restore && typeof restore.since === 'string') find('since').value = restore.since;
+    if (task === 'sources') {
+      await loadImports();
+      return;
+    }
     view.renderRelationships();
     await loadTransferMatches();
     if (!alive) return;
@@ -218,9 +242,20 @@ export function mount(root, context) {
   bootstrap();
   root.addEventListener('click', onClick);
   win?.addEventListener('pagehide', dispose);
-  const initial = restore?.tab || (location.hash ? location.hash.slice(1) : 'overview');
+  if (task) {
+    find('accountTaskHeader').hidden = false;
+    find('accountTaskTitle').textContent = ACCOUNT_TASKS[task];
+    find('accountTaskBack').href = returnRoute(location, task === 'transfers' ? 'ledger.html#transfers' :
+      task === 'sources' ? 'account_import.html' : accountCenterHref(targetAccount));
+    root.ownerDocument.title = 'PAMS · ' + ACCOUNT_TASKS[task];
+    root.querySelectorAll('.accountTabs, .appWorkHeader').forEach(element => {element.hidden = true;});
+    if (task === 'balance' && targetAccount) {
+      for (const id of ['accountMobileHero', 'accountKpis', 'accountIssueQueue']) find(id).hidden = true;
+    }
+  }
+  const initial = task || restore?.tab || (location.hash ? location.hash.slice(1) : 'overview');
   showTab(['overview', 'balance', 'transfers', 'sources'].includes(initial) ? initial : 'overview');
-  controller.ready = Promise.all([loadAccountSync(), load().catch(showError)]);
+  controller.ready = Promise.all([task ? null : loadAccountSync(), load().catch(showError)]);
   return controller;
 }
 

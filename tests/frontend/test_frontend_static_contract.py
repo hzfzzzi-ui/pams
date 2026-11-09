@@ -86,13 +86,13 @@ def test_data_sources_page_exposes_portfolio_data_quality_panel() -> None:
         "账户余额",
         "投资持仓",
         "汇率",
-        "补录账户余额",
+        "核对账户余额",
         "当前无阻塞动作",
     ]:
         assert label in js
 
     for href in [
-        "ledger.html#accountIssueStrip",
+        "accountCenterHref()",
         "ledger.html#transfers",
         "investments.html",
         "investments.html#investment-ledger",
@@ -1488,7 +1488,7 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
 
     for href in [
         "data_sources.html?view=issues#dataQuality",
-        "investments.html#asset-master-panel",
+        "account_import.html",
     ]:
         assert html.count(f'href="{href}"') == 1
     for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", ">同步中心<", "投资交易记录", "内部转账匹配"]:

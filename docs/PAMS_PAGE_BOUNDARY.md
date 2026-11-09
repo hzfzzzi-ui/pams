@@ -7,7 +7,7 @@
 | investments.html | 默认首页；持仓、交易、分析、风险、目标配置 | holdings、holdings_categories、transactions、lookthrough、portfolio_risk、portfolio_config；由对应 API 服务给出业务结果 |
 | ledger.html | 收支、资金流转、待确认与异常摘要 | ledger_cashflow；cashflow fact 与 ledger 服务 |
 | more.html | 账户中心、待处理和高级工具；默认展开子账户摘要，点击「待核查」查看原因及关联记录 | more、account_sync；sync/accounts、portfolio/data-quality |
-| accounts.html | 账户状态总览、来源异常核对、余额核准、银行账单与划转匹配 | bank_reconcile；sync/accounts、accounts、bank-reconcile 服务 |
+| accounts.html | 单项操作页，由账户中心打开余额核准、收支打开转账匹配、导入资料打开导入配置 | bank_reconcile；accounts、bank-reconcile 服务 |
 | data_sources.html | 同步状态、覆盖与数据质量 | data_sources；sync center |
 | account_import.html | 导入暂存、核对、预检和显式发布入口 | account_import；访问、schema、预检和发布开关分别生效 |
 
@@ -16,6 +16,7 @@
 ## 导航和兼容
 
 - 底部主导航为投资、收支、更多，风险主入口在投资页内。
+- 旧账户总览链接定位到更多页账户中心。待处理的余额问题按账户定位，转账问题进入收支的资金流转。导入携带发起页，完成或退出时返回该位置。
 - index.html 重定向 investments.html；risk.html 重定向投资风险子页。
 - 旧 holdings、transactions、cashflow、backtest、strategy、watchlist 独立 HTML 入口在构建 nginx 配置中返回 404；研究页面及相关 JS 已移除。
 - nginx 配置由 frontend/Dockerfile 生成，是构建配置的唯一来源。

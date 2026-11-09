@@ -1,6 +1,7 @@
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createAccountSyncLoader } from '../accounts/account_sync_controller.js';
 import { showAccountReview } from '../accounts/account_review_sheet.js';
+import { accountCenterHref } from '../../app/routes.js';
 
 export function issueSummary(payload) {
   const summary = payload?.data_quality?.summary;
@@ -27,20 +28,52 @@ export function mount(root, context) {
   const panel = find('moreNavGrowthExplanationPanel');
   const details = find('moreNavGrowthDetails');
   const accountRetry = find('retryAccountSync');
+  const query = new URLSearchParams((context.location || win?.location)?.search);
+  const targetAccount = query.get('account');
   let alive = true;
   let navGrowthLoaded = false;
   let navGrowthPending;
   let reviewPanel;
-  function openReview(account) {
-    reviewPanel = openSheet(account.label + ' · 待核查');
+  function openAccount(account, review = false) {
+    reviewPanel = openSheet(review ? account.label + ' · 待核查' : account.label);
     if (!reviewPanel) return;
-    showAccountReview(reviewPanel, account, (kind, offset) =>
-      reads.get('account-review:' + account.account_code + ':' + kind,
-        '/api/sync/accounts/' + encodeURIComponent(account.account_code) +
-        '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}));
+    if (review && account.summary?.review_reasons?.length) {
+      showAccountReview(reviewPanel, account, (kind, offset) =>
+        reads.get('account-review:' + account.account_code + ':' + kind,
+          '/api/sync/accounts/' + encodeURIComponent(account.account_code) +
+          '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}));
+    }
+    if (!account.active) return;
+    const actions = reviewPanel.ownerDocument.createElement('div');
+    actions.className = 'accountCenterActions';
+    const add = (page, label, params = {}) => {
+      const anchor = reviewPanel.ownerDocument.createElement('a');
+      anchor.className = 'btn';
+      anchor.textContent = label;
+      anchor.href = page + '?' + new URLSearchParams({...params, account: account.account_code,
+        return: accountCenterHref(account.account_code)});
+      actions.append(anchor);
+    };
+    add('accounts.html', '余额核准', {task: 'balance'});
+    if (account.can_import) add('account_import.html', '导入资料');
+    reviewPanel.prepend(actions);
+  }
+  function locateAccount(container, groups) {
+    if (!targetAccount) return;
+    const item = [...container.querySelectorAll('[data-account-code]')].find(el => el.dataset.accountCode === targetAccount);
+    const account = groups.flatMap(group => group.rows).find(row => row.account_code === targetAccount);
+    if (!item || !account) {
+      find('accountSyncStatus').textContent = '未找到指定账户。';
+      return;
+    }
+    item.closest('details').open = true;
+    item.scrollIntoView({block: 'center'});
+    item.querySelector('h4 button')?.focus({preventScroll: true});
+    if (query.get('review') === 'balance' && openSheet) openAccount(account, true);
   }
   const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true,
-    openReview: openSheet ? openReview : undefined });
+    openAccount: openSheet ? openAccount : undefined,
+    openReview: openSheet ? account => openAccount(account, true) : undefined, onRendered: locateAccount });
 
   function onAccountRetry() { void loadAccountSync(); }
 

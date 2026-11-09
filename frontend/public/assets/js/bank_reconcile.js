@@ -1,4 +1,4 @@
-import { replaceContentAddress } from './app/routes.js';
+import { ACCOUNT_TASKS, accountCenterHref, replaceContentAddress } from './app/routes.js';
 import { jget, jpost } from './api.js';
 import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js';
 import { mount as mountPage, dispose as disposePage } from './features/accounts/controller.js';
@@ -22,16 +22,24 @@ export function dispose(root = document.body) {
 }
 
 if (typeof document !== 'undefined') {
-  // Registered once for the document, before the instance pagehide cleanup.
-  window.addEventListener('pagehide', event => {
-    restoreState = event.persisted && page && !page.disposed ? page.captureUiState() : null;
-  });
-  window.addEventListener('pageshow', event => {
-    if (event.persisted && restoreState) {
-      const state = restoreState;
-      restoreState = null;
-      mount(document.body, {restoreState: state});
-    }
-  });
-  mount();
+  const query = new URLSearchParams(window.location.search);
+  if (!Object.hasOwn(ACCOUNT_TASKS, query.get('task'))) {
+    const target = new URL(accountCenterHref(query.get('account')), window.location.href);
+    if (window.parent !== window) {
+      window.parent.postMessage({type: 'pams-shell-route', href: target.href}, target.origin);
+    } else window.location.replace(target.href);
+  } else {
+    // Capture state before the page controller disposes itself.
+    window.addEventListener('pagehide', event => {
+      restoreState = event.persisted && page && !page.disposed ? page.captureUiState() : null;
+    });
+    window.addEventListener('pageshow', event => {
+      if (event.persisted && restoreState) {
+        const state = restoreState;
+        restoreState = null;
+        mount(document.body, {restoreState: state});
+      }
+    });
+    mount();
+  }
 }

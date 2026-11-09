@@ -12,6 +12,7 @@ if (output) await mkdir(output, {recursive:true});
 const context = await browser.newContext();
 let delayAccountLoad = false;
 let releaseAccountLoad;
+let workflowFixtures = false;
 const server = createServer(async (req,res) => {
   const url = new URL(req.url,'http://localhost');
   if (/\/(investments|ledger|more|accounts|data_sources|account_import)\.html$/.test(url.pathname) && url.searchParams.get('content') !== '1') {
@@ -33,6 +34,25 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 await context.route('**/*', async route => {
   const url = new URL(route.request().url());
+  if (workflowFixtures && url.hostname === '127.0.0.1') {
+    const accounts = [{account_code:'fixture', display_name:'示例储蓄卡', currency:'CNY'}];
+    const fixtures = {
+      '/api/sync/accounts': {groups:[{label:'示例银行', rows:[{...accounts[0], label:'示例储蓄卡', active:true, can_import:true, summary:{status:'normal'}}]}]},
+      '/api/portfolio/data-quality': {data_quality:{summary:{status:'warning',warning_count:1,error_count:0},checks:[
+        {id:'account_balance_coverage',status:'attention',details:{missing_accounts:['fixture']}}]}},
+      '/api/accounts/overview': {accounts},
+      '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
+      '/api/bank-reconcile/imports': {},
+      '/api/bank-reconcile/transfer-matches': {},
+      '/api/bank-reconcile/unmatched-rows': {},
+      '/api/account-import/capabilities': {schema_ready:true},
+      '/api/account-import/context': {accounts:[{...accounts[0],label:'示例储蓄卡',kinds:['cash']}]},
+      '/api/account-import/batches': {batches:[]},
+    };
+    if (Object.hasOwn(fixtures,url.pathname)) return route.fulfill({
+      json:fixtures[url.pathname], headers:{'access-control-allow-origin':base},
+    });
+  }
   if (url.origin === base && url.pathname === '/pending-account-load') {
     await new Promise(resolve => { releaseAccountLoad = resolve; });
     return route.fulfill({status: 204, body: ''});
@@ -127,12 +147,12 @@ try {
     delayAccountLoad = true;
     await page.frameLocator('#page-content').locator('body').evaluate(node => {
       const link = document.createElement('a');
-      link.href = 'accounts.html';
+      link.href = 'accounts.html?task=balance';
       link.textContent = '兼容跳转测试';
       node.append(link);
     });
     await page.frameLocator('#page-content').getByText('兼容跳转测试', {exact:true}).click();
-    await page.waitForFunction(() => window.accountRouteNotice?.endsWith('#overview'));
+    await page.waitForFunction(() => window.accountRouteNotice?.endsWith('#balance'));
     assert.equal(new URL(page.url()).searchParams.get('view'), 'more.html');
     releaseAccountLoad(); releaseAccountLoad = null;
     await page.waitForFunction(() => new URL(location).searchParams.get('view') === 'accounts.html');
@@ -152,10 +172,12 @@ try {
     await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
     for (const target of ['accounts.html#overview','data_sources.html','account_import.html']) {
       await page.frameLocator('#page-content').locator('body').evaluate((node,href) => location.assign(href),target);
-      await page.waitForFunction(expected => document.querySelector('#page-content').contentWindow.location.pathname.endsWith(expected),target.split('#')[0]);
+      const expected = target.startsWith('accounts.html') ? 'more.html' : target.split('#')[0];
+      await page.waitForFunction(name => document.querySelector('#page-content').contentWindow.location.pathname.endsWith(name),expected);
       await page.frameLocator('#page-content').locator('body').waitFor();
       if (target.startsWith('accounts.html')) {
-        const accountList = page.frameLocator('#page-content').locator('[data-account-panel="overview"] #accountSyncPanel');
+        await page.waitForFunction(() => location.hash === '#account-center');
+        const accountList = page.frameLocator('#page-content').locator('#account-center #accountSyncPanel');
         assert.equal(await accountList.evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)');
         assert.equal(await accountList.evaluate(node => getComputedStyle(node).borderRadius), '0px');
       }
@@ -167,6 +189,40 @@ try {
     await page.locator('[data-page="ledger.html"]').click();
     await page.locator('[data-page="ledger.html"][aria-current]').waitFor();
   }
+  workflowFixtures = true;
+  await page.goto(`${base}/accounts.html?account=fixture#overview`);
+  const workflow = page.frameLocator('#page-content');
+  await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).waitFor();
+  await page.waitForFunction(() => new URL(location).searchParams.get('view') === 'more.html' && location.hash === '#account-center');
+  await workflow.locator('#moreIssues').click();
+  await workflow.getByRole('link',{name:'核对 示例储蓄卡 ›'}).click();
+  const review = workflow.getByRole('dialog');
+  await review.getByText('示例储蓄卡 · 待核查').waitFor();
+  await review.getByRole('link',{name:'余额核准'}).click();
+  await workflow.getByRole('heading',{name:'余额核准',exact:true}).waitFor();
+  await workflow.locator('.accountTabs').waitFor({state:'hidden'});
+  await workflow.locator('#accountTaskBack').click();
+  await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).click();
+  await review.getByRole('link',{name:'导入资料'}).click();
+  await workflow.getByRole('button',{name:'导入配置',exact:true}).waitFor();
+  assert.equal(await workflow.locator('#account').inputValue(),'fixture');
+  await workflow.getByRole('button',{name:'导入配置',exact:true}).click();
+  await workflow.getByRole('heading',{name:'导入配置',exact:true}).waitFor();
+  await workflow.getByText('示例模板',{exact:true}).waitFor();
+  await workflow.locator('#accountTaskBack').click();
+  await workflow.locator('#account option').first().waitFor({state:'attached'});
+  assert.equal(await workflow.locator('#account').inputValue(),'fixture');
+  await workflow.locator('#flow-back').click();
+  await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).waitFor();
+  await page.waitForFunction(() => new URL(location).searchParams.get('account') === 'fixture');
+  await page.locator('[data-page="ledger.html"]').click();
+  await workflow.locator('[data-ledger-tab="account"]').click();
+  await workflow.getByRole('link',{name:'查看资金流转'}).click();
+  await workflow.getByRole('link',{name:'核对转账匹配'}).click();
+  await workflow.getByRole('button',{name:'运行匹配'}).waitFor();
+  await workflow.locator('#accountTaskBack').click();
+  await workflow.getByRole('link',{name:'核对转账匹配'}).waitFor();
+  workflowFixtures = false;
   // A desktop viewport alone reports zero insets. Emulate the phone's
   // obstruction so the test catches an iframe starting behind the status bar.
   const session = await context.newCDPSession(page);
@@ -175,7 +231,7 @@ try {
     investments: '[data-invest-tab="analysis"]',
     ledger: '[data-ledger-tab="recent"]',
     more: '#moreAdvanced > summary',
-    accounts: '[data-account-tab="overview"]',
+    accounts: '#accountTaskBack',
     data_sources: '.issueDiagnostics',
     account_import: '#flow-back',
   };
@@ -187,7 +243,7 @@ try {
     await session.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:true});
     await session.send('Emulation.setSafeAreaInsetsOverride', {insets:{top,bottom,left,right}});
     for (const [key,selector] of Object.entries(firstControls)) {
-      const contentView = key === "data_sources" ? "&content_view=issues" : "";
+      const contentView = key === "data_sources" ? "&content_view=issues" : key === "accounts" ? "&task=balance" : "";
       await page.goto(`${base}/app.html?view=${key}.html${contentView}`);
       const frame = page.frameLocator('#page-content');
       await frame.locator('html.pams-content').waitFor({state:'attached'});

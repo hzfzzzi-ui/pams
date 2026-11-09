@@ -51,7 +51,7 @@ def test_isolated_two_step_shell_and_existing_bank_link() -> None:
     assert "app-shell" in HTML and '<dialog id="editor"' in HTML
     more = (PUBLIC / "more.html").read_text(encoding="utf-8")
     assert more.count('href="account_import.html"') == 1
-    assert 'href="accounts.html#overview"' in more
+    assert 'href="accounts.html#overview"' not in more
     assert 'href="accounts.html#sources"' not in more
     assert '<nav class="nav"' not in HTML
     assert 'id="flow-back"' in HTML

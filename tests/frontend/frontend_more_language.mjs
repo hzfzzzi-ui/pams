@@ -87,7 +87,8 @@ try{
   for(const key of ['font','size','weight','line','color'])assert.equal(primary[key],investment.name[key],JSON.stringify({width,key,primary,investment}));
   assert.equal(wrap.gutter,investment.wrap.gutter);assert.ok(wrap.width<=430);assert.equal(await page.locator('.moreHub').evaluate(n=>getComputedStyle(n).display),'block');
   assert.equal(await page.locator('.nav a').count(),0);
-  assert.equal(await page.locator('#moreAssetManagement,[data-account-tab],a[href^="account_import.html"],a[href^="accounts.html"]').count(),0);
+  assert.equal(await page.locator('#moreAssetManagement,[data-account-tab],a[href^="accounts.html"]').count(),0);
+  await page.getByRole('link',{name:'导入资料',exact:true}).waitFor();
   assert.deepEqual(calls.slice(before).sort(),['/api/holdings/by-account','/api/portfolio/data-quality','/api/sync/accounts']);
   await child.waitFor({state:'visible'});
   assert.equal(await page.locator('#accountSyncPanel > details[open]').count(),3);
@@ -98,7 +99,7 @@ try{
   assert.deepEqual(await page.locator('.accountSyncAmount').allTextContents().then(values=>values.slice(3)),['¥1,434.56','¥6,890.12']);
   assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
   assert.deepEqual(await page.locator('.accountSyncCompact').first().locator('dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
-  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p)').count(),1);
+  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p):not(.accountSyncNameButton)').count(),1);
   const review=page.getByRole('button',{name:'合成信用卡：待核查'});
   const sheet=page.getByRole('dialog');
   reviewUnavailable=true;
@@ -122,9 +123,9 @@ try{
   await account.click();
   await child.waitFor({state:'visible'});
   await capture(width+'-home');
-  await page.locator('#moreAdvanced>summary').click();await page.getByText('资产底表与映射',{exact:true}).waitFor();await page.mouse.move(0,0);
+  await page.locator('#moreAdvanced>summary').click();await page.getByText('数据诊断',{exact:true}).waitFor();await page.mouse.move(0,0);
   const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));
-  assert.equal(children.length,4);for(const child of children){assert.equal(child.font,body.font);assert.equal(child.size,'14px');assert.equal(child.weight,'600');assert.equal(child.color,body.color);assert.equal(child.background,'rgba(0, 0, 0, 0)');}
+  assert.equal(children.length,3);for(const child of children){assert.equal(child.font,body.font);assert.equal(child.size,'14px');assert.equal(child.weight,'600');assert.equal(child.color,body.color);assert.equal(child.background,'rgba(0, 0, 0, 0)');}
   assert.equal(await page.locator('#moreAdvanced>summary').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
   await capture(width+'-advanced');
   await page.locator('.moreSystem>summary').click();await page.locator('#moreOrigin').waitFor();assert.equal(await page.locator('#moreOrigin').textContent(),'http://language.invalid');
