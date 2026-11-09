@@ -19,25 +19,128 @@ function describe(label, data, balanceCurrency = null) {
 }
 
 const compactStatuses = { normal: '正常', review: '待核查', stale: '超月未同步', inactive: '已停用' };
+const institutions = new Map([
+  ['ccb', ['建行', 'ccb']],
+  ['icbc_6689', ['工行', 'icbc']],
+  ['santander', ['Santander', 'santander']],
+  ['tencent', ['腾讯', 'wechat']],
+  ['alipay', ['支付宝', 'alipay']],
+  ['ibkr', ['IBKR', 'ibkr']],
+  ['tonghuashun', ['同花顺', 'tonghuashun']],
+  ['benefits', ['五险一金']],
+  ['guangfa_credit', ['广发', 'guangfa']],
+]);
 
-export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount } = {}) {
+function element(doc, tag, text = '') {
+  const node = doc.createElement(tag);
+  node.textContent = text;
+  return node;
+}
+
+export function accountSyncMetadata(doc, data = {}) {
+  const metadata = element(doc, 'dl');
+  metadata.className = 'accountSyncMetadata';
+  const syncedAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
+  const syncedLabel = syncedAt && Number.isFinite(syncedAt.valueOf())
+    ? localTime.format(syncedAt).replaceAll('/', '-') : '—';
+  metadata.append(element(doc, 'dt', '最近交易'), element(doc, 'dd', data.latest_trade_on || '—'),
+    element(doc, 'dt', '上次同步'), element(doc, 'dd', syncedLabel));
+  return metadata;
+}
+
+function shortAccountLabel(label, groupLabel, shortLabel) {
+  for (const prefix of [groupLabel, shortLabel]) {
+    if (prefix && label.startsWith(prefix)) {
+      const short = label.slice(prefix.length).trim();
+      if (short) return short.replace(/^(\d{4})(?=[^\d\s])/, '$1 ');
+    }
+  }
+  return label;
+}
+
+function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, previousGroup) {
+  const doc = panel.ownerDocument;
+  const picker = element(doc, 'div');
+  picker.className = 'accountInstitutionPicker';
+  picker.setAttribute('role', 'group');
+  picker.setAttribute('aria-label', '选择机构');
+  const entries = groups.map((group, index) => {
+    const [shortLabel, artwork] = institutions.get(group.code) || [group.label];
+    const button = element(doc, 'button');
+    button.type = 'button';
+    button.className = 'accountInstitutionButton';
+    button.dataset.institution = group.code || group.label;
+    const logo = element(doc, 'span', shortLabel.slice(0, 1));
+    logo.className = 'accountInstitutionLogo';
+    logo.setAttribute('aria-hidden', 'true');
+    if (artwork) {
+      const image = element(doc, 'img');
+      image.alt = '';
+      image.src = new URL('../../../images/account-brands/' + artwork + '.jpg', import.meta.url).href;
+      image.addEventListener('error', () => image.remove(), {once: true});
+      logo.append(image);
+    }
+    const label = element(doc, 'span', shortLabel);
+    label.className = 'accountInstitutionLabel';
+    button.append(logo, label);
+    const statuses = group.rows.filter(row => row.active !== false).map(row => row.summary?.status);
+    const issue = statuses.includes('review') ? 'review' : statuses.includes('stale') ? 'stale' : null;
+    if (issue) {
+      const flag = element(doc, 'span', '!');
+      flag.className = 'accountInstitutionFlag';
+      flag.dataset.status = issue;
+      flag.setAttribute('aria-hidden', 'true');
+      button.append(flag);
+    }
+    button.setAttribute('aria-label', [group.label, compactStatuses[issue]].filter(Boolean).join('，'));
+    const section = element(doc, 'section');
+    section.className = 'accountInstitutionPanel';
+    section.id = 'accountInstitutionPanel-' + index;
+    button.setAttribute('aria-controls', section.id);
+    const heading = element(doc, 'header');
+    const title = element(doc, 'h3', group.label);
+    title.id = section.id + '-title';
+    section.setAttribute('aria-labelledby', title.id);
+    heading.append(title, element(doc, 'small', group.rows.length + ' 个子账户'));
+    section.append(heading);
+    for (const row of group.rows) {
+      const item = element(doc, 'article');
+      item.className = 'accountSyncEntry';
+      if (row.account_code) item.dataset.accountCode = row.account_code;
+      renderEntry(item, row, shortAccountLabel(row.label, group.label, shortLabel));
+      section.append(item);
+    }
+    picker.append(button);
+    return { group, button, section };
+  });
+  function select(current) {
+    for (const entry of entries) {
+      entry.button.setAttribute('aria-pressed', String(entry === current));
+      entry.section.hidden = entry !== current;
+    }
+  }
+  for (const entry of entries) entry.button.addEventListener('click', () => select(entry));
+  select(entries.find(entry => targetAccount && entry.group.rows.some(row => row.account_code === targetAccount)) ||
+    entries.find(entry => entry.button.dataset.institution === previousGroup) || entries[0]);
+  panel.append(picker, ...entries.map(entry => entry.section));
+}
+
+export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount, targetAccount } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
+  const previousGroup = compact
+    ? panel.querySelector('.accountInstitutionButton[aria-pressed="true"]')?.dataset.institution : null;
   panel.replaceChildren();
   const doc = panel.ownerDocument;
-  function element(tag, text) {
-    const node = doc.createElement(tag);
-    node.textContent = text;
-    return node;
-  }
-  function compactEntry(item, row) {
+  const make = (tag, text) => element(doc, tag, text);
+  function compactEntry(item, row, label) {
     const data = row.summary || {};
-    const heading = element('div');
+    const heading = make('div');
     heading.className = 'accountSyncCompactHeading';
-    const name = element('div');
+    const name = make('div');
     name.className = 'accountSyncCompactName';
     const status = Object.hasOwn(compactStatuses, data.status) ? data.status : 'review';
     const actionable = status === 'review' && openReview;
-    const badge = element(actionable ? 'button' : 'span', compactStatuses[status]);
+    const badge = make(actionable ? 'button' : 'span', compactStatuses[status]);
     if (actionable) {
       badge.type = 'button';
       badge.setAttribute('aria-label', row.label + '：待核查');
@@ -46,72 +149,66 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     badge.className = 'accountSyncBadge';
     badge.dataset.status = status;
-    const title = element('h4', row.label);
-    if (row.active && openAccount) {
-      const button = element('button', row.label);
+    const title = make('h4', label);
+    if (openAccount) {
+      const button = make('button', label);
       button.type = 'button';
       button.className = 'accountSyncNameButton';
+      button.setAttribute('aria-label', row.label);
       button.setAttribute('aria-haspopup', 'dialog');
       button.addEventListener('click', () => openAccount(row));
       title.replaceChildren(button);
     }
-    name.append(title, badge);
+    name.append(title);
+    if (status !== 'normal') name.append(badge);
     const amount = data.balance_amount;
-    const balance = element('span', amount == null ? '—' :
+    const balance = make('span', amount == null ? '—' :
       new Intl.NumberFormat('zh-CN', { style: 'currency', currency: data.balance_currency || row.currency }).format(amount));
     balance.className = 'accountSyncAmount';
     balance.dataset.sign = Number(amount) > 0 ? 'positive' : Number(amount) < 0 ? 'negative' : 'neutral';
     const amountLabel = data.balance_label || '余额';
     balance.setAttribute('aria-label', amountLabel + ' ' + balance.textContent);
     if (data.balance_label) {
-      const value = element('div');
+      const value = make('div');
       value.className = 'accountSyncAmountWithLabel';
-      const label = element('small', [amountLabel, data.balance_as_of].filter(Boolean).join(' · '));
+      const label = make('small', [amountLabel, data.balance_as_of].filter(Boolean).join(' · '));
       value.append(balance, label);
       heading.append(name, value);
     } else {
       heading.append(name, balance);
     }
-    const metadata = element('dl');
-    const syncedAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
-    const syncedLabel = syncedAt && Number.isFinite(syncedAt.valueOf())
-      ? localTime.format(syncedAt).replaceAll('/', '-') : '—';
-    metadata.append(element('dt', '最近交易'), element('dd', data.latest_trade_on || '—'),
-      element('dt', '上次同步'), element('dd', syncedLabel));
     item.classList.add('accountSyncCompact');
-    item.append(heading, metadata);
+    item.append(heading);
+  }
+  if (compact && groups.length) {
+    renderInstitutionPicker(panel, groups, compactEntry, targetAccount, previousGroup);
+    return;
   }
   for (const group of groups) {
-    const section = element('details');
+    const section = make('details');
     section.className = 'accountSyncGroup';
-    section.open = compact;
-    const summary = element('summary', group.label);
-    const arrow = element('span', '›');
+    const summary = make('summary', group.label);
+    const arrow = make('span', '›');
     arrow.setAttribute('aria-hidden', 'true');
     summary.append(arrow);
     section.append(summary);
     for (const row of group.rows) {
-      const item = element('article');
+      const item = make('article');
       item.className = 'accountSyncEntry';
       if (row.account_code) item.dataset.accountCode = row.account_code;
-      if (compact) {
-        compactEntry(item, row);
-        section.append(item);
-        continue;
-      }
-      item.append(element('h4', `${row.label} · ${row.currency}`));
+      item.append(make('h4', `${row.label} · ${row.currency}`));
       if (!row.active) {
-        item.append(element('p', '已停用'));
+        item.append(make('p', '已停用'));
       } else {
         if (row.source_data) {
           const source = row.source_data;
-          item.append(element('p', source.documents
+          item.append(make('p', source.documents
             ? '来源已确认 · ' + source.documents + ' 份 · 流水明细 ' + source.count + ' 笔'
             : '尚无已确认的来源资料'));
           if (source.duplicate_count > 0 && loadAnomalies) {
-            const details = element('details');
-            const rows = element('div');
-            const next = element('button', '加载明细');
+            const details = make('details');
+            const rows = make('div');
+            const next = make('button', '加载明细');
             next.type = 'button';
             let offset = 0;
             async function load() {
@@ -122,11 +219,11 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
                 const result = await loadAnomalies(row.account_code, offset);
                 if (!details.isConnected) return;
                 for (const entry of result.rows) {
-                  const link = element('a', [entry.day, entry.summary, entry.amount + ' ' + entry.currency,
+                  const link = make('a', [entry.day, entry.summary, entry.amount + ' ' + entry.currency,
                     entry.filename, entry.source_position?.row == null ? null : '行 ' + entry.source_position.row]
                     .filter(Boolean).join(' · '));
                   link.href = '/api/account-import/source-records/' + encodeURIComponent(entry.source_id) + '/original';
-                  const line = element('p');
+                  const line = make('p');
                   line.append(link);
                   rows.append(line);
                 }
@@ -141,26 +238,26 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
             details.addEventListener('toggle', () => {
               if (details.open && offset === 0 && !next.hidden) load();
             });
-            details.append(element('summary', '疑似重复 · ' + source.duplicate_count + ' 笔'), rows, next);
+            details.append(make('summary', '疑似重复 · ' + source.duplicate_count + ' 笔'), rows, next);
             item.append(details);
           }
         } else {
-          item.append(element('p', '来源确认 · 暂无汇总'));
+          item.append(make('p', '来源确认 · 暂无汇总'));
         }
-        item.append(element('p', describe('流水', row.cashflow)));
-        if (row.show_investment) item.append(element('p', describe('投资交易', row.investment)));
-        item.append(element('p', describe('余额', row.balance, row.currency)));
-        const review = element('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
+        item.append(make('p', describe('流水', row.cashflow)));
+        if (row.show_investment) item.append(make('p', describe('投资交易', row.investment)));
+        item.append(make('p', describe('余额', row.balance, row.currency)));
+        const review = make('button', row.balance.status === 'recorded' ? '查看余额' : '核对余额');
         review.type = 'button';
         review.className = 'btn';
         review.dataset.syncBalanceReview = row.account_code;
         item.append(review);
       }
       if (row.balance.historical_as_of) {
-        item.append(element('p', `历史参考 · ${row.balance.historical_as_of}`));
+        item.append(make('p', `历史参考 · ${row.balance.historical_as_of}`));
       }
       if (row.can_import) {
-        const link = element('a', '导入资料');
+        const link = make('a', '导入资料');
         link.href = `account_import.html?account=${encodeURIComponent(row.account_code)}`;
         item.append(link);
       }

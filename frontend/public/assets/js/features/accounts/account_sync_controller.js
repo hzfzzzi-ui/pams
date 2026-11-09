@@ -20,7 +20,7 @@ function withPortfolioAmounts(groups, holdings) {
   })}));
 }
 
-export function createAccountSyncLoader(root, { reads, isActive, compact = false, openReview, openAccount, onRendered }) {
+export function createAccountSyncLoader(root, { reads, isActive, compact = false, openReview, openAccount, targetAccount, onRendered }) {
   const panel = root.querySelector('#accountSyncPanel');
   const status = root.querySelector('#accountSyncStatus');
   const retry = root.querySelector('#retryAccountSync');
@@ -38,7 +38,7 @@ export function createAccountSyncLoader(root, { reads, isActive, compact = false
       const groups = compact ? withPortfolioAmounts(data.groups, holdings) : data.groups;
       renderAccountSync(panel, groups, (code, offset) => reads.get('bank-source-anomalies:' + code,
         '/api/sync/accounts/' + encodeURIComponent(code) + '/source-anomalies?offset=' + offset, { cache: false }),
-      { compact, openReview, openAccount });
+      { compact, openReview, openAccount, targetAccount });
       status.textContent = '';
       onRendered?.(panel, groups);
     } catch (error) {
