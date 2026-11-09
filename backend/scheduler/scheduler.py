@@ -281,7 +281,10 @@ def refresh_fund_nav_estimates(use_intraday_estimate: bool | None = None):
 
 def refresh_investment_return_snapshots(sections: tuple[str, ...]):
     """Rebuild section and total return snapshots after market data refresh."""
+    errors = []
     for section in sections:
+        if section == "total" and errors:
+            break
         if section == "total":
             endpoint = (
                 "investment/return-series/snapshot"
@@ -296,8 +299,8 @@ def refresh_investment_return_snapshots(sections: tuple[str, ...]):
             )
             result = _post_root(endpoint, f"{section} return snapshot")
         if result_issues(result) or int(result.get("written") or 0) <= 0:
-            return {"status": "blocked", "errors": [f"snapshot_{section}"]}
-    return {"status": "ok"}
+            errors.append(f"snapshot_{section}")
+    return {"status": "blocked", "errors": errors} if errors else {"status": "ok"}
 
 
 def refresh_post_close_investments(target_date=None):
@@ -306,7 +309,7 @@ def refresh_post_close_investments(target_date=None):
     target = target_date or latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
-        ("flex", run_flex_confirmation),
+        ("ibkr_holdings", run_daily_holdings_confirmation),
         ("a_stock", lambda: _call("prices/refresh/a-stock", "A-share close")),
         ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=True)),
@@ -322,11 +325,19 @@ def refresh_north_america_post_close_investments(target_date=None):
     target = target_date or latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
-        ("flex", run_flex_confirmation),
+        ("ibkr_holdings", run_daily_holdings_confirmation),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),
         ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close&scheduled=true", "US confirmed close")),
     ], ("a_fund", "us_stock", "precious_metal", "total"))
+
+
+_RETURN_SECTION_STEPS = {
+    "a_stock": {"a_stock"},
+    "a_fund": {"fund", "fx"},
+    "us_stock": {"us", "ibkr_holdings", "fx"},
+    "precious_metal": {"metal", "fx"},
+}
 
 
 def _refresh_window(target, steps, sections):
@@ -338,11 +349,11 @@ def _refresh_window(target, steps, sections):
             reports.append({"name": name, "issues": [type(exc).__name__]})
             continue
         expected = target
-        if name == "flex" and "a_stock" in sections:
+        if name in {"flex", "ibkr_holdings"} and "a_stock" in sections:
             expected -= timedelta(days=1)
             while expected.weekday() >= 5:
                 expected -= timedelta(days=1)
-        if name == "flex" and isinstance(result, dict) and result.get("expected_statement_as_of"):
+        if name in {"flex", "ibkr_holdings"} and isinstance(result, dict) and result.get("expected_statement_as_of"):
             # The API normalizes the reference with the offline exchange calendar before writes.
             try:
                 normalized = date.fromisoformat(result["expected_statement_as_of"])
@@ -358,8 +369,10 @@ def _refresh_window(target, steps, sections):
         if isinstance(result, dict):
             if name == "fx" and int(result.get("stored") or 0) <= 0:
                 issues.append("missing_fx_rows")
-            elif name == "flex" and not result.get("statement_as_of"):
+            elif name in {"flex", "ibkr_holdings"} and not result.get("statement_as_of"):
                 issues.append("missing_statement_date")
+            elif name == "ibkr_holdings" and result.get("publication_verified") is not True:
+                issues.append("unverified_holdings_publication")
             elif name == "fund" and ("processed" not in result or len(result.get("rows") or []) != result["processed"]):
                 issues.append("incomplete_fund_response")
             elif name in {"a_stock", "korea", "hk", "us", "metal"} and "found" not in result:
@@ -367,12 +380,15 @@ def _refresh_window(target, steps, sections):
         reports.append({"name": name, "issues": issues})
         if issues:
             logger.error("Refresh blocked: step=%s issues=%s", name, issues)
-    if any(report["issues"] for report in reports):
-        return {"status": "blocked", "steps": reports}
-    result = refresh_investment_return_snapshots(sections)
-    issues = result_issues(result)
-    reports.append({"name": "snapshots", "issues": issues + (result.get("errors", []) if isinstance(result, dict) else [])})
-    return {"status": "blocked" if issues else "ok", "steps": reports}
+    failed_steps = {report["name"] for report in reports if report["issues"]}
+    ready = tuple(section for section in sections if not (
+        failed_steps if section == "total" else failed_steps & _RETURN_SECTION_STEPS[section]
+    ))
+    if ready:
+        result = refresh_investment_return_snapshots(ready)
+        issues = result_issues(result)
+        reports.append({"name": "snapshots", "issues": issues + (result.get("errors", []) if isinstance(result, dict) else [])})
+    return {"status": "blocked" if any(report["issues"] for report in reports) else "ok", "steps": reports}
 
 
 def run_due_window(key, now=None):
