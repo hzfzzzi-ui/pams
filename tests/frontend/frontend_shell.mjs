@@ -36,11 +36,16 @@ await context.route('**/*', async route => {
   const url = new URL(route.request().url());
   if (workflowFixtures && url.hostname === '127.0.0.1') {
     const accounts = [{account_code:'fixture', display_name:'示例储蓄卡', currency:'CNY'}];
+    const recentRows = Array.from({length:12}, (_, index) => ({
+      id:index + 1, account_code:'fixture', transaction_date:'2026-10-29', amount:-20,
+      amount_cny:-20, currency:'CNY', summary:`示例流水 ${index + 1}`, flow_type:'expense',
+    }));
     const fixtures = {
       '/api/sync/accounts': {groups:[{label:'示例银行', rows:[{...accounts[0], label:'示例储蓄卡', active:true, can_import:true, summary:{status:'normal'}}]}]},
       '/api/portfolio/data-quality': {data_quality:{summary:{status:'warning',warning_count:1,error_count:0},checks:[
         {id:'account_balance_coverage',status:'attention',details:{missing_accounts:['fixture']}}]}},
       '/api/accounts/overview': {accounts},
+      '/api/ledger/workbench': {periods:{}, recent_rows_ytd:recentRows},
       '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
       '/api/bank-reconcile/imports': {},
       '/api/bank-reconcile/transfer-matches': {},
@@ -63,6 +68,10 @@ await context.route('**/*', async route => {
   return route.abort();
 });
 const page = await context.newPage();
+const session = await context.newCDPSession(page);
+await session.send('Emulation.setEmulatedMedia', {
+  features: [{name:'prefers-reduced-transparency', value:'no-preference'}],
+});
 const failures = [];
 const missingAssets = [];
 page.on('response', response => {
@@ -92,13 +101,16 @@ try {
         const css = getComputedStyle(node);
         return {color:css.color, weight:css.fontWeight, background:getComputedStyle(document.body).backgroundColor};
       });
-      assert.deepEqual(navStyle, {color:'rgb(245, 245, 247)',weight:'600',background:'rgb(0, 0, 0)'});
+      assert.deepEqual(navStyle, {color:'rgb(71, 181, 255)',weight:'650',background:'rgb(0, 0, 0)'});
       const contentFrame = page.frames().find(f => f.parentFrame() === page.mainFrame());
       assert.equal(await contentFrame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-      assert.equal(after.width,Math.min(width,430));
+      assert.equal(after.width,Math.min(Math.min(width,430)-44,328));
       assert.ok(Math.abs(after.x-(width-after.width)/2)<1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
       if (key==='ledger') {
+        const viewport = await page.locator('#page-content').boundingBox();
+        assert.ok(viewport.y + viewport.height > after.y);
+        assert.match(await page.locator('.pams-primary-nav').evaluate(node => getComputedStyle(node).backdropFilter), /blur/);
         assert.equal(await frame.locator('.pageHeader').count(),0);
         assert.equal(await frame.locator('[data-ledger-tab="account"], #account-cashflow-section').count(),0);
         for (const tab of ['recent','overview']) {
@@ -207,6 +219,9 @@ try {
   await review.getByRole('link',{name:'导入资料'}).click();
   await workflow.getByRole('button',{name:'导入配置',exact:true}).waitFor();
   assert.equal(await workflow.locator('#account').inputValue(),'fixture');
+  const importFrame = await page.locator('#page-content').boundingBox();
+  const importNav = await page.locator('.pams-primary-nav').boundingBox();
+  assert.ok(importFrame.y + importFrame.height < importNav.y);
   await workflow.getByRole('button',{name:'导入配置',exact:true}).click();
   await workflow.getByRole('heading',{name:'导入配置',exact:true}).waitFor();
   await workflow.getByText('示例模板',{exact:true}).waitFor();
@@ -222,10 +237,34 @@ try {
   await workflow.getByRole('heading',{name:'已确认'}).waitFor();
   await workflow.getByRole('heading',{name:'待配对'}).waitFor();
   await page.waitForFunction(() => location.hash === '#transfers');
+  await workflow.getByRole('link',{name:'流水',exact:true}).click();
+  await workflow.locator('#recentSearchToggle').click();
+  const searchPanel = await workflow.locator('.appBottomSheetPanel').boundingBox();
+  const ledgerNav = await page.locator('.pams-primary-nav').boundingBox();
+  assert.ok(searchPanel.y + searchPanel.height < ledgerNav.y);
+  await workflow.getByRole('button',{name:'关闭',exact:true}).click();
+  const lastRow = workflow.locator('#recentRows .ledgerListRow').last();
+  await lastRow.waitFor();
+  assert.match(await lastRow.innerText(), /示例流水 12/);
+  await workflow.locator('.appBottomSheetPanel').waitFor({state:'hidden'});
+  await lastRow.evaluate(row => {
+    row.scrollIntoView({block:'end', behavior:'instant'});
+    for (let node = row.parentElement; node; node = node.parentElement) {
+      if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) {
+        node.scrollTop = node.scrollHeight;
+      }
+    }
+    window.scrollTo({top:document.scrollingElement.scrollHeight, behavior:'instant'});
+  });
+  const lastRowBox = await lastRow.boundingBox();
+  assert.ok(lastRowBox.y + lastRowBox.height < ledgerNav.y, JSON.stringify({lastRowBox, ledgerNav}));
+  await session.send('Emulation.setEmulatedMedia', {
+    features: [{name:'prefers-reduced-transparency', value:'reduce'}],
+  });
+  assert.equal(await page.locator('.pams-primary-nav').evaluate(node => getComputedStyle(node).backdropFilter), 'none');
   workflowFixtures = false;
   // A desktop viewport alone reports zero insets. Emulate the phone's
   // obstruction so the test catches an iframe starting behind the status bar.
-  const session = await context.newCDPSession(page);
   await session.send('Emulation.setTouchEmulationEnabled', {enabled:true});
   const firstControls = {
     investments: '[data-invest-tab="analysis"]',

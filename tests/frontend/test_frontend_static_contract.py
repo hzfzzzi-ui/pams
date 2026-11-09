@@ -113,7 +113,9 @@ def test_frontend_shell_removed_components_stay_removed() -> None:
     data_state_js = _read_public("assets/js/components/data_state.js")
     assert shell_html.count('data-page=') == 3
     for page, label in [("investments.html", "投资"), ("ledger.html", "收支"), ("more.html", "更多")]:
-        assert f'data-page="{page}">{label}</a>' in shell_html
+        link = shell_html.split(f'data-page="{page}">', 1)[1].split('</a>', 1)[0]
+        assert f'<span>{label}</span>' in link
+        assert 'aria-hidden="true"' in link
     assert "PRIMARY_PAGES = Object.freeze(CONTENT_PAGES.slice(0, 3))" in routes_js
     assert "PRIMARY_PAGES.includes(page) ? page : 'more.html'" in routes_js
     assert "MOBILE_TABS" not in ui_js
