@@ -7,6 +7,9 @@ const root=path.resolve(process.argv[2]),output=process.env.PAMS_MORE_ARTIFACT_D
 if(output)await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],reports=[];
+await page.addInitScript(() => Object.defineProperty(navigator, 'connection', {
+  configurable: true, value: {saveData: true},
+}));
 let status='ok', accountUnavailable=false, reviewUnavailable=false, holdingsUnavailable=false;
 const sync = {groups: [
   {label:'合成银行',rows:[
