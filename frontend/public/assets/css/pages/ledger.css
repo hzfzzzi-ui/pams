@@ -128,20 +128,64 @@
   color-scheme:dark;
 }
 .ledgerPair { border-bottom:1px solid var(--pams-line-subtle) }
-.ledgerPair summary {
+.ledgerPairRoute {
   display:grid;
-  grid-template-columns:minmax(0,1fr) auto;
-  gap:10px;
-  min-height:54px;
-  padding:10px 0;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr);
+  align-items:start;
+  gap:7px;
+  padding:13px 0;
   cursor:pointer;
   list-style:none;
+  text-align:center;
 }
-.ledgerPair summary::-webkit-details-marker { display:none }
-.ledgerPair summary small { display:block; margin-top:4px }
-.ledgerPairAmount { text-align:right; font-variant-numeric:tabular-nums }
-.ledgerPairAmount strong::after { content:" ›"; color:var(--text-secondary) }
-.ledgerPair[open] .ledgerPairAmount strong::after { content:" ⌄" }
+.ledgerPairRoute::-webkit-details-marker { display:none }
+.ledgerPairParty, .ledgerPairCenter {
+  display:grid;
+  justify-items:center;
+  gap:2px;
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.ledgerPairParty strong { font-size:12px }
+.ledgerPairParty small, .ledgerPairCenter small, .ledgerPairCenter time {
+  color:var(--pams-text-muted);
+  font-size:11px;
+}
+.ledgerPairAvatar {
+  display:grid;
+  place-items:center;
+  width:46px;
+  height:46px;
+  border:2px solid var(--pams-profit);
+  border-radius:50%;
+  overflow:hidden;
+  background:var(--pams-bg-panel);
+  margin-bottom:2px;
+}
+.ledgerPairParty[data-direction="out"] .ledgerPairAvatar { border-color:var(--pams-loss) }
+.ledgerPairAvatar img { width:100%; height:100%; object-fit:cover }
+.ledgerPairAmount { font-size:15px; font-variant-numeric:tabular-nums }
+.ledgerPairCenter time { font-variant-numeric:tabular-nums }
+.ledgerPairArrow {
+  position:relative;
+  width:calc(100% - 12px);
+  height:2px;
+  margin:4px 4px 5px 0;
+  border-radius:2px;
+  background:var(--pams-text-primary);
+  color:var(--pams-text-primary);
+}
+.ledgerPairArrow::after {
+  content:"";
+  position:absolute;
+  right:0;
+  top:-3px;
+  width:8px;
+  height:8px;
+  border:solid currentColor;
+  border-width:2px 2px 0 0;
+  transform:rotate(45deg);
+}
 .ledgerPairDetails { display:grid; gap:8px; padding:2px 0 12px; overflow-wrap:anywhere }
 .ledgerPairLeg {
   display:grid;

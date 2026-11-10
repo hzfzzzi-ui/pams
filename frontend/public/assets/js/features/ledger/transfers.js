@@ -12,6 +12,17 @@ const FIRST_PAGE = 10;
 const moneyText = (value, currency) => value == null ? '—' : money(value, currency);
 const byDate = (left, right) => right.match_date.localeCompare(left.match_date);
 
+function transferParty({name, institution, logoUrl}, direction) {
+  const title = institution || name;
+  return `<span class="ledgerPairParty" data-direction="${direction}">
+    <span class="ledgerPairAvatar" aria-hidden="true">${logoUrl
+      ? `<img src="${escape(logoUrl)}" alt="" width="46" height="46" decoding="async">`
+      : escape(title.slice(0, 1))}</span>
+    ${institution ? `<small>${escape(institution)}</small>` : ''}
+    <strong>${escape(name)}</strong>
+  </span>`;
+}
+
 function currentBusinessMonth() {
   const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit'}).formatToParts(new Date());
   return `${parts.find(part => part.type === 'year').value}-${parts.find(part => part.type === 'month').value}`;
@@ -33,18 +44,24 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
   }
 
   function renderPair(pair, pending) {
-    const from = escape(model.accountDisplayName(pair.from_account_code));
-    const to = escape(model.accountDisplayName(pair.to_account_code));
+    const sender = model.transferAccountIdentity(pair.from_account_code);
+    const receiver = model.transferAccountIdentity(pair.to_account_code);
+    const name = account => [account.institution, account.name].filter(Boolean).join(' ');
+    const from = name(sender);
+    const to = name(receiver);
     const currency = pair.currency_norm || pair.currency;
-    const amount = escape(moneyText(pair.amount, currency));
-    const label = escape(TYPES[pair.match_type] || '内部划转');
+    const value = moneyText(pair.amount, currency);
+    const amount = escape(value);
+    const label = TYPES[pair.match_type] || '内部划转';
     const date = escape(pair.match_date);
-    const fx = !pending && currency !== 'CNY'
-      ? `<small>${pair.amount_cny == null ? '人民币折算待补' : escape(moneyText(pair.amount_cny))}</small>` : '';
+    const conversion = !pending && currency !== 'CNY'
+      ? pair.amount_cny == null ? '人民币折算待补' : `≈ ${moneyText(pair.amount_cny)}` : '';
     const ambiguous = pending && pair.ambiguity_status === 'ambiguous';
-    const leg = (title, name, day, fact, summary, sign) => `
+    const accessible = ['转出 ' + from, '转入 ' + to, value, label, pair.match_date, conversion,
+      ambiguous ? '有多个候选' : ''].filter(Boolean).join('，');
+    const leg = (title, account, day, fact, summary, sign) => `
       <div class="ledgerPairLeg">
-        <strong>${title} · ${name}</strong><span>${sign}${amount}</span>
+        <strong>${title} · ${escape(account)}</strong><span>${sign}${amount}</span>
         <small>${escape(day)}</small>
         <div>${escape(fact?.summary || summary || '暂无摘要')}</div>
         ${fact?.description && fact.description !== fact.summary ? `<small>${escape(fact.description)}</small>` : ''}
@@ -52,10 +69,17 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       </div>`;
     return `
       <details class="ledgerPair">
-        <summary>
-          <div><strong>${from} <span aria-hidden="true">→</span> ${to}</strong>
-            <small>${date} · ${label}${ambiguous ? ' · 有多个候选' : ''}</small></div>
-          <div class="ledgerPairAmount"><strong>${amount}</strong>${fx}</div>
+        <summary class="ledgerPairRoute" aria-label="${escape(accessible)}">
+          ${transferParty(sender, 'out')}
+          <span class="ledgerPairCenter">
+            <strong class="ledgerPairAmount">${amount}</strong>
+            <span class="ledgerPairArrow" aria-hidden="true"></span>
+            <small>${escape(label)}</small>
+            <time datetime="${date}">${date}</time>
+            ${ambiguous ? '<small>有多个候选</small>' : ''}
+            ${conversion ? `<small>${escape(conversion)}</small>` : ''}
+          </span>
+          ${transferParty(receiver, 'in')}
         </summary>
         <div class="ledgerPairDetails">
           ${leg('转出', from, pair.source_date, pair.source, pair.source_summary, '−')}

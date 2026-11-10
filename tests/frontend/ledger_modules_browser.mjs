@@ -5,7 +5,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const publicRoot = path.resolve(process.argv[2] || 'frontend/public');
-const baselineEntry = process.argv[3] ? path.resolve(process.argv[3]) : null;
+const transfersOnly = process.argv[3] === '--transfers-only';
+const baselineEntry = !transfersOnly && process.argv[3] ? path.resolve(process.argv[3]) : null;
 const runtime = process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE;
 const { chromium } = runtime ? await import(pathToFileURL(runtime).href) : await import('playwright');
 const fixture = {
@@ -277,7 +278,68 @@ async function checkNarrowSummaryGeometry() {
   return widths;
 }
 
+async function checkTransferLayout() {
+  const transferFixture = structuredClone(fixture);
+  const cardPayment = {
+    match_date: '2026-09-27', source_date: '2026-09-27', target_date: '2026-09-28',
+    from_account_code: 'ccb_7332', to_account_code: 'ccb_credit_0453',
+    match_type: 'credit_card_payment', amount: '4567.89', currency_norm: 'CNY',
+    source: { summary: '合成还款支出' }, target: { summary: '合成还款入账' },
+  };
+  transferFixture.month = '2026-11';
+  transferFixture.transfer_pairs = [cardPayment, {
+    match_date: '2026-08-27', source_date: '2026-08-27', target_date: '2026-08-27',
+    from_account_code: 'santander', to_account_code: 'ibkr',
+    match_type: 'investment_funding', amount: '65000.00', currency_norm: 'MXN', amount_cny: null,
+  }];
+  const { page: transferPage, context: transferContext } = await makePage(false, transferFixture);
+  await transferPage.getByRole('link', { name: '内部划转', exact: true }).click();
+  const payment = transferPage.locator('#transferConfirmed .ledgerPair').first();
+  const route = payment.locator('summary');
+  const sender = route.locator('[data-direction="out"]');
+  const receiver = route.locator('[data-direction="in"]');
+  await sender.getByText('7332 储蓄卡').waitFor();
+  await receiver.getByText('0453 信用卡').waitFor();
+  for (const party of [sender, receiver]) {
+    assert.equal(await party.locator('img').evaluate(async image => {
+      await image.decode();
+      return image.naturalWidth > 0 && new URL(image.src).pathname.endsWith('/account-brands/ccb.jpg');
+    }), true);
+  }
+  assert.match(await route.getAttribute('aria-label'), /转出 建行 7332 储蓄卡，转入 建行 0453 信用卡/);
+  assert.equal(await route.locator('time').getAttribute('datetime'), '2026-09-27');
+  assert.match(await route.innerText(), /4,567\.89/);
+  const investment = transferPage.locator('#transferConfirmed .ledgerPair').nth(1);
+  await investment.getByText('人民币折算待补').waitFor();
+  assert.match(await investment.locator('summary').innerText(), /65,000\.00/);
+  for (const width of [320, 390, 1280]) {
+    await transferPage.setViewportSize({ width, height: 900 });
+    assert.equal(await route.evaluate(summary => {
+      const [sender, center, receiver] = Array.from(summary.children, element => element.getBoundingClientRect());
+      const arrow = summary.querySelector('.ledgerPairArrow');
+      const date = summary.querySelector('time');
+      return summary.scrollWidth <= summary.clientWidth && sender.right <= center.left && center.right <= receiver.left
+        && arrow.getBoundingClientRect().bottom < date.getBoundingClientRect().top
+        && getComputedStyle(arrow).backgroundImage === 'none';
+    }), true, `transfer row at ${width}px`);
+  }
+  await route.focus();
+  await route.press('Enter');
+  await payment.getByText('合成还款支出').waitFor();
+  await payment.getByText('合成还款入账').waitFor();
+  assert.equal(await transferPage.evaluate(() => __ledgerTest.writes.some(write => write.url.endsWith('/transfers/confirm'))), false);
+  await transferContext.close();
+}
+
 try {
+  await checkTransferLayout();
+  if (transfersOnly) {
+    assert.deepEqual(errors, []);
+    console.log("Transfer layout, account logos, amounts and pair details passed");
+  } else await checkLedgerLifecycle();
+} finally { await browser.close(); }
+
+async function checkLedgerLifecycle() {
   if (baselineEntry) await browse(true);
   await browse(false);
   await checkConfirmedSubtotal();
@@ -494,6 +556,7 @@ try {
   await subcategory.selectOption('退货退税');
   assert.equal(await hintPage.page.evaluate(() => __ledgerTest.writes.length), 0);
   await hintPage.context.close();
+
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ status: 'passed', fixedEquivalenceStates: baselineEntry ? snapshots.size : 0, mobileSummaryWidths, controls: 'tabs/period/flow/trend/search/sort/account drilldown/cancel', edits: 'one POST per submit; explicit retry after failure; exact payload', lifecycle: 'latest read wins; dispose; replacement; BFCache restores view only; late POST inert', pageErrors: errors.length }));
-} finally { await browser.close(); }
+}
