@@ -339,9 +339,12 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       return;
     }
     statsEl.innerHTML = `
-      <span><em>${data.availableAccountCount ? '已覆盖净值' : '最近净值'}${data.estimated ? '（含估算）' : ''} · ${data.latestDate}</em><strong>${fmtCny(data.latest)}</strong></span>
-      <span class="${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}"><em>${data.changeStart ? `${data.changeStart.slice(5)} 至 ${data.latestDate.slice(5)}` : '可比区间不足'}</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong></span>
-      <span class="${data.changeRate == null ? '' : data.changeRate >= 0 ? 'up' : 'down'}"><em>变化</em><strong>${data.changeRate == null ? '—' : formatPercentRate(data.changeRate)}</strong></span>
+      <span class="returnNavCurrent"><em>${data.availableAccountCount ? '已覆盖净值' : '最近净值'}${data.estimated ? '（含估算）' : ''} · ${data.latestDate}</em><strong>${fmtCny(data.latest)}</strong></span>
+      <span class="returnNavMetric ${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}">
+        <em>区间变化</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong>
+        <small>${data.changeStart ? `${data.changeStart.slice(5)} 至 ${data.latestDate.slice(5)}` : '可比区间不足'}</small>
+      </span>
+      <span class="returnNavMetric ${data.changeRate == null ? '' : data.changeRate >= 0 ? 'up' : 'down'}"><em>变化率</em><strong>${data.changeRate == null ? '—' : formatPercentRate(data.changeRate)}</strong></span>
     `;
   }
 
@@ -737,8 +740,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     showStatus(totalStatus());
     el.setAttribute('aria-multiselectable', 'true');
     const options = [
-      { key: 'total', label: '总收益率', datasetLabel: '总收益率' },
-      ...sectionSpecs.map(spec => ({ key: spec.key, label: spec.label, datasetLabel: spec.label })),
+      { key: 'total', label: '总收益率', datasetLabel: '总收益率', color: CHART_THEME.line },
+      ...sectionSpecs.map(spec => ({ key: spec.key, label: spec.label, datasetLabel: spec.label, color: spec.color })),
     ];
     const syncButtons = () => {
       el.querySelectorAll('[data-return-series]').forEach(btn => {
@@ -788,7 +791,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     };
     el.innerHTML = options.map(item => {
       return `
-      <button type="button" data-return-series="${esc(item.key)}">
+      <button type="button" data-return-series="${esc(item.key)}" style="--return-series-color:${esc(item.color || CHART_THEME.line)}">
         ${esc(item.label)}
       </button>
     `;

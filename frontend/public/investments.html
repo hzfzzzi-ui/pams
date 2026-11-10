@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="assets/css/style-phone.css" />
   <link rel="stylesheet" href="assets/css/design-system-phone.css" />
   <link rel="stylesheet" href="assets/css/holding-sync.css" />
+  <link rel="stylesheet" href="assets/css/pages/investment-analysis.css" />
   <link rel="stylesheet" href="assets/css/page-shell.css" />
 </head>
 <body id="top" class="page-investments app-shell investment-phone-layout">
@@ -135,75 +136,68 @@
       </div>
       <div class="investmentMainGrid investmentMainGrid-single" style="margin-top:12px">
         <div class="returnChartPanel">
-          <div class="returnChartHeader">
-            <div class="returnChartTitleBlock">
-              <h3>组合收益率</h3>
+          <section class="investmentAnalysisCard investmentReturnCard" aria-labelledby="investmentReturnHeading">
+            <div class="returnChartHeader">
+              <h3 id="investmentReturnHeading">组合收益率</h3>
+              <div id="investmentReturnWindowToggle" class="returnWindowSegment" aria-label="收益率曲线时间范围切换"></div>
             </div>
-            <div id="investmentReturnWindowToggle" class="returnWindowSegment" aria-label="收益率曲线时间范围切换"></div>
-          </div>
-          <div class="returnSeriesRail" aria-label="收益率曲线对象">
-            <span>曲线</span>
             <div id="investmentReturnToggle" class="returnSeriesToggle" aria-label="收益率曲线切换"></div>
-          </div>
-          <div id="investmentReturnSeriesStatus" class="returnChartHint" role="status" hidden></div>
-          <div class="chartWrap" style="margin-top:8px">
-            <canvas id="investmentReturnChart"></canvas>
-            <div id="returnEventHotspots" class="returnEventHotspots" aria-label="收益曲线关键点"></div>
-            <div id="returnEventPopover" class="returnEventPopover" hidden></div>
-          </div>
-          <div class="returnNavPanel">
-            <div class="returnChartHeader returnNavHeader">
-              <div class="returnChartTitleBlock">
-                <h3>NAV变化</h3>
-              </div>
-              <div id="investmentNavStats" class="returnNavStats" aria-label="NAV变化摘要"></div>
+            <div id="investmentReturnSeriesStatus" class="returnChartHint" role="status" hidden></div>
+            <div class="chartWrap">
+              <canvas id="investmentReturnChart"></canvas>
+              <div id="returnEventHotspots" class="returnEventHotspots" aria-label="收益曲线关键点"></div>
+              <div id="returnEventPopover" class="returnEventPopover" hidden></div>
             </div>
+          </section>
+          <section class="investmentAnalysisCard returnNavPanel" aria-labelledby="investmentNavHeading">
+            <h3 id="investmentNavHeading">NAV变化</h3>
+            <div id="investmentNavStats" class="returnNavStats" aria-label="NAV变化摘要"></div>
             <div class="chartWrapSm returnNavChartWrap">
               <canvas id="investmentNavChart"></canvas>
             </div>
-          </div>
-          <div class="returnInsightGrid returnInsightGrid-single">
-            <div id="profitContributionPanel" class="returnInsightCard profitContributionPanel">
-              <div class="muted">正在计算收益贡献...</div>
+          </section>
+          <section id="profitContributionPanel" class="investmentAnalysisCard profitContributionPanel" aria-label="Top 贡献">
+            <div class="muted">正在计算收益贡献...</div>
+          </section>
+        </div>
+      </div>
+      <div class="investmentAnalysisCard investmentAttributionCard">
+        <div class="analysisSwitch" id="analysisSwitch" role="tablist" aria-label="分析模块切换">
+          <button type="button" class="active" role="tab" aria-selected="true" data-analysis-panel-switch="return_attribution">收益归因</button>
+          <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="trade_attribution">交易归因</button>
+          <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="asset_master">资产底表</button>
+        </div>
+        <div class="lookthroughTwinGrid analysisPanelStack">
+          <div id="return-attribution" class="lookthroughPanel returnAttributionPanel analysisPanelPage" data-analysis-panel-page="return_attribution">
+            <div class="sectionTitle">
+              <h3>收益归因 <span class="miniBadge data" id="returnAttributionBadge">待计算</span></h3>
+            </div>
+            <div id="returnAttributionSummary" class="returnAttributionSummary"></div>
+            <div id="returnAttributionTabs" class="lookthroughTabs" aria-label="收益归因维度"></div>
+            <div id="returnAttributionList" class="lookthroughList">
+              <div class="skeletonLine"></div>
+              <div class="skeletonLine"></div>
+              <div class="skeletonLine"></div>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="analysisSwitch" id="analysisSwitch" role="tablist" aria-label="分析模块切换">
-        <button type="button" class="active" role="tab" aria-selected="true" data-analysis-panel-switch="return_attribution">收益归因</button>
-        <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="trade_attribution">交易归因</button>
-        <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="asset_master">资产底表</button>
-      </div>
-      <div class="lookthroughTwinGrid analysisPanelStack">
-        <div id="return-attribution" class="lookthroughPanel returnAttributionPanel analysisPanelPage" data-analysis-panel-page="return_attribution">
-          <div class="sectionTitle">
-            <h3>收益归因 <span class="miniBadge data" id="returnAttributionBadge">待计算</span></h3>
+          <div id="trade-attribution-analysis" class="lookthroughPanel tradeAttributionAnalysisPanel analysisPanelPage" data-analysis-panel-page="trade_attribution" hidden>
+            <div class="sectionTitle">
+              <h3>交易归因 <span class="miniBadge data">复盘标注</span></h3>
+              <a class="miniBtn" href="#investment-ledger">回到交易</a>
+            </div>
+            <div id="tradeAttributionPanel" class="tradeAttributionPanel tradeAttributionPanelV2">
+              <div class="muted">正在计算复盘概览...</div>
+            </div>
           </div>
-          <div id="returnAttributionSummary" class="returnAttributionSummary"></div>
-          <div id="returnAttributionTabs" class="lookthroughTabs" aria-label="收益归因维度"></div>
-          <div id="returnAttributionList" class="lookthroughList">
-            <div class="skeletonLine"></div>
-            <div class="skeletonLine"></div>
-            <div class="skeletonLine"></div>
+          <div id="asset-master-panel" class="lookthroughPanel assetMasterPanel analysisPanelPage" data-analysis-panel-page="asset_master" hidden>
+            <div class="lookthroughPanelHead">
+              <h3>资产底表 <span class="miniBadge data" id="assetMasterBadge">待同步</span></h3>
+            </div>
+            <div id="assetMasterSummary" class="assetMasterSummary">
+              <div class="lookthroughEmpty">资产底表数据待加载</div>
+            </div>
+            <div id="assetMasterList" class="assetMasterList"></div>
           </div>
-        </div>
-        <div id="trade-attribution-analysis" class="lookthroughPanel tradeAttributionAnalysisPanel analysisPanelPage" data-analysis-panel-page="trade_attribution" hidden>
-          <div class="sectionTitle">
-            <h3>交易归因 <span class="miniBadge data">复盘标注</span></h3>
-            <a class="miniBtn" href="#investment-ledger">回到交易</a>
-          </div>
-          <div id="tradeAttributionPanel" class="tradeAttributionPanel tradeAttributionPanelV2">
-            <div class="muted">正在计算复盘概览...</div>
-          </div>
-        </div>
-        <div id="asset-master-panel" class="lookthroughPanel assetMasterPanel analysisPanelPage" data-analysis-panel-page="asset_master" hidden>
-          <div class="lookthroughPanelHead">
-            <h3>资产底表 <span class="miniBadge data" id="assetMasterBadge">待同步</span></h3>
-          </div>
-          <div id="assetMasterSummary" class="assetMasterSummary">
-            <div class="lookthroughEmpty">资产底表数据待加载</div>
-          </div>
-          <div id="assetMasterList" class="assetMasterList"></div>
         </div>
       </div>
     </div>

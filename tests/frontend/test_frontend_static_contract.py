@@ -572,8 +572,13 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     html = _read_public("investments.html")
     for removed_id in ("investmentReturnNote", "investmentNavRange", "investmentNavHint"):
         assert f'id="{removed_id}"' not in html
-    assert "<h3>组合收益率</h3>" in html
-    assert "<h3>NAV变化</h3>" in html
+    assert '<h3 id="investmentReturnHeading">组合收益率</h3>' in html
+    assert '<h3 id="investmentNavHeading">NAV变化</h3>' in html
+    assert 'assets/css/pages/investment-analysis.css' in html
+    assert 'class="investmentAnalysisCard investmentReturnCard"' in html
+    assert 'class="investmentAnalysisCard returnNavPanel"' in html
+    assert 'id="profitContributionPanel" class="investmentAnalysisCard profitContributionPanel"' in html
+    assert 'class="investmentAnalysisCard investmentAttributionCard"' in html
     holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     chart_renderer = _read_public("assets/js/features/investment/charts/renderer.js")
     chart_model = _read_public("assets/js/features/investment/charts/legacy_model.js")
@@ -816,10 +821,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "${holdingSyncTime(r)}" in holding_rows_js
     assert "returnChartHeader" in html
     assert "returnWindowSegment" in html
-    assert "returnSeriesRail" in html
     assert "returnSeriesToggle" in html
-    assert "returnInsightGrid" in html
-    assert "returnInsightCard" in html
     assert "returnEventsPanel" not in html
     assert "buildReturnEvents" in chart_source
     assert "renderReturnEventHotspots" in chart_source
