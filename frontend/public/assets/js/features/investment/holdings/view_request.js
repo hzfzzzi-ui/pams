@@ -6,3 +6,5 @@ export const loadHoldingView = createPageRead(() => {
 });
 
 export const loadAccountView = createPageRead(() => '/api/investment/accounts-view');
+export const accountPositionsPath = '/api/holdings/by-account?base_currency=CNY&include_portfolio_cash=true';
+export const loadAccountPositions = createPageRead(() => accountPositionsPath);

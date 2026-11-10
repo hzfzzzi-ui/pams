@@ -66,7 +66,9 @@ const profileInput = {
   recentUsReturn: input.recent,
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
-  aStockRowsSummary: {}, aStockSummary: {}, fundDisplaySummary: {},
+  aStockRowsSummary: {totalValue: 800}, aStockSummary: {},
+  aStockAccountPosition: input.stockPosition, aStockPositionsAsOf: input.stockPositionsAsOf,
+  aStockAsOf: '2026-10-27', fundDisplaySummary: {},
   fundSummary: {}, preciousSummary: {}, esopSummary: {},
 };
 const profileBefore = JSON.stringify(profileInput);
@@ -75,7 +77,8 @@ const us = profiles['\u7f8e\u80a1/\u6d77\u5916'];
 const all = profiles['\u5168\u90e8'];
 const html = heroContext.MobilePortfolioHero(us, '2024-01-05');
 const allHtml = heroContext.MobilePortfolioHero(all, '2024-01-05');
-console.log(JSON.stringify({renders, aggregate, profile: us, allProfile: all, html, allHtml,
+const stockHtml = heroContext.MobilePortfolioHero(profiles['A股个股'], '2026-10-27');
+console.log(JSON.stringify({renders, aggregate, profile: us, allProfile: all, html, allHtml, stockHtml,
   unchanged: before === JSON.stringify(input) && profileBefore === JSON.stringify(profileInput)}));
 """
 
@@ -92,12 +95,15 @@ def holding(**fields):
     }
 
 
-def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False):
+def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False,
+           stock_position=None, stock_positions_as_of="2026-10-27"):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
-        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent, "scopeIncomplete": scope_incomplete}),
+        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent,
+                          "scopeIncomplete": scope_incomplete, "stockPosition": stock_position,
+                          "stockPositionsAsOf": stock_positions_as_of}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
@@ -111,6 +117,25 @@ def test_incomplete_account_scope_never_displays_partial_value_as_total():
     assert '待核验' in output['allHtml']
     assert '账户资产资料未完整' in output['allHtml']
     assert '900' not in output['allHtml']
+
+
+def test_stock_card_shows_account_estimate_with_carried_cash_date_despite_incomplete_portfolio():
+    position = {"known_value_base": "800.00", "total_value_base": None, "portfolio_value": {
+        "amount_base": "850.00", "cash_base": "50.00", "as_of": "2026-10-27",
+        "cash_as_of": "2026-10-23", "status": "cash_carried_forward",
+    }}
+    output = render([], scope_incomplete=True, stock_position=position)
+    assert '待核验' in output['allHtml']
+    assert '账户估值（含沿用现金）' in output['stockHtml']
+    assert '850.00' in output['stockHtml']
+    assert '2026-10-23' in output['stockHtml']
+    assert '待核验' not in output['stockHtml']
+
+    fallback = render([], scope_incomplete=True, stock_position=position, stock_positions_as_of="2026-10-26")
+    assert '已知持仓市值' in fallback['stockHtml']
+    assert '800.00' in fallback['stockHtml']
+    assert '850.00' not in fallback['stockHtml']
+    assert '待核验' in fallback['stockHtml']
 
 
 def recent_return():

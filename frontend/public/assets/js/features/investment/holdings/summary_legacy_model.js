@@ -336,6 +336,9 @@ export function makeMobileHeroProfiles({
   fxRates,
   aStockRowsSummary,
   aStockSummary,
+  aStockAccountPosition,
+  aStockPositionsAsOf,
+  aStockAsOf,
   fundDisplaySummary,
   fundSummary,
   usSummary,
@@ -351,6 +354,15 @@ export function makeMobileHeroProfiles({
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
+  const stockDate = isoDateKey(aStockAsOf);
+  const position = stockDate && isoDateKey(aStockPositionsAsOf) === stockDate ? aStockAccountPosition : null;
+  const estimate = position?.portfolio_value;
+  const matchingEstimate = stockDate && isoDateKey(estimate?.as_of) === stockDate ? estimate : null;
+  const accountValue = matchingEstimate?.amount_base ?? position?.total_value_base ?? null;
+  const cash = matchingEstimate?.cash_base ?? null;
+  const cashDate = matchingEstimate?.cash_as_of;
+  const stockMarket = position?.known_value_base ?? aStockRowsSummary.totalValue ?? null;
+  const stockCardValue = accountValue ?? stockMarket;
   const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))
     ? safeNum(aStockSummary.dailyPnl)
     : safeNum(aStockRowsSummary.dailyPnl);
@@ -427,11 +439,11 @@ export function makeMobileHeroProfiles({
     '全部': allProfile,
     'A股个股': {
       key: 'A股个股',
-      scopeIncomplete: summary.scopeIncomplete,
       icon: '🇨🇳',
       identity: 'CNY · 同花顺',
-      valueLabel: '账户净值',
-      value: aStockValue,
+      valueLabel: matchingEstimate?.status === 'cash_carried_forward'
+        ? '账户估值（含沿用现金）' : accountValue == null ? '已知持仓市值' : '账户净值',
+      value: stockCardValue,
       dailyLabel: '今日盈亏',
       dailyPnl: aStockDailyPnl,
       dailyRate: pctFromAmount(aStockDailyPnl, Math.max(aStockMarket - aStockDailyPnl, 1)),
@@ -443,13 +455,14 @@ export function makeMobileHeroProfiles({
         aStockSummary.holdingReturnRate ??
         categoryByLabel(categories, 'A股个股').totalReturnRate
       ),
-      share: aStockValue / portfolioValue,
-      miniMetrics: summary.scopeIncomplete ? [
-        { label: '现金余额', value: '待核验' },
-      ] : [
-        { label: '总市值', value: formatOptionalMoney(aStockMarket) },
-        { label: '可用现金', value: formatOptionalMoney(aStockCash), tone: aStockCash < 0 ? 'down' : '' },
-        { label: '仓位占比', value: `${Math.max(0, pctFromAmount(aStockMarket, aStockValue) * 100).toFixed(1)}%` },
+      share: safeNum(stockCardValue) / portfolioValue,
+      hideShare: summary.scopeIncomplete || accountValue == null,
+      miniMetrics: [
+        ...(accountValue != null && stockMarket != null ? [{ label: '持仓市值', value: formatOptionalMoney(stockMarket) }] : []),
+        { label: cashDate ? `现金余额 · ${cashDate}` : '现金余额', value: cash == null ? '待核验' : formatOptionalMoney(cash), tone: cash < 0 ? 'down' : '' },
+        ...(cash != null && accountValue > 0 && stockMarket != null ? [
+          { label: '仓位占比', value: `${Math.max(0, pctFromAmount(stockMarket, accountValue) * 100).toFixed(1)}%` },
+        ] : []),
       ],
     },
     'A股基金': {

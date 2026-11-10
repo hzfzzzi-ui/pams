@@ -1,11 +1,12 @@
 import { readFallback } from '../../../shared/read_scope.js';
+import { accountPositionsPath } from './view_request.js';
 
 // Summary and list reads share available view payloads and retain legacy fallbacks.
 function selectPart(view, name, legacy) {
   return view ? view.then(data => data ? data[name] : legacy()) : legacy();
 }
 
-export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryFresh, loadHoldingView, loadAccountView }) {
+export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryFresh, loadHoldingView, loadAccountView, loadAccountPositions }) {
   const jgetFresh = path => get(path, { cache: false });
   const view = loadHoldingView?.();
   const account = loadAccountView?.();
@@ -26,10 +27,11 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
       jgetFresh('/api/investment-returns/reported').catch(error => readFallback(error, null)),
       part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null)),
       jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(error => readFallback(error, null)),
+      (loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
   ]);
 }
 
-export function readListInputs({ get: jget, withClosedParam, onHoldings, onSupplementError, loadHoldingView }) {
+export function readListInputs({ get: jget, withClosedParam, onHoldings, onSupplementError, loadHoldingView, loadAccountPositions }) {
   const legacy = () => jget(withClosedParam('/holdings/latest'));
   const request = loadHoldingView ? loadHoldingView().then(view => view ? view.holdings : legacy()) : legacy();
   const holdings = request.then(payload => {
@@ -43,6 +45,6 @@ export function readListInputs({ get: jget, withClosedParam, onHoldings, onSuppl
   };
   return Promise.all([
     holdings,
-    jget('/api/holdings/by-account?base_currency=CNY&include_portfolio_cash=true').catch(fallback),
+    (loadAccountPositions ? loadAccountPositions() : jget(accountPositionsPath)).catch(fallback),
   ]);
 }

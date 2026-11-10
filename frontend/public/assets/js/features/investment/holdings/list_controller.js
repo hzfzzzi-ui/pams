@@ -113,6 +113,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
       const [holdings, accountValues] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
         loadHoldingView: context.loadHoldingView,
+        loadAccountPositions: context.loadAccountPositions,
         onSupplementError: () => { supplementFailed = true; },
         withClosedParam,
         onHoldings(holdings) {

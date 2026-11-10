@@ -15,7 +15,7 @@ import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js';
 export function applyLegacySummaryPayload(payloads, context) {
   const { document, Chart, showClosedPositions, view } = context;
   const { setKpiLabel, renderIbkrPerformance, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, renderSection, writeSectionFinancials, renderReturnNotes, applySectionReturnMetrics, applyStaticReturnMetrics, publishHoldingsKpiSummary, renderInvestmentDashboard } = view;
-  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, ibkrPerf, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState] = payloads;
+  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, ibkrPerf, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions] = payloads;
     const aStockReturn = null;
     const aFundReturn = null;
     const usStockReturn = null;
@@ -394,6 +394,9 @@ export function applyLegacySummaryPayload(payloads, context) {
       fxRates,
       aStockRowsSummary,
       aStockSummary,
+      aStockAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tonghuashun'),
+      aStockPositionsAsOf: accountPositions?.as_of,
+      aStockAsOf: aStockEquity.as_of,
       fundDisplaySummary,
       fundSummary: { ...fundSummary, totalReturnRate: categoryByLabel(dashboardCategories, '基金').totalReturnRate },
       usSummary,
