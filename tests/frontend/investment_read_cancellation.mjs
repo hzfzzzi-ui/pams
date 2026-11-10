@@ -7,7 +7,7 @@ const deferred = () => {let resolve, reject; const promise = new Promise((yes, n
 for (const kind of ['summary', 'list']) {
   const reads = [], last = deferred();
   const summary = kind === 'summary';
-  const finalPath = summary ? '/api/portfolio/valuation-state?baseCurrency=CNY' : '/api/ibkr/performance';
+  const finalPath = summary ? '/api/portfolio/valuation-state?baseCurrency=CNY' : '/api/holdings/by-account?base_currency=CNY&include_portfolio_cash=true';
   const run = get => summary
     ? readSummaryInputs({get, withClosedParam: closed, loadInvestmentSummaryFresh: () => {reads.push({path: '/summary2/latest?baseCurrency=CNY', summary: true}); return Promise.resolve({synthetic: 'fresh summary'});}})
     : readListInputs({get, withClosedParam: closed});
@@ -15,7 +15,7 @@ for (const kind of ['summary', 'list']) {
     reads.push({path, options});
     return path === finalPath ? last.promise : Promise.resolve({synthetic: path});
   });
-  assert.equal(reads.length, summary ? 14 : 3);
+  assert.equal(reads.length, summary ? 14 : 2);
   if (summary) {
     assert.equal(reads[0].path, '/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true');
     assert.equal(reads[12].summary, true);
@@ -32,4 +32,4 @@ for (const kind of ['summary', 'list']) {
   assert.match(ordinary[0].synthetic, /^\/holdings\//);
   await assert.rejects(run(path => path.startsWith('/holdings/') ? Promise.reject(new Error('required unavailable')) : Promise.resolve({})), /required unavailable/);
 }
-console.log('Investment reads: fourteen/three dependency shape, fresh summary position, optional cancellation and ordinary/required failure semantics passed.');
+console.log('Investment reads: fourteen/two dependency shape, fresh summary position, optional cancellation and ordinary/required failure semantics passed.');

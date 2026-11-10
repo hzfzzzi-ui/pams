@@ -841,7 +841,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "rebaseReturnRate" in chart_source
     assert "accountCashBreakdown" in holdings_js
     assert "accountCashBreakdown" not in holding_rows_js
-    assert "subtractMoneyCents" in holding_rows_js
+    assert "cash_as_of" in holding_rows_js
     assert "returnRateFromCapitalBase" in holdings_js
     assert "holdingReturnRateFromSummary" in holdings_js
     assert "displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate" in holdings_js

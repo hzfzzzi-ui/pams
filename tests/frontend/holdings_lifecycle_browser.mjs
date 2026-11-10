@@ -62,6 +62,10 @@ try {
    if(url.startsWith('/holdings/latest'))return{as_of:'2026-10-20',rows:[row]};
    if(url.startsWith('/holdings/by-category/'))return{as_of:'2026-10-20',rows:url.includes('minor_category=A股&')?[row]:[]};
    if(url.includes('/fx-rates/'))return{rates:[]};
+   if(url.startsWith('/api/holdings/by-account'))return{by_account:[
+    {account_code:'tonghuashun',portfolio_value:{cash_base:30,cash_as_of:'2026-10-20'}},
+    {account_code:'ibkr',portfolio_value:{cash_base:70,cash_as_of:'2026-10-20'}},
+   ]};
    if(url.includes('/accounts/'))return{accounts:[
     {account_code:'test_bank',display_name:'合成储蓄卡',account_type:'funding',primary_balance:{amount:50,currency:'CNY'}},
     {account_code:'test_wallet',display_name:'合成钱包',account_type:'wallet',primary_balance:{amount:10,currency:'CNY'}},
@@ -91,7 +95,7 @@ try {
   const lateList=list.mount(root,config),lateSummary=summary.mount(root,config);
   await Promise.resolve();await Promise.resolve();
   const readDependencyCount=reads.length;
-  assert(readDependencyCount===17,'three list plus fourteen summary dependencies must remain');
+  assert(readDependencyCount===16,'two list plus fourteen summary dependencies must remain');
   lateList.dispose();lateSummary.dispose();
   assert(reads.every(read=>read.signal?.aborted),'all owned reads including summary must cancel');
   for(const resolve of deferredReads)resolve();deferredReads=null;
@@ -107,7 +111,7 @@ try {
   await Promise.resolve();
   await Promise.resolve();
   const firstGroup=document.querySelector('#mobileHoldingFilterChips [data-group]:not([data-group="全部"])');
-  assert(firstGroup && document.querySelector('[data-mobile-holding-index]'),'securities render while the two cash inputs are pending');
+  assert(firstGroup && document.querySelector('[data-mobile-holding-index]'),'securities render while the cash input is pending');
   const earlyGroup=firstGroup.dataset.group;
   firstGroup.click();
   for(const resolve of releaseCashInputs)resolve();

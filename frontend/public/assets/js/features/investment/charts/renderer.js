@@ -682,6 +682,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         dataset.pointHitRadius = context => sectionData.bridgeIndices.has(context.dataIndex) ? 0 : 4;
       }
     });
+    if (state.totalCoverage && !chart.data.datasets.some(row => row.returnSeriesKey !== 'events' && !row.hidden)) {
+      const source = chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock');
+      if (source) source.hidden = false;
+    }
     showAvailableReturnSeries(chart.data.datasets);
     renderInvestmentReturnToggle(chart, state.sectionSpecs, state);
     chart.update('none');
@@ -724,7 +728,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       status.hidden = !message;
       status.textContent = message;
     };
-    showStatus();
+    const totalStatus = () => state?.totalCoverage && chart.data.datasets.some(row => row.returnSeriesKey === 'total' && !row.hidden)
+      ? `部分覆盖：${state.totalCoverage}，按累计盈亏 / 净投入计算` : '';
+    showStatus(totalStatus());
     el.setAttribute('aria-multiselectable', 'true');
     const options = [
       { key: 'total', label: '总收益率', datasetLabel: '总收益率' },
@@ -748,6 +754,11 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         if (!wasVisible && chart.data.datasets.some(row => row.returnSeriesKey === mode && !row.hidden)) return;
       }
       const dataset = chart.data.datasets.find(row => row.label === selected.datasetLabel);
+      if (mode === 'total' && !dataset?.data.some(value => value != null) && state?.loadSection && !state.loadedSections.has('a_stock')) {
+        showStatus('正在加载可用收益…');
+        if (!await state.loadSection('a_stock') || disposed || chart !== returnChart) return;
+        if (!dataset.hidden) return;
+      }
       if (!dataset?.data.some(value => value != null)) {
         const reason = state?.sectionReasons?.get(selected.key);
         showStatus(reason === 'ibkr_position_history_unavailable'
@@ -762,6 +773,11 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;
+      if (state?.totalCoverage && mode === 'total' && !dataset.hidden) {
+        const source = chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock');
+        if (source) source.hidden = true;
+      }
+      if (mode === 'total') showStatus(totalStatus());
       syncButtons();
       chart.update('none');
       if (state) renderReturnEventHotspots(chart, state);

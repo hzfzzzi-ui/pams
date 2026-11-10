@@ -29,7 +29,7 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
   ]);
 }
 
-export function readListInputs({ get: jget, withClosedParam, onHoldings, onSupplementError, loadHoldingView, loadAccountView }) {
+export function readListInputs({ get: jget, withClosedParam, onHoldings, onSupplementError, loadHoldingView }) {
   const legacy = () => jget(withClosedParam('/holdings/latest'));
   const request = loadHoldingView ? loadHoldingView().then(view => view ? view.holdings : legacy()) : legacy();
   const holdings = request.then(payload => {
@@ -43,7 +43,6 @@ export function readListInputs({ get: jget, withClosedParam, onHoldings, onSuppl
   };
   return Promise.all([
     holdings,
-    selectPart(loadAccountView?.(), 'overview', () => jget('/api/accounts/overview')).catch(fallback),
-    jget('/api/ibkr/performance').catch(error => error.status === 404 ? null : fallback(error)),
+    jget('/api/holdings/by-account?base_currency=CNY&include_portfolio_cash=true').catch(fallback),
   ]);
 }
