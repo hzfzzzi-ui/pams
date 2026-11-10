@@ -30,6 +30,58 @@ def test_holdings_and_summary_http_are_readonly_repeatable_read(empty_source_db,
     assert len(seen)>=6
 
 
+def test_holdings_screen_matches_separate_reads_in_one_snapshot(empty_source_db, monkeypatch):
+    import main
+    from urllib.parse import urlencode
+
+    day = date(2026, 10, 22)
+    seen = []
+
+    class CheckedConnection(connection):
+        def cursor(self, *args, **kwargs):
+            assert self.readonly and self.isolation_level == ISOLATION_LEVEL_REPEATABLE_READ
+            seen.append(1)
+            return super().cursor(*args, **kwargs)
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO pams_holdings_snapshot(account_code,name,symbol,currency,asset_liability,
+                major_category,minor_category,as_of,quantity,cost,market_value)
+                VALUES ('ibkr','Synthetic','SYN','CNY','资产','A股','A股',%s,2,10,12)""", (day,))
+    monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db, connection_factory=CheckedConnection))
+    monkeypatch.setattr(main, '_holdings_market_view_as_of', lambda cur: day)
+    monkeypatch.setattr(main, '_view_as_of', lambda: day)
+
+    def category(major, minor=None, *, closed=False):
+        return f'/holdings/by-category/{major}?' + urlencode({
+            'limit': 500, 'include_closed': str(closed).lower(),
+            **({'minor_category': minor} if minor else {}),
+        })
+
+    with TestClient(main.app) as web:
+        for closed in (False, True):
+            seen.clear()
+            response = web.get('/api/investment/holdings-view', params={'show_closed': str(closed).lower()})
+            assert response.status_code == 200
+            assert seen == [1]
+            grouped = response.json()
+            assert any(row['symbol'] == 'SYN' for row in grouped['holdings']['rows'])
+            for key, url in {
+                'holdings': '/holdings/latest?limit=500',
+                'a_stock': category('A股', 'A股', closed=True),
+                'funds': category('A股', 'A股基金', closed=closed),
+                'funds_all': category('A股', 'A股基金', closed=True),
+                'us_stock': category('美股', closed=closed),
+                'precious_metal': category('贵金属', closed=closed),
+                'esop': category('ESOP', closed=closed),
+                'summary': '/summary2/latest',
+            }.items():
+                legacy = web.get(url)
+                assert legacy.status_code == 200
+                assert grouped[key] == legacy.json(), key
+
+
 def test_holdings_http_does_not_mix_concurrent_commits(empty_source_db,monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event

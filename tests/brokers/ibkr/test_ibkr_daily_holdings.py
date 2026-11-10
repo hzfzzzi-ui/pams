@@ -347,7 +347,16 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
 
 
 def test_cumulative_pnl_uses_verified_flex_across_quotes_and_snapshots(empty_source_db, monkeypatch):
-    from domain.brokers.ibkr.ibkr_holding_pnl import enrich_ibkr_holding_pnl
+    from domain.brokers.ibkr import ibkr_holding_pnl as pnl
+
+    checks = []
+    ledger_counts = pnl._ledger_counts
+
+    def count_evidence_reads(cur, day):
+        checks.append(day)
+        return ledger_counts(cur, day)
+
+    monkeypatch.setattr(pnl, '_ledger_counts', count_evidence_reads)
 
     monkeypatch.setenv('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', ACCOUNT)
     next_day = DAY + timedelta(days=1)
@@ -358,14 +367,14 @@ def test_cumulative_pnl_uses_verified_flex_across_quotes_and_snapshots(empty_sou
     for root in (first, second):
         ET.SubElement(root, 'Trades')
         ET.SubElement(root, 'CashTransactions')
-    for root, day, ident, side, shares, price, proceeds, net, pnl in (
+    for root, day, ident, side, shares, price, proceeds, net, realized in (
         (first, DAY, 'buy-1', 'BUY', '10', '70', '700', '-700', '0'),
         (second, next_day, 'sell-1', 'SELL', '-1', '100', '-100', '100', '30'),
     ):
         ET.SubElement(root.find('Trades'), 'Trade', accountId=ACCOUNT, tradeID=ident, assetCategory='STK',
             levelOfDetail='EXECUTION', conid='123456', listingExchange='SEHK', symbol='SYNTH', currency='HKD',
             buySell=side, tradeDate=compact(day), quantity=shares, tradePrice=price, tradeMoney=proceeds,
-            ibCommission='0', ibCommissionCurrency='HKD', taxes='0', netCash=net, fifoPnlRealized=pnl)
+            ibCommission='0', ibCommissionCurrency='HKD', taxes='0', netCash=net, fifoPnlRealized=realized)
     for ident, kind, amount in (('d1', 'Dividends', '10'), ('d2', 'Payment In Lieu Of Dividends', '5'),
                                 ('w1', 'Withholding Tax', '-2')):
         ET.SubElement(second.find('CashTransactions'), 'CashTransaction', accountId=ACCOUNT, transactionID=ident,
@@ -388,17 +397,21 @@ def test_cumulative_pnl_uses_verified_flex_across_quotes_and_snapshots(empty_sou
                     holding_pnl FROM pams_holdings_snapshot WHERE account_code='ibkr' AND as_of=%s""", (day,))
                 holding = dict(cur.fetchone(), market_value=Decimal(market),
                                market_value_cny=Decimal(market) * rate if rate is not None else None)
-                return enrich_ibkr_holding_pnl(cur, [holding])[0]
+                return pnl.enrich_ibkr_holding_pnl(cur, [holding])[0]
 
-            before = shown(DAY, 800, None)
-            assert before['holding_pnl_native'] == 100
-            assert before['holding_pnl_cny'] is None
-            after = shown(next_day, 900, Decimal('.9'))
-            assert after['holding_pnl_native'] == 313
-            assert after['realized_trade_pnl'] == 30 and after['net_distributions'] == 13
-            assert after['holding_pnl_cny'] == Decimal('281.7')
-            refreshed = shown(next_day, 990, Decimal('.9'))
-            assert refreshed['holding_pnl_native'] == 403
-            assert refreshed['realized_trade_pnl'] == 30 and refreshed['net_distributions'] == 13
+            with pnl.reuse_ibkr_holding_evidence(cur):
+                before = shown(DAY, 800, None)
+                assert before['holding_pnl_native'] == 100
+                assert before['holding_pnl_cny'] is None
+                after = shown(next_day, 900, Decimal('.9'))
+                assert after['holding_pnl_native'] == 313
+                assert after['realized_trade_pnl'] == 30 and after['net_distributions'] == 13
+                assert after['holding_pnl_cny'] == Decimal('281.7')
+                refreshed = shown(next_day, 990, Decimal('.9'))
+                assert refreshed['holding_pnl_native'] == 403
+                assert refreshed['realized_trade_pnl'] == 30 and refreshed['net_distributions'] == 13
+            assert checks == [DAY, next_day]
             cur.execute("UPDATE pams_cashflow_fact SET amount=9 WHERE amount=10 AND account_code='ibkr'")
-            assert 'net_distributions' not in shown(next_day, 990, Decimal('.9'))
+            with pnl.reuse_ibkr_holding_evidence(cur):
+                assert 'net_distributions' not in shown(next_day, 990, Decimal('.9'))
+            assert checks == [DAY, next_day, next_day]

@@ -106,6 +106,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
       let supplementFailed = false;
       const [holdings, accountOverview, fxData, ibkrPerf] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
+        loadHoldingView: context.loadHoldingView,
         onSupplementError: () => { supplementFailed = true; },
         withClosedParam,
         onHoldings(holdings) {
