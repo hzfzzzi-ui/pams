@@ -6,7 +6,7 @@ const explanations = {
   no_sync: () => ['暂无成功同步记录', '未找到已确认的同步或导入记录。'],
 };
 
-export function showAccountReview(panel, account, loadRecords) {
+export function showAccountReview(panel, account, loadRecords, {balanceRequested = false} = {}) {
   const doc = panel.ownerDocument;
   const element = (tag, text) => {
     const node = doc.createElement(tag);
@@ -17,7 +17,19 @@ export function showAccountReview(panel, account, loadRecords) {
   content.className = 'accountReviewDetails';
   panel.replaceChildren(content);
   const reasons = (account.summary?.review_reasons || []).filter(reason => Object.hasOwn(explanations, reason.kind));
-  if (!reasons.length) content.append(element('p', '暂未返回具体原因，请刷新后再查看。'));
+  if (balanceRequested) {
+    const data = account.summary || {};
+    const flowEstimate = data.balance_basis === 'credit_card_flow_net';
+    if (flowEstimate && data.balance_amount != null) {
+      const amount = new Intl.NumberFormat('zh-CN', {style: 'currency', currency: data.balance_currency || account.currency}).format(data.balance_amount);
+      content.append(element('p', `按已确认流水计算的欠款：${amount}${data.balance_as_of ? `（截至 ${data.balance_as_of}）` : ''}`));
+    }
+    content.append(element('p', flowEstimate
+      ? '尚未核准账单余额。请用银行账单的余额和账单日期核准。'
+      : '组合数据缺少此账户的已核准余额。请核对余额日期和来源。'));
+  } else if (!reasons.length) {
+    content.append(element('p', '暂未返回具体原因，请刷新后再查看。'));
+  }
   for (const reason of reasons) {
     const {kind, count} = reason;
     const [title, description] = explanations[kind](count);

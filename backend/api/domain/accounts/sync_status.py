@@ -78,8 +78,10 @@ def _compact_summary(row, published_at, *, liability, now, source_balance=None):
               'last_synced_at': synced_at, 'review_reasons': reasons}
     if amount is not None:
         result.update(balance_as_of=as_of, balance_basis=basis)
-        if basis == 'bank_statement':
+        if basis in {'bank_statement', 'credit_card_statement'}:
             result['balance_label'] = '账单余额'
+        elif basis == 'credit_card_flow_net':
+            result['balance_label'] = '流水计算欠款'
     return result
 
 

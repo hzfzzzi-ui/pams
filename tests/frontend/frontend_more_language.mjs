@@ -105,7 +105,9 @@ try{
   assert.equal(await account.locator('[data-status="review"]').count(),1);
   await page.waitForFunction(() => document.querySelector('[data-institution="ccb"] img')?.naturalWidth === 100);
   assert.equal(await page.locator('[data-institution="legacy"] img').count(),0);
-  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['待核查','超月未同步']);
+  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','超月未同步','正常','正常']);
+  assert.deepEqual(await page.locator('.accountSyncEntry:visible').first().locator('.accountSyncMetadata dd').allTextContents(),
+    ['2026-11-01','2026-11-07 17:33']);
   assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral','positive','positive']);
   assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
   assert.equal(await page.locator('.accountSyncAmount').nth(2).textContent(),'—');

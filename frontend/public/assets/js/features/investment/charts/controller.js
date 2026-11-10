@@ -98,16 +98,21 @@ export function createInvestmentChartController({ root = document, host = window
         }
         return sectionReads.get(key);
       }
+      const contribution = root.getElementById?.('profitContributionPanel') || root.querySelector?.('#profitContributionPanel');
+      state.contributionPending = Boolean(contribution && typeof host.IntersectionObserver === 'function');
       const result = renderer.renderReturns({ resp, sectionResponses, sectionSpecs, loadSection });
       publishCharts();
-      const contribution = root.getElementById?.('profitContributionPanel') || root.querySelector?.('#profitContributionPanel');
-      if (contribution && typeof host.IntersectionObserver === 'function') {
+      if (state.contributionPending) {
         const observer = new host.IntersectionObserver(async entries => {
           if (!entries.some(entry => entry.isIntersecting)) return;
           observer.disconnect();
           for (const {key} of sectionSpecs) {
-            if (!current() || generation !== returnGeneration) break;
+            if (!current() || generation !== returnGeneration) return;
             await loadSection(key).catch(() => false);
+          }
+          if (current() && generation === returnGeneration) {
+            state.contributionPending = false;
+            renderer.renderContribution(state.topContribution);
           }
         });
         contributionObserver = observer;

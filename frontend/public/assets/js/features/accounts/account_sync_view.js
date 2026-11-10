@@ -58,7 +58,7 @@ function shortAccountLabel(label, groupLabel, shortLabel) {
   return label;
 }
 
-function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, previousGroup) {
+function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, preferredGroup) {
   const doc = panel.ownerDocument;
   const picker = element(doc, 'div');
   picker.className = 'accountInstitutionPicker';
@@ -121,11 +121,11 @@ function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, prev
   }
   for (const entry of entries) entry.button.addEventListener('click', () => select(entry));
   select(entries.find(entry => targetAccount && entry.group.rows.some(row => row.account_code === targetAccount)) ||
-    entries.find(entry => entry.button.dataset.institution === previousGroup) || entries[0]);
+    entries.find(entry => entry.button.dataset.institution === preferredGroup) || entries[0]);
   panel.append(picker, ...entries.map(entry => entry.section));
 }
 
-export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount, targetAccount } = {}) {
+export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount, targetAccount, targetInstitution } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   const previousGroup = compact
     ? panel.querySelector('.accountInstitutionButton[aria-pressed="true"]')?.dataset.institution : null;
@@ -159,8 +159,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
       button.addEventListener('click', () => openAccount(row));
       title.replaceChildren(button);
     }
-    name.append(title);
-    if (status !== 'normal') name.append(badge);
+    name.append(title, badge);
     const amount = data.balance_amount;
     const balance = make('span', amount == null ? '—' :
       new Intl.NumberFormat('zh-CN', { style: 'currency', currency: data.balance_currency || row.currency }).format(amount));
@@ -179,9 +178,10 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     item.classList.add('accountSyncCompact');
     item.append(heading);
+    if (status !== 'inactive') item.append(accountSyncMetadata(doc, data));
   }
   if (compact && groups.length) {
-    renderInstitutionPicker(panel, groups, compactEntry, targetAccount, previousGroup);
+    renderInstitutionPicker(panel, groups, compactEntry, targetAccount, previousGroup || targetInstitution);
     return;
   }
   for (const group of groups) {
