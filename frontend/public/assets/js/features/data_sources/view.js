@@ -19,6 +19,16 @@ function statusTag(text, ok) {
   return `<span class="tag ${ok ? 'data' : 'warn'}">${esc(text)}</span>`;
 }
 
+const componentLabels = {
+  account_balances: '账户余额',
+  investment_positions: '投资持仓',
+  investment_transactions: '投资交易',
+  cash_transactions: '现金流水',
+  transfer_matches: '内部转账',
+  fx_rates: '汇率',
+  valuation_series: '估值曲线',
+};
+
 export function issuesHtml(quality, accounts = []) {
   const summary = quality?.summary;
   if (!quality || !Array.isArray(quality.checks) || !summary || !['ok', 'warning', 'error'].includes(summary.status) ||
@@ -28,7 +38,7 @@ export function issuesHtml(quality, accounts = []) {
   if (!checks.length) return summary.status === 'ok' && summary.warning_count === 0 && summary.error_count === 0 ? '<p>当前没有待处理问题。</p>' : '<p>数据状态暂不可用，请稍后重试。</p>';
   const names = new Map((Array.isArray(accounts) ? accounts : []).map(account => [account.account_code, account.display_name || account.account_code]));
   return checks.map(check => {
-    let title = check.message || check.id || '数据状态异常';
+    let title = '数据状态待核对';
     let description = '打开数据诊断，核对原因后处理。';
     let href = 'data_sources.html';
     let action = '查看数据诊断';
@@ -44,6 +54,10 @@ export function issuesHtml(quality, accounts = []) {
       href = accountCenterHref(); action = '核对账户';
     } else if (check.id === 'component_coverage') {
       const missing = Array.isArray(check.details?.missing_components) ? check.details.missing_components : [];
+      title = '部分投资数据尚未就绪';
+      const labels = missing.map(key => componentLabels[key]).filter(Boolean);
+      if (labels.length) description = `缺少：${labels.join('、')}。`;
+      href = 'data_sources.html#dataQuality';
       if (missing.includes('transfer_matches')) {
         const diagnostics = missing.some(component => component !== 'transfer_matches')
           ? '<li><a href="data_sources.html#dataQuality">查看其他数据缺口 ›</a></li>' : '';
@@ -71,15 +85,7 @@ export function renderQuality(portfolio, el) {
     });
     return;
   }
-  const labels = {
-    account_balances: '账户余额',
-    investment_positions: '投资持仓',
-    investment_transactions: '投资交易',
-    cash_transactions: '现金流水',
-    transfer_matches: '内部转账',
-    fx_rates: '汇率',
-    valuation_series: '估值曲线',
-  };
+  const labels = componentLabels;
   const actionLinks = {
     account_balances: { label: '核对账户余额', href: accountCenterHref() },
     transfer_matches: { label: '核准内部转账', href: 'ledger.html#transfers' },

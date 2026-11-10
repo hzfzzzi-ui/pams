@@ -12,6 +12,11 @@ const FIRST_PAGE = 10;
 const moneyText = (value, currency) => value == null ? '—' : money(value, currency);
 const byDate = (left, right) => right.match_date.localeCompare(left.match_date);
 
+function currentBusinessMonth() {
+  const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit'}).formatToParts(new Date());
+  return `${parts.find(part => part.type === 'year').value}-${parts.find(part => part.type === 'month').value}`;
+}
+
 export function createLedgerTransfers({ root, state, model, dom, events, reads, current, memory, variant, showRefresh = () => {}, reloadWorkbench }) {
   const { $ } = dom;
   let data = null;
@@ -125,6 +130,12 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       button.setAttribute('aria-pressed', String(button.dataset.transferPeriod === state.transferPeriod));
     });
     const month = history ? state.transferMonth : '';
+    $('transferMonth').max = currentBusinessMonth();
+    if (history && month > $('transferMonth').max) {
+      reads.cancel('transfers');
+      $('transferSummary').textContent = '历史月份不能晚于当前业务月。';
+      return;
+    }
     if (history && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
       reads.cancel('transfers');
       $('transferSummary').textContent = '请选择要查看的月份。';

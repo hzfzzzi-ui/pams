@@ -30,21 +30,23 @@ export function mount(root, context) {
   const details = find('moreNavGrowthDetails');
   const accountCenter = find('account-center');
   const accountRetry = find('retryAccountSync');
+  const importLink = find('moreImport');
   const location = context.location || win?.location;
   const query = new URLSearchParams(location?.search);
   const targetAccount = query.get('account');
+  const targetInstitution = query.get('institution');
   let alive = true;
   let navGrowthLoaded = false;
   let navGrowthPending;
   let reviewPanel;
-  function openAccount(account, review = false) {
+  function openAccount(account, review = false, balanceRequested = false) {
     reviewPanel = openSheet(review ? account.label + ' · 待核查' : account.label);
     if (!reviewPanel) return;
-    if (review && account.summary?.review_reasons?.length) {
+    if (review) {
       showAccountReview(reviewPanel, account, (kind, offset) =>
         reads.get('account-review:' + account.account_code + ':' + kind,
           '/api/sync/accounts/' + encodeURIComponent(account.account_code) +
-          '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}));
+          '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}), {balanceRequested});
     }
     reviewPanel.prepend(accountSyncMetadata(reviewPanel.ownerDocument, account.summary));
     if (!account.active) return;
@@ -72,16 +74,27 @@ export function mount(root, context) {
     }
     item.scrollIntoView({block: 'center'});
     item.querySelector('h4 button')?.focus({preventScroll: true});
-    if (query.get('review') === 'balance' && openSheet) openAccount(account, true);
+    if (query.get('review') === 'balance' && openSheet) openAccount(account, true, true);
   }
   const loadAccountSync = createAccountSyncLoader(root, { reads, isActive: () => alive, compact: true, targetAccount,
     openAccount: openSheet ? openAccount : undefined,
-    openReview: openSheet ? account => openAccount(account, true) : undefined, onRendered: locateAccount });
+    openReview: openSheet ? account => openAccount(account, true) : undefined, targetInstitution, onRendered: locateAccount });
 
   function onAccountRetry() { void loadAccountSync(); }
 
+  function rememberImportOrigin() {
+    const selected = root.querySelector('.accountInstitutionButton[aria-pressed="true"]')?.dataset.institution;
+    const activePanel = root.querySelector('.accountInstitutionPanel:not([hidden])');
+    const keepTarget = targetAccount && (!activePanel || [...activePanel.querySelectorAll('[data-account-code]')]
+      .some(row => row.dataset.accountCode === targetAccount));
+    const origin = new URL(accountCenterHref(keepTarget ? targetAccount : ''), location.href);
+    if (selected && !keepTarget) origin.searchParams.set('institution', selected);
+    const returnRoute = origin.pathname.split('/').pop() + origin.search + origin.hash;
+    importLink.href = 'account_import.html?' + new URLSearchParams({return: returnRoute});
+  }
+
   function openRequestedAccounts() {
-    if (accountCenter && (targetAccount || location?.hash === '#account-center')) accountCenter.open = true;
+    if (accountCenter && (targetAccount || targetInstitution || location?.hash === '#account-center')) accountCenter.open = true;
   }
 
   async function loadIssues() {
@@ -134,6 +147,7 @@ export function mount(root, context) {
     if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
     accountRetry?.removeEventListener('click', onAccountRetry);
+    importLink?.removeEventListener('click', rememberImportOrigin);
     win?.removeEventListener('hashchange', openRequestedAccounts);
     win?.removeEventListener('pagehide', dispose);
     if (mounted.get(root) === controller) mounted.delete(root);
@@ -146,6 +160,7 @@ export function mount(root, context) {
   if (origin) origin.textContent = location?.origin || '';
   details?.addEventListener('toggle', onToggle);
   accountRetry?.addEventListener('click', onAccountRetry);
+  importLink?.addEventListener('click', rememberImportOrigin);
   win?.addEventListener('hashchange', openRequestedAccounts);
   win?.addEventListener('pagehide', dispose);
   openRequestedAccounts();

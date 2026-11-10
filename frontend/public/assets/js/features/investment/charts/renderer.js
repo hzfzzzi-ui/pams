@@ -340,7 +340,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     }
     statsEl.innerHTML = `
       <span><em>${data.availableAccountCount ? '已覆盖净值' : '最近净值'}${data.estimated ? '（含估算）' : ''} · ${data.latestDate}</em><strong>${fmtCny(data.latest)}</strong></span>
-      <span class="${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}"><em>区间</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong></span>
+      <span class="${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}"><em>${data.changeStart ? `${data.changeStart.slice(5)} 至 ${data.latestDate.slice(5)}` : '可比区间不足'}</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong></span>
       <span class="${data.changeRate == null ? '' : data.changeRate >= 0 ? 'up' : 'down'}"><em>变化</em><strong>${data.changeRate == null ? '—' : formatPercentRate(data.changeRate)}</strong></span>
     `;
   }
@@ -549,6 +549,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   function renderReturnContributionPanel(model) {
     const el = getElementById('profitContributionPanel');
     if (!el) return;
+    if (state.contributionPending && model?.unavailable) {
+      el.innerHTML = '<div class="returnInsightHead"><h3>Top 贡献</h3></div><p role="status">正在加载收益贡献…</p>';
+      return;
+    }
     el.innerHTML = TopContributionPanel(model || {
       mode: 'period',
       windowLabel: '当前窗口',
@@ -810,6 +814,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     },
     renderNav: renderInvestmentNavChart,
     renderWindowToggle: renderInvestmentReturnWindowToggle,
+    renderContribution: renderReturnContributionPanel,
     applyWindow: applyInvestmentReturnWindow,
     get returnChart() { return returnChart; },
     get navChart() { return navChart; },

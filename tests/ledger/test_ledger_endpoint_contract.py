@@ -9,7 +9,17 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+import pytest
+from fastapi import HTTPException
+
 from endpoints import ledger  # noqa: E402
+
+@pytest.mark.parametrize("month", ["2099-01", "2026-13"])
+def test_ledger_workbench_rejects_invalid_history_month_before_connecting(monkeypatch, month) -> None:
+    monkeypatch.setattr(ledger, "get_conn", lambda: pytest.fail("invalid month reached the database"))
+    with pytest.raises(HTTPException) as error:
+        ledger.ledger_workbench(month=month)
+    assert error.value.status_code == 422
 
 
 def test_ledger_manual_update_type_defaults_are_explicit() -> None:

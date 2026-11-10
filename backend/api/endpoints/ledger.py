@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -111,6 +113,13 @@ def ledger_workbench(
     limit: int = Query(80, ge=1, le=100),
 ):
     """Return cashflow KPI, category, trend, and review rows for the ledger page."""
+    if month:
+        try:
+            requested_month = date.fromisoformat(f"{month}-01")
+        except ValueError as exc:
+            raise HTTPException(422, detail="月份格式无效") from exc
+        if requested_month > datetime.now(ZoneInfo("Asia/Shanghai")).date().replace(day=1):
+            raise HTTPException(422, detail="历史月份不能晚于当前业务月")
 
     with get_conn() as conn:
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)

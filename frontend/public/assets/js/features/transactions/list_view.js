@@ -110,6 +110,12 @@ function setDefaultFilters() {
   state.showAll = false;
 }
 
+scope.onSheetClose?.(() => {
+  const button = $('btnToggleTradeFilters');
+  button?.setAttribute('aria-expanded', 'false');
+  button?.classList.toggle('active', hasActiveTradeFilters());
+});
+
 function setTradeFilterPanelOpen(open, opts = {}) {
   const button = $('btnToggleTradeFilters');
   if (!open) {

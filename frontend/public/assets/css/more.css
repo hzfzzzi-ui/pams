@@ -30,7 +30,9 @@ body.page-more #accountSyncPanel .accountSyncCompact h4 { margin: 0; font-size: 
 body.page-more .accountSyncBadge { display: inline-block; padding: 2px 6px; border-radius: 5px; color: var(--pams-text-muted); background: var(--pams-bg-raised); font-size: 11px; font-weight: 600; white-space: nowrap; }
 body.page-more .accountSyncAmount[data-sign="positive"] { color: var(--pams-profit); }
 body.page-more .accountSyncBadge[data-status="review"], body.page-more .accountSyncAmount[data-sign="negative"] { color: var(--pams-loss); }
+body.page-more .accountSyncBadge[data-status="normal"] { color: var(--pams-profit); }
 body.page-more .accountSyncBadge[data-status="stale"] { color: var(--pams-warning); }
+body.page-more .accountSyncEntry .accountSyncMetadata { margin: 6px 0 0; font-size: 12px; }
 body.page-more .accountSyncBadge[data-status="review"] { background: color-mix(in srgb, var(--pams-loss) 15%, transparent); }
 body.page-more .accountSyncBadge[data-status="stale"] { background: color-mix(in srgb, var(--pams-warning) 15%, transparent); }
 body.page-more button.accountSyncBadge { position: relative; min-height: 0; border: 0; line-height: 1.4; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }

@@ -252,14 +252,17 @@ function buildInvestmentNavChartData(windowRows, isMobile) {
   const values = rows.map(row => row.market_value);
   const scopes = rows.map(row => row.nav_scope || 'complete');
   const latestRow = known[known.length - 1];
-  const first = known[0].market_value;
+  const endIndex = rows.lastIndexOf(latestRow);
+  let startIndex = endIndex;
+  while (startIndex > 0 && values[startIndex - 1] != null && scopes[startIndex - 1] === scopes[endIndex]) startIndex--;
+  const first = values[startIndex];
   const latest = latestRow.market_value;
-  const comparable = known.length === rows.length && scopes.every(scope => scope === scopes[0]);
+  const comparable = startIndex < endIndex;
   const change = comparable ? latest - first : null;
   const changeRate = comparable && Math.abs(first) > 0.005 ? change / first : null;
   let peak = first;
   let maxDrawdown = 0;
-  for (const { market_value: value } of known) {
+  for (const value of values.slice(startIndex, endIndex + 1)) {
     peak = Math.max(peak, value);
     if (peak > 0.005) maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
   }
@@ -273,6 +276,7 @@ function buildInvestmentNavChartData(windowRows, isMobile) {
     availableAccountCount: latestRow.available_account_count,
     estimated: latestRow.valuation_quality === 'estimated',
     change,
+    changeStart: comparable ? labels[startIndex] : null,
     changeRate,
     maxDrawdown: comparable ? maxDrawdown : null,
     pointRadius: pointRadiusForReturnSeries(values.length, isMobile),
