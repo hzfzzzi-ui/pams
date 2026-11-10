@@ -1,3 +1,5 @@
+import { accountInstitution } from '../../shared/account_institutions.js';
+
 const localTime = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -19,17 +21,6 @@ function describe(label, data, balanceCurrency = null) {
 }
 
 const compactStatuses = { normal: '正常', review: '待核查', stale: '超月未同步', inactive: '已停用' };
-const institutions = new Map([
-  ['ccb', ['建行', 'ccb']],
-  ['icbc_6689', ['工行', 'icbc']],
-  ['santander', ['Santander', 'santander']],
-  ['tencent', ['腾讯', 'wechat']],
-  ['alipay', ['支付宝', 'alipay']],
-  ['ibkr', ['IBKR', 'ibkr']],
-  ['tonghuashun', ['同花顺', 'tonghuashun']],
-  ['benefits', ['五险一金']],
-  ['guangfa_credit', ['广发', 'guangfa']],
-]);
 
 function element(doc, tag, text = '') {
   const node = doc.createElement(tag);
@@ -65,7 +56,7 @@ function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, pref
   picker.setAttribute('role', 'group');
   picker.setAttribute('aria-label', '选择机构');
   const entries = groups.map((group, index) => {
-    const [shortLabel, artwork] = institutions.get(group.code) || [group.label];
+    const {label: shortLabel, logoUrl} = accountInstitution(group.code, group.label);
     const button = element(doc, 'button');
     button.type = 'button';
     button.className = 'accountInstitutionButton';
@@ -73,10 +64,10 @@ function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, pref
     const logo = element(doc, 'span', shortLabel.slice(0, 1));
     logo.className = 'accountInstitutionLogo';
     logo.setAttribute('aria-hidden', 'true');
-    if (artwork) {
+    if (logoUrl) {
       const image = element(doc, 'img');
       image.alt = '';
-      image.src = new URL('../../../images/account-brands/' + artwork + '.jpg', import.meta.url).href;
+      image.src = logoUrl;
       image.addEventListener('error', () => image.remove(), {once: true});
       logo.append(image);
     }

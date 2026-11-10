@@ -1,6 +1,7 @@
 // Existing ledger mappings, inference and aggregation kept verbatim for compatibility.
 // This module adds no financial/classification rules; migrate these only with backend contracts.
 import { accountLabel } from '../../api.js';
+import { accountInstitution } from '../../shared/account_institutions.js';
 import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 
 const ACCOUNT_GROUPS = [
@@ -29,8 +30,8 @@ const ACCOUNT_GROUPS = [
 const ACCOUNT_GROUP_CHILD_CODES = new Set(ACCOUNT_GROUPS.flatMap((group) => group.children));
 
 const ACCOUNT_SUBACCOUNT_LABELS = {
-  ccb_7332: '储蓄卡',
-  ccb_credit_0453: '信用卡',
+  ccb_7332: '7332 储蓄卡',
+  ccb_credit_0453: '0453 信用卡',
   ccb_yhs300_fund: '建行理财',
   wechat: '零钱',
   wechat_lqt: '零钱通',
@@ -39,7 +40,9 @@ const ACCOUNT_SUBACCOUNT_LABELS = {
   icbc_6689_usd: '6689 美元',
   gf_7443: '7443 信用卡',
   gf_9711: '9711 信用卡',
-  santander: '储蓄卡',
+  santander: '4209 储蓄卡',
+  ibkr: '证券账户',
+  tonghuashun: 'A 股证券账户',
   pension_insurance: '养老保险',
   medical_insurance: '医疗保险',
   unemployment_insurance: '失业保险',
@@ -508,6 +511,15 @@ function subAccountDisplayName(accountCode) {
   return ACCOUNT_SUBACCOUNT_LABELS[accountCode] || accountDisplayName(accountCode);
 }
 
+function transferAccountIdentity(accountCode) {
+  const account = accountOverview(accountCode);
+  const group = ACCOUNT_GROUPS.find(item => item.code === accountCode || item.children.includes(accountCode));
+  const institution = accountInstitution(account?.parent_account_code || group?.code || accountCode, group?.label);
+  const name = subAccountDisplayName(accountCode);
+  const label = institution.label === name ? null : institution.label;
+  return { name, institution: label, logoUrl: institution.logoUrl };
+}
+
 function accountOverviewMap() {
   return new Map((state.accounts?.accounts || [])
     .filter((account) => account?.account_code)
@@ -826,7 +838,7 @@ function filteredRecentRows() {
   return sortRecentRows(filtered);
 }
 
-  return { flowLabel, flowClass, compactText, stripLongDetail, accountFriendlyName, accountShortLabel, counterpartyShortLabel, rowCategoryText, cashflowTypeText, isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, isAccountValidationRow, isInvestmentFundingRow, isInvestmentWithdrawalRow, routeEndpointLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, recentAmountValue, sortRecentRows, originalCurrencyText, inferInvestmentAccountCode, transferEndpointName, isImporterCounterparty, investmentFundingSourceAccount, transferRoute, uniqueOptionValues, ledgerCategoryOptions, ledgerSubcategoryOptions, overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, accountDisplayName, subAccountDisplayName, accountOverviewMap, accountOverview, accountPrimaryBalance, hasAccountBalance, accountBalanceItems, formatBalanceItem, accountBalanceSummary, accountPlatformBalances, platformBalanceAmount, addCurrencyAmount, sortedCurrencyItems, formatCurrencyItems, formatCurrencyItemsCompact, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, maxSyncAt, emptyAccountRow, mergeAccountRows, hasAccountActivity, buildAccountFlowGroups, accountFlowStatsEntries, formatSyncDate, accountFlowCountText, currentAccountSummary, isInternalTransferRow, overviewPieRows, findLedgerRowById, filteredRecentRows };
+  return { flowLabel, flowClass, compactText, stripLongDetail, accountFriendlyName, accountShortLabel, counterpartyShortLabel, rowCategoryText, cashflowTypeText, isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, isAccountValidationRow, isInvestmentFundingRow, isInvestmentWithdrawalRow, routeEndpointLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, recentAmountValue, sortRecentRows, originalCurrencyText, inferInvestmentAccountCode, transferEndpointName, isImporterCounterparty, investmentFundingSourceAccount, transferRoute, uniqueOptionValues, ledgerCategoryOptions, ledgerSubcategoryOptions, overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, accountDisplayName, subAccountDisplayName, transferAccountIdentity, accountOverviewMap, accountOverview, accountPrimaryBalance, hasAccountBalance, accountBalanceItems, formatBalanceItem, accountBalanceSummary, accountPlatformBalances, platformBalanceAmount, addCurrencyAmount, sortedCurrencyItems, formatCurrencyItems, formatCurrencyItemsCompact, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, maxSyncAt, emptyAccountRow, mergeAccountRows, hasAccountActivity, buildAccountFlowGroups, accountFlowStatsEntries, formatSyncDate, accountFlowCountText, currentAccountSummary, isInternalTransferRow, overviewPieRows, findLedgerRowById, filteredRecentRows };
 }
 
 export { ACCOUNT_GROUPS, ACCOUNT_GROUP_CHILD_CODES, ACCOUNT_SUBACCOUNT_LABELS, TRANSFER_ENDPOINT_LABELS, ACCOUNT_KIND_OVERRIDES, ACCOUNT_NUMERIC_FIELDS, LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS, LEDGER_EDIT_CATEGORY_OPTIONS, LEDGER_EDIT_SUBCATEGORY_OPTIONS };
