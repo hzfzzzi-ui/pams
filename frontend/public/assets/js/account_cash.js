@@ -79,30 +79,3 @@ export function accountCashBreakdown(accountOverview, fxRates = {}) {
     netCash: cashAssets - cashLiabilities,
   };
 }
-
-export function makeAccountCashHoldingRows(accountOverview, fxRates = {}) {
-  return accountCashBreakdown(accountOverview, fxRates).rows.map((row) => ({
-    symbol: `CASH_${String(row.accountCode || 'ACCOUNT').toUpperCase()}`,
-    name: row.displayName,
-    account: row.accountCode,
-    account_code: row.accountCode,
-    major_category: '现金',
-    minor_category: '现金/活期',
-    type: '现金',
-    currency: row.currency,
-    market_value: row.amount,
-    market_value_cny: row.amountCny,
-    market_value_native: row.amount,
-    cost: row.amount,
-    cost_cny: row.amountCny,
-    holding_pnl: 0,
-    holding_pnl_cny: 0,
-    daily_pnl: 0,
-    daily_pnl_cny: 0,
-    current_price: null,
-    quantity: null,
-    balance_as_of: row.source === 'verified_bank_balance_snapshot' ? row.asOf : null,
-    data_source: row.source,
-    asset_liability: row.amountCny < 0 ? '负债' : '资产',
-  }));
-}

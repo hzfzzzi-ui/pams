@@ -62,7 +62,12 @@ try {
    if(url.startsWith('/holdings/latest'))return{as_of:'2026-10-20',rows:[row]};
    if(url.startsWith('/holdings/by-category/'))return{as_of:'2026-10-20',rows:url.includes('minor_category=A股&')?[row]:[]};
    if(url.includes('/fx-rates/'))return{rates:[]};
-   if(url.includes('/accounts/'))return{accounts:[]};
+   if(url.includes('/accounts/'))return{accounts:[
+    {account_code:'test_bank',display_name:'合成储蓄卡',account_type:'funding',primary_balance:{amount:50,currency:'CNY'}},
+    {account_code:'test_wallet',display_name:'合成钱包',account_type:'wallet',primary_balance:{amount:10,currency:'CNY'}},
+    {account_code:'tonghuashun',primary_balance:{amount:150,currency:'CNY'},platform_balance:{amount:120,currency:'CNY'}},
+   ]};
+   if(url==='/api/ibkr/performance')return{cash_cny:70,cash_base:10};
    if(url.startsWith('/summary2/'))return{as_of:'2026-10-20',totals:{market_value:120,pnl:20,daily_pnl:2}};
    if(url.startsWith('/investment/section-return-series'))return{rows:[{date:'2026-10-20',value:120,market_value:120,net_flow:0,return_rate:0.2}]};
    return null;
@@ -85,7 +90,8 @@ try {
   deferredReads=[];reads=[];
   const lateList=list.mount(root,config),lateSummary=summary.mount(root,config);
   await Promise.resolve();await Promise.resolve();
-  assert(reads.length===18,'four list plus fourteen summary dependencies must remain');
+  const readDependencyCount=reads.length;
+  assert(readDependencyCount===17,'three list plus fourteen summary dependencies must remain');
   lateList.dispose();lateSummary.dispose();
   assert(reads.every(read=>read.signal?.aborted),'all owned reads including summary must cancel');
   for(const resolve of deferredReads)resolve();deferredReads=null;
@@ -101,12 +107,13 @@ try {
   await Promise.resolve();
   await Promise.resolve();
   const firstGroup=document.querySelector('#mobileHoldingFilterChips [data-group]:not([data-group="全部"])');
-  assert(firstGroup && document.querySelector('[data-mobile-holding-index]'),'securities render while the three cash inputs are pending');
+  assert(firstGroup && document.querySelector('[data-mobile-holding-index]'),'securities render while the two cash inputs are pending');
   const earlyGroup=firstGroup.dataset.group;
   firstGroup.click();
   for(const resolve of releaseCashInputs)resolve();
   await progressive.ready;
   assert(progressive.snapshot().group===earlyGroup,'cash completion preserves the group selected during loading');
+  document.querySelector('#mobileHoldingFilterChips [data-group="全部"]').click();
   progressive.dispose();
   deferredReads=null;
 
@@ -115,7 +122,10 @@ try {
    const a=list.mount(root,config),b=summary.mount(root,config);
    assert(list.mount(root,config)===a&&summary.mount(root,config)===b,'same root mount must be idempotent');
    await Promise.all([a.ready,b.ready]);
-   assert(document.querySelectorAll('[data-mobile-holding-index]').length===1,'full synthetic list is present');
+   const holdingList=document.querySelector('#mobileHoldingList');
+   assert(holdingList.querySelectorAll('[data-mobile-holding-index]').length===3,'security and both brokerage cash rows are present');
+   assert(holdingList.textContent.includes('同花顺现金')&&holdingList.textContent.includes('IBKR现金'),'both brokerage cash rows are visible');
+   assert(!holdingList.textContent.includes('合成储蓄卡')&&!holdingList.textContent.includes('合成钱包'),'bank and wallet balances stay out of holdings');
    const groupChip=document.querySelector('#mobileHoldingFilterChips [data-group]:not([data-group="全部"])');
    assert(groupChip,'synthetic holding group is available');
    const selectedGroup=groupChip.dataset.group;groupChip.click();
@@ -144,7 +154,7 @@ try {
   checkbox.checked=true;checkbox.dispatchEvent(new Event('change'));assert(moves===1&&href.includes('keep=ok')&&href.includes('show_closed=1')&&href.endsWith('#holdings-smart-table'),'show_closed must bind once and retain address');
   one.release();checkbox.checked=false;checkbox.dispatchEvent(new Event('change'));assert(moves===2,'remaining owner retains binding');
   two.release();checkbox.dispatchEvent(new Event('change'));assert(moves===2,'last owner releases binding');shell.remove();
-  return{readDependencyCount:18,mountRounds:2,lateReadSuppressed:true,disposedStartupReads:0,rootOwnedDetails:shows,closedBinding:true,listeners:listeners.size,timers:timers.size,observers:observers.size,allChartsDestroyed:charts.every(chart=>chart.destroyed)};
+  return{readDependencyCount,mountRounds:2,lateReadSuppressed:true,disposedStartupReads:0,rootOwnedDetails:shows,closedBinding:true,listeners:listeners.size,timers:timers.size,observers:observers.size,allChartsDestroyed:charts.every(chart=>chart.destroyed)};
  });
  assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);console.log(JSON.stringify({...result,pageErrors:0,writeAttempts:0,productionRequests:0}));
 } finally {await browser.close();}

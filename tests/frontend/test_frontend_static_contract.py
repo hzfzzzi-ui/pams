@@ -840,7 +840,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "近1周" in chart_source
     assert "rebaseReturnRate" in chart_source
     assert "accountCashBreakdown" in holdings_js
-    assert "makeAccountCashHoldingRows" in holding_rows_js
+    assert "accountCashBreakdown" not in holding_rows_js
     assert "subtractMoneyCents" in holding_rows_js
     assert "returnRateFromCapitalBase" in holdings_js
     assert "holdingReturnRateFromSummary" in holdings_js

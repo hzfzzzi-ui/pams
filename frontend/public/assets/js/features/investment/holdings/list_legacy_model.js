@@ -1,7 +1,6 @@
 // Compatibility model: bodies are copied unchanged from holdings.js.
 // Financial fallback and grouping changes require a separate backend contract.
 import { pnlPct } from '../../../utils.js';
-import { makeAccountCashHoldingRows } from '../../../account_cash.js';
 import { typeLabel } from '../../../api.js';
 export function esc(value) {
   return String(value ?? '')
@@ -305,8 +304,8 @@ export function cashRow({ symbol, name, account, currency = 'CNY', nativeAmount 
   };
 }
 
-export function buildAccountCashRows(accountOverview, fxRates = {}, ibkrPerf = null) {
-  const rows = makeAccountCashHoldingRows(accountOverview, fxRates);
+export function buildAccountCashRows(accountOverview, ibkrPerf = null) {
+  const rows = [];
 
   const accounts = Array.isArray(accountOverview?.accounts) ? accountOverview.accounts : [];
   const tonghuashun = accounts.find((account) => account?.account_code === 'tonghuashun');
