@@ -7,14 +7,27 @@ const links = [...document.querySelectorAll('[data-page]')];
 let loadedDocument = null;
 let replaceOnLoad = true;
 
+function isEditingText() {
+  const active = document.activeElement === frame
+    ? frame.contentDocument?.activeElement
+    : document.activeElement;
+  if (active?.isContentEditable) return true;
+  if (active?.readOnly || active?.inputMode === 'none') return false;
+  return Boolean(active?.matches('textarea, input:is([type=text], [type=search], [type=tel], [type=email], [type=url], [type=password], [type=number], :not([type]))'));
+}
+
 function fitVisibleViewport() {
   const viewport = window.visualViewport;
-  if (!viewport) return;
+  if (!viewport) return () => {};
+  const standalone = window.matchMedia('(display-mode: standalone)');
 
   const update = () => {
     const bottom = viewport.offsetTop + viewport.height;
-    // Keep the native layout viewport during pinch zoom.
-    if (viewport.scale !== 1 || !Number.isFinite(bottom) || viewport.height <= 0) {
+    // An installed app has no retractable Safari toolbar. Ignore its visual
+    // viewport after keyboard dismissal, even if WebKit still reports it short.
+    const installed = navigator.standalone === true || standalone.matches;
+    const keyboard = installed && document.documentElement.clientHeight - viewport.height >= 120 && isEditingText();
+    if (viewport.scale !== 1 || !Number.isFinite(bottom) || viewport.height <= 0 || (installed && !keyboard)) {
       document.body.style.removeProperty('--pams-visible-bottom');
       return;
     }
@@ -25,6 +38,7 @@ function fitVisibleViewport() {
   window.addEventListener('resize', update);
   window.addEventListener('pageshow', update);
   update();
+  return () => window.requestAnimationFrame(update);
 }
 
 function contentUrl() {
@@ -84,7 +98,7 @@ if (window.parent !== window) {
   // Legacy programmatic page navigation may reach the shell inside the frame.
   window.parent.postMessage({type: 'pams-shell-route', href: contentUrl().href}, location.origin);
 } else {
-fitVisibleViewport();
+const updateVisibleViewport = fitVisibleViewport();
 const pageMemory = installPageMemory(window, frame);
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
@@ -133,6 +147,9 @@ frame.addEventListener('load', () => {
   syncAddress(replaceOnLoad);
   replaceOnLoad = false;
   loadedDocument = doc;
+  doc.addEventListener('focusin', updateVisibleViewport);
+  doc.addEventListener('focusout', updateVisibleViewport);
+  updateVisibleViewport();
   frame.contentWindow.dispatchEvent(new Event('pams:frame-ready'));
   doc.addEventListener('click', event => {
     if (event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
