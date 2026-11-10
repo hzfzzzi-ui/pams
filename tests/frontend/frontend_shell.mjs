@@ -94,6 +94,7 @@ try {
   await mobile.addInitScript(() => {
     window.testViewport = Object.assign(new EventTarget(), {height:740, offsetTop:0, scale:1});
     Object.defineProperty(window, 'visualViewport', {get:() => window.testViewport});
+    Object.defineProperty(navigator, 'standalone', {get:() => window.testStandalone === true});
   });
   await mobile.goto(`${base}/app.html?view=investments.html`);
   await mobile.locator('[data-page="investments.html"][aria-current]').waitFor();
@@ -116,6 +117,29 @@ try {
     window.testViewport.height = 400;
     window.testViewport.dispatchEvent(new Event('resize'));
   });
+  assert.equal(await navBottom(),844);
+
+  // Standalone iOS can retain a shortened visual viewport after dismissing
+  // the keyboard. Exercise an input inside the same iframe users edit in.
+  await mobile.evaluate(() => {
+    window.testStandalone = true;
+    Object.assign(window.testViewport, {scale:1, offsetTop:0, height:760});
+    window.testViewport.dispatchEvent(new Event('resize'));
+    const doc = document.getElementById('page-content').contentDocument;
+    const input = doc.createElement('input');
+    input.id = 'viewport-test-editor';
+    doc.body.prepend(input);
+  });
+  assert.equal(await navBottom(),844);
+  const editor = mobile.frameLocator('#page-content').locator('#viewport-test-editor');
+  await editor.focus();
+  await mobile.evaluate(() => {
+    window.testViewport.height = 490;
+    window.testViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await navBottom(),490);
+  await editor.blur();
+  await mobile.waitForFunction(() => !document.body.style.getPropertyValue('--pams-visible-bottom'));
   assert.equal(await navBottom(),844);
   await mobile.close();
 
@@ -166,7 +190,7 @@ try {
   let panelReads = 0;
   let separateReads = 0;
   await memoryPage.route(url => url.pathname === '/api/investment/holdings-view' ||
-    ['/api/investment/accounts-view','/api/portfolio/risk-and-config',
+    ['/api/investment/accounts-view','/api/portfolio/risk-and-config','/api/holdings/by-account',
       '/api/account-performance/tonghuashun','/api/portfolio/risk-disclosure','/api/portfolio/config'].includes(url.pathname) ||
     url.pathname === '/holdings/latest' || url.pathname === '/summary2/latest' ||
     url.pathname.startsWith('/holdings/by-category/') || url.pathname === '/api/fx-rates/latest' ||
@@ -184,6 +208,7 @@ try {
     }
     if (url.pathname.includes('fx-rates')) return respond({rates:[]});
     if (url.pathname.includes('ibkr')) return route.fulfill({status:404, json:{}, headers});
+    if (url.pathname === '/api/holdings/by-account') return respond({by_account:[]});
     if (url.pathname === '/api/investment/accounts-view') {
       accountsReads++;
       return respond({overview:{accounts:[]}, tonghuashun:null});
