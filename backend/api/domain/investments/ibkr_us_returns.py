@@ -16,9 +16,10 @@ from domain.investments.investment_return_math import (
     bucket_flow_events, cash_flow_adjusted_return_rows, norm, section_return_summary,
 )
 from domain.investments.valuation_nav import series_dates
+from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
 
 
-FX_SOURCE = 'openexchangerates'
+FX_SOURCE = OPEN_EXCHANGE_RATES_SOURCE
 INCOME = {'Dividends', 'Payment In Lieu Of Dividends', 'Withholding Tax'}
 
 

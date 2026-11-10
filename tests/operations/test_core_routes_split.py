@@ -1,7 +1,9 @@
 """Synthetic-only checks for extracted core API routing and origin guard."""
 import json
 import socket
-from datetime import date
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -70,25 +72,55 @@ def test_account_holdings_and_fx_routes_preserve_contract(prepared):
 
 
 def test_fx_refresh_preserves_origin_guard_and_synthetic_write(prepared, monkeypatch):
-    import urllib.request
-    main, conn, statements, client = prepared
-    currencies = ("CNY", "USD", "MXN", "HKD", "KRW", "SEK")
+    from collectors import open_exchange_rates
+
+    _, conn, statements, client = prepared
+    requested = []
+    rates = {"CNY": 7, "USD": 1, "MXN": 20, "HKD": 8, "KRW": 1400, "SEK": 10, "JPY": 150, "CHF": 0.8}
+    timestamp = int(datetime(2026, 1, 2, 23, tzinfo=timezone.utc).timestamp())
+
     class Response:
         def __enter__(self):
             return self
         def __exit__(self, *args):
             return False
         def read(self):
-            return json.dumps({"result": "success", "rates": {c: 2.0 for c in currencies}}).encode()
-    monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: Response())
+            return json.dumps({"base": "USD", "timestamp": timestamp, "rates": rates}).encode()
+
+    def provider(request, *, timeout):
+        requested.append(urlsplit(request.full_url).path)
+        return Response()
+
+    monkeypatch.setenv("PAMS_OPEN_EXCHANGE_RATES_APP_ID", "synthetic")
+    monkeypatch.setattr(open_exchange_rates, "urlopen", provider)
     denied = client.post("/api/fx-rates/refresh", headers={"origin": "https://external.invalid"})
     assert denied.status_code == 403
     assert statements == []
-    result = client.post("/api/fx-rates/refresh")
+    result = client.post("/api/fx-rates/refresh?as_of=2026-01-02")
     assert result.status_code == 200
-    assert result.json()["stored"] == 36
-    assert len(statements) == 36 and conn.committed
+    assert requested == ["/api/historical/2026-01-02.json"]
+    assert result.json()["source"] == "openexchangerates"
+    assert result.json()["stored"] == 64
+    assert len(statements) == 64 and conn.committed
     assert all("INSERT INTO pams_fx_rates_daily" in sql for sql, _ in statements)
+    quotes = {(base, quote): rate for _, (_, base, quote, rate, _) in statements}
+    assert quotes["CNY", "USD"] == Decimal("7")
+    assert quotes["CNY", "MXN"] == Decimal("0.35")
+    assert quotes["USD", "CNY"] == Decimal("0.14285714")
+
+    stale = client.post("/api/fx-rates/refresh?as_of=2026-01-03")
+    assert stale.status_code == 502
+    assert len(statements) == 64
+
+
+def test_fx_refresh_requires_configured_source(prepared, monkeypatch):
+    from collectors import open_exchange_rates
+
+    _, _, statements, client = prepared
+    monkeypatch.delenv("PAMS_OPEN_EXCHANGE_RATES_APP_ID", raising=False)
+    monkeypatch.setattr(open_exchange_rates, "urlopen", lambda *args, **kwargs: pytest.fail("unexpected provider call"))
+    assert client.post("/api/fx-rates/refresh").status_code == 503
+    assert statements == []
 
 
 def test_main_keeps_public_python_function_aliases(prepared):

@@ -47,7 +47,7 @@ def test_post_close_investment_scheduler_job_calls_price_endpoints(monkeypatch) 
     module.refresh_post_close_investments(date(2026, 6, 22))
 
     assert [endpoint for endpoint, _label in calls] == [
-        "fx-rates/refresh",
+        "fx-rates/refresh?as_of=2026-06-22",
         "ibkr/daily-holdings",
         "prices/refresh/a-stock",
         "prices/refresh/us-stock?market=kr&priceBasis=close",
@@ -77,7 +77,7 @@ def test_north_america_post_close_scheduler_job_calls_us_endpoints(monkeypatch) 
     module.refresh_north_america_post_close_investments(date(2026, 6, 22))
 
     assert [endpoint for endpoint, _label in calls] == [
-        "fx-rates/refresh",
+        "fx-rates/refresh?as_of=2026-06-22",
         "ibkr/daily-holdings",
         "prices/refresh/fund-nav-estimates?useIntradayEstimate=false",
         "prices/refresh/us-stock?market=hk&priceBasis=close",

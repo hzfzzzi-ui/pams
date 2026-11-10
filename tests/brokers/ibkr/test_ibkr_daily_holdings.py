@@ -258,6 +258,7 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
     from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
     from domain.investments.ibkr_us_returns import build_verified_us_return
     from domain.investments.trade_read_v2 import load_trade_rows
+    from domain.market.fx_rates import store_daily_fx_rates
 
     def day_report(day, quantity, price, *, trade_id=None):
         root = report(day, stock=str(quantity * price))
@@ -301,8 +302,7 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
                 return publish_report(cur, content=content, source_account=ACCOUNT, day=day)
 
             def add_fx(day):
-                cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
-                    VALUES (%s,'CNY','USD',7,'openexchangerates')""", (day,))
+                store_daily_fx_rates(cur, day=day, usd_rates={'USD': Decimal(1), 'CNY': Decimal(7)})
 
             def curve():
                 return build_verified_us_return(cur, start=DAY, end=fourth, interval='daily', owner_ratio=Decimal(1))
@@ -318,6 +318,8 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
             assert next_run['facts']['trade'] == {'published': 1, 'duplicate': 1}
             assert next_run['facts']['cash'] == {'published': 1, 'duplicate': 0}
             assert publish(rolling, second)['replayed']
+            cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
+                VALUES (%s,'CNY','USD',6.9,'exchangerate-api')""", (second,))
             assert curve()['source_through'] == str(DAY)
             assert curve()['missing_fx_date'] == str(second)
             add_fx(second)
