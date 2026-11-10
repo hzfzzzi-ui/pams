@@ -326,7 +326,7 @@ export async function jget(path, options = {}) {
     const timeoutMs = apiRequestTimeoutMs(path);
     try {
       data = await fetchWithTimeout(url, { cache: "no-store", signal }, timeoutMs, async res => {
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        if (!res.ok) throw Object.assign(new Error(`${res.status} ${res.statusText}`), {status:res.status});
         return res.json();
       });
     } catch (e) {

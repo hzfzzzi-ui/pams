@@ -51,7 +51,12 @@ export function restorePageScroll(host, top, isCurrent) {
   if (!top) return;
   const hash = host.location.hash;
   const restore = () => host.requestAnimationFrame(() => {
-    if (isCurrent() && host.location.hash === hash) pageScroller(host)?.scrollTo({top, behavior:'instant'});
+    if (!isCurrent() || host.location.hash !== hash) return;
+    const scroller = pageScroller(host);
+    if (!scroller) return;
+    // Keep the saved offset while totals above the restored list update.
+    scroller.style.overflowAnchor = 'none';
+    scroller.scrollTo({top, behavior:'instant'});
   });
   // The shell applies the final scrolling geometry when the frame finishes loading.
   if (host.document.documentElement.classList.contains('pams-content')) restore();
