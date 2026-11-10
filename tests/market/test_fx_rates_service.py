@@ -152,3 +152,34 @@ def test_historical_usd_cny_only_updates_the_requested_pair(empty_source_db, mon
             ("CNY", "USD", Decimal("7.12345679"), "openexchangerates"),
             ("USD", "CNY", Decimal("0.14"), "other"),
         ]
+
+
+def test_finalized_daily_fx_reuses_full_weekend_quote_set(empty_source_db, monkeypatch):
+    import psycopg2
+    from fastapi.testclient import TestClient
+    from scripts.bootstrap_empty_database import bootstrap_paths
+    from endpoints import core_routes
+    import main
+
+    day = date(2026, 11, 8)
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        sql_file = next(path for path in bootstrap_paths() if path.name == "004_fx_rates.sql")
+        cur.execute(sql_file.read_text(encoding="utf-8"))
+    monkeypatch.setattr(main, "get_conn", lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setenv("PAMS_OPEN_EXCHANGE_RATES_APP_ID", "synthetic")
+    calls = []
+
+    def fetch(requested_day, *, today, app_id, currencies):
+        calls.append(requested_day)
+        assert requested_day == day < today
+        return {currency: Decimal(7 if currency == "CNY" else 1) for currency in currencies}
+
+    monkeypatch.setattr(core_routes, "fetch_usd_rates", fetch)
+    client = TestClient(main.app)
+    url = f"/api/fx-rates/refresh?as_of={day}&finalized=true"
+    assert client.post(url).json()["stored"] == 64
+    assert client.post(url).json()["stored"] == 64
+    assert calls == [day]
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute("SELECT min(as_of),max(as_of),count(*) FROM pams_fx_rates_daily")
+        assert cur.fetchone() == (day, day, 64)

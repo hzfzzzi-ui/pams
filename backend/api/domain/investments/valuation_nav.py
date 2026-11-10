@@ -414,8 +414,11 @@ def build_weekly_nav_rows(
                    if available else {})
         if preview is not None and "tonghuashun" in missing_accounts:
             partial["tonghuashun_source_through"] = getattr(a_share_series, "preview_source_through", None)
+        carried_ibkr = ("ibkr" in available and ibkr_bucket.get("daily_close", {}).get("status") == "last_valid")
         if missing_accounts:
             estimated_available = available.intersection(bank_bucket.get("estimated_accounts") or ())
+            if carried_ibkr:
+                estimated_available.add("ibkr")
             if preview is not None and "tonghuashun" in missing_accounts:
                 estimated_available.add("tonghuashun")
             rows.append({"date": sample_date, **partial, "assets": None, "liabilities": None,
@@ -432,6 +435,8 @@ def build_weekly_nav_rows(
         bucket["net_worth"] += ibkr_bucket.get("net_worth", Decimal("0"))
         row: dict[str, Any] = {"date": sample_date, **bucket, **partial}
         estimated = set(bank_bucket.get('estimated_accounts') or ())
+        if carried_ibkr:
+            estimated.add('ibkr')
         if sample_date in getattr(a_share_series, 'estimated_dates', set()):
             estimated.add('tonghuashun')
         if estimated:
@@ -1135,10 +1140,14 @@ def _tonghuashun_series(cur, *, dates: list[Date], base_currency: str, account_o
 
 def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account_owner_ratio) -> dict:
     from domain.brokers.ibkr import ibkr_daily_close_read as daily_close
+    from domain.brokers.ibkr.ibkr_report_state import _calendar
 
-    if not daily_close.configured():
-        return values
-    evidence = daily_close.read_series()
+    evidence = daily_close.read_published_portfolio_series(cur)
+    native = evidence is not None
+    if not native:
+        if not daily_close.configured():
+            return values
+        evidence = daily_close.read_series()
     closes = evidence.get("daily_closes", {})
     proven_days = sorted(day for day, close in closes.items() if close.get("status") == "ok")
     result = {}
@@ -1150,6 +1159,10 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
         requested = day.isoformat()
         index = bisect_right(proven_days, requested) - 1
         close = closes[proven_days[index]] if index >= 0 else {}
+        if native and requested in closes:
+            close = closes[requested]
+        elif native and evidence.get("as_of", "") >= requested and _calendar().is_session(requested):
+            close = {}
         metadata: dict[str, Any] = {"status": "unconfirmed", "as_of": day.isoformat(),
                                    "requested_as_of": requested, "carried": False,
                                    "reasons": (closes.get(requested) or {}).get("reasons")
@@ -1157,7 +1170,9 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
         bucket = None
         if close.get("status") == "ok":
             source_day = Date.fromisoformat(close["as_of"])
-            if source_day not in identities:
+            if native:
+                identities[source_day] = close["identity_evidence"]
+            elif source_day not in identities:
                 identities[source_day] = daily_close_account_identity(cur, source_account_id=close["account_id"], as_of=source_day)
             identity = identities[source_day]
             if identity["status"] != "ok":
@@ -1177,10 +1192,11 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
                 if ratio is None:
                     result[day] = {**legacy, "daily_close": {**metadata, "reasons": ["invalid_owner_ratio"]}}
                     continue
-                if source_day not in rates:
-                    rates[source_day] = daily_close.historical_fx(cur, currency=close["base_currency"],
-                                                                 base_currency=base_currency, as_of=source_day)
-                fx = rates[source_day]
+                fx_day = day if native else source_day
+                if fx_day not in rates:
+                    rates[fx_day] = daily_close.historical_fx(cur, currency=close["base_currency"],
+                                                              base_currency=base_currency, as_of=fx_day)
+                fx = rates[fx_day]
                 rate = fx.get("rate") if fx.get("status") == "ok" else None
                 bucket = daily_close_nav_bucket(close, rate=rate, owner_ratio=ratio)
                 if bucket is not None and rate is not None:
@@ -1412,7 +1428,10 @@ def build_nav_weekly_payload(
     for row in rows:
         unresolved = set(snapshot_scope_incomplete_accounts or ())
         close = row.get("ibkr_daily_close") or {}
-        if (close.get("status") == "ok" and close.get("as_of") == row["date"].isoformat()):
+        if ((close.get("status") == "ok" and close.get("as_of") == row["date"].isoformat())
+                or (close.get("status") == "last_valid"
+                    and close.get("requested_as_of") == row["date"].isoformat()
+                    and close.get("identity_evidence", {}).get("basis") == "configured_published_flex_account")):
             unresolved.discard("ibkr")
         if unresolved:
             row.update(assets=None, liabilities=None, net_worth=None, scope_status="incomplete")

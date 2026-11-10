@@ -458,6 +458,31 @@ def run_due_window(key, now=None):
         return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
+def run_calendar_fx(now=None):
+    """Finalize each natural date and retry a missed date before advancing."""
+    latest = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).date() - timedelta(days=1)
+    try:
+        previous = read_state(STATE_PATH)["jobs"].get("calendar_fx", {})
+        last = previous.get("last_success_date")
+        pending = previous.get("target_date")
+        target = (date.fromisoformat(last) + timedelta(days=1) if last else
+                  date.fromisoformat(pending) if pending else latest)
+        if target > latest:
+            return {"status": "skipped", "reason": "already_completed"}
+
+        def refresh(day):
+            result = _call(f"fx-rates/refresh?as_of={day.isoformat()}&finalized=true", "Calendar FX")
+            if (result and result.get("success") is True and result.get("source") == "openexchangerates"
+                    and result.get("as_of") == day.isoformat() and int(result.get("stored") or 0) > 0):
+                return {"status": "ok"}
+            return {"status": "blocked", "steps": [{"name": "fx", "issues": ["finalized_fx_unavailable"]}]}
+
+        return RefreshJournal(STATE_PATH).run("calendar_fx", target, refresh)
+    except (OSError, ValueError):
+        logger.exception("Calendar FX checkpoint unavailable")
+        return {"status": "error", "reason": "checkpoint_unavailable"}
+
+
 def refresh_crypto():
     """Refresh crypto prices."""
     return _call("prices/refresh/crypto", "Crypto")
@@ -643,6 +668,7 @@ def main():
         refresh_crypto()
         run_flex_confirmation()
         run_daily_close_confirmation()
+        run_calendar_fx()
         run_daily_us_return_recovery()
         run_cash_event_confirmation()
         run_due_window("asia")
@@ -651,6 +677,7 @@ def main():
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
     schedule.every(30).minutes.do(run_flex_confirmation)
     schedule.every(30).minutes.do(run_daily_close_confirmation)
+    schedule.every(30).minutes.do(run_calendar_fx)
     schedule.every(30).minutes.do(run_daily_us_return_recovery)
     schedule.every(30).minutes.do(run_cash_event_confirmation)
 

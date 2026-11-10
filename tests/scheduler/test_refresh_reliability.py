@@ -238,3 +238,26 @@ def test_flex_uses_api_normalized_holiday_date_for_post_validation(monkeypatch):
         "statement_as_of": "2026-06-18", "expected_statement_as_of": "2026-06-18",
     })], ("total",))
     assert result["status"] == "ok"
+
+
+def test_calendar_fx_retries_weekend_date_before_advancing(monkeypatch, tmp_path):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setattr(module, "STATE_PATH", tmp_path / "state.json")
+    attempts = []
+
+    def refresh(path, label):
+        day, _ = path.split("as_of=")[1].split("&")
+        assert path.endswith("&finalized=true")
+        attempts.append(day)
+        if len(attempts) == 1:
+            return None
+        return {"success": True, "as_of": day, "source": "openexchangerates", "stored": 64}
+
+    monkeypatch.setattr(module, "_call", refresh)
+    sunday = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+    monday = datetime(2026, 11, 9, 12, tzinfo=timezone.utc)
+    assert module.run_calendar_fx(sunday)["status"] == "blocked"
+    assert module.run_calendar_fx(monday)["status"] == "success"
+    assert module.run_calendar_fx(monday)["status"] == "success"
+    assert module.run_calendar_fx(monday)["reason"] == "already_completed"
+    assert attempts == ["2026-11-07", "2026-11-07", "2026-11-08"]

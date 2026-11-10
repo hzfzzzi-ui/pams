@@ -13,7 +13,8 @@ OPEN_EXCHANGE_RATES_SOURCE = 'openexchangerates'
 REFRESH_CURRENCIES = ('CNY', 'USD', 'MXN', 'HKD', 'KRW', 'SEK', 'JPY', 'CHF')
 
 
-def store_daily_fx_rates(cur, *, day: date, usd_rates: dict[str, Decimal]) -> dict[tuple[str, str], Decimal]:
+def store_daily_fx_rates(cur, *, day: date, usd_rates: dict[str, Decimal],
+                         historical: bool = False) -> dict[tuple[str, str], Decimal]:
     """Persist rates in PAMS units: one unit of quote currency in base currency."""
     rates = {
         (base, quote): (base_rate / quote_rate).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
@@ -23,7 +24,7 @@ def store_daily_fx_rates(cur, *, day: date, usd_rates: dict[str, Decimal]) -> di
     if any(rate <= 0 or rate >= Decimal('1000000000000') for rate in rates.values()):
         raise ValueError('FX rate is outside the storage precision')
     for (base, quote), rate in rates.items():
-        store_official_fx_rate(cur, day=day, base=base, quote=quote, rate=rate)
+        store_official_fx_rate(cur, day=day, base=base, quote=quote, rate=rate, historical=historical)
     return rates
 
 
@@ -51,6 +52,15 @@ def has_official_usd_cny(cur, day: date) -> bool:
           AND fetched_at >= ((as_of + 1)::timestamp AT TIME ZONE 'UTC')
     )""", (day, OPEN_EXCHANGE_RATES_SOURCE))
     return cur.fetchone()[0]
+
+
+def has_finalized_daily_fx(cur, day: date) -> bool:
+    cur.execute("""SELECT count(*) FROM pams_fx_rates_daily
+        WHERE as_of=%s AND source=%s AND base_currency=ANY(%s) AND quote_currency=ANY(%s)
+          AND rate>0 AND rate<1000000000000
+          AND fetched_at >= ((as_of + 1)::timestamp AT TIME ZONE 'UTC')
+    """, (day, OPEN_EXCHANGE_RATES_SOURCE, list(REFRESH_CURRENCIES), list(REFRESH_CURRENCIES)))
+    return cur.fetchone()[0] == len(REFRESH_CURRENCIES) ** 2
 
 
 def _norm(value: Any) -> Any:

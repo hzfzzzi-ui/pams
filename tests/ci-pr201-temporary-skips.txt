@@ -1,9 +1,6 @@
 # PR #201, CI run 431 (41599297775). One exact pytest node ID per line.
 # Remove each entry when its source/schema migration is verified.
 
-tests/brokers/ibkr/test_ibkr_daily_close_consumers.py::test_real_pg_consumers_are_readonly_ownerratio_exact_and_native_positions_unchanged
-tests/brokers/ibkr/test_ibkr_daily_close_consumers.py::test_real_pg_future_only_fx_is_not_used_for_official_close
-tests/brokers/ibkr/test_ibkr_daily_close_consumers.py::test_real_pg_missing_or_cross_account_native_identity_blocks_override[OTHER_NATIVE_ACCOUNT]
 tests/brokers/ibkr/test_ibkr_fee_currency.py::test_real_currency_audit_is_server_readonly_after_migration
 tests/brokers/ibkr/test_ibkr_reconciliation.py::test_missing_table_is_not_created_at_runtime
 tests/brokers/ibkr/test_ibkr_reconciliation.py::test_real_postgres_is_readonly_and_does_not_mutate_any_business_or_audit_rows

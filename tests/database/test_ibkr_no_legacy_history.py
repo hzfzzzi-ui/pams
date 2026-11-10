@@ -64,3 +64,46 @@ def test_old_position_table_cannot_supply_nav_or_account_identity(empty_source_d
             cur.execute('CREATE TABLE pams_ibkr_position_history (obsolete boolean)')
             cur.execute('INSERT INTO pams_ibkr_position_history VALUES (true)')
             assert evaluate()==before
+
+
+def test_published_flex_drives_nav_and_revalues_weekend_at_its_own_fx(empty_source_db, monkeypatch):
+    from decimal import Decimal
+    from uuid import uuid4
+    from xml.etree import ElementTree as ET
+    from domain.imports.source_records_v2 import create_source
+    from domain.investments.valuation_nav import _ibkr_nav_series
+    from tests.brokers.ibkr.test_ibkr_daily_close_consumers import ACCOUNT, report
+
+    friday, saturday, monday = map(date.fromisoformat, ("2026-11-06", "2026-11-07", "2026-11-09"))
+    root = ET.fromstring(report(friday))
+    root.extend(ET.fromstring(report(monday)))
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", ACCOUNT)
+    monkeypatch.delenv("PAMS_IBKR_DAILY_CLOSE_MANIFEST", raising=False)
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("UPDATE pams_accounts SET base_currency='USD',active=true WHERE account_code='ibkr'")
+            source_id = uuid4()
+            create_source(cur, source_id=source_id, account_code="ibkr", source_name="ibkr_daily_holdings",
+                          acquisition_method="api", document_type="holding", filename="positions.xml",
+                          file_format="xml", content_type="application/xml", content=ET.tostring(root))
+            cur.execute("UPDATE source_records SET period_start=%s,period_end=%s,status='published' WHERE source_id=%s",
+                        (monday, monday, str(source_id)))
+            for day, rate in ((friday, 7), (saturday, 8), (monday, 9)):
+                cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
+                    VALUES (%s,'CNY','USD',%s,'openexchangerates')""", (day, rate))
+
+            def nav():
+                return _ibkr_nav_series(cur, dates=[friday, saturday, monday], base_currency="CNY",
+                                        owner_ratio_case_sql=lambda _: ("1", []),
+                                        account_owner_ratio=lambda _: Decimal(1))
+
+            result = nav()
+            assert [result[day]["net_worth"] for day in (friday, saturday, monday)] == [553, 632, 711]
+            assert result[saturday]["daily_close"]["carried"]
+            assert result[saturday]["daily_close"]["fx_evidence"]["as_of"] == str(saturday)
+            assert result[monday]["daily_close"]["identity_evidence"]["basis"] == "configured_published_flex_account"
+            cur.execute("DELETE FROM pams_fx_rates_daily WHERE as_of=%s", (saturday,))
+            assert nav()[saturday]["history_evidence"] == "unavailable"
+            monkeypatch.setenv("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", "U_OTHER")
+            assert nav()[monday]["history_evidence"] == "unavailable"

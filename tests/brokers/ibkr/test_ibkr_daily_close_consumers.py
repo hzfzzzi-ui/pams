@@ -439,6 +439,7 @@ def consumer_database(database, monkeypatch):
     from scripts.bootstrap_isolated_sources import initialize_isolated_sources
     conn = database()
     monkeypatch.setenv('PAMS_UNIFIED_SOURCE_ISOLATED','true')
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", ACCOUNT)
     initialize_isolated_sources(conn)
     with conn.cursor() as cur:
         cur.execute("INSERT INTO pams_fx_rates_daily(base_currency,quote_currency,rate,as_of,source) VALUES ('CNY','USD',7,%s,'synthetic'),('CNY','EUR',9,%s,'synthetic'),('CNY','USD',99,%s,'synthetic')",
@@ -455,18 +456,17 @@ def consumer_database(database, monkeypatch):
 def publish_account_binding(conn, account=ACCOUNT):
     from uuid import uuid4
     from psycopg2.extras import RealDictCursor
-    from domain.imports.ibkr_holding_source import stage_report
-    from domain.brokers.ibkr.ibkr_holding_review import review, review_account_binding, publish as publish_source
-    from tests.database.test_ibkr_holding_identity_review import XML
-    content=XML.replace(b'U_TEST',account.encode()).replace(b'20261022',DAY.strftime('%Y%m%d').encode())
+    from domain.imports.source_records_v2 import create_source
+
+    content = report().replace(ACCOUNT.encode(), account.encode())
+    source_id = uuid4()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        source=stage_report(cur,batch_id=uuid4(),account_code='ibkr',source_account_id=account,business_date=DAY,content=content)
-        cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s',(source['batch_id'],))
-        revision=cur.fetchone()['revision']
-        revision=review(cur,batch_id=source['batch_id'],item_id=source['position_item_ids'][0],expected_revision=revision,note='synthetic row')['revision']
-        revision=review(cur,batch_id=source['batch_id'],item_id=source['scope_item_id'],expected_revision=revision,note='synthetic scope',scope_complete=True)['revision']
-        revision=review_account_binding(cur,batch_id=source['batch_id'],source_account_id=account,expected_revision=revision,note='synthetic account')['revision']
-        publish_source(cur,batch_id=source['batch_id'],expected_revision=revision)
+        cur.execute("UPDATE pams_accounts SET base_currency='USD',active=true WHERE account_code='ibkr'")
+        create_source(cur, source_id=source_id, account_code="ibkr", source_name="ibkr_daily_holdings",
+                      acquisition_method="api", document_type="holding", filename="positions.xml",
+                      file_format="xml", content_type="application/xml", content=content)
+        cur.execute("UPDATE source_records SET period_start=%s,period_end=%s,status='published' WHERE source_id=%s",
+                    (DAY, DAY, str(source_id)))
     conn.commit()
 
 
@@ -523,5 +523,5 @@ def test_real_pg_missing_or_cross_account_native_identity_blocks_override(consum
         row = balance()
         portfolio._apply_daily_close_balance(cur, row, base_currency="CNY", owner_ratio=D(1))
         assert row["amount_cny"] == 760 and row["daily_close"]["status"] == "unconfirmed"
-        expected = "missing_native_account_identity" if native is None else "native_account_identity_mismatch"
+        expected = "missing_native_account_identity" if native is None else "missing_account_statement"
         assert row["daily_close"]["reasons"] == [expected]
