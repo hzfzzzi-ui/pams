@@ -723,7 +723,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "portfolioSummaryFreshForAsOf && portfolioSummary?.totals?.daily_pnl" in holdings_js
     assert "const reportedReturnsFresh = isFreshPayloadAsOf(reportedReturns, asof)" in holdings_js
     assert "staleReportedReturns" in holdings_js
-    assert "valueLabel: '账户净值'" in holdings_js
+    assert "'账户估值（含沿用现金）'" in holdings_js
+    assert "'已知持仓市值'" in holdings_js
     assert "btnLoadInvestmentReturnChart" not in holdings_js
     assert "加载收益曲线" not in holdings_js
     assert "有效历史不足" not in holdings_js

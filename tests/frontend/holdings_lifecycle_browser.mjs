@@ -88,14 +88,14 @@ try {
   const before=document.querySelector('#mobileHoldingList').innerHTML;
   let release;gate=new Promise(resolve=>{release=resolve;});
   const waiting=summary.mount(root,config);waiting.dispose();release();await waiting.ready;gate=null;
-  assert(reads.length===0,'disposed startup must issue no fourteen-read bundle');
+  assert(reads.length===0,'disposed startup must issue no summary requests');
   assert(listeners.size===0&&timers.size===0&&observers.size===0,'startup disposal must clean all lifetime resources');
 
   deferredReads=[];reads=[];
   const lateList=list.mount(root,config),lateSummary=summary.mount(root,config);
   await Promise.resolve();await Promise.resolve();
   const readDependencyCount=reads.length;
-  assert(readDependencyCount===16,'two list plus fourteen summary dependencies must remain');
+  assert(readDependencyCount===17,'two list plus fifteen summary dependencies must remain');
   lateList.dispose();lateSummary.dispose();
   assert(reads.every(read=>read.signal?.aborted),'all owned reads including summary must cancel');
   for(const resolve of deferredReads)resolve();deferredReads=null;

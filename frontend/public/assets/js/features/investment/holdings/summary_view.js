@@ -113,7 +113,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   const dailyRate = Number.isFinite(Number(profile.dailyRate)) ? safeNum(profile.dailyRate) : pctFromAmount(dailyPnl, dailyBase);
   const totalPnl = Number.isFinite(Number(profile.totalPnl)) ? safeNum(profile.totalPnl) : 0;
   const totalRate = Number.isFinite(Number(profile.totalRate)) ? safeNum(profile.totalRate) : 0;
-  const valueDisplay = formatOptionalMoney(value, 'CNY', { signed: Boolean(profile.valueSigned) });
+  const valueDisplay = profile.value == null ? '--' : formatOptionalMoney(value, 'CNY', { signed: Boolean(profile.valueSigned) });
   const rawShare = safeNum(profile.share);
   const shareWidth = Math.abs(rawShare);
   const tone = shareTone(rawShare);
@@ -124,10 +124,10 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <span class="mobileAccountIcon">${profile.icon || '◌'}</span>
         <span>${esc(profile.identity || 'CNY PAMS')}</span>
       </div>
-      <div class="mobileAccountWeight ${tone}">
+      ${profile.hideShare ? '' : `<div class="mobileAccountWeight ${tone}">
         <span>仓位 ${signedPctText(rawShare).replace('+', '')}</span>
         <i><b style="width:${Math.max(2, Math.min(100, shareWidth * 100))}%"></b></i>
-      </div>
+      </div>`}
     </div>`}
     <div class="mobileHeroPrimaryGrid">
       <div class="mobileHeroPrimaryMetric main">
