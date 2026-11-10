@@ -7,10 +7,11 @@ html {
 }
 .pams-shell {
   --primary-nav-inset: max(18px, env(safe-area-inset-bottom, 0px));
+  --pams-shell-viewport-height: 100dvh;
   position: relative;
   width: min(100%, var(--pams-shell-max-width));
   height: 100vh;
-  height: var(--pams-visible-bottom, 100dvh);
+  height: var(--pams-visible-bottom, var(--pams-shell-viewport-height));
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: var(--primary-nav-inset);
   margin-inline: auto;
@@ -18,6 +19,13 @@ html {
   grid-template-rows: minmax(0, 1fr);
   color: var(--pams-text-primary);
   font-family: var(--pams-font-sans);
+}
+/* The Home Screen app has no browser toolbar to make room for at startup. */
+@supports (height: 100lvh) {
+  @media (display-mode: standalone) {
+    .pams-shell { --pams-shell-viewport-height: 100lvh; }
+  }
+  .pams-shell[data-ios-standalone] { --pams-shell-viewport-height: 100lvh; }
 }
 .pams-shell[data-content-page="account_import.html"] .pams-viewport {
   margin-bottom: var(--pams-primary-nav-clearance);
