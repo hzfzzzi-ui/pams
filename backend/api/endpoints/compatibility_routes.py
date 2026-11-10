@@ -8,6 +8,7 @@ from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.holding_return_snapshot import return_snapshot_revision
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
+from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
 
 
 def create_compatibility_router(
@@ -59,10 +60,11 @@ def create_compatibility_router(
 ):
     router = APIRouter()
 
-    def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg):
+    def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg, section=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
-            "version": 1, "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
+            "version": 2 if section == "us_stock" else 1,
+            "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
             "today_label_date": today_label_date,
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
             "portfolio_accounts": _load_portfolio_accounts_config(), "reported_returns": reported_returns_cfg,
@@ -303,7 +305,7 @@ def create_compatibility_router(
                     require_data_completeness=True,
                     current_revision=lambda: _return_revision(
                         cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
-                        reported_returns_cfg=reported_returns_cfg,
+                        reported_returns_cfg=reported_returns_cfg, section=section,
                     ),
                 )
                 if snapshot_payload is not None:
@@ -332,12 +334,15 @@ def create_compatibility_router(
         start: str = Query("2026-01-01"),
         interval: str = Query("daily", pattern="^(daily|weekly)$"),
         baseCurrency: str = "CNY",
+        expected_through: Date | None = None,
     ):
         """Explicitly rebuild and persist a section return-series snapshot."""
         try:
             start_date = Date.fromisoformat(start)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
+        if expected_through and (section != "us_stock" or baseCurrency.upper() != "CNY"):
+            raise HTTPException(status_code=400, detail="Expected-through applies to the verified CNY US curve")
     
         try:
             with get_conn() as conn:
@@ -348,7 +353,8 @@ def create_compatibility_router(
                     today_label_date = _investment_today_label_date()
                     reported_returns_cfg = _reported_returns_cfg()
                     revision_args = dict(start_date=start_date, interval=interval, view_as_of=view_as_of,
-                                         today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg)
+                                         today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg,
+                                         section=section)
                     input_revision = _return_revision(cur, **revision_args)
                     payload = _build_section_return_series_payload(
                         cur,
@@ -365,6 +371,12 @@ def create_compatibility_router(
                         today_label_date=today_label_date,
                     )
                     payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
+                    if expected_through and (
+                        payload.get("fx_source") != OPEN_EXCHANGE_RATES_SOURCE
+                        or payload.get("source_through") != expected_through.isoformat()
+                    ):
+                        return json({"status": "blocked", "source_through": payload.get("source_through"),
+                                     "missing_fx_date": payload.get("missing_fx_date")})
                     if input_revision != _return_revision(cur, **revision_args):
                         raise HTTPException(status_code=409, detail="收益输入已更新，请重试")
                     written = _upsert_investment_return_series_snapshot(
@@ -385,6 +397,7 @@ def create_compatibility_router(
                 "rows": len(payload.get("rows") or []),
                 "written": written,
                 "as_of": payload.get("as_of"),
+                "source_through": payload.get("source_through"),
             }
         )
 

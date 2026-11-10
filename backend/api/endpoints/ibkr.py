@@ -1,6 +1,7 @@
 """Official report ingestion and read-only diagnostics; no broker order capability."""
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import closing
 from datetime import date
@@ -34,6 +35,7 @@ from domain.brokers.ibkr.ibkr_daily_close_sync import daily_close_status, sync_d
 from domain.brokers.ibkr import ibkr_cash_event_sync
 
 router = APIRouter(prefix="/ibkr", tags=["ibkr"])
+logger = logging.getLogger(__name__)
 
 
 class HoldingReviewStage(BaseModel):
@@ -268,6 +270,7 @@ def ibkr_daily_holdings_sync(req: IBKRFlexSyncRequest, request: Request) -> dict
             or req.expected_statement_reference != target):
         raise HTTPException(422, "Daily holdings require the expected report date")
     token, query, source_account, _ = config
+    stage = "publication_precheck"
     try:
         with closing(get_conn()) as conn:
             with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -277,8 +280,11 @@ def ibkr_daily_holdings_sync(req: IBKRFlexSyncRequest, request: Request) -> dict
                     latest = holdings.last_publication(cur)
         if latest and latest['period_end'] >= target:
             return {'status': 'published', 'as_of': latest['period_end'].isoformat(), 'replayed': True}
+        stage = "request_report"
         reference = request_flex_reference(token, query)
+        stage = "fetch_report"
         content = fetch_flex_statement(token, reference['reference_code'], attempts=3, timeout=10).encode('utf8')
+        stage = "archive_and_publish"
         with isolation.account_import_scope(), closing(get_conn()) as conn:
             with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 if not isolation.source_enabled(cur):
@@ -287,9 +293,11 @@ def ibkr_daily_holdings_sync(req: IBKRFlexSyncRequest, request: Request) -> dict
     except HTTPException:
         raise
     except holdings.ReportValidationError as exc:
+        logger.info("IBKR holdings target=%s stage=%s reason=%s", target, stage, exc.reason)
         return {'status': 'blocked', 'reason': exc.reason}
-    except Exception:
+    except Exception as exc:
         # Provider URLs can contain the Flex token. Do not return or log them.
+        logger.warning("IBKR holdings target=%s stage=%s error=%s", target, stage, type(exc).__name__)
         raise HTTPException(503, "Daily holdings sync failed") from None
 
 

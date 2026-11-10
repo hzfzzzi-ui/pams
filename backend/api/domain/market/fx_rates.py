@@ -23,15 +23,34 @@ def store_daily_fx_rates(cur, *, day: date, usd_rates: dict[str, Decimal]) -> di
     if any(rate <= 0 or rate >= Decimal('1000000000000') for rate in rates.values()):
         raise ValueError('FX rate is outside the storage precision')
     for (base, quote), rate in rates.items():
-        cur.execute("""
+        store_official_fx_rate(cur, day=day, base=base, quote=quote, rate=rate)
+    return rates
+
+
+def store_official_fx_rate(cur, *, day, base, quote, rate, historical=False):
+    rate = rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+    if not rate.is_finite() or not 0 < rate < Decimal('1000000000000'):
+        raise ValueError('FX rate is outside the storage precision')
+    cur.execute("""
             INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (as_of, base_currency, quote_currency) DO UPDATE
             SET rate = EXCLUDED.rate, source = EXCLUDED.source, fetched_at = EXCLUDED.fetched_at
             WHERE (pams_fx_rates_daily.rate, pams_fx_rates_daily.source)
                   IS DISTINCT FROM (EXCLUDED.rate, EXCLUDED.source)
-        """, (day, base, quote, rate, OPEN_EXCHANGE_RATES_SOURCE))
-    return rates
+               OR (%s AND pams_fx_rates_daily.fetched_at <
+                   ((EXCLUDED.as_of + 1)::timestamp AT TIME ZONE 'UTC'))
+        """, (day, base, quote, rate, OPEN_EXCHANGE_RATES_SOURCE, historical))
+
+
+def has_official_usd_cny(cur, day: date) -> bool:
+    cur.execute("""SELECT EXISTS (
+        SELECT 1 FROM pams_fx_rates_daily
+        WHERE as_of=%s AND base_currency='CNY' AND quote_currency='USD'
+          AND source=%s AND rate>0 AND rate<1000000000000
+          AND fetched_at >= ((as_of + 1)::timestamp AT TIME ZONE 'UTC')
+    )""", (day, OPEN_EXCHANGE_RATES_SOURCE))
+    return cur.fetchone()[0]
 
 
 def _norm(value: Any) -> Any:

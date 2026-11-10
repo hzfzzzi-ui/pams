@@ -11,6 +11,7 @@ from domain.brokers.ibkr.ibkr_daily_holdings import MARKET_LABELS, _read_day
 from domain.brokers.ibkr.ibkr_history_backfill import (
     DAILY_FACTS_SOURCE, FACT_TABLES, SOURCE, read_candidates, reconcile_candidates,
 )
+from domain.brokers.ibkr.ibkr_report_state import _calendar
 from domain.investments.holdings_view import _table_exists
 from domain.investments.investment_return_math import (
     bucket_flow_events, cash_flow_adjusted_return_rows, norm, section_return_summary,
@@ -133,12 +134,21 @@ def _payload(values, native_flows, rates, *, start, through, interval, owner_rat
                    'daily_return_rate', 'time_weighted_return_rate', 'display_return_rate')
     pre_trade_rows = [dict.fromkeys(zero_fields, Decimal(0)) | {'date': day} for day in pre_trade_dates]
     rows = pre_trade_rows + rows
+    chart_gap_dates = {}
+    if interval == 'daily' and len(dates) > 1:
+        calendar = _calendar()
+        for previous, current in zip(dates, dates[1:]):
+            day = previous + timedelta(days=1)
+            while day < current:
+                chart_gap_dates[day.isoformat()] = 'missing' if calendar.is_session(day.isoformat()) else 'closed'
+                day += timedelta(days=1)
     return {
         'section': 'us_stock', 'label': '美股', 'status': 'available',
         'base_currency': 'CNY', 'interval': interval, 'method': 'cash_flow_adjusted_time_weighted_return',
         'start': rows[0]['date'].isoformat(), 'end': rows[-1]['date'].isoformat(),
         'source_through': dates[-1].isoformat() if dates else None, 'first_trade_date': first_trade.isoformat(),
         'fx_source': FX_SOURCE,
+        'chart_gap_dates': chart_gap_dates,
         'coverage_notes': ['按 IBKR 美股证券估值日计算，以区间首日收盘为基准，按日末资金流调整，计入已核对的股息及预扣税。'
                            '账户融资、账户级费用及其他市场不计入美股证券收益。'],
         'summary': {key: norm(value) for key, value in summary.items()},
@@ -182,6 +192,7 @@ def build_verified_us_return(cur, *, start, end, interval, owner_ratio):
                 (FX_SOURCE, start, end))
     rates = {row['as_of']: row['rate'] for row in cur.fetchall()}
     best = None
+    pending_fx = None
     for report in reports:
         through = min(end, report['period_end'])
         if best and best['end'] >= through.isoformat():
@@ -199,6 +210,8 @@ def build_verified_us_return(cur, *, start, end, interval, owner_ratio):
             continue
         missing_fx = next((day for day in values if start <= day <= through and day not in rates), None)
         if missing_fx:
+            if pending_fx is None:
+                pending_fx = missing_fx
             # Keep the verified prefix, but do not substitute a pre-inception zero
             # curve for a period where all actual valuations lack exchange rates.
             through = missing_fx - timedelta(days=1)
@@ -207,7 +220,11 @@ def build_verified_us_return(cur, *, start, end, interval, owner_ratio):
         payload = _payload(values, flows, rates, start=start, through=through,
                            interval=interval, owner_ratio=owner_ratio)
         if payload and (not best or payload['end'] > best['end']):
-            if missing_fx:
-                payload['missing_fx_date'] = missing_fx.isoformat()
             best = payload
+    if pending_fx is not None:
+        if best is None:
+            return {'section': 'us_stock', 'status': 'unavailable', 'reason': 'missing_historical_fx',
+                    'fx_source': FX_SOURCE, 'missing_fx_date': pending_fx.isoformat(), 'rows': []}
+        if pending_fx.isoformat() > best['end']:
+            best['missing_fx_date'] = pending_fx.isoformat()
     return best

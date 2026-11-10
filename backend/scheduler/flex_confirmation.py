@@ -84,6 +84,8 @@ class FlexConfirmationJournal:
         due = _timestamp(previous["next_retry_at"]) if previous.get("next_retry_at") else None
         payload = _safe_probe(probe, self.probe_info)  # Local metadata GET, not a provider download.
         target, statement, verified = self.probe_info(payload)
+        if self.key == "ibkr_daily_holdings" and target and target.isoformat() != previous.get("target_date"):
+            attempts, due = 0, None
         run = {
             **previous, "scope": "post_cutoff_cash_facts" if self.key == "ibkr_cash_events" else "official_report_only", "last_checked_at": current.isoformat(),
             "target_date": target.isoformat() if target else previous.get("target_date"),
@@ -139,11 +141,18 @@ class FlexConfirmationJournal:
             state, reason = "blocked", response["reason"]
         elif response.get("reason") == "stale_statement_date":
             state, reason = "waiting", "report_delayed"
+        elif response.get("reason") == "waiting_for_fx":
+            state, reason = "waiting", "waiting_for_fx"
+            run["attempt_count"] = attempts
         elif response.get("status") in {"blocked", "success"} or response.get("success") is True:
             state, reason = "waiting", "report_unconfirmed"
         else:
             state, reason = "error", "source_unavailable"
         delay = 6 * 3600 if state == "blocked" else min(1800 * 2 ** min(attempts, 4), 6 * 3600)
+        if reason == "waiting_for_fx":
+            delay = 1800
+        elif self.key == "ibkr_daily_holdings" and state in {"waiting", "error"}:
+            delay = min(delay, 3600)
         retry_at = finished + timedelta(seconds=delay)
         if response.get("retry_after"):
             try:

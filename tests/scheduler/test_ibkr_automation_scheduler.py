@@ -100,6 +100,7 @@ def test_daily_holdings_scheduler_waits_for_publication(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "STATE_PATH", tmp_path / "refresh.json")
     observed = None
     calls = []
+    monkeypatch.setattr(module, "_historical_usd_cny", lambda day: day.isoformat() == "2026-10-23")
 
     def request(method, url, label, **kwargs):
         nonlocal observed
@@ -117,3 +118,57 @@ def test_daily_holdings_scheduler_waits_for_publication(tmp_path, monkeypatch):
     assert module.run_daily_holdings_confirmation(now=NOW)["success"]
     assert module.run_daily_holdings_confirmation(now=NOW + timedelta(minutes=30))["success"]
     assert calls.count("post") == 1
+
+
+def test_us_return_recovery_retries_late_report_and_repairs_only_missing_fx(tmp_path, monkeypatch):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_ENABLED", "true")
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "synthetic-holdings-token")
+    monkeypatch.setattr(module, "STATE_PATH", tmp_path / "refresh.json")
+    day = "2026-10-23"
+    older = "2026-10-22"
+    calls = []
+    clock = NOW
+    ready = False
+    published = False
+    fx = set()
+
+    def request(method, url, label, **kwargs):
+        nonlocal published
+        if "historical-usd-cny" in url:
+            target = url.split("=")[-1]
+            calls.append(("fx", target))
+            if target == day and clock == NOW:
+                return {"status": "waiting"}
+            fx.add(target)
+            return {"status": "ok", "as_of": target, "source": "openexchangerates"}
+        assert "/ibkr/daily-holdings/" in url
+        if method == "post":
+            assert day in fx
+            calls.append(("report", day))
+            if not ready:
+                return {"status": "blocked", "reason": "stale_statement_date"}
+            published = True
+        return {"configured": True, "expected_statement_as_of": day,
+                "statement_as_of": day if published else older, "publication_verified": published}
+
+    def snapshot(endpoint, _):
+        assert published and endpoint.endswith(f"&expected_through={day}")
+        calls.append(("snapshot", day))
+        if older not in fx:
+            return {"status": "blocked", "missing_fx_date": older}
+        return {"status": "ok", "source_through": day, "written": 3}
+
+    monkeypatch.setattr(module, "_request_json", request)
+    monkeypatch.setattr(module, "_post_root", snapshot)
+    confirm = module.run_daily_holdings_confirmation
+    monkeypatch.setattr(module, "run_daily_holdings_confirmation", lambda: confirm(now=clock))
+    assert module.run_daily_us_return_recovery()["reason"] == "waiting_for_fx"
+    clock += timedelta(minutes=31)
+    assert module.run_daily_us_return_recovery()["reason"] == "report_delayed"
+    ready = True
+    clock += timedelta(minutes=31)
+    assert module.run_daily_us_return_recovery()["status"] == "success"
+    assert calls == [("fx", day), ("fx", day), ("report", day), ("fx", day), ("report", day),
+                     ("fx", day), ("snapshot", day), ("fx", older), ("snapshot", day)]
+    assert module.run_daily_us_return_recovery()["reason"] == "already_completed"

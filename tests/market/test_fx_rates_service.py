@@ -110,3 +110,45 @@ def test_latest_rates_filter_at_postgresql_boundary(empty_source_db):  # noqa: F
             {"as_of": "2026-06-20", "base_currency": "CNY", "quote_currency": "USD", "rate": "7.20000000", "source": "official"},
         ]}
         assert build_latest_fx_rates_payload(cur, base_currency="EUR", as_of=date(2026, 6, 25)) == {"as_of": None, "rates": []}
+
+
+def test_historical_usd_cny_only_updates_the_requested_pair(empty_source_db, monkeypatch):
+    import psycopg2
+    from fastapi.testclient import TestClient
+    from scripts.bootstrap_empty_database import bootstrap_paths
+    from endpoints import core_routes
+    import main
+
+    day = date(2026, 1, 2)
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        sql_file = next(path for path in bootstrap_paths() if path.name == "004_fx_rates.sql")
+        cur.execute(sql_file.read_text(encoding="utf-8"))
+        cur.execute("""INSERT INTO pams_fx_rates_daily
+            (as_of,base_currency,quote_currency,rate,source,fetched_at) VALUES
+            (%s,'CNY','USD',7.2,'openexchangerates','2026-01-02 20:00+00'),
+            (%s,'USD','CNY',0.14,'other','2026-01-02 20:00+00')""", (day, day))
+    monkeypatch.setattr(main, "get_conn", lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "a" * 32)
+    monkeypatch.setenv("PAMS_OPEN_EXCHANGE_RATES_APP_ID", "synthetic")
+    calls = []
+
+    def fetch(requested_day, *, today, app_id, currencies):
+        calls.append(requested_day)
+        assert requested_day == day < today
+        assert currencies == ("USD", "CNY")
+        return {"USD": Decimal(1), "CNY": Decimal("7.123456789")}
+
+    monkeypatch.setattr(core_routes, "fetch_usd_rates", fetch)
+    client = TestClient(main.app)
+    url = f"/api/fx-rates/historical-usd-cny?as_of={day}"
+    assert client.post(url).status_code == 403
+    headers = {"X-PAMS-Holdings-Token": "a" * 32}
+    assert client.post(url, headers=headers).json()["status"] == "ok"
+    assert client.post(url, headers=headers).json()["status"] == "ok"
+    assert calls == [day]
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute("SELECT base_currency,quote_currency,rate,source FROM pams_fx_rates_daily ORDER BY base_currency")
+        assert cur.fetchall() == [
+            ("CNY", "USD", Decimal("7.12345679"), "openexchangerates"),
+            ("USD", "CNY", Decimal("0.14"), "other"),
+        ]

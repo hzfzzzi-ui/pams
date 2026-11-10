@@ -141,9 +141,13 @@ function pointRadiusForReturnSeries(pointCount, isMobile) {
   return pointCount > (isMobile ? 28 : 45) ? 0 : 2;
 }
 
-function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile, events = [], sectionEstimates = new Map()) {
+function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile,
+  events = [], sectionEstimates = new Map(), sectionGapDates = new Map()) {
   const windowRows = filterReturnWindowRows(rows, windowKey);
   const dateRows = [...rows, ...sectionSpecs.flatMap(spec => sectionEstimates.get(spec.key)?.rows || sectionRowsByKey.get(spec.key) || [])];
+  for (const gaps of sectionGapDates.values()) {
+    if (gaps) dateRows.push(...Object.keys(gaps).map(date => ({ date })));
+  }
   const labels = [...new Set(filterReturnWindowRows(dateRows, windowKey).map(row => row.date))].sort();
   const totalByDate = new Map(windowRows.map(row => [row.date, row]));
   const totalBaseRate = windowRows.map(returnRateForChart).find(value => value !== null) ?? null;
@@ -171,10 +175,25 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
       if (sectionBaseRate == null) sectionBaseRate = rate;
       return rebaseReturnRate(rate, sectionBaseRate) * 100;
     });
-    sectionDataByKey.set(spec.key, {
-      data: sectionData,
-      pointRadius: pointRadiusForReturnSeries(sectionData.filter(value => value != null).length, isMobile),
-    });
+    const pointRadius = pointRadiusForReturnSeries(sectionData.filter(value => value != null).length, isMobile);
+    const gaps = sectionGapDates.get(spec.key);
+    const bridgeIndices = new Set();
+    if (gaps && !estimate) {
+      let previous = -1;
+      sectionData.forEach((value, index) => {
+        if (value === null) return;
+        if (previous >= 0 && index > previous + 1
+            && labels.slice(previous + 1, index).every(date => gaps[date] === 'closed')) {
+          for (let gap = previous + 1; gap < index; gap += 1) {
+            // These are line coordinates, not return observations.
+            sectionData[gap] = sectionData[previous] + (value - sectionData[previous]) * (gap - previous) / (index - previous);
+            bridgeIndices.add(gap);
+          }
+        }
+        previous = index;
+      });
+    }
+    sectionDataByKey.set(spec.key, { data: sectionData, pointRadius, bridgeIndices });
   }
   return {
     labels,

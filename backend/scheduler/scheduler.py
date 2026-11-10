@@ -171,6 +171,15 @@ def _holding_confirmation_info(payload):
             bool(target and observed == target and payload.get('publication_verified') is True))
 
 
+def _historical_usd_cny(target):
+    token = os.environ.get("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "").strip()
+    result = _request_json("post", f"{API_BASE}/fx-rates/historical-usd-cny?as_of={target.isoformat()}",
+                           "Historical USD/CNY", max_attempts=1, headers={"X-PAMS-Holdings-Token": token})
+    return bool(result and result.get("status") == "ok"
+                and result.get("as_of") == target.isoformat()
+                and result.get("source") == "openexchangerates")
+
+
 def run_daily_holdings_confirmation(now=None):
     token = os.environ.get('PAMS_IBKR_HOLDINGS_SYNC_TOKEN', '').strip()
     if not _env_bool('PAMS_IBKR_HOLDINGS_SYNC_ENABLED') or not token:
@@ -181,6 +190,8 @@ def run_daily_holdings_confirmation(now=None):
                              failure_details=True, max_attempts=1)
 
     def sync(target):
+        if not _historical_usd_cny(target):
+            return {"reason": "waiting_for_fx"}
         return _request_json('post', f'{API_BASE}/ibkr/daily-holdings/sync', 'IBKR holdings',
                              headers={'X-PAMS-Holdings-Token': token},
                              json={'expected_statement_reference': target.isoformat()},
@@ -194,6 +205,40 @@ def run_daily_holdings_confirmation(now=None):
         return {'status': 'error', 'reason': 'checkpoint_unavailable'}
     logger.info('IBKR holdings status=%s reason=%s', result.get('status'), result.get('reason'))
     return result
+
+
+def run_daily_us_return_recovery():
+    """Finish IBKR returns independently of the current-price refresh window."""
+    holdings = run_daily_holdings_confirmation()
+    if not holdings.get("publication_verified") or not holdings.get("statement_as_of"):
+        return holdings
+    target = date.fromisoformat(holdings["statement_as_of"])
+
+    def publish(day):
+        if not _historical_usd_cny(day):
+            return {"status": "waiting", "steps": [{"name": "fx", "issues": ["waiting_for_fx"]}]}
+        endpoint = (
+            "investment/section-return-series/snapshot"
+            f"?section=us_stock&start={INVESTMENT_RETURN_START}&interval=daily"
+            f"&baseCurrency=CNY&expected_through={day.isoformat()}"
+        )
+        result = _post_root(endpoint, "Verified US return snapshot") or {}
+        if result.get("missing_fx_date"):
+            missing = date.fromisoformat(result["missing_fx_date"])
+            if missing < day and _historical_usd_cny(missing):
+                result = _post_root(endpoint, "Verified US return snapshot") or {}
+        if (result.get("status") == "ok" and result.get("source_through") == day.isoformat()
+                and int(result.get("written") or 0) > 0):
+            return {"status": "ok"}
+        return {"status": "blocked", "steps": [{"name": "us_stock", "issues": [
+            "missing_historical_fx" if result.get("missing_fx_date") else "verified_curve_not_ready",
+        ]}]}
+
+    try:
+        return RefreshJournal(STATE_PATH).run("ibkr_us_returns", target, publish)
+    except (OSError, ValueError):
+        logger.exception("US return checkpoint unavailable")
+        return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
 def _daily_close_info(payload):
@@ -598,7 +643,7 @@ def main():
         refresh_crypto()
         run_flex_confirmation()
         run_daily_close_confirmation()
-        run_daily_holdings_confirmation()
+        run_daily_us_return_recovery()
         run_cash_event_confirmation()
         run_due_window("asia")
         run_due_window("north_america")
@@ -606,7 +651,7 @@ def main():
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
     schedule.every(30).minutes.do(run_flex_confirmation)
     schedule.every(30).minutes.do(run_daily_close_confirmation)
-    schedule.every(30).minutes.do(run_daily_holdings_confirmation)
+    schedule.every(30).minutes.do(run_daily_us_return_recovery)
     schedule.every(30).minutes.do(run_cash_event_confirmation)
 
     while True:

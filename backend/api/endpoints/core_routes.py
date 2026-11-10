@@ -1,12 +1,17 @@
 """API orchestration for account, holdings and FX compatibility routes."""
 from datetime import date, datetime, timezone
+from contextlib import closing
+from hmac import compare_digest
 import os
 from typing import Optional
 import psycopg2.extras
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from collectors.open_exchange_rates import fetch_usd_rates
-from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, REFRESH_CURRENCIES, store_daily_fx_rates
+from domain.market.fx_rates import (
+    OPEN_EXCHANGE_RATES_SOURCE, REFRESH_CURRENCIES, has_official_usd_cny,
+    store_daily_fx_rates, store_official_fx_rate,
+)
 
 
 def create_core_router(
@@ -154,5 +159,35 @@ def create_core_router(
             },
         })
 
+
+    @router.post("/api/fx-rates/historical-usd-cny")
+    def backfill_historical_usd_cny(as_of: date, x_pams_holdings_token: str = Header(default="")):
+        from domain.imports.isolation import source_mode
+
+        if source_mode() == "development":
+            raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
+        token = os.environ.get("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "").strip()
+        if len(token) < 32 or not compare_digest(token.encode(), x_pams_holdings_token.encode()):
+            raise HTTPException(status_code=403, detail="Historical USD/CNY synchronization is unavailable")
+        today = datetime.now(timezone.utc).date()
+        if as_of >= today:
+            return json({"status": "waiting", "reason": "historical_quote_not_due", "as_of": as_of.isoformat()})
+        result = {"status": "ok", "as_of": as_of.isoformat(), "source": OPEN_EXCHANGE_RATES_SOURCE}
+        with closing(get_conn()) as conn, conn:
+            conn.set_session(readonly=True)
+            with conn.cursor() as cur:
+                if has_official_usd_cny(cur, as_of):
+                    return json(result)
+        app_id = os.environ.get("PAMS_OPEN_EXCHANGE_RATES_APP_ID", "").strip()
+        if not app_id:
+            raise HTTPException(status_code=503, detail="Open Exchange Rates is not configured")
+        try:
+            rates = fetch_usd_rates(as_of, today=today, app_id=app_id, currencies=("USD", "CNY"))
+            with closing(get_conn()) as conn, conn:
+                with conn.cursor() as cur:
+                    store_official_fx_rate(cur, day=as_of, base="CNY", quote="USD", rate=rates["CNY"], historical=True)
+        except (ValueError, ArithmeticError) as exc:
+            raise HTTPException(status_code=502, detail="Open Exchange Rates returned unusable rates") from exc
+        return json(result)
 
     return router, (get_accounts, get_account_detail, get_categories, holdings_latest, holdings_summary, holdings_by_account, get_latest_fx_rates, refresh_fx_rates)

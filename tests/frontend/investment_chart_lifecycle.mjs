@@ -301,3 +301,34 @@ for (const oldFirst of [false, true]) {
 }
 
 console.log('Investment chart lifecycle: Chart/fallback cleanup, controls, BFCache, replacement, generations and late reads OK');
+
+for (const missingSession of [false, true]) {
+  const test = await fixture();
+  const controller = test.create();
+  const loading = controller.loadReturnsOnce();
+  test.resolve();
+  await loading;
+  const button = test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === 'us_stock');
+  button.fire('click');
+  const end = missingSession ? '2026-11-10' : '2026-11-09';
+  test.requests.find(req => req.url.includes('section=us_stock')).resolve({
+    rows: [{date: '2026-11-06', display_return_rate: 0}, {date: end, display_return_rate: 0.03}],
+    chart_gap_dates: {'2026-11-07': 'closed', '2026-11-08': 'closed',
+      ...(missingSession ? {'2026-11-09': 'missing'} : {})},
+  });
+  await settle();
+  const chart = test.window.__investmentReturnChart;
+  const series = chart.data.datasets.find(item => item.returnSeriesKey === 'us_stock');
+  const saturday = chart.data.labels.indexOf('2026-11-07');
+  assert.ok(saturday >= 0);
+  if (missingSession) {
+    assert.equal(series.data[saturday], null);
+    assert.equal(series.data[chart.data.labels.indexOf('2026-11-09')], null);
+  } else {
+    assert.ok(Number.isFinite(series.data[saturday]));
+    assert.equal(series.pointRadius({dataIndex: saturday}), 0);
+    assert.equal(chart.options.plugins.tooltip.filter({dataset: series, dataIndex: saturday}), false);
+  }
+  assert.ok(series.data[chart.data.labels.indexOf(end)] > 0);
+  controller.dispose();
+}
