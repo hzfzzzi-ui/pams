@@ -6,7 +6,8 @@ import { pathToFileURL } from 'node:url';
 
 const publicRoot = path.resolve(process.argv[2] || 'frontend/public');
 const transfersOnly = process.argv[3] === '--transfers-only';
-const baselineEntry = !transfersOnly && process.argv[3] ? path.resolve(process.argv[3]) : null;
+const streamOnly = process.argv[3] === '--stream-only';
+const baselineEntry = !transfersOnly && !streamOnly && process.argv[3] ? path.resolve(process.argv[3]) : null;
 const runtime = process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE;
 const { chromium } = runtime ? await import(pathToFileURL(runtime).href) : await import('playwright');
 const fixture = {
@@ -65,6 +66,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
           const search = query.get('search')?.toLowerCase() || '';
           const rows = (payload[`recent_rows_${period}`] || []).filter(row => {
             if (flow === 'internal_transfer' && row.flow_type !== 'transfer' && !row.is_internal_transfer) return false;
+            if (flow === 'income_expense' && !['income','expense'].includes(row.flow_type)) return false;
             if (['income','expense'].includes(flow) && row.flow_type !== flow) return false;
             if (query.get('account') && row.account_code !== query.get('account')) return false;
             return Object.values(row).join(' ').toLowerCase().includes(search);
@@ -72,7 +74,9 @@ async function makePage(legacy = false, fixtureData = fixture) {
           const sort = query.get('sort');
           if (sort) rows.sort((a, b) => (sort === 'amount_asc' ? 1 : -1) *
             (Math.abs(a.amount_cny ?? a.amount) - Math.abs(b.amount_cny ?? b.amount)));
-          return { rows, next_offset: null };
+          const offset = Number(query.get('offset') || 0);
+          const limit = payload.stream_page_size || rows.length;
+          return { rows:rows.slice(offset, offset + limit), next_offset:offset + limit < rows.length ? offset + limit : null };
         };
         if (test.deferReads) return new Promise((resolve, reject) => test.pendingReads.push({ resolve: value => resolve(select(value)), reject }));
         return Promise.resolve(select(structuredClone(test.fixture)));
@@ -131,6 +135,12 @@ async function capture(page, label, legacy) {
   else if (baselineEntry) assert.deepEqual(snapshot, snapshots.get(label), label);
 }
 
+async function openStreamEdit(page, id) {
+  const action = page.locator(`[data-ledger-edit="${id}"]:visible`).first();
+  if (!(await action.count())) await page.locator(`[data-detail-target="recentRows-detail-${id}"]`).click();
+  await action.click();
+}
+
 async function browse(legacy) {
   const { page, context } = await makePage(legacy);
   if (!legacy) {
@@ -174,9 +184,10 @@ async function browse(legacy) {
     });
     assert.deepEqual(bar, { aligned: true, ordered: true, fits: true, borderless: true, selectedUnderline: true });
     await page.setViewportSize(viewport);
-    await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
+    assert.equal(await page.locator('[data-ledger-flow-filter="internal_transfer"]').count(), 0);
+    await page.locator('#recentRows .ledgerListRow').first().waitFor();
     assert.deepEqual(await page.locator('#recentRows .ledgerListRow').evaluateAll(
-      rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-3', 'recentRows-detail-4']);
+      rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-1', 'recentRows-detail-2', 'recentRows-detail-5']);
   }
   await page.locator('[data-ledger-flow-filter=""]').click();
   await page.locator('#recentSearchToggle').click();
@@ -186,7 +197,7 @@ async function browse(legacy) {
   await page.locator('#recentSearchToggle').click(); await page.locator('[data-recent-search-clear]').click();
   await page.locator('#recentSortToggle').click(); await page.locator('[data-recent-sort-option="amount_desc"]').click();
   await capture(page, 'sorted', legacy);
-  await page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  await openStreamEdit(page, '1');
   await page.locator('[data-ledger-edit-form]').waitFor();
   const editTemplate = await page.locator('[data-ledger-edit-form]').innerHTML();
   if (legacy) snapshots.set('editTemplate', editTemplate); else if (baselineEntry) assert.equal(editTemplate, snapshots.get('editTemplate'));
@@ -331,11 +342,54 @@ async function checkTransferLayout() {
   await transferContext.close();
 }
 
+async function checkStreamLayout() {
+  const stream = structuredClone(fixture);
+  stream.stream_page_size = 1;
+  const extra = { ...stream.recent_rows_ytd[0], id:'6', summary:'待核对外币', amount:-54321.23, amount_cny:null,
+    currency:'USD', subcategory_pending:true };
+  stream.recent_rows_ytd.splice(1, 0, extra);
+  const {page, context} = await makePage(false, stream);
+  await page.locator('[data-ledger-tab="recent"]').click();
+  const list = page.locator('#recentRows');
+  const first = list.locator('.ledgerListRow').first();
+  await first.waitFor();
+  assert.match(await list.locator('.ledgerStreamDayHeader').innerText(), /已加载 1 笔/);
+  await list.getByRole('button', {name:'展开更多'}).click();
+  await list.getByText('待补分类').waitFor();
+  assert.equal(await list.locator('.ledgerStreamDay').count(), 1);
+  assert.equal(await list.locator('.ledgerListRow').count(), 2);
+  assert.match(await list.locator('.ledgerListSide b').nth(1).innerText(), /54,321\.23/);
+  for (const width of [320,390,1280]) {
+    await page.setViewportSize({width,height:900});
+    assert.equal(await first.evaluate(row => {
+      const [icon, main, amount] = Array.from(row.children);
+      return row.scrollWidth <= row.clientWidth && main.getBoundingClientRect().right <= amount.getBoundingClientRect().left
+        && getComputedStyle(icon).backgroundColor === 'rgb(255, 188, 32)'
+        && getComputedStyle(icon.querySelector('svg')).stroke === 'rgb(255, 255, 255)';
+    }), true, `stream row at ${width}px`);
+  }
+  await page.setViewportSize({width:390,height:900});
+  await first.press('Enter');
+  await page.getByText('测试商户',{exact:true}).filter({visible:true}).first().waitFor();
+  await page.locator('[data-ledger-edit="1"]:visible').click();
+  await page.locator('[data-ledger-edit-form] [data-sheet-close]').click();
+  await page.getByRole('button',{name:'收入',exact:true}).click();
+  await list.getByText('工资入账').waitFor();
+  assert.equal(await list.getByText('待补分类').count(),0);
+  await page.locator('#recentSortToggle').click();
+  await page.locator('[data-recent-sort-option="amount_desc"]').click();
+  await list.locator('.ledgerListDate').waitFor();
+  assert.equal(await list.locator('.ledgerStreamDay').count(),0);
+  assert.equal(await page.evaluate(() => __ledgerTest.writes.length),0);
+  await context.close();
+}
+
 try {
-  await checkTransferLayout();
-  if (transfersOnly) {
+  if (!streamOnly) await checkTransferLayout();
+  if (!transfersOnly) await checkStreamLayout();
+  if (transfersOnly || streamOnly) {
     assert.deepEqual(errors, []);
-    console.log("Transfer layout, account logos, amounts and pair details passed");
+    console.log(transfersOnly ? 'Transfer layout and details passed' : 'Stream day groups, pagination, icons, amounts and edit access passed');
   } else await checkLedgerLifecycle();
 } finally { await browser.close(); }
 
@@ -349,7 +403,7 @@ async function checkLedgerLifecycle() {
   await page.locator('[data-overview-flow="expense"]').click();
   await page.locator('#trendWeekly').click();
   await page.locator('[data-ledger-tab="recent"]').click();
-  await page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  await openStreamEdit(page, '1');
   await page.locator('[data-ledger-edit-form]').waitFor();
   await page.locator('[data-edit-field="counterparty"]').fill('  新测试商户  ');
   await page.evaluate(() => {
@@ -368,7 +422,7 @@ async function checkLedgerLifecycle() {
   await page.waitForFunction(() => __ledgerTest.reads.filter(r => r.url.startsWith('/api/ledger/workbench')).length === 2);
 
   // A cancelled form's rejected POST must not alter a newer sheet or its error state.
-  await page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  await openStreamEdit(page, '1');
   await page.locator('[data-ledger-edit-form] button[type="submit"]').click();
   await page.locator('[data-ledger-edit-form] [data-sheet-close]').click();
   await page.locator('#recentSearchToggle').click();
@@ -417,7 +471,7 @@ async function checkLedgerLifecycle() {
   await page.locator('#recentSearchToggle').click();
   await page.locator('[data-recent-search-input]').fill('测试');
   await page.locator('[data-recent-search-form] button[type="submit"]').click();
-  await page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  await openStreamEdit(page, '1');
   await page.locator('[data-ledger-edit-form] button[type="submit"]').click();
   const writesBefore = await page.evaluate(() => __ledgerTest.writes.length);
   const viewBefore = await page.evaluate(async () => {
@@ -494,7 +548,7 @@ async function checkLedgerLifecycle() {
   };
   const hintPage = await makePage(false, hintFixture);
   await hintPage.page.locator('[data-ledger-tab="recent"]').click();
-  await hintPage.page.locator('[data-ledger-edit="1"]').filter({ visible: true }).first().click();
+  await openStreamEdit(hintPage.page, '1');
   const form = hintPage.page.locator('[data-ledger-edit-form]');
   const type = form.locator('[data-edit-field="cashflow_type"]');
   const category = form.locator('[data-edit-field="category"]');
@@ -504,7 +558,7 @@ async function checkLedgerLifecycle() {
   assert.equal(await category.inputValue(), '融资');
   assert.equal(await subcategory.inputValue(), '信用卡取现');
   await form.locator('[data-sheet-close]').click();
-  await hintPage.page.locator('[data-ledger-edit="2"]').filter({ visible: true }).first().click();
+  await openStreamEdit(hintPage.page, '2');
   assert.equal(await type.inputValue(), '');
   await form.locator('button[type="submit"]').click();
   for (const [value, options] of [

@@ -9,7 +9,7 @@ export function ledgerStreamQuery(state, offset = 0) {
   const search = (state.recentSearch || '').slice(0, 200);
   const params = new URLSearchParams({
     view: 'stream', period: state.recentPeriod, account: state.recentAccountFilter || '',
-    flow: state.recentFlowFilter || '', search,
+    flow: state.recentFlowFilter || 'income_expense', search,
     matchingAccounts: accountCodesForLabel(search).join(','),
     sort: state.recentAmountSort || '', offset,
   });

@@ -424,8 +424,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'data-recent-sort="amount_asc"' not in html
     assert ">金额从大到小</button>" not in html
     assert ">金额从小到大</button>" not in html
-    assert html.count('data-ledger-flow-filter=') == 4
-    for flow_filter in ["", "income", "expense", "internal_transfer"]:
+    assert html.count('data-ledger-flow-filter=') == 3
+    for flow_filter in ["", "income", "expense"]:
         assert f'data-ledger-flow-filter="{flow_filter}"' in html
     assert '<h3>现金流水</h3>' not in html
 
@@ -548,8 +548,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'data-edit-field="subcategory"' in js
     assert "function updateLedgerSubcategoryOptions(" in js
     assert "工具订阅: ['工具订阅', '美图订阅', 'AI订阅', '软件会员', '云服务', '手动确认']" in js
-    assert "ledgerInlineEditBtn" in page_css
-    assert "ledgerInlineEditBtn" in js
+    assert "ledgerDetailActions" in page_css and "ledgerDetailActions" in js
+    assert "ledgerInlineEditBtn" not in js
     assert "${transferRouteHtml(row)}\n      ${editButton}" in js
     assert "保存并确认" in js
     assert "layout: { padding: { left: 8, right: 18, top: 2, bottom: 4 } }" in js
@@ -562,7 +562,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'class="ledgerListDate"' in js
     assert "[row.summary, row.description, row.counterparty].filter(Boolean).join(' / ')" not in js
     assert ".transferRoute" in page_css
-    assert ".ledgerListSide b.transfer" in page_css
+    assert ".ledgerStreamCategoryIcon" in page_css
+    assert "ledgerStreamDayHeader" in js
     assert "ledgerOriginalAmount" in page_css
     assert "jget('/api/ledger/workbench?view=overview', { cache: false, signal })" in js
 

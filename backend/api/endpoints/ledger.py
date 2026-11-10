@@ -105,7 +105,7 @@ def ledger_workbench(
     view: str = Query("full", pattern="^(full|overview|stream|transfers)$"),
     period: str = Query("ytd", pattern="^(month|ytd)$"),
     account: str = Query("", max_length=120),
-    flow: str = Query("", pattern="^(|income|expense|internal_transfer)$"),
+    flow: str = Query("", pattern="^(|income|expense|income_expense|internal_transfer)$"),
     search: str = Query("", max_length=200),
     matchingAccounts: str = Query("", max_length=1800),
     sort: str = Query("", pattern="^(|amount_asc|amount_desc)$"),

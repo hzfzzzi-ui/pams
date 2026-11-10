@@ -1,11 +1,15 @@
-import { accountLabel } from '../../api.js';
 import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
+import { categoryIconPath } from './category_icons.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
+
+const dayLabel = new Intl.DateTimeFormat('zh-CN', {month:'long', day:'numeric', timeZone:'UTC'});
+const weekdayLabel = new Intl.DateTimeFormat('zh-CN', {weekday:'short', timeZone:'UTC'});
 
 export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
   reloadRecent = () => renderRecentRows(), loadMore }) {
   const { $ } = dom;
-  const { flowClass, isEditableLedgerRow, ledgerEditActionLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, originalCurrencyText, accountDisplayName, filteredRecentRows } = model;
+  const { rowAmountClass, rowCategoryText, rowTitle, rowDateText, originalCurrencyText,
+    accountDisplayName, ledgerAccountIdentity, filteredRecentRows } = model;
   const { recentSearchSheetHtml, rowDetailHtml, recentSortSheetHtml } = templates;
 
 function renderRecentSearchButton() {
@@ -70,6 +74,8 @@ function renderRecentPeriodButton() {
   const label = `流水时间范围（${recentPeriodLabel()}）`;
   toggle.title = label;
   toggle.setAttribute('aria-label', label);
+  const periodLabel = $('recentPeriodLabel');
+  if (periodLabel) periodLabel.textContent = recentPeriodLabel();
 }
 
 function closeRecentPeriod({ restoreFocus = false } = {}) {
@@ -139,7 +145,7 @@ function openRecentSortSheet() {
   });
 }
 
-function renderRows(id, rows, limit = 80) {
+function renderRows(id, rows) {
   events.clear(`rows:${id}`);
   const el = $(id);
   if (!el) return;
@@ -147,46 +153,72 @@ function renderRows(id, rows, limit = 80) {
     el.innerHTML = '<div class="ledgerEmpty">暂无流水</div>';
     return;
   }
-  const displayRows = rows.slice(0, limit);
-  el.innerHTML = displayRows.map((row, index) => {
+  const showRowDate = Boolean(state.recentAmountSort);
+  const renderRow = (row, index) => {
     const rawId = row.id || row.transaction_id || `${row.transaction_date || 'row'}-${index}`;
     const detailId = `${id}-detail-${String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const amount = num(row.amount_cny ?? row.amount);
     const amountClass = rowAmountClass(row, amount);
     const title = rowTitle(row);
-    const meta = rowMetaText(row);
     const dateText = rowDateText(row);
+    const account = ledgerAccountIdentity(row.account_code);
+    const accountName = [account.institution, account.name].filter(Boolean).join(' ');
+    const pending = row.subcategory_pending || row.flow_type === 'unclassified';
+    const primaryCategory = String(row.category || '').trim();
+    const category = pending ? '待补分类' : ['收入', '消费', '内部划转', ''].includes(primaryCategory)
+      ? rowCategoryText(row) : primaryCategory;
+    const icon = pending ? categoryIconPath('其他支出')
+      : categoryIconPath(row.category, row.subcategory || row.coarse_category,
+        row.flow_type === 'income' ? '其他收入' : '其他支出');
     const originalAmount = originalCurrencyText(row);
     const showOriginal = row.amount_cny == null && originalAmount;
-    const reviewAction = !state.streamIsRemembered && row.needs_review && isEditableLedgerRow(row)
-      ? `<button type="button" class="ledgerInlineEditBtn" data-ledger-edit="${escapeHtml(String(row.id || ''))}">${escapeHtml(ledgerEditActionLabel(row))}</button>`
-      : '';
+    const displayAmount = row.amount_cny == null && row.amount == null ? '—' : showOriginal || signedMoney(amount);
     return `
-      <div class="ledgerListRow" role="button" tabindex="0" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
+      <button type="button" class="ledgerListRow" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
+        <span class="ledgerStreamCategoryIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${icon}"/></svg></span>
         <span class="ledgerListMain">
           <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
-          <small class="ledgerListAccount" title="${escapeHtml(rowSearchText(row))}">${escapeHtml(meta)}</small>
-          <small class="ledgerListDate">${escapeHtml(dateText)}</small>
+          <small class="ledgerListAccount">${category
+            ? `<span class="${pending ? 'ledgerReviewHint' : ''}">${escapeHtml(category)}</span> · ` : ''}${escapeHtml(accountName)}</small>
+          ${showRowDate ? `<time class="ledgerListDate" datetime="${escapeHtml(dateText)}">${escapeHtml(dateText)}</time>` : ''}
         </span>
         <span class="ledgerListSide">
-          <b class="${amountClass}">${escapeHtml(showOriginal || signedMoney(amount))}</b>
+          <b class="${displayAmount === '—' ? '' : amountClass}">${escapeHtml(displayAmount)}</b>
           ${originalAmount && !showOriginal ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
-          <small class="ledgerListMeta">
-            <span class="flowTag ${flowClass(row.flow_type)}">${escapeHtml(rowTagLabel(row))}</span>
-            ${row.needs_review ? '<span class="ledgerReviewHint">待确认</span>' : ''}
-          </small>
-          ${reviewAction}
+          ${row.needs_review && !pending ? '<small class="ledgerReviewHint">待确认</small>' : ''}
         </span>
-      </div>
+      </button>
       <div id="${escapeHtml(detailId)}" class="ledgerInlineDetail" hidden>
         ${rowDetailHtml(row)}
       </div>
     `;
-  }).join('');
+  };
+
+  if (showRowDate) {
+    el.innerHTML = rows.map(renderRow).join('');
+  } else {
+    const days = new Map();
+    rows.forEach((row, index) => {
+      const date = rowDateText(row);
+      if (!days.has(date)) days.set(date, []);
+      days.get(date).push(renderRow(row, index));
+    });
+    el.innerHTML = Array.from(days, ([date, markup], index) => {
+      const day = new Date(date + 'T00:00:00Z');
+      const validDate = Number.isFinite(day.valueOf());
+      const partial = index === days.size - 1 && state.streamNext != null;
+      return `<section class="ledgerStreamDay">
+        <h3 class="ledgerStreamDayHeader">
+          <span>${validDate ? `<time datetime="${escapeHtml(date)}">${dayLabel.format(day)}</time> <small>${weekdayLabel.format(day)}</small>` : '日期未知'}</span>
+          <small>${partial ? '已加载 ' : ''}${markup.length} 笔</small>
+        </h3>
+        ${markup.join('')}
+      </section>`;
+    }).join('');
+  }
 
   el.querySelectorAll('.ledgerListRow').forEach((rowEl) => {
-    const openDetail = (event) => {
-      if (event?.target?.closest?.('[data-ledger-edit]')) return;
+    const openDetail = () => {
       const detail = $(rowEl.dataset.detailTarget);
       if (!detail) return;
       if (host.matchMedia('(max-width: 760px)').matches) {
@@ -196,21 +228,16 @@ function renderRows(id, rows, limit = 80) {
       }
       detail.hidden = !detail.hidden;
       rowEl.classList.toggle('open', !detail.hidden);
+      rowEl.setAttribute('aria-expanded', String(!detail.hidden));
     };
     events.listen(`rows:${id}`, rowEl, 'click', openDetail);
-    events.listen(`rows:${id}`, rowEl, 'keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        openDetail(event);
-      }
-    });
   });
 
 }
 
 function renderRecentRows() {
   const rows = state.streamRows || filteredRecentRows();
-  renderRows('recentRows', rows, rows.length);
+  renderRows('recentRows', rows);
   const element = $('recentRows');
   if (element && state.streamNext != null) {
     element.insertAdjacentHTML('beforeend', '<button type="button" class="btn ledgerPairMore" data-more-stream>展开更多</button>');
