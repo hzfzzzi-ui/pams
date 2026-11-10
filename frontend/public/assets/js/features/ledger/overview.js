@@ -286,6 +286,7 @@ function renderTrendChart(data) {
 }
 
   return {
+    setChartClass(chartClass) { ChartClass = chartClass; },
     renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderRules, renderTrendChart,
     dispose() {
       trendChart?.destroy();

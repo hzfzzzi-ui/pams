@@ -25,6 +25,7 @@ import {
 } from './constants.js';
 import { createInvestmentChartController } from '../charts/controller.js';
 import { replaceContentAddress } from '../../../app/routes.js';
+import { loadChart } from '../../../shared/load_chart.js';
 
 const mounted = new WeakMap();
 export function mount(root, context) {
@@ -41,7 +42,14 @@ export function mount(root, context) {
   const afterInvestmentNav = (task, tab) => context.afterInvestmentNav(() => scope.active ? task() : null, tab);
   const trackInvestmentHoldings = context.trackInvestmentHoldings;
   const Chart = scope.Chart(context.ChartClass || window.Chart);
-  const createReturnRateChart = createCategoryChartLoader({document, host: {}, get: scope.get, Chart});
+  const loadChartClass = () => context.ChartClass || loadChart(window);
+  const createReturnRateChart = createCategoryChartLoader({
+    document, host: {}, get: scope.get,
+    loadChartClass: async () => {
+      const chartClass = await loadChartClass();
+      return scope.active && chartClass ? scope.Chart(chartClass) : null;
+    },
+  });
   const loadedCategoryReturnCharts = new Set();
   let investmentCharts = null, investmentChartsDisposed = false, analysisHeavyLoadersStarted = false;
 function bindContributionTabs() {
@@ -174,9 +182,9 @@ function isInvestmentAnalysisHash(hash) {
 function loadCategoryReturnChart(spec) {
   if (!scope.active || !spec || loadedCategoryReturnCharts.has(spec.chartId) || !canLoadAnalysisDetail()) return;
   loadedCategoryReturnCharts.add(spec.chartId);
-  createReturnRateChart(spec.chartId, spec.url, spec.color, spec.title, 'daily').catch(() => {
-    loadedCategoryReturnCharts.delete(spec.chartId);
-  });
+  createReturnRateChart(spec.chartId, spec.url, spec.color, spec.title, 'daily')
+    .catch(() => null)
+    .then(result => { if (!result) loadedCategoryReturnCharts.delete(spec.chartId); });
 }
 
 function categoryDetailShell() {
@@ -217,7 +225,7 @@ function getInvestmentCharts() {
     investmentCharts = createInvestmentChartController({
       root,
       host: window,
-      ChartClass: context.ChartClass || window.Chart,
+      loadChartClass,
       presenters: { esc, statusBadge, formatNumber, formatPercentRate, fmtCny, fmtSignedCny, fmtSignedPctFromRate, TopContributionPanel },
     });
   }

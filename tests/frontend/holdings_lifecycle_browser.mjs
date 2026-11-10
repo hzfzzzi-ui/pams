@@ -93,6 +93,23 @@ try {
   assert(document.querySelector('#mobileHoldingList').innerHTML===before,'late data must not render');
   assert(listeners.size===0&&timers.size===0&&observers.size===0,'late disposal must clean lifetime resources');
 
+  deferredReads=[];
+  const progressive=list.mount(root,config);
+  const [releasePositions,...releaseCashInputs]=deferredReads;
+  releasePositions();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  const firstGroup=document.querySelector('#mobileHoldingFilterChips [data-group]:not([data-group="全部"])');
+  assert(firstGroup && document.querySelector('[data-mobile-holding-index]'),'securities render while the three cash inputs are pending');
+  const earlyGroup=firstGroup.dataset.group;
+  firstGroup.click();
+  for(const resolve of releaseCashInputs)resolve();
+  await progressive.ready;
+  assert(progressive.snapshot().group===earlyGroup,'cash completion preserves the group selected during loading');
+  progressive.dispose();
+  deferredReads=null;
+
   reads=[];
   for(let round=0;round<2;round++){
    const a=list.mount(root,config),b=summary.mount(root,config);

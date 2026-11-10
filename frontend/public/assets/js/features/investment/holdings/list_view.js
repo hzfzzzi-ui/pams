@@ -57,7 +57,7 @@ function renderRows(rows, options = {}){
   const tbody = document.getElementById('rows');
   tbody.innerHTML='';
   const totalRows = options.totalRows || rows;
-  const total = totalRows.reduce((sum, row) => sum + safeNum(cnyValue(row, 'market_value')), 0);
+  const total = options.cashPending ? null : totalRows.reduce((sum, row) => sum + safeNum(cnyValue(row, 'market_value')), 0);
   const showGroupRows = Boolean(options.showGroupRows);
   const displayRows = [...rows].sort((a, b) => {
     const groupA = holdingGroupLabel(a);
@@ -111,7 +111,7 @@ function renderRows(rows, options = {}){
           <div><strong>类别</strong><span>${esc(typeLabel(r.minor_category || r.type || r.major_category) || '其他')}</span></div>
           <div><strong>账户</strong><span>${esc(accountLabel(r.account || r.account_code || ''))}</span></div>
           <div><strong>币种</strong><span>${esc(r.currency || 'CNY')}</span></div>
-          <div><strong>持仓占比</strong><span class="mono">${weight.toFixed(1)}%</span></div>
+          <div><strong>持仓占比</strong><span class="mono">${total == null ? '—' : `${weight.toFixed(1)}%`}</span></div>
           <div><strong>市值</strong><span class="mono">${formatCompactCurrency(cnyValue(r, 'market_value'))}</span></div>
           <div><strong>剩余成本</strong><span class="mono">${formatCompactCurrency(cnyValue(r, 'cost'))}</span></div>
           <div><strong>当前浮盈</strong><span class="mono ${signedMoneyClass(floatPnl)}">${formatSignedCurrency(floatPnl)}</span></div>
@@ -167,10 +167,10 @@ function holdingSyncTime(row) {
   return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">${short}</time></span>`;
 }
 
-function renderMobileHoldingRows(rows, options = {}) {
+function renderMobileHoldingRows(rows, { total }) {
   const el = document.getElementById('mobileHoldingList');
   if (!el) return;
-  const total = options.total || rows.reduce((sum, row) => sum + safeNum(cnyValue(row, 'market_value')), 0);
+
   const displayRows = aggregateMobileHoldingRows(rows);
   if (!rows.length) {
     el.innerHTML = '<div class="mobileEmpty">暂无持仓</div>';
@@ -262,7 +262,7 @@ function renderMobileHoldingRows(rows, options = {}) {
         <div class="rowDetailGrid">
           <div><strong>名称</strong><span>${esc(row.name || row.symbol || '缺数据')}</span></div>
           <div><strong>类别</strong><span>${esc(holdingGroupLabel(row))}</span></div>
-          <div><strong>持仓占比</strong><span class="mono">${weight.toFixed(1)}%</span></div>
+          <div><strong>持仓占比</strong><span class="mono">${total == null ? '—' : `${weight.toFixed(1)}%`}</span></div>
           <div><strong>账户</strong><span>${esc(accountLabel(row.account || row.account_code || '') || '缺数据')}</span></div>
           <div><strong>币种</strong><span>${esc(row.currency || 'CNY')}</span></div>
           <div><strong>市值</strong><span class="mono">${formatCompactCurrency(value)}</span></div>

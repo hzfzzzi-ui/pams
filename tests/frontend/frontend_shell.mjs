@@ -47,7 +47,7 @@ await context.route('**/*', async route => {
       '/api/accounts/overview': {accounts},
       '/api/ledger/workbench': url.searchParams.get('view') === 'stream'
         ? {rows:recentRows, next_offset:null}
-        : {periods:{}, recent_rows_ytd:recentRows},
+        : {periods:{ytd:{income:120, expense:20, net:100}}, recent_rows_ytd:recentRows},
       '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
       '/api/bank-reconcile/imports': {},
       '/api/bank-reconcile/transfer-matches': {},
@@ -114,6 +114,38 @@ try {
   });
   assert.equal(await navBottom(),844);
   await mobile.close();
+
+  // Chart.js is optional for the holding list and ledger stream, and a
+  // pending CDN response must not delay the ledger overview amounts.
+  const chartPage = await context.newPage();
+  await chartPage.setViewportSize({width:390,height:844});
+  let chartRequests = 0;
+  let releaseChart;
+  const chartGate = new Promise(resolve => { releaseChart = resolve; });
+  await chartPage.route('https://cdn.jsdelivr.net/npm/chart.js@*/dist/chart.umd.min.js', async route => {
+    chartRequests++;
+    await chartGate;
+    return route.fulfill({contentType:'application/javascript',body:'window.Chart = class { destroy() {} };'});
+  });
+  try {
+    workflowFixtures = true;
+    await chartPage.goto(`${base}/app.html?view=investments.html`);
+    await chartPage.locator('[data-page="investments.html"][aria-current]').waitFor();
+    await chartPage.goto(`${base}/app.html?view=ledger.html#recent-flow-section`);
+    const ledger = chartPage.frameLocator('#page-content');
+    await ledger.getByRole('button', {name:/^示例流水 1 /}).waitFor();
+    assert.equal(chartRequests,0);
+    await ledger.locator('.ledgerAnchorNav [data-ledger-tab="overview"]').click();
+    await ledger.locator('#ledgerMobileHero .ledgerMobileValue').getByText('+¥100.00', {exact:true}).waitFor();
+    assert.equal(chartRequests,1);
+    releaseChart();
+    const ledgerFrame = chartPage.frames().find(frame => frame.parentFrame() === chartPage.mainFrame());
+    await ledgerFrame.waitForFunction(() => Boolean(window.__cashflowTrendChart));
+  } finally {
+    releaseChart();
+    workflowFixtures = false;
+    await chartPage.close();
+  }
 
   for (const width of [320,390,926,1280]) {
     await page.setViewportSize({width,height:1084});

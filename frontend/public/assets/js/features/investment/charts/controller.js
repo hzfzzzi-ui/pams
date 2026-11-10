@@ -12,7 +12,7 @@ const MARKET_RETURN_COLORS = new Map([
   ['us_stock', '#69aaff'],
 ]);
 
-export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart }) {
+export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart, loadChartClass = () => ChartClass }) {
   owners.get(root)?.dispose();
   const reads = createReadScope({AbortController: host?.AbortController});
   const state = createInvestmentChartState(host);
@@ -37,9 +37,11 @@ export function createInvestmentChartController({ root = document, host = window
   function loadNavOnce() {
     if (!current()) return Promise.resolve(null);
     if (!navPromise) {
-      navPromise = trackInvestmentNav(reads.run('nav', signal => readInvestmentNav({signal}))
-        .then(response => {
+      const navRead = trackInvestmentNav(reads.run('nav', signal => readInvestmentNav({signal})));
+      navPromise = Promise.all([navRead, loadChartClass()])
+        .then(([response, chartClass]) => {
           if (!current()) return null;
+          renderer.setChartClass(chartClass);
           state.navRows = normalizeInvestmentNavRows(response.rows || []);
           state.navChart = renderer.renderNav(state.navRows, state.activeWindow, state.isMobile);
           if (!renderer.returnChart) renderer.renderWindowToggle(null, state);
@@ -51,7 +53,7 @@ export function createInvestmentChartController({ root = document, host = window
           navPromise = null;
           console.error('NAV曲线加载失败', error);
           throw error;
-        }));
+        });
     }
     return navPromise;
   }
@@ -65,8 +67,12 @@ export function createInvestmentChartController({ root = document, host = window
     contributionObserver?.disconnect();
     for (const key of sectionReads.keys()) reads.cancel(key);
     try {
-      const resp = await reads.run('returns', signal => readInvestmentReturnSeries({signal}));
+      const [resp, chartClass] = await Promise.all([
+        reads.run('returns', signal => readInvestmentReturnSeries({signal})),
+        loadChartClass(),
+      ]);
       if (!current() || generation !== returnGeneration) return null;
+      renderer.setChartClass(chartClass);
       sectionReads.clear();
       const sectionResponses = [];
       function loadSection(key) {
