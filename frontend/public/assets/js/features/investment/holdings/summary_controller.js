@@ -330,7 +330,8 @@ function promoteHoldingsTable() {
   async function load() {
     try {
       const payloads = await trackInvestmentHoldings(afterInvestmentNav(() => readSummaryInputs({
-        get: scope.get, withClosedParam, loadInvestmentSummaryFresh: () => context.loadInvestmentSummaryFresh({signal: scope.signal}),
+        get: scope.get, withClosedParam, loadHoldingView: context.loadHoldingView,
+        loadInvestmentSummaryFresh: () => context.loadInvestmentSummaryFresh({signal: scope.signal}),
       }), 'holdings'));
       if (!scope.active) return;
       applyLegacySummaryPayload(payloads, {document, Chart, showClosedPositions, view});

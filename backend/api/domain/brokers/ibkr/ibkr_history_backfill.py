@@ -1,6 +1,7 @@
 """Import historical IBKR facts from an already published Flex archive."""
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from functools import lru_cache
 from uuid import uuid4
 
 from domain.brokers.ibkr.ibkr_cash_event_sync import _cash_scope_ok
@@ -101,6 +102,17 @@ def read_candidates(content, account, digest, as_of, *, required_from=None):
     return candidates, pending, excluded
 
 
+@lru_cache(maxsize=4)
+def _parse_verified_candidates(content, account, digest, as_of):
+    return read_candidates(content, account, digest, as_of)
+
+
+def read_verified_candidates(content, account, digest, as_of):
+    """Parse bytes already checked against the archived SHA-256."""
+    parser = _parse_verified_candidates if len(content) <= 8 * 1024 * 1024 else read_candidates
+    return parser(content, account, digest, as_of)
+
+
 def _existing_matches(row, fields, kind):
     if row['source_name'] != SOURCE or row['source_status'] != 'published' or row['review_status'] != 'confirmed':
         return False
@@ -120,9 +132,9 @@ def _contract(origin):
     return official.get('conid'), official.get('listingExchange') or official.get('exchange')
 
 
-def reconcile_candidates(cur, candidates, account, *, current_digest):
+def reconcile_candidates(cur, candidates, account, *, current_digest, originals=None):
     """Match official IDs to unchanged facts and their own verified originals."""
-    originals = SourceOriginals(cur)
+    originals = originals or SourceOriginals(cur)
     archives = {current_digest: candidates}
     matched = {kind: set() for kind in FACT_TABLES}
     pending = []
@@ -147,7 +159,7 @@ def reconcile_candidates(cur, candidates, account, *, current_digest):
                 if digest not in archives:
                     content, verified = originals.read(row)
                     try:
-                        archives[digest] = (read_candidates(bytes(content), account, digest, row['period_end'])[0]
+                        archives[digest] = (read_verified_candidates(bytes(content), account, digest, row['period_end'])[0]
                                             if verified else None)
                     except (ValueError, ArithmeticError, TypeError):
                         archives[digest] = None

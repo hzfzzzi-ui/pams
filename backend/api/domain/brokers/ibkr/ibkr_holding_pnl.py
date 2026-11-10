@@ -1,5 +1,7 @@
 """Build IBKR holding P&L from verified positions, executions and cash events."""
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import lru_cache
 
@@ -7,6 +9,17 @@ from domain.imports.source_original_read import SourceOriginals
 
 
 _INCOME_TYPES = ('Dividends', 'Payment In Lieu Of Dividends', 'Withholding Tax')
+_read_evidence = ContextVar('ibkr_holding_read_evidence', default=None)
+
+
+@contextmanager
+def reuse_ibkr_holding_evidence(cur):
+    """Share evidence only within this cursor's current read transaction."""
+    token = _read_evidence.set((cur, SourceOriginals(cur), {}))
+    try:
+        yield
+    finally:
+        _read_evidence.reset(token)
 
 
 def _contract(attributes):
@@ -34,37 +47,47 @@ def _ledger_counts(cur, day):
 def _parse_report(content, account, digest, day):
     """Reuse only source-derived inputs; callers must verify bytes and current facts."""
     from domain.brokers.ibkr.ibkr_daily_holdings import read_report
-    from domain.brokers.ibkr.ibkr_history_backfill import read_candidates
+    from domain.brokers.ibkr.ibkr_history_backfill import read_verified_candidates
 
     report_digest, positions, _ = read_report(content, account, day)
     if report_digest != digest:
         raise ValueError('Flex source hash mismatch')
-    candidates, pending, _ = read_candidates(content, account, digest, day)
+    candidates, pending, _ = read_verified_candidates(content, account, digest, day)
     return positions, candidates, pending
 
 
-def _report_components(cur, originals, source, holdings):
+def _verified_report_inputs(cur, originals, reports, source):
     from domain.brokers.ibkr.ibkr_history_backfill import reconcile_candidates
 
     day = source['period_end']
     account = source['attributes']['accountId']
     content, verified = originals.read(source)
-    if not verified:
-        return {}
     digest = source['sha256']
-    if content is None or digest is None:
-        return {}
+    if not verified or content is None or digest is None:
+        return None
+    key = account, digest, day
+    if key in reports:
+        return reports[key]
     positions, candidates, pending = _parse_report(bytes(content), account, digest, day)
     if pending:
-        return {}
-    matched, _ = reconcile_candidates(cur, candidates, account, current_digest=digest)
+        return None
+    matched, _ = reconcile_candidates(cur, candidates, account, current_digest=digest, originals=originals)
     entries = {kind: defaultdict(list) for kind in candidates}
     for kind, events in candidates.items():
         for uid, (fields, origin, _) in events.items():
             attributes = origin['official_attributes']
             if kind == 'trade' or fields['summary'] in _INCOME_TYPES:
                 entries[kind][_contract(attributes)].append((uid, fields, attributes))
-    counts = _ledger_counts(cur, day)
+    inputs = positions, entries, _ledger_counts(cur, day), matched
+    reports[key] = inputs
+    return inputs
+
+
+def _report_components(cur, originals, reports, source, holdings):
+    inputs = _verified_report_inputs(cur, originals, reports, source)
+    if inputs is None:
+        return {}
+    positions, entries, counts, matched = inputs
     results = {}
     for holding in holdings:
         conid, currency = key = _contract(holding['attributes'])
@@ -128,11 +151,15 @@ def enrich_ibkr_holding_pnl(cur, rows):
     by_id = {holding['id']: holding for holding in holdings}
     for holding in holdings:
         groups[holding['original_source_id']].append(holding)
-    originals = SourceOriginals(cur)
+    shared = _read_evidence.get()
+    if shared is not None and shared[0] is cur:
+        _, originals, reports = shared
+    else:
+        originals, reports = SourceOriginals(cur), {}
     results = {}
     for group in groups.values():
         try:
-            results.update(_report_components(cur, originals, group[0], group))
+            results.update(_report_components(cur, originals, reports, group[0], group))
         except (KeyError, TypeError, ValueError, ArithmeticError):
             continue
     for row in candidates:

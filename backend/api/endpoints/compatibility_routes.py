@@ -5,6 +5,7 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 from domain.brokers.ibkr import ibkr_daily_close_read
+from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.holding_return_snapshot import return_snapshot_revision
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
 
@@ -77,32 +78,46 @@ def create_compatibility_router(
                 return json(_build_summary2_latest_payload_for_request(cur))
 
 
+    def holding_context(cur):
+        return (
+            _holdings_market_view_as_of(cur),
+            _daily_pnl_view_as_of(),
+            {
+                "excluded_accounts": _excluded_holding_accounts(),
+                "owner_ratios": _account_owner_ratios(),
+                "default_owner_ratio": _default_owner_ratio(),
+            },
+        )
+
+    def read_holdings(cur, context, *, limit=500, include_closed=False,
+                      category=None, minor_category=None):
+        view_date, active_date, config = context
+        builder = _build_holdings_latest_payload
+        scope = {}
+        if category is not None:
+            builder = _build_holdings_by_category_payload
+            scope = {"category": category, "minor_category": minor_category}
+
+        def load(view, daily):
+            return builder(cur, limit=limit, include_closed=include_closed, view_as_of=view,
+                           daily_pnl_start_as_of=daily, **config, **scope)
+
+        return attach_recent_market_returns(
+            cur, load(view_date, active_date), active_date=active_date,
+            load_date=lambda day: load(day, day),
+        )
+
     @router.get("/holdings/latest")
     def holdings_latest_compat(
         limit: int = Query(500, ge=1, le=5000),
         include_closed: bool = Query(False, alias="includeClosed"),
     ):
-        """持仓页（前端兼容格式：account, type, name, currency, market_value, holding_pnl, daily_pnl）"""
+        """Return the legacy holdings list projection."""
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                def load(view_date, daily_date):
-                    return _build_holdings_latest_payload(
-                        cur,
-                        limit=limit,
-                        include_closed=include_closed,
-                        view_as_of=view_date,
-                        excluded_accounts=_excluded_holding_accounts(),
-                        owner_ratios=_account_owner_ratios(),
-                        default_owner_ratio=_default_owner_ratio(),
-                        daily_pnl_start_as_of=daily_date,
-                    )
-                active_date = _daily_pnl_view_as_of()
-                return json(attach_recent_market_returns(
-                    cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
-                    load_date=lambda day: load(day, day),
-                ))
-
+                with reuse_ibkr_holding_evidence(cur):
+                    return json(read_holdings(cur, holding_context(cur), limit=limit, include_closed=include_closed))
 
     @router.get("/holdings/by-category/{category}")
     def holdings_by_category(
@@ -113,28 +128,38 @@ def create_compatibility_router(
         include_closed_legacy: Optional[bool] = Query(None, alias="include_closed"),
     ):
         """Return holdings by major category."""
+        closed = include_closed if include_closed_legacy is None else include_closed_legacy
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                def load(view_date, daily_date):
-                    return _build_holdings_by_category_payload(
-                        cur,
-                        category=category,
-                        limit=limit,
-                        minor_category=minor_category,
-                        include_closed=include_closed if include_closed_legacy is None else include_closed_legacy,
-                        view_as_of=view_date,
-                        excluded_accounts=_excluded_holding_accounts(),
-                        owner_ratios=_account_owner_ratios(),
-                        default_owner_ratio=_default_owner_ratio(),
-                        daily_pnl_start_as_of=daily_date,
-                    )
-                active_date = _daily_pnl_view_as_of()
-                return json(attach_recent_market_returns(
-                    cur, load(_holdings_market_view_as_of(cur), active_date), active_date=active_date,
-                    load_date=lambda day: load(day, day),
-                ))
+                with reuse_ibkr_holding_evidence(cur):
+                    return json(read_holdings(cur, holding_context(cur), limit=limit, include_closed=closed,
+                                              category=category, minor_category=minor_category))
 
+    @router.get("/api/investment/holdings-view")
+    def investment_holdings_view(show_closed: bool = False):
+        """Read the holdings screen's projections under one consistent snapshot."""
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                with reuse_ibkr_holding_evidence(cur):
+                    context = holding_context(cur)
+
+                    def category(major, minor=None, *, closed=show_closed):
+                        return read_holdings(cur, context, include_closed=closed,
+                                             category=major, minor_category=minor)
+
+                    funds_all = category('A股', 'A股基金', closed=True)
+                    return json({
+                        "holdings": read_holdings(cur, context),
+                        "a_stock": category('A股', 'A股', closed=True),
+                        "funds": funds_all if show_closed else category('A股', 'A股基金'),
+                        "funds_all": funds_all,
+                        "us_stock": category('美股'),
+                        "precious_metal": category('贵金属'),
+                        "esop": category('ESOP'),
+                        "summary": _build_summary2_latest_payload_for_request(cur),
+                    })
 
     @router.get("/api/account-performance/{account_code}")
     def account_performance(account_code: str):

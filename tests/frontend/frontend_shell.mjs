@@ -34,6 +34,9 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 await context.route('**/*', async route => {
   const url = new URL(route.request().url());
+  if (url.pathname === '/api/investment/holdings-view' && url.hostname === '127.0.0.1') {
+    return route.fulfill({status:404, json:{}, headers:{'access-control-allow-origin':base}});
+  }
   if (workflowFixtures && url.hostname === '127.0.0.1') {
     const accounts = [{account_code:'fixture', display_name:'示例储蓄卡', currency:'CNY'}];
     const recentRows = Array.from({length:12}, (_, index) => ({
@@ -157,7 +160,10 @@ try {
   let holdHoldings = false;
   let releaseStream;
   let holdStream = false;
-  await memoryPage.route(url => url.pathname === '/holdings/latest' ||
+  let groupedReads = 0;
+  let separateReads = 0;
+  await memoryPage.route(url => url.pathname === '/api/investment/holdings-view' ||
+    url.pathname === '/holdings/latest' || url.pathname === '/summary2/latest' ||
     url.pathname.startsWith('/holdings/by-category/') || url.pathname === '/api/fx-rates/latest' ||
     url.pathname === '/api/ibkr/performance' || url.searchParams.get('view') === 'stream', async route => {
     const url = new URL(route.request().url());
@@ -173,12 +179,20 @@ try {
     }
     if (url.pathname.includes('fx-rates')) return respond({rates:[]});
     if (url.pathname.includes('ibkr')) return route.fulfill({status:404, json:{}, headers});
-    const isList = url.pathname === '/holdings/latest' && !url.searchParams.has('limit');
-    if (isList && holdHoldings) await new Promise(resolve => { releaseHoldings = resolve; });
-    return respond({as_of:'2026-10-29',rows:isList ? Array.from({length:16}, (_, index) => ({
+    if (url.pathname !== '/api/investment/holdings-view') {
+      separateReads++;
+      return respond({rows:[]});
+    }
+    groupedReads++;
+    if (holdHoldings) await new Promise(resolve => { releaseHoldings = resolve; });
+    const holdings = {as_of:'2026-10-29',rows:Array.from({length:16}, (_, index) => ({
       symbol:`MEM${index}`, name:index ? `合成标的 ${index}` : holdingsName, account:'tonghuashun', currency:'CNY',
       major_category:'A股', minor_category:'A股', quantity:3, cost_cny:20, market_value_cny:24,
-    })) : []});
+    }))};
+    const categories = Object.fromEntries(
+      ['a_stock', 'funds', 'funds_all', 'us_stock', 'precious_metal', 'esop'].map(key => [key, {rows:[]}]),
+    );
+    return respond({holdings, ...categories, summary:{}});
   });
   try {
     workflowFixtures = true;
@@ -211,6 +225,8 @@ try {
     releaseHoldings();
     await memoryFrame.locator('#mobileHoldingList').getByText('刷新后持仓', {exact:true}).waitFor();
     await holdingStatus.waitFor({state:'hidden'});
+    assert.equal(groupedReads, 2, 'one grouped request per visit');
+    assert.equal(separateReads, 0, 'holdings and summary should share the grouped response');
 
     holdStream = true;
     await select('ledger');

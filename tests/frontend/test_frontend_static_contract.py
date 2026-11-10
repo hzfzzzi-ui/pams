@@ -701,7 +701,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "dailyPnl: null" in holdings_js
     assert "flexCoversPositionDate" in holdings_js
     assert "accountNetLiquidationFromHoldings" in holdings_js
-    assert "jgetFresh('/holdings/latest?limit=500').catch(error => readFallback(error, null))" in holdings_js
+    assert "holding('holdings', '/holdings/latest?limit=500').catch(error => readFallback(error, null))" in holdings_js
     assert "accountPrimaryBalanceCny(accountOverview, 'ibkr', fxRates)" in holdings_js
     assert "ibkrOverviewCoversPositionDate" in holdings_js
     assert "safeNum(ibkrOverviewBalance.amountCny) > 0" in holdings_js
@@ -1594,9 +1594,9 @@ def test_investment_header_daily_pnl_uses_total_return_window() -> None:
 
     assert "loadInvestmentSummaryFresh" in holdings_js
     assert "function canonicalPortfolioDashboardSummary" in holdings_js
-    assert "jgetFresh('/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true')" in holdings_js
-    assert "jgetFresh(withClosedParam('/holdings/by-category/美股?limit=500'))" in holdings_js
-    assert "loadInvestmentSummaryFresh().catch(error => readFallback(error, null))" in holdings_js
+    assert "holding('a_stock', '/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true')" in holdings_js
+    assert "holding('us_stock', withClosedParam('/holdings/by-category/美股?limit=500'))" in holdings_js
+    assert "part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null))" in holdings_js
     assert "jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY')" in holdings_js
     assert "totals.daily_pnl" in holdings_js
     assert "totals.market_value" in holdings_js
