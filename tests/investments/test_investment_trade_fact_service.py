@@ -300,6 +300,19 @@ def test_asset_filter_display_name_uses_safe_fallbacks() -> None:
     ) == "华泰柏瑞纳斯达克100ETF发起式联接(QDII)I"
 
 
+def test_transaction_summary_exposes_known_subtotal_without_inventing_missing_fx() -> None:
+    rows = [
+        {"side_normalized": "buy", "gross_amount_cny": Decimal("120.40"), "fees_cny": Decimal("2")},
+        {"side_normalized": "buy", "gross_amount_cny": None, "fees_cny": None},
+    ]
+    _apply_owner_amount_scope(rows, {})
+    summary = _transaction_summary(rows, "trade_fact")
+    assert summary["buy_amount_personal_cny"] is None
+    assert summary["sell_amount_personal_cny"] == 0
+    assert summary["amount_coverage"]["buy_amount_personal_cny"] == {"known_subtotal": 120.4, "missing_count": 1}
+    assert summary["amount_coverage"]["fees_personal_cny"] == {"known_subtotal": 2.0, "missing_count": 1}
+
+
 def test_transaction_summary_keeps_raw_amounts_and_adds_personal_scope() -> None:
     rows = [
         {

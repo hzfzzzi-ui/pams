@@ -714,11 +714,22 @@ def _apply_owner_amount_scope(rows: list[dict[str, Any]], account_cfg: dict[str,
 
 
 def _transaction_summary(rows: list[dict[str, Any]], data_source: str) -> dict[str, Any]:
-    def total(field: str, side: str | None = None) -> float | None:
+    amounts = {}
+    coverage = {}
+    for label, field, side in (
+        ("buy_amount", "gross_amount", "buy"),
+        ("sell_amount", "gross_amount", "sell"),
+        ("fees", "fees", None),
+    ):
         selected = [row for row in rows if side is None or row.get("side_normalized") == side]
-        if any(row.get(field) is None for row in selected):
-            return None
-        return float(sum((_dec_or_zero(row[field]) for row in selected), Decimal("0")))
+        for scope in ("", "_personal"):
+            key = f"{label}{scope}_cny"
+            values = [row[f"{field}{scope}_cny"] for row in selected if row.get(f"{field}{scope}_cny") is not None]
+            missing = len(selected) - len(values)
+            subtotal = float(sum((_dec_or_zero(value) for value in values), Decimal("0")))
+            amounts[key] = subtotal if not missing else None
+            if missing:
+                coverage[key] = {"known_subtotal": subtotal if values else None, "missing_count": missing}
 
     owner_adjusted_accounts = sorted(
         {
@@ -734,12 +745,8 @@ def _transaction_summary(rows: list[dict[str, Any]], data_source: str) -> dict[s
         "personal_amount_scope": "owner_ratio_adjusted",
         "has_owner_adjustments": bool(owner_adjusted_accounts),
         "owner_adjusted_accounts": owner_adjusted_accounts,
-        "buy_amount_cny": total("gross_amount_cny", "buy"),
-        "sell_amount_cny": total("gross_amount_cny", "sell"),
-        "fees_cny": total("fees_cny"),
-        "buy_amount_personal_cny": total("gross_amount_personal_cny", "buy"),
-        "sell_amount_personal_cny": total("gross_amount_personal_cny", "sell"),
-        "fees_personal_cny": total("fees_personal_cny"),
+        **amounts,
+        "amount_coverage": coverage,
         "sources": sorted({row.get("source") for row in rows if row.get("source")}),
     }
 
@@ -987,11 +994,11 @@ def list_investment_transactions(
                     rows = [row for row in rows if any(term in str(row.get(field) or '').casefold() for field in
                         ('symbol', 'name', 'notes', 'trade_intent', 'trade_plan', 'review_note'))]
                 rows.sort(key=lambda row: (row['trade_time'], row['native_id']), reverse=True)
-                rows = rows[:limit]
-                _enrich_transaction_names(cur, rows)
                 _apply_owner_amount_scope(rows, _load_accounts_config())
                 summary = _transaction_summary(rows, 'trade_fact')
-                return {"summary": summary, "rows": [{k: norm(v) for k, v in row.items()} for row in rows]}
+                page = rows[:limit]
+                _enrich_transaction_names(cur, page)
+                return {"summary": summary, "rows": [{k: norm(v) for k, v in row.items()} for row in page]}
             data_source = "trade_fact"
             query = _fact_query(where_sql)
             cur.execute(query, params + [limit])

@@ -35,6 +35,12 @@ export function mount(root, context) {
   const remembered = isHoldings() && memory?.read('rows', variant);
   const savedView = memory?.read('view', variant);
   const refreshNote = document.getElementById('holdingViewRefresh');
+  const cashNote = document.getElementById('holdingCashStatus');
+  function showCashStatus(missing = []) {
+    if (!cashNote) return;
+    cashNote.hidden = !missing.length;
+    cashNote.textContent = missing.length ? `${missing.join('、')}现金暂未取得核验数据` : '';
+  }
   const initialGroup = context.state?.group || savedView?.group || document.getElementById('holdingGroupFilter')?.value;
   let currentGroup = initialGroup || '全部';
   let releaseGroupFilter = () => {};
@@ -104,18 +110,15 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
     try {
       let sourceRows = [];
       let supplementFailed = false;
-      const [holdings, accountOverview, ibkrPerf] = await readListInputs({
+      const [holdings, accountValues] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
         loadHoldingView: context.loadHoldingView,
-        loadAccountView: context.loadAccountView,
         onSupplementError: () => { supplementFailed = true; },
         withClosedParam,
         onHoldings(holdings) {
           if (!scope.active) return;
           if (!remembered) document.getElementById('asof').textContent = holdings.as_of || '--';
-          sourceRows = (holdings.rows || [])
-            .filter(isInvestmentRow)
-            .filter(row => !(row.major_category === '现金' && row.account && row.account !== 'tonghuashun'));
+          sourceRows = (holdings.rows || []).filter(isInvestmentRow);
           if (!remembered && sourceRows.length && (currentGroup === '全部' || sourceRows.some(row => holdingGroupLabel(row) === currentGroup))) {
             setupHoldingGroupFilter(sourceRows, {cashPending: true});
           }
@@ -127,11 +130,12 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
         showRememberedData(refreshNote, 'failed');
         return;
       }
-      const accountCashRows = buildAccountCashRows(accountOverview, ibkrPerf);
-      const rows = [...sourceRows, ...accountCashRows];
-      setupHoldingGroupFilter(rows);
+      const cash = buildAccountCashRows(accountValues, sourceRows);
+      const rows = [...sourceRows, ...cash.rows];
+      setupHoldingGroupFilter(rows, {cashPending: cash.missing.length > 0});
+      showCashStatus(cash.missing);
       document.getElementById('asof').textContent = holdings.as_of || '--';
-      if (!supplementFailed) memory?.write('rows', variant, {rows, asOf: holdings.as_of});
+      if (!supplementFailed) memory?.write('rows', variant, {rows, asOf: holdings.as_of, missingCash: cash.missing});
       showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;
@@ -157,7 +161,8 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
   context.bootstrap?.();
   if (remembered) {
     showRememberedData(refreshNote, 'refreshing');
-    setupHoldingGroupFilter(remembered.rows);
+    setupHoldingGroupFilter(remembered.rows, {cashPending: Boolean(remembered.missingCash?.length)});
+    showCashStatus(remembered.missingCash);
     document.getElementById('asof').textContent = remembered.asOf || '--';
     restorePageScroll(window, savedView?.scroll, () => scope.active);
   }

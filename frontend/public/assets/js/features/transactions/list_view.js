@@ -158,14 +158,17 @@ function renderSummary(summary) {
 }
 
 function TransactionSummaryPanel(summary, rows) {
-  const buyRaw = num(summary?.buy_amount_cny);
-  const sellRaw = num(summary?.sell_amount_cny);
-  const feesRaw = num(summary?.fees_cny);
-  const buy = num(summary?.buy_amount_personal_cny ?? summary?.buy_amount_cny);
-  const sell = num(summary?.sell_amount_personal_cny ?? summary?.sell_amount_cny);
-  const fees = num(summary?.fees_personal_cny ?? summary?.fees_cny);
+  const amountText = key => {
+    const partial = summary?.amount_coverage?.[key];
+    const amount = summary?.[key] ?? partial?.known_subtotal;
+    const text = amount == null ? '—' : formatCurrency(amount);
+    return partial ? `${amount == null ? '' : '已知 '}${text} · ${partial.missing_count} 笔待补` : text;
+  };
+  const buy = summary?.buy_amount_personal_cny;
+  const sell = summary?.sell_amount_personal_cny;
+  const fees = summary?.fees_personal_cny;
   const turnover = buy + sell;
-  const feeRate = turnover > 0 ? fees / turnover : null;
+  const feeRate = [buy, sell, fees].every(value => value != null) && turnover > 0 ? fees / turnover : null;
   const ownerAdjusted = !!summary?.has_owner_adjustments;
   const allRows = rows || [];
   const visibleRows = state.showAll ? allRows : allRows.slice(0, 10);
@@ -189,18 +192,18 @@ function TransactionSummaryPanel(summary, rows) {
       <div class="transactionOverviewMetrics">
         <div>
           <span>个人买入</span>
-          <strong>${formatCurrency(buy)}</strong>
-          <small>${ownerAdjusted ? `账户原始 ${formatCurrency(buyRaw)}` : '与账户原始一致'}</small>
+          <strong>${amountText('buy_amount_personal_cny')}</strong>
+          <small>${ownerAdjusted ? `账户原始 ${amountText('buy_amount_cny')}` : '与账户原始一致'}</small>
         </div>
         <div>
           <span>个人卖出</span>
-          <strong>${formatCurrency(sell)}</strong>
-          <small>${ownerAdjusted ? `账户原始 ${formatCurrency(sellRaw)}` : '与账户原始一致'}</small>
+          <strong>${amountText('sell_amount_personal_cny')}</strong>
+          <small>${ownerAdjusted ? `账户原始 ${amountText('sell_amount_cny')}` : '与账户原始一致'}</small>
         </div>
         <div class="${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
           <span>个人税费</span>
           <strong>${feeRate == null ? '无法计算' : formatPercent(feeRate)}</strong>
-          <small>${formatCurrency(fees)} · 账户原始 ${formatCurrency(feesRaw)}</small>
+          <small>${amountText('fees_personal_cny')}${ownerAdjusted ? ` · 账户原始 ${amountText('fees_cny')}` : ''}</small>
         </div>
       </div>
     </div>

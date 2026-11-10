@@ -304,41 +304,28 @@ export function cashRow({ symbol, name, account, currency = 'CNY', nativeAmount 
   };
 }
 
-export function buildAccountCashRows(accountOverview, ibkrPerf = null) {
+export function buildAccountCashRows(accountValues, existingRows) {
+  const snapshotAccounts = new Set(existingRows.filter(row => row.major_category === '现金')
+    .map(row => row.account_code || row.account));
+  const values = new Map((accountValues?.by_account || []).map(item => [item.account_code, item.portfolio_value]));
   const rows = [];
-
-  const accounts = Array.isArray(accountOverview?.accounts) ? accountOverview.accounts : [];
-  const tonghuashun = accounts.find((account) => account?.account_code === 'tonghuashun');
-  const tonghuashunTotal = Number(tonghuashun?.primary_balance?.amount);
-  const tonghuashunPositions = Number(tonghuashun?.platform_balance?.amount);
-  if (Number.isFinite(tonghuashunTotal) && Number.isFinite(tonghuashunPositions)) {
-    const tonghuashunCash = subtractMoneyCents(tonghuashunTotal, tonghuashunPositions);
-    if (Math.abs(tonghuashunCash) >= 0.005) {
-      rows.push(cashRow({
-        symbol: 'TONGHUASHUN_CASH',
-        name: '\u540c\u82b1\u987a\u73b0\u91d1',
-        account: 'tonghuashun',
-        currency: 'CNY',
-        nativeAmount: tonghuashunCash,
-        amountCny: tonghuashunCash,
-        source: tonghuashun?.primary_balance?.source || 'account_overview',
-      }));
+  const missing = [];
+  for (const [account, label] of [['ibkr', 'IBKR'], ['tonghuashun', '同花顺']]) {
+    if (snapshotAccounts.has(account)) continue;
+    const evidence = values.get(account);
+    if (evidence?.cash_base == null || !Number.isFinite(Number(evidence.cash_base))) {
+      missing.push(label);
+      continue;
     }
+    rows.push({
+      ...cashRow({
+        symbol: `${account.toUpperCase()}_CASH`, name: `${label}现金`, account,
+        currency: 'CNY', nativeAmount: evidence.cash_base, amountCny: evidence.cash_base, source: evidence.status,
+      }),
+      balance_as_of: evidence.cash_as_of,
+    });
   }
-
-  const ibkrCashCny = Number.isFinite(Number(ibkrPerf?.cash_cny)) ? safeNum(ibkrPerf.cash_cny) : null;
-  if (ibkrCashCny != null && Math.abs(ibkrCashCny) >= 0.005) {
-    rows.unshift(cashRow({
-      symbol: 'IBKR_CASH',
-      name: 'IBKR现金',
-      account: 'ibkr',
-      currency: 'USD',
-      nativeAmount: Number.isFinite(Number(ibkrPerf?.cash_base)) ? safeNum(ibkrPerf.cash_base) : ibkrCashCny,
-      amountCny: ibkrCashCny,
-      source: ibkrPerf?.source_file || 'ibkr_performance',
-    }));
-  }
-  return rows;
+  return {rows, missing};
 }
 
 export function shouldAggregateForMobile(row) {
@@ -427,8 +414,6 @@ export function aggregateMobileHoldingRows(rows) {
 }
 
 export function isInvestmentRow(row) {
-  const category = row.major_category || '';
-  if (['A股', '美股', '贵金属', 'ESOP'].includes(category)) return true;
-  if (category === '现金') return true;
-  return false;
+  if (row.major_category !== '现金') return true;
+  return ['ibkr', 'tonghuashun'].includes(row.account_code || row.account);
 }

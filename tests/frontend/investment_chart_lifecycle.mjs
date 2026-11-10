@@ -193,10 +193,11 @@ for (const fallback of [false, true]) {
   assert.equal(button('us_stock').attrs['aria-pressed'], 'false');
   assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
   button('total').fire('click');
-  assert.match(status.textContent, /总收益率/);
+  assert.match(status.textContent, /部分覆盖.*同花顺/);
+  assert.equal(button('total').attrs['aria-pressed'], 'true');
   test.elements.investmentReturnWindowToggle.buttons.find(item => item.dataset.returnWindow === '1w').fire('click');
-  assert.equal(status.hidden, true);
-  assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
+  assert.equal(status.hidden, false);
+  assert.equal(button('total').attrs['aria-pressed'], 'true');
   controller.dispose();
 }
 
