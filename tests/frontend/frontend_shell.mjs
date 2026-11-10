@@ -172,7 +172,7 @@ try {
         amount:-20, amount_cny:-20, currency:'CNY', summary:'上次流水', flow_type:'expense', needs_review:true}]});
     }
     if (url.pathname.includes('fx-rates')) return respond({rates:[]});
-    if (url.pathname.includes('ibkr')) return respond({});
+    if (url.pathname.includes('ibkr')) return route.fulfill({status:404, json:{}, headers});
     const isList = url.pathname === '/holdings/latest' && !url.searchParams.has('limit');
     if (isList && holdHoldings) await new Promise(resolve => { releaseHoldings = resolve; });
     return respond({as_of:'2026-10-29',rows:isList ? Array.from({length:16}, (_, index) => ({
@@ -204,7 +204,7 @@ try {
     await select('investments');
     await holdingStatus.waitFor({state:'attached'});
     await oldHolding.waitFor({state:'attached'});
-    // The refresh note and the asynchronously rendered hero can shift the browser anchor.
+    // The restored view must stay near the saved position while the request is pending.
     await child().waitForFunction(top => Math.abs(document.body.scrollTop - top) < 100, oldScroll, {timeout:4000});
     assert.equal(await holdingGroup.getAttribute('class').then(value => value.includes('active')),true);
     assert.ok(releaseHoldings);

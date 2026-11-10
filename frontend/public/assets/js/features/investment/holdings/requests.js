@@ -36,6 +36,6 @@ export function readListInputs({ get: jget, withClosedParam, onHoldings, onSuppl
     holdings,
     jget('/api/accounts/overview').catch(fallback),
     jget('/api/fx-rates/latest?base_currency=CNY').catch(fallback),
-    jget('/api/ibkr/performance').catch(fallback),
+    jget('/api/ibkr/performance').catch(error => error.status === 404 ? null : fallback(error)),
   ]);
 }
