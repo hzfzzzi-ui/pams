@@ -1,12 +1,37 @@
-"""FX rate read adapters."""
+"""Daily FX storage and read adapters."""
 
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import os
 from typing import Any
 from zoneinfo import ZoneInfo
+
+
+OPEN_EXCHANGE_RATES_SOURCE = 'openexchangerates'
+REFRESH_CURRENCIES = ('CNY', 'USD', 'MXN', 'HKD', 'KRW', 'SEK', 'JPY', 'CHF')
+
+
+def store_daily_fx_rates(cur, *, day: date, usd_rates: dict[str, Decimal]) -> dict[tuple[str, str], Decimal]:
+    """Persist rates in PAMS units: one unit of quote currency in base currency."""
+    rates = {
+        (base, quote): (base_rate / quote_rate).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+        for base, base_rate in usd_rates.items()
+        for quote, quote_rate in usd_rates.items()
+    }
+    if any(rate <= 0 or rate >= Decimal('1000000000000') for rate in rates.values()):
+        raise ValueError('FX rate is outside the storage precision')
+    for (base, quote), rate in rates.items():
+        cur.execute("""
+            INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (as_of, base_currency, quote_currency) DO UPDATE
+            SET rate = EXCLUDED.rate, source = EXCLUDED.source, fetched_at = EXCLUDED.fetched_at
+            WHERE (pams_fx_rates_daily.rate, pams_fx_rates_daily.source)
+                  IS DISTINCT FROM (EXCLUDED.rate, EXCLUDED.source)
+        """, (day, base, quote, rate, OPEN_EXCHANGE_RATES_SOURCE))
+    return rates
 
 
 def _norm(value: Any) -> Any:

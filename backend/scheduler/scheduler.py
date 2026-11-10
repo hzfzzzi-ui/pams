@@ -308,7 +308,7 @@ def refresh_post_close_investments(target_date=None):
     logger.info("=== Asia-Pacific post-close investment refresh started ===")
     target = target_date or latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ)
     return _refresh_window(target, [
-        ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
+        ("fx", lambda: _call(f"fx-rates/refresh?as_of={target.isoformat()}", "FX rates")),
         ("ibkr_holdings", run_daily_holdings_confirmation),
         ("a_stock", lambda: _call("prices/refresh/a-stock", "A-share close")),
         ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
@@ -324,7 +324,7 @@ def refresh_north_america_post_close_investments(target_date=None):
     logger.info("=== North America post-close investment refresh started ===")
     target = target_date or latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ)
     return _refresh_window(target, [
-        ("fx", lambda: _call("fx-rates/refresh", "FX rates")),
+        ("fx", lambda: _call(f"fx-rates/refresh?as_of={target.isoformat()}", "FX rates")),
         ("ibkr_holdings", run_daily_holdings_confirmation),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),

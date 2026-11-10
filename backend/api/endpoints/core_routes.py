@@ -1,7 +1,12 @@
 """API orchestration for account, holdings and FX compatibility routes."""
+from datetime import date, datetime, timezone
+import os
 from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
+
+from collectors.open_exchange_rates import fetch_usd_rates
+from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, REFRESH_CURRENCIES, store_daily_fx_rates
 
 
 def create_core_router(
@@ -115,71 +120,38 @@ def create_core_router(
 
 
     @router.post("/api/fx-rates/refresh")
-    def refresh_fx_rates():
-        """从公开API获取最新汇率并存储双向汇率"""
+    def refresh_fx_rates(as_of: date | None = None):
+        """Refresh the requested UTC business date from Open Exchange Rates."""
         from domain.imports.isolation import source_mode
-        from fastapi import HTTPException
+
         if source_mode() == "development":
             raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
-        import urllib.request
-        import json as json_mod
-        from datetime import date as d_date
-    
-        today = d_date.today()
-        currencies = ['CNY', 'USD', 'MXN', 'HKD', 'KRW', 'SEK']
-        all_rates = {}
-    
-        # 分别从公开API获取每个币种为基准的汇率
-        for base in currencies:
-            url = f"https://open.er-api.com/v6/latest/{base}"
-            try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'PAMS/2.0'})
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    data = json_mod.loads(resp.read().decode())
-                    if data.get('result') == 'success':
-                        all_rates[base] = data['rates']
-            except Exception as e:
-                return json({"error": f"获取{base}汇率失败: {str(e)}"}, status_code=502)
-    
-        # 存储到数据库
-        # API convention: "1 [api_base] = [rate] [target]"
-        # PAMS convention: "1 [quote_currency] = [rate] [base_currency]"
-        # So: pams_base = target, pams_quote = api_base
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                stored = 0
-                for api_base in currencies:
-                    rates = all_rates.get(api_base, {})
-                    for target_cur in currencies:
-                        if target_cur == api_base:
-                            rate_val = 1.0
-                        else:
-                            rate_val = rates.get(target_cur)
-                            if rate_val is None:
-                                continue
-    
-                        pams_base = target_cur   # PAMS base = API target
-                        pams_quote = api_base    # PAMS quote = API base
-                        cur.execute("""
-                        INSERT INTO pams_fx_rates_daily (as_of, base_currency, quote_currency, rate, source)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (as_of, base_currency, quote_currency)
-                        DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source
-                    """, (today, pams_base, pams_quote, rate_val, 'exchangerate-api'))
-                        stored += 1
-    
+        today = datetime.now(timezone.utc).date()
+        day = as_of or today
+        if day > today:
+            raise HTTPException(status_code=400, detail="FX date is in the future")
+        app_id = os.environ.get("PAMS_OPEN_EXCHANGE_RATES_APP_ID", "").strip()
+        if not app_id:
+            raise HTTPException(status_code=503, detail="Open Exchange Rates is not configured")
+        try:
+            usd_rates = fetch_usd_rates(day, today=today, app_id=app_id, currencies=REFRESH_CURRENCIES)
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    rates = store_daily_fx_rates(cur, day=day, usd_rates=usd_rates)
                 conn.commit()
-    
+        except (ValueError, ArithmeticError) as exc:
+            raise HTTPException(status_code=502, detail="Open Exchange Rates returned unusable rates") from exc
         return json({
             "success": True,
-            "as_of": today.isoformat(),
-            "stored": stored,
+            "as_of": day.isoformat(),
+            "source": OPEN_EXCHANGE_RATES_SOURCE,
+            "stored": len(rates),
             "rates_preview": {
-                "USD/CNY": all_rates.get('USD', {}).get('CNY'),
-                "MXN/CNY": all_rates.get('MXN', {}).get('CNY'),
-                "CNY/USD": all_rates.get('CNY', {}).get('USD'),
-                "CNY/MXN": all_rates.get('CNY', {}).get('MXN'),
-            }
+                "USD/CNY": float(rates["CNY", "USD"]),
+                "MXN/CNY": float(rates["CNY", "MXN"]),
+                "CNY/USD": float(rates["USD", "CNY"]),
+                "CNY/MXN": float(rates["MXN", "CNY"]),
+            },
         })
 
 
