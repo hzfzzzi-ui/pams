@@ -1,11 +1,11 @@
 import { jget } from './api.js';
 import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js';
 import { mount as mountPage, dispose as disposePage } from './features/investment/holdings/list_controller.js';
-import { loadHoldingView } from './features/investment/holdings/view_request.js';
+import { loadAccountView, loadHoldingView } from './features/investment/holdings/view_request.js';
 
 export function mount(root = document.body, context = {}) {
   return mountPage(root, {get: jget, showDetails: openBottomSheet, closeDetails: closeBottomSheet,
-    bootstrap: setActiveNav, loadHoldingView, ...context});
+    bootstrap: setActiveNav, loadHoldingView, loadAccountView, ...context});
 }
 export function dispose(root = document.body) { return disposePage(root); }
 

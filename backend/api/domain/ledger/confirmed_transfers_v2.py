@@ -28,7 +28,7 @@ def _leg_rows(cur, kind, ids, *, lock):
     return cur.fetchall()
 
 
-def _verified_leg(row, kind, originals):
+def _verified_leg(row, kind, originals, *, hash_only=False):
     if not row: raise ValueError('transfer fact not found')
     data=dict(row)
     try:
@@ -39,7 +39,7 @@ def _verified_leg(row, kind, originals):
             and (kind!='trade' or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
             and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
-            and originals.read(data)[1])
+            and (originals.verify(data) if hash_only else originals.read(data)[1]))
     except (KeyError,TypeError,ValueError,InvalidOperation): valid=False
     if not valid: raise ValueError('transfer fact source is unverified or inconsistent')
     return {'kind':kind,'id':data['id'],'account_code':data['account_code'],'currency':data['currency'],
@@ -123,9 +123,12 @@ def read(cur, *, limit=200, originals=None):
     verified = {}
     for kind, fact_ids in ids.items():
         if fact_ids:
-            for fact in _leg_rows(cur, kind, sorted(fact_ids), lock=False):
+            facts = _leg_rows(cur, kind, sorted(fact_ids), lock=False)
+            originals.verify_many(fact for fact in facts if fact['status']=='published'
+                                  and fact['review_status']=='confirmed' and fact['account_code']==fact['source_account'])
+            for fact in facts:
                 try:
-                    verified[kind, fact['id']] = _verified_leg(fact, kind, originals)
+                    verified[kind, fact['id']] = _verified_leg(fact, kind, originals, hash_only=True)
                 except ValueError:
                     continue
     for row in rows:

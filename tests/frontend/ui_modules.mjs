@@ -4,7 +4,7 @@ import {resolveContentRoute, primaryPageFor, replaceContentAddress} from '../../
 import {dataStateHtml} from '../../frontend/public/assets/js/components/data_state.js';
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
-function fixture({saveData = false, gate} = {}) {
+function fixture({saveData = false, gate, page = 'investments'} = {}) {
   let nextId = 0;
   const timers = new Map(), idle = new Map(), listeners = new Map(), nodes = [], calls = [], signals = [];
   const node = (tagName, attr, value) => ({tagName, getAttribute: key => key === attr ? value : null});
@@ -15,7 +15,7 @@ function fixture({saveData = false, gate} = {}) {
     node('SCRIPT', 'src', '/api/account-import/raw?file=private'),
   ];
   const doc = {
-    baseURI: 'http://local.invalid/investments.html?content=1',
+    baseURI: `http://local.invalid/${page}.html?content=1`,
     body: {classList: {add() {}}},
     head: {append: node => nodes.push(node)},
     querySelectorAll: () => resources,
@@ -49,8 +49,7 @@ function fixture({saveData = false, gate} = {}) {
   assert.deepEqual([...f.timers.values()].map(t => t.delay), [250, 900]);
   await f.expire();
   assert.equal(f.calls.length, 1);
-  assert.deepEqual(f.calls[0], ['/api/accounts/overview', '/api/sync/center',
-    '/api/portfolio/data-quality?baseCurrency=CNY']);
+  assert.deepEqual(f.calls[0], ['/api/sync/center', '/api/portfolio/data-quality?baseCurrency=CNY']);
   assert.equal(f.nodes.length, 4);
   assert.equal(new Set(f.nodes.map(n => n.href)).size, f.nodes.length);
   assert.ok(f.nodes.some(n => n.href.endsWith('/assets/build-12345678901234567890/css/tokens.css')));
@@ -62,6 +61,13 @@ function fixture({saveData = false, gate} = {}) {
   f.controller.dispose(); assert.equal(f.listeners.size, 0);
   assert.equal(f.signals[0].aborted, true);
   assert.ok(f.nodes.every(node => node.removed));
+}
+{
+  const f = fixture({page:'ledger'});
+  f.controller.start();
+  await f.expire();
+  assert.ok(f.calls[0].includes('/api/accounts/overview'));
+  f.controller.dispose();
 }
 {
   let resolve;

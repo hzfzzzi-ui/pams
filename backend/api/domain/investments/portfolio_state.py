@@ -703,6 +703,8 @@ def load_investment_positions(
     base_currency: str,
     account_cfg: dict[str, Any],
     account_balances: list[dict[str, Any]] | None = None,
+    *,
+    positions_without_balances: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Load latest holding rows normalized to investment position contract fields."""
     tables = snapshot_tables(cur)
@@ -795,17 +797,19 @@ def load_investment_positions(
         current_as_of = account_position_as_of.get(account_code)
         if row_as_of and (not current_as_of or str(row_as_of) > str(current_as_of)):
             account_position_as_of[account_code] = row_as_of
-    rows.extend(
-        _synthetic_broker_cash_positions(
+    def broker_cash(balances):
+        return _synthetic_broker_cash_positions(
             base_currency=base_currency,
             account_cfg=account_cfg,
             fx_rates=fx_rates,
             account_position_value_cny=account_position_value_cny,
             account_position_as_of=account_position_as_of,
-            account_balances=account_balances,
+            account_balances=balances,
             skip_accounts=cash_carry_forward_accounts | unverified_snapshot_accounts,
         )
-    )
+    if positions_without_balances is not None:
+        positions_without_balances.extend([*rows, *broker_cash(None)])
+    rows.extend(broker_cash(account_balances))
     return rows
 
 
@@ -1422,6 +1426,26 @@ def build_data_quality_payload_from_parts(
                 valuation_series=valuation_series or [],
             ),
         }
+    )
+
+
+def load_current_portfolio_inputs(cur, *, base_currency: str, lookthrough: bool = False):
+    """Current balances and positions; no transaction or valuation history."""
+    base = str(base_currency or 'CNY').upper()
+    account_cfg = _load_accounts_config()
+    balances = load_account_balances(cur, base, account_cfg)
+    positions_without_balances = [] if lookthrough else None
+    positions = load_investment_positions(cur, base, account_cfg, account_balances=balances,
+                                          positions_without_balances=positions_without_balances)
+    return balances, positions, positions_without_balances
+
+
+def current_risk_position_state(cur, *, base_currency='CNY', inputs=None):
+    balances, positions, _ = inputs if inputs is not None else load_current_portfolio_inputs(
+        cur, base_currency=base_currency)
+    return build_portfolio_state_from_parts(
+        as_of=None, base_currency=base_currency, account_balances=balances, investment_positions=positions,
+        fx_rates=load_fx_rates(cur, base_currency),
     )
 
 

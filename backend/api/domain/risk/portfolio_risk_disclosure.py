@@ -3,11 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import psycopg2.extras
 
-from domain.assets.lookthrough_state import build_lookthrough_payload
-from domain.investments.portfolio_state import get_conn
-from domain.risk.risk_state import build_risk_state
 
 
 DISCLOSURE_CATEGORIES = [
@@ -854,9 +850,6 @@ def build_portfolio_risk_disclosure_payload_from_inputs(
 
 def build_portfolio_risk_disclosure_payload(*, base_currency: str = "CNY") -> dict[str, Any]:
     """Build the live /api/portfolio/risk-disclosure payload."""
+    from domain.risk.portfolio_panels import build_portfolio_panels
 
-    risk = build_risk_state()
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            lookthrough = build_lookthrough_payload(cur, base_currency=base_currency)
-    return build_portfolio_risk_disclosure_payload_from_inputs(risk, lookthrough, base_currency=base_currency)
+    return build_portfolio_panels(base_currency=base_currency, include_config=False)['risk']

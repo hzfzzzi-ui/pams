@@ -132,7 +132,7 @@ try {
         setTimeout(callback, delay) {const key = ++id; timers.set(key, {callback, delay}); return key;},
         clearTimeout(key) {timers.delete(key);},
         addEventListener: window.addEventListener.bind(window), removeEventListener: window.removeEventListener.bind(window)};
-      const doc = {baseURI: `${location.origin}/investments.html?content=1`, body: document.body, head: document.head,
+      const doc = {baseURI: `${location.origin}/ledger.html?content=1`, body: document.body, head: document.head,
         querySelectorAll: () => [], createElement: name => document.createElement(name)};
       window.warmup = bootstrap.createPageBootstrap({doc, win, afterStartup: task => gate.then(task), warmCache: api.warmApiCache, now: () => new Date(2026, 9, 31)});
       warmup.start();
@@ -154,7 +154,7 @@ try {
     records[index + 3].respond({synthetic: true, amount: '123.456'});
     assert.equal(await page.evaluate(async () => (await foreground).amount), '123.456');
     const segment = records.slice(start);
-    assert.equal(segment.length, 27); assert.equal(segment.filter(record => record.cancelled).length, 15);
+    assert.equal(segment.length, 10); assert.equal(segment.filter(record => record.cancelled).length, 6);
     assert.ok(segment.every(record => record.method === 'GET'));
     totals.push({transport, synthetic_gets: segment.length, native_cancellations: segment.filter(record => record.cancelled).length});
     await page.close();

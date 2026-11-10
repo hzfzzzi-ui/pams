@@ -22,10 +22,10 @@ export function collectPrefetchResources(doc) {
   return [...resources].map(([href, as]) => ({href, as}));
 }
 
-function warmupPaths() {
+function warmupPaths(doc) {
   // This is the pre-existing read-only warmup scope; import/preflight data stays out.
   return [
-    '/api/accounts/overview',
+    ...(new URL(doc.baseURI).pathname.endsWith('/investments.html') ? [] : ['/api/accounts/overview']),
     '/api/sync/center',
     '/api/portfolio/data-quality?baseCurrency=CNY',
   ];
@@ -87,7 +87,7 @@ export function createPageBootstrap({
     win.addEventListener('pagehide', dispose, {once: true});
     const connection = win.navigator.connection || win.navigator.mozConnection || win.navigator.webkitConnection;
     if (connection?.saveData) return;
-    const paths = warmupPaths();
+    const paths = warmupPaths(doc);
     schedule(prefetchResources, 250);
     schedule(() => warmCache(paths, {signal: warmup.signal}), 900);
   }

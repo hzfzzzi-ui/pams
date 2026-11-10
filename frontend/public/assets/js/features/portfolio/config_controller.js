@@ -27,7 +27,7 @@ export function mount(root, context = {}) {
   };
   const session = createReadSession({
     win, tab: 'allocation', afterStartup: context.afterStartup || (task => task()),
-    read: signal => loadPortfolioConfig(context.get, signal),
+    read: signal => loadPortfolioConfig(context.get, signal, context.loadPanels),
     apply(payload) { Object.assign(state, configModelFromPayload(payload)); render(); },
     onError(error) {
       const rules = byId('portfolioConfigRules');

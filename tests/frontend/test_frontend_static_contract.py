@@ -1523,7 +1523,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" in _read_public("assets/js/features/investment/charts/requests.js")
     assert "/api/analysis/lookthrough?baseCurrency=CNY" in lookthrough_js
     assert "/api/analysis/return-attribution?baseCurrency=CNY" in lookthrough_js
-    preload_block = bootstrap_js.split("function warmupPaths()", 1)[1].split("export function createPageBootstrap", 1)[0]
+    preload_block = bootstrap_js.split("function warmupPaths(doc)", 1)[1].split("export function createPageBootstrap", 1)[0]
     assert "/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY" not in preload_block
     assert "/api/analysis/lookthrough?baseCurrency=CNY" not in preload_block
     assert "/api/analysis/return-attribution?baseCurrency=CNY" not in preload_block
