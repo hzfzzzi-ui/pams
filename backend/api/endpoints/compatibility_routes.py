@@ -161,57 +161,74 @@ def create_compatibility_router(
                         "summary": _build_summary2_latest_payload_for_request(cur),
                     })
 
-    @router.get("/api/account-performance/{account_code}")
-    def account_performance(account_code: str):
-        """Return account-level personal performance using configured owner ratio and initial capital."""
+    def read_account_performance(cur, account_code, overview_payload):
         owner_ratio = _account_owner_ratio(account_code)
         initial_capital = _account_initial_capital_cny(account_code)
         account_config = (_load_portfolio_accounts_config().get("accounts") or {}).get(account_code) or {}
         capital_as_of = account_config.get("initial_capital_as_of") if isinstance(account_config, dict) else None
+        account_overview = next(
+            (item for item in overview_payload.get("accounts", []) if str(item.get("account_code") or "") == account_code),
+            {},
+        )
+        primary_balance = account_overview.get("primary_balance") or {}
+        gross_balance = primary_balance.get("gross_amount")
+        net_balance = primary_balance.get("amount")
+        payload = _build_account_performance_payload(
+            cur,
+            account_code=account_code,
+            owner_ratio=owner_ratio,
+            initial_capital=initial_capital,
+            initial_capital_as_of=capital_as_of,
+            net_liquidation_gross=Decimal(str(gross_balance)) if gross_balance is not None else None,
+            net_liquidation=Decimal(str(net_balance)) if net_balance is not None else None,
+            net_liquidation_as_of=primary_balance.get("as_of"),
+            daily_pnl_label_date=_daily_pnl_view_as_of(),
+        )
+        if payload is not None:
+            return _apply_reported_account_performance(payload, account_code)
+        from domain.accounts.accounts_view import build_account_detail_payload
+        detail = build_account_detail_payload(cur, account_code=account_code)
+        if detail is None:
+            raise HTTPException(status_code=404, detail=f"Account {account_code} does not exist")
+        return {
+            "account_code": account_code,
+            "status": "unavailable",
+            "reason": "account_balance_or_valuation_unverified",
+            "as_of": detail.get("as_of"),
+            "base_currency": "CNY",
+            "currency_values": detail.get("currency_values", []),
+            "net_liquidation_gross_cny": None,
+            "net_liquidation_cny": None,
+            "position_market_value_cny": None,
+            "holding_pnl_cny": None,
+            "total_pnl_cny": None,
+            "daily_pnl_cny": None,
+            "return_ratio": None,
+        }
+
+    @router.get("/api/account-performance/{account_code}")
+    def account_performance(account_code: str):
+        """Return one account's personal performance."""
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                overview_payload = accounts_endpoint._overview_payload(cur=cur)
-                account_overview: dict = next(
-                    (item for item in overview_payload.get("accounts", []) if str(item.get("account_code") or "") == account_code),
-                    {},
-                )
-                primary_balance = account_overview.get("primary_balance") or {}
-                gross_balance = primary_balance.get("gross_amount")
-                net_balance = primary_balance.get("amount")
-                balance_as_of = primary_balance.get("as_of")
-                payload = _build_account_performance_payload(
-                    cur,
-                    account_code=account_code,
-                    owner_ratio=owner_ratio,
-                    initial_capital=initial_capital,
-                    initial_capital_as_of=capital_as_of,
-                    net_liquidation_gross=Decimal(str(gross_balance)) if gross_balance is not None else None,
-                    net_liquidation=Decimal(str(net_balance)) if net_balance is not None else None,
-                    net_liquidation_as_of=balance_as_of,
-                    daily_pnl_label_date=_daily_pnl_view_as_of(),
-                )
-                if payload is None:
-                    from domain.accounts.accounts_view import build_account_detail_payload
-                    detail = build_account_detail_payload(cur, account_code=account_code)
-                    if detail is None:
-                        raise HTTPException(status_code=404, detail=f"Account {account_code} does not exist")
-                    return json({
-                        "account_code": account_code,
-                        "status": "unavailable",
-                        "reason": "account_balance_or_valuation_unverified",
-                        "as_of": detail.get("as_of"),
-                        "base_currency": "CNY",
-                        "currency_values": detail.get("currency_values", []),
-                        "net_liquidation_gross_cny": None,
-                        "net_liquidation_cny": None,
-                        "position_market_value_cny": None,
-                        "holding_pnl_cny": None,
-                        "total_pnl_cny": None,
-                        "daily_pnl_cny": None,
-                        "return_ratio": None,
-                    })
-                return json(_apply_reported_account_performance(payload, account_code))
+                overview = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
+                return json(read_account_performance(cur, account_code, overview))
+
+    @router.get("/api/investment/accounts-view")
+    def investment_accounts_view():
+        """Read account balances and Tonghuashun performance with one verification."""
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                overview = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
+                try:
+                    performance = read_account_performance(cur, 'tonghuashun', overview)
+                except HTTPException as error:
+                    if error.status_code != 404:
+                        raise
+                    performance = None
+                return json({'overview': accounts_endpoint._norm(overview), 'tonghuashun': performance})
 
 
     @router.get("/holdings/history/{category}")

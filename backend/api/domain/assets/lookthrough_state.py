@@ -402,7 +402,9 @@ def _load_yaml_config() -> dict[str, Any]:
     if not path.exists():
         return {"asset_mapping": [], "asset_lookthrough": []}
     with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {"asset_mapping": [], "asset_lookthrough": []}
+        return yaml.load(f, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {
+            "asset_mapping": [], "asset_lookthrough": [],
+        }
 
 
 def _normalize_mapping(row: dict[str, Any]) -> dict[str, Any]:
@@ -1491,15 +1493,19 @@ def build_lookthrough_payload(
     *,
     base_currency: str = "CNY",
     sync_asset_master: bool = False,
+    current_inputs=None,
 ) -> dict[str, Any]:
     """Build the /api/analysis/lookthrough payload from current PAMS holdings."""
-    account_cfg = _load_accounts_config()
-    account_balances = load_account_balances(cur, base_currency, account_cfg)
+    if current_inputs is None:
+        account_cfg = _load_accounts_config()
+        account_balances = load_account_balances(cur, base_currency, account_cfg)
+        positions = load_investment_positions(cur, base_currency, account_cfg)
+    else:
+        account_balances, _, positions = current_inputs
     portfolio_nav_cny = sum(
         (_dec(row.get("amount_cny")) for row in account_balances if row.get("include_in_nav")),
         Decimal("0"),
     )
-    positions = load_investment_positions(cur, base_currency, account_cfg)
     industry_l1_by_symbol = _load_sw_l1_lookup(cur)
     return derive_lookthrough_payload(
         positions,

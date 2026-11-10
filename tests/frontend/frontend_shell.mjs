@@ -34,7 +34,8 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 await context.route('**/*', async route => {
   const url = new URL(route.request().url());
-  if (url.pathname === '/api/investment/holdings-view' && url.hostname === '127.0.0.1') {
+  if (['/api/investment/holdings-view', '/api/investment/accounts-view', '/api/portfolio/risk-and-config'].includes(url.pathname) &&
+      url.hostname === '127.0.0.1') {
     return route.fulfill({status:404, json:{}, headers:{'access-control-allow-origin':base}});
   }
   if (workflowFixtures && url.hostname === '127.0.0.1') {
@@ -161,8 +162,12 @@ try {
   let releaseStream;
   let holdStream = false;
   let groupedReads = 0;
+  let accountsReads = 0;
+  let panelReads = 0;
   let separateReads = 0;
   await memoryPage.route(url => url.pathname === '/api/investment/holdings-view' ||
+    ['/api/investment/accounts-view','/api/portfolio/risk-and-config',
+      '/api/account-performance/tonghuashun','/api/portfolio/risk-disclosure','/api/portfolio/config'].includes(url.pathname) ||
     url.pathname === '/holdings/latest' || url.pathname === '/summary2/latest' ||
     url.pathname.startsWith('/holdings/by-category/') || url.pathname === '/api/fx-rates/latest' ||
     url.pathname === '/api/ibkr/performance' || url.searchParams.get('view') === 'stream', async route => {
@@ -179,6 +184,14 @@ try {
     }
     if (url.pathname.includes('fx-rates')) return respond({rates:[]});
     if (url.pathname.includes('ibkr')) return route.fulfill({status:404, json:{}, headers});
+    if (url.pathname === '/api/investment/accounts-view') {
+      accountsReads++;
+      return respond({overview:{accounts:[]}, tonghuashun:null});
+    }
+    if (url.pathname === '/api/portfolio/risk-and-config') {
+      panelReads++;
+      return respond({risk:{as_of:'2026-10-29'}, config:{as_of:'2026-10-29'}});
+    }
     if (url.pathname !== '/api/investment/holdings-view') {
       separateReads++;
       return respond({rows:[]});
@@ -225,7 +238,11 @@ try {
     releaseHoldings();
     await memoryFrame.locator('#mobileHoldingList').getByText('刷新后持仓', {exact:true}).waitFor();
     await holdingStatus.waitFor({state:'hidden'});
+    await child().waitForFunction(() => document.querySelector('#portfolioConfigAsOf')?.textContent.includes('2026-10-29'),
+      null, {timeout:10000});
     assert.equal(groupedReads, 2, 'one grouped request per visit');
+    assert.equal(accountsReads, 2, 'balance and account performance share one request per visit');
+    assert.ok(panelReads <= 2, 'risk and allocation share one request per visit');
     assert.equal(separateReads, 0, 'holdings and summary should share the grouped response');
 
     holdStream = true;

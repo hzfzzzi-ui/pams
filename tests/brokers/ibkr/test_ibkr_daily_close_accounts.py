@@ -191,7 +191,7 @@ def setup_payload(monkeypatch, *, configured=True, rows=None):
     monkeypatch.setattr(accounts, "_load_accounts_config", lambda: cfg)
     monkeypatch.setattr(accounts, "_load_bank_config", lambda: {})
     for name in ("_fetch_db_accounts", "_fetch_statement_balances", "_fetch_transfer_rollups", "_fetch_latest_reviews"):
-        monkeypatch.setattr(accounts, name, lambda _: {})
+        monkeypatch.setattr(accounts, name, lambda _, **kwargs: {})
     monkeypatch.setattr(accounts, "_fetch_daily_fx_rates_by_date", lambda cur, balances: {str(DAY): {"USD": D(7)}})
     monkeypatch.setattr(accounts, "_fetch_holding_balances", lambda _: {"ibkr": [
         {"currency": "USD", "market_value": D(80), "as_of": DAY}]})

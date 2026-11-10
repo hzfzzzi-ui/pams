@@ -43,7 +43,7 @@ _CONFIRMED_BANK_ROWS = """
 """
 
 
-def source_row_relation(cur, *, verifier=None) -> str:
+def source_row_relation(cur, *, verifier=None, originals=None) -> str:
     """Expose published unified source items, never recreate old source rows."""
     cur.execute("""SELECT to_regclass('public.source_items') AS source_items,
                            to_regclass('public.source_batches') AS source_batches,
@@ -73,7 +73,7 @@ def source_row_relation(cur, *, verifier=None) -> str:
     if (isinstance(row, dict) and row.get('redesigned')) or (not isinstance(row, dict) and row and len(row) > 10 and row[10]):
         from datetime import date
         from domain.ledger.cashflow_read_v2 import load_cash_rows
-        facts = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY')
+        facts = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY', originals=originals)
         ids = [int(fact['id']) for fact in facts if fact.get('source_evidence_status') == 'verified']
         id_array = 'ARRAY[' + ','.join(str(ident) for ident in ids) + ']::bigint[]'
         return """(SELECT CASE WHEN i.raw_fields->'source'->'statement'='true'::jsonb

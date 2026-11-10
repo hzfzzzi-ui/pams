@@ -402,8 +402,8 @@ class StatementBalanceGroups(defaultdict):
         self.source_status = source_status
 
 
-def _fetch_statement_balances(cur) -> dict[str, list[dict[str, Any]]]:
-    source_rows = source_row_relation(cur)
+def _fetch_statement_balances(cur, *, originals=None) -> dict[str, list[dict[str, Any]]]:
+    source_rows = source_row_relation(cur, originals=originals)
     cur.execute(f"""SELECT count(*) FILTER (WHERE source_projection_origin='schema_unavailable') AS unavailable,
         count(*) FILTER (WHERE source_projection_origin <> 'schema_unavailable' AND source_evidence_status <> 'verified') AS unverified
         FROM {source_rows} AS s""")
@@ -490,14 +490,16 @@ def _fetch_daily_fx_rates_by_date(cur, holding_balances: dict[str, list[dict[str
     return rates
 
 
-def _fetch_transfer_rollups(cur) -> dict[str, dict[str, list[dict[str, Any]]]]:
+def _fetch_transfer_rollups(cur, *, originals=None) -> dict[str, dict[str, list[dict[str, Any]]]]:
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
     if cur.fetchone().get('redesigned'):
         from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+        records = confirmed_transfers.read(cur, limit=None, originals=originals)
     else:
         from domain.ledger import confirmed_transfers
+        records = confirmed_transfers.read(cur, limit=None)
     grouped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-    for record in confirmed_transfers.read(cur, limit=None):
+    for record in records:
         if record['evidence_status'] != 'confirmed':
             continue
         left, right = record['from_evidence'], record['to_evidence']
@@ -795,16 +797,18 @@ def _overview_payload(cur=None, *, include_transfers=True, valuation_balances=No
                                          valuation_balances=valuation_balances)
     from domain.brokers.ibkr import ibkr_daily_close_read
     from domain.accounts.balance_snapshot import load_verified_bank_balances
+    from domain.imports.source_original_read import SourceOriginals
     from domain.investments import portfolio_state
 
     account_cfg = _load_accounts_config()
     bank_cfg = _load_bank_config()
     canonical_balances = None
     db_accounts = _fetch_db_accounts(cur)
-    statement_balances = _fetch_statement_balances(cur)
+    originals = SourceOriginals(cur)
+    statement_balances = _fetch_statement_balances(cur, originals=originals)
     holding_balances = _fetch_holding_balances(cur)
     fx_rates_by_base = _fetch_daily_fx_rates_by_date(cur, holding_balances)
-    transfer_rollups = _fetch_transfer_rollups(cur) if include_transfers else {}
+    transfer_rollups = _fetch_transfer_rollups(cur, originals=originals) if include_transfers else {}
     latest_reviews = _fetch_latest_reviews(cur)
     if ibkr_daily_close_read.configured():
         canonical_balances = {}

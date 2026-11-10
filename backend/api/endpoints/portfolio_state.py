@@ -10,6 +10,7 @@ from endpoints import accounts as accounts_endpoint
 from domain.risk.portfolio_config import build_portfolio_config_payload
 from domain.investments.portfolio_equity_bridge import build_equity_bridge_payload
 from domain.risk.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload
+from domain.risk.portfolio_panels import build_portfolio_panels
 from domain.investments.portfolio_state import build_portfolio_data_quality, build_portfolio_state
 from domain.investments.portfolio_valuation_state import (
     build_portfolio_valuation_state_payload,
@@ -42,6 +43,11 @@ def portfolio_config(baseCurrency: str = Query("CNY")):
 def portfolio_risk_disclosure(baseCurrency: str = Query("CNY")):
     """Return seven-surface risk disclosure for the investment risk page."""
     return build_portfolio_risk_disclosure_payload(base_currency=baseCurrency)
+
+
+@router.get("/portfolio/risk-and-config")
+def portfolio_risk_and_config(baseCurrency: str = Query("CNY")):
+    return build_portfolio_panels(base_currency=baseCurrency)
 
 
 @router.get("/portfolio/equity-bridge")

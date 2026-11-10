@@ -19,7 +19,7 @@ export function mount(root, context = {}) {
   };
   const session = createReadSession({
     win, tab: 'risk', afterStartup: context.afterStartup || (task => task()),
-    read: signal => loadRiskDisclosure(context.get, signal),
+    read: signal => loadRiskDisclosure(context.get, signal, context.loadPanels),
     apply(payload) {
       state.currentCategories = payload?.categories || [];
       if (!state.currentCategories.some(row => row.id === state.expandedRiskCategoryId)) state.expandedRiskCategoryId = null;

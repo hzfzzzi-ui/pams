@@ -331,6 +331,7 @@ function promoteHoldingsTable() {
     try {
       const payloads = await trackInvestmentHoldings(afterInvestmentNav(() => readSummaryInputs({
         get: scope.get, withClosedParam, loadHoldingView: context.loadHoldingView,
+        loadAccountView: context.loadAccountView,
         loadInvestmentSummaryFresh: () => context.loadInvestmentSummaryFresh({signal: scope.signal}),
       }), 'holdings'));
       if (!scope.active) return;

@@ -4,13 +4,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import psycopg2.extras
 
 from domain.assets.alias_policy import identity_alias_sql
-from domain.assets.lookthrough_state import build_lookthrough_payload
 from domain.risk.portfolio_risk_disclosure import build_portfolio_config_input_summary
-from domain.investments.portfolio_state import get_conn
-from domain.risk.risk_state import build_risk_state
 
 
 DEFAULT_PLAN = {
@@ -1367,15 +1363,6 @@ def _build_rebalance(rules: list[dict[str, Any]], nav: float, plan: dict[str, An
 
 def build_portfolio_config_payload(*, base_currency: str = "CNY") -> dict[str, Any]:
     """Build the /api/portfolio/config payload from current live services."""
+    from domain.risk.portfolio_panels import build_portfolio_panels
 
-    risk = build_risk_state()
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            lookthrough = build_lookthrough_payload(cur, base_currency=base_currency)
-            asset_label_lookup = _asset_label_lookup(cur, _asset_lookup_candidates(lookthrough))
-    return build_portfolio_config_payload_from_inputs(
-        risk,
-        lookthrough,
-        base_currency=base_currency,
-        asset_label_lookup=asset_label_lookup,
-    )
+    return build_portfolio_panels(base_currency=base_currency, include_risk=False)['config']

@@ -49,8 +49,10 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
     out=[]
     if originals is None:
         originals = SourceOriginals(cur)
-    for record in cur.fetchall():
-        row=dict(record) if hasattr(record,'keys') else dict(zip(names,record))
+    rows = [dict(record) if hasattr(record,'keys') else dict(zip(names,record)) for record in cur.fetchall()]
+    originals.verify_many(row for row in rows if row['source_status']=='published'
+                          and row['item_review']=='confirmed' and row['source_account']==row['account_code'])
+    for row in rows:
         raw=json.dumps(row['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')
         fields=row['parsed_fields'] or {}
         try:
@@ -62,7 +64,7 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
             fact_matches=False
         verified=(row['source_status']=='published' and row['item_review']=='confirmed' and fact_matches and
                   row['source_account']==row['account_code'] and sha256(raw).hexdigest()==row['record_hash'] and
-                  originals.read(row)[1])
+                  originals.verify(row))
         rate=1 if row['currency']==base_currency else row['fx_rate']
         row['amount_cny']=row['amount']*rate if verified and rate is not None else None
         row['fx_basis']='native_base' if row['currency']==base_currency else ('daily_market_projection' if rate is not None else 'unavailable')

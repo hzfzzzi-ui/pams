@@ -57,10 +57,10 @@ def test_account_overview_and_asset_read_same_snapshot(empty_source_db, monkeypa
         'owner_ratio':'1','include_in_nav':True}}})
     monkeypatch.setattr(accounts, '_load_bank_config', lambda: {})
     monkeypatch.setattr(accounts, '_fetch_db_accounts', account_rows)
-    monkeypatch.setattr(accounts, '_fetch_statement_balances', lambda cur: {})
+    monkeypatch.setattr(accounts, '_fetch_statement_balances', lambda cur, **kwargs: {})
     monkeypatch.setattr(accounts, '_fetch_holding_balances', holdings)
     monkeypatch.setattr(accounts, '_fetch_daily_fx_rates_by_date', lambda cur, balances: {})
-    monkeypatch.setattr(accounts, '_fetch_transfer_rollups', lambda cur: {})
+    monkeypatch.setattr(accounts, '_fetch_transfer_rollups', lambda cur, **kwargs: {})
     monkeypatch.setattr(accounts, '_fetch_latest_reviews', lambda cur: {})
     monkeypatch.setattr(ibkr_daily_close_read, 'configured', lambda: False)
 

@@ -1628,9 +1628,10 @@ def _account_balance_position(account: dict[str, Any], fx_rates: dict[str, float
     }
 
 
-def load_latest_positions() -> pd.DataFrame:
+def load_latest_positions(state=None) -> pd.DataFrame:
     """Load current risk positions from the unified PortfolioState payload."""
-    state = build_portfolio_state(base_currency="CNY")
+    if state is None:
+        state = build_portfolio_state(base_currency="CNY")
     account_rows = [
         a
         for a in (state.get("account_balances") or [])
@@ -1782,12 +1783,12 @@ def _positions_reconciled_to_published_nav(
     return df, target_nav, meta
 
 
-def build_risk_state() -> dict[str, Any]:
+def build_risk_state(*, position_state=None, exposure_loader=None, valuation_loader=None) -> dict[str, Any]:
     """Build the current risk page payload."""
     limits = load_risk_limits()
     factor_map = load_factor_map()
     concentration_map = load_concentration_map()
-    positions = load_latest_positions()
+    positions = load_latest_positions() if position_state is None else load_latest_positions(position_state)
     if positions.attrs.get('snapshot_scope_status') == 'incomplete':
         return {'status': 'unavailable', 'reason': 'snapshot_scope_incomplete',
                 'snapshot_scope_unavailable_accounts': positions.attrs.get('snapshot_scope_unavailable_accounts', []),
@@ -1799,7 +1800,7 @@ def build_risk_state() -> dict[str, Any]:
     if positions.empty:
         return {"status": "empty", "alerts": [], "holdings": []}
 
-    valuation_state = _latest_published_valuation_state("CNY")
+    valuation_state = (valuation_loader or _latest_published_valuation_state)("CNY")
     calc_positions, nav, valuation_meta = _positions_reconciled_to_published_nav(
         positions,
         limits,
@@ -1833,7 +1834,7 @@ def build_risk_state() -> dict[str, Any]:
         kind: _annotate_concentration(rows, kind=kind, limits=limits)
         for kind, rows in _split_style_exposure_groups(raw_style_exposure).items()
     }
-    exposure_payload = _load_latest_exposure_payload("CNY")
+    exposure_payload = (exposure_loader or _load_latest_exposure_payload)("CNY")
     exposure_concentration = _concentration_from_exposure_payload(exposure_payload, nav=nav, limits=limits)
     if exposure_concentration:
         concentration_source = "exposure_engine"
