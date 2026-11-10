@@ -1,9 +1,10 @@
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
+import { pageMemory, pageScroller, restorePageScroll, showRememberedData } from '../../app/page_memory.js';
 import { replaceContentAddress } from '../../app/routes.js';
 import { createBottomSheet } from '../../components/bottom_sheet.js';
 import { setActiveNav } from '../../ui.js';
 import { loadChart } from '../../shared/load_chart.js';
-import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RETIRED_ACCOUNT_HASHES } from './state.js';
+import { createLedgerState, restoreLedgerViewState, snapshotLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RETIRED_ACCOUNT_HASHES } from './state.js';
 import { createLedgerLegacyModel } from './legacy_model.js';
 import { createLedgerTemplates } from './templates.js';
 import { createLedgerDom, createLedgerEvents, createLedgerSheets } from './runtime.js';
@@ -11,7 +12,7 @@ import { createLedgerOverview } from './overview.js';
 import { createLedgerLists } from './lists.js';
 import { createLedgerEditor } from './editor.js';
 import { createLedgerTransfers } from './transfers.js';
-import { readLedgerStream, readLedgerWorkbench } from './requests.js';
+import { ledgerStreamQuery, readLedgerStream, readLedgerWorkbench } from './requests.js';
 
 const owners = new WeakMap();
 
@@ -27,18 +28,34 @@ export function createLedgerController({ root = document, host = window, sheetSe
   let chartsLoading = false;
   const current = () => !disposed && owners.get(root) === controller;
   const state = createLedgerState();
-  restoreLedgerViewState(state, viewState);
+  const memory = pageMemory(host);
+  const variant = host.location?.search || '';
+  const savedView = memory?.read('view', variant);
+  restoreLedgerViewState(state, viewState || savedView?.state);
   const model = createLedgerLegacyModel(state);
   const templates = createLedgerTemplates({ state, model });
   const dom = createLedgerDom(root);
   const { $, clearError } = dom;
+  const refreshNote = $('ledgerViewRefresh');
+  const showRefresh = status => showRememberedData(refreshNote, status);
+  const restoreScroll = () => {
+    const panel = LEDGER_HASH_PANEL[host.location.hash] || 'overview';
+    if (savedView?.state.activePanel === panel && savedView.scroll) {
+      restorePageScroll(host, savedView.scroll, current);
+    }
+  };
   const showError = error => {if (current() && !isReadCancelled(error)) dom.showError(error);};
   const events = createLedgerEvents(current);
   const sheets = createLedgerSheets(sheetService || createBottomSheet(root.ownerDocument || root), events, current);
   const overview = createLedgerOverview({ root, host, state, model, dom, ChartClass });
   const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderOverviewCategoryInsight, renderRules, renderTrendChart } = overview;
-  const transfers = createLedgerTransfers({ root, state, model, dom, events, reads, current, reloadWorkbench: loadWorkbench });
-  const editor = createLedgerEditor({ model, templates, sheets, dom, current, reload: loadWorkbench });
+  const transfers = createLedgerTransfers({
+    root, state, model, dom, events, reads, current, memory, variant, showRefresh, reloadWorkbench: loadWorkbench,
+  });
+  const editor = createLedgerEditor({
+    model, templates, sheets, dom, current,
+    canEdit: () => !state.streamIsRemembered, reload: loadWorkbench,
+  });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
     reloadRecent: () => loadStream().catch(showError),
     loadMore: () => loadStream(state.streamNext).catch(showError),
@@ -51,12 +68,19 @@ function showDetails(title, html) {
   if (session) session.listen(session.body, 'click', event => editor.onEditClick(event, session.body));
 }
 
-async function loadWorkbench() {
+async function loadWorkbench({replay = false, restore = false} = {}) {
   if (!current()) return null;
-  if (state.activePanel === 'recent') return loadStream();
+  if (state.activePanel === 'recent') return loadStream(0, {replay, restore});
   if (state.activePanel === 'transfer') return null;
   const generation = ++readGeneration;
   clearError();
+  const remembered = replay && memory?.read('overview', variant);
+  if (remembered) {
+    state.data = remembered;
+    showRefresh('refreshing');
+    renderAll(remembered);
+    if (restore) restoreScroll();
+  }
   if (!ChartClass && !chartsLoading) {
     chartsLoading = true;
     loadChart(host).then(chartClass => {
@@ -75,32 +99,57 @@ async function loadWorkbench() {
     if (!current() || generation !== readGeneration) return null;
     state.data = data;
     renderAll(data);
+    memory?.write('overview', variant, data);
+    showRefresh();
     return data;
   } catch (error) {
     if (isReadCancelled(error)) throw error;
     if (!current() || generation !== readGeneration) return null;
+    if (remembered) {
+      showRefresh('failed');
+      return null;
+    }
     throw error;
   }
 }
 
-async function loadStream(offset = 0) {
+async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
   if (!current() || state.activePanel !== 'recent' || offset == null) return null;
   if (offset > 0 && streamLoading) return null;
   const generation = ++streamGeneration;
+  const query = variant + '|' + ledgerStreamQuery(state);
+  const remembered = offset === 0 && replay && memory?.read('stream', query);
   if (offset === 0) {
-    state.streamRows = [];
+    showRefresh(remembered ? 'refreshing' : '');
+    state.streamIsRemembered = Boolean(remembered);
+    state.streamRows = remembered?.rows || [];
     state.streamNext = null;
     renderRecentRows();
+    if (remembered && restore) restoreScroll();
   }
   streamLoading = true;
   try {
     const result = await reads.run('stream', signal => readLedgerStream(state, {offset, signal}));
     if (!current() || generation !== streamGeneration || state.activePanel !== 'recent') return null;
+    if (offset === 0) {
+      state.streamIsRemembered = false;
+      state.streamRows = [];
+    }
     const existing = new Set(state.streamRows.map(row => String(row.id)));
     state.streamRows.push(...result.rows.filter(row => !existing.has(String(row.id))));
     state.streamNext = result.next_offset;
     renderRecentRows();
+    if (offset === 0) {
+      memory?.write('stream', query, {rows: state.streamRows});
+      showRefresh();
+    }
     return result;
+  } catch (error) {
+    if (!isReadCancelled(error) && current() && generation === streamGeneration && remembered) {
+      showRefresh('failed');
+      return null;
+    }
+    throw error;
   } finally {
     if (generation === streamGeneration) streamLoading = false;
   }
@@ -190,12 +239,16 @@ function setLedgerPanel(panel = 'overview') {
     else link.removeAttribute('aria-current');
   });
   if (state.activePanel !== previous) {
+    showRefresh();
     if (previous === 'recent') reads.cancel('stream');
     if (previous === 'overview') reads.cancel('workbench');
     if (previous === 'transfer') reads.cancel('transfers');
   }
-  if (state.activePanel === 'transfer') transfers.load();
-  else if (initialLoad && state.activePanel !== previous) loadWorkbench().catch(showError);
+  if (state.activePanel === 'transfer') transfers.load({
+    replay: true,
+    onReplay: initialLoad ? undefined : restoreScroll,
+  });
+  else if (initialLoad && state.activePanel !== previous) loadWorkbench({replay:true}).catch(showError);
 }
 
 function bindLedgerAnchors() {
@@ -237,12 +290,17 @@ function bindLedgerAnchors() {
       });
       selectTrendMode(state.trendMode);
       events.listen('page', host, 'pagehide', () => controller.dispose());
-      initialLoad = loadWorkbench().catch(error => { if (current()) showError(error); });
+      initialLoad = loadWorkbench({replay:true, restore:true}).catch(error => { if (current()) showError(error); });
       return initialLoad;
     },
     get disposed() { return disposed; },
     dispose() {
       if (disposed) return;
+      memory?.write('view', variant, {
+        state: snapshotLedgerViewState(state),
+        hash: LEDGER_PANEL_HASH[state.activePanel],
+        scroll: pageScroller(host)?.scrollTop || 0,
+      });
       disposed = true;
       closeRecentPeriod();
       reads.dispose();

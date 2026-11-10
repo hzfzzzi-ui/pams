@@ -1,5 +1,6 @@
 // Keep one navigation DOM node; existing page controllers stay in their own document.
 import { CONTENT_PAGES, canonicalContent, contentHref, primaryPageFor, resolveContentRoute, withReturnRoute } from './app/routes.js';
+import { installPageMemory } from './app/page_memory.js';
 const pages = new Set(CONTENT_PAGES);
 const frame = document.getElementById('page-content');
 const links = [...document.querySelectorAll('[data-page]')];
@@ -84,6 +85,7 @@ if (window.parent !== window) {
   window.parent.postMessage({type: 'pams-shell-route', href: contentUrl().href}, location.origin);
 } else {
 fitVisibleViewport();
+const pageMemory = installPageMemory(window, frame);
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
   try {
@@ -110,7 +112,12 @@ for (const link of links) link.addEventListener('click', event => {
   if (event.isTrusted && event.detail > 0 && !link.hasAttribute('aria-current')) {
     navigator.vibrate?.(10);
   }
-  navigate(new URL(link.dataset.page, location.href));
+  const target = new URL(link.dataset.page, location.href);
+  if (link.dataset.page === 'ledger.html') {
+    const view = pageMemory.read('ledger.html:view', '?content=1');
+    if (view?.hash) target.hash = view.hash;
+  }
+  navigate(target);
 });
 
 frame.addEventListener('load', () => {
@@ -126,6 +133,7 @@ frame.addEventListener('load', () => {
   syncAddress(replaceOnLoad);
   replaceOnLoad = false;
   loadedDocument = doc;
+  frame.contentWindow.dispatchEvent(new Event('pams:frame-ready'));
   doc.addEventListener('click', event => {
     if (event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target.closest('a[href]');

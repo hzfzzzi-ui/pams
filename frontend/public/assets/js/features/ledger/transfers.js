@@ -12,7 +12,7 @@ const FIRST_PAGE = 10;
 const moneyText = (value, currency) => value == null ? '—' : money(value, currency);
 const byDate = (left, right) => right.match_date.localeCompare(left.match_date);
 
-export function createLedgerTransfers({ root, state, model, dom, events, reads, current, reloadWorkbench }) {
+export function createLedgerTransfers({ root, state, model, dom, events, reads, current, memory, variant, showRefresh = () => {}, reloadWorkbench }) {
   const { $ } = dom;
   let data = null;
   let candidates = null;
@@ -71,7 +71,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     }
   }
 
-  function render() {
+  function render({includeCandidates = true} = {}) {
     if (!data) return;
     const isYear = state.transferPeriod === 'ytd';
     const inPeriod = row => isYear
@@ -85,7 +85,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     }).join('');
     $('transferConfirmedCount').textContent = `${confirmed.length} 对`;
     renderList($('transferConfirmed'), confirmed, false);
-    if (!candidates) return;
+    if (!includeCandidates || !candidates) return;
     const pending = candidates.filter(inPeriod).sort(byDate);
     $('transferPendingCount').textContent = `${pending.length} 个候选`;
     renderList($('transferPending'), pending, true);
@@ -110,9 +110,10 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     }
   }
 
-  async function load() {
+  async function load({replay = false, onReplay} = {}) {
     if (!$('transferSummary')) return;
     data = null;
+    showRefresh();
     confirmedLimit = pendingLimit = FIRST_PAGE;
     $('transferConfirmedCount').textContent = '';
     $('transferConfirmed').textContent = '';
@@ -129,16 +130,31 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       $('transferSummary').textContent = '请选择要查看的月份。';
       return;
     }
-    $('transferSummary').textContent = '正在加载划转…';
+    const cacheKey = variant + '|' + month;
+    const remembered = replay && memory?.read('transfers', cacheKey);
+    showRefresh(remembered ? 'refreshing' : '');
+    if (remembered) {
+      data = remembered;
+      render({includeCandidates: false});
+      onReplay?.();
+    } else {
+      $('transferSummary').textContent = '正在加载划转…';
+    }
     try {
       const result = await reads.run('transfers', signal => readLedgerTransfers({ month, signal }));
       if (!current()) return;
       data = result;
       render();
+      memory?.write('transfers', cacheKey, result);
+      showRefresh();
       if (!candidates && !loadingCandidates) loadCandidates();
       else if (!candidates) $('transferPending').innerHTML = '<p class="muted">正在查找候选…</p>';
     } catch (error) {
       if (current() && !isReadCancelled(error)) {
+        if (remembered) {
+          showRefresh('failed');
+          return;
+        }
         $('transferSummary').innerHTML = '<button class="btn" type="button" data-retry-transfers>划转加载失败，重试</button>';
       }
     }

@@ -27,6 +27,7 @@ export function createLedgerState() {
   overviewFlow: 'income',
   transferPeriod: 'ytd',
   transferMonth: '',
+  streamIsRemembered: false,
   recentFlowFilter: '',
   recentAccountFilter: '',
   recentPeriod: 'ytd',

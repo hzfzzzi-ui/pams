@@ -2,7 +2,7 @@ import { isReadCancelled } from '../../shared/read_scope.js';
 import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
 import { updateLedgerRow } from './requests.js';
 
-export function createLedgerEditor({ model, templates, sheets, dom, current, reload }) {
+export function createLedgerEditor({ model, templates, sheets, dom, current, canEdit = () => true, reload }) {
   const { isEditableLedgerRow, findLedgerRowById, ledgerCategoryOptions, ledgerSubcategoryOptions, ledgerEditSubmitLabel } = model;
   const { optionHtml, expenseChoicesHtml, ledgerEditSheetHtml } = templates;
 
@@ -147,7 +147,7 @@ function bindLedgerEditSheet(row, session) {
 }
 
 function openLedgerEdit(row) {
-  if (!current() || !row || !isEditableLedgerRow(row)) return;
+  if (!current() || !canEdit() || !row || !isEditableLedgerRow(row)) return;
   const session = sheets.open(row.needs_review ? '确认流水' : '修改流水', ledgerEditSheetHtml(row));
   if (session) bindLedgerEditSheet(row, session);
 }

@@ -15,6 +15,8 @@ import {
   acquireClosedPositions
 } from './closed_positions.js';
 
+import { pageMemory, pageScroller, restorePageScroll, showRememberedData } from '../../../app/page_memory.js';
+
 const mounted = new WeakMap();
 export function mount(root, context) {
   if (mounted.has(root)) return mounted.get(root);
@@ -27,7 +29,13 @@ export function mount(root, context) {
   const details = createOwnedDetails(context.showDetails, context.closeDetails);
   const view = createListView({document, host: window, showDetails: details.show, scope});
   const { renderRows } = view;
-  const initialGroup = context.state?.group || document.getElementById('holdingGroupFilter')?.value;
+  const memory = pageMemory(window);
+  const variant = window.location.search;
+  const isHoldings = () => ['', '#holdings-smart-table'].includes(window.location.hash);
+  const remembered = isHoldings() && memory?.read('rows', variant);
+  const savedView = memory?.read('view', variant);
+  const refreshNote = document.getElementById('holdingViewRefresh');
+  const initialGroup = context.state?.group || savedView?.group || document.getElementById('holdingGroupFilter')?.value;
   let currentGroup = initialGroup || '全部';
   let releaseGroupFilter = () => {};
 function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
@@ -95,16 +103,18 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
   async function load() {
     try {
       let sourceRows = [];
-      const [, accountOverview, fxData, ibkrPerf] = await readListInputs({
-        get: scope.get,
+      let supplementFailed = false;
+      const [holdings, accountOverview, fxData, ibkrPerf] = await readListInputs({
+        get: path => scope.get(path, savedView ? {force: true} : undefined),
+        onSupplementError: () => { supplementFailed = true; },
         withClosedParam,
         onHoldings(holdings) {
           if (!scope.active) return;
-          document.getElementById('asof').textContent = holdings.as_of || '--';
+          if (!remembered) document.getElementById('asof').textContent = holdings.as_of || '--';
           sourceRows = (holdings.rows || [])
             .filter(isInvestmentRow)
             .filter(row => !(row.major_category === '现金' && row.account && row.account !== 'tonghuashun'));
-          if (sourceRows.length && (currentGroup === '全部' || sourceRows.some(row => holdingGroupLabel(row) === currentGroup))) {
+          if (!remembered && sourceRows.length && (currentGroup === '全部' || sourceRows.some(row => holdingGroupLabel(row) === currentGroup))) {
             setupHoldingGroupFilter(sourceRows, {cashPending: true});
           }
         },
@@ -116,11 +126,20 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
     fxRates[r.quote_currency] = Number(r.rate);
   }
 
-  const accountCashRows = buildAccountCashRows(accountOverview, fxRates, ibkrPerf);
-  setupHoldingGroupFilter([...sourceRows, ...accountCashRows]);
+      if (remembered && supplementFailed) {
+        showRememberedData(refreshNote, 'failed');
+        return;
+      }
+      const accountCashRows = buildAccountCashRows(accountOverview, fxRates, ibkrPerf);
+      const rows = [...sourceRows, ...accountCashRows];
+      setupHoldingGroupFilter(rows);
+      document.getElementById('asof').textContent = holdings.as_of || '--';
+      if (!supplementFailed) memory?.write('rows', variant, {rows, asOf: holdings.as_of});
+      showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;
-      errorView.show(error);
+      if (remembered) showRememberedData(refreshNote, 'failed');
+      else errorView.show(error);
     }
   }
   const instance = {
@@ -129,6 +148,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
     dispose() {
       if (!scope.active) return savedOnExit;
       savedOnExit = instance.snapshot();
+      if (isHoldings()) memory?.write('view', variant, {...savedOnExit, scroll: pageScroller(window)?.scrollTop || 0});
       scope.dispose(); view.dispose(); details.dispose(); closed.release(); errorView.dispose();
       if (mounted.get(root) === instance) mounted.delete(root);
       return savedOnExit;
@@ -138,6 +158,12 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
   let savedOnExit;
   mounted.set(root, instance);
   context.bootstrap?.();
+  if (remembered) {
+    showRememberedData(refreshNote, 'refreshing');
+    setupHoldingGroupFilter(remembered.rows);
+    document.getElementById('asof').textContent = remembered.asOf || '--';
+    restorePageScroll(window, savedView?.scroll, () => scope.active);
+  }
   instance.ready = load();
   return instance;
 }

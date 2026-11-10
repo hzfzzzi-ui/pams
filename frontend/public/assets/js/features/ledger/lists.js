@@ -158,7 +158,7 @@ function renderRows(id, rows, limit = 80) {
     const dateText = rowDateText(row);
     const originalAmount = originalCurrencyText(row);
     const showOriginal = row.amount_cny == null && originalAmount;
-    const reviewAction = row.needs_review && isEditableLedgerRow(row)
+    const reviewAction = !state.streamIsRemembered && row.needs_review && isEditableLedgerRow(row)
       ? `<button type="button" class="ledgerInlineEditBtn" data-ledger-edit="${escapeHtml(String(row.id || ''))}">${escapeHtml(ledgerEditActionLabel(row))}</button>`
       : '';
     return `
