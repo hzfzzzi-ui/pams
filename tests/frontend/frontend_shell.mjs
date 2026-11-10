@@ -147,6 +147,88 @@ try {
     await chartPage.close();
   }
 
+  // Keep the next document's reads pending to prove the shell restores data,
+  // rather than waiting for an unusually fast response in the test environment.
+  const memoryPage = await context.newPage();
+  await memoryPage.setViewportSize({width:390,height:844});
+  const memoryFrame = memoryPage.frameLocator('#page-content');
+  let holdingsName = '上次持仓';
+  let releaseHoldings;
+  let holdHoldings = false;
+  let releaseStream;
+  let holdStream = false;
+  await memoryPage.route(url => url.pathname === '/holdings/latest' ||
+    url.pathname.startsWith('/holdings/by-category/') || url.pathname === '/api/fx-rates/latest' ||
+    url.pathname === '/api/ibkr/performance' || url.searchParams.get('view') === 'stream', async route => {
+    const url = new URL(route.request().url());
+    const headers = {'access-control-allow-origin':base};
+    const respond = json => route.fulfill({json, headers});
+    if (url.searchParams.get('view') === 'stream') {
+      if (holdStream) {
+        await new Promise(resolve => { releaseStream = resolve; });
+        return route.fulfill({status:503, json:{}, headers});
+      }
+      return respond({rows:[{id:1, account_code:'fixture', transaction_date:'2026-10-29',
+        amount:-20, amount_cny:-20, currency:'CNY', summary:'上次流水', flow_type:'expense', needs_review:true}]});
+    }
+    if (url.pathname.includes('fx-rates')) return respond({rates:[]});
+    if (url.pathname.includes('ibkr')) return respond({});
+    const isList = url.pathname === '/holdings/latest' && !url.searchParams.has('limit');
+    if (isList && holdHoldings) await new Promise(resolve => { releaseHoldings = resolve; });
+    return respond({as_of:'2026-10-29',rows:isList ? Array.from({length:16}, (_, index) => ({
+      symbol:`MEM${index}`, name:index ? `合成标的 ${index}` : holdingsName, account:'tonghuashun', currency:'CNY',
+      major_category:'A股', minor_category:'A股', quantity:3, cost_cny:20, market_value_cny:24,
+    })) : []});
+  });
+  try {
+    workflowFixtures = true;
+    const select = name => memoryPage.locator(`[data-page="${name}.html"]`).click();
+    const oldHolding = memoryFrame.locator('#mobileHoldingList').getByText('上次持仓', {exact:true});
+    const holdingStatus = memoryFrame.locator('#holdingViewRefresh');
+    const ledgerStatus = memoryFrame.locator('#ledgerViewRefresh');
+    await memoryPage.goto(`${base}/app.html?view=investments.html`);
+    await oldHolding.waitFor();
+    await memoryPage.locator('[data-page="investments.html"][aria-current="page"]').waitFor();
+    const holdingGroup = memoryFrame.locator('#mobileHoldingFilterChips [data-group="A股个股"]');
+    await holdingGroup.click();
+    const child = () => memoryPage.frames().find(frame => frame.parentFrame() === memoryPage.mainFrame());
+    const oldScroll = await child().evaluate(() => { document.body.scrollTop = 240; return document.body.scrollTop; });
+    assert.equal(oldScroll,240);
+    await select('ledger');
+    await memoryFrame.locator('.ledgerAnchorNav [data-ledger-tab="recent"]').click();
+    await memoryFrame.locator('[data-ledger-flow-filter="expense"]').click();
+    await memoryFrame.locator('#recentRows').getByText('上次流水', {exact:true}).first().waitFor();
+
+    holdHoldings = true;
+    holdingsName = '刷新后持仓';
+    await select('investments');
+    await holdingStatus.waitFor({state:'attached'});
+    await oldHolding.waitFor({state:'attached'});
+    // The refresh note and the asynchronously rendered hero can shift the browser anchor.
+    await child().waitForFunction(top => Math.abs(document.body.scrollTop - top) < 100, oldScroll, {timeout:4000});
+    assert.equal(await holdingGroup.getAttribute('class').then(value => value.includes('active')),true);
+    assert.ok(releaseHoldings);
+    releaseHoldings();
+    await memoryFrame.locator('#mobileHoldingList').getByText('刷新后持仓', {exact:true}).waitFor();
+    await holdingStatus.waitFor({state:'hidden'});
+
+    holdStream = true;
+    await select('ledger');
+    await ledgerStatus.waitFor();
+    assert.equal(await memoryFrame.locator('[data-ledger-flow-filter="expense"]').getAttribute('aria-pressed'),'true');
+    await memoryFrame.locator('#recentRows').getByText('上次流水', {exact:true}).first().waitFor();
+    assert.equal(await memoryFrame.locator('#recentRows .ledgerInlineEditBtn').count(),0);
+    assert.ok(releaseStream);
+    releaseStream();
+    await ledgerStatus.getByText('更新失败，显示上次数据', {exact:true}).waitFor();
+    await memoryFrame.locator('#recentRows').getByText('上次流水', {exact:true}).first().waitFor();
+  } finally {
+    releaseHoldings?.();
+    releaseStream?.();
+    workflowFixtures = false;
+    await memoryPage.close();
+  }
+
   for (const width of [320,390,926,1280]) {
     await page.setViewportSize({width,height:1084});
     await page.goto(`${base}/app.html?view=investments.html`);

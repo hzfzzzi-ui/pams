@@ -1,10 +1,11 @@
+import { pageDataInvalidator } from '../../app/page_memory.js';
 import { accountCodesForLabel, jget, jpost } from '../../api.js';
 
 export function readLedgerWorkbench({signal} = {}) {
   return jget('/api/ledger/workbench?view=overview', { cache: false, signal });
 }
 
-export function readLedgerStream(state, { offset, signal }) {
+export function ledgerStreamQuery(state, offset = 0) {
   const search = (state.recentSearch || '').slice(0, 200);
   const params = new URLSearchParams({
     view: 'stream', period: state.recentPeriod, account: state.recentAccountFilter || '',
@@ -12,11 +13,22 @@ export function readLedgerStream(state, { offset, signal }) {
     matchingAccounts: accountCodesForLabel(search).join(','),
     sort: state.recentAmountSort || '', offset,
   });
-  return jget(`/api/ledger/workbench?${params}`, { cache: false, signal });
+  return params.toString();
+}
+
+export function readLedgerStream(state, { offset, signal }) {
+  return jget(`/api/ledger/workbench?${ledgerStreamQuery(state, offset)}`, { cache: false, signal });
+}
+
+async function updateLedger(path, body) {
+  const invalidate = pageDataInvalidator();
+  invalidate();
+  try { return await jpost(path, body); }
+  finally { invalidate(); }
 }
 
 export function updateLedgerRow(row, fields) {
-  return jpost(`/api/ledger/rows/${encodeURIComponent(row.id)}/update`, fields);
+  return updateLedger(`/api/ledger/rows/${encodeURIComponent(row.id)}/update`, fields);
 }
 
 export function readLedgerTransfers({ month, signal }) {
@@ -30,7 +42,7 @@ export function readTransferCandidates() {
 }
 
 export function confirmTransferPair(pair) {
-  return jpost('/api/bank-reconcile/transfers/confirm', {
+  return updateLedger('/api/bank-reconcile/transfers/confirm', {
     from_kind: 'cashflow', from_id: pair.source_row_id,
     to_kind: 'cashflow', to_id: pair.target_row_id,
     note: '在收支内部划转页人工核对确认', confirmed: true,
