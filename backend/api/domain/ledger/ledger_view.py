@@ -1510,6 +1510,9 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+_INCOME_EXPENSE_FLOWS = {"income", "expense"}
+
+
 def _ledger_stream_page(rows, *, profiles, base_currency, account, flow, search, sort, offset, limit,
                         matching_accounts=None):
     labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转',
@@ -1524,7 +1527,9 @@ def _ledger_stream_page(rows, *, profiles, base_currency, account, flow, search,
             continue
         if flow == 'internal_transfer' and not (row_flow == 'transfer' or row.get('is_internal_transfer') is True):
             continue
-        if flow in {'income', 'expense'} and row_flow != flow:
+        if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
+            continue
+        if flow in _INCOME_EXPENSE_FLOWS and row_flow != flow:
             continue
         if search and code not in (matching_accounts or ()):
             values = [row.get(key) for key in ('summary', 'description', 'counterparty', 'counter_account_code',
@@ -1652,6 +1657,10 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         }
         if view == 'overview':
             return overview
+    if view == 'stream' and (flow == 'income_expense' or flow in _INCOME_EXPENSE_FLOWS):
+        return _ledger_stream_page(display_rows, profiles=account_profiles, base_currency=base_currency,
+                                   account=account, flow=flow, search=search.strip().lower(), sort=sort,
+                                   offset=offset, limit=limit, matching_accounts=matching_accounts)
     investment_rows = _load_investment_account_rows(
         cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args, **decision_args,
     )

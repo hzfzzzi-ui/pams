@@ -1,23 +1,9 @@
 import { accountLabel } from '../../api.js';
 import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
+import { categoryIconPath } from './category_icons.js';
 import { LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
 
-const EXPENSE_CATEGORY_ICONS = {
-  餐饮: 'M4 3v5a3 3 0 0 0 6 0V3M7 3v18M18 3c-2 2-3 5-3 9h4M19 3v18',
-  交通出行: 'M5 16v3m14-3v3M4 11l2-5h12l2 5v5H4zm0 0h16M7 13.5h1m8 0h1',
-  居住: 'm3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7',
-  通讯网络: 'M3 9a14 14 0 0 1 18 0M6 12a9 9 0 0 1 12 0m-9 3a4.5 4.5 0 0 1 6 0m-3 4h.01',
-  工具订阅: 'M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-6 2v4',
-  购物: 'M5 8h14l2 12H3zm4 0V6a3 3 0 0 1 6 0v2',
-  医疗健康: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm7 4v8m-4-4h8',
-  娱乐休闲: 'M5 5h14v14H5zM10 9l5 3-5 3z',
-  学习成长: 'M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1zm0 0v14',
-  人情往来: 'M3 9h18v4H3zm2 4v7h14v-7M12 9v11m0-11C7 9 6 4 9 4c2 0 3 5 3 5s1-5 3-5c3 0 2 5-3 5Z',
-  '借还款/往来': 'M3 8h17m-4-4 4 4-4 4m5 4H4m4-4-4 4 4 4',
-  其他支出: 'M5 12h.01m7 0h.01m7 0h.01',
-  待确认支出: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm-2.5 6a2.6 2.6 0 0 1 5 1c0 2-2.5 2-2.5 4m0 3h.01',
-};
 
 export function createLedgerTemplates({ state, model }) {
   const { isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, rowTitle, originalCurrencyText, transferEndpointName, transferRoute, ledgerCategoryOptions, ledgerSubcategoryOptions } = model;
@@ -55,7 +41,7 @@ function transferRouteHtml(row) {
 
 function rowDetailHtml(row) {
   const originalAmount = originalCurrencyText(row);
-  const editButton = isEditableLedgerRow(row)
+  const editButton = !state.streamIsRemembered && isEditableLedgerRow(row)
     ? `
       <div class="ledgerDetailActions rowDetailFull">
         <button type="button" class="ledgerActionBtn confirm" data-ledger-edit="${escapeHtml(String(row.id || ''))}">${escapeHtml(ledgerEditActionLabel(row))}</button>
@@ -67,6 +53,7 @@ function rowDetailHtml(row) {
       ${transferRouteHtml(row)}
       ${editButton}
       <div><strong>账户</strong><span>${escapeHtml(accountLabel(row.account_code) || row.account_code || '-')}</span></div>
+      <div><strong>日期</strong><span>${escapeHtml(row.transaction_date || '—')}</span></div>
       <div><strong>对方账户</strong><span>${escapeHtml(row.counter_account_code || '不适用')}</span></div>
       <div><strong>对方</strong><span>${escapeHtml(row.counterparty || '不适用')}</span></div>
       <div><strong>原始类型</strong><span>${escapeHtml(row.flow_type || '-')}</span></div>
@@ -88,7 +75,7 @@ function optionHtml(options, selectedValue) {
 
 function expenseChoicesHtml(options, selectedValue, field) {
   return options.map(value => {
-    const icon = field === 'category' ? EXPENSE_CATEGORY_ICONS[value] || EXPENSE_CATEGORY_ICONS.其他支出 : '';
+    const icon = field === 'category' ? categoryIconPath(value) : '';
     return `
       <button type="button" data-expense-choice="${field}" data-value="${escapeHtml(value)}"
         aria-pressed="${value === selectedValue}">

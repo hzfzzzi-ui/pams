@@ -44,8 +44,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
   }
 
   function renderPair(pair, pending) {
-    const sender = model.transferAccountIdentity(pair.from_account_code);
-    const receiver = model.transferAccountIdentity(pair.to_account_code);
+    const sender = model.ledgerAccountIdentity(pair.from_account_code);
+    const receiver = model.ledgerAccountIdentity(pair.to_account_code);
     const name = account => [account.institution, account.name].filter(Boolean).join(' ');
     const from = name(sender);
     const to = name(receiver);

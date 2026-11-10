@@ -44,6 +44,24 @@ def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
     assert alias['rows'][0]['id'] == 2
 
 
+def test_income_expense_stream_pages_only_direction_classified_rows():
+    entries = [(4, 'transfer', -700), (3, 'investment_inflow', 700),
+               (2, 'expense', -20), (1, 'income', 80)]
+    rows = [
+        {'id': ident, 'account_code': 'bank', 'flow_type': flow,
+         'transaction_date': date(2026, 10, ident), 'transaction_date_obj': date(2026, 10, ident),
+         'amount': amount, 'amount_cny': amount, 'category': '内部划转',
+         'is_internal_transfer': flow == 'transfer'}
+        for ident, flow, amount in entries
+    ]
+    filters = dict(profiles={}, base_currency='CNY', account='', search='', sort='', limit=1)
+    first = ledger_view._ledger_stream_page(rows, offset=0, flow='income_expense', **filters)
+    second = ledger_view._ledger_stream_page(rows, offset=first['next_offset'], flow='income_expense', **filters)
+    assert [page['rows'][0]['id'] for page in (first, second)] == [2, 1]
+    assert second['next_offset'] is None
+    assert ledger_view._ledger_stream_page(rows, offset=0, flow='', **filters)['rows'][0]['id'] == 4
+
+
 def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
     class FixedDate(date):
         @classmethod

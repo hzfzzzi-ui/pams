@@ -13,7 +13,7 @@ const RETIRED_ACCOUNT_HASHES = new Set(['#account-cashflow-section', '#accountIs
 
 const RECENT_SORT_OPTIONS = [
   { value: '', label: '默认排序', hint: '按流水日期显示' },
-  { value: 'amount_desc', label: '金额从大到小', hint: '优先查看大额收入、消费和转账' },
+  { value: 'amount_desc', label: '金额从大到小', hint: '优先查看大额收入和消费' },
   { value: 'amount_asc', label: '金额从小到大', hint: '优先查看小额零散流水' },
 ];
 
@@ -48,4 +48,5 @@ export function snapshotLedgerViewState(state) {
 export function restoreLedgerViewState(state, snapshot) {
   if (!snapshot) return;
   for (const key of VIEW_FIELDS) if (key in snapshot) state[key] = snapshot[key];
+  if (!['income', 'expense'].includes(state.recentFlowFilter)) state.recentFlowFilter = '';
 }

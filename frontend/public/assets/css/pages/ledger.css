@@ -378,19 +378,65 @@
 .accountSubRow .accountFlowSide { min-width:118px }
 .accountFlowRow.is-empty { cursor:default; opacity:.52 }
 .ledgerJumpCard { scroll-margin-top:16px }
-.ledgerList { display:grid; border-top:1px solid var(--line) }
-.ledgerListRow { width:100%; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:stretch; min-height:78px; padding:12px 0; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer }
+.ledgerStreamPeriod { margin:2px 0 10px; color:var(--pams-text-muted); font-size:11px }
+.ledgerList { display:grid; margin-top:8px }
+.ledgerStreamDay + .ledgerStreamDay { margin-top:12px }
+.ledgerStreamDayHeader {
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:8px;
+  margin:0;
+  padding:5px 0;
+  font-size:13px;
+  font-weight:650;
+}
+.ledgerStreamDayHeader small { color:var(--pams-text-muted); font-size:11px; font-weight:400 }
+.ledgerStreamDayHeader span small { margin-left:4px }
+.ledgerListRow {
+  width:100%;
+  display:grid;
+  grid-template-columns:36px minmax(0,1fr) fit-content(43%);
+  gap:10px;
+  align-items:center;
+  min-height:58px;
+  padding:8px 0;
+  border:0;
+  border-bottom:1px solid var(--line);
+  background:transparent;
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+  font:inherit;
+}
 .ledgerListRow:active { transform:scale(.995) }
-.ledgerListMain { min-width:0; display:flex; flex-direction:column; align-self:stretch }
-.ledgerListMain strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; line-height:1.28; font-weight:600 }
-.ledgerListMain small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; font-weight:600 }
-.ledgerListAccount { margin-top:6px; color:var(--pams-text-muted) !important }
-.ledgerListDate { margin-top:auto; padding-top:8px; color:var(--pams-text-muted) !important; font-variant-numeric:tabular-nums }
-.ledgerListSide { display:grid; gap:5px; justify-items:end; min-width:0; white-space:normal; text-align:right; overflow-wrap:anywhere }
+.ledgerStreamCategoryIcon {
+  display:grid;
+  place-items:center;
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  background:var(--ledger-overview-accent, #ffbc20);
+  color:#fff;
+}
+.ledgerStreamCategoryIcon svg {
+  width:18px;
+  height:18px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2.2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  filter:drop-shadow(0 1px 1px rgb(98 52 0 / .65));
+}
+.ledgerListMain { min-width:0; display:grid; gap:3px; overflow-wrap:anywhere }
+.ledgerListMain strong { font-size:14px; line-height:1.3; font-weight:630 }
+.ledgerListAccount, .ledgerListDate { color:var(--pams-text-muted); font-size:11px; line-height:1.4 }
+.ledgerListDate { font-variant-numeric:tabular-nums }
+.ledgerListSide { display:grid; gap:3px; justify-items:end; min-width:0; white-space:normal; text-align:right; overflow-wrap:anywhere }
 .ledgerListSide b { font-size:15px; font-weight:600; font-family:var(--pams-font-sans); font-variant-numeric:tabular-nums; letter-spacing:0 }
-.ledgerListSide b.transfer { color:var(--pams-text-primary); text-shadow:none}
-.ledgerListSide small { color:var(--muted); font-size:12px; font-weight:600 }
-.ledgerOriginalAmount { color:var(--pams-text-muted) !important; font-size:12px !important; font-weight:600 !important; font-variant-numeric:tabular-nums }
+.ledgerListSide small { color:var(--pams-text-muted); font-size:11px }
+.ledgerOriginalAmount { font-variant-numeric:tabular-nums }
 .transferRoute { display:grid !important; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr); gap:8px; align-items:stretch; padding:0 0 12px; border-bottom:1px solid var(--pams-line-subtle) }
 .transferRouteHeader { grid-column:1 / -1; color:var(--pams-text-primary); font-size:12px; line-height:1; font-weight:600 }
 .transferRouteNode { min-width:0; padding:9px 10px; border:1px solid var(--pams-line-subtle); border-radius:8px; background:var(--pams-bg-soft) }
@@ -398,20 +444,7 @@
 .transferRouteNode em { display:block; margin-bottom:5px; color:var(--muted); font-size:12px; line-height:1; font-style:normal; font-weight:600 }
 .transferRouteNode strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
 .transferRouteArrow { display:grid; place-items:center; color:var(--pams-text-primary); font-size:18px; line-height:1; font-weight:600 }
-.ledgerListMeta { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap }
-.ledgerReviewHint { color:var(--muted); font-size:12px; font-weight:600; letter-spacing:.2px }
-.ledgerInlineEditBtn {
-  min-height:44px;
-  padding:0 12px;
-  border:1px solid var(--pams-line-subtle);
-  border-radius:var(--pams-radius-control);
-  background:var(--pams-bg-soft);
-  color:var(--pams-text-primary);
-  font-size:12px;
-  font-weight:600;
-  line-height:1;
-  cursor:pointer;
-}
+.ledgerListRow .ledgerReviewHint { color:var(--pams-warning) }
 .ledgerRowActions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap }
 .ledgerInlineDetail { padding:0 0 12px; border-bottom:1px solid var(--line) }
 .ledgerEmpty { padding:14px 0; color:var(--muted); font-size:13px; font-weight:600 }
@@ -694,13 +727,6 @@
   .page-ledger .cashflowBodyGrid .chartWrap {
     height:214px !important;
   }
-  .ledgerListRow { min-height:82px; padding:12px 0; grid-template-columns:minmax(0,1fr) minmax(0,118px); align-items:stretch }
-  .ledgerListMain strong { font-size:15px; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical }
-  .ledgerListMain small { white-space:nowrap; display:block }
-  .ledgerListAccount { white-space:normal !important; display:-webkit-box !important; -webkit-line-clamp:1; -webkit-box-orient:vertical }
-  .ledgerListDate { display:block !important; white-space:nowrap !important }
-  .ledgerListSide { min-width:0; gap:8px }
-  .ledgerListMeta { justify-content:flex-end }
   .accountFlowRow { min-height:76px; padding:12px 0; align-items:stretch }
   .accountFlowHeader { gap:10px }
   .accountFlowMain strong { font-size:15px }
