@@ -9,7 +9,8 @@ html {
   --primary-nav-inset: max(18px, env(safe-area-inset-bottom, 0px));
   position: relative;
   width: min(100%, var(--pams-shell-max-width));
-  height: 100dvh;
+  height: 100vh;
+  height: var(--pams-visible-bottom, 100dvh);
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: var(--primary-nav-inset);
   margin-inline: auto;

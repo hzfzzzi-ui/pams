@@ -84,6 +84,37 @@ page.on('response', response => {
 });
 page.on('pageerror', error => failures.push(error.message));
 try {
+  // Simulate iOS changing its visible viewport while CSS viewport units lag.
+  const mobile = await context.newPage();
+  await mobile.setViewportSize({width:390,height:844});
+  await mobile.addInitScript(() => {
+    window.testViewport = Object.assign(new EventTarget(), {height:740, offsetTop:0, scale:1});
+    Object.defineProperty(window, 'visualViewport', {get:() => window.testViewport});
+  });
+  await mobile.goto(`${base}/app.html?view=investments.html`);
+  await mobile.locator('[data-page="investments.html"][aria-current]').waitFor();
+  const mobileNav = mobile.locator('.pams-primary-nav');
+  const navBottom = () => mobileNav.evaluate(node =>
+    node.getBoundingClientRect().bottom + parseFloat(getComputedStyle(node).bottom));
+  assert.equal(await navBottom(),740);
+  await mobile.evaluate(() => {
+    window.testViewport.height = 820;
+    window.testViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await navBottom(),820);
+  await mobile.evaluate(() => {
+    window.testViewport.offsetTop = 24;
+    window.testViewport.dispatchEvent(new Event('scroll'));
+  });
+  assert.equal(await navBottom(),844);
+  await mobile.evaluate(() => {
+    window.testViewport.scale = 2;
+    window.testViewport.height = 400;
+    window.testViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await navBottom(),844);
+  await mobile.close();
+
   for (const width of [320,390,926,1280]) {
     await page.setViewportSize({width,height:1084});
     await page.goto(`${base}/app.html?view=investments.html`);
