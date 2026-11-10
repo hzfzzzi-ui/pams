@@ -774,6 +774,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   }
 
   return {
+    setChartClass(chartClass) { ChartClass = chartClass; },
     renderReturns: renderInvestmentReturnChart,
     updateReturnSeries({ resp, sectionResponses, sectionSpecs }) {
       if (!returnChart || disposed) return;

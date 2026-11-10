@@ -22,9 +22,13 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
   ]);
 }
 
-export function readListInputs({ get: jget, withClosedParam }) {
+export function readListInputs({ get: jget, withClosedParam, onHoldings }) {
+  const holdings = jget(withClosedParam('/holdings/latest')).then(payload => {
+    onHoldings?.(payload);
+    return payload;
+  });
   return Promise.all([
-    jget(withClosedParam('/holdings/latest')),
+    holdings,
     jget('/api/accounts/overview').catch(error => readFallback(error, null)),
     jget('/api/fx-rates/latest?base_currency=CNY').catch(error => readFallback(error, null)),
     jget('/api/ibkr/performance').catch(error => readFallback(error, null)),

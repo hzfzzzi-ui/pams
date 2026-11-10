@@ -29,18 +29,20 @@ export function mount(root, context) {
   const { renderRows } = view;
   const initialGroup = context.state?.group || document.getElementById('holdingGroupFilter')?.value;
   let currentGroup = initialGroup || '全部';
-function setupHoldingGroupFilter(allRows) {
+  let releaseGroupFilter = () => {};
+function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
+  releaseGroupFilter();
   const sel = document.getElementById('holdingGroupFilter');
   const chips = document.getElementById('mobileHoldingFilterChips');
   if (!sel) {
-    renderRows(allRows, { totalRows: allRows, showGroupRows: true });
+    renderRows(allRows, { totalRows: allRows, showGroupRows: true, cashPending });
     return;
   }
   const groups = Array.from(new Set(allRows.map(holdingGroupLabel)))
     .sort((a, b) => holdingGroupRank(a) - holdingGroupRank(b) || a.localeCompare(b, 'zh-CN'));
   sel.innerHTML = '';
   const allLabel = '全部';
-  let selectedGroup = initialGroup || allLabel;
+  let selectedGroup = currentGroup;
   const allOpt = document.createElement('option');
   allOpt.value = allLabel;
   allOpt.textContent = allLabel;
@@ -75,35 +77,47 @@ function setupHoldingGroupFilter(allRows) {
     selectedGroup = selected || allLabel;
     currentGroup = selectedGroup;
     const rows = selectedGroup === allLabel ? allRows : allRows.filter((row) => holdingGroupLabel(row) === selectedGroup);
-    renderRows(rows, { totalRows: allRows, showGroupRows: false });
+    renderRows(rows, { totalRows: allRows, showGroupRows: false, cashPending });
     renderChips();
     window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: selectedGroup, sourceRoot: root } }));
   };
-  scope.listen(sel, 'change', () => {
+  const removeSelect = scope.listen(sel, 'change', () => {
     selectedGroup = sel.value || allLabel;
     apply();
   });
+  releaseGroupFilter = () => {
+    removeSelect();
+    for (const remove of chipListeners) remove();
+  };
   apply();
 }
 
   async function load() {
     try {
-      const [holdings, accountOverview, fxData, ibkrPerf] = await readListInputs({get: scope.get, withClosedParam});
+      let sourceRows = [];
+      const [, accountOverview, fxData, ibkrPerf] = await readListInputs({
+        get: scope.get,
+        withClosedParam,
+        onHoldings(holdings) {
+          if (!scope.active) return;
+          document.getElementById('asof').textContent = holdings.as_of || '--';
+          sourceRows = (holdings.rows || [])
+            .filter(isInvestmentRow)
+            .filter(row => !(row.major_category === '现金' && row.account && row.account !== 'tonghuashun'));
+          if (sourceRows.length && (currentGroup === '全部' || sourceRows.some(row => holdingGroupLabel(row) === currentGroup))) {
+            setupHoldingGroupFilter(sourceRows, {cashPending: true});
+          }
+        },
+      });
       if (!scope.active) return;
-  document.getElementById('asof').textContent = holdings.as_of || '--';
 
   const fxRates = { CNY: 1 };
   for (const r of fxData?.rates || []) {
     fxRates[r.quote_currency] = Number(r.rate);
   }
 
-  const sourceRows = (holdings.rows || [])
-    .filter(isInvestmentRow)
-    .filter((row) => !(row.major_category === '现金' && row.account && row.account !== 'tonghuashun'));
   const accountCashRows = buildAccountCashRows(accountOverview, fxRates, ibkrPerf);
-  const allRows = [...sourceRows, ...accountCashRows];
-
-  setupHoldingGroupFilter(allRows);
+  setupHoldingGroupFilter([...sourceRows, ...accountCashRows]);
     } catch (error) {
       if (!scope.active) return;
       errorView.show(error);

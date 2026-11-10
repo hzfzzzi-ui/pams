@@ -2,6 +2,7 @@ import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { replaceContentAddress } from '../../app/routes.js';
 import { createBottomSheet } from '../../components/bottom_sheet.js';
 import { setActiveNav } from '../../ui.js';
+import { loadChart } from '../../shared/load_chart.js';
 import { createLedgerState, restoreLedgerViewState, LEDGER_PANEL_HASH, LEDGER_HASH_PANEL, RETIRED_ACCOUNT_HASHES } from './state.js';
 import { createLedgerLegacyModel } from './legacy_model.js';
 import { createLedgerTemplates } from './templates.js';
@@ -23,6 +24,7 @@ export function createLedgerController({ root = document, host = window, sheetSe
   let readGeneration = 0;
   let streamGeneration = 0;
   let streamLoading = false;
+  let chartsLoading = false;
   const current = () => !disposed && owners.get(root) === controller;
   const state = createLedgerState();
   restoreLedgerViewState(state, viewState);
@@ -55,6 +57,19 @@ async function loadWorkbench() {
   if (state.activePanel === 'transfer') return null;
   const generation = ++readGeneration;
   clearError();
+  if (!ChartClass && !chartsLoading) {
+    chartsLoading = true;
+    loadChart(host).then(chartClass => {
+      chartsLoading = false;
+      if (!current() || !chartClass) return;
+      ChartClass = chartClass;
+      overview.setChartClass(chartClass);
+      if (state.activePanel === 'overview' && state.data) {
+        renderOverviewCategoryInsight(state.data);
+        renderTrendChart(state.data);
+      }
+    });
+  }
   try {
     const data = await reads.run('workbench', signal => readLedgerWorkbench({signal}));
     if (!current() || generation !== readGeneration) return null;

@@ -3,12 +3,13 @@ import { fmt2 } from '../../../api.js';
 import { CHART_THEME } from '../../../shared/chart_theme.js';
 
 // Legacy category-chart formula is unchanged, now owned by this investment page.
-export function createCategoryChartLoader({ document, host: window, get: jget, Chart }) {
+export function createCategoryChartLoader({ document, host: window, get: jget, loadChartClass }) {
 function createReturnRateChart(canvasId, apiPath, color, label, interval = 'daily'){
   const separator = apiPath.includes('?') ? '&' : '?';
   const requestPath = apiPath.includes('interval=') ? apiPath : `${apiPath}${separator}interval=${interval}`;
-  return jget(requestPath)
-    .then(history => {
+  return Promise.all([jget(requestPath), loadChartClass()])
+    .then(([history, Chart]) => {
+      if (!Chart) return null;
       const rows = history.rows || history.series || [];
       const labels = rows.map(d => d.date);
       const values = rows.map(d => safeNum(d.market_value ?? d.value));
