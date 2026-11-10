@@ -6,6 +6,26 @@ const links = [...document.querySelectorAll('[data-page]')];
 let loadedDocument = null;
 let replaceOnLoad = true;
 
+function fitVisibleViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+
+  const update = () => {
+    const bottom = viewport.offsetTop + viewport.height;
+    // Keep the native layout viewport during pinch zoom.
+    if (viewport.scale !== 1 || !Number.isFinite(bottom) || viewport.height <= 0) {
+      document.body.style.removeProperty('--pams-visible-bottom');
+      return;
+    }
+    document.body.style.setProperty('--pams-visible-bottom', `${bottom}px`);
+  };
+  viewport.addEventListener('resize', update);
+  viewport.addEventListener('scroll', update);
+  window.addEventListener('resize', update);
+  window.addEventListener('pageshow', update);
+  update();
+}
+
 function contentUrl() {
   const url = new URL(location.href);
   const page = url.searchParams.get('view') || 'investments.html';
@@ -63,6 +83,7 @@ if (window.parent !== window) {
   // Legacy programmatic page navigation may reach the shell inside the frame.
   window.parent.postMessage({type: 'pams-shell-route', href: contentUrl().href}, location.origin);
 } else {
+fitVisibleViewport();
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
   try {
