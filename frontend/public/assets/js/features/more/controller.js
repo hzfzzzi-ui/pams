@@ -12,6 +12,57 @@ export function issueSummary(payload) {
   return summary.status === 'ok' ? null : `错误 ${summary.error_count} · 警告 ${summary.warning_count}`;
 }
 
+function bindLayoutCheck(root, win) {
+  const panel = root.querySelector('#moreLayoutCheck');
+  const output = root.querySelector('#moreLayoutMetrics');
+  if (!panel || !output) return () => {};
+
+  let outer = win;
+  try {
+    if (win.parent.document.getElementById('page-content')?.contentWindow === win) outer = win.parent;
+  } catch {
+    // A cross-origin host does not expose its shell geometry.
+  }
+  const shell = outer.document.querySelector('.pams-shell');
+  const nav = shell?.querySelector('.pams-primary-nav');
+  if (!nav) {
+    panel.hidden = true;
+    return () => {};
+  }
+
+  const px = value => Number.isFinite(value) ? Math.round(value) + ' px' : '—';
+  function refresh() {
+    shell.classList.toggle('pams-layout-check', panel.open);
+    if (!panel.open) return;
+    const shellRect = shell.getBoundingClientRect();
+    const mode = outer.navigator.standalone === true || outer.matchMedia('(display-mode: standalone)').matches;
+    const measurements = [
+      ['打开方式', mode ? '主屏幕 App' : '浏览器'],
+      ['屏幕高度', px(outer.screen.height)],
+      ['网页可视高度', px(outer.visualViewport?.height)],
+      ['网页布局高度', px(outer.document.documentElement.clientHeight)],
+      ['PAMS 布局高度', px(shellRect.height)],
+      ['底栏到蓝线', px(shellRect.bottom - nav.getBoundingClientRect().bottom)],
+    ];
+    output.replaceChildren(...measurements.flatMap(([label, value]) => {
+      const term = output.ownerDocument.createElement('dt');
+      const description = output.ownerDocument.createElement('dd');
+      term.textContent = label;
+      description.textContent = value;
+      return [term, description];
+    }));
+  }
+  panel.addEventListener('toggle', refresh);
+  outer.addEventListener('resize', refresh);
+  outer.visualViewport?.addEventListener('resize', refresh);
+  refresh();
+  return () => {
+    panel.removeEventListener('toggle', refresh);
+    outer.removeEventListener('resize', refresh);
+    outer.visualViewport?.removeEventListener('resize', refresh);
+    shell.classList.remove('pams-layout-check');
+  };
+}
 
 const mounted = new WeakMap();
 
@@ -23,6 +74,7 @@ export function mount(root, context) {
   if (current) return current;
   const {get, renderExplanation, openSheet, closeSheet, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
   const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
+  const unbindLayoutCheck = bindLayoutCheck(root, win);
   const find = id => root.querySelector(`#${id}`);
   const row = find('moreIssues');
   const label = find('moreIssueText');
@@ -144,6 +196,7 @@ export function mount(root, context) {
     if (!alive) return;
     alive = false;
     reads.dispose();
+    unbindLayoutCheck();
     if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
     accountRetry?.removeEventListener('click', onAccountRetry);

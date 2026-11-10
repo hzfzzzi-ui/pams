@@ -141,6 +141,20 @@ try {
   await editor.blur();
   await mobile.waitForFunction(() => !document.body.style.getPropertyValue('--pams-visible-bottom'));
   assert.equal(await navBottom(),844);
+
+  await mobile.locator('[data-page="more.html"]').click();
+  await mobile.locator('[data-page="more.html"][aria-current]').waitFor();
+  const moreFrame = mobile.frameLocator('#page-content');
+  await moreFrame.locator('#moreAdvanced > summary').click();
+  await moreFrame.locator('.moreSystem > summary').click();
+  await moreFrame.locator('#moreLayoutCheck > summary').click();
+  const metrics = moreFrame.locator('#moreLayoutMetrics');
+  await metrics.getByText('主屏幕 App', {exact:true}).waitFor();
+  assert.deepEqual((await metrics.locator('dd').allTextContents()).slice(2, 5), ['490 px','844 px','844 px']);
+  assert.equal(await mobile.locator('.pams-shell.pams-layout-check').count(),1);
+  await mobile.locator('[data-page="investments.html"]').click();
+  await mobile.locator('[data-page="investments.html"][aria-current]').waitFor();
+  assert.equal(await mobile.locator('.pams-shell.pams-layout-check').count(),0);
   await mobile.close();
 
   // Chart.js is optional for the holding list and ledger stream, and a

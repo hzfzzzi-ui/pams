@@ -30,6 +30,15 @@ html {
 }
 .pams-viewport { min-height: 0; }
 #page-content { display: block; width: 100%; height: 100%; border: 0; background: var(--pams-bg-canvas); }
+.pams-shell.pams-layout-check::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: var(--pams-info);
+  pointer-events: none;
+  z-index: 2;
+}
 .pams-primary-nav {
   --nav-padding: 5px;
   --nav-selection: rgba(255, 255, 255, .15);
