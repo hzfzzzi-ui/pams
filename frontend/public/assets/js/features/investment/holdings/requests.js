@@ -1,7 +1,6 @@
 import { readFallback } from '../../../shared/read_scope.js';
 
-// Preserve the original fourteen summary and four list reads, URL parameters,
-// optional fallbacks and fresh-summary sharing. No financial aggregation here.
+// Summary and list reads share available view payloads and retain legacy fallbacks.
 function selectPart(view, name, legacy) {
   return view ? view.then(data => data ? data[name] : legacy()) : legacy();
 }
@@ -45,7 +44,6 @@ export function readListInputs({ get: jget, withClosedParam, onHoldings, onSuppl
   return Promise.all([
     holdings,
     selectPart(loadAccountView?.(), 'overview', () => jget('/api/accounts/overview')).catch(fallback),
-    jget('/api/fx-rates/latest?base_currency=CNY').catch(fallback),
     jget('/api/ibkr/performance').catch(error => error.status === 404 ? null : fallback(error)),
   ]);
 }

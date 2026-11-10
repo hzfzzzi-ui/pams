@@ -104,7 +104,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
     try {
       let sourceRows = [];
       let supplementFailed = false;
-      const [holdings, accountOverview, fxData, ibkrPerf] = await readListInputs({
+      const [holdings, accountOverview, ibkrPerf] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
         loadHoldingView: context.loadHoldingView,
         loadAccountView: context.loadAccountView,
@@ -123,16 +123,11 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
       });
       if (!scope.active) return;
 
-  const fxRates = { CNY: 1 };
-  for (const r of fxData?.rates || []) {
-    fxRates[r.quote_currency] = Number(r.rate);
-  }
-
       if (remembered && supplementFailed) {
         showRememberedData(refreshNote, 'failed');
         return;
       }
-      const accountCashRows = buildAccountCashRows(accountOverview, fxRates, ibkrPerf);
+      const accountCashRows = buildAccountCashRows(accountOverview, ibkrPerf);
       const rows = [...sourceRows, ...accountCashRows];
       setupHoldingGroupFilter(rows);
       document.getElementById('asof').textContent = holdings.as_of || '--';

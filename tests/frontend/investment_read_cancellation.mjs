@@ -15,7 +15,7 @@ for (const kind of ['summary', 'list']) {
     reads.push({path, options});
     return path === finalPath ? last.promise : Promise.resolve({synthetic: path});
   });
-  assert.equal(reads.length, summary ? 14 : 4);
+  assert.equal(reads.length, summary ? 14 : 3);
   if (summary) {
     assert.equal(reads[0].path, '/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true');
     assert.equal(reads[12].summary, true);
@@ -32,4 +32,4 @@ for (const kind of ['summary', 'list']) {
   assert.match(ordinary[0].synthetic, /^\/holdings\//);
   await assert.rejects(run(path => path.startsWith('/holdings/') ? Promise.reject(new Error('required unavailable')) : Promise.resolve({})), /required unavailable/);
 }
-console.log('Investment reads: fourteen/four dependency shape, fresh summary position, optional cancellation and ordinary/required failure semantics passed.');
+console.log('Investment reads: fourteen/three dependency shape, fresh summary position, optional cancellation and ordinary/required failure semantics passed.');
