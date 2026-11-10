@@ -419,19 +419,24 @@ def _apply_daily_close_balance(cur, row: dict[str, Any], *, base_currency: str, 
     from domain.investments.valuation_nav import daily_close_account_identity, daily_close_nav_bucket, daily_close_value_metadata
 
     if (row["account_code"] != "ibkr" or row.get("truth_source") != "ibkr_flex"
-            or selected_source not in {None, "platform_snapshot"} or not daily_close.configured()):
+            or selected_source not in {None, "platform_snapshot"}):
+        return
+    evidence = daily_close.read_published_portfolio_series(cur)
+    if evidence is None and not daily_close.configured():
         return
     try:
         day = Date.fromisoformat(str(row["as_of"])[:10])
     except (TypeError, ValueError):
         row["daily_close"] = {"status": "unconfirmed", "reasons": ["missing_account_date"]}
         return
-    close = daily_close.read_close(as_of=day)
+    close = (evidence.get("daily_closes", {}).get(day.isoformat(), evidence)
+             if evidence is not None else daily_close.read_close(as_of=day))
     if close.get("status") != "ok" or close.get("as_of") != day.isoformat():
         row["daily_close"] = {"status": "unconfirmed", "as_of": day.isoformat(),
                               "reasons": close.get("reasons") or ["closing_scope_mismatch"]}
         return
-    identity = daily_close_account_identity(cur, source_account_id=close["account_id"], as_of=day)
+    identity = (close["identity_evidence"] if evidence is not None else
+                daily_close_account_identity(cur, source_account_id=close["account_id"], as_of=day))
     if identity["status"] != "ok":
         row["daily_close"] = {"status": "unconfirmed", "as_of": day.isoformat(),
                               "reasons": identity["reasons"], "identity_evidence": identity}

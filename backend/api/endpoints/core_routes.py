@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 
 from collectors.open_exchange_rates import fetch_usd_rates
 from domain.market.fx_rates import (
-    OPEN_EXCHANGE_RATES_SOURCE, REFRESH_CURRENCIES, has_official_usd_cny,
+    OPEN_EXCHANGE_RATES_SOURCE, REFRESH_CURRENCIES, has_finalized_daily_fx, has_official_usd_cny,
     store_daily_fx_rates, store_official_fx_rate,
 )
 
@@ -125,7 +125,7 @@ def create_core_router(
 
 
     @router.post("/api/fx-rates/refresh")
-    def refresh_fx_rates(as_of: date | None = None):
+    def refresh_fx_rates(as_of: date | None = None, finalized: bool = False):
         """Refresh the requested UTC business date from Open Exchange Rates."""
         from domain.imports.isolation import source_mode
 
@@ -135,6 +135,15 @@ def create_core_router(
         day = as_of or today
         if day > today:
             raise HTTPException(status_code=400, detail="FX date is in the future")
+        if finalized:
+            if day >= today:
+                raise HTTPException(status_code=400, detail="Finalized FX requires a completed UTC date")
+            with closing(get_conn()) as conn, conn:
+                conn.set_session(readonly=True)
+                with conn.cursor() as cur:
+                    if has_finalized_daily_fx(cur, day):
+                        return json({"success": True, "as_of": day.isoformat(), "source": OPEN_EXCHANGE_RATES_SOURCE,
+                                     "stored": len(REFRESH_CURRENCIES) ** 2})
         app_id = os.environ.get("PAMS_OPEN_EXCHANGE_RATES_APP_ID", "").strip()
         if not app_id:
             raise HTTPException(status_code=503, detail="Open Exchange Rates is not configured")
@@ -142,7 +151,7 @@ def create_core_router(
             usd_rates = fetch_usd_rates(day, today=today, app_id=app_id, currencies=REFRESH_CURRENCIES)
             with get_conn() as conn:
                 with conn.cursor() as cur:
-                    rates = store_daily_fx_rates(cur, day=day, usd_rates=usd_rates)
+                    rates = store_daily_fx_rates(cur, day=day, usd_rates=usd_rates, historical=finalized)
                 conn.commit()
         except (ValueError, ArithmeticError) as exc:
             raise HTTPException(status_code=502, detail="Open Exchange Rates returned unusable rates") from exc

@@ -216,13 +216,59 @@ def read_series(*, account_id: str | None = None, evidence: dict[str, Any] | Non
             return {**_unavailable("account_mismatch"), "daily_closes": {}}
         result = copy.deepcopy(_cached_series(text, account, digest))
         cutoff = _date(evidence["as_of"]).isoformat()
-        if not result["daily_closes"] or max(result["daily_closes"]) != cutoff:
+        if not result["daily_closes"]:
+            return result
+        if max(result["daily_closes"]) != cutoff:
             return {**_unavailable("manifest_closing_date_mismatch"), "daily_closes": {}}
         return {**result, "account_id": account, "as_of": cutoff}
     except report_state.ReportRejected as exc:
         return {**_unavailable(str(exc)), "daily_closes": {}}
     except (KeyError, TypeError, ValueError, UnicodeError):
         return {**_unavailable("invalid_evidence"), "daily_closes": {}}
+
+
+def read_published_portfolio_series(cur) -> dict[str, Any] | None:
+    """Read full NAV evidence from the official, account-bound Flex archive."""
+    account = os.environ.get("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", "").strip()
+    if not account:
+        return None
+    cur.execute("""SELECT to_regclass('public.source_records') IS NOT NULL
+                   AND to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready""")
+    if not cur.fetchone()["ready"]:
+        return None
+    cur.execute("""SELECT r.period_end, r.sha256, a.base_currency, a.active
+        FROM public.source_records r JOIN public.pams_accounts a USING (account_code)
+        WHERE r.account_code='ibkr' AND r.source_name='ibkr_daily_holdings'
+          AND r.acquisition_method='api' AND r.document_type='holding' AND r.file_format='xml'
+          AND r.status='published' AND r.period_start=r.period_end
+        ORDER BY r.period_end DESC LIMIT 2""")
+    archives = cur.fetchall()
+    if not archives:
+        return None
+    archive = archives[0]
+    day, digest = archive["period_end"], archive["sha256"]
+    identity = {"status": "ok", "basis": "configured_published_flex_account",
+                "authentication": "unknown"}
+    unavailable = {"daily_closes": {}, "status": "unavailable"}
+    if not archive["active"] or len(archives) > 1 and archives[1]["period_end"] == day:
+        return {**unavailable, "reasons": ["archive_account_inactive_or_ambiguous"]}
+    cur.execute("SELECT content FROM public.ibkr_source_originals WHERE sha256=%s", (digest,))
+    original = cur.fetchone()
+    if original is None:
+        return {**unavailable, "reasons": ["missing_archive_original"]}
+    try:
+        text = bytes(original["content"]).decode("utf-8")
+    except UnicodeError:
+        return {**unavailable, "reasons": ["invalid_archive_original"]}
+    result = read_series(account_id=account, evidence={"status": "ok", "account_id": account,
+                         "as_of": day, "sha256": digest, "xml_text": text})
+    for key, close in result["daily_closes"].items():
+        if close.get("status") == "ok":
+            if close["base_currency"] != archive["base_currency"]:
+                result["daily_closes"][key] = _unavailable("archive_base_currency_mismatch")
+            else:
+                close["identity_evidence"] = {**identity, "as_of": key}
+    return result
 
 
 def historical_rate(cur, *, currency: str, base_currency: str, as_of: date) -> Decimal | None:
