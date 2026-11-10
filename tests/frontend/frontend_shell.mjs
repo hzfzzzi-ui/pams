@@ -119,12 +119,20 @@ try {
   });
   assert.equal(await navBottom(),844);
 
-  // Standalone iOS can retain a shortened visual viewport after dismissing
-  // the keyboard. Exercise an input inside the same iframe users edit in.
+  // Cold-start the standalone app with a shortened dynamic viewport.
+  // Simulate a browser that exposes the larger height through lvh before touch.
+  await mobile.addInitScript(() => { window.testStandalone = true; });
+  await mobile.route(/\/app-shell\.css$/, async route => {
+    const response = await route.fetch();
+    const css = (await response.text()).replace('100dvh', '760px');
+    await route.fulfill({response, body: css});
+  });
+  await mobile.reload();
+  await mobile.locator('[data-page="investments.html"][aria-current]').waitFor();
+  assert.equal(await navBottom(),844);
+
+  // Exercise keyboard dismissal inside the same iframe users edit in.
   await mobile.evaluate(() => {
-    window.testStandalone = true;
-    Object.assign(window.testViewport, {scale:1, offsetTop:0, height:760});
-    window.testViewport.dispatchEvent(new Event('resize'));
     const doc = document.getElementById('page-content').contentDocument;
     const input = doc.createElement('input');
     input.id = 'viewport-test-editor';

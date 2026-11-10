@@ -17,6 +17,8 @@ function isEditingText() {
 }
 
 function fitVisibleViewport() {
+  const iosStandalone = navigator.standalone === true;
+  document.body.toggleAttribute('data-ios-standalone', iosStandalone);
   const viewport = window.visualViewport;
   if (!viewport) return () => {};
   const standalone = window.matchMedia('(display-mode: standalone)');
@@ -25,7 +27,7 @@ function fitVisibleViewport() {
     const bottom = viewport.offsetTop + viewport.height;
     // An installed app has no retractable Safari toolbar. Ignore its visual
     // viewport after keyboard dismissal, even if WebKit still reports it short.
-    const installed = navigator.standalone === true || standalone.matches;
+    const installed = iosStandalone || standalone.matches;
     const keyboard = installed && document.documentElement.clientHeight - viewport.height >= 120 && isEditingText();
     if (viewport.scale !== 1 || !Number.isFinite(bottom) || viewport.height <= 0 || (installed && !keyboard)) {
       document.body.style.removeProperty('--pams-visible-bottom');
