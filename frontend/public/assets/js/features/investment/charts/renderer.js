@@ -64,7 +64,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         backgroundColor: `${spec.color}1a`,
         tension: 0.25,
         fill: false,
-        pointRadius: sectionData.pointRadius,
+        pointRadius: context => sectionData.bridgeIndices?.has(context.dataIndex) ? 0 : sectionData.pointRadius,
+        pointHitRadius: context => sectionData.bridgeIndices?.has(context.dataIndex) ? 0 : 4,
+        bridgeIndices: sectionData.bridgeIndices,
         borderWidth: 1.8,
         hidden: true,
         spanGaps: false,
@@ -142,6 +144,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         plugins: {
           legend: { display: false },
           tooltip: {
+            filter: ctx => !ctx.dataset.bridgeIndices?.has(ctx.dataIndex),
             callbacks: {
               label: (ctx) => {
                 const date = ctx.label;
@@ -232,7 +235,6 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const labels = chartData?.labels || [];
     const visibleDatasets = (chartData?.datasets || [])
       .filter(dataset => !dataset.hidden && dataset.returnSeriesKey !== 'events')
-      .filter(dataset => !(dataset.data || []).some(value => value == null))
       .map(dataset => ({
         ...dataset,
         values: (dataset.data || []).filter(value => value != null).map(value => Number(value)).filter(value => Number.isFinite(value)),
@@ -268,14 +270,20 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const values = dataset.data || [];
       ctx.beginPath();
       let hasPoint = false;
+      let inSegment = false;
       values.forEach((value, index) => {
+        if (value == null) {
+          inSegment = false;
+          return;
+        }
         const n = Number(value);
         if (!Number.isFinite(n)) return;
         const x = xAt(index);
         const y = yAt(n);
-        if (!hasPoint) {
+        if (!inSegment) {
           ctx.moveTo(x, y);
           hasPoint = true;
+          inSegment = true;
         } else {
           ctx.lineTo(x, y);
         }
@@ -669,7 +677,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const sectionData = windowData.sectionDataByKey.get(dataset.returnSeriesKey);
       if (sectionData) {
         dataset.data = sectionData.data;
-        dataset.pointRadius = sectionData.pointRadius;
+        dataset.bridgeIndices = sectionData.bridgeIndices;
+        dataset.pointRadius = context => sectionData.bridgeIndices.has(context.dataIndex) ? 0 : sectionData.pointRadius;
+        dataset.pointHitRadius = context => sectionData.bridgeIndices.has(context.dataIndex) ? 0 : 4;
       }
     });
     showAvailableReturnSeries(chart.data.datasets);

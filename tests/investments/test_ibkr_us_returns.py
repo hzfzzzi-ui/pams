@@ -51,6 +51,7 @@ def test_cny_us_sleeve_checks_contracts_and_uses_broker_dates():
     assert _payload(values, flows, {FRIDAY: Decimal(7)}, **kwargs) is None
     result = _payload(values, flows, {FRIDAY: Decimal(7), MONDAY: Decimal(7)}, **kwargs)
     assert [row['date'] for row in result['rows']] == [str(FRIDAY), str(MONDAY)]
+    assert result['chart_gap_dates'] == {'2026-03-07': 'closed', '2026-03-08': 'closed'}
     assert Decimal(result['rows'][-1]['net_flow']) == Decimal(364)
     assert Decimal(result['summary']['total_return']) == Decimal(63)
     assert Decimal(result['summary']['total_return_rate']) == Decimal('0.18')
@@ -72,3 +73,12 @@ def test_cny_us_sleeve_checks_contracts_and_uses_broker_dates():
     positions[MONDAY]['1']['quantity'] = Decimal(3)
     with pytest.raises(ValueError, match='reproduce broker quantities'):
         _native_inputs(positions, candidates)
+
+
+def test_unobserved_session_remains_distinct_from_market_closure():
+    tuesday = date(2026, 3, 10)
+    result = _payload({FRIDAY: Decimal(100), tuesday: Decimal(110)}, {},
+                      {FRIDAY: Decimal(7), tuesday: Decimal(7)},
+                      start=FRIDAY, through=tuesday, interval='daily', owner_ratio=Decimal(1))
+    assert result['chart_gap_dates'] == {'2026-03-07': 'closed', '2026-03-08': 'closed',
+                                         '2026-03-09': 'missing'}

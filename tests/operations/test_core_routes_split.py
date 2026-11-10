@@ -103,7 +103,7 @@ def test_fx_refresh_preserves_origin_guard_and_synthetic_write(prepared, monkeyp
     assert result.json()["stored"] == 64
     assert len(statements) == 64 and conn.committed
     assert all("INSERT INTO pams_fx_rates_daily" in sql for sql, _ in statements)
-    quotes = {(base, quote): rate for _, (_, base, quote, rate, _) in statements}
+    quotes = {(params[1], params[2]): params[3] for _, params in statements}
     assert quotes["CNY", "USD"] == Decimal("7")
     assert quotes["CNY", "MXN"] == Decimal("0.35")
     assert quotes["USD", "CNY"] == Decimal("0.14285714")

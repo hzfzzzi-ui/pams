@@ -43,6 +43,8 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
     rows,
     sectionRowsByKey,
     sectionEstimates,
+    sectionGapDates: new Map(sectionSpecs.map((spec, index) =>
+      [spec.key, sectionResponses[index]?.chart_gap_dates])),
     sectionReasons: new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.reason])),
     sectionSpecs,
     events: buildReturnEvents(rows),
@@ -64,6 +66,7 @@ export function updateVisibleReturnState(state) {
     state.isMobile,
     state.events,
     state.sectionEstimates,
+    state.sectionGapDates,
   );
   state.visibleRows = windowData.rows;
   state.visibleEvents = windowData.visibleEvents;

@@ -140,3 +140,41 @@ def test_snapshot_post_conflict_rolls_back_and_returns_retryable_response(empty_
             with psycopg2.connect(**empty_source_db) as check,check.cursor() as cur:
                 cur.execute("SELECT count(*) FROM pams_fx_rates_daily WHERE source='test'")
                 assert cur.fetchone()[0]==0
+
+
+def test_us_snapshot_requires_the_requested_verified_broker_day(empty_source_db, monkeypatch):
+    import main
+
+    target = date(2026, 11, 9)
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+    monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(main.accounts_endpoint, '_overview_payload', lambda **_: {'accounts': []})
+    monkeypatch.setattr(main, '_investment_return_view_as_of', lambda _: target)
+    monkeypatch.setattr(main, '_apply_section_holdings_pnl_overlay', lambda _, **kwargs: kwargs['payload'])
+    row = dict.fromkeys(('market_value', 'net_flow', 'cumulative_capital', 'capital_return_rate',
+                         'daily_return_rate', 'time_weighted_return_rate', 'display_return_rate'), '0')
+    payload = {'status': 'available', 'source_through': '2026-11-06', 'missing_fx_date': str(target),
+               'fx_source': 'openexchangerates', 'rows': [dict(row, date='2026-11-06')]}
+    monkeypatch.setattr(main, '_build_section_return_series_payload', lambda *_, **__: payload)
+    url = f'/investment/section-return-series/snapshot?section=us_stock&expected_through={target}'
+
+    with TestClient(main.app) as web:
+        assert web.post(url).json() == {
+            'status': 'blocked', 'source_through': '2026-11-06', 'missing_fx_date': str(target),
+        }
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM valuation_results WHERE result_type='holding_return'")
+            assert cur.fetchone()[0] == 0
+
+        payload['source_through'] = str(target)
+        payload.pop('missing_fx_date')
+        payload['rows'].append(dict(row, date=str(target)))
+        response = web.post(url)
+        assert response.status_code == 200, response.text
+        assert response.json()['source_through'] == str(target)
+        assert response.json()['written'] == 2
+        assert web.post(url).json()['written'] == 2
+        with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*), max(snapshot_date) FROM valuation_results WHERE result_type='holding_return'")
+            assert cur.fetchone() == (2, target)
