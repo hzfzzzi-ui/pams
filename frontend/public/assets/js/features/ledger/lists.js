@@ -2,6 +2,7 @@ import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as n
 import { accountInstitution } from '../../shared/account_institutions.js';
 import { categoryIconPath } from './category_icons.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
+import { renderLedgerDays } from './days.js';
 
 const accountGlyph = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>';
 
@@ -9,9 +10,6 @@ function accountAvatar(groupCode) {
   const { logoUrl } = accountInstitution(groupCode);
   return logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : accountGlyph;
 }
-
-const dayLabel = new Intl.DateTimeFormat('zh-CN', {month:'long', day:'numeric', timeZone:'UTC'});
-const weekdayLabel = new Intl.DateTimeFormat('zh-CN', {weekday:'short', timeZone:'UTC'});
 
 export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
   reloadRecent = () => renderRecentRows(), loadMore }) {
@@ -267,24 +265,9 @@ function renderRows(id, rows) {
   if (showRowDate) {
     el.innerHTML = rows.map(renderRow).join('');
   } else {
-    const days = new Map();
-    rows.forEach((row, index) => {
-      const date = rowDateText(row);
-      if (!days.has(date)) days.set(date, []);
-      days.get(date).push(renderRow(row, index));
+    el.innerHTML = renderLedgerDays(rows, rowDateText, renderRow, {
+      partialLastDay: state.streamNext != null,
     });
-    el.innerHTML = Array.from(days, ([date, markup], index) => {
-      const day = new Date(date + 'T00:00:00Z');
-      const validDate = Number.isFinite(day.valueOf());
-      const partial = index === days.size - 1 && state.streamNext != null;
-      return `<section class="ledgerStreamDay">
-        <h3 class="ledgerStreamDayHeader">
-          <span>${validDate ? `<time datetime="${escapeHtml(date)}">${dayLabel.format(day)}</time> <small>${weekdayLabel.format(day)}</small>` : '日期未知'}</span>
-          <small>${partial ? '已加载 ' : ''}${markup.length} 笔</small>
-        </h3>
-        ${markup.join('')}
-      </section>`;
-    }).join('');
   }
 
   el.querySelectorAll('.ledgerListRow').forEach((rowEl) => {

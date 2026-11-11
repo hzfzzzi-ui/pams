@@ -22,7 +22,6 @@
     <nav class="ledgerAnchorNav" aria-label="收支模块">
       <a class="is-active" href="#cashflow-workbench" data-ledger-tab="overview">总览</a>
       <a href="#recent-flow-section" data-ledger-tab="recent">流水</a>
-      <a href="#transfers" data-ledger-tab="transfer">内部划转</a>
     </nav>
 <p id="ledgerViewRefresh" class="muted" role="status" hidden></p>
 <div id="err" class="ledgerError"></div>
@@ -39,7 +38,7 @@
 
         <div class="ledgerOverviewCard">
           <div id="ledgerMobileHero" class="ledgerMobileHero"></div>
-          <a class="ledgerOverviewTransfer" href="#transfers" data-ledger-tab="transfer">查看内部划转 <span aria-hidden="true">›</span></a>
+          <a class="ledgerOverviewTransfer" href="#transfers" data-ledger-transfer-link>查看内部划转 <span aria-hidden="true">›</span></a>
         </div>
         <div class="cashflowBodyGrid">
           <div class="ledgerOverviewCard ledgerTrendCard">
@@ -95,32 +94,6 @@
       </section>
     </div>
 
-    <div class="ledgerPanelGroup" data-ledger-panel="transfer" hidden>
-      <section class="ledgerSection ledgerJumpCard" id="transfers">
-        <div class="sectionTitle">
-          <h3>划转汇总</h3>
-          <div class="ledgerTextSwitch" role="group" aria-label="划转统计周期">
-            <button type="button" data-transfer-period="month" aria-pressed="false">本月</button>
-            <button type="button" data-transfer-period="ytd" aria-pressed="true">本年</button>
-            <button type="button" data-transfer-period="history" aria-pressed="false">历史月份</button>
-          </div>
-        </div>
-        <label class="ledgerTransferMonth" id="transferMonthPicker" hidden>选择月份
-          <input id="transferMonth" type="month" required />
-        </label>
-        <div id="transferSummary" class="ledgerTransferSummary" aria-live="polite"></div>
-      </section>
-      <section class="ledgerSection">
-        <div class="sectionTitle"><h3>已确认</h3><span id="transferConfirmedCount" class="muted"></span></div>
-        <div id="transferConfirmed"></div>
-      </section>
-      <section class="ledgerSection">
-        <div class="sectionTitle"><h3>待配对</h3><span id="transferPendingCount" class="muted"></span></div>
-        <p id="transferPairNotice" class="muted" role="status" hidden></p>
-        <div id="transferPending"></div>
-      </section>
-    </div>
-
     <div class="ledgerPanelGroup" data-ledger-panel="recent" hidden>
       <section class="ledgerSection ledgerJumpCard" id="recent-flow-section" aria-label="流水">
         <div class="ledgerRecentBar">
@@ -130,7 +103,7 @@
             <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="expense" aria-pressed="false">消费</button>
             <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="internal_transfer" aria-pressed="false">内部划转</button>
           </div>
-          <div class="ledgerSectionToolbar">
+          <div class="ledgerSectionToolbar" id="recentStreamToolbar">
             <div class="ledgerPopoverControl" id="recentPeriodControl">
               <button id="recentPeriodToggle" class="ledgerIconButton" type="button"
                 aria-label="流水时间范围" aria-expanded="false" aria-controls="recentPeriodForm">
@@ -178,8 +151,37 @@
             </div>
           </div>
         </div>
-        <div class="ledgerStreamPeriod"><span id="recentPeriodLabel">年初至今</span><span id="recentAccountLabel"></span></div>
+        <div class="ledgerStreamPeriod" id="recentStreamScope"><span id="recentPeriodLabel">年初至今</span><span id="recentAccountLabel"></span></div>
+        <div id="transferReviewActions" class="ledgerTransferReviewActions" hidden>
+          <button type="button" data-transfer-review="confirmed" aria-expanded="false" aria-controls="transferReviewPanel">已确认</button>
+          <button type="button" data-transfer-review="pending" aria-expanded="false" aria-controls="transferReviewPanel">待配对</button>
+        </div>
         <div id="recentRows" class="ledgerList"></div>
+        <div id="transferReviewPanel" hidden>
+          <section class="ledgerSection ledgerJumpCard" id="transfers">
+            <div class="sectionTitle">
+              <h3>划转汇总</h3>
+              <div class="ledgerTextSwitch" role="group" aria-label="划转统计周期">
+                <button type="button" data-transfer-period="month" aria-pressed="false">本月</button>
+                <button type="button" data-transfer-period="ytd" aria-pressed="true">本年</button>
+                <button type="button" data-transfer-period="history" aria-pressed="false">历史月份</button>
+              </div>
+            </div>
+            <label class="ledgerTransferMonth" id="transferMonthPicker" hidden>选择月份
+              <input id="transferMonth" type="month" required />
+            </label>
+            <div id="transferSummary" class="ledgerTransferSummary" aria-live="polite"></div>
+          </section>
+          <section class="ledgerSection" id="transferConfirmedSection">
+            <div class="sectionTitle"><h3>已确认</h3><span id="transferConfirmedCount" class="muted"></span></div>
+            <div id="transferConfirmed"></div>
+          </section>
+          <section class="ledgerSection" id="transferPendingSection" hidden>
+            <div class="sectionTitle"><h3>待配对</h3><span id="transferPendingCount" class="muted"></span></div>
+            <p id="transferPairNotice" class="muted" role="status" hidden></p>
+            <div id="transferPending"></div>
+          </section>
+        </div>
       </section>
     </div>
   </div>
