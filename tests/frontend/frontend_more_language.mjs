@@ -106,6 +106,9 @@ try{
   assert.equal(target.searchParams.get('scope'),'account');
   assert.equal(target.searchParams.get('return'),'more.html?account=fixture_debit#account-center');
   assert.equal(await page.locator('[data-account-code="fixture_card"] .accountSyncImport').isDisabled(),true);
+  const importOffsets = await page.locator('.accountInstitutionPanel:visible .accountSyncImport').evaluateAll(actions =>
+    actions.map(action => action.parentElement.getBoundingClientRect().right - action.getBoundingClientRect().right));
+  assert.deepEqual(importOffsets, [0, 0]);
   assert.deepEqual(calls.slice(before).sort(),['/api/holdings/by-account','/api/portfolio/data-quality','/api/sync/accounts']);
   await child.waitFor({state:'visible'});
   assert.equal(await page.locator('.accountInstitutionButton').count(),3);
