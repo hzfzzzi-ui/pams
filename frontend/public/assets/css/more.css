@@ -65,8 +65,8 @@ body.page-more .moreSystem :is(dt,dd) { margin: 0; overflow-wrap: anywhere; }
 body.page-more .moreSystem dt { color: var(--pams-text-muted); }
 body.page-more .moreSystem dd { color: var(--pams-text-secondary); font-family: inherit; }
 body.page-more :is(a,summary):focus-visible { outline: 2px solid var(--pams-info); outline-offset: 2px; }
-body.page-more .accountSyncImport {
-  display: flex; width: fit-content; min-height: 44px; margin-inline-start: auto;
+body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
+  display: flex; width: fit-content; min-height: 44px; margin-inline: auto 0;
   align-items: center; padding: 0; border: 0; background: none;
   color: var(--pams-text-primary); font: 600 14px var(--pams-font-sans); text-decoration: none;
 }
