@@ -58,13 +58,22 @@ def parse(content, filename, profile, kind, mapping=None):
     return parse_document(content, filename, profile, kind, mapping)
 
 
+def supported_import_modes(account_code, statement_accounts):
+    if account_code == "tencent_licaitong":
+        return ("ocr",)
+    if account_code in PROFILES or account_code in statement_accounts:
+        return ("upload", "ocr", "manual")
+    return ()
+
+
 def context(cur) -> dict:
     from domain.investments.portfolio_state import _load_accounts_config
 
     cur.execute("SELECT account_code,display_name,base_currency FROM pams_accounts WHERE active ORDER BY account_code")
     all_accounts = [dict(r) for r in cur.fetchall()]
     config = _load_accounts_config()
-    sources = {**{key: statement.public_profile(key) for key in statement.profiles()},
+    statement_accounts = statement.profiles()
+    sources = {**{key: statement.public_profile(key) for key in statement_accounts},
                **{key: {**value, "profile": key, "kinds": ["trade", "holding"]} for key, value in PROFILES.items()}}
     accounts = []
     for row in all_accounts:
@@ -74,7 +83,8 @@ def context(cur) -> dict:
         group_code, group_label, label = account_display(config, code, row["display_name"])
         accounts.append({**sources[code], "account_code": code, "label": row["display_name"],
                          "currency": row["base_currency"], "selection_label": label,
-                         "group_code": group_code, "group_label": group_label})
+                         "group_code": group_code, "group_label": group_label,
+                         "import_modes": supported_import_modes(code, statement_accounts)})
     return {"accounts": accounts, "counter_accounts": norm(all_accounts),
             "profiles": [{"profile": key, **value} for key, value in PROFILES.items()]}
 

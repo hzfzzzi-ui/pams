@@ -65,7 +65,12 @@ body.page-more .moreSystem :is(dt,dd) { margin: 0; overflow-wrap: anywhere; }
 body.page-more .moreSystem dt { color: var(--pams-text-muted); }
 body.page-more .moreSystem dd { color: var(--pams-text-secondary); font-family: inherit; }
 body.page-more :is(a,summary):focus-visible { outline: 2px solid var(--pams-info); outline-offset: 2px; }
-body.page-more #moreImport { display: flex; width: fit-content; margin-inline-start: auto; align-items: center; min-height: 44px; color: var(--pams-text-primary); }
+body.page-more .accountSyncImport {
+  display: flex; width: fit-content; min-height: 44px; margin-inline-start: auto;
+  align-items: center; padding: 0; border: 0; background: none;
+  color: var(--pams-text-primary); font: 600 14px var(--pams-font-sans); text-decoration: none;
+}
+body.page-more .accountSyncImport:disabled { color: var(--pams-text-muted); cursor: default; }
 body.page-more #accountSyncPanel .accountSyncNameButton { min-height: 44px; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 body.page-more .accountCenterActions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 body.page-more .accountCenterActions a { display: inline-flex; align-items: center; min-height: 44px; }

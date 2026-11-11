@@ -13,7 +13,7 @@ await page.addInitScript(() => Object.defineProperty(navigator, 'connection', {
 let status='ok', accountUnavailable=false, reviewUnavailable=false, holdingsUnavailable=false;
 const sync = {groups: [
   {code:'ccb',label:'合成银行',rows:[
-    {label:'合成人民币',active:true,currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
+    {account_code:'fixture_debit',label:'合成人民币',can_import:true,active:true,currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
     {account_code:'fixture_card',label:'合成信用卡',currency:'CNY',summary:{status:'review',balance_amount:'-1286.40',
       review_reasons:[{kind:'duplicates',count:101}]}},
   ]},
@@ -99,7 +99,13 @@ try{
   assert.equal(wrap.gutter,investment.wrap.gutter);assert.ok(wrap.width<=430);assert.equal(await page.locator('.moreHub').evaluate(n=>getComputedStyle(n).display),'block');
   assert.equal(await page.locator('.nav a').count(),0);
   assert.equal(await page.locator('#moreAssetManagement,[data-account-tab],a[href^="accounts.html"]').count(),0);
-  await page.getByRole('link',{name:'导入资料',exact:true}).waitFor();
+  const importAction=page.getByRole('link',{name:'导入资料 · 合成人民币',exact:true});
+  await importAction.waitFor();
+  const target=new URL(await importAction.getAttribute('href'),page.url());
+  assert.equal(target.searchParams.get('account'),'fixture_debit');
+  assert.equal(target.searchParams.get('scope'),'account');
+  assert.equal(target.searchParams.get('return'),'more.html?account=fixture_debit#account-center');
+  assert.equal(await page.locator('[data-account-code="fixture_card"] .accountSyncImport').isDisabled(),true);
   assert.deepEqual(calls.slice(before).sort(),['/api/holdings/by-account','/api/portfolio/data-quality','/api/sync/accounts']);
   await child.waitFor({state:'visible'});
   assert.equal(await page.locator('.accountInstitutionButton').count(),3);
@@ -122,7 +128,7 @@ try{
   ]) {
     assert.deepEqual(await page.locator(`[data-account-code="${code}"] .accountSyncMetadata > *`).allTextContents(), values);
   }
-  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p):not(.accountSyncNameButton)').count(),1);
+  assert.equal(await page.locator('#accountSyncPanel article :is(button,a,details,p):not(.accountSyncNameButton,.accountSyncImport)').count(),1);
   const review=page.getByRole('button',{name:'合成信用卡：待核查'});
   const sheet=page.getByRole('dialog');
   await page.getByRole('button',{name:'合成人民币',exact:true}).click();

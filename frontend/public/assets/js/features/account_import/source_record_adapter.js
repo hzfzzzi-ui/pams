@@ -35,8 +35,8 @@ export function createSourceRecordAdapter(request, recovery) {
     load,
     context:() => request('/source-records/context'),
     assets:query => request(`/source-records/assets?q=${encodeURIComponent(query)}`),
-    async history() {
-      const data = await request('/source-records?limit=20');
+    async history(params) {
+      const data = await request('/source-records?' + params);
       return {rows:(data.sources || []).map(source => ({batch_id:source.source_id,
         account_code:source.account_code,status:source.status,revision:source.revision,updated_at:source.updated_at}))};
     },

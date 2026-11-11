@@ -33,6 +33,11 @@ export function accountCenterHref(account = '', review = false) {
   return 'more.html' + (params.size ? '?' + params : '') + '#account-center';
 }
 
+export function subaccountImportHref(account) {
+  const params = new URLSearchParams({account, scope: 'account', return: accountCenterHref(account)});
+  return 'account_import.html?' + params;
+}
+
 export function canonicalContent(url) {
   if (!url.pathname.endsWith('/accounts.html') || Object.hasOwn(ACCOUNT_TASKS, url.searchParams.get('task'))) return url;
   return new URL(accountCenterHref(url.searchParams.get('account')), url);

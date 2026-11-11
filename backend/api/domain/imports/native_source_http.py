@@ -76,13 +76,14 @@ def create(cur, account_code, mode, kind, completeness):
     return batch(cur, key)
 
 
-def list_batches(cur, limit):
+def list_batches(cur, limit, account_code=None):
     native._require(cur)
     cur.execute("""SELECT b.batch_id,b.account_code,b.acquisition_method AS mode,b.business_type AS kind,
         b.completeness,b.status,b.revision,b.created_at,b.updated_at,count(i.source_item_id) AS row_count
         FROM source_batches b LEFT JOIN source_items i ON i.batch_id=b.batch_id
         WHERE b.workflow='account_import' AND b.status <> 'voided'
-        GROUP BY b.batch_id ORDER BY b.created_at DESC LIMIT %s""", (limit,))
+          AND (%s::text IS NULL OR b.account_code=%s)
+        GROUP BY b.batch_id ORDER BY b.created_at DESC LIMIT %s""", (account_code, account_code, limit))
     return {'rows': store.norm([dict(row) for row in cur.fetchall()])}
 
 

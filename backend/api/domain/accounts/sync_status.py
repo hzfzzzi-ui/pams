@@ -10,6 +10,8 @@ from domain.accounts.account_identity import account_display
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net
+from domain.imports.account_import_statement import profiles as statement_profiles
+from domain.imports.account_import_store import supported_import_modes
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
@@ -128,6 +130,7 @@ def review_records(cur, config, account_code, kind, offset):
 def read_account_sync(cur, config):
     cur.execute('SELECT account_code, active FROM public.pams_accounts')
     registered = {row['account_code']: row['active'] for row in cur.fetchall()}
+    statement_accounts = statement_profiles()
     excluded = _excluded_accounts(config) | {'ibkr_in_transit_mxn'}
     accounts = {code: cfg for code, cfg in config.get('accounts', {}).items() if code not in excluded}
     active = [code for code, cfg in accounts.items() if code != 'ccb_fund_subscription_pending'
@@ -179,7 +182,7 @@ def read_account_sync(cur, config):
         row = {
             'account_code': code, 'label': label,
             'currency': cfg.get('base_currency', 'CNY'), 'active': code in active,
-            'can_import': bool(code in active and registered.get(code) and code != 'tencent_licaitong'),
+            'can_import': bool(code in active and registered.get(code) and supported_import_modes(code, statement_accounts)),
             'show_investment': cfg.get('account_type') in {'brokerage', 'fund_platform', 'cash_management'} or bool(trades.get(code)),
             'cashflow': _activity(flows[code], 'transaction_date'),
             'source_data': source_status.get(code),

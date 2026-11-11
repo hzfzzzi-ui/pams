@@ -27,7 +27,7 @@ for(const value of [null,{}, {data_quality:{summary:{status:'ok'}}}]) assert.thr
 
 def test_only_hub_scoped_style_and_confirmed_navigation():
     html = (PUBLIC / "more.html").read_text(encoding="utf-8")
-    assert 'href="account_import.html" data-return-route' in html
+    assert 'id="moreImport"' not in html
     assert 'class="statusbar"' not in html and "LIVE" not in html
     assert 'id="moreAdvanced" class="moreAdvanced">' in html
     assert 'id="moreIssues"' in html and 'hidden>' in html

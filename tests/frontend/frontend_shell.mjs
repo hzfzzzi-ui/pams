@@ -428,10 +428,10 @@ try {
   await workflow.getByRole('heading',{name:'余额核准',exact:true}).waitFor();
   await workflow.locator('.accountTabs').waitFor({state:'hidden'});
   await workflow.locator('#accountTaskBack').click();
-  await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).click();
-  await review.getByRole('link',{name:'导入资料'}).click();
+  await workflow.getByRole('link',{name:'导入资料 · 示例储蓄卡'}).click();
   await workflow.getByRole('button',{name:'导入配置',exact:true}).waitFor();
   assert.equal(await workflow.locator('#account').inputValue(),'fixture');
+  assert.equal(await workflow.locator('#account').isDisabled(),true);
   const importFrame = await page.locator('#page-content').boundingBox();
   const importNav = await page.locator('.pams-primary-nav').boundingBox();
   assert.ok(importFrame.y + importFrame.height < importNav.y);
