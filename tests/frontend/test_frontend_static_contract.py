@@ -411,8 +411,11 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
 
     assert 'id="accountFlowRows"' not in html
     assert 'data-ledger-tab="account"' not in html
-    assert 'href="#transfers" data-ledger-tab="transfer">内部划转' in html
-    assert 'href="#transfers" data-ledger-tab="transfer">查看内部划转' in html
+    assert 'data-ledger-tab="transfer"' not in html
+    assert 'href="#transfers" data-ledger-transfer-link>查看内部划转' in html
+    assert 'data-transfer-review="confirmed"' in html
+    assert 'data-transfer-review="pending"' in html
+    assert "'#transfers': 'recent'" in js
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html
     assert 'id="recentSearch" class="formInput" type="search"' not in html
@@ -565,7 +568,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "[row.summary, row.description, row.counterparty].filter(Boolean).join(' / ')" not in js
     assert ".transferRoute" in page_css
     assert ".ledgerStreamCategoryIcon" in page_css
-    assert "ledgerStreamDayHeader" in js
+    assert "ledgerStreamDayHeader" in _read_public("assets/js/features/ledger/days.js")
     assert "ledgerOriginalAmount" in page_css
     assert "jget('/api/ledger/workbench?view=overview', { cache: false, signal })" in js
 

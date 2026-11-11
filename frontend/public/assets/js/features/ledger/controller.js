@@ -71,7 +71,6 @@ function showDetails(title, html) {
 async function loadWorkbench({replay = false, restore = false} = {}) {
   if (!current()) return null;
   if (state.activePanel === 'recent') return loadStream(0, {replay, restore});
-  if (state.activePanel === 'transfer') return null;
   const generation = ++readGeneration;
   clearError();
   const remembered = replay && memory?.read('overview', variant);
@@ -177,6 +176,16 @@ function selectTrendMode(mode) {
   $('trendWeekly')?.setAttribute('aria-pressed', String(mode === 'weekly'));
 }
 
+function selectRecentFlow(flow) {
+  state.recentFlowFilter = flow;
+  root.querySelectorAll('[data-ledger-flow-filter]').forEach(button => {
+    const active = (button.dataset.ledgerFlowFilter || '') === flow;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  $('transferReviewActions').hidden = flow !== 'internal_transfer';
+}
+
 function bindEvents() {
   transfers.bind();
   bindLedgerAnchors();
@@ -203,12 +212,11 @@ function bindEvents() {
   });
   root.querySelectorAll('[data-ledger-flow-filter]').forEach((btn) => {
     events.listen('page', btn, 'click', () => {
-      state.recentFlowFilter = btn.dataset.ledgerFlowFilter || '';
-      root.querySelectorAll('[data-ledger-flow-filter]').forEach((item) => {
-        const active = item === btn;
-        item.classList.toggle('active', active);
-        item.setAttribute('aria-pressed', String(active));
-      });
+      transfers.selectReview();
+      selectRecentFlow(btn.dataset.ledgerFlowFilter || '');
+      if (host.location.hash === '#transfers') {
+        replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.recent}`);
+      }
       loadStream().catch(showError);
     });
   });
@@ -229,8 +237,10 @@ function bindEvents() {
   renderRecentSortButton();
 }
 
-function setLedgerPanel(panel = 'overview') {
+function setLedgerPanel(panel = 'overview', { openTransfers = false } = {}) {
   const previous = state.activePanel;
+  const previousFlow = state.recentFlowFilter;
+  if (openTransfers) selectRecentFlow('internal_transfer');
   state.activePanel = LEDGER_PANEL_HASH[panel] ? panel : 'overview';
   if (state.activePanel !== 'recent') {
     closeRecentPeriod();
@@ -250,25 +260,23 @@ function setLedgerPanel(panel = 'overview') {
     showRefresh();
     if (previous === 'recent') reads.cancel('stream');
     if (previous === 'overview') reads.cancel('workbench');
-    if (previous === 'transfer') reads.cancel('transfers');
   }
-  if (state.activePanel === 'transfer') transfers.load({
-    replay: true,
-    onReplay: initialLoad ? undefined : restoreScroll,
-  });
-  else if (initialLoad && state.activePanel !== previous) loadWorkbench({replay:true}).catch(showError);
+  transfers.selectReview(openTransfers ? 'confirmed' : '');
+  if (initialLoad && (state.activePanel !== previous || state.recentFlowFilter !== previousFlow)) {
+    loadWorkbench({replay:true}).catch(showError);
+  }
 }
 
 function bindLedgerAnchors() {
-  root.querySelectorAll('a[data-ledger-tab]').forEach((link) => {
+  root.querySelectorAll('a[data-ledger-tab], a[data-ledger-transfer-link]').forEach((link) => {
     events.listen('page', link, 'click', (event) => {
       event.preventDefault();
-      const panel = link.dataset.ledgerTab || 'overview';
-      const nextHash = LEDGER_PANEL_HASH[panel] || LEDGER_PANEL_HASH.overview;
+      const panel = link.hasAttribute('data-ledger-transfer-link') ? 'recent' : link.dataset.ledgerTab;
+      const nextHash = link.hash || LEDGER_PANEL_HASH.overview;
       if (host.location.hash !== nextHash) {
         replaceContentAddress(`${host.location.pathname}${host.location.search}${nextHash}`);
       }
-      setLedgerPanel(panel);
+      setLedgerPanel(panel, { openTransfers: nextHash === '#transfers' });
       host.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
@@ -276,7 +284,7 @@ function bindLedgerAnchors() {
     if (RETIRED_ACCOUNT_HASHES.has(host.location.hash)) {
       replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.overview}`);
     }
-    setLedgerPanel(LEDGER_HASH_PANEL[host.location.hash] || 'overview');
+    setLedgerPanel(LEDGER_HASH_PANEL[host.location.hash] || 'overview', { openTransfers: host.location.hash === '#transfers' });
   }
   events.listen('page', host, 'hashchange', selectPanelFromHash);
   selectPanelFromHash();
@@ -290,12 +298,8 @@ function bindLedgerAnchors() {
       if (initialized) return initialLoad;
       initialized = true;
       setActiveNav();
+      selectRecentFlow(state.recentFlowFilter);
       bindEvents();
-      root.querySelectorAll('[data-ledger-flow-filter]').forEach(btn => {
-        const active = (btn.dataset.ledgerFlowFilter || '') === state.recentFlowFilter;
-        btn.classList.toggle('active', active);
-        btn.setAttribute('aria-pressed', String(active));
-      });
       selectTrendMode(state.trendMode);
       events.listen('page', host, 'pagehide', () => controller.dispose());
       initialLoad = loadWorkbench({replay:true, restore:true}).catch(error => { if (current()) showError(error); });

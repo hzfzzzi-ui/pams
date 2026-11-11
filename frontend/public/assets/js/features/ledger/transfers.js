@@ -1,5 +1,6 @@
 import { isReadCancelled } from '../../shared/read_scope.js';
 import { escapeHtml as escape, formatMoneyFixed2 as money } from '../../utils.js';
+import { renderLedgerDays } from './days.js';
 import { confirmTransferPair, readLedgerTransfers, readTransferCandidates } from './requests.js';
 
 const TYPES = {
@@ -31,6 +32,7 @@ function currentBusinessMonth() {
 export function createLedgerTransfers({ root, state, model, dom, events, reads, current, memory, variant, showRefresh = () => {}, reloadWorkbench }) {
   const { $ } = dom;
   let data = null;
+  let review = '';
   let candidates = null;
   let loadingCandidates = false;
   let submitting = false;
@@ -93,7 +95,12 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
   function renderList(element, rows, pending) {
     const limit = pending ? pendingLimit : confirmedLimit;
     const empty = pending ? '本期暂无可核对的配对候选。' : '本期暂无已确认的划转。';
-    element.innerHTML = rows.length ? rows.slice(0, limit).map(row => renderPair(row, pending)).join('') : `<p class="muted">${empty}</p>`;
+    element.innerHTML = rows.length
+      ? renderLedgerDays(rows.slice(0, limit), row => row.match_date, row => renderPair(row, pending), {
+        countUnit: pending ? '个候选' : '对',
+        partialLastDay: limit < rows.length && rows[limit - 1].match_date === rows[limit].match_date,
+      })
+      : `<p class="muted">${empty}</p>`;
     if (rows.length > limit) {
       element.insertAdjacentHTML('beforeend', `<button class="btn ledgerPairMore" type="button"
         data-expand-pairs="${pending ? 'pending' : 'confirmed'}">展开更多</button>`);
@@ -139,8 +146,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     }
   }
 
-  async function load({replay = false, onReplay} = {}) {
-    if (!$('transferSummary')) return;
+  async function load({replay = false} = {}) {
+    if (!review) return;
     data = null;
     showRefresh();
     confirmedLimit = pendingLimit = FIRST_PAGE;
@@ -171,7 +178,6 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     if (remembered) {
       data = remembered;
       render({includeCandidates: false});
-      onReplay?.();
     } else {
       $('transferSummary').textContent = '正在加载划转…';
     }
@@ -182,8 +188,10 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       render();
       memory?.write('transfers', cacheKey, result);
       showRefresh();
-      if (!candidates && !loadingCandidates) loadCandidates();
-      else if (!candidates) $('transferPending').innerHTML = '<p class="muted">正在查找候选…</p>';
+      if (review === 'pending' && !candidates) {
+        if (!loadingCandidates) loadCandidates();
+        else $('transferPending').innerHTML = '<p class="muted">正在查找候选…</p>';
+      }
     } catch (error) {
       if (current() && !isReadCancelled(error)) {
         if (remembered) {
@@ -195,9 +203,33 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     }
   }
 
+  function selectReview(next = '') {
+    if (review === next) return;
+    review = next;
+    const open = Boolean(review);
+    $('transferReviewPanel').hidden = !open;
+    $('recentRows').hidden = open;
+    $('recentStreamToolbar').hidden = open;
+    $('recentStreamScope').hidden = open;
+    $('transferConfirmedSection').hidden = review !== 'confirmed';
+    $('transferPendingSection').hidden = review !== 'pending';
+    $('transferReviewActions').querySelectorAll('[data-transfer-review]').forEach(button => {
+      button.setAttribute('aria-expanded', String(button.dataset.transferReview === review));
+    });
+    if (open) load({ replay: true });
+    else {
+      reads.cancel('transfers');
+      showRefresh();
+    }
+  }
+
   function bind() {
-    const panel = $('transfers')?.parentElement;
+    const panel = $('transferReviewPanel');
     if (!panel) return;
+    events.listen('page', $('transferReviewActions'), 'click', event => {
+      const choice = event.target.closest('[data-transfer-review]')?.dataset.transferReview;
+      if (choice) selectReview(review === choice ? '' : choice);
+    });
     $('transferMonth').value = state.transferMonth;
     events.listen('page', $('transferMonth'), 'change', event => {
       state.transferMonth = event.target.value;
@@ -241,5 +273,5 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     });
   }
 
-  return { bind, load, render };
+  return { bind, selectReview };
 }

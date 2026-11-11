@@ -353,13 +353,23 @@ async function checkTransferLayout() {
     match_type: 'investment_funding', amount: '65000.00', currency_norm: 'MXN', amount_cny: null,
   }];
   const { page: transferPage, context: transferContext } = await makePage(false, transferFixture);
-  await transferPage.getByRole('link', { name: '内部划转', exact: true }).click();
+  assert.deepEqual(await transferPage.locator('.ledgerAnchorNav a').allTextContents(), ['总览','流水']);
+  await transferPage.locator('[data-ledger-tab="recent"]').click();
+  const reviewActions = transferPage.locator('#transferReviewActions');
+  assert.equal(await reviewActions.isVisible(), false);
+  await transferPage.locator('[data-ledger-flow-filter="internal_transfer"]').click();
+  const confirmed = reviewActions.getByRole('button', { name:'已确认', exact:true });
+  const pending = reviewActions.getByRole('button', { name:'待配对', exact:true });
+  await confirmed.click();
   const payment = transferPage.locator('#transferConfirmed .ledgerPair').first();
   const route = payment.locator('summary');
   const sender = route.locator('[data-direction="out"]');
   const receiver = route.locator('[data-direction="in"]');
   await sender.getByText('7332 储蓄卡').waitFor();
   await receiver.getByText('0453 信用卡').waitFor();
+  assert.deepEqual(await transferPage.locator('#transferConfirmed .ledgerStreamDayHeader time').evaluateAll(
+    dates => dates.map(date => date.dateTime)), ['2026-09-27', '2026-08-27']);
+  assert.equal(await transferPage.evaluate(() => __ledgerTest.writes.length), 0);
   for (const party of [sender, receiver]) {
     assert.equal(await party.locator('img').evaluate(async image => {
       await image.decode();
@@ -387,6 +397,25 @@ async function checkTransferLayout() {
   await route.press('Enter');
   await payment.getByText('合成还款支出').waitFor();
   await payment.getByText('合成还款入账').waitFor();
+  await pending.click();
+  await transferPage.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+  await transferPage.evaluate(pair => __ledgerTest.pendingPosts.shift().resolve({
+    matches:[{...pair, status:'review_required', confirmation_supported:true, match_key:'candidate:test'}],
+  }), cardPayment);
+  await transferPage.locator('#transferPending .ledgerStreamDayHeader time').waitFor();
+  assert.equal(await transferPage.locator('#transferPending .ledgerStreamDayHeader time').getAttribute('datetime'), '2026-09-27');
+  assert.equal(await payment.isVisible(), false);
+  await pending.click();
+  await transferPage.locator('#recentRows .ledgerStreamDayHeader time').waitFor();
+  assert.equal(await transferPage.locator('#transferReviewPanel').isVisible(), false);
+  await transferPage.locator('[data-ledger-tab="overview"]').click();
+  await transferPage.locator('[data-ledger-transfer-link]').click();
+  await payment.waitFor();
+  assert.equal(await transferPage.locator('a[data-ledger-tab="recent"]').getAttribute('aria-current'), 'page');
+  assert.equal(await transferPage.evaluate(() => location.hash), '#transfers');
+  await transferPage.reload();
+  await payment.waitFor();
+  assert.equal(await confirmed.getAttribute('aria-expanded'), 'true');
   assert.equal(await transferPage.evaluate(() => __ledgerTest.writes.some(write => write.url.endsWith('/transfers/confirm'))), false);
   await transferContext.close();
 }
