@@ -525,6 +525,43 @@ def _drafts(lines: list[dict], words: list[dict], profile: str, kind: str, diagn
     return rows, headers
 
 
+def _retry_latin_name_suffix(row, content, executable):
+    """Re-read a low-confidence final token when OCR loses its closing bracket."""
+    fields = row["fields"]
+    name = fields["name"] or ""
+    suffix = re.search(r"([（(])([A-Za-z0-9]{2,20})$", name)
+    if not suffix:
+        return
+    source = row["source"]
+    matches = [word for word in source["words"]
+               if word["text"] == suffix[0] and Decimal(word["confidence"]) < 80]
+    if len(matches) != 1:
+        return
+
+    from PIL import Image, ImageOps
+
+    box = matches[0]["box"]
+    with Image.open(BytesIO(content)) as image:
+        region = image.crop((box["left"], max(0, box["top"] - 4),
+                             min(image.width, box["left"] + box["width"] + 4),
+                             min(image.height, box["top"] + box["height"] + 4))).convert("L")
+    if region.width * region.height > 100_000:
+        return
+    region = ImageOps.autocontrast(region).resize((region.width * 2, region.height * 2), Image.Resampling.LANCZOS)
+    encoded = BytesIO()
+    ImageOps.expand(region, border=12, fill=255).save(encoded, format="PNG")
+    try:
+        text = _run([executable, "stdin", "stdout", "-l", "eng", "--psm", "7"],
+                    content=encoded.getvalue(), timeout=PROBE_TIMEOUT).decode("utf-8").strip()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        return
+    reading = re.fullmatch(r"\(?([A-Za-z0-9]{2,20}\)[A-Za-z0-9]{0,4})", text)
+    if not reading or reading[1][:2].casefold() != suffix[2][:2].casefold():
+        return
+    fields["name"] = name[:suffix.start(2)] + reading[1]
+    source["name_ocr_retry"] = {"text": text, "box": box}
+
+
 def parse_image(content: bytes, profile: str, kind: str) -> dict:
     """Validate a screenshot and return local OCR drafts; never calls a writer.
 
@@ -552,6 +589,8 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
         result.update(tsv=tsv, words=words, text="\n".join(line["text"] for line in lines))
         detail_lines, reported = _licaitong_subscription(lines) if (profile, kind) == ("tencent_licaitong", "trade") else ([], {})
         rows, headers = _drafts(detail_lines or lines, words, profile, kind, result["warnings"], detail_card=bool(detail_lines))
+        if len(rows) == 1:
+            _retry_latin_name_suffix(rows[0], content, executable)
         if detail_lines and rows:
             rows[0]["source"]["context"]["reported_fields"] = reported
             result["document_kind"] = "trade"
