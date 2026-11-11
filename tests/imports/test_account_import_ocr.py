@@ -540,3 +540,42 @@ def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch
     assert document_kind.detect(image_bytes(), "purchase.png", "tonghuashun") == {
         "kind": None, "status": "unknown",
     }
+
+@pytest.mark.parametrize(("reread", "expected"), [
+    ("8.420.75元", "-8420.75"),
+    ("88,420.75元", None),
+])
+def test_licaitong_cash_withdrawal_requires_consistent_reported_amount(monkeypatch, reread, expected):
+    from domain.imports import document_kind
+
+    lines = [
+        "8,420.75 元", "取出 信息", "取出 产品 活期 +", "取出 份额 8420.75 份",
+        "取出 时 间 2026-08-10 23:59:55", "当前 状态 取出 成 功", "到 账 信息",
+        ["到 账 金 额", "88420.75", "元"], "到 账 时 间 2026-08-11 00:00:04",
+        "资金 去 向 示例 银行 (1234)",
+    ]
+    install_engine(monkeypatch, lines)
+    monkeypatch.setattr(ocr, "_read_word_region", lambda *args, **kwargs: reread)
+    content = image_bytes()
+    assert document_kind.detect(content, "withdrawal.png", "tencent_licaitong") == {
+        "kind": "cash", "status": "detected",
+    }
+    assert ocr.parse_image(content, "tencent_licaitong", "trade")["rows"] == []
+    row, = ocr.parse_image(content, "tencent_licaitong", "cash")["rows"]
+    fields = row["fields"]
+    assert fields["action"] == "transfer" and fields["currency"] == "CNY"
+    assert fields["business_date"] == "2026-08-10" and fields["trade_time"] == "23:59:55"
+    assert fields["description"] == "到账时间 2026-08-11 00:00:04"
+    assert fields["counterparty"] == "示例银行 (1234)" and fields["counter_account_code"] is None
+    assert fields["net_cash"] == expected
+    assert row["acknowledged"] is False
+    assert row["source"]["context"]["reported_fields"]["到账金额"] == "88420.75 元"
+    assert (("net_cash", "unverified_amount") in {(i["field"], i["code"]) for i in row["issues"]}) == (expected is None)
+
+
+def test_licaitong_other_fund_redemption_is_not_cash_withdrawal(monkeypatch):
+    lines = ["8,420.75 元", "取出产品 合成基金", "取出时间 2026-08-10 23:59:55",
+             "当前状态 取出成功", "到账金额 8,420.75 元", "到账时间 2026-08-11 00:00:04",
+             "资金去向 示例银行(1234)"]
+    result = parse(monkeypatch, lines, kind="cash")
+    assert result["rows"] == [] and "document_kind" not in result

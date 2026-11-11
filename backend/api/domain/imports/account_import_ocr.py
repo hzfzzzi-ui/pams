@@ -214,6 +214,86 @@ def _licaitong_subscription(lines):
     return normalized, {label: raw for label, (_, raw) in reported.items()}
 
 
+_LICAITONG_WITHDRAWAL_LABELS = (
+    "取出产品", "取出份额", "取出时间", "取出场景", "当前状态", "到账金额", "到账时间", "资金去向",
+)
+
+
+def _licaitong_withdrawal(lines):
+    reported = {}
+    for line in lines:
+        text = _compact(line["text"])
+        for label in _LICAITONG_WITHDRAWAL_LABELS:
+            if text.startswith(label) and text[len(label):].strip(" :："):
+                if label in reported:
+                    return {}
+                reported[label] = (line, text[len(label):].strip(" :："))
+                break
+
+    required = {"取出产品", "取出时间", "当前状态", "到账金额", "到账时间", "资金去向"}
+    if not required <= reported.keys():
+        return {}
+    product = reported["取出产品"][1].replace(" ", "").replace("＋", "+")
+    if (product != "活期+" or reported["当前状态"][1] != "取出成功" or not reported["到账金额"][1].endswith("元")
+            or not re.fullmatch(r".+?[（(]\s*\d{4}\s*[）)]", reported["资金去向"][1])):
+        return {}
+    return reported
+
+
+def _reported_yuan(raw):
+    match = re.fullmatch(r"(\d[\d,.]*)\s*元", raw)
+    if not match:
+        return None
+    number = match[1]
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+\.\d{2}", number):
+        number = number.replace(".", ",", number.count(".") - 1)
+    if not re.fullmatch(r"(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{2})?", number):
+        return None
+    try:
+        return Decimal(_value("net_cash", number))
+    except (ValueError, InvalidOperation):
+        return None
+
+
+def _withdrawal_draft(reported, lines, words, content, executable, warnings):
+    amount_line, amount_text = reported["到账金额"]
+    amount = _reported_yuan(amount_text)
+    product_row = reported["取出产品"][0]["number"]
+    headline = {_reported_yuan(_compact(line["text"])) for line in lines if line["number"] < product_row}
+    headline.discard(None)
+    retry = None
+    if headline and headline != {amount}:
+        number_words = [words[i] for i in amount_line["ids"] if re.search(r"\d", words[i]["text"])]
+        amount = None
+        if len(headline) == 1 and len(number_words) == 1:
+            box = number_words[0]["box"]
+            text = _read_word_region(content, executable, box, "chi_sim+eng", left_pad=4)
+            retry = {"text": text, "box": box}
+            reread = _reported_yuan(text)
+            if reread in headline:
+                amount = reread
+
+    pairs = {
+        "取出产品": [("名称", "活期+"), ("资产类型", "cash"), ("方向", "transfer")],
+        "取出时间": [("交易时间", reported["取出时间"][1])],
+        "当前状态": [("状态", "confirmed")],
+        "到账金额": [("币种", "CNY")],
+    }
+    if amount is not None and amount > 0:
+        pairs["到账金额"].append(("净收付", format(-amount, "f")))
+    details = [{**line, "detail_pairs": pairs.get(label, [])} for label, (line, _) in reported.items()]
+    rows, headers = _drafts(details, words, "tencent_licaitong", "cash", warnings, detail_card=True)
+    for row in rows:
+        row["fields"].update(counterparty=reported["资金去向"][1], summary="理财通活期+取出",
+                             description="到账时间 " + reported["到账时间"][1])
+        row["source"]["context"]["reported_fields"] = {label: value for label, (_, value) in reported.items()}
+        if retry:
+            row["source"]["amount_ocr_retry"] = retry
+        if row["fields"]["net_cash"] is None:
+            row["issues"].append(_issue("net_cash", "unverified_amount", "到账金额未能核实，请对照原图填写"))
+    return rows, headers
+
+
 def _trade_table(lines: list[dict], words: list[dict]) -> list[dict]:
     # Tesseract line IDs may separate columns; visual bands retain word evidence.
     bands: list[dict] = []
@@ -538,28 +618,32 @@ def _retry_latin_name_suffix(row, content, executable):
     if len(matches) != 1:
         return
 
-    from PIL import Image, ImageOps
-
     box = matches[0]["box"]
-    with Image.open(BytesIO(content)) as image:
-        region = image.crop((box["left"], max(0, box["top"] - 4),
-                             min(image.width, box["left"] + box["width"] + 4),
-                             min(image.height, box["top"] + box["height"] + 4))).convert("L")
-    if region.width * region.height > 100_000:
-        return
-    region = ImageOps.autocontrast(region).resize((region.width * 2, region.height * 2), Image.Resampling.LANCZOS)
-    encoded = BytesIO()
-    ImageOps.expand(region, border=12, fill=255).save(encoded, format="PNG")
-    try:
-        text = _run([executable, "stdin", "stdout", "-l", "eng", "--psm", "7"],
-                    content=encoded.getvalue(), timeout=PROBE_TIMEOUT).decode("utf-8").strip()
-    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-        return
+    text = _read_word_region(content, executable, box, "eng")
     reading = re.fullmatch(r"\(?([A-Za-z0-9]{2,20}\)[A-Za-z0-9]{0,4})", text)
     if not reading or reading[1][:2].casefold() != suffix[2][:2].casefold():
         return
     fields["name"] = name[:suffix.start(2)] + reading[1]
     source["name_ocr_retry"] = {"text": text, "box": box}
+
+
+def _read_word_region(content, executable, box, language, *, left_pad=0):
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(BytesIO(content)) as image:
+            region = image.crop((max(0, box["left"] - left_pad), max(0, box["top"] - 4),
+                                 min(image.width, box["left"] + box["width"] + 4),
+                                 min(image.height, box["top"] + box["height"] + 4))).convert("L")
+        if region.width * region.height > 100_000:
+            return ""
+        region = ImageOps.autocontrast(region).resize((region.width * 2, region.height * 2), Image.Resampling.LANCZOS)
+        encoded = BytesIO()
+        ImageOps.expand(region, border=12, fill=255).save(encoded, format="PNG")
+        return _run([executable, "stdin", "stdout", "-l", language, "--psm", "7"],
+                    content=encoded.getvalue(), timeout=PROBE_TIMEOUT).decode("utf-8").strip()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        return ""
 
 
 def parse_image(content: bytes, profile: str, kind: str) -> dict:
@@ -587,6 +671,18 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
         data = _run([executable, "stdin", "stdout", "-l", "chi_sim+eng", "--psm", "6", "tsv"], content=content, timeout=OCR_TIMEOUT)
         tsv, words, lines = _read_tsv(data, width, height)
         result.update(tsv=tsv, words=words, text="\n".join(line["text"] for line in lines))
+        withdrawal = _licaitong_withdrawal(lines) if profile == "tencent_licaitong" else {}
+        if withdrawal:
+            result["document_kind"] = "cash"
+            if kind == "cash":
+                rows, headers = _withdrawal_draft(withdrawal, lines, words, content, executable, result["warnings"])
+                result.update(rows=rows, headers=headers, ocr_status="ok")
+            else:
+                result["ocr_status"] = "unrecognized"
+            return result
+        if (profile, kind) == ("tencent_licaitong", "cash"):
+            result["ocr_status"] = "unrecognized" if words else "empty"
+            return result
         detail_lines, reported = _licaitong_subscription(lines) if (profile, kind) == ("tencent_licaitong", "trade") else ([], {})
         rows, headers = _drafts(detail_lines or lines, words, profile, kind, result["warnings"], detail_card=bool(detail_lines))
         if len(rows) == 1:

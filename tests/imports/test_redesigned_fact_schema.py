@@ -514,8 +514,8 @@ def test_screenshot_draft_retains_original_without_requiring_a_file_template(mon
                     source_name="Synthetic fund", filename="screenshot.png", content=content,
                     document_type="trade")
             with pytest.raises(ValueError, match="not supported"):
-                staging.stage_document(wrapped, account_code="tencent_licaitong",
-                    source_name="Synthetic fund", filename="screenshot.png", content=content,
+                staging.stage_document(wrapped, account_code="tonghuashun",
+                    source_name="Synthetic broker", filename="screenshot.png", content=content,
                     document_type="cash")
             with pytest.raises(ValueError, match="not supported"):
                 staging.stage_document(wrapped, account_code="tencent_licaitong",

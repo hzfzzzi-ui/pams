@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from uuid import UUID
 from decimal import Decimal
 from typing import Any
@@ -16,10 +17,11 @@ MAX_BATCH_BYTES = 30 * 1024 * 1024
 MAX_FILES = 10
 MAX_ROWS = 2000
 PROFILES: dict[str, dict[str, Any]] = {
-    "tonghuashun": {"label": "同花顺", "default_asset_type": "stock", "currency": "CNY",
+    "tonghuashun": {"label": "同花顺", "default_asset_type": "stock", "currency": "CNY", "kinds": ["trade", "holding"],
         "trade_actions": {"stock": ["buy", "sell", "dividend", "fee"], "fund": ["buy", "sell", "dividend", "fee"]}},
     "tencent_licaitong": {"label": "腾讯理财通", "default_asset_type": "fund", "currency": "CNY",
-        "trade_actions": {"fund": ["subscribe", "redeem", "dividend", "fee"]}},
+        "kinds": ["trade", "holding", "cash"],
+        "trade_actions": {"fund": ["subscribe", "redeem", "dividend", "fee"], "cash": ["transfer"]}},
 }
 FIELDS = set(PARSE_FIELDS)
 
@@ -74,7 +76,7 @@ def context(cur) -> dict:
     config = _load_accounts_config()
     statement_accounts = statement.profiles()
     sources = {**{key: statement.public_profile(key) for key in statement_accounts},
-               **{key: {**value, "profile": key, "kinds": ["trade", "holding"]} for key, value in PROFILES.items()}}
+               **{key: {**value, "profile": key} for key, value in PROFILES.items()}}
     accounts = []
     for row in all_accounts:
         code = row["account_code"]
@@ -87,6 +89,27 @@ def context(cur) -> dict:
                          "import_modes": supported_import_modes(code, statement_accounts)})
     return {"accounts": accounts, "counter_accounts": norm(all_accounts),
             "profiles": [{"profile": key, **value} for key, value in PROFILES.items()]}
+
+
+def resolve_bank_destination(cur, source_account, destination, currency):
+    """Link a bank receipt to one active account with the same bank and card suffix."""
+    match = re.fullmatch(r"(.+?)\s*[（(]\s*(\d{4})\s*[）)]", destination)
+    if not match or not currency:
+        return None
+    from domain.investments.portfolio_state import _load_accounts_config
+
+    bank, tail = match[1].strip(), match[2]
+    config = _load_accounts_config()
+    cur.execute("SELECT account_code,display_name FROM pams_accounts WHERE active AND base_currency=%s AND account_code<>%s",
+                (currency, source_account))
+    matches = []
+    for row in cur.fetchall():
+        code = row["account_code"]
+        _, group_name, label = account_display(config, code, row["display_name"])
+        institution = config.get("accounts", {}).get(code, {}).get("institution")
+        if bank in {institution, group_name} and re.search(rf"(?<!\d){tail}(?!\d)", label):
+            matches.append(code)
+    return matches[0] if len(matches) == 1 else None
 
 
 def assets(cur, query: str) -> dict:
