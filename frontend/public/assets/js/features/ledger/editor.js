@@ -3,11 +3,10 @@ import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
 import { updateLedgerRow } from './requests.js';
 
 export function createLedgerEditor({ model, templates, sheets, dom, current, canEdit = () => true, reload }) {
-  const { isEditableLedgerRow, findLedgerRowById, ledgerCategoryOptions, ledgerSubcategoryOptions, ledgerEditSubmitLabel } = model;
+  const { isEditableLedgerRow, findLedgerRowById, ledgerCategoryOptions, ledgerSubcategoryOptions, ledgerEditSubmitLabel, ledgerEditType } = model;
   const { optionHtml, expenseChoicesHtml, ledgerEditSheetHtml } = templates;
 
-function updateLedgerCategoryOptions(form, preferredValue) {
-  const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
+function updateLedgerCategoryOptions(form, cashflowType, preferredValue) {
   const category = form.querySelector('[data-edit-field="category"]');
   if (!category) return '';
   const currentValue = String((preferredValue ?? category.value) || '').trim();
@@ -18,8 +17,7 @@ function updateLedgerCategoryOptions(form, preferredValue) {
   return category.value;
 }
 
-function updateLedgerSubcategoryOptions(form, preferredValue = '') {
-  const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
+function updateLedgerSubcategoryOptions(form, cashflowType, preferredValue = '') {
   const categoryValue = form.querySelector('[data-edit-field="category"]')?.value || '';
   const subcategory = form.querySelector('[data-edit-field="subcategory"]');
   if (!subcategory) return;
@@ -30,16 +28,15 @@ function updateLedgerSubcategoryOptions(form, preferredValue = '') {
   subcategory.value = nextValue;
 }
 
-function applyLedgerEditDefaults(form) {
-  const cashflowType = form.querySelector('[data-edit-field="cashflow_type"]')?.value || '';
+function applyLedgerEditDefaults(form, cashflowType) {
   const defaults = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
   if (cashflowType === 'operating_expense') {
-    updateLedgerCategoryOptions(form, '');
-    updateLedgerSubcategoryOptions(form);
+    updateLedgerCategoryOptions(form, cashflowType, '');
+    updateLedgerSubcategoryOptions(form, cashflowType);
     return;
   }
-  updateLedgerCategoryOptions(form, defaults.category || undefined);
-  updateLedgerSubcategoryOptions(form, defaults.subcategory);
+  updateLedgerCategoryOptions(form, cashflowType, defaults.category);
+  updateLedgerSubcategoryOptions(form, cashflowType, defaults.subcategory);
 }
 
 function bindLedgerEditSheet(row, session) {
@@ -47,7 +44,13 @@ function bindLedgerEditSheet(row, session) {
   if (!form) return;
   const field = name => form.querySelector(`[data-edit-field="${name}"]`);
   const fieldValue = name => field(name)?.value?.trim() || '';
-  const isExpense = () => fieldValue('cashflow_type') === 'operating_expense';
+  const isExpense = () => fieldValue('flow_group') === 'operating_expense';
+  const isTransfer = () => fieldValue('flow_group') === 'internal_transfer';
+  const classificationType = () => isTransfer() ? fieldValue('transfer_type') : fieldValue('flow_group');
+  const initialType = ledgerEditType(row);
+  const initialCategory = fieldValue('category');
+  const initialSubcategory = fieldValue('subcategory');
+  const counterAccount = field('counter_account_code');
   const expensePicker = form.querySelector('[data-ledger-expense-picker]');
   const submitBtn = form.querySelector('button[type="submit"]');
   let pending = false;
@@ -71,12 +74,15 @@ function bindLedgerEditSheet(row, session) {
 
   function syncClassificationFields() {
     const expense = isExpense();
+    const transfer = isTransfer();
+    form.querySelector('[data-ledger-income-category]').hidden = expense || transfer;
+    form.querySelector('[data-ledger-standard-classification]').hidden = expense;
+    form.querySelector('[data-ledger-transfer-type]').hidden = !transfer;
+    const canEditCounterAccount = transfer && !row.classification_status;
+    counterAccount.disabled = !canEditCounterAccount;
+    counterAccount.closest('label').hidden = !canEditCounterAccount;
     if (expensePicker) {
       expensePicker.hidden = !expense;
-      for (const label of form.querySelectorAll('[data-ledger-standard-classification], [data-ledger-counter-account]')) {
-        label.hidden = expense;
-      }
-      field('counter_account_code').disabled = expense;
       if (expense) {
         const options = ledgerCategoryOptions('operating_expense', fieldValue('category'));
         expensePicker.querySelector('[data-expense-options="category"]').innerHTML =
@@ -91,11 +97,13 @@ function bindLedgerEditSheet(row, session) {
     event.preventDefault();
     session.close();
   });
-  session.listen(field('cashflow_type'), 'change', () => {
-    applyLedgerEditDefaults(form);
+  session.listen(field('flow_group'), 'change', () => {
+    field('transfer_type').value = 'internal_transfer';
+    applyLedgerEditDefaults(form, classificationType());
     syncClassificationFields();
   });
-  session.listen(field('category'), 'change', () => updateLedgerSubcategoryOptions(form));
+  session.listen(field('transfer_type'), 'change', () => applyLedgerEditDefaults(form, classificationType()));
+  session.listen(field('category'), 'change', () => updateLedgerSubcategoryOptions(form, classificationType()));
   if (expensePicker) session.listen(expensePicker, 'click', event => {
     const button = event.target.closest('[data-expense-choice]');
     if (!button || button.getAttribute('aria-pressed') === 'true') return;
@@ -105,7 +113,7 @@ function bindLedgerEditSheet(row, session) {
       choice.setAttribute('aria-pressed', String(choice === button));
     }
     if (name === 'category') {
-      updateLedgerSubcategoryOptions(form);
+      updateLedgerSubcategoryOptions(form, classificationType());
       showExpenseSubcategories().scrollIntoView({ block: 'nearest' });
     }
     syncSubmit();
@@ -121,11 +129,17 @@ function bindLedgerEditSheet(row, session) {
     }
     let saved = false;
     try {
+      const category = fieldValue('category');
+      const subcategory = fieldValue('subcategory');
+      const selectedFee = category === '其他支出' && subcategory === '银行费用';
+      const retainedFee = initialType === 'fee' && category === initialCategory && subcategory === initialSubcategory;
+      const cashflowType = isExpense() && row.classification_status && (selectedFee || retainedFee)
+        ? 'fee' : classificationType();
       await updateLedgerRow(row, {
-        cashflow_type: fieldValue('cashflow_type'),
-        category: fieldValue('category'),
-        subcategory: fieldValue('subcategory'),
-        ...(!isExpense() && { counter_account_code: fieldValue('counter_account_code') }),
+        cashflow_type: cashflowType,
+        category,
+        subcategory,
+        ...(!counterAccount.disabled && { counter_account_code: fieldValue('counter_account_code') }),
         counterparty: fieldValue('counterparty'),
       });
       saved = true;

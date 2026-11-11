@@ -15,7 +15,7 @@ export function ledgerStreamQuery(state, offset = 0) {
     sort: state.recentAmountSort || '', offset,
   });
   if (state.recentAccountGroup) params.set('accountGroup', state.recentAccountGroup);
-  if (flow === 'cash_transfer') params.set('pairCards', 'true');
+  if (flow === 'cashflow' || flow === 'cash_transfer') params.set('pairCards', 'true');
   return params.toString();
 }
 

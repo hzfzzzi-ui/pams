@@ -11,6 +11,8 @@ API_ROOT = ROOT / "backend" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+import pytest
+
 import domain.ledger.ledger_view as ledger_view  # noqa: E402
 from domain.ledger.ledger_view import (  # noqa: E402
     _account_summary,
@@ -93,7 +95,8 @@ def test_income_expense_stream_pages_only_direction_classified_rows():
     assert another_account['rows'] == []
 
 
-def test_transfer_cards_are_deduplicated_before_paging_and_keep_both_accounts():
+@pytest.mark.parametrize('flow', ['cashflow', 'cash_transfer'])
+def test_transfer_cards_are_deduplicated_before_paging_and_keep_both_accounts(flow):
     day = date(2026, 10, 4)
     rows = [
         {'id': ident, 'account_code': account, 'transaction_date': day, 'transaction_date_obj': day,
@@ -104,7 +107,7 @@ def test_transfer_cards_are_deduplicated_before_paging_and_keep_both_accounts():
         'id': 'pair-1', 'source_row_id': 1, 'target_row_id': 2, 'match_date': day,
         'from_account_code': 'bank', 'to_account_code': 'card', 'amount': 100, 'amount_cny': 100,
     }
-    filters = dict(account_config={}, base_currency='CNY', flow='cash_transfer', search='', sort='', offset=0, limit=1)
+    filters = dict(account_config={}, base_currency='CNY', flow=flow, search='', sort='', offset=0, limit=1)
     ordinary = ledger_view._ledger_stream_page(rows, account='', **filters)
     assert ordinary['next_offset'] == 1
     for account in ('', 'bank', 'card'):

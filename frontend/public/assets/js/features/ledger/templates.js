@@ -2,7 +2,7 @@ import { accountLabel } from '../../api.js';
 import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
 import { categoryIconPath } from './category_icons.js';
-import { LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
+import { LEDGER_EDIT_GROUPS, LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS, ledgerEditGroup } from './legacy_model.js';
 
 
 export function createLedgerTemplates({ state, model }) {
@@ -90,15 +90,20 @@ function ledgerEditSheetHtml(row) {
   const amount = num(row.amount_cny ?? row.amount);
   const displayAmount = (row.amount_cny == null && originalCurrencyText(row)) || signedMoney(amount);
   const account = accountLabel(row.account_code) || row.account_code || '-';
-  const cashflowType = ledgerEditType(row);
-  const isExpense = cashflowType === 'operating_expense';
+  const currentType = ledgerEditType(row);
+  const group = ledgerEditGroup(currentType, amount);
+  const cashflowType = currentType || group;
+  const isExpense = group === 'operating_expense';
+  const isTransfer = group === 'internal_transfer';
+  const categoryType = isExpense ? group : cashflowType;
+  const showCounterAccount = isTransfer && !row.classification_status;
   const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
   const hint = (row.flow_type === 'unclassified' || row.subcategory_pending) && row.classification_hint?.cashflow_type === cashflowType
     ? row.classification_hint : null;
   const rawSubcategory = String(hint?.subcategory || row.subcategory || '').trim();
-  const rawCategory = ledgerEditCategory(cashflowType, String(hint?.category || row.category || '').trim(), rawSubcategory);
-  const category = rawCategory && rawCategory !== '未分类' ? rawCategory : (isExpense ? '' : defaultEdit.category || '');
-  const subcategory = isExpense ? (category ? rawSubcategory : '') : rawSubcategory || defaultEdit.subcategory || '';
+  const rawCategory = ledgerEditCategory(categoryType, String(hint?.category || row.category || '').trim(), rawSubcategory);
+  const category = rawCategory && rawCategory !== '未分类' ? rawCategory : (isExpense && cashflowType !== 'fee' ? '' : defaultEdit.category || '');
+  const subcategory = isExpense && cashflowType !== 'fee' ? (category ? rawSubcategory : '') : rawSubcategory || defaultEdit.subcategory || '';
   return `
     <form class="ledgerConfirmSheet ledgerEditSheet" data-ledger-edit-form="${escapeHtml(String(row.id || ''))}">
       ${hint ? `<p class="ledgerConfirmLead">词典建议，匹配到「${escapeHtml(hint.matched_keyword)}」。</p>` : ''}
@@ -127,27 +132,34 @@ function ledgerEditSheetHtml(row) {
       </div>
       <div class="ledgerEditGrid">
         <label class="ledgerEditType">
-          <span>流水口径</span>
-          <select class="formInput" data-edit-field="cashflow_type" required>
-            ${cashflowType ? '' : '<option value="" selected disabled>请选择流水口径</option>'}
-            ${LEDGER_EDIT_TYPES.filter(([value, , redesignedOnly]) =>
-              !redesignedOnly || row.classification_status || value === cashflowType).map(([value, label]) => `
-              <option value="${escapeHtml(value)}" ${value === cashflowType ? 'selected' : ''}>${escapeHtml(label)}</option>
+          <span>流水分类</span>
+          <select class="formInput" data-edit-field="flow_group" required>
+            ${LEDGER_EDIT_GROUPS.map(([value, label]) => `
+              <option value="${escapeHtml(value)}" ${value === group ? 'selected' : ''}>${escapeHtml(label)}</option>
             `).join('')}
           </select>
         </label>
-        <label data-ledger-standard-classification ${isExpense ? 'hidden' : ''}>
-          <span>粗分类</span>
+        <label data-ledger-transfer-type ${isTransfer ? '' : 'hidden'}>
+          <span>转账类型</span>
+          <select class="formInput" data-edit-field="transfer_type">
+            ${LEDGER_EDIT_TYPES.filter(([value, , redesignedOnly]) => ledgerEditGroup(value) === 'internal_transfer'
+              && (!redesignedOnly || row.classification_status || value === cashflowType)).map(([value, label]) => `
+              <option value="${escapeHtml(value)}" ${value === (isTransfer ? cashflowType : 'internal_transfer') ? 'selected' : ''}>${escapeHtml(label)}</option>
+            `).join('')}
+          </select>
+        </label>
+        <label data-ledger-income-category ${group === 'operating_income' ? '' : 'hidden'}>
+          <span>收入分类</span>
           <select class="formInput" data-edit-field="category">
             ${isExpense ? '<option value=""></option>' : ''}
-            ${optionHtml(ledgerCategoryOptions(cashflowType, category), category)}
+            ${optionHtml(ledgerCategoryOptions(categoryType, category), category)}
           </select>
         </label>
         <label data-ledger-standard-classification ${isExpense ? 'hidden' : ''}>
           <span>细分类</span>
           <select class="formInput" data-edit-field="subcategory">
             ${isExpense ? '<option value=""></option>' : ''}
-            ${optionHtml(ledgerSubcategoryOptions(cashflowType, category, subcategory), subcategory)}
+            ${optionHtml(ledgerSubcategoryOptions(categoryType, category, subcategory), subcategory)}
           </select>
         </label>
         <div class="ledgerExpensePicker ledgerEditFull" data-ledger-expense-picker ${isExpense ? '' : 'hidden'}>
@@ -158,9 +170,9 @@ function ledgerEditSheetHtml(row) {
             <div class="ledgerExpenseSubcategories" role="group" aria-labelledby="ledger-expense-subcategory-label" data-expense-options="subcategory"></div>
           </div>
         </div>
-        <label data-ledger-counter-account ${isExpense ? 'hidden' : ''}>
+        <label data-ledger-counter-account ${showCounterAccount ? '' : 'hidden'}>
           <span>对方账户标识</span>
-          <input class="formInput" data-edit-field="counter_account_code" value="${escapeHtml(row.counter_account_code || '')}" placeholder="内部转账 / 入金可填" ${isExpense ? 'disabled' : ''} />
+          <input class="formInput" data-edit-field="counter_account_code" value="${escapeHtml(row.counter_account_code || '')}" placeholder="内部转账 / 入金可填" ${showCounterAccount ? '' : 'disabled'} />
         </label>
         <label class="ledgerEditFull">
           <span>对方 / 商户</span>
