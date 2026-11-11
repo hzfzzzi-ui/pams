@@ -10,10 +10,11 @@ const streamOnly = process.argv[3] === '--stream-only';
 const baselineEntry = !transfersOnly && !streamOnly && process.argv[3] ? path.resolve(process.argv[3]) : null;
 const runtime = process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE;
 const { chromium } = runtime ? await import(pathToFileURL(runtime).href) : await import('playwright');
+const chartScript = process.env.PAMS_FRONTEND_CHART_SCRIPT;
 const fixture = {
   periods: { month: { income: 1250.25, expense: 24.5, disposable_net: 1225.75, internal_transfer: 300, pending_count: 1 }, ytd: { income: 2250.25, expense: 124.5, disposable_net: 2125.75, internal_transfer: 400, investment_transfer: 200, investment_transfer_net: -200, cash_net: 1925.75, pending_count: 1 } },
   monthly_trend: [{ period: '2026-01', income: 1000, expense: 100, net: 900 }, { period: '2026-10', income: 1250.25, expense: 24.5, net: 1225.75 }],
-  weekly_trend: [{ period: '2026-W43', income: 1250.25, expense: 24.5, net: 1225.75 }],
+  weekly_trend: [{ period: '2026-10-19', income: 1250.25, expense: 24.5, net: 1225.75 }],
   income_categories_ytd: [{ category: '工资薪酬', amount: 2250.25, count: 2, share: 1 }],
   income_categories_month: [{ category: '工资薪酬', amount: 1250.25, count: 1, share: 1 }],
   expense_categories_ytd: [{ category: '餐饮', amount: 124.5, count: 2, share: 1 }],
@@ -92,6 +93,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.href.includes('chart.js@')) {
+      if (chartScript) return route.fulfill({ contentType: 'application/javascript', path: chartScript });
       // Chart lifecycle test double; the separate sealed replay covers real Chart.js rendering.
       return route.fulfill({ contentType: 'application/javascript', body: `window.Chart = class Chart {
         static instances = {}; static nextId = 1;
@@ -127,8 +129,14 @@ async function makePage(legacy = false, fixtureData = fixture) {
 async function capture(page, label, legacy) {
   const snapshot = await page.evaluate(() => {
     const ids = ['ledgerMobileHero', 'categoryInsightTitle', 'overviewCategoryRank', 'transferSummary', 'classificationRules', 'recentAccountScope', 'recentRows'];
+    const bars = window.__cashflowTrendChart?.data;
+    const net = Object.values(Chart.instances).find(chart => chart.canvas.id === 'cashflowNetTrendChart')?.data;
+    const trend = bars && {
+      labels: bars.labels,
+      series: [...bars.datasets, ...(net?.datasets || [])].map(({ label, data }) => ({ label, data })),
+    };
     return { markup: Object.fromEntries(ids.map(id => [id, document.getElementById(id)?.innerHTML])),
-      charts: [window.__cashflowTrendChart?.data, window.__overviewCategoryPieChart?.data],
+      charts: [trend, window.__overviewCategoryPieChart?.data],
       panel: document.body.dataset.ledgerTab, hash: location.hash };
   });
   if (legacy) snapshots.set(label, snapshot);
@@ -145,6 +153,26 @@ async function browse(legacy) {
   const { page, context } = await makePage(legacy);
   if (!legacy) {
     assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥2,250.25');
+    const trend = page.locator('.ledgerTrendCard');
+    assert.equal(await trend.locator('xpath=preceding-sibling::*').count(), 0);
+    assert.equal(await trend.locator('xpath=following-sibling::*').getByRole('heading', { name: '收入排行' }).count(), 1);
+    assert.equal(await page.locator('#ledgerTrendNetPeriod').textContent(), '10月');
+    assert.equal(await page.locator('#ledgerTrendNetValue').textContent(), '+¥1,225.75');
+    if (chartScript) {
+      for (const width of [320, 390, 1280]) {
+        await page.setViewportSize({ width, height: 1084 });
+        await page.waitForFunction(() => {
+          const bar = Chart.getChart('cashflowTrendChart');
+          const net = Chart.getChart('cashflowNetTrendChart');
+          return bar.width === bar.canvas.parentElement.clientWidth &&
+            net.width === net.canvas.parentElement.clientWidth &&
+            Math.abs(bar.scales.x.getPixelForValue(0) - net.scales.x.getPixelForValue(0)) < 1 &&
+            Math.abs(bar.scales.x.getPixelForValue(1) - net.scales.x.getPixelForValue(1)) < 1;
+        });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      }
+      await page.setViewportSize({ width: 390, height: 1084 });
+    }
     assert.equal(await page.locator('#overviewCategoryRank .categoryBarRank').first().evaluate(
       el => el.style.getPropertyValue('--ledger-rank-color')), '#3fb950');
   }
@@ -161,6 +189,11 @@ async function browse(legacy) {
     assert.equal(await page.locator('[data-overview-period="month"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-overview-flow="expense"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('#trendWeekly').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#ledgerTrendNetPeriod').textContent(), '10/19');
+    assert.deepEqual(await page.evaluate(() => [
+      window.__cashflowTrendChart.data.labels,
+      Object.values(Chart.instances).find(chart => chart.canvas.id === 'cashflowNetTrendChart').data.labels,
+    ]), [['2026-10-19'], ['2026-10-19']]);
   }
   await capture(page, 'month-expense-weekly', legacy);
   await page.locator('[data-ledger-tab="recent"]').click();
@@ -224,7 +257,10 @@ async function checkConfirmedSubtotal() {
   assert.equal(await page.locator('#overviewCategoryTotalValue').textContent(), '¥2,250.25');
   assert.equal(await page.locator('.ledgerMobileStat').filter({ hasText: '待分类' }).locator('strong').textContent(), '12');
   assert.equal(await page.locator('#ledgerTrendCoverage').isVisible(), true);
-  assert.deepEqual(await page.evaluate(() => window.__cashflowTrendChart.data.datasets.map(series => series.data)),
+  assert.deepEqual(await page.evaluate(() => {
+    const net = Object.values(Chart.instances).find(chart => chart.canvas.id === 'cashflowNetTrendChart');
+    return [...window.__cashflowTrendChart.data.datasets, ...net.data.datasets].map(series => series.data);
+  }),
     [[null, 2250.25], [null, 124.5], [null, 2125.75]]);
   await context.close();
 }
@@ -417,22 +453,28 @@ async function checkLedgerLifecycle() {
   assert.match(await page.locator('#err').textContent(), /fixture rejection/);
   await page.locator('[data-ledger-edit-form] button[type="submit"]').click();
   assert.equal(await page.evaluate(() => __ledgerTest.writes.length), 2);
+  const readsBeforeSave = await page.evaluate(() => __ledgerTest.reads.length);
   await page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ ok: true }));
   await page.waitForFunction(() => !document.querySelector('[data-ledger-edit-form]'));
-  await page.waitForFunction(() => __ledgerTest.reads.filter(r => r.url.startsWith('/api/ledger/workbench')).length === 2);
+  await page.waitForFunction(count => __ledgerTest.reads.length > count, readsBeforeSave);
+  assert.deepEqual(await page.evaluate(count => __ledgerTest.reads.slice(count).map(({ url }) =>
+    new URL(url, location.origin).searchParams.get('view')), readsBeforeSave), ['stream']);
 
   // A cancelled form's rejected POST must not alter a newer sheet or its error state.
   await openStreamEdit(page, '1');
   await page.locator('[data-ledger-edit-form] button[type="submit"]').click();
   await page.locator('[data-ledger-edit-form] [data-sheet-close]').click();
   await page.locator('#recentSearchToggle').click();
+  const errorBeforeCancel = await page.locator('#err').textContent();
   await page.evaluate(() => __ledgerTest.pendingPosts.shift().reject(new Error('cancelled old form')));
   await page.waitForTimeout(20);
   assert.equal(await page.locator('[data-recent-search-form]').count(), 1);
-  assert.equal(await page.locator('#err').textContent(), '');
+  assert.equal(await page.locator('#err').textContent(), errorBeforeCancel);
   await page.keyboard.press('Escape');
 
   // An older read in the same controller cannot overwrite a newer response.
+  await page.locator('[data-ledger-tab="overview"]').click();
+  await page.waitForFunction(() => __ledgerPage.controller.state.data?.periods.ytd.income === 2250.25);
   await page.evaluate(() => {
     __ledgerTest.deferReads = true;
     __older = __ledgerPage.controller.loadWorkbench().then(() => 'resolved', error => error.name);
@@ -448,6 +490,7 @@ async function checkLedgerLifecycle() {
   await page.evaluate(() => { __ledgerTest.deferReads = false; __ledgerTest.pendingReads = []; });
 
   // Preserve ordinary view state over BFCache, never resume the edit operation.
+  await page.locator('[data-ledger-tab="recent"]').click();
   await page.locator('#recentSortToggle').click(); await page.locator('[data-recent-sort-option="amount_desc"]').click();
   await page.locator('[data-ledger-flow-filter="expense"]').click();
   const periodToggle = page.locator('#recentPeriodToggle');
@@ -488,7 +531,7 @@ async function checkLedgerLifecycle() {
     return snapshotLedgerViewState(__ledgerPage.controller.state);
   });
   assert.deepEqual(viewAfter, viewBefore);
-  assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 2);
+  assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 0);
   assert.equal(await page.evaluate(() => __ledgerTest.writes.length), writesBefore);
   await page.locator('#recentSearchToggle').click();
   await page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ ok: true }));
@@ -498,6 +541,8 @@ async function checkLedgerLifecycle() {
   assert.equal(await page.evaluate(() => __ledgerTest.writes.length), writesBefore);
 
   // Mounting again is idempotent; explicit disposal allows a fresh owner.
+  await page.locator('[data-ledger-tab="overview"]').click();
+  await page.waitForFunction(() => Object.keys(Chart.instances).length === 3);
   await page.evaluate(async () => {
     __ledgerTest.deferReads = true;
     __oldLoading = __ledgerPage.controller.loadWorkbench().then(() => 'resolved', error => error.name);
@@ -512,7 +557,7 @@ async function checkLedgerLifecycle() {
   await page.evaluate(() => __ledgerTest.pendingReads[0].resolve({ periods: { ytd: { income: 111 } } }));
   assert.equal(await page.evaluate(() => __oldLoading), 'AbortError');
   assert.equal(await page.evaluate(() => __ledgerPage.controller.state.data.periods.ytd.income), 2250.25);
-  assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 2);
+  assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 3);
   const requestCount = await page.evaluate(() => __ledgerTest.reads.length);
   await page.evaluate(() => { __disposed = __ledgerPage.controller; __ledgerPage.dispose(); document.querySelector('[data-overview-period="month"]').click(); window.dispatchEvent(new HashChangeEvent('hashchange')); });
   assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 0);
@@ -530,7 +575,7 @@ async function checkLedgerLifecycle() {
     outside.click();
   });
   assert.equal(await page.evaluate(() => __ledgerPage.controller.state.overviewPeriod), 'ytd');
-  assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 2);
+  assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 3);
   await page.evaluate(() => __ledgerPage.dispose());
   assert.equal(await page.evaluate(() => Object.keys(Chart.instances).length), 0);
   assert.deepEqual(errors, []);
@@ -539,12 +584,12 @@ async function checkLedgerLifecycle() {
   const hintFixture = structuredClone(fixture);
   const [hinted, unknown] = hintFixture.recent_rows_ytd;
   for (const row of [hinted, unknown]) Object.assign(row, {
-    classification_status: 'pending', flow_type: 'unclassified', coarse_category: '待分类',
+    classification_status: 'pending', subcategory_pending: true, account_flow_type: row.flow_type, coarse_category: '待分类',
     cashflow_type: null, category: null, subcategory: null, needs_review: true,
   });
   hinted.classification_hint = {
-    cashflow_type: 'debt_drawdown', category: '融资', subcategory: '信用卡取现',
-    matched_keyword: '取现',
+    cashflow_type: 'operating_expense', category: '交通出行', subcategory: '打车',
+    matched_keyword: '网约车',
   };
   const hintPage = await makePage(false, hintFixture);
   await hintPage.page.locator('[data-ledger-tab="recent"]').click();
@@ -553,14 +598,13 @@ async function checkLedgerLifecycle() {
   const type = form.locator('[data-edit-field="cashflow_type"]');
   const category = form.locator('[data-edit-field="category"]');
   const subcategory = form.locator('[data-edit-field="subcategory"]');
-  await form.getByText('词典建议，匹配到「取现」。').waitFor();
-  assert.equal(await type.inputValue(), 'debt_drawdown');
-  assert.equal(await category.inputValue(), '融资');
-  assert.equal(await subcategory.inputValue(), '信用卡取现');
+  await form.getByText('词典建议，匹配到「网约车」。').waitFor();
+  assert.equal(await type.inputValue(), 'operating_expense');
+  assert.equal(await category.inputValue(), '交通出行');
+  assert.equal(await subcategory.inputValue(), '打车');
   await form.locator('[data-sheet-close]').click();
   await openStreamEdit(hintPage.page, '2');
-  assert.equal(await type.inputValue(), '');
-  await form.locator('button[type="submit"]').click();
+  assert.equal(await type.inputValue(), 'operating_income');
   for (const [value, options] of [
     ['investment_funding', ['投资入金', '基金定投申购', '积存金买入']],
     ['investment_withdrawal', ['投资出金', '基金赎回', '理财赎回']],

@@ -24,13 +24,11 @@ class Form extends Target {
   }
 }
 
-async function fixture(width = 390) {
+async function fixture() {
   const reads = [], writes = [], charts = [], errors = [], cache = new Map();
-  let viewportWidth = width;
-  const elements = Object.fromEntries(['err', 'overviewCategoryPieChart', 'cashflowTrendChart'].map(id => [id, Object.assign(new Target(), { id, parentElement: { querySelector() { return null; } } })]));
+  const elements = Object.fromEntries(['err', 'overviewCategoryPieChart', 'cashflowTrendChart', 'cashflowNetTrendChart'].map(id => [id, Object.assign(new Target(), { id, parentElement: { querySelector() { return null; } } })]));
   const document = Object.assign(new Target(), { body: { dataset: {} }, getElementById: id => elements[id] || null, querySelectorAll: () => [] });
   const window = Object.assign(new Target(), { location: { hash: '', pathname: '/ledger.html', search: '' }, scrollTo() {} });
-  window.matchMedia = query => ({ matches: query === '(max-width: 389px)' && viewportWidth <= 389 });
   class Chart { constructor(canvas, config) { this.canvas = canvas; this.data = config.data; this.config = config; this.destroyCount = 0; charts.push(this); } destroy() { this.destroyCount += 1; } }
   window.Chart = Chart;
   const context = vm.createContext({ document, window, AbortController, URLSearchParams, console });
@@ -58,44 +56,18 @@ async function fixture(width = 390) {
   const { createLedgerController } = await api('controller');
   const create = () => createLedgerController({ root: document, host: window });
   const resolveRead = (index, value) => reads[index].resolve(value);
-  return { reads, writes, charts, errors, document, window, elements, api, create, resolveRead, setWidth: width => { viewportWidth = width; } };
+  return { reads, writes, charts, errors, document, window, elements, api, create, resolveRead };
 }
 const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [{ category: '工资薪酬', amount: 10 }], monthly_trend: [{ period: '2026-10', income: 10, expense: 1, net: 9 }] });
 
 {
-  const test = await fixture(320), controller = test.create(), ready = controller.init();
+  const test = await fixture(), controller = test.create(), ready = controller.init();
   test.resolveRead(0, data(10)); await ready;
-  const trend = test.charts.find(chart => chart.config.options?.scales);
-  const pie = test.charts.find(chart => chart.config.type === 'doughnut');
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
-  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
-  assert.equal(trend.data.datasets[0].backgroundColor, 'rgba(63,185,80,.42)');
-  assert.equal(trend.data.datasets[1].backgroundColor, 'rgba(248,81,73,.38)');
-  assert.equal(trend.data.datasets[2].borderColor, '#58a6ff');
-  assert.equal(pie.data.datasets[0].backgroundColor[0], '#3fb950');
-  test.setWidth(390);
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 12);
-  assert.equal(trend.config.options.scales.net.ticks.font().size, 12);
-  test.setWidth(360);
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
-  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
-  test.setWidth(389);
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
-  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
-  test.setWidth(320);
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
-  assert.equal(JSON.stringify(trend.data.datasets.map(dataset => dataset.data)), JSON.stringify([[10], [1], [9]]));
-  controller.dispose();
-}
-{
-  const test = await fixture(390), controller = test.create(), ready = controller.init();
-  test.resolveRead(0, data(10)); await ready;
-  const trend = test.charts.find(chart => chart.config.options?.scales);
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 12);
-  assert.equal(trend.config.options.scales.net.ticks.font().size, 12);
-  test.setWidth(360);
-  assert.equal(trend.config.options.scales.y.ticks.font().size, 10);
-  assert.equal(trend.config.options.scales.net.ticks.font().size, 10);
+  const bars = test.charts.find(chart => chart.canvas.id === 'cashflowTrendChart');
+  const net = test.charts.find(chart => chart.canvas.id === 'cashflowNetTrendChart');
+  assert.equal(JSON.stringify(bars.data.labels), JSON.stringify(net.data.labels));
+  assert.equal(JSON.stringify(bars.data.datasets.map(dataset => dataset.data)), '[[10],[1]]');
+  assert.equal(JSON.stringify(net.data.datasets.map(dataset => dataset.data)), '[[9]]');
   controller.dispose();
 }
 
@@ -123,13 +95,13 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   assert.equal(initial, controller.init());
   assert.deepEqual(test.reads.map(({ url, options }) => [url, options?.cache]), [['/api/ledger/workbench?view=overview', false]]);
   test.resolveRead(0, data(10)); await initial;
-  assert.equal(test.charts.length, 2);
+  assert.equal(test.charts.length, 3);
   assert.equal(test.charts.find(chart => chart.config.type === 'doughnut').data.datasets[0].backgroundColor[0], '#3fb950');
   const older = controller.loadWorkbench(), newer = controller.loadWorkbench();
   test.resolveRead(2, data(20)); await newer;
   test.resolveRead(1, data(15)); await assert.rejects(older, error => error.name === 'AbortError');
   assert.equal(controller.state.data.periods.ytd.income, 20);
-  assert.equal(test.charts.length, 4);
+  assert.equal(test.charts.length, 6);
   const pending = controller.loadWorkbench();
   controller.dispose(); controller.dispose();
   test.resolveRead(3, data(99)); await assert.rejects(pending, error => error.name === 'AbortError');
@@ -147,7 +119,7 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   test.resolveRead(1, data(30)); await ready;
   test.resolveRead(0, data(1)); await pending;
   assert.equal(replacement.state.data.periods.ytd.income, 30);
-  assert.equal(test.charts.length, 2);
+  assert.equal(test.charts.length, 3);
   replacement.dispose();
 }
 {
@@ -195,4 +167,4 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   assert.equal(reloads, 1); assert.deepEqual(test.errors, ['retryable']);
 }
 await settle();
-console.log('Ledger modules: actual controller/editor/requests; read generations, replacement, two Chart disposal, listeners, view state, one POST, retry and stale edit isolation OK');
+console.log('Ledger modules: actual controller/editor/requests; read generations, replacement, chart disposal, listeners, view state, one POST, retry and stale edit isolation OK');
