@@ -45,7 +45,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     element.hidden = !text;
   }
 
-  function renderPair(pair, pending) {
+  function renderPair(pair, pending = false) {
     const sender = model.ledgerAccountIdentity(pair.from_account_code);
     const receiver = model.ledgerAccountIdentity(pair.to_account_code);
     const name = account => [account.institution, account.name].filter(Boolean).join(' ');
@@ -273,5 +273,5 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     });
   }
 
-  return { bind, selectReview };
+  return { bind, selectReview, renderPair };
 }

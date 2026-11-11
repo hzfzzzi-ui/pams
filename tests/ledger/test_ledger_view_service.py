@@ -93,6 +93,26 @@ def test_income_expense_stream_pages_only_direction_classified_rows():
     assert another_account['rows'] == []
 
 
+def test_transfer_cards_are_deduplicated_before_paging_and_keep_both_accounts():
+    day = date(2026, 10, 4)
+    rows = [
+        {'id': ident, 'account_code': account, 'transaction_date': day, 'transaction_date_obj': day,
+         'flow_type': 'transfer', 'amount': amount, 'amount_cny': amount}
+        for ident, account, amount in [(1, 'bank', -100), (2, 'card', 100)]
+    ]
+    match = {
+        'id': 'pair-1', 'source_row_id': 1, 'target_row_id': 2, 'match_date': day,
+        'from_account_code': 'bank', 'to_account_code': 'card', 'amount': 100, 'amount_cny': 100,
+    }
+    filters = dict(account_config={}, base_currency='CNY', flow='cash_transfer', search='', sort='', offset=0, limit=1)
+    ordinary = ledger_view._ledger_stream_page(rows, account='', **filters)
+    assert ordinary['next_offset'] == 1
+    for account in ('', 'bank', 'card'):
+        page = ledger_view._ledger_stream_page(rows, account=account, transfer_matches=[match], **filters)
+        assert page['next_offset'] is None
+        assert page['rows'] == [{'id': 'transfer-pair-pair-1', 'transaction_date': '2026-10-04', 'transfer_pair': match}]
+
+
 def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
     class FixedDate(date):
         @classmethod

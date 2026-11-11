@@ -1532,7 +1532,7 @@ def _stream_account_groups(rows, config):
 
 
 def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, search, sort, offset, limit,
-                        account_group='', matching_accounts=None):
+                        account_group='', matching_accounts=None, transfer_matches=(), period_start=None):
     profiles = account_config.get('accounts') or {}
     groups, group_by_account = _stream_account_groups(rows, account_config)
     labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转',
@@ -1563,6 +1563,23 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
             if search not in ' '.join(str(value) for value in values if value).lower():
                 continue
         filtered.append(row)
+    if transfer_matches:
+        matches_by_leg = {leg_id: match for match in transfer_matches
+                          for leg_id in (match['source_row_id'], match['target_row_id'])}
+        unique_rows = {}
+        for row in filtered:
+            match = matches_by_leg.get(row['id'])
+            if match is None:
+                unique_rows[row['id']] = row
+                continue
+            pair_id = 'transfer-pair-' + str(match['id'])
+            day = row['transaction_date_obj'] if period_start and match['match_date'] < period_start else match['match_date']
+            unique_rows.setdefault(pair_id, {
+                'id': pair_id, 'transaction_date_obj': day, 'transaction_date': day,
+                'amount': match['amount'], 'amount_cny': match['amount_cny'],
+                'transfer_pair': match,
+            })
+        filtered = list(unique_rows.values())
     filtered.sort(key=lambda row: (row['transaction_date_obj'], str(row['id'])), reverse=True)
     if sort:
         def magnitude(row):
@@ -1570,14 +1587,18 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
             return abs(round(_to_float(row.get('amount') if amount is None else amount), 2))
         filtered.sort(key=magnitude, reverse=sort == 'amount_desc')
     return {
-        'rows': [_serialize_row(row, base_currency=base_currency) for row in filtered[offset:offset + limit]],
+        'rows': [
+            {'id': row['id'], 'transaction_date': row['transaction_date'].isoformat(), 'transfer_pair': row['transfer_pair']}
+            if 'transfer_pair' in row else _serialize_row(row, base_currency=base_currency)
+            for row in filtered[offset:offset + limit]
+        ],
         'next_offset': offset + limit if offset + limit < len(filtered) else None,
         'account_groups': groups,
     }
 
 
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30,
-                                   include_transfer_pairs: bool = False, view: str = "full",
+                                   include_transfer_pairs: bool = False, pair_cards: bool = False, view: str = "full",
                                    period: str = "ytd", account: str = "", account_group: str = "",
                                    flow: str = "", search: str = "",
                                    sort: str = "", offset: int = 0, limit: int = 80,
@@ -1685,9 +1706,15 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if view == 'overview':
             return overview
     if view == 'stream' and flow in _CASH_STREAM_FILTERS:
-        return _ledger_stream_page(display_rows, account_config=account_config, base_currency=base_currency,
+        pair_matches = transfer_matches if redesigned and pair_cards and flow == 'cash_transfer' else ()
+        page = _ledger_stream_page(display_rows, account_config=account_config, base_currency=base_currency,
                                    account=account, account_group=account_group, flow=flow, search=search.strip().lower(), sort=sort,
-                                   offset=offset, limit=limit, matching_accounts=matching_accounts)
+                                   offset=offset, limit=limit, matching_accounts=matching_accounts,
+                                   transfer_matches=pair_matches, period_start=cash_start)
+        card_rows = [row for row in page['rows'] if 'transfer_pair' in row]
+        for row, pair in zip(card_rows, _transfer_pair_details(cur, [row['transfer_pair'] for row in card_rows])):
+            row['transfer_pair'] = pair
+        return page
     investment_rows = _load_investment_account_rows(
         cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args, **decision_args,
     )

@@ -11,7 +11,7 @@ function accountAvatar(groupCode) {
   return logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : accountGlyph;
 }
 
-export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
+export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails, renderTransferPair,
   reloadRecent = () => renderRecentRows(), loadMore }) {
   const { $ } = dom;
   const { rowAmountClass, rowCategoryText, rowTitle, rowDateText, originalCurrencyText,
@@ -222,6 +222,7 @@ function renderRows(id, rows) {
   }
   const showRowDate = Boolean(state.recentAmountSort);
   const renderRow = (row, index) => {
+    if (row.transfer_pair) return renderTransferPair(row.transfer_pair);
     const rawId = row.id || row.transaction_id || `${row.transaction_date || 'row'}-${index}`;
     const detailId = `${id}-detail-${String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const amount = num(row.amount_cny ?? row.amount);
@@ -266,6 +267,7 @@ function renderRows(id, rows) {
     el.innerHTML = rows.map(renderRow).join('');
   } else {
     el.innerHTML = renderLedgerDays(rows, rowDateText, renderRow, {
+      countUnit: rows.every(row => row.transfer_pair) ? '对' : '笔',
       partialLastDay: state.streamNext != null,
     });
   }
