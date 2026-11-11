@@ -8,6 +8,7 @@ import { accountCenterHref, leaveContent, openContent, withReturnRoute } from '.
 
 const mounted = new WeakMap();
 const IMPORT_MODES = ['upload', 'ocr', 'manual'];
+const LICAITONG_ACCOUNTS = ['tencent_licaitong', 'tencent_licaitong_current_plus'];
 
 export function mount(root, context = {}) {
   if (!root?.querySelector) throw new TypeError('Import page root is required');
@@ -41,6 +42,11 @@ export function mount(root, context = {}) {
   const message = text => { $('notice').textContent = text; };
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
+  const autoLicaitong = (code = account()?.account_code) => state.useSourceRecords &&
+    LICAITONG_ACCOUNTS.includes(code) &&
+    LICAITONG_ACCOUNTS.every(key => state.accounts.some(item => item.account_code === key));
+  const inScope = code => !scopedAccount || code === scopedAccount ||
+    (autoLicaitong(scopedAccount) && LICAITONG_ACCOUNTS.includes(code));
   function availableModes() {
     const selected = account();
     if (!selected) return [];
@@ -144,7 +150,7 @@ export function mount(root, context = {}) {
     const groups = new Map();
     select.replaceChildren();
     for (const a of state.accounts) {
-      if (scopedAccount && a.account_code !== scopedAccount) continue;
+      if (!inScope(a.account_code)) continue;
       const option = new Option(accountLabel(a), a.account_code);
       if (!a.group_label) {
         select.append(option);
@@ -159,7 +165,7 @@ export function mount(root, context = {}) {
       }
       group.append(option);
     }
-    const selected = scopedAccount || preferred;
+    const selected = preferred && inScope(preferred) ? preferred : scopedAccount;
     if (selected) select.value = selected;
   }
   function configureKind(preferred = '') {
@@ -189,7 +195,7 @@ export function mount(root, context = {}) {
     }
     $('files').disabled ||= !modes.includes('upload');
     $('images').disabled ||= !modes.includes('ocr');
-    $('images').multiple = !state.useSourceRecords;
+    $('images').multiple = !state.useSourceRecords || autoLicaitong();
     $('add-row').disabled ||= !modes.includes('manual');
     $('save-draft').disabled ||= !state.batch && !state.mode;
     $('file-list').querySelectorAll('.import-mapping button, .import-mapping select').forEach(control => { control.disabled = locked; });
@@ -293,9 +299,16 @@ export function mount(root, context = {}) {
   }
   async function history() {
     const params = new URLSearchParams({limit: 20});
-    if (scopedAccount) params.set('account_code', scopedAccount);
-    const data = state.useSourceRecords ? await sourceAdapter.history(params) : await api('/batches?' + params);
-    state.historyRows = (data.rows || []).filter(row => !scopedAccount || row.account_code === scopedAccount);
+    if (autoLicaitong(scopedAccount) && scopedAccount) {
+      const results = await Promise.all(LICAITONG_ACCOUNTS.map(code =>
+        sourceAdapter.history(new URLSearchParams({limit:20, account_code:code}))));
+      state.historyRows = results.flatMap(data => data.rows || []).sort((a, b) =>
+        String(b.updated_at || '').localeCompare(String(a.updated_at || ''))).slice(0, 20);
+    } else {
+      if (scopedAccount) params.set('account_code', scopedAccount);
+      const data = state.useSourceRecords ? await sourceAdapter.history(params) : await api('/batches?' + params);
+      state.historyRows = (data.rows || []).filter(row => inScope(row.account_code));
+    }
     renderHistory();
   }
   function rememberBatch(batch) {
@@ -386,7 +399,7 @@ export function mount(root, context = {}) {
     return (terminal || superseded) && scope.acknowledgeRecovery();
   }
   function useBatch(batch) {
-    if (scopedAccount && batch.account_code !== scopedAccount) throw new Error('此批次不属于当前子账户。');
+    if (!inScope(batch.account_code)) throw new Error('此批次不属于当前子账户。');
     if (!confirmRecovery(batch)) { state.needsRefresh = true; message(recoveryNotice()); renderControls(); return false; }
     state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false; state.needsKind = false; pendingSelection = null;
     state.mappings.clear(); rememberBatch(batch);
@@ -432,6 +445,12 @@ export function mount(root, context = {}) {
     if (maxBytes && files.some(file => file.size > maxBytes)) throw new Error('文件大小超过服务端上限');
     if (state.useSourceRecords) {
       if (state.batch && !emptyDraft()) throw new Error('请先新建资料，再选择要导入的文件。');
+      if (state.mode === 'ocr' && autoLicaitong() && !selectedKind) {
+        const maxBatchBytes = limits.batch_bytes ?? limits.max_batch_bytes;
+        if (maxBatchBytes && files.reduce((sum, file) => sum + file.size, 0) > maxBatchBytes) throw new Error('截图总大小超过服务端上限。');
+        await uploadLicaitong(files, account().account_code);
+        return;
+      }
       if (files.length !== 1) throw new Error('新来源模式每次选择一份资料，请分别导入。');
       let imageKind = selectedKind;
       if (state.mode === 'ocr' && !imageKind) {
@@ -505,6 +524,40 @@ export function mount(root, context = {}) {
     message(results.length && results.every(result => result.status === 'matched' && result.count)
       ? '模板解析成功，请核对原始凭证和识别结果。'
       : results.length ? '模板未匹配或识别不完整，请核对账户、文件或配置字段。' : '文件已暂存，请核对原始凭证和识别结果。');
+  }
+  async function uploadLicaitong(files, entryAccount) {
+    const staged = [];
+    const skipped = [];
+    for (const file of files) {
+      message(`正在识别 ${file.name} 的子账户和资料类别…`);
+      const params = new URLSearchParams({account_code:entryAccount, filename:file.name, auto_account:'true'});
+      try {
+        const result = await api('/detect?' + params, 'POST', file, true);
+        const target = state.accounts.find(item => item.account_code === result.account_code);
+        if (result.status !== 'detected' || !target || !LICAITONG_ACCOUNTS.includes(target.account_code) ||
+            !target.kinds?.includes(result.kind)) {
+          skipped.push(`${file.name}（归属待核对）`);
+          continue;
+        }
+        const batch = await sourceAdapter.stageFile(target.account_code, file, result.kind);
+        rememberBatch(batch);
+        staged.push(batch);
+      } catch (error) {
+        if (!scope.isActive() || scope.recovery.requiresReview) throw error;
+        skipped.push(`${file.name}（${error.message}）`);
+      }
+    }
+    if (staged.length === 1) useBatch(staged[0]);
+    if (staged.length) {
+      await history();
+      $('batch-list').closest('details')?.setAttribute('open', '');
+    }
+    const counts = LICAITONG_ACCOUNTS.flatMap(code => {
+      const count = staged.filter(batch => batch.account_code === code).length;
+      return count ? [`${accountLabel(state.accounts.find(item => item.account_code === code))} ${count} 份`] : [];
+    });
+    message(`已暂存 ${staged.length} 份${counts.length ? '（' + counts.join('、') + '）' : ''}。` +
+      (skipped.length ? `未暂存 ${skipped.length} 份：${skipped.join('、')}。` : '可在最近批次逐份核对。'));
   }
   function values(title, object) {
     const section = el('div'); section.append(el('h3', title)); const list = el('dl', undefined, 'import-values');

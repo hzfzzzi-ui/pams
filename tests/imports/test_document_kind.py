@@ -11,6 +11,26 @@ from endpoints.account_import import router
 from tests.imports.test_account_import_ths import event, export
 
 
+def test_licaitong_auto_route_uses_template_and_accepts_either_entry_account(monkeypatch):
+    from domain.imports import account_import_ocr
+
+    def parse_image(content, profile, kind):
+        assert (profile, kind) == ('tencent_licaitong', 'trade')
+        return {b'cash': {'document_kind': 'cash'}, b'trade': {'document_kind': 'trade'},
+                b'unknown': {'rows': [{}]}}[content]
+
+    monkeypatch.setattr(account_import_ocr, 'parse_image', parse_image)
+    for entry in document_kind.LICAITONG_ACCOUNTS:
+        assert document_kind.detect_licaitong_screenshot(b'cash', 'image.jpg', entry) == {
+            'kind': 'cash', 'account_code': 'tencent_licaitong_current_plus', 'status': 'detected',
+        }
+        assert document_kind.detect_licaitong_screenshot(b'trade', 'image.jpg', entry) == {
+            'kind': 'trade', 'account_code': 'tencent_licaitong', 'status': 'detected',
+        }
+        assert document_kind.detect_licaitong_screenshot(b'unknown', 'image.jpg', entry)['account_code'] is None
+    assert document_kind.detect_licaitong_screenshot(b'cash', 'image.jpg', 'tonghuashun')['status'] == 'mismatch'
+
+
 def test_native_trade_requires_matching_account_and_preserves_unknown():
     source = export(event())
     assert document_kind.detect(source, 'table.xls', 'tonghuashun') == {'kind': 'trade', 'status': 'detected'}

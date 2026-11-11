@@ -11,6 +11,18 @@ from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
 
 INVESTMENT_PROFILES = {'tonghuashun', 'tencent_licaitong'}
 IMAGES = {'.png', '.jpg', '.jpeg'}
+LICAITONG_ACCOUNTS = {'tencent_licaitong', LICAITONG_CURRENT_PLUS}
+
+
+def detect_licaitong_screenshot(content: bytes, filename: str, account: str) -> dict:
+    """Route only screenshots with a recognized Tencent detail template."""
+    if account not in LICAITONG_ACCOUNTS or PurePath(filename).suffix.lower() not in IMAGES:
+        return {'kind': None, 'account_code': None, 'status': 'mismatch'}
+    from domain.imports.account_import_ocr import parse_image
+    image = parse_image(content, 'tencent_licaitong', 'trade')
+    kind = image.get('document_kind')
+    target = LICAITONG_CURRENT_PLUS if kind == 'cash' else 'tencent_licaitong' if kind == 'trade' else None
+    return {'kind': kind if target else None, 'account_code': target, 'status': 'detected' if target else 'unknown'}
 
 
 def _text_kind(text: str) -> str | None:
