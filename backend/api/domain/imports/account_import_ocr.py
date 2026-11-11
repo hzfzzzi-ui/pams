@@ -830,8 +830,8 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
             return result
         withdrawal = _licaitong_withdrawal(lines) if licaitong else {}
         if withdrawal:
-            result["document_kind"] = "cash"
-            if kind == "cash":
+            result.update(document_kind="cash", required_account=LICAITONG_CURRENT_PLUS)
+            if kind == "cash" and profile == LICAITONG_CURRENT_PLUS:
                 rows, headers = _withdrawal_draft(withdrawal, lines, words, content, executable, result["warnings"])
                 result.update(rows=rows, headers=headers, ocr_status="ok")
             else:
