@@ -113,6 +113,13 @@ async function loadWorkbench({replay = false, restore = false} = {}) {
   }
 }
 
+function setStreamAccountGroups(groups) {
+  if (!groups) return;
+  const firstCatalog = !state.streamAccountGroups.length && groups.length;
+  state.streamAccountGroups = groups;
+  if (firstCatalog) transfers.render();
+}
+
 async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
   if (!current() || state.activePanel !== 'recent' || offset == null) return null;
   if (offset > 0 && streamLoading) return null;
@@ -123,7 +130,7 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
     showRefresh(remembered ? 'refreshing' : '');
     state.streamIsRemembered = Boolean(remembered);
     state.streamRows = remembered?.rows || [];
-    if (remembered?.account_groups) state.streamAccountGroups = remembered.account_groups;
+    setStreamAccountGroups(remembered?.account_groups);
     renderRecentAccountPicker();
     state.streamNext = null;
     renderRecentRows();
@@ -136,7 +143,7 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
     if (offset === 0) {
       state.streamIsRemembered = false;
       state.streamRows = [];
-      state.streamAccountGroups = result.account_groups || [];
+      setStreamAccountGroups(result.account_groups);
       renderRecentAccountPicker();
     }
     const existing = new Set(state.streamRows.map(row => String(row.id)));

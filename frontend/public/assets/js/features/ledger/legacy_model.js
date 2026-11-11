@@ -521,8 +521,11 @@ function subAccountDisplayName(accountCode) {
 function ledgerAccountIdentity(accountCode) {
   const account = accountOverview(accountCode);
   const group = ACCOUNT_GROUPS.find(item => item.code === accountCode || item.children.includes(accountCode));
-  const institution = accountInstitution(account?.parent_account_code || group?.code || accountCode, group?.label);
-  const name = subAccountDisplayName(accountCode);
+  const catalogGroup = state.streamAccountGroups.find(item => item.accounts.some(child => child.code === accountCode));
+  const catalogAccount = catalogGroup?.accounts.find(child => child.code === accountCode);
+  const institution = accountInstitution(catalogGroup?.code || account?.parent_account_code || group?.code || accountCode,
+    catalogGroup?.label || group?.label);
+  const name = ACCOUNT_SUBACCOUNT_LABELS[accountCode] || catalogAccount?.label || accountDisplayName(accountCode);
   const label = institution.label === name ? null : institution.label;
   return { name, institution: label, logoUrl: institution.logoUrl };
 }

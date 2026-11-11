@@ -273,5 +273,5 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     });
   }
 
-  return { bind, selectReview, renderPair };
+  return { bind, selectReview, renderPair, render };
 }
