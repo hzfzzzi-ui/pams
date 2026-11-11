@@ -426,8 +426,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'data-recent-sort="amount_asc"' not in html
     assert ">金额从大到小</button>" not in html
     assert ">金额从小到大</button>" not in html
-    assert html.count('data-ledger-flow-filter=') == 3
-    for flow_filter in ["", "income", "expense"]:
+    assert html.count('data-ledger-flow-filter=') == 4
+    for flow_filter in ["", "income", "expense", "internal_transfer"]:
         assert f'data-ledger-flow-filter="{flow_filter}"' in html
     assert '<h3>现金流水</h3>' not in html
 

@@ -1512,6 +1512,7 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 _INCOME_EXPENSE_FLOWS = {"income", "expense"}
+_CASH_STREAM_FILTERS = _INCOME_EXPENSE_FLOWS | {"income_expense", "cashflow", "cash_transfer"}
 
 
 def _stream_account_groups(rows, config):
@@ -1546,7 +1547,10 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
             continue
         if account_group and group_by_account.get(code) != account_group:
             continue
-        if flow == 'internal_transfer' and not (row_flow == 'transfer' or row.get('is_internal_transfer') is True):
+        internal = row_flow == 'transfer' or row.get('is_internal_transfer') is True
+        if flow in {'internal_transfer', 'cash_transfer'} and not internal:
+            continue
+        if flow == 'cashflow' and not internal and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
         if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
@@ -1680,7 +1684,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         }
         if view == 'overview':
             return overview
-    if view == 'stream' and (flow == 'income_expense' or flow in _INCOME_EXPENSE_FLOWS):
+    if view == 'stream' and flow in _CASH_STREAM_FILTERS:
         return _ledger_stream_page(display_rows, account_config=account_config, base_currency=base_currency,
                                    account=account, account_group=account_group, flow=flow, search=search.strip().lower(), sort=sort,
                                    offset=offset, limit=limit, matching_accounts=matching_accounts)

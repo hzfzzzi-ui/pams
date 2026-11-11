@@ -838,7 +838,8 @@ function filteredRecentRows() {
   const filtered = rows.filter((row) => {
     if (state.recentAccountGroup && !groupAccounts.has(row.account_code)) return false;
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
-    if (!['income', 'expense'].includes(row.flow_type) || (flow && row.flow_type !== flow)) return false;
+    const kind = isInternalTransferRow(row) ? 'internal_transfer' : row.flow_type;
+    if (!['income', 'expense', 'internal_transfer'].includes(kind) || (flow && kind !== flow)) return false;
     if (search && !rowSearchText(row).includes(search)) {
       return false;
     }

@@ -7,9 +7,10 @@ export function readLedgerWorkbench({signal} = {}) {
 
 export function ledgerStreamQuery(state, offset = 0) {
   const search = (state.recentSearch || '').slice(0, 200);
+  const flow = state.recentFlowFilter === 'internal_transfer' ? 'cash_transfer' : state.recentFlowFilter || 'cashflow';
   const params = new URLSearchParams({
     view: 'stream', period: state.recentPeriod, account: state.recentAccountFilter || '',
-    flow: state.recentFlowFilter || 'income_expense', search,
+    flow, search,
     matchingAccounts: accountCodesForLabel(search).join(','),
     sort: state.recentAmountSort || '', offset,
   });

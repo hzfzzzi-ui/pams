@@ -327,9 +327,11 @@
 .ledgerOptionButton em { width:18px; height:18px; display:grid; place-items:center; border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-primary); font-style:normal; font-size:12px; font-weight:600 }
 .accountFlowList { display:grid; border-top:1px solid var(--line) }
 .ledgerPopoverControl { position:relative }
-@media (max-width:380px) {
-  .ledgerFlowChip { padding-inline:4px }
-  .ledgerSectionToolbar .ledgerIconButton { width:34px }
+@media (max-width:400px) {
+  .ledgerFlowChips { gap:3px }
+  .ledgerFlowChip { padding-inline:2px }
+  .ledgerSectionToolbar { gap:2px }
+  .ledgerSectionToolbar .ledgerIconButton { width:32px }
 }
 .ledgerPopover {
   position:absolute;

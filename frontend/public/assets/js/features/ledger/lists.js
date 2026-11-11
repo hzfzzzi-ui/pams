@@ -17,7 +17,7 @@ export function createLedgerLists({ root, host, state, model, templates, dom, ev
   reloadRecent = () => renderRecentRows(), loadMore }) {
   const { $ } = dom;
   const { rowAmountClass, rowCategoryText, rowTitle, rowDateText, originalCurrencyText,
-    accountDisplayName, ledgerAccountIdentity, filteredRecentRows } = model;
+    accountDisplayName, ledgerAccountIdentity, filteredRecentRows, isInternalTransferRow } = model;
   const { recentSearchSheetHtml, rowDetailHtml, recentSortSheetHtml } = templates;
   let renderedAccountOptions = '';
 
@@ -234,9 +234,10 @@ function renderRows(id, rows) {
     const accountName = [account.institution, account.name].filter(Boolean).join(' ');
     const pending = row.subcategory_pending || row.flow_type === 'unclassified';
     const primaryCategory = String(row.category || '').trim();
-    const category = pending ? '待补分类' : ['收入', '消费', '内部划转', ''].includes(primaryCategory)
+    const transfer = isInternalTransferRow(row);
+    const category = transfer ? '内部划转' : pending ? '待补分类' : ['收入', '消费', '内部划转', ''].includes(primaryCategory)
       ? rowCategoryText(row) : primaryCategory;
-    const icon = pending ? categoryIconPath('其他支出')
+    const icon = transfer ? categoryIconPath('借还款/往来') : pending ? categoryIconPath('其他支出')
       : categoryIconPath(row.category, row.subcategory || row.coarse_category,
         row.flow_type === 'income' ? '其他收入' : '其他支出');
     const originalAmount = originalCurrencyText(row);

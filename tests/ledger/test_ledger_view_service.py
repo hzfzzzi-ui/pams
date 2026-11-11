@@ -81,6 +81,17 @@ def test_income_expense_stream_pages_only_direction_classified_rows():
     assert second['next_offset'] is None
     assert ledger_view._ledger_stream_page(rows, offset=0, flow='', **filters)['rows'][0]['id'] == 4
 
+    cash_rows = [row for row in rows if row['flow_type'] != 'investment_inflow']
+    all_filters = {**filters, 'limit': 10}
+    stream = ledger_view._ledger_stream_page(cash_rows, offset=0, flow='cashflow', **all_filters)
+    assert [row['id'] for row in stream['rows']] == [4, 2, 1]
+    transfers = ledger_view._ledger_stream_page(cash_rows, offset=0, flow='cash_transfer', **all_filters)
+    assert [(row['id'], row['amount']) for row in transfers['rows']] == [(4, -700)]
+    another_account = ledger_view._ledger_stream_page(
+        cash_rows, offset=0, flow='cash_transfer', **{**all_filters, 'account': 'other'},
+    )
+    assert another_account['rows'] == []
+
 
 def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
     class FixedDate(date):
