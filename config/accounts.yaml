@@ -323,6 +323,16 @@ accounts:
     reconcile_method: position_nav
     role: 基金、黄金、理财产品平台
 
+  tencent_licaitong_current_plus:
+    display_name: 理财通活期+
+    account_type: cash_management
+    parent_account_code: tencent
+    institution: 腾讯
+    base_currency: CNY
+    truth_source: platform_snapshot
+    reconcile_method: balance
+    role: 现金管理/货币基金
+
   huawei_stock:
     display_name: 华为 ESOP
     account_type: brokerage
