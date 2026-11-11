@@ -198,14 +198,40 @@
 .ledgerPairLeg > :nth-child(n+3) { grid-column:1 / -1 }
 .ledgerPairMore { margin-top:10px }
 .ledgerOverviewCoverage { margin:0 0 10px; color:var(--text-secondary); font-size:12px; line-height:1.5 }
-.page-ledger .cashflowBodyGrid .chartWrap {
-  width:100%;
-  min-width:0;
-  height:240px !important;
-  min-height:0 !important;
-  overflow:visible;
-  padding:0;
+.ledgerTrendLegend {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 16px;
+  padding:3px 0 5px;
 }
+.ledgerTrendLegend > span, .ledgerTrendNetLabel {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+}
+.ledgerTrendLegend > span::before {
+  width:9px;
+  height:9px;
+  border-radius:2px;
+  content:"";
+}
+.ledgerTrendIncome::before { background:#51b78b }
+.ledgerTrendExpense::before { background:#db6d7a }
+.ledgerTrendNetLabel::before { width:14px; border-top:2px dashed #58a6ff; content:"" }
+.ledgerTrendPlot { position:relative; height:128px; min-width:0 }
+.ledgerTrendPlotNet { height:108px }
+.ledgerTrendNet { margin-top:8px; padding-top:9px; border-top:1px solid var(--ledger-overview-rule) }
+.ledgerTrendNetHeader {
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:4px 8px;
+  margin-bottom:4px;
+}
+.ledgerTrendNetLatest { color:var(--text-secondary); font-size:12px; text-align:right; overflow-wrap:anywhere }
+.ledgerTrendNetLatest strong { margin-left:4px; color:#58a6ff; font-size:13px; font-variant-numeric:tabular-nums }
 .categoryBarList { display:grid; border-top:1px solid var(--ledger-overview-rule) }
 .categoryBarRow { display:grid; grid-template-columns:30px minmax(0,1fr) auto; gap:9px; align-items:center; min-height:49px; padding:7px 0; border-bottom:1px solid var(--ledger-overview-rule) }
 .categoryBarRow:last-child { border-bottom:none }
@@ -723,9 +749,6 @@
     display:grid !important;
     grid-template-columns:1fr !important;
     gap:14px;
-  }
-  .page-ledger .cashflowBodyGrid .chartWrap {
-    height:214px !important;
   }
   .accountFlowRow { min-height:76px; padding:12px 0; align-items:stretch }
   .accountFlowHeader { gap:10px }

@@ -42,6 +42,31 @@
           <a class="ledgerOverviewTransfer" href="#transfers" data-ledger-tab="transfer">查看内部划转 <span aria-hidden="true">›</span></a>
         </div>
         <div class="cashflowBodyGrid">
+          <div class="ledgerOverviewCard ledgerTrendCard">
+            <div class="sectionTitle">
+              <h3>收支趋势</h3>
+              <div class="ledgerTextSwitch" role="group" aria-label="趋势统计周期">
+                <button id="trendMonthly" type="button" aria-pressed="true">按月</button>
+                <button id="trendWeekly" type="button" aria-pressed="false">按周</button>
+              </div>
+            </div>
+            <p id="ledgerTrendCoverage" class="ledgerOverviewCoverage" hidden></p>
+            <p id="ledgerTrendEmpty" class="ledgerOverviewCoverage" hidden>暂无可绘制的收支趋势。</p>
+            <div id="ledgerTrendPlots" hidden>
+              <div class="ledgerTrendLegend">
+                <span class="ledgerTrendIncome">收入</span>
+                <span class="ledgerTrendExpense">消费</span>
+              </div>
+              <div class="ledgerTrendPlot"><canvas id="cashflowTrendChart" role="img" aria-label="收入和消费趋势"></canvas></div>
+              <div class="ledgerTrendNet">
+                <div class="ledgerTrendNetHeader">
+                  <span class="ledgerTrendNetLabel">净流入</span>
+                  <span class="ledgerTrendNetLatest"><span id="ledgerTrendNetPeriod"></span> <strong id="ledgerTrendNetValue"></strong></span>
+                </div>
+                <div class="ledgerTrendPlot ledgerTrendPlotNet"><canvas id="cashflowNetTrendChart" role="img" aria-label="净流入趋势"></canvas></div>
+              </div>
+            </div>
+          </div>
           <div class="ledgerOverviewCard">
             <div class="cashflowSidePanel">
               <div class="categoryInsightPanel">
@@ -65,17 +90,6 @@
                 </div>
               </div>
             </div>
-          </div>
-          <div class="ledgerOverviewCard">
-            <div class="sectionTitle">
-              <h3>收支趋势</h3>
-              <div class="ledgerTextSwitch" role="group" aria-label="趋势统计周期">
-                <button id="trendMonthly" type="button" aria-pressed="true">按月</button>
-                <button id="trendWeekly" type="button" aria-pressed="false">按周</button>
-              </div>
-            </div>
-            <div class="chartWrap"><canvas id="cashflowTrendChart"></canvas></div>
-            <p id="ledgerTrendCoverage" class="ledgerOverviewCoverage" hidden></p>
           </div>
         </div>
       </section>

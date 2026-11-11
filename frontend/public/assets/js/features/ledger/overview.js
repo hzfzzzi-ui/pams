@@ -1,5 +1,4 @@
-import { accountLabel } from '../../api.js';
-import { escapeHtml, formatCurrency, formatMoneyAxis as axisMoney, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
+import { escapeHtml, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 import { CHART_THEME } from '../../shared/chart_theme.js';
 // Restore the ledger's established semantic palette without changing shared charts or chrome.
 const CATEGORY_PIE_COLORS = {
@@ -7,10 +6,66 @@ const CATEGORY_PIE_COLORS = {
   expense: ['#f85149', '#d29922', '#ff7b72', '#a371f7', '#f0883e', '#db6d28', '#8b949e'],
 };
 
+const trendAxisMoney = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
+const trendAxisCompact = new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
+
+function trendPeriodLabel(period) {
+  const match = /^\d{4}-(\d{2})(?:-(\d{2}))?$/.exec(period);
+  if (!match) return period;
+  const [, month, day] = match;
+  return day ? `${Number(month)}/${Number(day)}` : `${Number(month)}月`;
+}
+
+function trendOptions(showPeriods) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    layout: { padding: { right: 14 } },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: item => `${item.dataset.label} ${money(item.parsed.y)}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: 'category',
+        offset: true,
+        ticks: {
+          display: showPeriods,
+          color: CHART_THEME.text,
+          font: { size: 11 },
+          maxRotation: 0,
+          maxTicksLimit: 6,
+          callback(value) { return trendPeriodLabel(this.getLabelForValue(value)); },
+        },
+        grid: { display: false },
+      },
+      y: {
+        beginAtZero: true,
+        // Both plots reserve the same gutter so their dates align.
+        afterFit(scale) { scale.width = 55; },
+        ticks: {
+          color: CHART_THEME.text,
+          font: { size: 11 },
+          maxTicksLimit: showPeriods ? 3 : 4,
+          callback: value => (Math.abs(value) >= 10000 ? trendAxisCompact : trendAxisMoney).format(value),
+        },
+        grid: { color: context => context.tick.value === 0 ? 'rgba(255,255,255,.26)' : CHART_THEME.grid },
+      },
+    },
+  };
+}
+
 export function createLedgerOverview({ root, host, state, model, dom, ChartClass = host.Chart }) {
   const { $, setText } = dom;
   const { overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, overviewPieRows } = model;
   let trendChart = null;
+  let netTrendChart = null;
   let pieChart = null;
 
 function renderOverviewPeriodButtons() {
@@ -216,6 +271,13 @@ function renderRules(rows) {
   `).join('');
 }
 
+function disposeTrendCharts() {
+  trendChart?.destroy();
+  netTrendChart?.destroy();
+  if (host.__cashflowTrendChart === trendChart) delete host.__cashflowTrendChart;
+  trendChart = netTrendChart = null;
+}
+
 function renderTrendChart(data) {
   const rows = state.trendMode === 'weekly' ? data.weekly_trend || [] : data.monthly_trend || [];
   const coverage = $('ledgerTrendCoverage');
@@ -224,63 +286,60 @@ function renderTrendChart(data) {
     coverage.textContent = coverage.hidden ? '' : '有待分类流水的期间仅显示已确认小计。';
   }
   const amounts = rows.map(row => row.confirmed_subtotal ?? row);
+  const hasAmounts = amounts.some(row => row.income != null || row.expense != null || row.net != null);
+  const plots = $('ledgerTrendPlots');
+  const empty = $('ledgerTrendEmpty');
   const ctx = $('cashflowTrendChart');
-  if (!ctx || typeof ChartClass !== 'function') return;
-  const tickFont = () => ({ size: host?.matchMedia?.('(max-width: 389px)').matches ? 10 : 12 });
-  if (trendChart) trendChart.destroy();
+  const netCtx = $('cashflowNetTrendChart');
+  disposeTrendCharts();
+  if (empty) empty.hidden = hasAmounts;
+  if (plots) plots.hidden = !hasAmounts || typeof ChartClass !== 'function';
+  if (!hasAmounts || !ctx || !netCtx || typeof ChartClass !== 'function') return;
+
+  const labels = rows.map(row => row.period);
+  const latestNet = amounts.at(-1).net;
+  setText('ledgerTrendNetPeriod', trendPeriodLabel(labels.at(-1)));
+  setText('ledgerTrendNetValue', latestNet == null ? '—' : signedMoney(latestNet));
   trendChart = new ChartClass(ctx, {
+    type: 'bar',
     data: {
-      labels: rows.map((r) => r.period),
+      labels,
       datasets: [
         {
-          type: 'bar',
           label: '收入',
           data: amounts.map(row => row.income ?? null),
-          backgroundColor: 'rgba(63,185,80,.42)',
-          borderColor: 'rgba(63,185,80,.8)',
-          borderWidth: 1,
+          backgroundColor: '#51b78b',
+          borderRadius: 2,
+          maxBarThickness: 18,
         },
         {
-          type: 'bar',
           label: '消费',
           data: amounts.map(row => row.expense ?? null),
-          backgroundColor: 'rgba(248,81,73,.38)',
-          borderColor: 'rgba(248,81,73,.82)',
-          borderWidth: 1,
-        },
-        {
-          type: 'line',
-          label: '净流入',
-          borderDash: [5, 3],
-          pointStyle: 'rectRot',
-          data: amounts.map(row => row.net ?? null),
-          borderColor: '#58a6ff',
-          backgroundColor: 'rgba(88,166,255,.12)',
-          tension: 0.25,
-          pointRadius: 2,
-          yAxisID: 'net',
+          backgroundColor: '#db6d7a',
+          borderRadius: 2,
+          maxBarThickness: 18,
         },
       ],
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: { padding: { left: 8, right: 18, top: 2, bottom: 4 } },
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: CHART_THEME.text, boxWidth: 28, boxHeight: 10, padding: 12 } },
-        tooltip: {
-          callbacks: {
-            label: (ctxItem) => `${ctxItem.dataset.label}: ${money(ctxItem.parsed.y)}`,
-          },
-        },
-      },
-      scales: {
-        x: { ticks: { color: CHART_THEME.text }, grid: { color: CHART_THEME.grid } },
-        y: { ticks: { color: CHART_THEME.text, callback: axisMoney, font: tickFont }, grid: { color: CHART_THEME.grid } },
-        net: { position: 'right', ticks: { color: CHART_THEME.text, callback: axisMoney, font: tickFont }, grid: { drawOnChartArea: false } },
-      },
+    options: trendOptions(false),
+  });
+  netTrendChart = new ChartClass(netCtx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: '净流入',
+        data: amounts.map(row => row.net ?? null),
+        borderColor: '#58a6ff',
+        backgroundColor: '#58a6ff',
+        borderWidth: 2,
+        borderDash: [5, 3],
+        pointRadius: labels.length > 20 ? 0 : 2.5,
+        pointHoverRadius: 4,
+        spanGaps: false,
+      }],
     },
+    options: trendOptions(true),
   });
   host.__cashflowTrendChart = trendChart;
 }
@@ -289,12 +348,11 @@ function renderTrendChart(data) {
     setChartClass(chartClass) { ChartClass = chartClass; },
     renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderRules, renderTrendChart,
     dispose() {
-      trendChart?.destroy();
+      disposeTrendCharts();
       pieChart?.destroy();
-      if (host.__cashflowTrendChart === trendChart) delete host.__cashflowTrendChart;
       if (host.__overviewCategoryPieChart === pieChart) delete host.__overviewCategoryPieChart;
       $('overviewCategoryPieChart')?.parentElement?.querySelector('.categoryPieFallback')?.remove();
-      trendChart = pieChart = null;
+      pieChart = null;
     },
   };
 }

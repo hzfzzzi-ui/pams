@@ -552,7 +552,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "ledgerInlineEditBtn" not in js
     assert "${transferRouteHtml(row)}\n      ${editButton}" in js
     assert "保存并确认" in js
-    assert "layout: { padding: { left: 8, right: 18, top: 2, bottom: 4 } }" in js
+    assert html.index('id="ledgerMobileHero"') < html.index('id="cashflowTrendChart"') < html.index('id="cashflowNetTrendChart"') < html.index('id="overviewCategoryPieChart"')
     assert "/api/ledger/rows/${encodeURIComponent(row.id)}/update" in js
     assert "data-ledger-confirm" not in js
     assert "确认这笔消费" not in js
