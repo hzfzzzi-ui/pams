@@ -208,3 +208,23 @@ def test_formula_xlsx_and_unknown_field_updates_never_publish(db_client):
     assert capabilities["schema_ready"] and capabilities["authenticated"]
     assert capabilities["publish_enabled"] is False
     assert client.post(path + "/preview", json={"revision": 1}).json()["can_publish"] is False
+
+def test_reported_bank_destination_requires_unique_bank_and_tail(monkeypatch):
+    from domain.investments import portfolio_state
+
+    config = {
+        "account_roots": {"test_bank": {"display_name": "示例银行"}},
+        "accounts": {
+            "debit": {"parent_account_code": "test_bank", "display_name": "储蓄卡 1234"},
+            "other": {"institution": "另一银行", "display_name": "储蓄卡 1234"},
+            "same": {"parent_account_code": "test_bank", "display_name": "信用卡 1234"},
+        },
+    }
+    monkeypatch.setattr(portfolio_state, "_load_accounts_config", lambda: config)
+    cur = MagicMock()
+    debit, other, same = [{"account_code": code, "display_name": code} for code in ("debit", "other", "same")]
+    cur.fetchall.return_value = [debit, other]
+    assert store.resolve_bank_destination(cur, "tencent_licaitong", "示例银行（1234）", "CNY") == "debit"
+    assert cur.execute.call_args.args[1] == ("CNY", "tencent_licaitong")
+    cur.fetchall.return_value = [debit, other, same]
+    assert store.resolve_bank_destination(cur, "tencent_licaitong", "示例银行（1234）", "CNY") is None

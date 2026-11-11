@@ -65,7 +65,7 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
     suffix = PurePath(filename).suffix.lower().lstrip('.')
     screenshot = suffix in {'png', 'jpg', 'jpeg'}
     if document_type is not None:
-        allowed = {'cash'} if is_statement else {'trade', 'holding'} if account_code in account_import_store.PROFILES else set()
+        allowed = {'cash'} if is_statement else account_import_store.PROFILES.get(account_code, {}).get('kinds', ())
         if not screenshot or document_type not in allowed:
             raise ValueError('selected document type is not supported for this account or file')
         kind_result = {'kind': document_type}
@@ -80,7 +80,15 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
     parsed = kind_result.get('parsed_statement')
     if parsed is None:
         parsed = account_import_store.parse(content, filename, account_code, kind, mapping=mapping)
+    if parsed.get('document_kind') and parsed['document_kind'] != kind:
+        raise ValueError('截图内容与所选资料类别不一致')
     rows = _rows(parsed, kind, screenshot=screenshot)
+    if screenshot and kind == 'cash':
+        for row in rows:
+            fields = row['fields']
+            if fields.get('action') == 'transfer' and fields.get('counterparty'):
+                fields['counter_account_code'] = account_import_store.resolve_bank_destination(
+                    cur, account_code, fields['counterparty'], fields.get('currency'))
     method = 'screenshot' if screenshot else 'file'
     parse_method = 'ocr' if method == 'screenshot' else 'template'
     cur.execute('''SELECT 1 FROM public.source_records WHERE account_code=%s AND document_type=%s
