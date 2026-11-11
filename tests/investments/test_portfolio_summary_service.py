@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -114,12 +114,14 @@ def test_build_holdings_by_account_payload_preserves_legacy_shape():
 
 def test_holdings_by_account_adds_reconciled_cash_once_and_preserves_coverage(monkeypatch):
     holdings_day, cash_day = date(2026, 6, 2), date(2026, 6, 1)
+    updated_at = datetime(2026, 6, 2, 14, 30, tzinfo=timezone.utc)
     events = [{"trade_date": cash_day, "broker_cash": Decimal("500"),
                "net_cash": Decimal("-50"), "source_digest": "sheet"}]
     monkeypatch.setattr(nav_trade_source_v2, "_read_event_prefix", lambda cur: (events, None))
     row = {"account_code": "tonghuashun", "total_value_base": Decimal("1000.00"),
            "known_value_base": Decimal("1000.00"), "fx_missing_count": 0,
-           "has_snapshot_cash": False, "single_snapshot_day": True, "holdings_as_of": holdings_day}
+           "has_snapshot_cash": False, "single_snapshot_day": True, "holdings_as_of": holdings_day,
+           "holdings_updated_at": updated_at}
     cur = FakeCursor([{"as_of": holdings_day}, [row], [{"account_code": "tonghuashun", "as_of": holdings_day}]])
     monkeypatch.setattr("domain.investments.snapshot_coverage.load_account_snapshot_coverage",
                         lambda cur, pairs: {pair: {"status": "incomplete"} for pair in pairs})
@@ -128,9 +130,11 @@ def test_holdings_by_account_adds_reconciled_cash_once_and_preserves_coverage(mo
         owner_ratio_params=[], portfolio_owner_ratio=lambda code: Decimal("0.5"),
     )["by_account"]
     assert item["total_value_base"] is None and item["known_value_base"] == "1000.00"
+    assert item["holdings_as_of"] == holdings_day.isoformat()
+    assert item["holdings_updated_at"] == updated_at.isoformat()
     assert item["portfolio_value"] == {
         "amount_base": "1250.00", "cash_base": "250.00", "as_of": "2026-06-02",
-        "cash_as_of": "2026-06-01", "status": "cash_carried_forward",
+        "cash_as_of": "2026-06-01", "status": "cash_carried_forward", "updated_at": updated_at.isoformat(),
     }
     assert "has_snapshot_cash" not in item
     assert account_portfolio_value.read_account_portfolio_value(
