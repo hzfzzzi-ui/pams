@@ -584,3 +584,71 @@ def test_licaitong_other_fund_redemption_is_not_cash_withdrawal(monkeypatch):
     result = parse(monkeypatch, lines, kind="cash")
     assert result["rows"] == []
     assert parse(monkeypatch, lines, kind="cash", profile="tencent_licaitong_current_plus")["rows"] == [] and "document_kind" not in result
+
+@pytest.mark.parametrize("reread,expected", [("2,123.45:", "2123.45"), ("2,193.45", None)])
+def test_licaitong_current_plus_incoming_checks_amount_against_headline(monkeypatch, reread, expected):
+    from domain.imports import document_kind
+
+    lines = [
+        "买入详情", "2,123.45 元", "买入信息",
+        "买入产品 活期 +", ["买入金额", "29123.45", "元"], "买入方式 其他产品买入",
+        "买入时间 2026-05-09 12:30:45", "当前状态 买入成功",
+    ]
+    install_engine(monkeypatch, lines)
+    monkeypatch.setattr(ocr, "_read_word_region", lambda *args, **kwargs: reread)
+    content = image_bytes()
+    account = "tencent_licaitong_current_plus"
+    assert document_kind.detect(content, "incoming.jpg", account) == {"kind": "cash", "status": "detected"}
+    assert document_kind.detect(content, "incoming.jpg", "tencent_licaitong") == {"kind": None, "status": "mismatch"}
+    result = ocr.parse_image(content, account, "cash")
+    row, = result["rows"]
+    assert {key: row["fields"][key] for key in (
+        "asset_type", "action", "net_cash", "description", "business_date", "trade_time", "counter_account_code",
+    )} == {
+        "asset_type": "cash", "action": "transfer", "net_cash": expected, "description": "其他产品买入",
+        "business_date": "2026-05-09", "trade_time": "12:30:45", "counter_account_code": None,
+    }
+    assert row["source"]["context"]["reported_fields"]["买入金额"] == "29123.45 元"
+    assert row["source"]["detail_ocr_retries"]["买入金额"]["text"] == reread
+    assert not row["acknowledged"]
+    assert (("net_cash", "unverified_amount") in issues(result)) == (expected is None)
+
+
+@pytest.mark.parametrize("amount,fee_text,expected", [
+    ("1,250.00;", "手续费 0.00元", "1250.00"),
+    ("1,260.00", "手续费 0.00元", None),
+    ("1,250.00", "不可读", None),
+])
+def test_licaitong_redemption_reads_confirmation_without_making_a_cash_leg(monkeypatch, amount, fee_text, expected):
+    from domain.imports import document_kind
+
+    lines = [
+        "05-09 12:30 资金已到账活期 +", "取出信息", "取出产品 合成 ETF 联接 A",
+        "取出时间 2026-05-08 16:23:01", "当前状态 取出成功",
+        "确认信息", ["确认金额", "1350.00", "元"], "确认净值 1.2500 元 (05-08)",
+        "确认份额 1000.00 份", ["FRR", "0.0076"], "确认日期 2026-05-09", "到账信息",
+    ]
+    install_engine(monkeypatch, data=tsv_bytes(lines, confidence="65"))
+    monkeypatch.setattr(ocr, "_read_word_region", lambda _, __, ___, language, **kw: amount if language == "eng" else fee_text)
+    content = image_bytes()
+    account = "tencent_licaitong"
+    assert document_kind.detect(content, "redemption.jpg", account) == {"kind": "trade", "status": "detected"}
+    assert document_kind.detect(content, "redemption.jpg", "tencent_licaitong_current_plus") == {
+        "kind": None, "status": "mismatch",
+    }
+    result = ocr.parse_image(content, account, "trade")
+    row, = result["rows"]
+    assert {key: row["fields"][key] for key in (
+        "name", "asset_type", "action", "status", "business_date", "confirmed_date",
+        "currency", "quantity", "price", "gross_amount", "net_cash", "counter_account_code",
+    )} == {
+        "name": "合成ETF联接A", "asset_type": "fund", "action": "redeem", "status": "confirmed",
+        "business_date": "2026-05-08", "confirmed_date": "2026-05-09", "currency": "CNY",
+        "quantity": "1000.00", "price": "1.2500", "gross_amount": expected,
+        "net_cash": expected, "counter_account_code": None,
+    }
+    assert row["fields"]["fee_amount"] == ("0.00" if fee_text.startswith("手续费") else None)
+    assert row["source"]["context"]["reported_fields"]["到账提示"] == "05-09 12:30 资金已到账活期 +"
+    assert row["source"]["detail_ocr_retries"]["确认金额"]["text"] == amount
+    assert not row["acknowledged"]
+    assert (("net_cash", "unverified_amount") in issues(result)) == (expected is None)
