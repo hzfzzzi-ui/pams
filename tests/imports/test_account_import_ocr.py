@@ -484,3 +484,40 @@ def test_unrecognized_table_title_retained_as_warning_and_detail_not_misattribut
     warning = warnings["unrecognized_trade_title"]
     assert "未识别分隔符" in warning["source"]["raw_text"]
     assert all(result["words"][i]["box"] for i in warning["source"]["word_ids"])
+
+def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch):
+    from domain.imports import document_kind
+
+    lines = [
+        "腾讯 腾 安", "买 入 信息",
+        "买 入 产品 合成 全球 科技 混合 (QDII)C",
+        "买 入 金额 1250.00 元", "买 入 方式 建设 银行 (1234)",
+        "买 入 时 间 2026-06-12 21:34:56", "当前 状态 买 入 成 功",
+        "确认 信息", "确认 金额 1.200.00 元", "确认 净值 2.5000 元 (06-15)",
+        "确认 份额 O 480.00 份", "手续 费 0.00 元",
+        "注 : 买 入 金额 = 确认 金额 + 退 款 金 额 + 手续 费",
+    ]
+    result = parse(monkeypatch, lines, kind="trade")
+    row, = result["rows"]
+    fields = row["fields"]
+    assert {key: fields[key] for key in (
+        "name", "asset_type", "action", "status", "currency", "business_date",
+        "trade_time", "gross_amount", "price", "quantity", "fee_amount",
+    )} == {
+        "name": "合成全球科技混合(QDII)C", "asset_type": "fund", "action": "subscribe",
+        "status": "confirmed", "currency": "CNY", "business_date": "2026-06-12",
+        "trade_time": "21:34:56", "gross_amount": "1200.00", "price": "2.5000",
+        "quantity": "480.00", "fee_amount": "0.00",
+    }
+    assert all(fields[key] is None for key in ("symbol", "confirmed_date", "net_cash", "counter_account_code"))
+    reported = row["source"]["context"]["reported_fields"]
+    assert reported["买入金额"] == "1250.00 元" and reported["确认金额"] == "1.200.00 元"
+    assert reported["确认净值"] == "2.5000 元 (06-15)" and reported["买入方式"] == "建设银行 (1234)"
+    assert row["acknowledged"] is False
+    assert (None, "ocr_review_required") in issues(result)
+    assert document_kind.detect(image_bytes(), "purchase.png", "tencent_licaitong") == {
+        "kind": "trade", "status": "detected",
+    }
+    assert document_kind.detect(image_bytes(), "purchase.png", "tonghuashun") == {
+        "kind": None, "status": "unknown",
+    }

@@ -148,6 +148,61 @@ def _pairs(text: str) -> list[tuple[str, str]]:
     return pairs
 
 
+_LICAITONG_FIELDS = {
+    "买入信息": {"买入产品", "买入金额", "买入方式", "买入时间", "当前状态"},
+    "确认信息": {"确认金额", "确认净值", "确认份额", "手续费"},
+}
+
+
+def _licaitong_subscription(lines):
+    """Match one purchase detail card by its two explicit sections."""
+    section = None
+    reported = {}
+    for line in lines:
+        text = _compact(line["text"])
+        if text in _LICAITONG_FIELDS:
+            section = text
+            continue
+        for label in _LICAITONG_FIELDS.get(section, ()):
+            if text.startswith(label) and text[len(label):].strip(" :："):
+                if label in reported:
+                    return [], {}
+                reported[label] = (line, text[len(label):].strip(" :："))
+                break
+
+    if "买入产品" not in reported or not reported.keys() & {"确认金额", "确认净值", "确认份额"}:
+        return [], {}
+
+    normalized = []
+    for label, (line, raw) in reported.items():
+        pairs = []
+        if label == "买入产品":
+            name = re.sub(r"\s+([（(])", r"\1", raw)
+            pairs = [("基金名称", name), ("方向", "申购")]
+        elif label == "买入时间":
+            pairs = [("交易时间", raw)]
+        elif label == "当前状态" and raw in {"买入成功", "待确认", "确认中", "处理中"}:
+            pairs = [("状态", "confirmed" if raw == "买入成功" else raw)]
+        elif label == "确认金额":
+            # Tesseract can read the grouping comma as a dot. Keep the raw reading in evidence.
+            amount = re.sub(r"^(\d{1,3}(?:\.\d{3})+)(\.\d{2})(?=\s*元$)",
+                            lambda m: m[1].replace(".", ",") + m[2], raw)
+            pairs = [("成交金额", amount)]
+            if amount.endswith("元"):
+                pairs.append(("币种", "CNY"))
+        elif label == "确认净值":
+            price = re.sub(r"\s*[（(]\d{2}[-/]\d{2}[）)]\s*$", "", raw)
+            pairs = [("净值", price)]
+        elif label == "确认份额":
+            quantity = re.sub(r"^(?:[Ooⓘ○]|\([iI]\))\s+(?=\d)", "", raw)
+            pairs = [("份额", quantity)]
+        elif label == "手续费":
+            pairs = [("手续费", raw)]
+        normalized.append({**line, "detail_pairs": pairs})
+
+    return normalized, {label: raw for label, (_, raw) in reported.items()}
+
+
 def _trade_table(lines: list[dict], words: list[dict]) -> list[dict]:
     # Tesseract line IDs may separate columns; visual bands retain word evidence.
     bands: list[dict] = []
@@ -230,7 +285,7 @@ def _trade_table(lines: list[dict], words: list[dict]) -> list[dict]:
     return visual if found else lines
 
 
-def _drafts(lines: list[dict], words: list[dict], profile: str, kind: str, diagnostics: list | None = None) -> tuple[list[dict], list[str]]:
+def _drafts(lines: list[dict], words: list[dict], profile: str, kind: str, diagnostics: list | None = None, *, detail_card=False) -> tuple[list[dict], list[str]]:
     rows: list[dict] = []
     headers: list[str] = []
     context: dict[str, Any] = {"business_date": None, "date_text": None, "title": None, "word_ids": []}
@@ -341,13 +396,13 @@ def _drafts(lines: list[dict], words: list[dict], profile: str, kind: str, diagn
             current["fields"][field] = None
             current["issues"].append(_issue(field, "invalid_value", f"Unrecognized OCR {field}: {raw}"))
 
-    if kind == "trade":
+    if kind == "trade" and not detail_card:
         lines = _trade_table(lines, words)
     reset()
     for line in lines:
         text = _compact(line["text"])
         title = TITLE.fullmatch(line.get("trade_title", text))
-        pairs = _pairs(text)
+        pairs = line["detail_pairs"] if detail_card else _pairs(text)
         dates = re.findall(DATE, text)
         if "trade_header" in line:
             flush()
@@ -484,7 +539,11 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
         data = _run([executable, "stdin", "stdout", "-l", "chi_sim+eng", "--psm", "6", "tsv"], content=content, timeout=OCR_TIMEOUT)
         tsv, words, lines = _read_tsv(data, width, height)
         result.update(tsv=tsv, words=words, text="\n".join(line["text"] for line in lines))
-        rows, headers = _drafts(lines, words, profile, kind, result["warnings"])
+        detail_lines, reported = _licaitong_subscription(lines) if (profile, kind) == ("tencent_licaitong", "trade") else ([], {})
+        rows, headers = _drafts(detail_lines or lines, words, profile, kind, result["warnings"], detail_card=bool(detail_lines))
+        if detail_lines and rows:
+            rows[0]["source"]["context"]["reported_fields"] = reported
+            result["document_kind"] = "trade"
         result.update(rows=rows, headers=headers, ocr_status="ok" if rows else "unrecognized" if words else "empty")
         if not rows:
             result["warnings"].append(_issue(None, "no_ocr_candidates", "No unambiguous labelled candidates found; original OCR evidence retained", "warning"))

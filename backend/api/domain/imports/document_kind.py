@@ -40,7 +40,9 @@ def detect(content: bytes, filename: str, account: str, *, statement_mapping=Non
     if suffix in IMAGES:
         from domain.imports.account_import_ocr import parse_image
         image = parse_image(content, account, 'trade')
-        kind = _text_kind(image.get('text') or '') if image.get('ocr_status') in {'ok', 'unrecognized'} else None
+        kind = None
+        if image.get('ocr_status') in {'ok', 'unrecognized'}:
+            kind = image.get('document_kind') or _text_kind(image.get('text') or '')
         return {'kind': kind, 'status': 'detected' if kind else 'unknown'}
     if suffix not in {'.xls', '.xlsx', '.csv', '.tsv'}:
         return {'kind': None, 'status': 'mismatch'}
