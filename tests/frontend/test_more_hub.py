@@ -32,7 +32,9 @@ def test_only_hub_scoped_style_and_confirmed_navigation():
     assert 'id="moreAdvanced" class="moreAdvanced">' in html
     assert 'id="moreIssues"' in html and 'hidden>' in html
     css = (PUBLIC / "assets/css/more.css").read_text(encoding="utf-8")
-    assert all(rule.strip().startswith("body.page-more") for rule in css.split("\n") if rule.strip())
+    rules = tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True)
+    assert all(rule.type == "qualified-rule" and
+               tinycss2.serialize(rule.prelude).strip().startswith("body.page-more") for rule in rules)
 
 
 def test_more_uses_investment_tokens_without_new_font_or_financial_code():
