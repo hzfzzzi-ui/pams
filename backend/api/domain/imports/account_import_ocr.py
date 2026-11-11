@@ -155,23 +155,34 @@ _LICAITONG_FIELDS = {
 
 
 def _licaitong_subscription(lines):
-    """Match one purchase detail card by its two explicit sections."""
-    section = None
+    """Recognize one purchase card even when OCR drops a section heading."""
+    labels = set().union(*_LICAITONG_FIELDS.values())
+    headings = set()
     reported = {}
     for line in lines:
         text = _compact(line["text"])
         if text in _LICAITONG_FIELDS:
-            section = text
+            if text in headings:
+                return [], {}
+            headings.add(text)
             continue
-        for label in _LICAITONG_FIELDS.get(section, ()):
+        for label in labels:
             if text.startswith(label) and text[len(label):].strip(" :："):
                 if label in reported:
                     return [], {}
                 reported[label] = (line, text[len(label):].strip(" :："))
                 break
 
-    if "买入产品" not in reported or not reported.keys() & {"确认金额", "确认净值", "确认份额"}:
+    confirmation = reported.keys() & {"确认金额", "确认净值", "确认份额"}
+    if "买入产品" not in reported or not confirmation:
         return [], {}
+    purchase_line = reported["买入产品"][0]["number"]
+    if any(reported[label][0]["number"] <= purchase_line for label in confirmation):
+        return [], {}
+    if headings != _LICAITONG_FIELDS.keys():
+        order_time = reported.get("买入时间")
+        if not order_time or not re.match(DATE, order_time[1]) or len(confirmation) < 2:
+            return [], {}
 
     normalized = []
     for label, (line, raw) in reported.items():
@@ -194,7 +205,7 @@ def _licaitong_subscription(lines):
             price = re.sub(r"\s*[（(]\d{2}[-/]\d{2}[）)]\s*$", "", raw)
             pairs = [("净值", price)]
         elif label == "确认份额":
-            quantity = re.sub(r"^(?:[Ooⓘ○]|\([iI]\))\s+(?=\d)", "", raw)
+            quantity = re.sub(r"^(?:[Ooⓘ○©]|DO|\([iI]\))\s+(?=\d)", "", raw)
             pairs = [("份额", quantity)]
         elif label == "手续费":
             pairs = [("手续费", raw)]

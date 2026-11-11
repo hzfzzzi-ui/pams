@@ -485,19 +485,20 @@ def test_unrecognized_table_title_retained_as_warning_and_detail_not_misattribut
     assert "未识别分隔符" in warning["source"]["raw_text"]
     assert all(result["words"][i]["box"] for i in warning["source"]["word_ids"])
 
-def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch):
+@pytest.mark.parametrize("heading", ["买 入 信息", ""])
+def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch, heading):
     from domain.imports import document_kind
 
     lines = [
-        "腾讯 腾 安", "买 入 信息",
+        "腾讯 腾 安", heading,
         "买 入 产品 合成 全球 科技 混合 (QDII)C",
         "买 入 金额 1250.00 元", "买 入 方式 建设 银行 (1234)",
         "买 入 时 间 2026-06-12 21:34:56", "当前 状态 买 入 成 功",
         "确认 信息", "确认 金额 1.200.00 元", "确认 净值 2.5000 元 (06-15)",
-        "确认 份额 O 480.00 份", "手续 费 0.00 元",
+        "确认 份额 © 480.00 份", "手续 费 0.00 元",
         "注 : 买 入 金额 = 确认 金额 + 退 款 金 额 + 手续 费",
     ]
-    result = parse(monkeypatch, lines, kind="trade")
+    result = parse(monkeypatch, [line for line in lines if line], kind="trade")
     row, = result["rows"]
     fields = row["fields"]
     assert {key: fields[key] for key in (
