@@ -10,12 +10,11 @@ from domain.imports import account_import_store, document_kind, source_records_v
 from domain.imports.template_assessment import assess_template
 
 
-def _rows(parsed, kind):
-    status = assess_template(parsed, kind)
-    if status != 'matched':
+def _rows(parsed, kind, *, screenshot=False):
+    if not screenshot and assess_template(parsed, kind) != 'matched':
         raise ValueError('document template is not confidently matched')
     rows = parsed.get('rows') or []
-    if not rows or len(rows) > account_import_store.MAX_ROWS:
+    if (not rows and not screenshot) or len(rows) > account_import_store.MAX_ROWS:
         raise ValueError('document has no rows or exceeds row limit')
     return rows
 
@@ -53,7 +52,7 @@ def _saved_mapping(cur, account_code, kind):
 
 
 def stage_document(cur, *, account_code: str, source_name: str, filename: str, content: bytes,
-                   import_group_id: UUID | None = None) -> dict:
+                   import_group_id: UUID | None = None, document_type: str | None = None) -> dict:
     if cur.connection.autocommit:
         raise ValueError('document staging requires a transaction')
     if not filename or len(filename) > 180 or any(c in filename for c in ('/', '\\', '\x00', '\r', '\n')):
@@ -63,8 +62,16 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
     cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + account_code,))
     is_statement = account_import_store.statement.is_statement(account_code)
     mapping = _saved_mapping(cur, account_code, 'cash') if is_statement else None
-    kind_result = document_kind.detect(content, filename, account_code, statement_mapping=mapping,
-                                       include_statement=is_statement)
+    suffix = PurePath(filename).suffix.lower().lstrip('.')
+    screenshot = suffix in {'png', 'jpg', 'jpeg'}
+    if document_type is not None:
+        allowed = {'cash'} if is_statement else {'trade', 'holding'} if account_code in account_import_store.PROFILES else set()
+        if not screenshot or document_type not in allowed:
+            raise ValueError('selected document type is not supported for this account or file')
+        kind_result = {'kind': document_type}
+    else:
+        kind_result = document_kind.detect(content, filename, account_code, statement_mapping=mapping,
+                                           include_statement=is_statement)
     kind = kind_result.get('kind')
     if kind not in {'cash','trade','holding'}:
         raise ValueError('document type could not be identified')
@@ -73,9 +80,8 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
     parsed = kind_result.get('parsed_statement')
     if parsed is None:
         parsed = account_import_store.parse(content, filename, account_code, kind, mapping=mapping)
-    rows = _rows(parsed, kind)
-    suffix = PurePath(filename).suffix.lower().lstrip('.')
-    method = 'screenshot' if suffix in {'png','jpg','jpeg'} else 'file'
+    rows = _rows(parsed, kind, screenshot=screenshot)
+    method = 'screenshot' if screenshot else 'file'
     parse_method = 'ocr' if method == 'screenshot' else 'template'
     cur.execute('''SELECT 1 FROM public.source_records WHERE account_code=%s AND document_type=%s
         AND sha256=%s AND status IN ('draft','published') LIMIT 1''', (account_code,kind,sha256(content).hexdigest()))
@@ -86,7 +92,7 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
         acquisition_method=method,document_type=kind,import_group_id=import_group_id,filename=filename,
         file_format=suffix,content=content)
     excluded = _save_rows(cur, source_id=source_id, kind=kind, parse_method=parse_method, rows=rows)
-    return {'source_id':str(source_id),'document_type':kind,'template_status':'matched',
+    return {'source_id':str(source_id),'document_type':kind,'template_status':'needs_review' if screenshot else 'matched',
             'row_count':len(rows),'excluded_count':excluded,'revision':len(rows)+1}
 
 

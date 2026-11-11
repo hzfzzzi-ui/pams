@@ -13,7 +13,8 @@ export function sourceBatch(source) {
     rows:(source.items || []).map(item => ({row_id:item.source_item_id,
       fields:{...item.parsed_fields,kind:source.document_type}, original_fields:item.parsed_fields,
       acknowledged:item.review_status === 'confirmed', excluded:item.review_status === 'excluded',
-      review_note:item.review_note, can_edit_fields:!['template','api'].includes(item.parse_method),
+      review_note:item.review_note, issues:source.acquisition_method === 'screenshot' ? item.raw_fields?.initial_issues || [] : [],
+      can_edit_fields:!['template','api'].includes(item.parse_method),
       source:{...(item.raw_fields?.source || {}),...(item.source_position || {}),
         ...(source.filename ? {file_id:id} : {}), origin:item.parse_method}})),
   };
@@ -44,8 +45,10 @@ export function createSourceRecordAdapter(request, recovery) {
       const result = await request('/source-records/manual','POST',{account_code:account,document_type:kind});
       return loadAfterWrite(result.source_id);
     },
-    async stageFile(account, file) {
-      const result = await request(`/source-records?account_code=${encodeURIComponent(account)}&source_name=${encodeURIComponent(account)}&filename=${encodeURIComponent(file.name)}`,'POST',file,true);
+    async stageFile(account, file, kind = '') {
+      const params = new URLSearchParams({account_code:account,source_name:account,filename:file.name});
+      if (kind) params.set('document_type',kind);
+      const result = await request('/source-records?' + params,'POST',file,true);
       return loadAfterWrite(result.source_id);
     },
     async save(batch, rows) {

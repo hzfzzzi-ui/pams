@@ -260,7 +260,8 @@ def context(request: Request):
 @router.post('/source-records')
 async def stage_source_record(request: Request, account_code: str = Query(..., min_length=1, max_length=80),
                               source_name: str = Query(..., min_length=1, max_length=80),
-                              filename: str = Query(..., min_length=1, max_length=180)):
+                              filename: str = Query(..., min_length=1, max_length=180),
+                              document_type: str | None = Query(None, pattern='^(cash|trade|holding)$')):
     access.same_origin(request)
     content = bytearray()
     async for part in request.stream():
@@ -270,7 +271,7 @@ async def stage_source_record(request: Request, account_code: str = Query(..., m
     from domain.imports.document_stage_v2 import stage_document
     return await run_in_threadpool(execute_source_record, request,
         lambda cur: stage_document(cur, account_code=account_code, source_name=source_name,
-                                   filename=filename, content=bytes(content)), write=True)
+                                   filename=filename, content=bytes(content), document_type=document_type), write=True)
 
 
 @router.post('/source-records/ibkr-report')

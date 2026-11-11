@@ -451,3 +451,73 @@ def test_synthetic_broker_document_preserves_original_execution_amounts(monkeypa
             calculate_verified_positions(wrapped, **kwargs, coverage_confirmed=True)
         with pytest.raises(ValueError, match='evidence'):
             build_candidates_from_source_records(wrapped, **inputs)
+
+@pytest.mark.parametrize("row_count", [0, 1])
+def test_screenshot_draft_retains_original_without_requiring_a_file_template(monkeypatch, row_count):
+    from hashlib import sha256
+    from io import BytesIO
+    from PIL import Image
+    from psycopg2.extras import RealDictCursor
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
+    from domain.imports import account_import_store as store, document_stage_v2 as staging
+
+    class SchemaCursor:
+        def __init__(self, inner):
+            self.inner = inner
+        @property
+        def connection(self):
+            return self.inner.connection
+        @property
+        def rowcount(self):
+            return self.inner.rowcount
+        def execute(self, statement, args=None):
+            return self.inner.execute(statement.replace("public.", "redesign_test."), args)
+        def fetchone(self):
+            return self.inner.fetchone()
+
+    output = BytesIO()
+    Image.new("RGB", (100, 100), "white").save(output, format="PNG")
+    content = output.getvalue()
+    rows = [{"fields": {"name": "Synthetic fund", "gross_amount": "1000.00"},
+             "source": {"row": 1}, "issues": [{"code": "ocr_review_required"}]}] * row_count
+    parsed = {"origin": "ocr", "ocr_status": "ok" if rows else "empty",
+              "rows": rows, "headers": [], "warnings": [], "text": ""}
+    monkeypatch.setattr(store, "parse", lambda *args, **kwargs: parsed)
+    monkeypatch.setattr(store.statement, "is_statement", lambda account: False)
+    with scratch_database() as params, psycopg2.connect(**params) as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            install_redesign(cur)
+            cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('tencent_licaitong')")
+            wrapped = SchemaCursor(cur)
+            result = staging.stage_document(wrapped, account_code="tencent_licaitong",
+                source_name="Synthetic fund", filename="screenshot.png", content=content,
+                document_type="trade")
+            assert result["row_count"] == row_count
+            assert result["template_status"] == "needs_review"
+            cur.execute("SELECT content,sha256,status,acquisition_method,document_type FROM redesign_test.source_records")
+            source = cur.fetchone()
+            assert bytes(source["content"]) == content and source["sha256"] == sha256(content).hexdigest()
+            assert (source["status"], source["acquisition_method"], source["document_type"]) == ("draft", "screenshot", "trade")
+            cur.execute("SELECT parse_method,review_status,parsed_fields,raw_fields FROM redesign_test.source_items")
+            items = cur.fetchall()
+            assert len(items) == row_count
+            for item in items:
+                assert (item["parse_method"], item["review_status"]) == ("ocr", "pending")
+                assert item["raw_fields"]["initial_issues"] == [{"code": "ocr_review_required"}]
+                assert item["parsed_fields"] == rows[0]["fields"]
+            for table in ("pams_cashflow_fact", "pams_investment_trade_fact"):
+                cur.execute("SELECT count(*) AS total FROM redesign_test." + table)
+                assert cur.fetchone()["total"] == 0
+            with pytest.raises(ValueError, match="already exists"):
+                staging.stage_document(wrapped, account_code="tencent_licaitong",
+                    source_name="Synthetic fund", filename="screenshot.png", content=content,
+                    document_type="trade")
+            with pytest.raises(ValueError, match="not supported"):
+                staging.stage_document(wrapped, account_code="tencent_licaitong",
+                    source_name="Synthetic fund", filename="screenshot.png", content=content,
+                    document_type="cash")
+            with pytest.raises(ValueError, match="not supported"):
+                staging.stage_document(wrapped, account_code="tencent_licaitong",
+                    source_name="Synthetic fund", filename="file.csv", content=b"not a template",
+                    document_type="trade")

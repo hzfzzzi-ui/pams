@@ -433,8 +433,20 @@ export function mount(root, context = {}) {
     if (state.useSourceRecords) {
       if (state.batch && !emptyDraft()) throw new Error('请先新建资料，再选择要导入的文件。');
       if (files.length !== 1) throw new Error('新来源模式每次选择一份资料，请分别导入。');
+      let imageKind = selectedKind;
+      if (state.mode === 'ocr' && !imageKind) {
+        message(`正在识别 ${files[0].name} 的资料类别…`);
+        const result = await api(`/detect?account_code=${encodeURIComponent(account().account_code)}&filename=${encodeURIComponent(files[0].name)}`, 'POST', files[0], true);
+        const allowed = account().kinds || [];
+        imageKind = result.kind || (allowed.length === 1 ? allowed[0] : '');
+        if (!imageKind) {
+          pendingSelection = {files, detected:[result]}; state.needsKind = true; $('kind').value = '';
+          render(); message('无法可靠识别截图类别，请选择后继续；截图尚未上传。');
+          return;
+        }
+      }
       message(`正在识别 ${files[0].name}…`);
-      const batch = await sourceAdapter.stageFile(account().account_code, files[0]);
+      const batch = await sourceAdapter.stageFile(account().account_code, files[0], imageKind);
       if (useBatch(batch)) {
         if (state.mode === 'upload' && batch.rows.length) {
           await advanceToReview();
@@ -660,7 +672,9 @@ export function mount(root, context = {}) {
     if (state.suspended) { resumeEditor(); return; }
     const file = images()[state.imageIndex];
     if (state.useSourceRecords) {
-      for (const row of state.batch.rows) if (!row.excluded) row.acknowledged = true;
+      const rows = state.batch.rows.filter(row => row.source?.file_id === file.file_id && !row.excluded);
+      if (!rows.length) throw new Error('请先对照截图补充至少一条记录。');
+      for (const row of rows) row.acknowledged = true;
       state.batch = await sourceAdapter.save(state.batch, state.batch.rows);
     } else state.batch = await api(`${path()}/files/${encodeURIComponent(file.file_id)}/review`, 'POST', { revision: state.batch.revision });
     if (state.imageIndex + 1 < images().length) { state.imageIndex++; render(); } else await makePreview();
