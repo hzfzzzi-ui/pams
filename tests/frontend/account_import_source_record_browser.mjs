@@ -25,7 +25,15 @@ await page.route('**/*',async route=>{
    if (account) assert.equal(account,'tencent_licaitong');
    return send({sources:source?[source]:[]});
   }
+  if(p.endsWith('/source-records/s/original')) return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')});
+  if(p.endsWith('/detect')) return send({kind:null,status:'unknown'});
   if(p.endsWith('/source-records') && req.method()==='POST') {
+   if(url.searchParams.get('account_code')==='tencent_licaitong') {
+    assert.equal(url.searchParams.get('document_type'),'trade');
+    source={source_id:'s',account_code:'tencent_licaitong',document_type:'trade',acquisition_method:'screenshot',
+     status:'draft',revision:1,filename:'synthetic.png',file_format:'png',items:[]};
+    return send({source_id:'s',revision:1});
+   }
    assert.equal(url.searchParams.get('account_code'),'bank');
    const fields=kind==='cash'?{business_date:'2026-01-02',action:'income',currency:'CNY',net_cash:'12.34'}:{business_date:'2026-01-02',action:'buy',currency:'CNY',symbol:'000001',name:'合成股票',quantity:'100',price:'10',gross_amount:'1000',net_cash:'-1000'};
    if(kind==='holding') Object.assign(fields,{asset_type:'cash',action:'balance',net_cash:'12.34'});
@@ -106,6 +114,27 @@ try {
   assert.equal(await page.locator('#batch-list .import-history-row').count(),0);
   assert.ok(calls.slice(before).every(([method])=>method==='GET'));
  }
+ ocrAvailable=true; source=null;
+ await page.goto('http://import.invalid/account_import.html?account=tencent_licaitong&scope=account');
+ await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
+ const beforeScreenshot=calls.length;
+ await page.locator('#images').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from('synthetic screenshot')});
+ await page.locator('#kind-prompt').waitFor({state:'visible'});
+ assert.equal(source,null);
+ await page.locator('#kind').selectOption('trade');
+ await page.getByText('文件已暂存，请核对识别结果。',{exact:true}).waitFor();
+ assert.equal(source.status,'draft');
+ assert.equal(source.acquisition_method,'screenshot');
+ assert.equal(await page.locator('#account').inputValue(),'tencent_licaitong');
+ assert.equal(await page.locator('#kind-prompt').isVisible(),false);
+ await page.locator('#next').click();
+ await page.locator('#image-review').waitFor({state:'visible'});
+ await page.getByText('本图未识别出记录，请对照原图补充；空图不能确认。',{exact:true}).waitFor();
+ await page.locator('#confirm-image').click();
+ await page.waitForFunction(()=>!document.querySelector('#workspace').inert);
+ assert.equal(await page.locator('#image-review').isVisible(),true);
+ assert.equal(calls.slice(beforeScreenshot).filter(([method,p])=>method==='POST'&&p.endsWith('/source-records')).length,1);
+ assert.ok(calls.slice(beforeScreenshot).every(([,p])=>!p.endsWith('-publish')));
  assert.equal(publishes,3);assert.deepEqual(errors,[]);
  assert.ok(calls.every(([,p])=>!p.includes('/batches')));
 } finally {await browser.close();}
