@@ -560,6 +560,10 @@ def test_licaitong_cash_withdrawal_requires_consistent_reported_amount(monkeypat
     assert document_kind.detect(content, "withdrawal.png", "tencent_licaitong") == {
         "kind": "cash", "status": "detected",
     }
+    active_plus = "tencent_licaitong_current_plus"
+    assert document_kind.detect(content, "withdrawal.png", active_plus) == {"kind": "cash", "status": "detected"}
+    assert document_kind.detect(content, "withdrawal.csv", active_plus)["status"] == "mismatch"
+    assert ocr.parse_image(content, active_plus, "cash")["rows"] == ocr.parse_image(content, "tencent_licaitong", "cash")["rows"]
     assert ocr.parse_image(content, "tencent_licaitong", "trade")["rows"] == []
     row, = ocr.parse_image(content, "tencent_licaitong", "cash")["rows"]
     fields = row["fields"]
@@ -578,4 +582,5 @@ def test_licaitong_other_fund_redemption_is_not_cash_withdrawal(monkeypatch):
              "当前状态 取出成功", "到账金额 8,420.75 元", "到账时间 2026-08-11 00:00:04",
              "资金去向 示例银行(1234)"]
     result = parse(monkeypatch, lines, kind="cash")
-    assert result["rows"] == [] and "document_kind" not in result
+    assert result["rows"] == []
+    assert parse(monkeypatch, lines, kind="cash", profile="tencent_licaitong_current_plus")["rows"] == [] and "document_kind" not in result

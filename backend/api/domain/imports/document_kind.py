@@ -7,6 +7,7 @@ import re
 from domain.imports import account_import_statement as statement
 from domain.imports import account_import_ths as ths
 from domain.imports.account_import_parse import HEADER_FIELDS, HEADER_SCAN, _csv, _text, _xlsx
+from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
 
 INVESTMENT_PROFILES = {'tonghuashun', 'tencent_licaitong'}
 IMAGES = {'.png', '.jpg', '.jpeg'}
@@ -35,11 +36,16 @@ def detect(content: bytes, filename: str, account: str, *, statement_mapping=Non
         if include_statement:
             result['parsed_statement'] = parsed
         return result
-    if account not in INVESTMENT_PROFILES:
+    if account == LICAITONG_CURRENT_PLUS and suffix not in IMAGES:
+        return {'kind': None, 'status': 'mismatch'}
+    if account not in INVESTMENT_PROFILES and account != LICAITONG_CURRENT_PLUS:
         raise ValueError('此账户不支持资料导入')
     if suffix in IMAGES:
         from domain.imports.account_import_ocr import parse_image
         image = parse_image(content, account, 'trade')
+        if account == LICAITONG_CURRENT_PLUS:
+            kind = 'cash' if image.get('document_kind') == 'cash' else None
+            return {'kind': kind, 'status': 'detected' if kind else 'unknown'}
         kind = None
         if image.get('ocr_status') in {'ok', 'unrecognized'}:
             kind = image.get('document_kind') or _text_kind(image.get('text') or '')

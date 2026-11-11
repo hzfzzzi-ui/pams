@@ -13,6 +13,7 @@ from io import BytesIO, StringIO
 from typing import Any
 
 from domain.imports.account_import_parse import FIELDS, _issue, _value
+from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
 
 MAX_BYTES, MAX_PIXELS, MAX_OUTPUT = 10 * 1024**2, 20_000_000, 2 * 1024**2
 MAX_WORDS, MAX_TSV_ROWS, MAX_ROWS = 10000, 20000, 2000
@@ -654,7 +655,7 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
     false; every candidate has an ocr_review_required issue. No dates, symbols,
     status, currency or amounts are supplied from ambient time or asset guesses.
     """
-    if profile not in {"tonghuashun", "tencent_licaitong"} or kind not in {"trade", "holding", "cash"}:
+    if profile not in {"tonghuashun", "tencent_licaitong", LICAITONG_CURRENT_PLUS} or kind not in {"trade", "holding", "cash"}:
         raise ValueError("Unsupported profile or kind")
     result: dict[str, Any] = {"rows": [], "headers": [], "warnings": [], "suggested_mapping": {},
                               "origin": "ocr", "ocr_status": "unavailable", "text": "", "words": []}
@@ -671,7 +672,7 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
         data = _run([executable, "stdin", "stdout", "-l", "chi_sim+eng", "--psm", "6", "tsv"], content=content, timeout=OCR_TIMEOUT)
         tsv, words, lines = _read_tsv(data, width, height)
         result.update(tsv=tsv, words=words, text="\n".join(line["text"] for line in lines))
-        withdrawal = _licaitong_withdrawal(lines) if profile == "tencent_licaitong" else {}
+        withdrawal = _licaitong_withdrawal(lines) if profile in {"tencent_licaitong", LICAITONG_CURRENT_PLUS} else {}
         if withdrawal:
             result["document_kind"] = "cash"
             if kind == "cash":
@@ -680,7 +681,7 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
             else:
                 result["ocr_status"] = "unrecognized"
             return result
-        if (profile, kind) == ("tencent_licaitong", "cash"):
+        if profile == LICAITONG_CURRENT_PLUS or (profile, kind) == ("tencent_licaitong", "cash"):
             result["ocr_status"] = "unrecognized" if words else "empty"
             return result
         detail_lines, reported = _licaitong_subscription(lines) if (profile, kind) == ("tencent_licaitong", "trade") else ([], {})
