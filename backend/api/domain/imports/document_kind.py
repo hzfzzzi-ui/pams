@@ -43,6 +43,8 @@ def detect(content: bytes, filename: str, account: str, *, statement_mapping=Non
     if suffix in IMAGES:
         from domain.imports.account_import_ocr import parse_image
         image = parse_image(content, account, 'trade')
+        if image.get('required_account', account) != account:
+            return {'kind': None, 'status': 'mismatch'}
         if account == LICAITONG_CURRENT_PLUS:
             kind = 'cash' if image.get('document_kind') == 'cash' else None
             return {'kind': kind, 'status': 'detected' if kind else 'unknown'}

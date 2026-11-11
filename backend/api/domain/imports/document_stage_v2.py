@@ -81,11 +81,13 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
     parsed = kind_result.get('parsed_statement')
     if parsed is None:
         parsed = account_import_store.parse(content, filename, account_code, kind, mapping=mapping)
+    if parsed.get('required_account', account_code) != account_code:
+        raise ValueError('请选择与截图业务相符的理财通子账户')
     if parsed.get('document_kind') and parsed['document_kind'] != kind:
         raise ValueError('截图内容与所选资料类别不一致')
     rows = _rows(parsed, kind, screenshot=screenshot)
     if account_code == LICAITONG_CURRENT_PLUS and not rows:
-        raise ValueError('未识别到活期+取出到账明细，请上传完整交易截图')
+        raise ValueError('未识别到活期+转入或取出明细，请上传完整交易截图')
     if screenshot and kind == 'cash':
         for row in rows:
             fields = row['fields']

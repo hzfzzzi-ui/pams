@@ -175,7 +175,7 @@ def _licaitong_subscription(lines):
                 break
 
     confirmation = reported.keys() & {"确认金额", "确认净值", "确认份额"}
-    if "买入产品" not in reported or not confirmation:
+    if "买入产品" not in reported or not confirmation or _licaitong_product(reported["买入产品"][1]) == "活期+":
         return [], {}
     purchase_line = reported["买入产品"][0]["number"]
     if any(reported[label][0]["number"] <= purchase_line for label in confirmation):
@@ -221,15 +221,7 @@ _LICAITONG_WITHDRAWAL_LABELS = (
 
 
 def _licaitong_withdrawal(lines):
-    reported = {}
-    for line in lines:
-        text = _compact(line["text"])
-        for label in _LICAITONG_WITHDRAWAL_LABELS:
-            if text.startswith(label) and text[len(label):].strip(" :："):
-                if label in reported:
-                    return {}
-                reported[label] = (line, text[len(label):].strip(" :："))
-                break
+    reported = _licaitong_reported(lines, _LICAITONG_WITHDRAWAL_LABELS)
 
     required = {"取出产品", "取出时间", "当前状态", "到账金额", "到账时间", "资金去向"}
     if not required <= reported.keys():
@@ -292,6 +284,158 @@ def _withdrawal_draft(reported, lines, words, content, executable, warnings):
             row["source"]["amount_ocr_retry"] = retry
         if row["fields"]["net_cash"] is None:
             row["issues"].append(_issue("net_cash", "unverified_amount", "到账金额未能核实，请对照原图填写"))
+    return rows, headers
+
+
+_LICAITONG_REDEMPTION_LABELS = (
+    "取出产品", "取出时间", "当前状态", "确认金额", "确认净值", "确认份额", "手续费", "确认日期",
+)
+
+
+def _licaitong_reported(lines, labels):
+    reported = {}
+    for line in lines:
+        text = _compact(line["text"])
+        for label in labels:
+            value = text[len(label):].strip(" :：")
+            if text.startswith(label) and value:
+                if label in reported:
+                    return {}
+                reported[label] = (line, value)
+                break
+    return reported
+
+
+def _licaitong_product(text):
+    return re.sub(r"\s+", "", text).replace("＋", "+")
+
+
+def _licaitong_fund_name(text):
+    return re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])\s+(?=[\u4e00-\u9fff])", "", text)
+
+
+def _licaitong_money(line, raw, words, content, executable, *, headline=None):
+    amount = _reported_yuan(raw)
+    tokens = [words[i] for i in line["ids"]]
+    if not tokens or _compact(tokens[-1]["text"]) != "元" or len(tokens) < 2:
+        return (amount if headline is None or amount == headline else None), None
+    number, unit = tokens[-2:]
+    if amount is not None and ((headline is not None and amount == headline)
+                               or (headline is None and Decimal(number["confidence"]) >= 80)):
+        return amount, None
+    if not re.fullmatch(r"[\d,.]+", number["text"]):
+        return None, None
+    # OCR may give the numeric word a box that overlaps the currency glyph.
+    box = dict(number["box"])
+    box["width"] = min(box["width"], unit["box"]["left"] - box["left"] - 4)
+    if box["width"] <= 0:
+        return None, None
+    text = _read_word_region(content, executable, box, "eng", left_pad=4)
+    reread = _reported_yuan(text.rstrip(":;") + "元")
+    retry = {"text": text, "box": box}
+    if headline is not None and reread != headline:
+        return None, retry
+    return reread, retry
+
+
+def _licaitong_incoming(lines):
+    reported = _licaitong_reported(lines, _LICAITONG_FIELDS["买入信息"])
+    required = {"买入产品", "买入金额", "买入方式", "买入时间", "当前状态"}
+    if (required <= reported.keys()
+            and _licaitong_product(reported["买入产品"][1]) == "活期+"
+            and reported["当前状态"][1] == "买入成功"):
+        return reported
+    return {}
+
+
+def _licaitong_redemption(lines):
+    reported = _licaitong_reported(lines, _LICAITONG_REDEMPTION_LABELS)
+    required = {"取出产品", "取出时间", "当前状态", "确认金额", "确认净值", "确认份额"}
+    if (required <= reported.keys()
+            and _licaitong_product(reported["取出产品"][1]) != "活期+"
+            and reported["当前状态"][1] == "取出成功"
+            and all(reported[label][0]["number"] > reported["取出产品"][0]["number"]
+                    for label in ("确认金额", "确认净值", "确认份额"))):
+        return reported
+    return {}
+
+
+def _licaitong_detail_draft(reported, lines, words, content, executable, warnings, *, incoming):
+    amount_label = "买入金额" if incoming else "确认金额"
+    product_label = "买入产品" if incoming else "取出产品"
+    time_label = "买入时间" if incoming else "取出时间"
+    amount_line, amount_raw = reported[amount_label]
+    headline = None
+    if incoming:
+        headlines = {_reported_yuan(_compact(line["text"])) for line in lines
+                     if line["number"] < reported[product_label][0]["number"]} - {None}
+        headline = next(iter(headlines)) if len(headlines) == 1 else None
+    amount, amount_retry = _licaitong_money(amount_line, amount_raw, words, content, executable, headline=headline)
+    if incoming and len(headlines) > 1:
+        amount = None
+    evidence = {label: raw for label, (_, raw) in reported.items()}
+    retries = {amount_label: amount_retry} if amount_retry else {}
+    pairs = {
+        product_label: [("名称", "活期+"), ("资产类型", "cash"), ("方向", "transfer")] if incoming
+        else [("基金名称", _licaitong_fund_name(reported[product_label][1])), ("方向", "赎回")],
+        time_label: [("交易时间", reported[time_label][1])],
+        "当前状态": [("状态", "confirmed")],
+        amount_label: [("币种", "CNY")] if amount_raw.endswith("元") or amount is not None else [],
+    }
+    if incoming and amount is not None and amount > 0:
+        pairs[amount_label].append(("净收付", format(amount, "f")))
+    if not incoming:
+        price = re.sub(r"\s*[（(]\d{2}[-/]\d{2}[）)]\s*$", "", reported["确认净值"][1])
+        pairs.update({"确认净值": [("净值", price)], "确认份额": [("份额", reported["确认份额"][1])]})
+        if "确认日期" in reported:
+            pairs["确认日期"] = [("确认日期", reported["确认日期"][1])]
+        fee = _reported_yuan(reported["手续费"][1]) if "手续费" in reported else None
+        if "手续费" not in reported and "确认日期" in reported:
+            candidates = [line for line in lines if reported["确认份额"][0]["number"] < line["number"]
+                          < reported["确认日期"][0]["number"]]
+            if len(candidates) == 1:
+                line = candidates[0]
+                boxes = [words[i]["box"] for i in line["ids"]]
+                left, top = min(b["left"] for b in boxes), min(b["top"] for b in boxes)
+                box = {"left": left, "top": top, "width": max(b["left"] + b["width"] for b in boxes) - left,
+                       "height": max(b["top"] + b["height"] for b in boxes) - top}
+                text = _read_word_region(content, executable, box, "chi_sim+eng", left_pad=4)
+                match = re.fullmatch(r"手续费\s*(.+)", _compact(text))
+                fee = _reported_yuan(match[1]) if match else None
+                retries["手续费"] = {"text": text, "box": box}
+                if fee is not None:
+                    reported = {**reported, "手续费": (line, match[1])}
+        if fee is not None:
+            pairs["手续费"] = [("手续费", format(fee, "f"))]
+        # With zero explicit fees, the confirmed amount can fill gross and net.
+        if amount is not None and amount > 0 and fee == 0:
+            pairs[amount_label].extend([("成交金额", format(amount, "f")), ("净收付", format(amount, "f"))])
+    if not incoming:
+        receipt = next((line for line in lines if line["number"] < reported[product_label][0]["number"]
+                        and "资金已到账" in _compact(line["text"])), None)
+        if receipt:
+            evidence["到账提示"] = _compact(receipt["text"])
+            reported = {**reported, "到账提示": (receipt, evidence["到账提示"])}
+    details = [{**line, "detail_pairs": pairs.get(label, [])} for label, (line, _) in
+               sorted(reported.items(), key=lambda item: item[1][0]["number"])]
+    kind = "cash" if incoming else "trade"
+    rows, headers = _drafts(details, words, "tencent_licaitong", kind, warnings, detail_card=True)
+    for row in rows:
+        if incoming:
+            row["fields"].update(summary="理财通活期+转入", description=reported["买入方式"][1])
+        else:
+            fields = row["fields"]
+            if fields["net_cash"] is not None and fields["quantity"] is not None and fields["price"] is not None:
+                quantity, nav = Decimal(fields["quantity"]), Decimal(fields["price"])
+                # The displayed NAV is rounded. Use it to reject a conflicting OCR amount, never to fill it.
+                tolerance = abs(quantity) * Decimal("0.5").scaleb(nav.as_tuple().exponent) + Decimal("0.01")
+                if abs(Decimal(fields["net_cash"]) - quantity * nav) > tolerance:
+                    fields["gross_amount"] = fields["net_cash"] = None
+        row["source"]["context"]["reported_fields"] = evidence
+        if retries:
+            row["source"]["detail_ocr_retries"] = retries
+        if row["fields"]["net_cash"] is None:
+            row["issues"].append(_issue("net_cash", "unverified_amount", "请按原图核对金额及手续费"))
     return rows, headers
 
 
@@ -672,7 +816,19 @@ def parse_image(content: bytes, profile: str, kind: str) -> dict:
         data = _run([executable, "stdin", "stdout", "-l", "chi_sim+eng", "--psm", "6", "tsv"], content=content, timeout=OCR_TIMEOUT)
         tsv, words, lines = _read_tsv(data, width, height)
         result.update(tsv=tsv, words=words, text="\n".join(line["text"] for line in lines))
-        withdrawal = _licaitong_withdrawal(lines) if profile in {"tencent_licaitong", LICAITONG_CURRENT_PLUS} else {}
+        licaitong = profile in {"tencent_licaitong", LICAITONG_CURRENT_PLUS}
+        incoming = _licaitong_incoming(lines) if licaitong else {}
+        redemption = _licaitong_redemption(lines) if licaitong else {}
+        if incoming or redemption:
+            account = LICAITONG_CURRENT_PLUS if incoming else "tencent_licaitong"
+            detected_kind = "cash" if incoming else "trade"
+            result.update(document_kind=detected_kind, required_account=account, ocr_status="unrecognized")
+            if profile == account and kind == detected_kind:
+                rows, headers = _licaitong_detail_draft(incoming or redemption, lines, words, content,
+                                                         executable, result["warnings"], incoming=bool(incoming))
+                result.update(rows=rows, headers=headers, ocr_status="ok" if rows else "unrecognized")
+            return result
+        withdrawal = _licaitong_withdrawal(lines) if licaitong else {}
         if withdrawal:
             result["document_kind"] = "cash"
             if kind == "cash":
