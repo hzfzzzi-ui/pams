@@ -83,6 +83,19 @@ const ACCOUNT_NUMERIC_FIELDS = [
   'activity',
 ];
 
+const LEDGER_EDIT_GROUPS = [
+  ['operating_expense', '消费'],
+  ['operating_income', '收入'],
+  ['internal_transfer', '内部转账'],
+];
+
+function ledgerEditGroup(type, amount = 0) {
+  if (type === 'fee') return 'operating_expense';
+  if (LEDGER_EDIT_GROUPS.some(([group]) => group === type)) return type;
+  if (LEDGER_EDIT_TYPES.some(([value]) => value === type)) return 'internal_transfer';
+  return amount > 0 ? 'operating_income' : 'operating_expense';
+}
+
 const LEDGER_EDIT_TYPES = [
   ['operating_expense', '消费'],
   ['operating_income', '收入'],
@@ -131,7 +144,7 @@ const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {
   学习成长: ['课程培训', '图书资料', '考试认证', '手动确认'],
   人情往来: ['红包转账', '礼金', '代付代收', '手动确认'],
   '借还款/往来': ['借款', '还款', '往来款', '手动确认'],
-  其他支出: ['其他支出', '利息支出', '券商利息', '手动确认'],
+  其他支出: ['其他支出', '利息支出', '券商利息', '银行费用', '手动确认'],
   待确认支出: ['手动确认'],
   工资薪酬: ['工资', '薪金', '手动确认'],
   奖金: ['年终奖', '绩效奖金', '手动确认'],
@@ -459,10 +472,12 @@ function ledgerCategoryOptions(cashflowType, currentValue = '') {
 }
 
 function ledgerEditCategory(cashflowType, category, subcategory) {
-  if (cashflowType !== 'operating_expense' || category !== '消费') return category;
+  const expense = cashflowType === 'operating_expense' && category === '消费';
+  const income = cashflowType === 'operating_income' && category === '收入';
+  if (!expense && !income) return category;
   if (!subcategory || subcategory === '手动确认') return '';
-  return LEDGER_EDIT_CATEGORY_OPTIONS.operating_expense.find(option =>
-    LEDGER_EDIT_SUBCATEGORY_OPTIONS[option]?.includes(subcategory)) || '其他支出';
+  return LEDGER_EDIT_CATEGORY_OPTIONS[cashflowType].find(option =>
+    LEDGER_EDIT_SUBCATEGORY_OPTIONS[option]?.includes(subcategory)) || (expense ? '其他支出' : '其他收入');
 }
 
 function ledgerSubcategoryOptions(cashflowType, category, currentValue = '') {
@@ -854,4 +869,4 @@ function filteredRecentRows() {
   return { ledgerEditCategory, flowLabel, flowClass, compactText, stripLongDetail, accountFriendlyName, accountShortLabel, counterpartyShortLabel, rowCategoryText, cashflowTypeText, isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, isAccountValidationRow, isInvestmentFundingRow, isInvestmentWithdrawalRow, routeEndpointLabel, rowTagLabel, rowAmountClass, rowTitle, rowMetaText, rowDateText, rowSearchText, recentAmountValue, sortRecentRows, originalCurrencyText, inferInvestmentAccountCode, transferEndpointName, isImporterCounterparty, investmentFundingSourceAccount, transferRoute, uniqueOptionValues, ledgerCategoryOptions, ledgerSubcategoryOptions, overviewPeriodKey, overviewPeriodLabel, currentOverviewPeriod, currentOverviewCategories, overviewFlowKey, overviewFlowLabel, accountDisplayName, subAccountDisplayName, ledgerAccountIdentity, accountOverviewMap, accountOverview, accountPrimaryBalance, hasAccountBalance, accountBalanceItems, formatBalanceItem, accountBalanceSummary, accountPlatformBalances, platformBalanceAmount, addCurrencyAmount, sortedCurrencyItems, formatCurrencyItems, formatCurrencyItemsCompact, accountInvestmentBalanceEntries, investmentAccountStatsEntries, normalizeAccountRow, maxSyncAt, emptyAccountRow, mergeAccountRows, hasAccountActivity, buildAccountFlowGroups, accountFlowStatsEntries, formatSyncDate, accountFlowCountText, currentAccountSummary, isInternalTransferRow, overviewPieRows, findLedgerRowById, filteredRecentRows };
 }
 
-export { ACCOUNT_GROUPS, ACCOUNT_GROUP_CHILD_CODES, ACCOUNT_SUBACCOUNT_LABELS, TRANSFER_ENDPOINT_LABELS, ACCOUNT_KIND_OVERRIDES, ACCOUNT_NUMERIC_FIELDS, LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS, LEDGER_EDIT_CATEGORY_OPTIONS, LEDGER_EDIT_SUBCATEGORY_OPTIONS };
+export { ACCOUNT_GROUPS, ACCOUNT_GROUP_CHILD_CODES, ACCOUNT_SUBACCOUNT_LABELS, TRANSFER_ENDPOINT_LABELS, ACCOUNT_KIND_OVERRIDES, ACCOUNT_NUMERIC_FIELDS, LEDGER_EDIT_GROUPS, ledgerEditGroup, LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS, LEDGER_EDIT_CATEGORY_OPTIONS, LEDGER_EDIT_SUBCATEGORY_OPTIONS };

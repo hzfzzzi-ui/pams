@@ -550,6 +550,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert "function ledgerEditActionLabel(row)" in js
     assert "LEDGER_EDIT_CATEGORY_OPTIONS" in js
     assert "LEDGER_EDIT_SUBCATEGORY_OPTIONS" in js
+    assert 'data-edit-field="flow_group"' in js
+    assert 'data-edit-field="transfer_type"' in js
     assert 'data-edit-field="category"' in js
     assert 'data-edit-field="subcategory"' in js
     assert "function updateLedgerSubcategoryOptions(" in js

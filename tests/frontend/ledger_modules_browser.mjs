@@ -720,6 +720,8 @@ async function checkLedgerLifecycle() {
   const [hinted, unknown] = hintFixture.recent_rows_ytd;
   const brokerInterest = hintFixture.recent_rows_ytd.find(row => row.id === '5');
   Object.assign(brokerInterest, { category: '消费', subcategory: '券商利息', summary: '券商利息' });
+  hintFixture.recent_rows_ytd.push({...brokerInterest, id:'80', cashflow_type:'fee',
+    category:'其他支出', subcategory:'银行费用', classification_status:'confirmed', summary:'合成银行费用'});
   for (const row of [hinted, unknown]) Object.assign(row, {
     classification_status: 'pending', subcategory_pending: true, account_flow_type: row.flow_type, coarse_category: '待分类',
     cashflow_type: null, category: null, subcategory: null, needs_review: true,
@@ -732,7 +734,9 @@ async function checkLedgerLifecycle() {
   await hintPage.page.locator('[data-ledger-tab="recent"]').click();
   await openStreamEdit(hintPage.page, '5');
   const form = hintPage.page.locator('[data-ledger-edit-form]');
-  const type = form.locator('[data-edit-field="cashflow_type"]');
+  const type = form.locator('[data-edit-field="flow_group"]');
+  const transferType = form.locator('[data-edit-field="transfer_type"]');
+  assert.deepEqual((await type.locator('option').allTextContents()).map(label => label.trim()), ['消费', '收入', '内部转账']);
   const category = form.locator('[data-edit-field="category"]');
   const subcategory = form.locator('[data-edit-field="subcategory"]');
   assert.equal(await type.inputValue(), 'operating_expense');
@@ -748,6 +752,7 @@ async function checkLedgerLifecycle() {
   await form.locator('[data-sheet-close]').click();
   await openStreamEdit(hintPage.page, '2');
   assert.equal(await type.inputValue(), 'operating_income');
+  await type.selectOption('internal_transfer');
   for (const [value, options] of [
     ['investment_funding', ['投资入金', '基金定投申购', '积存金买入']],
     ['investment_withdrawal', ['投资出金', '基金赎回', '理财赎回']],
@@ -755,9 +760,8 @@ async function checkLedgerLifecycle() {
     ['debt_repayment', ['信用卡还款']],
     ['fx_conversion', ['换汇转账']],
     ['debt_drawdown', ['信用卡取现']],
-    ['fee', ['银行费用']],
   ]) {
-    await type.selectOption(value);
+    await transferType.selectOption(value);
     assert.deepEqual(await subcategory.locator('option').allTextContents(), [...options, '手动确认']);
     assert.equal(await subcategory.inputValue(), options[0]);
     await subcategory.selectOption(options.at(-1));
@@ -790,12 +794,36 @@ async function checkLedgerLifecycle() {
   assert.equal(await subcategory.inputValue(), '利息支出');
   await type.selectOption('internal_transfer');
   assert.equal(await expense.isVisible(), false);
-  assert.equal(await counterAccount.isEnabled(), true);
-  assert.equal(await counterAccount.isVisible(), true);
+  assert.equal(await transferType.isVisible(), true);
+  assert.equal(await counterAccount.isEnabled(), false);
+  assert.equal(await counterAccount.isVisible(), false);
   await type.selectOption('operating_income');
   await category.selectOption('退款返现');
   await subcategory.selectOption('退货退税');
   assert.equal(await hintPage.page.evaluate(() => __ledgerTest.writes.length), 0);
+  await type.selectOption('internal_transfer');
+  await transferType.selectOption('investment_withdrawal');
+  await subcategory.selectOption('基金赎回');
+  await submit.click();
+  await hintPage.page.waitForFunction(() => __ledgerTest.writes.length === 1);
+  assert.deepEqual(await hintPage.page.evaluate(() => __ledgerTest.writes[0]), {
+    url:'/api/ledger/rows/2/update', body:{cashflow_type:'investment_withdrawal', category:'内部划转',
+      subcategory:'基金赎回', counterparty:''},
+  });
+  await hintPage.page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ok:true}));
+  await form.waitFor({state:'hidden'});
+  await openStreamEdit(hintPage.page, '80');
+  assert.equal(await type.inputValue(), 'operating_expense');
+  assert.equal(await category.inputValue(), '其他支出');
+  assert.equal(await subcategory.inputValue(), '银行费用');
+  await submit.click();
+  await hintPage.page.waitForFunction(() => __ledgerTest.writes.length === 2);
+  assert.deepEqual(await hintPage.page.evaluate(() => __ledgerTest.writes[1]), {
+    url:'/api/ledger/rows/80/update', body:{cashflow_type:'fee', category:'其他支出',
+      subcategory:'银行费用', counterparty:''},
+  });
+  await hintPage.page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ok:true}));
+  await form.waitFor({state:'hidden'});
   await hintPage.context.close();
 
   assert.deepEqual(errors, []);
