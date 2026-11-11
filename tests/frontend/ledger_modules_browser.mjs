@@ -49,6 +49,7 @@ const streamAccountGroups = [
     {code:'ccb_7332', label:'7332 储蓄卡'}, {code:'ccb_credit_0453', label:'0453 信用卡'},
   ] },
   { code:'ibkr', label:'IBKR', accounts:[{code:'ibkr', label:'IBKR 证券账户'}] },
+  { code:'tencent', label:'腾讯', accounts:[{code:'tencent_licaitong_current_plus', label:'理财通活期+'}] },
 ];
 const origin = 'http://ledger-fixture.local';
 const browser = await chromium.launch({ headless: true, channel: 'msedge' });
@@ -439,12 +440,14 @@ async function checkStreamLayout() {
     currency:'CNY', summary:'信用卡测试消费', subcategory_pending:false};
   stream.recent_rows_ytd.push(cardExpense, {...cardExpense, id:'8', account_code:'ibkr', amount_cny:-700, summary:'其他账户消费'});
   stream.recent_rows_month.push(cardExpense);
-  stream.recent_rows_ytd.push({...stream.recent_rows_ytd.find(row => row.id === '4'),
+  const outflow = stream.recent_rows_ytd.find(row => row.id === '4');
+  outflow.account_code = 'tencent_licaitong_current_plus';
+  stream.recent_rows_ytd.push({...outflow,
     id:'9', account_code:'ccb_credit_0453', amount:200, amount_cny:200});
   stream.transfer_pairs = [{
     id:'pair-1', source_row_id:'4', target_row_id:'9',
     match_date:'2026-09-28', source_date:'2026-09-28', target_date:'2026-09-28',
-    from_account_code:'ccb_7332', to_account_code:'ccb_credit_0453',
+    from_account_code:'tencent_licaitong_current_plus', to_account_code:'ccb_credit_0453',
     match_type:'credit_card_payment', amount:200, amount_cny:200, currency_norm:'CNY',
     source:{summary:'合成划转转出'}, target:{summary:'合成划转转入'},
   }];
@@ -535,6 +538,8 @@ async function checkStreamLayout() {
   assert.equal(await pairCard.count(),1);
   assert.equal(await list.locator('.ledgerStreamDayHeader time').getAttribute('datetime'),'2026-09-28');
   assert.equal(await pairCard.locator('summary img').count(),2);
+  assert.match(await pairCard.locator('summary').getAttribute('aria-label'), /转出 腾讯 理财通活期\+/);
+  assert.match(await pairCard.locator('[data-direction="out"] img').getAttribute('src'), /account-brands\/wechat\.jpg$/);
   assert.equal(await pairCard.locator('.ledgerPairArrow').isVisible(),true);
   assert.equal(await list.getByRole('button',{name:'展开更多'}).count(),0);
   await pairCard.locator('summary').click();
