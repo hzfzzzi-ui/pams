@@ -485,27 +485,43 @@ def test_unrecognized_table_title_retained_as_warning_and_detail_not_misattribut
     assert "未识别分隔符" in warning["source"]["raw_text"]
     assert all(result["words"][i]["box"] for i in warning["source"]["word_ids"])
 
-@pytest.mark.parametrize(("heading", "ocr_suffix"), [("买 入 信息", "(QDII)C"), ("", "(QDINDC")])
-def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch, heading, ocr_suffix):
+@pytest.mark.parametrize(("heading", "ocr_suffix", "retry", "expected"), [
+    ("买 入 信息", "(QDII)C", None, "(QDII)C"),
+    ("", "(QDINDC", "QDII)C", "(QDII)C"),
+    ("", "(ABCDXC", "ABEF)A", "(ABEF)A"),
+    ("", "(ABCDXC", "XYZ)A", "(ABCDXC"),
+])
+def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch, heading, ocr_suffix, retry, expected):
     from domain.imports import document_kind
 
     lines = [
         "腾讯 腾 安", heading,
-        f"买 入 产品 合成 全球 科技 混合 {ocr_suffix}",
+        ["买 入 产品", "合成 全球 科技 混合", ocr_suffix],
         "买 入 金额 1250.00 元", "买 入 方式 建设 银行 (1234)",
         "买 入 时 间 2026-06-12 21:34:56", "当前 状态 买 入 成 功",
         "确认 信息", "确认 金额 1.200.00 元", "确认 净值 2.5000 元 (06-15)",
         "确认 份额 © 480.00 份", "手续 费 0.00 元",
         "注 : 买 入 金额 = 确认 金额 + 退 款 金 额 + 手续 费",
     ]
-    result = parse(monkeypatch, [line for line in lines if line], kind="trade")
+    install_engine(monkeypatch, data=tsv_bytes([line for line in lines if line], confidence="65"))
+    primary = ocr._run
+
+    def runner(command, *, content=None, timeout):
+        if command[-2:] == ["--psm", "7"]:
+            assert retry is not None
+            assert command[command.index("-l") + 1] == "eng"
+            return retry.encode()
+        return primary(command, content=content, timeout=timeout)
+
+    monkeypatch.setattr(ocr, "_run", runner)
+    result = ocr.parse_image(image_bytes(), "tencent_licaitong", "trade")
     row, = result["rows"]
     fields = row["fields"]
     assert {key: fields[key] for key in (
         "name", "asset_type", "action", "status", "currency", "business_date",
         "trade_time", "gross_amount", "price", "quantity", "fee_amount",
     )} == {
-        "name": "合成全球科技混合(QDII)C", "asset_type": "fund", "action": "subscribe",
+        "name": f"合成全球科技混合{expected}", "asset_type": "fund", "action": "subscribe",
         "status": "confirmed", "currency": "CNY", "business_date": "2026-06-12",
         "trade_time": "21:34:56", "gross_amount": "1200.00", "price": "2.5000",
         "quantity": "480.00", "fee_amount": "0.00",
@@ -513,6 +529,7 @@ def test_licaitong_purchase_detail_uses_labelled_confirmation_fields(monkeypatch
     assert all(fields[key] is None for key in ("symbol", "confirmed_date", "net_cash", "counter_account_code"))
     reported = row["source"]["context"]["reported_fields"]
     assert reported["买入产品"].endswith(ocr_suffix)
+    assert ("name_ocr_retry" in row["source"]) == (expected != ocr_suffix)
     assert reported["买入金额"] == "1250.00 元" and reported["确认金额"] == "1.200.00 元"
     assert reported["确认净值"] == "2.5000 元 (06-15)" and reported["买入方式"] == "建设银行 (1234)"
     assert row["acknowledged"] is False
