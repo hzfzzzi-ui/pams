@@ -411,6 +411,41 @@ def test_missing_transfer_fx_does_not_erase_known_operating_income():
     assert result['pending_count']==1 and result['fx_missing_count']==1
 
 
+def test_refunds_reduce_confirmed_consumption_in_summary_categories_and_trends():
+    day = date(2026, 5, 4)
+    rows = [
+        {"transaction_date_obj": day, "amount_cny": amount, "flow_type": flow_type,
+         "coarse_category": category, "classification_status": status}
+        for amount, flow_type, category, status in (
+            (-300.0, "expense", "消费", "confirmed"),
+            (60.0, "expense", "消费", "confirmed"),
+            (15.0, "expense", "消费", "confirmed"),
+            (20.0, "income", "收入", "confirmed"),
+            (500.0, "unclassified", "待分类", "pending"),
+        )
+    ]
+    expected = {"income": 20.0, "expense": 225.0, "net": -205.0}
+    summary = summarize_period(rows, [], day, day)["confirmed_subtotal"]
+    assert {key: summary[key] for key in expected} == expected
+    for grain in ("monthly", "weekly"):
+        assert ledger_view._trend(rows, day, day, grain)[0]["confirmed_subtotal"] == expected
+    assert ledger_view._group_amounts(rows, "expense") == [
+        {"category": "消费", "amount": 225.0, "count": 3, "share": 1.0},
+    ]
+
+
+def test_refund_only_and_zero_net_periods_keep_their_confirmed_values():
+    day = date(2026, 5, 4)
+    refund = {"transaction_date_obj": day, "amount_cny": 30.0, "flow_type": "expense",
+              "coarse_category": "消费", "classification_status": "confirmed"}
+    pending = {"transaction_date_obj": day, "amount_cny": 80.0, "flow_type": "unclassified"}
+    charge = {**refund, "amount_cny": -30.0}
+    for rows, expected in (([refund, pending], -30.0), ([refund, pending, charge], 0.0)):
+        assert summarize_period(rows, [], day, day)["confirmed_subtotal"]["expense"] == expected
+        assert ledger_view._trend(rows, day, day, "weekly")[0]["confirmed_subtotal"]["expense"] == expected
+    assert ledger_view._group_amounts([refund], "expense")[0]["share"] is None
+
+
 def test_summarize_period_separates_disposable_and_cash_net() -> None:
     rows = [
         {"transaction_date_obj": date(2026, 5, 1), "amount_cny": 2000.0, "flow_type": "income", "needs_review": False},
