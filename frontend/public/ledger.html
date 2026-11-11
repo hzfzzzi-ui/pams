@@ -130,7 +130,7 @@
             <button class="ledgerFlowChip" type="button" data-ledger-flow-filter="expense" aria-pressed="false">消费</button>
           </div>
           <div class="ledgerSectionToolbar">
-            <div class="ledgerPeriodControl" id="recentPeriodControl">
+            <div class="ledgerPopoverControl" id="recentPeriodControl">
               <button id="recentPeriodToggle" class="ledgerIconButton" type="button"
                 aria-label="流水时间范围" aria-expanded="false" aria-controls="recentPeriodForm">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -138,7 +138,7 @@
                   <path d="M8 3v4m8-4v4M3 10h18m-13 5h3m3 0h2"></path>
                 </svg>
               </button>
-              <form id="recentPeriodForm" class="ledgerPeriodPopover" hidden>
+              <form id="recentPeriodForm" class="ledgerPopover ledgerPeriodPopover" hidden>
                 <fieldset>
                   <legend>时间范围</legend>
                   <label>
@@ -168,10 +168,16 @@
                 <path d="M4 17h7"></path>
               </svg>
             </button>
+            <div class="ledgerPopoverControl" id="recentAccountControl">
+              <button id="recentAccountToggle" class="ledgerIconButton" type="button"
+                aria-label="筛选账户" aria-expanded="false" aria-controls="recentAccountPicker">
+                <span class="ledgerAccountAvatar" aria-hidden="true"></span>
+              </button>
+              <div id="recentAccountPicker" class="ledgerPopover ledgerAccountPicker" role="group" aria-label="账户筛选" hidden></div>
+            </div>
           </div>
         </div>
-        <div id="recentPeriodLabel" class="ledgerStreamPeriod">年初至今</div>
-        <div id="recentAccountScope" class="recentAccountScope" hidden></div>
+        <div class="ledgerStreamPeriod"><span id="recentPeriodLabel">年初至今</span><span id="recentAccountLabel"></span></div>
         <div id="recentRows" class="ledgerList"></div>
       </section>
     </div>

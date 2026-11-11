@@ -416,7 +416,9 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html
     assert 'id="recentSearch" class="formInput" type="search"' not in html
-    assert 'id="recentAccountScope" class="recentAccountScope" hidden' in html
+    assert 'aria-controls="recentAccountPicker"' in html
+    assert 'id="recentAccountPicker"' in html
+    assert 'id="recentAccountLabel"' in html
     assert 'id="recentFlowChips" class="ledgerFlowChips"' in html
     assert 'id="recentSortToggle"' in html
     assert 'id="recentSortChips"' not in html

@@ -60,7 +60,7 @@ export function createLedgerController({ root = document, host = window, sheetSe
     reloadRecent: () => loadStream().catch(showError),
     loadMore: () => loadStream(state.streamNext).catch(showError),
   });
-  const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButton,
+  const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountPicker, bindRecentAccountPicker, closeRecentAccountPicker, renderRecentPeriodButton,
     bindRecentPeriod, closeRecentPeriod, renderRecentSortButton, openRecentSortSheet, renderRecentRows } = listView;
 
 function showDetails(title, html) {
@@ -123,6 +123,8 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
     showRefresh(remembered ? 'refreshing' : '');
     state.streamIsRemembered = Boolean(remembered);
     state.streamRows = remembered?.rows || [];
+    if (remembered?.account_groups) state.streamAccountGroups = remembered.account_groups;
+    renderRecentAccountPicker();
     state.streamNext = null;
     renderRecentRows();
     if (remembered && restore) restoreScroll();
@@ -134,13 +136,15 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
     if (offset === 0) {
       state.streamIsRemembered = false;
       state.streamRows = [];
+      state.streamAccountGroups = result.account_groups || [];
+      renderRecentAccountPicker();
     }
     const existing = new Set(state.streamRows.map(row => String(row.id)));
     state.streamRows.push(...result.rows.filter(row => !existing.has(String(row.id))));
     state.streamNext = result.next_offset;
     renderRecentRows();
     if (offset === 0) {
-      memory?.write('stream', query, {rows: state.streamRows});
+      memory?.write('stream', query, {rows: state.streamRows, account_groups: state.streamAccountGroups});
       showRefresh();
     }
     return result;
@@ -164,7 +168,6 @@ function renderAll(data) {
   renderRecentSearchButton();
   renderRecentPeriodButton();
   renderRecentSortButton();
-  renderRecentAccountScope();
   renderRecentRows();
 }
 
@@ -210,6 +213,8 @@ function bindEvents() {
     });
   });
   bindRecentPeriod();
+  bindRecentAccountPicker();
+  renderRecentAccountPicker();
   const recentSearchToggle = $('recentSearchToggle');
   events.listen('page', recentSearchToggle, 'click', () => {
     openRecentSearchSheet();
@@ -227,7 +232,10 @@ function bindEvents() {
 function setLedgerPanel(panel = 'overview') {
   const previous = state.activePanel;
   state.activePanel = LEDGER_PANEL_HASH[panel] ? panel : 'overview';
-  if (state.activePanel !== 'recent') closeRecentPeriod();
+  if (state.activePanel !== 'recent') {
+    closeRecentPeriod();
+    closeRecentAccountPicker();
+  }
   (root.body || root).dataset.ledgerTab = state.activePanel;
   root.querySelectorAll('[data-ledger-panel]').forEach((group) => {
     group.hidden = group.dataset.ledgerPanel !== state.activePanel;
@@ -303,6 +311,7 @@ function bindLedgerAnchors() {
       });
       disposed = true;
       closeRecentPeriod();
+      closeRecentAccountPicker();
       reads.dispose();
       readGeneration += 1;
       events.dispose();

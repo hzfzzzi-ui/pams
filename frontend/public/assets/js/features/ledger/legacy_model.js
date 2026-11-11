@@ -833,7 +833,10 @@ function filteredRecentRows() {
   const rows = state.recentPeriod === 'ytd'
     ? (state.data?.recent_rows_ytd || state.data?.recent_rows || [])
     : (state.data?.recent_rows_month || state.data?.recent_rows || []);
+  const scopedGroup = state.streamAccountGroups.find(group => group.code === state.recentAccountGroup);
+  const groupAccounts = new Set(scopedGroup?.accounts.map(account => account.code));
   const filtered = rows.filter((row) => {
+    if (state.recentAccountGroup && !groupAccounts.has(row.account_code)) return false;
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
     if (!['income', 'expense'].includes(row.flow_type) || (flow && row.flow_type !== flow)) return false;
     if (search && !rowSearchText(row).includes(search)) {

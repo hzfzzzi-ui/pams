@@ -13,6 +13,7 @@ export function ledgerStreamQuery(state, offset = 0) {
     matchingAccounts: accountCodesForLabel(search).join(','),
     sort: state.recentAmountSort || '', offset,
   });
+  if (state.recentAccountGroup) params.set('accountGroup', state.recentAccountGroup);
   return params.toString();
 }
 

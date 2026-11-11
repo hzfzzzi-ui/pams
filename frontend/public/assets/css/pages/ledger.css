@@ -325,25 +325,46 @@
 .ledgerOptionButton strong { font-size:14px; line-height:1.2; font-weight:600 }
 .ledgerOptionButton small { margin-top:3px; display:block; color:var(--muted); font-size:12px; line-height:1.2; font-weight:600 }
 .ledgerOptionButton em { width:18px; height:18px; display:grid; place-items:center; border-radius:var(--pams-radius-control); background:var(--pams-bg-soft); color:var(--pams-text-primary); font-style:normal; font-size:12px; font-weight:600 }
-.recentAccountScope:not([hidden]) { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin:0 0 10px; color:var(--muted); font-size:12px; font-weight:600 }
-.recentAccountScope strong { color:var(--text); font-weight:600 }
-.recentAccountScope button { border:0; background:transparent; color:var(--pams-text-primary); font-size:12px; font-weight:600; cursor:pointer }
 .accountFlowList { display:grid; border-top:1px solid var(--line) }
-.ledgerPeriodControl { position:relative }
+.ledgerPopoverControl { position:relative }
 @media (max-width:380px) {
   .ledgerFlowChip { padding-inline:4px }
   .ledgerSectionToolbar .ledgerIconButton { width:34px }
 }
-.ledgerPeriodPopover {
+.ledgerPopover {
   position:absolute;
   z-index:5;
   inset:calc(100% + 6px) 0 auto auto;
-  width:176px;
   padding:10px;
   border:1px solid var(--pams-line-subtle);
   border-radius:var(--pams-radius-control);
   background:var(--pams-bg-surface);
 }
+.ledgerPeriodPopover { width:176px }
+.ledgerAccountPicker { width:220px; max-height:min(46vh, 320px); overflow-y:auto; overscroll-behavior:contain }
+.ledgerAccountOption {
+  display:grid;
+  grid-template-columns:24px minmax(0, 1fr) auto;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  min-height:44px;
+  padding:4px 6px;
+  border:0;
+  border-radius:var(--pams-radius-control);
+  background:transparent;
+  color:var(--pams-text-primary);
+  text-align:left;
+  font:inherit;
+  font-size:13px;
+  cursor:pointer;
+}
+.ledgerAccountOption:is(:hover, :focus-visible, [aria-pressed="true"]) { background:var(--pams-bg-soft) }
+.ledgerAccountOptionChild { display:flex; padding-left:38px; color:var(--pams-text-secondary) }
+.ledgerAccountCheck { margin-inline-start:auto }
+.ledgerAccountAvatar { width:24px; height:24px; display:grid; place-items:center; border-radius:50%; background:var(--pams-bg-soft); overflow:hidden }
+.ledgerAccountAvatar img { display:block; width:100%; height:100%; object-fit:cover }
+.ledgerAccountAvatar svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.6 }
 .ledgerPeriodPopover fieldset { min-width:0; margin:0; padding:0; border:0 }
 .ledgerPeriodPopover legend { padding:0 4px; color:var(--pams-text-secondary); font-size:12px }
 .ledgerPeriodPopover label { position:relative; display:flex; align-items:center; justify-content:space-between; min-height:44px; gap:8px; padding:0 4px; cursor:pointer }
