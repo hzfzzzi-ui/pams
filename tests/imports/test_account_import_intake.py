@@ -42,6 +42,8 @@ def test_import_context_groups_supported_subaccounts_without_changing_codes(monk
     assert choices["santander"]["selection_label"] == "Santander 4209 储蓄卡"
     assert choices["santander"]["currency"] == "MXN"
     assert choices["tencent_licaitong"]["group_code"] == "tencent"
+    assert choices["tencent_licaitong"]["import_modes"] == ("ocr",)
+    assert choices["ccb_7332"]["import_modes"] == ("upload", "ocr", "manual")
     assert choices["wechat"]["selection_label"] == "微信支付账单（全渠道）"
     assert payload["counter_accounts"] == cur.fetchall.return_value
 

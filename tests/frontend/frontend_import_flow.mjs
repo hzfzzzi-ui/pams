@@ -58,7 +58,7 @@ await context.route('**/*',async route=>{
    const name=url.searchParams.get('filename'), image=/\.(png|jpe?g)$/i.test(name), id='f'+(batch.files.length+1);
    uploads.push(name); assert.ok(req.postDataBuffer().length);
    batch.files.push({file_id:id,filename:name,content_type:image?'image/png':'text/plain',metadata:{template_status:mismatchTemplate?'needs_mapping':'matched',headers:image?[]:['日期','代码','净收付'],suggested_mapping:image?{}:{business_date:'日期',symbol:'代码',net_cash:'净收付'}}});
-   const count=image?(caps.ocr_available?2:0):batch.kind==='cash'||name==='partial.xls'?2:1;
+   const count=image?(name==='empty.png'?0:2):batch.kind==='cash'||name==='partial.xls'?2:1;
    for(let n=0;n<count;n++) batch.rows.push({row_id:id+'r'+n,fields:{...fields(batch.kind),name:`${name}记录${n+1}`,...(batch.kind==='cash'?{asset_type:'cash',action:n?'balance':'income',net_cash:'100.05'}:{}),...(name==='funding.xls'?{asset_type:'cash',symbol:'CASH_CNY',action:'deposit',gross_amount:'100.00',net_cash:'100.00',counter_account_code:null}:{})},source:{origin:image?'ocr':'file',file_id:id,raw_text:'合成原始记录',row:n+1},can_edit_fields:image,acknowledged:false,excluded:batch.kind==='cash'&&n===1});
    if(name==='partial.xls') Object.assign(batch.rows[1].fields,{asset_type:'cash',symbol:'CASH_CNY',action:'deposit',gross_amount:'100.00',net_cash:'100.00',counter_account_code:null});
    batch.revision++;return send(batch);
@@ -225,7 +225,8 @@ try {
  reset();await open();await page.locator('#account').selectOption('bank');await page.locator('#files').setInputFiles({name:'bank.csv',mimeType:'text/csv',buffer:Buffer.from('synthetic separate balance')});
  await page.waitForFunction(()=>document.getElementById('file-list').querySelector('a')&&!document.getElementById('workspace').inert);await page.locator('#next').click();await page.locator('#review').waitFor();await ready();
  await page.getByRole('heading',{name:'账单流水',exact:true}).waitFor();await page.getByRole('heading',{name:'期末余额 · 独立确认',exact:true}).waitFor();assert.equal(batch.rows[1].excluded,true);assert.equal(publishes,0);await capture('bank-separate-balance');
- reset();caps.ocr_available=false;await open();await page.locator('#mode-ocr').click();await page.locator('#images').setInputFiles({name:'empty.png',mimeType:'image/png',buffer:Buffer.from('synthetic empty OCR')});
+ reset();caps.ocr_available=false;await open();assert.equal(await page.locator('#mode-ocr').isDisabled(),true);
+ reset();await open();await page.locator('#mode-ocr').click();await page.locator('#images').setInputFiles({name:'empty.png',mimeType:'image/png',buffer:Buffer.from('synthetic empty OCR')});
  await page.locator('#kind-prompt').waitFor();await page.locator('#kind').selectOption('trade');
  await page.waitForFunction(()=>document.getElementById('file-list').querySelector('a')&&!document.getElementById('workspace').inert);
  await page.locator('#next').click();await page.locator('#image-review').waitFor();await ready();assert.equal(batch.rows.length,0);

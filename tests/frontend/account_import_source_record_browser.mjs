@@ -3,10 +3,10 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const {chromium}=await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE).href);
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRONTEND_PLAYWRIGHT_CHANNEL||undefined});
 const page=await browser.newPage({viewport:{width:390,height:844}});
 const root=path.resolve('frontend/public'), calls=[], errors=[];
-let source=null, kind='cash', publishes=0, previewUnavailable=true;
+let source=null, kind='cash', publishes=0, previewUnavailable=true, ocrAvailable=true;
 page.on('pageerror',e=>errors.push(e.message));
 await page.route('**/*',async route=>{
  const req=route.request(),url=new URL(req.url()),p=url.pathname;
@@ -14,12 +14,17 @@ await page.route('**/*',async route=>{
  const send=(data,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(data)});
  if(p.startsWith('/api/')) {
   calls.push([req.method(),p]);
-  if(p.endsWith('/capabilities')) return send({schema_ready:false,source_record_schema_ready:true,source_record_publish_enabled:true,limits:{files:10,file_bytes:10485760}});
+  if(p.endsWith('/capabilities')) return send({schema_ready:false,source_record_schema_ready:true,source_record_publish_enabled:true,source_record_ocr_available:ocrAvailable,limits:{files:10,file_bytes:10485760}});
   if(p.endsWith('/source-records/context')) return send({accounts:[
    {account_code:'bank_other',label:'合成另一张卡',group_code:'group',group_label:'合成银行',kinds:['cash']},
    {account_code:'bank',label:'旧名称',selection_label:'合成 4209 储蓄卡',group_code:'group',group_label:'合成银行',currency:'CNY',default_asset_type:'cash',kinds:['cash','trade','holding'],trade_actions:{cash:['income'],stock:['buy']}},
+   {account_code:'tencent_licaitong',label:'腾讯理财通',group_code:'tencent',group_label:'腾讯',kinds:['trade','holding'],import_modes:['ocr']},
   ],counter_accounts:[]});
-  if(p.endsWith('/source-records') && req.method()==='GET') return send({sources:source?[source]:[]});
+  if(p.endsWith('/source-records') && req.method()==='GET') {
+   const account=url.searchParams.get('account_code');
+   if (account) assert.equal(account,'tencent_licaitong');
+   return send({sources:source?[source]:[]});
+  }
   if(p.endsWith('/source-records') && req.method()==='POST') {
    assert.equal(url.searchParams.get('account_code'),'bank');
    const fields=kind==='cash'?{business_date:'2026-01-02',action:'income',currency:'CNY',net_cash:'12.34'}:{business_date:'2026-01-02',action:'buy',currency:'CNY',symbol:'000001',name:'合成股票',quantity:'100',price:'10',gross_amount:'1000',net_cash:'-1000'};
@@ -51,8 +56,7 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
   const picker=page.getByLabel('子账户',{exact:true});
   if(kind==='cash') {
-   assert.equal(await picker.locator('optgroup').getAttribute('label'),'合成银行');
-   assert.deepEqual(await picker.locator('optgroup option').allTextContents(),['合成另一张卡','合成 4209 储蓄卡']);
+   assert.deepEqual(await picker.locator('optgroup[label="合成银行"] option').allTextContents(),['合成另一张卡','合成 4209 储蓄卡']);
    await picker.selectOption({label:'合成 4209 储蓄卡'});
   }
   assert.equal(await picker.inputValue(),'bank');
@@ -86,6 +90,21 @@ try {
   catch (error) { throw new Error(`${kind}: ${await page.locator('#notice').textContent()}; ${JSON.stringify(calls.slice(-8))}`, {cause:error}); }
   await page.locator('#publish').click();await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('已发布'));
   assert.equal(source.status,'published');
+ }
+ const scoped='http://import.invalid/account_import.html?account=tencent_licaitong&scope=account&mode=manual';
+ for (ocrAvailable of [true,false]) {
+  const before=calls.length;
+  await page.goto(scoped);
+  await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
+  assert.equal(await page.locator('#account').inputValue(),'tencent_licaitong');
+  assert.equal(await page.locator('#account').isDisabled(),true);
+  assert.equal(await page.locator('#account option').count(),1);
+  assert.equal(await page.locator('#mode-upload').isDisabled(),true);
+  assert.equal(await page.locator('#mode-manual').isDisabled(),true);
+  assert.equal(await page.locator('#mode-ocr').isEnabled(),ocrAvailable);
+  assert.equal(await page.locator('#screenshot-area').isVisible(),ocrAvailable);
+  assert.equal(await page.locator('#batch-list .import-history-row').count(),0);
+  assert.ok(calls.slice(before).every(([method])=>method==='GET'));
  }
  assert.equal(publishes,3);assert.deepEqual(errors,[]);
  assert.ok(calls.every(([,p])=>!p.includes('/batches')));

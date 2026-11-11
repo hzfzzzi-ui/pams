@@ -1,3 +1,4 @@
+import { subaccountImportHref } from '../../app/routes.js';
 import { accountInstitution } from '../../shared/account_institutions.js';
 
 const localTime = new Intl.DateTimeFormat('zh-CN', {
@@ -172,7 +173,20 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     item.classList.add('accountSyncCompact');
     item.append(heading);
-    if (status !== 'inactive') item.append(accountSyncMetadata(doc, data));
+    if (status !== 'inactive') {
+      item.append(accountSyncMetadata(doc, data));
+      const action = make(row.can_import ? 'a' : 'button', '导入资料');
+      action.className = 'accountSyncImport';
+      if (row.can_import) {
+        action.href = subaccountImportHref(row.account_code);
+        action.setAttribute('aria-label', '导入资料 · ' + row.label);
+      } else {
+        action.type = 'button';
+        action.disabled = true;
+        action.title = '该子账户暂未开放导入';
+      }
+      item.append(action);
+    }
   }
   if (compact && groups.length) {
     renderInstitutionPicker(panel, groups, compactEntry, targetAccount, previousGroup || targetInstitution);
@@ -252,7 +266,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
       }
       if (row.can_import) {
         const link = make('a', '导入资料');
-        link.href = `account_import.html?account=${encodeURIComponent(row.account_code)}`;
+        link.href = subaccountImportHref(row.account_code);
         item.append(link);
       }
       section.append(item);

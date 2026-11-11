@@ -30,7 +30,6 @@ export function mount(root, context) {
   const details = find('moreNavGrowthDetails');
   const accountCenter = find('account-center');
   const accountRetry = find('retryAccountSync');
-  const importLink = find('moreImport');
   const location = context.location || win?.location;
   const query = new URLSearchParams(location?.search);
   const targetAccount = query.get('account');
@@ -61,7 +60,6 @@ export function mount(root, context) {
       actions.append(anchor);
     };
     add('accounts.html', '余额核准', {task: 'balance'});
-    if (account.can_import) add('account_import.html', '导入资料');
     reviewPanel.prepend(actions);
   }
   function locateAccount(container, groups) {
@@ -81,17 +79,6 @@ export function mount(root, context) {
     openReview: openSheet ? account => openAccount(account, true) : undefined, targetInstitution, onRendered: locateAccount });
 
   function onAccountRetry() { void loadAccountSync(); }
-
-  function rememberImportOrigin() {
-    const selected = root.querySelector('.accountInstitutionButton[aria-pressed="true"]')?.dataset.institution;
-    const activePanel = root.querySelector('.accountInstitutionPanel:not([hidden])');
-    const keepTarget = targetAccount && (!activePanel || [...activePanel.querySelectorAll('[data-account-code]')]
-      .some(row => row.dataset.accountCode === targetAccount));
-    const origin = new URL(accountCenterHref(keepTarget ? targetAccount : ''), location.href);
-    if (selected && !keepTarget) origin.searchParams.set('institution', selected);
-    const returnRoute = origin.pathname.split('/').pop() + origin.search + origin.hash;
-    importLink.href = 'account_import.html?' + new URLSearchParams({return: returnRoute});
-  }
 
   function openRequestedAccounts() {
     if (accountCenter && (targetAccount || targetInstitution || location?.hash === '#account-center')) accountCenter.open = true;
@@ -147,7 +134,6 @@ export function mount(root, context) {
     if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
     accountRetry?.removeEventListener('click', onAccountRetry);
-    importLink?.removeEventListener('click', rememberImportOrigin);
     win?.removeEventListener('hashchange', openRequestedAccounts);
     win?.removeEventListener('pagehide', dispose);
     if (mounted.get(root) === controller) mounted.delete(root);
@@ -160,7 +146,6 @@ export function mount(root, context) {
   if (origin) origin.textContent = location?.origin || '';
   details?.addEventListener('toggle', onToggle);
   accountRetry?.addEventListener('click', onAccountRetry);
-  importLink?.addEventListener('click', rememberImportOrigin);
   win?.addEventListener('hashchange', openRequestedAccounts);
   win?.addEventListener('pagehide', dispose);
   openRequestedAccounts();

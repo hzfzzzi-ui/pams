@@ -290,14 +290,17 @@ async def stage_ibkr_source_record(request: Request):
 
 
 @router.get('/source-records')
-def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50)):
+def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50),
+                        account_code: str | None = Query(None, min_length=1, max_length=80)):
     from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE
 
     def read(cur):
         cur.execute('''SELECT source_id,account_code,source_name,acquisition_method,document_type,filename,
             status,revision,created_at,updated_at FROM public.source_records
-            WHERE source_name<>%s OR document_type<>'statement'
-            ORDER BY updated_at DESC,source_id DESC LIMIT %s''', (BANK_DUPLICATE_REVIEW_SOURCE, limit))
+            WHERE (source_name<>%s OR document_type<>'statement')
+              AND (%s::text IS NULL OR account_code=%s)
+            ORDER BY updated_at DESC,source_id DESC LIMIT %s''',
+                    (BANK_DUPLICATE_REVIEW_SOURCE, account_code, account_code, limit))
         return {'sources': [dict(row) for row in cur.fetchall()]}
     return execute_source_record(request, read)
 
@@ -504,8 +507,9 @@ def assets(request: Request, q: str = Query("", max_length=80)):
 
 
 @router.get("/batches")
-def list_batches(request: Request, limit: int = Query(20, ge=1, le=50)):
-    return execute(request, lambda cur: source_http.list_batches(cur, limit))
+def list_batches(request: Request, limit: int = Query(20, ge=1, le=50),
+                 account_code: str | None = Query(None, min_length=1, max_length=80)):
+    return execute(request, lambda cur: source_http.list_batches(cur, limit, account_code))
 
 
 @router.post("/flow-coverage/stage")

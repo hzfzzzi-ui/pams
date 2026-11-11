@@ -7,6 +7,7 @@ import { createSourceRecordAdapter } from './source_record_adapter.js';
 import { accountCenterHref, leaveContent, openContent, withReturnRoute } from '../../app/routes.js';
 
 const mounted = new WeakMap();
+const IMPORT_MODES = ['upload', 'ocr', 'manual'];
 
 export function mount(root, context = {}) {
   if (!root?.querySelector) throw new TypeError('Import page root is required');
@@ -14,6 +15,8 @@ export function mount(root, context = {}) {
   const document = root.ownerDocument;
   const window = context.win || document.defaultView;
   const { location, navigator, Option } = window;
+  const query = new URLSearchParams(location.search);
+  const scopedAccount = query.get('scope') === 'account' ? query.get('account') : null;
   const $ = id => root.querySelector(`#${id}`);
   const scope = createRequestScope(context.client || createImportClient(window.fetch.bind(window)), {
     recovery: context.snapshot?.recovery, getBatch: () => state.batch,
@@ -38,6 +41,17 @@ export function mount(root, context = {}) {
   const message = text => { $('notice').textContent = text; };
   const path = () => `/batches/${encodeURIComponent(state.batch.batch_id)}`;
   const account = () => state.accounts.find(a => a.account_code === $('account').value);
+  function availableModes() {
+    const selected = account();
+    if (!selected) return [];
+    // Older servers do not expose the capability list.
+    const modes = selected.import_modes ?? (selected.account_code === 'tencent_licaitong' ? ['ocr'] : IMPORT_MODES);
+    return modes.filter(mode => mode !== 'ocr' || state.caps?.ocr_available === true);
+  }
+  function selectAvailableMode(preferred = state.mode) {
+    const modes = availableModes();
+    state.mode = modes.includes(preferred) ? preferred : modes[0] ?? null;
+  }
   const accountLabel = a => a.selection_label || a.label || a.account_code;
   const sourceOnly = () => state.useSourceRecords && state.batch?.kind === 'cash' && account()?.source_only_cash === true;
   const editable = () => !state.batch || state.batch.status === 'draft';
@@ -109,18 +123,20 @@ export function mount(root, context = {}) {
     const context = state.useSourceRecords ? await sourceAdapter.context() : await api('/context');
     state.accounts = context.accounts || [];
     state.counterAccounts = context.counter_accounts || [];
-    const query = new URLSearchParams(location.search);
     const requestedKind = ['trade','holding','cash'].includes(query.get('kind')) ? query.get('kind') : '';
     renderAccounts(state.batch?.account_code || query.get('account'));
     if (!state.batch && requestedKind && !query.get('account') && !(account()?.kinds || []).includes(requestedKind)) {
       const compatible = state.accounts.find(item => (item.kinds || []).includes(requestedKind));
       if (compatible) $('account').value = compatible.account_code;
     }
-    if (!state.batch && query.get('mode') === 'manual') state.mode = 'manual';
-    if (!state.batch) configureKind(requestedKind);
-    if (!state.accounts.length) message('没有可用的导入账户。');
+    if (!state.batch) {
+      selectAvailableMode(query.get('mode') || state.mode);
+      configureKind(requestedKind);
+    }
+    if (!account()) message(query.has('account') ? '该子账户暂未开放导入。' : '没有可用的导入账户。');
+    else if (!state.mode) message('该子账户的导入方式暂不可用。');
     const limits = state.caps.limits || {};
-    $('file-limits').textContent = [state.caps.ocr_available ? '截图识别可用' : '截图识别不可用', ...Object.entries(limits).map(([key, value]) => `${({ files: '文件上限', file_bytes: '单文件字节上限', batch_bytes: '批次字节上限', rows: '记录上限', max_files: '文件上限', max_file_bytes: '单文件字节上限', max_rows: '记录上限' })[key] || key}：${value}`)].join(' · ');
+    $('file-limits').textContent = Object.entries(limits).map(([key, value]) => `${({ files: '文件上限', file_bytes: '单文件字节上限', batch_bytes: '批次字节上限', rows: '记录上限', max_files: '文件上限', max_file_bytes: '单文件字节上限', max_rows: '记录上限' })[key] || key}：${value}`).join(' · ');
     await history(); state.initialized = true; render();
   }
   function renderAccounts(preferred = $('account').value) {
@@ -128,6 +144,7 @@ export function mount(root, context = {}) {
     const groups = new Map();
     select.replaceChildren();
     for (const a of state.accounts) {
+      if (scopedAccount && a.account_code !== scopedAccount) continue;
       const option = new Option(accountLabel(a), a.account_code);
       if (!a.group_label) {
         select.append(option);
@@ -142,8 +159,8 @@ export function mount(root, context = {}) {
       }
       group.append(option);
     }
-    if (state.accounts.some(a => a.account_code === preferred)) select.value = preferred;
-    if (!state.accounts.length) message('没有可用的导入账户。');
+    const selected = scopedAccount || preferred;
+    if (selected) select.value = selected;
   }
   function configureKind(preferred = '') {
     const allowed = account()?.kinds || [];
@@ -156,14 +173,25 @@ export function mount(root, context = {}) {
     if (settings) settings.hidden = Boolean(state.batch) || state.step !== 1 || !account()?.kinds?.includes('cash');
     const done = $('return-completed');
     if (done) done.disabled = state.busy;
-    const locked = state.busy || state.conflict || state.needsRefresh || !editable() || !state.accounts.length;
+    const locked = state.busy || state.conflict || state.needsRefresh || !editable() || !account();
     $('workspace').inert = state.busy;
     $('record-form').inert = state.busy;
     $('retry').disabled = state.busy;
     const identityLocked = (!!state.batch && !emptyDraft()) || state.busy || state.conflict || state.needsRefresh;
-    $('account').disabled = identityLocked;
+    $('account').disabled = Boolean(scopedAccount) || identityLocked;
     $('kind').disabled = identityLocked;
     for (const id of ['completeness', 'files', 'images', 'add-row', 'save-draft', 'confirm-image', 'previous-image']) $(id).disabled = locked;
+    const modes = availableModes();
+    for (const mode of IMPORT_MODES) {
+      const control = $(`mode-${mode}`);
+      control.disabled = !modes.includes(mode);
+      control.title = control.disabled ? '该导入方式暂不可用' : '';
+    }
+    $('files').disabled ||= !modes.includes('upload');
+    $('images').disabled ||= !modes.includes('ocr');
+    $('images').multiple = !state.useSourceRecords;
+    $('add-row').disabled ||= !modes.includes('manual');
+    $('save-draft').disabled ||= !state.batch && !state.mode;
     $('file-list').querySelectorAll('.import-mapping button, .import-mapping select').forEach(control => { control.disabled = locked; });
     $('next').disabled = locked || !(state.batch?.rows?.length || images().length) || !!state.suspended;
     $('publish').textContent = sourceOnly() ? '确认资料' : '确认入库';
@@ -198,8 +226,8 @@ export function mount(root, context = {}) {
     $('upload-area').hidden = state.mode !== 'upload';
     $('kind-prompt').hidden = !state.needsKind;
     $('screenshot-area').hidden = state.mode !== 'ocr';
-    $('ocr-status').textContent = state.caps?.ocr_available ? '' : '截图识别当前不可用';
-    for (const mode of ['upload', 'ocr', 'manual']) $(`mode-${mode}`).setAttribute('aria-pressed', String(state.mode === mode));
+    $('ocr-status').textContent = state.useSourceRecords ? '每次选择一张截图。' : '';
+    for (const mode of IMPORT_MODES) $(`mode-${mode}`).setAttribute('aria-pressed', String(state.mode === mode));
     $('add-row').hidden = state.mode !== 'manual';
     $('manual-records-head').hidden = state.mode !== 'manual';
     $('rows').hidden = state.mode !== 'manual';
@@ -264,8 +292,11 @@ export function mount(root, context = {}) {
     return node;
   }
   async function history() {
-    const data = state.useSourceRecords ? await sourceAdapter.history() : await api('/batches?limit=20');
-    state.historyRows = data.rows || []; renderHistory();
+    const params = new URLSearchParams({limit: 20});
+    if (scopedAccount) params.set('account_code', scopedAccount);
+    const data = state.useSourceRecords ? await sourceAdapter.history(params) : await api('/batches?' + params);
+    state.historyRows = (data.rows || []).filter(row => !scopedAccount || row.account_code === scopedAccount);
+    renderHistory();
   }
   function rememberBatch(batch) {
     if (!batch?.batch_id) return;
@@ -355,6 +386,7 @@ export function mount(root, context = {}) {
     return (terminal || superseded) && scope.acknowledgeRecovery();
   }
   function useBatch(batch) {
+    if (scopedAccount && batch.account_code !== scopedAccount) throw new Error('此批次不属于当前子账户。');
     if (!confirmRecovery(batch)) { state.needsRefresh = true; message(recoveryNotice()); renderControls(); return false; }
     state.batch = batch; state.preview = null; state.dirty = false; state.suspended = null; state.step = 1; state.imageIndex = null; state.conflict = false; state.needsRefresh = false; state.needsKind = false; pendingSelection = null;
     state.mappings.clear(); rememberBatch(batch);
@@ -366,7 +398,7 @@ export function mount(root, context = {}) {
   }
   async function ensureBatch() {
     if (state.batch) return;
-    if (!account()) throw new Error('请选择服务端配置的投资账户');
+    if (!availableModes().includes(state.mode)) throw new Error('当前子账户不支持此导入方式。');
     if (!$('kind').value || !(account().kinds || []).includes($('kind').value)) throw new Error('请先确认资料类别。');
     state.batch = state.useSourceRecords
       ? await sourceAdapter.createManual(account().account_code, $('kind').value)
@@ -388,7 +420,9 @@ export function mount(root, context = {}) {
   async function upload(files, selectedKind = '', previouslyDetected = []) {
     if (!files.length) return;
     if (state.suspended) throw new Error('请先继续并保存未完成的编辑，文件尚未上传。');
-    if (!account()) throw new Error('请先选择账户。');
+    if (!['upload', 'ocr'].includes(state.mode) || !availableModes().includes(state.mode)) {
+      throw new Error('当前子账户不支持此导入方式。');
+    }
     const formats = files.map(file => fileFormat(file.name, 'cash'));
     if (state.mode === 'ocr' && formats.some(format => !['png','jpg','jpeg'].includes(format))) throw new Error('截图识别仅接收 PNG、JPG、JPEG');
     if (state.mode === 'upload' && formats.some(format => ['png','jpg','jpeg'].includes(format))) throw new Error('请在截图识别方式中选择图片');
@@ -536,8 +570,8 @@ export function mount(root, context = {}) {
     render();
   }
   listen($('retry'), 'click', () => run(start));
-  for (const mode of ['upload', 'ocr', 'manual']) listen($(`mode-${mode}`), 'click', () => run(async () => {
-    if (mode === state.mode) return;
+  for (const mode of IMPORT_MODES) listen($(`mode-${mode}`), 'click', () => run(async () => {
+    if (mode === state.mode || !availableModes().includes(mode)) return;
     if (state.conflict || state.needsRefresh) throw new Error('请先刷新并确认当前批次状态，再切换输入方式。');
     if (state.suspended) throw new Error('请先继续并保存未完成的记录编辑，再切换输入方式。');
     if (mappingDirty()) throw new Error('请先保存字段映射，再切换输入方式。');
@@ -550,8 +584,9 @@ export function mount(root, context = {}) {
       : state.needsKind ? '手动填写无法自动识别类别，请先选择资料类别。' : '');
   }));
   listen($('account'), 'change', () => {
-    detachEmptyDraft(); pendingSelection = null; configureKind();
+    detachEmptyDraft(); pendingSelection = null; selectAvailableMode(); configureKind();
     if (state.needsKind) message('手动填写无法自动识别类别，请先选择资料类别。');
+    else if (!state.mode) message('该子账户的导入方式暂不可用。');
     render();
   });
   listen($('kind'), 'change', () => {
@@ -565,7 +600,10 @@ export function mount(root, context = {}) {
   listen($('completeness'), 'change', () => { if (state.batch) dirty(); render(); });
   listen($('files'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
   listen($('images'), 'change', event => { const files = [...event.target.files]; event.target.value = ''; run(() => upload(files)); });
-  listen($('add-row'), 'click', () => run(async () => { await ensureBatch(); openEditor(-1); }));
+  listen($('add-row'), 'click', () => run(async () => {
+    if (!availableModes().includes('manual')) return;
+    await ensureBatch(); openEditor(-1);
+  }));
   listen($('save-draft'), 'click', () => run(async () => { if (state.suspended) { resumeEditor(); return; } await saveDraft(); }));
   function holdingScope() {
     if (state.batch.kind !== 'holding' || $('completeness').value !== 'complete' ||
@@ -654,7 +692,7 @@ export function mount(root, context = {}) {
   listen($('refresh-history'), 'click', () => run(history));
   function clearCurrentBatch() {
     state.batch = null; state.preview = null; state.dirty = false; state.suspended = null; state.conflict = false; state.needsRefresh = false; state.step = 1; state.imageIndex = null;
-    state.mappings.clear(); pendingSelection = null; configureKind();
+    state.mappings.clear(); pendingSelection = null; selectAvailableMode(); configureKind();
     $('conflict').hidden = true; $('completeness').value = 'partial';
   }
   listen($('new-batch'), 'click', () => {

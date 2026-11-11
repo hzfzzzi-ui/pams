@@ -38,7 +38,7 @@ def module_test(code: str) -> None:
          + code)
 
 
-def test_isolated_two_step_shell_and_existing_bank_link() -> None:
+def test_isolated_two_step_shell_and_subaccount_link() -> None:
     assert 'id="step-one"' in HTML and 'id="step-two"' in HTML
     assert "填写 / 识别" in HTML and "核对发布" in HTML
     assert 'id="review" aria-label="核对发布" hidden' in HTML
@@ -50,7 +50,9 @@ def test_isolated_two_step_shell_and_existing_bank_link() -> None:
     assert 'aria-label="关闭记录编辑器"' in HTML
     assert "app-shell" in HTML and '<dialog id="editor"' in HTML
     more = (PUBLIC / "more.html").read_text(encoding="utf-8")
-    assert more.count('href="account_import.html"') == 1
+    assert 'href="account_import.html"' not in more
+    account_view = (PUBLIC / "assets/js/features/accounts/account_sync_view.js").read_text(encoding="utf-8")
+    assert "action.href = subaccountImportHref(row.account_code)" in account_view
     assert 'href="accounts.html#overview"' not in more
     assert 'href="accounts.html#sources"' not in more
     assert '<nav class="nav"' not in HTML
