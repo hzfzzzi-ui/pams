@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from psycopg2.extras import Json
 
 from domain.imports import account_import_store, document_kind, source_records_v2
+from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
 from domain.imports.template_assessment import assess_template
 
 
@@ -83,6 +84,8 @@ def stage_document(cur, *, account_code: str, source_name: str, filename: str, c
     if parsed.get('document_kind') and parsed['document_kind'] != kind:
         raise ValueError('截图内容与所选资料类别不一致')
     rows = _rows(parsed, kind, screenshot=screenshot)
+    if account_code == LICAITONG_CURRENT_PLUS and not rows:
+        raise ValueError('未识别到活期+取出到账明细，请上传完整交易截图')
     if screenshot and kind == 'cash':
         for row in rows:
             fields = row['fields']

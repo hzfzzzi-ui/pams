@@ -28,6 +28,7 @@ def test_import_context_groups_supported_subaccounts_without_changing_codes(monk
             ("ccb_7332", "7332", "CNY"), ("ccb_credit_0453", "0453", "CNY"),
             ("santander", "Santander", "MXN"), ("wechat", "WeChat", "CNY"),
             ("tencent_licaitong", "Tencent Licaitong", "CNY"),
+            ("tencent_licaitong_current_plus", "理财通活期+", "CNY"),
             ("wechat_balance", "微信零钱", "CNY"),
         )
     ]
@@ -36,13 +37,15 @@ def test_import_context_groups_supported_subaccounts_without_changing_codes(monk
 
     payload = store.context(cur)
     choices = {row["account_code"]: row for row in payload["accounts"]}
-    assert set(choices) == {"ccb_7332", "ccb_credit_0453", "santander", "wechat", "tencent_licaitong"}
+    assert set(choices) == {"ccb_7332", "ccb_credit_0453", "santander", "wechat", "tencent_licaitong", "tencent_licaitong_current_plus"}
     assert choices["ccb_7332"]["group_code"] == choices["ccb_credit_0453"]["group_code"] == "ccb"
     assert choices["ccb_7332"]["group_label"] == "建设银行"
     assert choices["santander"]["selection_label"] == "Santander 4209 储蓄卡"
     assert choices["santander"]["currency"] == "MXN"
     assert choices["tencent_licaitong"]["group_code"] == "tencent"
     assert choices["tencent_licaitong"]["import_modes"] == ("ocr",)
+    assert choices["tencent_licaitong_current_plus"]["import_modes"] == ("ocr",)
+    assert choices["tencent_licaitong_current_plus"]["kinds"] == ["cash"]
     assert choices["ccb_7332"]["import_modes"] == ("upload", "ocr", "manual")
     assert choices["wechat"]["selection_label"] == "微信支付账单（全渠道）"
     assert payload["counter_accounts"] == cur.fetchall.return_value

@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from domain.accounts.account_identity import account_display
-from domain.imports.account_import_types import asset_type
+from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS, asset_type
 from domain.imports.account_import_parse import FIELDS as PARSE_FIELDS
 from domain.imports import account_import_statement as statement
 
@@ -22,6 +22,8 @@ PROFILES: dict[str, dict[str, Any]] = {
     "tencent_licaitong": {"label": "腾讯理财通", "default_asset_type": "fund", "currency": "CNY",
         "kinds": ["trade", "holding", "cash"],
         "trade_actions": {"fund": ["subscribe", "redeem", "dividend", "fee"], "cash": ["transfer"]}},
+    LICAITONG_CURRENT_PLUS: {"label": "理财通活期+", "default_asset_type": "cash", "currency": "CNY",
+        "kinds": ["cash"], "trade_actions": {"cash": ["transfer"]}},
 }
 FIELDS = set(PARSE_FIELDS)
 
@@ -61,7 +63,7 @@ def parse(content, filename, profile, kind, mapping=None):
 
 
 def supported_import_modes(account_code, statement_accounts):
-    if account_code == "tencent_licaitong":
+    if account_code in {"tencent_licaitong", LICAITONG_CURRENT_PLUS}:
         return ("ocr",)
     if account_code in PROFILES or account_code in statement_accounts:
         return ("upload", "ocr", "manual")

@@ -1,5 +1,7 @@
 """Import form compatibility with existing asset-master vocabulary, not a new taxonomy."""
 
+LICAITONG_CURRENT_PLUS = "tencent_licaitong_current_plus"
+
 
 def asset_type(value: str | None) -> str:
     value = str(value or "").lower().strip()
