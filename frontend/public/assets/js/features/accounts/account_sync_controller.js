@@ -15,7 +15,8 @@ function withPortfolioAmounts(groups, holdings) {
     const label = portfolio?.status === 'cash_carried_forward' ? '组合估值' :
       portfolio || fullAmount != null ? '组合价值' : '已覆盖市值';
     return {...row, summary: {...row.summary, balance_amount: amount,
-      balance_currency: holdings?.base_currency, balance_as_of: portfolio?.as_of ?? holdings?.as_of,
+      balance_currency: holdings?.base_currency, balance_as_of: portfolio?.as_of ?? value?.holdings_as_of,
+      valuation_updated_at: amount == null ? null : portfolio ? portfolio.updated_at : value?.holdings_updated_at,
       balance_label: amount == null ? null : label}};
   })}));
 }

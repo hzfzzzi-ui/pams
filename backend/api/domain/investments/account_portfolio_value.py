@@ -36,7 +36,8 @@ def _ibkr_value(cur, *, as_of, base_currency, owner_ratio):
         return None
     rate = fx['rate'] * owner_ratio
     return {'amount_base': _money(close['nav_base'] * rate), 'cash_base': _money(close['cash_base'] * rate),
-            'as_of': day.isoformat(), 'cash_as_of': day.isoformat(), 'status': 'official_close'}
+            'as_of': day.isoformat(), 'cash_as_of': day.isoformat(), 'status': 'official_close',
+            'updated_at': report['updated_at'].isoformat() if report['updated_at'] else None}
 
 
 def read_account_portfolio_value(cur, row, *, as_of, base_currency, owner_ratio):
@@ -52,6 +53,8 @@ def read_account_portfolio_value(cur, row, *, as_of, base_currency, owner_ratio)
         return None
     cash_day, broker_cash = evidence
     cash = broker_cash * owner_ratio
+    updated_at = row['holdings_updated_at']
     return {'amount_base': _money(row['known_value_base'] + cash), 'cash_base': _money(cash),
             'as_of': day.isoformat(), 'cash_as_of': cash_day.isoformat(),
+            'updated_at': updated_at.isoformat() if updated_at else None,
             'status': 'cash_carried_forward' if cash_day < day else 'reconciled_cash'}

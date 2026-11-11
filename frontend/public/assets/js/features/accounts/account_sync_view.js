@@ -31,11 +31,14 @@ function element(doc, tag, text = '') {
 export function accountSyncMetadata(doc, data = {}) {
   const metadata = element(doc, 'dl');
   metadata.className = 'accountSyncMetadata';
-  const syncedAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
-  const syncedLabel = syncedAt && Number.isFinite(syncedAt.valueOf())
-    ? localTime.format(syncedAt).replaceAll('/', '-') : '—';
+  const valuationAt = data.valuation_updated_at ? new Date(data.valuation_updated_at) : null;
+  const hasValuationTime = Number.isFinite(valuationAt?.valueOf());
+  const syncAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
+  const updatedAt = hasValuationTime ? valuationAt : syncAt;
+  const updatedLabel = Number.isFinite(updatedAt?.valueOf())
+    ? localTime.format(updatedAt).replaceAll('/', '-') : '—';
   metadata.append(element(doc, 'dt', '最近交易'), element(doc, 'dd', data.latest_trade_on || '—'),
-    element(doc, 'dt', '上次同步'), element(doc, 'dd', syncedLabel));
+    element(doc, 'dt', hasValuationTime ? '估值更新' : '上次同步'), element(doc, 'dd', updatedLabel));
   return metadata;
 }
 

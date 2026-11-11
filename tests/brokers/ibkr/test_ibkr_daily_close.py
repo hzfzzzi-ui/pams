@@ -3,7 +3,7 @@ import hashlib
 import sys
 import xml.etree.ElementTree as ET
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_UP, Subnormal, Underflow, localcontext
 from pathlib import Path
 
@@ -101,12 +101,15 @@ def test_account_center_uses_archived_nav_with_negative_cash_and_accruals(monkey
             return {"content": content}
 
     monkeypatch.setenv("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", ACCOUNT)
-    monkeypatch.setattr(value, "last_publication", lambda cur, *, through: {"period_end": DAY, "sha256": digest})
+    updated_at = datetime(2024, 4, 9, 7, 25, tzinfo=timezone.utc)
+    monkeypatch.setattr(value, "last_publication", lambda cur, *, through: {
+        "period_end": DAY, "sha256": digest, "updated_at": updated_at,
+    })
     monkeypatch.setattr(value, "historical_fx", lambda cur, **kwargs: {"status": "ok", "rate": D("7")})
     inputs = {"as_of": DAY, "base_currency": "CNY", "owner_ratio": D("0.5")}
     assert value.read_account_portfolio_value(Cursor(), {"account_code": "ibkr"}, **inputs) == {
         "amount_base": "276.50", "cash_base": "-70.00", "as_of": DAY.isoformat(),
-        "cash_as_of": DAY.isoformat(), "status": "official_close",
+        "cash_as_of": DAY.isoformat(), "status": "official_close", "updated_at": updated_at.isoformat(),
     }
     monkeypatch.setattr(value, "historical_fx", lambda cur, **kwargs: {"status": "unavailable"})
     assert value.read_account_portfolio_value(Cursor(), {"account_code": "ibkr"}, **inputs) is None

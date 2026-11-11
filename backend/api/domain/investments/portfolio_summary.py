@@ -178,8 +178,10 @@ def build_holdings_by_account_payload(
     if not as_of:
         return {"as_of": None, "by_account": []}
 
+    # Snapshot write timestamps are stored as UTC without an offset.
     portfolio_columns = """
             MAX(h.as_of) AS holdings_as_of,
+            MAX(h.updated_at) AT TIME ZONE 'UTC' AS holdings_updated_at,
             COUNT(DISTINCT h.as_of) FILTER (WHERE h.market_value <> 0) <= 1 AS single_snapshot_day,
             BOOL_OR(h.major_category = '现金' OR LEFT(h.symbol, 5) = 'CASH_') AS has_snapshot_cash,
     """ if portfolio_owner_ratio is not None else ""
@@ -248,7 +250,7 @@ def build_holdings_by_account_payload(
     items = []
     for raw in rows:
         item = {key: _norm(value) for key, value in raw.items()
-                if key not in {'holdings_as_of', 'single_snapshot_day', 'has_snapshot_cash'}}
+                if key not in {'single_snapshot_day', 'has_snapshot_cash'}}
         if str(item.get('account_code')) in incomplete:
             item.update(known_value_base=item.get('known_value_base', item['total_value_base']),
                         total_value_base=None, snapshot_scope_status='incomplete')
