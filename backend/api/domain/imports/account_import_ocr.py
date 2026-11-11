@@ -189,6 +189,8 @@ def _licaitong_subscription(lines):
         pairs = []
         if label == "买入产品":
             name = re.sub(r"\s+([（(])", r"\1", raw)
+            # Tesseract reads the printed "(QDII)C" suffix as "(QDINDC" on some screenshots.
+            name = re.sub(r"[（(]QDIND[）)]?C$", "(QDII)C", name)
             pairs = [("基金名称", name), ("方向", "申购")]
         elif label == "买入时间":
             pairs = [("交易时间", raw)]
