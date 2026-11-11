@@ -583,6 +583,8 @@ async function checkLedgerLifecycle() {
 
   const hintFixture = structuredClone(fixture);
   const [hinted, unknown] = hintFixture.recent_rows_ytd;
+  const brokerInterest = hintFixture.recent_rows_ytd.find(row => row.id === '5');
+  Object.assign(brokerInterest, { category: '消费', subcategory: '券商利息', summary: '券商利息' });
   for (const row of [hinted, unknown]) Object.assign(row, {
     classification_status: 'pending', subcategory_pending: true, account_flow_type: row.flow_type, coarse_category: '待分类',
     cashflow_type: null, category: null, subcategory: null, needs_review: true,
@@ -593,11 +595,17 @@ async function checkLedgerLifecycle() {
   };
   const hintPage = await makePage(false, hintFixture);
   await hintPage.page.locator('[data-ledger-tab="recent"]').click();
-  await openStreamEdit(hintPage.page, '1');
+  await openStreamEdit(hintPage.page, '5');
   const form = hintPage.page.locator('[data-ledger-edit-form]');
   const type = form.locator('[data-edit-field="cashflow_type"]');
   const category = form.locator('[data-edit-field="category"]');
   const subcategory = form.locator('[data-edit-field="subcategory"]');
+  assert.equal(await type.inputValue(), 'operating_expense');
+  assert.equal(await category.inputValue(), '其他支出');
+  assert.equal(await subcategory.inputValue(), '券商利息');
+  assert.equal(await form.getByRole('button', { name: '消费', exact: true }).count(), 0);
+  await form.locator('[data-sheet-close]').click();
+  await openStreamEdit(hintPage.page, '1');
   await form.getByText('词典建议，匹配到「网约车」。').waitFor();
   assert.equal(await type.inputValue(), 'operating_expense');
   assert.equal(await category.inputValue(), '交通出行');

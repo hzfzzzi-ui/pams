@@ -6,7 +6,7 @@ import { LEDGER_EDIT_TYPES, LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
 
 
 export function createLedgerTemplates({ state, model }) {
-  const { isEditableLedgerRow, ledgerEditType, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, rowTitle, originalCurrencyText, transferEndpointName, transferRoute, ledgerCategoryOptions, ledgerSubcategoryOptions } = model;
+  const { isEditableLedgerRow, ledgerEditType, ledgerEditCategory, ledgerEditTypeLabel, ledgerEditActionLabel, ledgerEditSubmitLabel, rowTitle, originalCurrencyText, transferEndpointName, transferRoute, ledgerCategoryOptions, ledgerSubcategoryOptions } = model;
 
 function recentSearchSheetHtml() {
   return `
@@ -95,8 +95,8 @@ function ledgerEditSheetHtml(row) {
   const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
   const hint = (row.flow_type === 'unclassified' || row.subcategory_pending) && row.classification_hint?.cashflow_type === cashflowType
     ? row.classification_hint : null;
-  const rawCategory = String(hint?.category || row.category || '').trim();
   const rawSubcategory = String(hint?.subcategory || row.subcategory || '').trim();
+  const rawCategory = ledgerEditCategory(cashflowType, String(hint?.category || row.category || '').trim(), rawSubcategory);
   const category = rawCategory && rawCategory !== '未分类' ? rawCategory : (isExpense ? '' : defaultEdit.category || '');
   const subcategory = isExpense ? (category ? rawSubcategory : '') : rawSubcategory || defaultEdit.subcategory || '';
   return `
