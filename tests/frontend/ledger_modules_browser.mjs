@@ -542,8 +542,27 @@ async function checkStreamLayout() {
   assert.match(await pairCard.locator('[data-direction="out"] img').getAttribute('src'), /account-brands\/wechat\.jpg$/);
   assert.equal(await pairCard.locator('.ledgerPairArrow').isVisible(),true);
   assert.equal(await list.getByRole('button',{name:'展开更多'}).count(),0);
+  const pairSummary = await pairCard.locator('summary').innerHTML();
   await pairCard.locator('summary').click();
   await pairCard.getByText('合成划转转入').waitFor();
+
+  await page.locator('[data-ledger-flow-filter=""]').click();
+  await list.locator('.ledgerListRow').first().waitFor();
+  for (let pageIndex = 0; pageIndex < stream.recent_rows_ytd.length && !(await pairCard.count()); pageIndex++) {
+    const count = await list.locator('.ledgerListRow').count();
+    await list.getByRole('button', {name:'展开更多'}).click();
+    await page.waitForFunction(previous =>
+      document.querySelectorAll('#recentRows .ledgerListRow').length > previous
+        || document.querySelector('#recentRows .ledgerPair'), count);
+  }
+  assert.equal(await pairCard.count(),1);
+  assert.equal(await pairCard.locator('summary').innerHTML(),pairSummary);
+  assert.equal(await list.locator('[data-detail-target="recentRows-detail-4"], [data-detail-target="recentRows-detail-9"]').count(),0);
+  await pairCard.locator('summary').click();
+  await pairCard.getByText('合成划转转入').waitFor();
+
+  await transfers.click();
+  await pairCard.locator('summary').waitFor();
   await toggle.click();
   await picker.getByRole('button',{name:'IBKR 证券账户',exact:true}).click();
   await list.getByText('暂无流水').waitFor();

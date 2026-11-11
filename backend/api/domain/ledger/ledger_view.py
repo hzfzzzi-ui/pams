@@ -1706,7 +1706,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if view == 'overview':
             return overview
     if view == 'stream' and flow in _CASH_STREAM_FILTERS:
-        pair_matches = transfer_matches if redesigned and pair_cards and flow == 'cash_transfer' else ()
+        pair_matches = transfer_matches if redesigned and pair_cards and flow in {'cashflow', 'cash_transfer'} else ()
         page = _ledger_stream_page(display_rows, account_config=account_config, base_currency=base_currency,
                                    account=account, account_group=account_group, flow=flow, search=search.strip().lower(), sort=sort,
                                    offset=offset, limit=limit, matching_accounts=matching_accounts,
