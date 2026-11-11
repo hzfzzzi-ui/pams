@@ -547,7 +547,7 @@ def create(body: Create, request: Request):
 
 @router.post('/detect')
 async def detect_document(request: Request, account_code: str = Query(..., max_length=50),
-                          filename: str = Query(..., max_length=180)):
+                          filename: str = Query(..., max_length=180), auto_account: bool = False):
     access.same_origin(request)
     if any(c in filename for c in ('/', '\\', '\x00', '\r', '\n')):
         raise HTTPException(400, detail={'code': 'invalid_filename', 'message': '文件名无效'})
@@ -558,9 +558,10 @@ async def detect_document(request: Request, account_code: str = Query(..., max_l
             raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
     if not content:
         return {'kind': None, 'status': 'mismatch'}
-    from domain.imports.document_kind import detect
+    from domain.imports.document_kind import detect, detect_licaitong_screenshot
+    detector = detect_licaitong_screenshot if auto_account else detect
     try:
-        return await run_in_threadpool(detect, bytes(content), filename, account_code)
+        return await run_in_threadpool(detector, bytes(content), filename, account_code)
     except (ValueError, UnicodeError):
         return {'kind': None, 'status': 'mismatch'}
 

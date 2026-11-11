@@ -7,6 +7,7 @@ const browser=await chromium.launch({headless:true,channel:process.env.PAMS_FRON
 const page=await browser.newPage({viewport:{width:390,height:844}});
 const root=path.resolve('frontend/public'), calls=[], errors=[];
 let source=null, kind='cash', publishes=0, previewUnavailable=true, ocrAvailable=true;
+let mixed = null;
 page.on('pageerror',e=>errors.push(e.message));
 await page.route('**/*',async route=>{
  const req=route.request(),url=new URL(req.url()),p=url.pathname;
@@ -19,7 +20,28 @@ await page.route('**/*',async route=>{
    {account_code:'bank_other',label:'合成另一张卡',group_code:'group',group_label:'合成银行',kinds:['cash']},
    {account_code:'bank',label:'旧名称',selection_label:'合成 4209 储蓄卡',group_code:'group',group_label:'合成银行',currency:'CNY',default_asset_type:'cash',kinds:['cash','trade','holding'],trade_actions:{cash:['income'],stock:['buy']}},
    {account_code:'tencent_licaitong',label:'腾讯理财通',group_code:'tencent',group_label:'腾讯',kinds:['trade','holding'],import_modes:['ocr']},
+   ...(mixed ? [{account_code:'tencent_licaitong_current_plus',label:'理财通活期+',kinds:['cash'],import_modes:['ocr']}] : []),
   ],counter_accounts:[]});
+  if (mixed) {
+   const account=url.searchParams.get('account_code'), filename=url.searchParams.get('filename');
+   if (p.endsWith('/detect')) {
+    assert.equal(url.searchParams.get('auto_account'),'true');
+    if (filename==='unknown.png') return send({kind:null,account_code:null,status:'unknown'});
+    const cash=filename==='cash.png';
+    return send({kind:cash?'cash':'trade',account_code:cash?'tencent_licaitong_current_plus':'tencent_licaitong',status:'detected'});
+   }
+   if (p.endsWith('/source-records') && req.method()==='GET') return send({sources:mixed.filter(item=>item.account_code===account)});
+   if (p.endsWith('/source-records') && req.method()==='POST') {
+    const cash=filename==='cash.png';
+    assert.equal(account,cash?'tencent_licaitong_current_plus':'tencent_licaitong');
+    assert.equal(url.searchParams.get('document_type'),cash?'cash':'trade');
+    const item={source_id:cash?'cash-draft':'fund-draft',account_code:account,document_type:cash?'cash':'trade',acquisition_method:'screenshot',
+      status:'draft',revision:1,filename,file_format:'png',items:[]};
+    mixed.push(item);
+    return send({source_id:item.source_id,revision:1});
+   }
+   if (p.includes('/source-records/') && req.method()==='GET') return send(mixed.find(item=>p.endsWith('/'+item.source_id)));
+  }
   if(p.endsWith('/source-records') && req.method()==='GET') {
    const account=url.searchParams.get('account_code');
    if (account) assert.equal(account,'tencent_licaitong');
@@ -135,6 +157,18 @@ try {
  assert.equal(await page.locator('#image-review').isVisible(),true);
  assert.equal(calls.slice(beforeScreenshot).filter(([method,p])=>method==='POST'&&p.endsWith('/source-records')).length,1);
  assert.ok(calls.slice(beforeScreenshot).every(([,p])=>!p.endsWith('-publish')));
+ mixed=[];
+ await page.goto(scoped);
+ await page.waitForFunction(()=>!document.querySelector('#workspace').hidden&&!document.querySelector('#workspace').inert);
+ const mixedStart=calls.length;
+ await page.locator('#images').setInputFiles(['cash','unknown','fund'].map(name=>({name:name+'.png',mimeType:'image/png',buffer:Buffer.from('synthetic')})));
+ try { await page.getByText(/已暂存 2 份.*未暂存 1 份.*unknown\.png/).waitFor({timeout:8000}); }
+ catch (error) { throw new Error(`mixed: ${await page.locator('#notice').textContent()}; ${JSON.stringify(calls.slice(mixedStart))}`, {cause:error}); }
+ assert.equal(mixed.length,2);
+ assert.equal(await page.locator('#batch-list .import-history-row').count(),2);
+ await page.getByRole('button',{name:/打开批次：理财通活期/}).click();
+ await page.waitForFunction(()=>document.querySelector('#account').value==='tencent_licaitong_current_plus');
+ assert.ok(calls.slice(mixedStart).every(([,p])=>!p.endsWith('-publish')));
  assert.equal(publishes,3);assert.deepEqual(errors,[]);
  assert.ok(calls.every(([,p])=>!p.includes('/batches')));
 } finally {await browser.close();}
