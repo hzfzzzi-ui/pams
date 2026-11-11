@@ -558,14 +558,18 @@ def test_licaitong_cash_withdrawal_requires_consistent_reported_amount(monkeypat
     monkeypatch.setattr(ocr, "_read_word_region", lambda *args, **kwargs: reread)
     content = image_bytes()
     assert document_kind.detect(content, "withdrawal.png", "tencent_licaitong") == {
-        "kind": "cash", "status": "detected",
+        "kind": None, "status": "mismatch",
     }
     active_plus = "tencent_licaitong_current_plus"
     assert document_kind.detect(content, "withdrawal.png", active_plus) == {"kind": "cash", "status": "detected"}
     assert document_kind.detect(content, "withdrawal.csv", active_plus)["status"] == "mismatch"
-    assert ocr.parse_image(content, active_plus, "cash")["rows"] == ocr.parse_image(content, "tencent_licaitong", "cash")["rows"]
+    wrong = ocr.parse_image(content, "tencent_licaitong", "cash")
+    assert wrong["rows"] == [] and wrong["required_account"] == active_plus
+    assert document_kind.detect_licaitong_screenshot(content, "withdrawal.png", "tencent_licaitong") == {
+        "kind": "cash", "account_code": active_plus, "status": "detected",
+    }
     assert ocr.parse_image(content, "tencent_licaitong", "trade")["rows"] == []
-    row, = ocr.parse_image(content, "tencent_licaitong", "cash")["rows"]
+    row, = ocr.parse_image(content, active_plus, "cash")["rows"]
     fields = row["fields"]
     assert fields["action"] == "transfer" and fields["currency"] == "CNY"
     assert fields["business_date"] == "2026-08-10" and fields["trade_time"] == "23:59:55"
