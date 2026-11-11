@@ -1,10 +1,13 @@
 """Suggest pairs between independent, source-verified cash facts."""
 from collections import Counter, defaultdict
 from datetime import date
+from decimal import Decimal
 import re
 
 from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger import confirmed_transfers_v2 as confirmation
 from domain.ledger.confirmed_transfers_v2 import is_independent_equal_pair, occupied_cashflow_ids
+from domain.imports.source_original_read import SourceOriginals
 
 
 TRANSFER_HINTS = {'internal_transfer', 'investment_funding', 'investment_withdrawal', 'debt_repayment'}
@@ -74,6 +77,68 @@ def suggest(rows, profiles, occupied, *, limit=None):
     return result
 
 
+def _redemption_candidates(cur, rows, occupied):
+    receipts = [row for row in rows if row['id'] not in occupied
+                and row['source_evidence_status'] == 'verified'
+                and row.get('summary') == '理财通活期+转入'
+                and row['account_code'] == confirmation.LICAITONG_CURRENT_PLUS]
+    if not receipts:
+        return []
+    cur.execute("""SELECT trade_id FROM public.pams_investment_trade_fact f
+        WHERE f.account_code=%s AND f.trade_type='fund_redemption'
+          AND NOT EXISTS (SELECT 1 FROM public.evidence_confirmation e
+                          WHERE e.revoked_at IS NULL AND f.trade_id IN (e.from_trade_id,e.to_trade_id))
+        ORDER BY trade_date DESC,trade_id DESC LIMIT 500""", (confirmation.REDEMPTION_ACCOUNT,))
+    ids = [row['trade_id'] for row in cur.fetchall()]
+    if not ids:
+        return []
+    originals = SourceOriginals(cur)
+    receipt_facts = {fact['id']: fact for fact in
+                     confirmation._leg_rows(cur, 'cashflow', [row['id'] for row in receipts], lock=False)}
+    candidates = []
+    for fact in confirmation._leg_rows(cur, 'trade', ids, lock=False):
+        try:
+            left = confirmation._verified_leg(fact, 'trade', originals)
+        except ValueError:
+            continue
+        for row in receipts:
+            right = {**row['pair_evidence'], 'kind': 'cashflow', 'id': row['id'],
+                     'day': str(row['transaction_date'])}
+            if not is_independent_equal_pair(left, right):
+                continue
+            receipt = receipt_facts.get(right['id'])
+            target_time = confirmation.redemption_receipt_time(left, receipt) if receipt else None
+            if target_time is None:
+                continue
+            candidates.append({
+                'match_key': f"candidate:redemption:{left['id']}:{right['id']}",
+                'match_type': 'internal_transfer', 'status': 'review_required',
+                'from_account_code': left['account_code'], 'to_account_code': right['account_code'],
+                'source_kind': 'trade', 'target_kind': 'cashflow',
+                'source_row_id': left['id'], 'target_row_id': right['id'],
+                'match_date': right['day'], 'source_date': left['day'], 'target_date': right['day'],
+                'amount': -Decimal(left['amount']), 'currency': left['currency'],
+                'source_summary': (fact['parsed_fields'].get('name') or '') + ' · 基金赎回',
+                'target_summary': row['summary'], 'confirmation_supported': True,
+                'source': {'description': f"截图到账 {left['receipt_day']} {left['receipt_time']}",
+                           'source_item_id': left['source_item_id']},
+                'target': {'description': f"截图转入 {right['day']} {target_time}",
+                           'source_item_id': str(right['source_item_id'])},
+                'ambiguity_status': 'unique_candidate',
+                'note': '基金赎回原件显示到账活期+，与转入流水的日期、时间和金额一致。',
+            })
+    return candidates
+
+
 def list_candidates(cur, profiles, *, limit):
     rows = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY', include_pair_evidence=True)
-    return suggest(rows, profiles, occupied_cashflow_ids(cur), limit=limit)
+    occupied = occupied_cashflow_ids(cur)
+    candidates = _redemption_candidates(cur, rows, occupied) + suggest(rows, profiles, occupied)
+    receipt_use = Counter(item['target_row_id'] for item in candidates)
+    redemption_use = Counter(item['source_row_id'] for item in candidates if item.get('source_kind') == 'trade')
+    for item in candidates:
+        if receipt_use[item['target_row_id']] > 1 or (
+            item.get('source_kind') == 'trade' and redemption_use[item['source_row_id']] > 1
+        ):
+            item['ambiguity_status'] = 'ambiguous'
+    return candidates[:limit]

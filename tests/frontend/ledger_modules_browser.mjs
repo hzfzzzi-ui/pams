@@ -410,11 +410,28 @@ async function checkTransferLayout() {
   await pending.click();
   await transferPage.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
   await transferPage.evaluate(pair => __ledgerTest.pendingPosts.shift().resolve({
-    matches:[{...pair, status:'review_required', confirmation_supported:true, match_key:'candidate:test'}],
+    matches:[{...pair, source_kind:'trade', target_kind:'cashflow', source_row_id:320, target_row_id:1843,
+      status:'review_required', confirmation_supported:true, ambiguity_status:'ambiguous',
+      match_key:'candidate:redemption:320:1843'}],
   }), cardPayment);
   await transferPage.locator('#transferPending .ledgerStreamDayHeader time').waitFor();
   assert.equal(await transferPage.locator('#transferPending .ledgerStreamDayHeader time').getAttribute('datetime'), '2026-09-27');
   assert.equal(await payment.isVisible(), false);
+  await transferPage.locator('#transferPending .ledgerPair summary').click();
+  const confirmPair = transferPage.getByRole('button',{name:'确认这两笔配对'});
+  transferPage.once('dialog', dialog => dialog.dismiss());
+  await confirmPair.click();
+  assert.equal(await transferPage.evaluate(() => __ledgerTest.pendingPosts.length), 0);
+  transferPage.once('dialog', dialog => dialog.accept());
+  await confirmPair.click();
+  await transferPage.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+  assert.deepEqual(await transferPage.evaluate(() => __ledgerTest.writes.at(-1).body), {
+    from_kind:'trade',from_id:320,to_kind:'cashflow',to_id:1843,
+    note:'在收支内部划转页人工核对确认',confirmed:true,
+  });
+  await transferPage.evaluate(() => __ledgerTest.pendingPosts.shift().reject(new Error('模拟未确认')));
+  await transferPage.locator('#transferPairNotice').getByText('模拟未确认').waitFor();
+  assert.equal(await transferPage.evaluate(() => __ledgerTest.writes.filter(write => write.url.endsWith('/transfers/confirm')).length), 1);
   await pending.click();
   await transferPage.locator('#recentRows .ledgerStreamDayHeader time').waitFor();
   assert.equal(await transferPage.locator('#transferReviewPanel').isVisible(), false);

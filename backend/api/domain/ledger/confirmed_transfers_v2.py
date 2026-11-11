@@ -1,11 +1,59 @@
 """Explicit transfer confirmation for source-record based facts."""
 from __future__ import annotations
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+import re
 from uuid import uuid4
 from psycopg2.extras import Json
+from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
 from domain.imports.source_original_read import SourceOriginals
+
+REDEMPTION_ACCOUNT = 'tencent_licaitong'
+REDEMPTION_PURPOSE = 'fund_redemption_receipt'
+
+
+def _reported_fields(raw):
+    return ((raw.get('source') or {}).get('context') or {}).get('reported_fields') or {}
+
+
+def _redemption_arrival(fields, raw, trade_day):
+    reported = _reported_fields(raw)
+    text = re.sub(r'\s+', '', reported.get('到账提示') or '').replace('＋', '+')
+    match = re.fullmatch(r'(\d{2}-\d{2})(\d{2}:\d{2}(?::\d{2})?)资金已到账活期\+', text)
+    confirmed = date.fromisoformat(fields.get('confirmed_date') or '')
+    if (not match or confirmed < trade_day or match[1] != confirmed.strftime('%m-%d')
+            or fields.get('action') != 'redeem' or fields.get('status') != 'confirmed'):
+        raise ValueError('Redemption receipt destination or date is unverified')
+    time.fromisoformat(match[2])
+    return confirmed, match[2]
+
+
+def transfer_accounting_identity(left, right):
+    if left.get('purpose') == REDEMPTION_PURPOSE:
+        return 'internal_transfer', left['receipt_day']
+    kind = ('investment_funding' if right['kind'] == 'trade' else
+            'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
+    return kind, left['day'] if left['day'] == right['day'] else None
+
+
+def redemption_receipt_time(left, receipt):
+    """Match the recipient's original timestamp at the precision printed by the fund."""
+    fields = receipt['parsed_fields']
+    reported = _reported_fields(receipt['raw_fields'])
+    if (receipt['acquisition_method'] != 'screenshot' or not receipt['sha256']
+            or fields.get('action') != 'transfer' or reported.get('买入方式') != '其他产品买入'):
+        return None
+    try:
+        stamp = datetime.fromisoformat(reported.get('买入时间') or '')
+        clock = time.fromisoformat(fields.get('trade_time') or '')
+    except (TypeError, ValueError):
+        return None
+    if stamp.tzinfo is not None or stamp.time() != clock or str(stamp.date()) != left['receipt_day']:
+        return None
+    value = clock.isoformat()
+    return value if value[:len(left['receipt_time'])] == left['receipt_time'] else None
 
 
 def _valid_id(ident):
@@ -16,12 +64,12 @@ def _leg_rows(cur, kind, ids, *, lock):
     if kind=='cashflow':
         table,pk,amount,day,kind_clause='pams_cashflow_fact','cashflow_id','amount','event_date','TRUE'
     else:
-        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw')"
+        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw','fund_redemption')"
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
         i.source_item_id,i.source_uid,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,
         r.source_id AS original_source_id,r.status,r.account_code AS source_account,
-        r.content IS NOT NULL AS inline_original,r.sha256
+        r.content IS NOT NULL AS inline_original,r.sha256,r.acquisition_method
         FROM public.{table} f JOIN public.source_items i ON i.source_item_id=f.source_item_id
         JOIN public.source_records r ON r.source_id=i.source_id WHERE f.{pk}=ANY(%s) AND {kind_clause}
         {"FOR UPDATE OF f FOR SHARE OF i,r" if lock else ""}''',(ids,))
@@ -33,18 +81,29 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
     data=dict(row)
     try:
         fields=data['parsed_fields'];parsed_amount=Decimal(str(fields['net_cash']))
+        redemption = kind == 'trade' and data['fact_type'] == 'fund_redemption'
+        arrival = None
+        if redemption:
+            if data['account_code'] != REDEMPTION_ACCOUNT or data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
+                raise ValueError('Unsupported redemption receipt')
+            arrival = _redemption_arrival(fields, data['raw_fields'], data['day'])
         raw=json.dumps(data['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')
         valid=(data['status']=='published' and data['review_status']=='confirmed' and data['account_code']==data['source_account']
             and data['currency']==fields['currency'] and str(data['day'])==fields['business_date'] and data['amount']==parsed_amount
-            and (kind!='trade' or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
-            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0))
+            and (kind!='trade' or redemption or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
+            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
             and (originals.verify(data) if hash_only else originals.read(data)[1]))
     except (KeyError,TypeError,ValueError,InvalidOperation): valid=False
     if not valid: raise ValueError('transfer fact source is unverified or inconsistent')
-    return {'kind':kind,'id':data['id'],'account_code':data['account_code'],'currency':data['currency'],
-            'amount':str(data['amount']),'day':str(data['day']),'source_item_id':str(data['source_item_id']),
-            'source_id':str(data['original_source_id']),'source_hash':data['sha256']}
+    leg = {'kind':kind,'id':data['id'],'account_code':data['account_code'],'currency':data['currency'],
+           'amount':str(data['amount']),'day':str(data['day']),'source_item_id':str(data['source_item_id']),
+           'source_id':str(data['original_source_id']),'source_hash':data['sha256']}
+    if arrival is not None:
+        arrival_day, arrival_time = arrival
+        leg.update(amount=str(-parsed_amount), purpose=REDEMPTION_PURPOSE,
+                   receipt_day=str(arrival_day), receipt_time=arrival_time, target_account=LICAITONG_CURRENT_PLUS)
+    return leg
 
 
 def _leg(cur, kind, ident, *, lock=True):
@@ -55,6 +114,11 @@ def _leg(cur, kind, ident, *, lock=True):
 
 
 def is_independent_equal_pair(left, right):
+    if left.get('purpose') == REDEMPTION_PURPOSE and (
+        right['kind'] != 'cashflow' or right['account_code'] != left['target_account']
+        or right['day'] != left['receipt_day']
+    ):
+        return False
     return (left['account_code'] != right['account_code'] and left['source_item_id'] != right['source_item_id']
             and left['source_id'] != right['source_id']
             and (left['source_hash'] is None or left['source_hash'] != right['source_hash'])
@@ -84,6 +148,10 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
     legs={key:_leg(cur,*key) for key in sorted(keys)};a,b=legs[keys[0]],legs[keys[1]]
     if not is_independent_equal_pair(a, b):
         raise ValueError('transfer facts conflict or are not independent')
+    if a.get('purpose') == REDEMPTION_PURPOSE:
+        receipt = _leg_rows(cur, 'cashflow', [to_id], lock=False)[0]
+        if redemption_receipt_time(a, receipt) is None:
+            raise ValueError('Target screenshot does not establish the same redemption receipt time')
     cur.execute('''SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
         ((%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s)) OR
          (%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s))) FOR UPDATE OF c''',

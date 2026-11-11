@@ -278,7 +278,8 @@ def test_partial_cash_publication_preserves_pending_and_both_duplicate_sides():
         cur.execute('SET CONSTRAINTS ALL IMMEDIATE')
 
 
-def test_transfer_confirmation_matches_independent_cash_and_trade_facts():
+@pytest.mark.parametrize('redemption', [False, True])
+def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redemption):
     from pathlib import Path
     import sys
     from uuid import UUID
@@ -297,22 +298,48 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts():
         def fetchall(self): return self.inner.fetchall()
     with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         install_redesign(cur);w=SchemaCursor(cur)
-        for source_n,item_n,account,kind,amount in [(61,62,'bank-a','cash','-10'),(63,64,'bank-b','trade','10')]:
+        if redemption:
+            cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('tencent_licaitong'),('tencent_licaitong_current_plus')")
+        entries = ([(61,62,'tencent_licaitong','trade','10'), (63,64,'tencent_licaitong_current_plus','cash','10')]
+                   if redemption else [(61,62,'bank-a','cash','-10'),(63,64,'bank-b','trade','10')])
+        for source_n,item_n,account,kind,amount in entries:
             sid=UUID(int=source_n);iid=UUID(int=item_n)
             f={'business_date':'2026-01-01','net_cash':amount,'currency':'CNY'}
-            if kind=='trade':f['trade_type']='deposit'
-            source.create_source(w,source_id=sid,account_code=account,source_name='Synthetic',acquisition_method='manual',document_type=kind)
-            source.add_item(w,source_id=sid,item_id=iid,parse_method='manual',raw_fields=f,parsed_fields=f)
+            if redemption and kind == 'trade':
+                f.update(action='redeem', status='confirmed', confirmed_date='2026-01-02', name='合成基金')
+                reported = {'到账提示': '01-02 15:50 资金已到账活期 +'}
+            elif redemption:
+                f.update(action='transfer', business_date='2026-01-02', trade_time='15:50:10', summary='理财通活期+转入')
+                reported = {'买入方式': '其他产品买入', '买入时间': '2026-01-02 15:50:10'}
+            elif kind == 'trade':
+                f['trade_type'] = 'deposit'
+            evidence = {'source': {'context': {'reported_fields': reported}}} if redemption else f
+            original = dict(filename='synthetic.png', file_format='png', content=bytes([source_n])) if redemption else {}
+            source.create_source(w,source_id=sid,account_code=account,source_name='Synthetic',
+                acquisition_method='screenshot' if redemption else 'manual',document_type=kind, **original)
+            source.add_item(w,source_id=sid,item_id=iid,parse_method='ocr' if redemption else 'manual',raw_fields=evidence,parsed_fields=f)
             source.review_item(w,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=f,review_status='confirmed')
             (source.publish_cash_source if kind=='cash' else source.publish_trade_source)(w,source_id=sid,expected_revision=3)
         cur.execute('SELECT cashflow_id FROM redesign_test.pams_cashflow_fact');cash=cur.fetchone()['cashflow_id']
         cur.execute('SELECT trade_id FROM redesign_test.pams_investment_trade_fact');trade=cur.fetchone()['trade_id']
-        result=transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='checked',confirmed=True)
+        legs = dict(from_kind='trade', from_id=trade, to_kind='cashflow', to_id=cash) if redemption else dict(
+            from_kind='cashflow', from_id=cash, to_kind='trade', to_id=trade)
+        if redemption:
+            left = transfers._leg(w, 'trade', trade)
+            right = transfers._leg(w, 'cashflow', cash)
+            assert transfers.is_independent_equal_pair(left, right)
+            assert not transfers.is_independent_equal_pair(left, {**right, 'day': '2026-01-03'})
+            assert not transfers.is_independent_equal_pair(left, {**right, 'account_code': 'bank-b'})
+            receipt, = transfers._leg_rows(w, 'cashflow', [cash], lock=False)
+            assert transfers.redemption_receipt_time(left, receipt) == '15:50:10'
+            assert transfers.redemption_receipt_time({**left, 'receipt_time': '15:51'}, receipt) is None
+            assert transfers.redemption_receipt_time({**left, 'receipt_time': '15:50:11'}, receipt) is None
+        result=transfers.confirm(w,**legs,note='checked',confirmed=True)
         assert result['transfer_id']
-        replay=transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='checked',confirmed=True)
+        replay=transfers.confirm(w,**legs,note='checked',confirmed=True)
         assert replay['replayed'] is True and replay['transfer_id'] == result['transfer_id']
         with pytest.raises(ValueError,match='already confirmed'):
-            transfers.confirm(w,from_kind='cashflow',from_id=cash,to_kind='trade',to_id=trade,note='different',confirmed=True)
+            transfers.confirm(w,**legs,note='different',confirmed=True)
         cur.execute('SELECT count(*) AS n FROM redesign_test.evidence_confirmation');assert cur.fetchone()['n']==1
         cur.execute('SET CONSTRAINTS ALL IMMEDIATE')
         assert transfers.read(w)[0]['evidence_status'] == 'confirmed'

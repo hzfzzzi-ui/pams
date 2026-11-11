@@ -252,6 +252,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       } else if (button.dataset.confirmPair && !submitting) {
         const pair = candidates?.find(row => row.match_key === button.dataset.confirmPair);
         if (!pair) return;
+        if (pair.source_kind === 'trade' && pair.ambiguity_status === 'ambiguous' &&
+            !window.confirm('这笔赎回有多个可能的配对。请核对展开的两侧凭证，确认是同一笔资金后再继续。')) return;
         submitting = true;
         button.disabled = true;
         message('transferPairNotice', '正在确认配对…');

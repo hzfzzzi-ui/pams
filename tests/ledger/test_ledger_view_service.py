@@ -116,6 +116,46 @@ def test_transfer_cards_are_deduplicated_before_paging_and_keep_both_accounts(fl
         assert page['rows'] == [{'id': 'transfer-pair-pair-1', 'transaction_date': '2026-10-04', 'transfer_pair': match}]
 
 
+def test_redemption_receipt_is_internal_transfer_on_arrival_day(monkeypatch):
+    from domain.ledger.confirmed_transfers_v2 import REDEMPTION_PURPOSE
+    from decimal import Decimal
+
+    class Cursor:
+        def execute(self, query, params):
+            assert params['day'] == date(2026, 7, 21)
+        def fetchone(self):
+            return {'fx_rate': Decimal('1')}
+
+    monkeypatch.setattr(ledger_view, '_daily_fx_join', lambda *args, **kwargs: '')
+    day, arrival = date(2026, 7, 20), date(2026, 7, 21)
+    left = {'kind': 'trade', 'id': 10, 'purpose': REDEMPTION_PURPOSE,
+            'day': str(day), 'receipt_day': str(arrival)}
+    right = {'kind': 'cashflow', 'id': 10, 'day': str(arrival)}
+    item = {'transfer_id': 'pair', 'evidence_status': 'confirmed', 'currency': 'CNY',
+            'from_account_code': 'fund', 'to_account_code': 'cash', 'amount': Decimal('25.20')}
+    match, = ledger_view._load_transfer_matches(
+        Cursor(), start=day, end=arrival, base_currency='CNY', cash_pairs_only=True,
+        decisions=[(item, left, right, day, arrival, 'investment_withdrawal')],
+    )
+    assert (match['match_type'], match['match_date'], match['source_date']) == ('internal_transfer', arrival, day)
+
+    from domain.investments import portfolio_state
+    from domain.ledger import confirmed_transfers_v2
+    monkeypatch.setattr(portfolio_state, '_table_exists', lambda *args: True)
+    monkeypatch.setattr(confirmed_transfers_v2, 'read', lambda *args, **kwargs: [
+        {**item, 'from_evidence': left, 'to_evidence': right},
+    ])
+    portfolio_match, = portfolio_state.load_transfer_matches(Cursor())
+    assert (portfolio_match['match_type'], portfolio_match['match_date']) == ('internal_transfer', str(arrival))
+    assert (match['source_row_id'], match['source_trade_id'], match['target_row_id']) == (None, 10, 10)
+    match['match_date_obj'] = match['match_date']
+    cash = {'id': 10, 'amount': Decimal('25.20'), 'amount_cny': 25.20, 'transaction_date_obj': arrival}
+    cash.update(ledger_view._classify_cash_direction(cash, {10}))
+    summary = summarize_period([cash], [match], day, arrival)
+    assert summary['income'] == summary['expense'] == summary['investment_transfer_net'] == 0
+    assert float(summary['internal_transfer']) == 25.20
+
+
 def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
     class FixedDate(date):
         @classmethod
