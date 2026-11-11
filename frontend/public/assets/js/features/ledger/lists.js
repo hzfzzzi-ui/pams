@@ -1,6 +1,14 @@
 import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
+import { accountInstitution } from '../../shared/account_institutions.js';
 import { categoryIconPath } from './category_icons.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
+
+const accountGlyph = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>';
+
+function accountAvatar(groupCode) {
+  const { logoUrl } = accountInstitution(groupCode);
+  return logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : accountGlyph;
+}
 
 const dayLabel = new Intl.DateTimeFormat('zh-CN', {month:'long', day:'numeric', timeZone:'UTC'});
 const weekdayLabel = new Intl.DateTimeFormat('zh-CN', {weekday:'short', timeZone:'UTC'});
@@ -9,8 +17,9 @@ export function createLedgerLists({ root, host, state, model, templates, dom, ev
   reloadRecent = () => renderRecentRows(), loadMore }) {
   const { $ } = dom;
   const { rowAmountClass, rowCategoryText, rowTitle, rowDateText, originalCurrencyText,
-    accountDisplayName, ledgerAccountIdentity, filteredRecentRows } = model;
+    accountDisplayName, ledgerAccountIdentity, filteredRecentRows, isInternalTransferRow } = model;
   const { recentSearchSheetHtml, rowDetailHtml, recentSortSheetHtml } = templates;
+  let renderedAccountOptions = '';
 
 function renderRecentSearchButton() {
   const btn = $('recentSearchToggle');
@@ -42,25 +51,86 @@ function openRecentSearchSheet() {
   });
 }
 
-function renderRecentAccountScope() {
-  events.clear('account-scope');
-  const el = $('recentAccountScope');
-  if (!el) return;
-  if (!state.recentAccountFilter) {
-    el.hidden = true;
-    el.innerHTML = '';
-    return;
+function renderRecentAccountPicker() {
+  const toggle = $('recentAccountToggle');
+  if (!toggle) return;
+  const picker = $('recentAccountPicker');
+  const code = state.recentAccountFilter;
+  const groupCode = state.recentAccountGroup;
+  const groups = state.streamAccountGroups;
+  const group = groups.find(item => groupCode ? item.code === groupCode
+    : item.accounts.some(account => account.code === code));
+  const label = code ? group?.accounts.find(account => account.code === code)?.label || accountDisplayName(code)
+    : group?.label || groupCode;
+  const title = label ? `筛选账户（${label}）` : '筛选账户';
+  toggle.title = title;
+  toggle.setAttribute('aria-label', title);
+  toggle.querySelector('.ledgerAccountAvatar').innerHTML = accountAvatar(group?.code || groupCode);
+  $('recentAccountLabel').textContent = label ? ` · ${label}` : '';
+  if (picker.hidden) return;
+
+  const option = ({ label, account = '', institution = '' }) => {
+    const active = code === account && groupCode === institution;
+    return `<button type="button" class="ledgerAccountOption${account ? ' ledgerAccountOptionChild' : ''}"
+      data-account="${escapeHtml(account)}" data-institution="${escapeHtml(institution)}" aria-pressed="${active}">
+      ${account ? '' : `<span class="ledgerAccountAvatar" aria-hidden="true">${accountAvatar(institution)}</span>`}
+      <span>${escapeHtml(label)}</span>${active ? '<span class="ledgerAccountCheck" aria-hidden="true">✓</span>' : ''}
+    </button>`;
+  };
+  const options = option({ label: '全部账户' }) + groups.map(item =>
+    option({ label: item.label, institution: item.code }) +
+    item.accounts.map(account => option({ label: account.label, account: account.code })).join('')
+  ).join('');
+  // Keep the focused control and scroll position when the same choices arrive with another page.
+  if (renderedAccountOptions !== options) {
+    picker.innerHTML = options;
+    renderedAccountOptions = options;
   }
-  el.hidden = false;
-  const periodLabel = recentPeriodLabel();
-  el.innerHTML = `
-    <span>账户筛选 <strong>${escapeHtml(accountDisplayName(state.recentAccountFilter))}</strong><small> · ${escapeHtml(periodLabel)}</small></span>
-    <button type="button" data-clear-account-filter>清除</button>
-  `;
-  events.listen('account-scope', el.querySelector('[data-clear-account-filter]'), 'click', () => {
-    state.recentAccountFilter = '';
-    renderRecentAccountScope();
+}
+
+function closeRecentAccountPicker({ restoreFocus = false } = {}) {
+  const picker = $('recentAccountPicker');
+  if (!picker || picker.hidden) return;
+  picker.hidden = true;
+  const toggle = $('recentAccountToggle');
+  toggle.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) toggle.focus();
+}
+
+function bindRecentAccountPicker() {
+  const control = $('recentAccountControl');
+  if (!control) return;
+  const toggle = $('recentAccountToggle');
+  const picker = $('recentAccountPicker');
+  events.listen('page', toggle, 'click', () => {
+    if (!picker.hidden) {
+      closeRecentAccountPicker();
+      return;
+    }
+    picker.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    renderRecentAccountPicker();
+    (picker.querySelector('[aria-pressed="true"]') || picker.firstElementChild)?.focus();
+  });
+  events.listen('page', picker, 'click', event => {
+    const option = event.target.closest('[data-account]');
+    if (!option) return;
+    const { account, institution } = option.dataset;
+    closeRecentAccountPicker({ restoreFocus: true });
+    if (state.recentAccountFilter === account && state.recentAccountGroup === institution) return;
+    state.recentAccountFilter = account;
+    state.recentAccountGroup = institution;
+    renderRecentAccountPicker();
     reloadRecent();
+  });
+  events.listen('page', root, 'click', event => {
+    if (!event.composedPath().includes(control)) closeRecentAccountPicker();
+  });
+  events.listen('page', control, 'keydown', event => {
+    if (event.key === 'Escape' && !picker.hidden) {
+      event.preventDefault();
+      closeRecentAccountPicker({ restoreFocus: true });
+    }
   });
 }
 
@@ -107,7 +177,6 @@ function bindRecentPeriod() {
     event.preventDefault();
     state.recentPeriod = form.elements.namedItem('recentPeriod').value;
     renderRecentPeriodButton();
-    renderRecentAccountScope();
     reloadRecent();
     closeRecentPeriod({ restoreFocus: true });
   });
@@ -165,9 +234,10 @@ function renderRows(id, rows) {
     const accountName = [account.institution, account.name].filter(Boolean).join(' ');
     const pending = row.subcategory_pending || row.flow_type === 'unclassified';
     const primaryCategory = String(row.category || '').trim();
-    const category = pending ? '待补分类' : ['收入', '消费', '内部划转', ''].includes(primaryCategory)
+    const transfer = isInternalTransferRow(row);
+    const category = transfer ? '内部划转' : pending ? '待补分类' : ['收入', '消费', '内部划转', ''].includes(primaryCategory)
       ? rowCategoryText(row) : primaryCategory;
-    const icon = pending ? categoryIconPath('其他支出')
+    const icon = transfer ? categoryIconPath('借还款/往来') : pending ? categoryIconPath('其他支出')
       : categoryIconPath(row.category, row.subcategory || row.coarse_category,
         row.flow_type === 'income' ? '其他收入' : '其他支出');
     const originalAmount = originalCurrencyText(row);
@@ -246,6 +316,6 @@ function renderRecentRows() {
   }
 }
 
-  return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountScope, renderRecentPeriodButton,
+  return { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountPicker, bindRecentAccountPicker, closeRecentAccountPicker, renderRecentPeriodButton,
     bindRecentPeriod, closeRecentPeriod, renderRecentSortButton, openRecentSortSheet, renderRecentRows };
 }

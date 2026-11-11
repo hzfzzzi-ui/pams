@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
+from domain.accounts.account_identity import account_display
 from domain.imports.source_row_read import source_row_relation
 from domain.ledger.cashflow_classification import classification_hint
 
@@ -1511,10 +1512,29 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 _INCOME_EXPENSE_FLOWS = {"income", "expense"}
+_CASH_STREAM_FILTERS = _INCOME_EXPENSE_FLOWS | {"income_expense", "cashflow", "cash_transfer"}
 
 
-def _ledger_stream_page(rows, *, profiles, base_currency, account, flow, search, sort, offset, limit,
-                        matching_accounts=None):
+def _stream_account_groups(rows, config):
+    profiles = config.get('accounts') or {}
+    excluded = set(config.get('excluded_accounts') or ())
+    codes = dict.fromkeys(code for code, profile in profiles.items()
+                          if code not in excluded and profile.get('active', True))
+    codes.update(dict.fromkeys(row['account_code'] for row in rows if row.get('account_code')))
+    groups = {}
+    group_by_account = {}
+    for code in codes:
+        group_code, group_label, label = account_display(config, code, code)
+        group = groups.setdefault(group_code, {'code': group_code, 'label': group_label or label, 'accounts': []})
+        group['accounts'].append({'code': code, 'label': label})
+        group_by_account[code] = group_code
+    return list(groups.values()), group_by_account
+
+
+def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, search, sort, offset, limit,
+                        account_group='', matching_accounts=None):
+    profiles = account_config.get('accounts') or {}
+    groups, group_by_account = _stream_account_groups(rows, account_config)
     labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转',
               'investment_return': '投资收益', 'investment_inflow': '投资流入',
               'investment_outflow': '投资流出', 'investment_fee': '投资费用',
@@ -1525,7 +1545,12 @@ def _ledger_stream_page(rows, *, profiles, base_currency, account, flow, search,
         row_flow = row.get('flow_type')
         if not row.get('transaction_date_obj') or (account and code != account):
             continue
-        if flow == 'internal_transfer' and not (row_flow == 'transfer' or row.get('is_internal_transfer') is True):
+        if account_group and group_by_account.get(code) != account_group:
+            continue
+        internal = row_flow == 'transfer' or row.get('is_internal_transfer') is True
+        if flow in {'internal_transfer', 'cash_transfer'} and not internal:
+            continue
+        if flow == 'cashflow' and not internal and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
         if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
@@ -1547,12 +1572,14 @@ def _ledger_stream_page(rows, *, profiles, base_currency, account, flow, search,
     return {
         'rows': [_serialize_row(row, base_currency=base_currency) for row in filtered[offset:offset + limit]],
         'next_offset': offset + limit if offset + limit < len(filtered) else None,
+        'account_groups': groups,
     }
 
 
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30,
                                    include_transfer_pairs: bool = False, view: str = "full",
-                                   period: str = "ytd", account: str = "", flow: str = "", search: str = "",
+                                   period: str = "ytd", account: str = "", account_group: str = "",
+                                   flow: str = "", search: str = "",
                                    sort: str = "", offset: int = 0, limit: int = 80,
                                    matching_accounts: set[str] | None = None) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
@@ -1657,17 +1684,17 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         }
         if view == 'overview':
             return overview
-    if view == 'stream' and (flow == 'income_expense' or flow in _INCOME_EXPENSE_FLOWS):
-        return _ledger_stream_page(display_rows, profiles=account_profiles, base_currency=base_currency,
-                                   account=account, flow=flow, search=search.strip().lower(), sort=sort,
+    if view == 'stream' and flow in _CASH_STREAM_FILTERS:
+        return _ledger_stream_page(display_rows, account_config=account_config, base_currency=base_currency,
+                                   account=account, account_group=account_group, flow=flow, search=search.strip().lower(), sort=sort,
                                    offset=offset, limit=limit, matching_accounts=matching_accounts)
     investment_rows = _load_investment_account_rows(
         cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier, **original_args, **decision_args,
     )
     account_rows = display_rows + investment_rows
     if view == 'stream':
-        return _ledger_stream_page(account_rows, profiles=account_profiles, base_currency=base_currency,
-                                   account=account, flow=flow, search=search.strip().lower(), sort=sort,
+        return _ledger_stream_page(account_rows, account_config=account_config, base_currency=base_currency,
+                                   account=account, account_group=account_group, flow=flow, search=search.strip().lower(), sort=sort,
                                    offset=offset, limit=limit, matching_accounts=matching_accounts)
     month_account_rows = [
         r for r in account_rows if r.get("transaction_date_obj") and month_start <= r["transaction_date_obj"] <= month_end

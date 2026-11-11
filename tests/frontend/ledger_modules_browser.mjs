@@ -29,7 +29,7 @@ const fixture = {
   recent_rows_ytd: [
     { id: '1', transaction_date: '2026-10-30', flow_type: 'expense', cashflow_type: 'operating_expense', amount_cny: -24.5, amount: '-24.50', currency: 'CNY', account_code: 'ccb_7332', summary: '午餐 测试商户', category: '餐饮', coarse_category: '餐饮', subcategory: '工作餐', counterparty: '测试商户', needs_review: true },
     { id: '2', transaction_date: '2026-10-29', flow_type: 'income', cashflow_type: 'operating_income', amount_cny: 1250.25, amount: '1250.25', currency: 'CNY', account_code: 'ccb_7332', summary: '工资薪酬', category: '工资薪酬', coarse_category: '工资薪酬', subcategory: '工资', needs_review: false },
-    { id: '3', transaction_date: '2026-10-28', flow_type: 'investment_inflow', cashflow_type: 'investment_funding', amount_cny: 200, amount: '28.10', currency: 'USD', account_code: 'ibkr', counterparty: 'ccb_7332', summary: '测试投资入金', category: '内部划转', coarse_category: '内部划转', is_internal_transfer: true, needs_review: false },
+    { id: 'investment-trade-3', transaction_date: '2026-10-28', flow_type: 'investment_inflow', cashflow_type: 'investment_funding', amount_cny: 200, amount: '28.10', currency: 'USD', account_code: 'ibkr', counterparty: 'ccb_7332', summary: '测试投资入金', category: '内部划转', coarse_category: '内部划转', is_internal_transfer: true, needs_review: false },
     { id: '4', transaction_date: '2026-09-28', flow_type: 'transfer', cashflow_type: 'internal_transfer', amount_cny: -200, amount: '-200', currency: 'CNY', account_code: 'ccb_7332', counter_account_code: 'wechat', summary: '内部转账', category: '内部划转', needs_review: false },
     { id: '5', transaction_date: '2026-01-28', flow_type: 'expense', cashflow_type: 'operating_expense', amount_cny: -100, amount: '-100', currency: 'CNY', account_code: 'ccb_7332', summary: '零散支出', category: '其他支出', needs_review: false },
   ],
@@ -44,6 +44,12 @@ const accounts = { accounts: [
   { account_code: 'ccb_7332', display_name: '建行测试储蓄卡', primary_balance: { amount: '9876.54321', currency: 'CNY', as_of: '2026-10-30' } },
   { account_code: 'ibkr', display_name: 'IBKR测试', primary_balance: { amount: '1200.12', currency: 'USD', as_of: '2026-10-30' }, platform_balances: [{ amount: 1300.12, currency: 'USD', holding_pnl: 5 }, { amount: -100, currency: 'USD', asset_liability: '负债' }] },
 ] };
+const streamAccountGroups = [
+  { code:'ccb', label:'建设银行', accounts:[
+    {code:'ccb_7332', label:'7332 储蓄卡'}, {code:'ccb_credit_0453', label:'0453 信用卡'},
+  ] },
+  { code:'ibkr', label:'IBKR', accounts:[{code:'ibkr', label:'IBKR 证券账户'}] },
+];
 const origin = 'http://ledger-fixture.local';
 const browser = await chromium.launch({ headless: true, channel: 'msedge' });
 const errors = [];
@@ -53,7 +59,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
   const context = await browser.newContext({ viewport: { width: 390, height: 1084 }, locale: 'zh-CN', timezoneId: 'Asia/Shanghai', serviceWorkers: 'block' });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(String(error)));
-  await page.addInitScript(({ fixture, accounts }) => {
+  await page.addInitScript(({ fixture, accounts, streamAccountGroups }) => {
     window.__ledgerTest = { reads: [], writes: [], pendingReads: [], pendingPosts: [], deferReads: false, fixture, accounts };
     window.__ledgerRead = (url, options) => {
       const test = window.__ledgerTest;
@@ -65,11 +71,17 @@ async function makePage(legacy = false, fixtureData = fixture) {
           const period = query.get('period') || 'ytd';
           const flow = query.get('flow');
           const search = query.get('search')?.toLowerCase() || '';
+          const group = query.get('accountGroup');
+          const groupAccounts = streamAccountGroups.find(item => item.code === group)?.accounts || [];
           const rows = (payload[`recent_rows_${period}`] || []).filter(row => {
-            if (flow === 'internal_transfer' && row.flow_type !== 'transfer' && !row.is_internal_transfer) return false;
+            const transfer = row.flow_type === 'transfer' || row.is_internal_transfer;
+            if (['cashflow', 'cash_transfer'].includes(flow) && !/^\d+$/.test(row.id)) return false;
+            if (['internal_transfer', 'cash_transfer'].includes(flow) && !transfer) return false;
+            if (flow === 'cashflow' && !transfer && !['income','expense'].includes(row.flow_type)) return false;
             if (flow === 'income_expense' && !['income','expense'].includes(row.flow_type)) return false;
             if (['income','expense'].includes(flow) && row.flow_type !== flow) return false;
             if (query.get('account') && row.account_code !== query.get('account')) return false;
+            if (group && !groupAccounts.some(account => account.code === row.account_code)) return false;
             return Object.values(row).join(' ').toLowerCase().includes(search);
           });
           const sort = query.get('sort');
@@ -77,7 +89,8 @@ async function makePage(legacy = false, fixtureData = fixture) {
             (Math.abs(a.amount_cny ?? a.amount) - Math.abs(b.amount_cny ?? b.amount)));
           const offset = Number(query.get('offset') || 0);
           const limit = payload.stream_page_size || rows.length;
-          return { rows:rows.slice(offset, offset + limit), next_offset:offset + limit < rows.length ? offset + limit : null };
+          return { rows:rows.slice(offset, offset + limit), next_offset:offset + limit < rows.length ? offset + limit : null,
+            account_groups:streamAccountGroups };
         };
         if (test.deferReads) return new Promise((resolve, reject) => test.pendingReads.push({ resolve: value => resolve(select(value)), reject }));
         return Promise.resolve(select(structuredClone(test.fixture)));
@@ -89,7 +102,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
       window.__ledgerTest.writes.push({ url, body });
       return new Promise((resolve, reject) => window.__ledgerTest.pendingPosts.push({ resolve, reject }));
     };
-  }, { fixture: fixtureData, accounts });
+  }, { fixture: fixtureData, accounts, streamAccountGroups });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.href.includes('chart.js@')) {
@@ -202,7 +215,7 @@ async function browse(legacy) {
     await page.setViewportSize({ width: 320, height: viewport.height });
     const bar = await page.locator('.ledgerRecentBar').evaluate(element => {
       const chips = element.querySelector('#recentFlowChips');
-      const buttons = [...element.querySelectorAll('button:not([type="submit"])')];
+      const buttons = [...element.querySelectorAll('.ledgerFlowChip, .ledgerIconButton')];
       const controls = buttons.map(button => button.getBoundingClientRect());
       return {
         aligned: controls.every(rect => Math.abs(rect.top - controls[0].top) < 1),
@@ -217,10 +230,10 @@ async function browse(legacy) {
     });
     assert.deepEqual(bar, { aligned: true, ordered: true, fits: true, borderless: true, selectedUnderline: true });
     await page.setViewportSize(viewport);
-    assert.equal(await page.locator('[data-ledger-flow-filter="internal_transfer"]').count(), 0);
+    assert.equal(await page.locator('[data-ledger-flow-filter="internal_transfer"]').isVisible(), true);
     await page.locator('#recentRows .ledgerListRow').first().waitFor();
     assert.deepEqual(await page.locator('#recentRows .ledgerListRow').evaluateAll(
-      rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-1', 'recentRows-detail-2', 'recentRows-detail-5']);
+      rows => rows.map(row => row.dataset.detailTarget)), ['recentRows-detail-1', 'recentRows-detail-2', 'recentRows-detail-4', 'recentRows-detail-5']);
   }
   await page.locator('[data-ledger-flow-filter=""]').click();
   await page.locator('#recentSearchToggle').click();
@@ -384,6 +397,10 @@ async function checkStreamLayout() {
   const extra = { ...stream.recent_rows_ytd[0], id:'6', summary:'待核对外币', amount:-54321.23, amount_cny:null,
     currency:'USD', subcategory_pending:true };
   stream.recent_rows_ytd.splice(1, 0, extra);
+  const cardExpense = {...extra, id:'7', account_code:'ccb_credit_0453', amount:-600, amount_cny:-600,
+    currency:'CNY', summary:'信用卡测试消费', subcategory_pending:false};
+  stream.recent_rows_ytd.push(cardExpense, {...cardExpense, id:'8', account_code:'ibkr', amount_cny:-700, summary:'其他账户消费'});
+  stream.recent_rows_month.push(cardExpense);
   const {page, context} = await makePage(false, stream);
   await page.locator('[data-ledger-tab="recent"]').click();
   const list = page.locator('#recentRows');
@@ -416,6 +433,63 @@ async function checkStreamLayout() {
   await page.locator('[data-recent-sort-option="amount_desc"]').click();
   await list.locator('.ledgerListDate').waitFor();
   assert.equal(await list.locator('.ledgerStreamDay').count(),0);
+
+  const toggle = page.locator('#recentAccountToggle');
+  const picker = page.locator('#recentAccountPicker');
+  await page.locator('[data-ledger-flow-filter="expense"]').click();
+  await page.setViewportSize({width:320,height:680});
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+  const bounds = await picker.boundingBox();
+  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 320 && bounds.height <= 320);
+  await page.keyboard.press('Escape');
+  assert.equal(await picker.isVisible(), false);
+  assert.equal(await toggle.evaluate(button => button === document.activeElement), true);
+  await toggle.click();
+  await picker.getByRole('button',{name:'建设银行',exact:true}).click();
+  await list.getByText('待核对外币').first().waitFor();
+  await page.waitForFunction(() => document.querySelector('#recentAccountToggle img')?.naturalWidth > 0);
+  await list.getByRole('button',{name:'展开更多'}).click();
+  await list.getByRole('button',{name:/信用卡测试消费/}).waitFor();
+  assert.equal(await list.getByText('其他账户消费').count(), 0);
+  await toggle.click();
+  assert.equal(await picker.getByRole('button',{name:'建设银行',exact:true}).getAttribute('aria-pressed'), 'true');
+  await picker.getByRole('button',{name:'0453 信用卡',exact:true}).click();
+  await list.getByRole('button',{name:/信用卡测试消费/}).waitFor();
+  assert.equal(await list.locator('.ledgerListRow').count(), 1);
+  assert.match(await page.locator('#recentAccountLabel').textContent(), /0453/);
+
+  await toggle.click();
+  await page.locator('#recentPeriodToggle').click();
+  assert.equal(await picker.isVisible(), false);
+  await page.locator('#recentPeriodForm').getByText('本月至今').click();
+  await page.locator('#recentPeriodForm').getByRole('button',{name:'确认'}).click();
+  await list.getByRole('button',{name:/信用卡测试消费/}).waitFor();
+  assert.deepEqual(await page.evaluate(() => {
+    const query = new URL(__ledgerTest.reads.at(-1).url, location.origin).searchParams;
+    return ['account', 'accountGroup', 'period', 'flow', 'sort', 'offset'].map(key => query.get(key));
+  }), ['ccb_credit_0453', null, 'month', 'expense', 'amount_desc', '0']);
+  await toggle.click();
+  await picker.getByRole('button',{name:'全部账户',exact:true}).click();
+  assert.equal(await page.locator('#recentAccountLabel').textContent(), '');
+  await list.getByRole('button',{name:/信用卡测试消费/}).waitFor();
+
+  const transfers = page.getByRole('button',{name:'内部划转',exact:true});
+  await transfers.click();
+  assert.equal(await transfers.getAttribute('aria-pressed'), 'true');
+  await list.getByText('暂无流水').waitFor();
+  await page.locator('#recentPeriodToggle').click();
+  await page.locator('#recentPeriodForm').getByText('年初至今').click();
+  await page.locator('#recentPeriodForm').getByRole('button',{name:'确认'}).click();
+  await list.locator('[data-detail-target="recentRows-detail-4"]').waitFor();
+  assert.equal(await list.locator('.ledgerListRow').count(),1);
+  await toggle.click();
+  await picker.getByRole('button',{name:'IBKR 证券账户',exact:true}).click();
+  await list.getByText('暂无流水').waitFor();
+  assert.equal(await page.evaluate(() => {
+    const query = new URL(__ledgerTest.reads.at(-1).url, location.origin).searchParams;
+    return query.get('flow') + ':' + query.get('account');
+  }), 'cash_transfer:ibkr');
   assert.equal(await page.evaluate(() => __ledgerTest.writes.length),0);
   await context.close();
 }
@@ -495,7 +569,7 @@ async function checkLedgerLifecycle() {
   await page.locator('[data-ledger-flow-filter="expense"]').click();
   const periodToggle = page.locator('#recentPeriodToggle');
   const periodForm = page.locator('#recentPeriodForm');
-  assert.equal(await page.locator('#recentAccountScope').isVisible(), false);
+  assert.equal(await page.locator('#recentAccountPicker').isVisible(), false);
   await periodToggle.click();
   await periodForm.getByText('本月至今', { exact: true }).click();
   assert.equal(await periodForm.getByLabel('本月至今').isChecked(), true);

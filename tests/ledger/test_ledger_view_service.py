@@ -31,9 +31,17 @@ def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
         for ident, account, flow, day, amount in [
             (1, 'bank', 'expense', 1, -10), (2, 'bank', 'expense', 2, -10),
             (3, 'bank', 'income', 3, 100), (4, 'other', 'expense', 4, -30),
+            (5, 'bank_card', 'expense', 5, -20),
         ]
     ]
-    filters = dict(profiles={}, base_currency='CNY', account='bank', flow='expense',
+    account_config = {
+        'account_roots': {'bank_group': {'display_name': '测试银行'}},
+        'accounts': {
+            'bank': {'parent_account_code': 'bank_group', 'display_name': '储蓄卡'},
+            'bank_card': {'parent_account_code': 'bank_group', 'display_name': '信用卡'},
+        },
+    }
+    filters = dict(account_config=account_config, base_currency='CNY', account='bank', flow='expense',
                    search='coffee', sort='amount_desc', limit=1)
     first = ledger_view._ledger_stream_page(rows, offset=0, **filters)
     second = ledger_view._ledger_stream_page(rows, offset=first['next_offset'], **filters)
@@ -42,6 +50,18 @@ def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
     alias = ledger_view._ledger_stream_page(rows, offset=0, matching_accounts={'bank'},
                                            **{**filters, 'search': '账户旧称'})
     assert alias['rows'][0]['id'] == 2
+    group_filters = {**filters, 'account': '', 'account_group': 'bank_group'}
+    page = ledger_view._ledger_stream_page(rows, offset=0, **group_filters)
+    assert [row['id'] for row in page['rows']] == [5]
+    assert page['account_groups'][0] == {
+        'code': 'bank_group', 'label': '测试银行',
+        'accounts': [{'code': 'bank', 'label': '储蓄卡'}, {'code': 'bank_card', 'label': '信用卡'}],
+    }
+    page = ledger_view._ledger_stream_page(rows, offset=page['next_offset'], **group_filters)
+    assert [row['id'] for row in page['rows']] == [2]
+    page = ledger_view._ledger_stream_page(rows, offset=page['next_offset'], **group_filters)
+    assert [row['id'] for row in page['rows']] == [1]
+    assert page['next_offset'] is None
 
 
 def test_income_expense_stream_pages_only_direction_classified_rows():
@@ -54,12 +74,23 @@ def test_income_expense_stream_pages_only_direction_classified_rows():
          'is_internal_transfer': flow == 'transfer'}
         for ident, flow, amount in entries
     ]
-    filters = dict(profiles={}, base_currency='CNY', account='', search='', sort='', limit=1)
+    filters = dict(account_config={}, base_currency='CNY', account='', search='', sort='', limit=1)
     first = ledger_view._ledger_stream_page(rows, offset=0, flow='income_expense', **filters)
     second = ledger_view._ledger_stream_page(rows, offset=first['next_offset'], flow='income_expense', **filters)
     assert [page['rows'][0]['id'] for page in (first, second)] == [2, 1]
     assert second['next_offset'] is None
     assert ledger_view._ledger_stream_page(rows, offset=0, flow='', **filters)['rows'][0]['id'] == 4
+
+    cash_rows = [row for row in rows if row['flow_type'] != 'investment_inflow']
+    all_filters = {**filters, 'limit': 10}
+    stream = ledger_view._ledger_stream_page(cash_rows, offset=0, flow='cashflow', **all_filters)
+    assert [row['id'] for row in stream['rows']] == [4, 2, 1]
+    transfers = ledger_view._ledger_stream_page(cash_rows, offset=0, flow='cash_transfer', **all_filters)
+    assert [(row['id'], row['amount']) for row in transfers['rows']] == [(4, -700)]
+    another_account = ledger_view._ledger_stream_page(
+        cash_rows, offset=0, flow='cash_transfer', **{**all_filters, 'account': 'other'},
+    )
+    assert another_account['rows'] == []
 
 
 def test_month_bounds_defaults_to_current_month_to_date(monkeypatch) -> None:
