@@ -1267,6 +1267,7 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
                            account_profiles=None, decisions=None) -> list[dict[str, Any]]:
     from domain.ledger.cash_transfer_pairs import cash_pair_type
+    from domain.ledger.confirmed_transfers_v2 import REDEMPTION_PURPOSE
 
     result = []
     if decisions is None:
@@ -1274,26 +1275,32 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
     for item, left, right, left_day, right_day, kind in decisions:
         if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
             continue
-        if cash_pairs_only and (left['kind'] != 'cashflow' or right['kind'] != 'cashflow'):
+        redemption = cash_pairs_only and left.get('purpose') == REDEMPTION_PURPOSE
+        both_cash = left['kind'] == right['kind'] == 'cashflow'
+        if cash_pairs_only and not (both_cash or redemption):
             continue
         if not cash_pairs_only and left_day != right_day:
             continue
-        if cash_pairs_only:
+        if redemption:
+            kind = 'internal_transfer'
+        elif cash_pairs_only:
             kind = cash_pair_type(item['from_account_code'], item['to_account_code'], account_profiles or {})
+        match_day = right_day if redemption else left_day
         fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
         cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
             SELECT CASE WHEN matches.currency_norm = %(base)s THEN 1 ELSE fx_hist.rate END AS fx_rate
             FROM matches {fx_join}""",
-            {'currency': item['currency'], 'day': left_day, 'base': base_currency})
+            {'currency': item['currency'], 'day': match_day, 'base': base_currency})
         fx = cur.fetchone()['fx_rate']
         result.append({'id': str(item['transfer_id']), 'relation_code': None, 'match_type': kind,
-            'match_date': left_day, 'from_account_code': item['from_account_code'],
+            'match_date': match_day, 'from_account_code': item['from_account_code'],
             'to_account_code': item['to_account_code'],
             'source_date': left_day, 'target_date': right_day,
             'source_row_id': left['id'] if left['kind'] == 'cashflow' else None,
             'target_row_id': right['id'] if right['kind'] == 'cashflow' else None,
             'amount': item['amount'], 'currency_norm': item['currency'], 'status': 'confirmed',
-            'both_cash_legs': cash_pairs_only,
+            'both_cash_legs': both_cash if cash_pairs_only else False,
+            **({'source_trade_id': left['id']} if redemption else {}),
             'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
     return result
 
@@ -1309,8 +1316,15 @@ def _transfer_pair_details(cur, matches):
                    JOIN public.source_items i ON i.source_item_id = f.source_item_id
                    WHERE f.cashflow_id = ANY(%s)''', (row_ids,))
     details = {row['cashflow_id']: dict(row) for row in cur.fetchall()}
-    return [{**match, 'source': details.get(match['source_row_id']), 'target': details.get(match['target_row_id'])}
-            for match in matches]
+    trade_ids = sorted({match['source_trade_id'] for match in matches if 'source_trade_id' in match})
+    trade_details = {}
+    if trade_ids:
+        cur.execute("""SELECT trade_id, concat_ws(' · ', name, '基金赎回') AS summary,
+                              source_item_id::text AS source_item_id
+                       FROM public.pams_investment_trade_fact WHERE trade_id = ANY(%s)""", (trade_ids,))
+        trade_details = {row['trade_id']: dict(row) for row in cur.fetchall()}
+    return [{**match, 'source': trade_details.get(match.get('source_trade_id')) or details.get(match['source_row_id']),
+             'target': details.get(match['target_row_id'])} for match in matches]
 
 
 def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None, decisions=None) -> list[dict[str, Any]]:

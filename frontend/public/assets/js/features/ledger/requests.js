@@ -46,8 +46,8 @@ export function readTransferCandidates() {
 
 export function confirmTransferPair(pair) {
   return updateLedger('/api/bank-reconcile/transfers/confirm', {
-    from_kind: 'cashflow', from_id: pair.source_row_id,
-    to_kind: 'cashflow', to_id: pair.target_row_id,
+    from_kind: pair.source_kind || 'cashflow', from_id: pair.source_row_id,
+    to_kind: pair.target_kind || 'cashflow', to_id: pair.target_row_id,
     note: '在收支内部划转页人工核对确认', confirmed: true,
   });
 }
