@@ -1012,16 +1012,17 @@ def load_transfer_matches(cur, limit: int = 5000) -> list[dict[str, Any]]:
         from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
     else:
         from domain.ledger import confirmed_transfers
+    from domain.ledger.confirmed_transfers_v2 import transfer_accounting_identity
+
     result = []
     for item in confirmed_transfers.read(cur, limit=limit):
         left, right = item['from_evidence'], item['to_evidence']
-        kind = ('investment_funding' if right['kind'] == 'trade' else
-                'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
+        kind, match_date = transfer_accounting_identity(left, right)
         result.append({
             'id': str(item['transfer_id']), 'match_key': str(item['transfer_id']), 'match_type': kind,
             'relation_code': None, 'from_account_code': item['from_account_code'],
             'to_account_code': item['to_account_code'], 'amount': item['amount'], 'currency': item['currency'],
-            'match_date': left['day'] if left['day'] == right['day'] else None,
+            'match_date': match_date,
             'from_date': left['day'], 'to_date': right['day'], 'confidence': None,
             'status': item['evidence_status'],
         })

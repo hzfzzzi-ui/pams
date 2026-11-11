@@ -1,6 +1,6 @@
 """Explicit transfer confirmation for source-record based facts."""
 from __future__ import annotations
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
@@ -21,12 +21,39 @@ def _reported_fields(raw):
 def _redemption_arrival(fields, raw, trade_day):
     reported = _reported_fields(raw)
     text = re.sub(r'\s+', '', reported.get('到账提示') or '').replace('＋', '+')
-    match = re.fullmatch(r'(\d{2}-\d{2})\d{2}:\d{2}(?::\d{2})?资金已到账活期\+', text)
+    match = re.fullmatch(r'(\d{2}-\d{2})(\d{2}:\d{2}(?::\d{2})?)资金已到账活期\+', text)
     confirmed = date.fromisoformat(fields.get('confirmed_date') or '')
     if (not match or confirmed < trade_day or match[1] != confirmed.strftime('%m-%d')
             or fields.get('action') != 'redeem' or fields.get('status') != 'confirmed'):
         raise ValueError('Redemption receipt destination or date is unverified')
-    return confirmed
+    time.fromisoformat(match[2])
+    return confirmed, match[2]
+
+
+def transfer_accounting_identity(left, right):
+    if left.get('purpose') == REDEMPTION_PURPOSE:
+        return 'internal_transfer', left['receipt_day']
+    kind = ('investment_funding' if right['kind'] == 'trade' else
+            'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
+    return kind, left['day'] if left['day'] == right['day'] else None
+
+
+def redemption_receipt_time(left, receipt):
+    """Match the recipient's original timestamp at the precision printed by the fund."""
+    fields = receipt['parsed_fields']
+    reported = _reported_fields(receipt['raw_fields'])
+    if (receipt['acquisition_method'] != 'screenshot' or not receipt['sha256']
+            or fields.get('action') != 'transfer' or reported.get('买入方式') != '其他产品买入'):
+        return None
+    try:
+        stamp = datetime.fromisoformat(reported.get('买入时间') or '')
+        clock = time.fromisoformat(fields.get('trade_time') or '')
+    except (TypeError, ValueError):
+        return None
+    if stamp.tzinfo is not None or stamp.time() != clock or str(stamp.date()) != left['receipt_day']:
+        return None
+    value = clock.isoformat()
+    return value if value[:len(left['receipt_time'])] == left['receipt_time'] else None
 
 
 def _valid_id(ident):
@@ -73,8 +100,9 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
            'amount':str(data['amount']),'day':str(data['day']),'source_item_id':str(data['source_item_id']),
            'source_id':str(data['original_source_id']),'source_hash':data['sha256']}
     if arrival is not None:
+        arrival_day, arrival_time = arrival
         leg.update(amount=str(-parsed_amount), purpose=REDEMPTION_PURPOSE,
-                   receipt_day=str(arrival), target_account=LICAITONG_CURRENT_PLUS)
+                   receipt_day=str(arrival_day), receipt_time=arrival_time, target_account=LICAITONG_CURRENT_PLUS)
     return leg
 
 
@@ -122,10 +150,8 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
         raise ValueError('transfer facts conflict or are not independent')
     if a.get('purpose') == REDEMPTION_PURPOSE:
         receipt = _leg_rows(cur, 'cashflow', [to_id], lock=False)[0]
-        if (receipt['acquisition_method'] != 'screenshot' or not receipt['sha256']
-                or receipt['parsed_fields'].get('action') != 'transfer'
-                or _reported_fields(receipt['raw_fields']).get('买入方式') != '其他产品买入'):
-            raise ValueError('Target screenshot does not establish a receipt from another product')
+        if redemption_receipt_time(a, receipt) is None:
+            raise ValueError('Target screenshot does not establish the same redemption receipt time')
     cur.execute('''SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
         ((%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s)) OR
          (%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s))) FOR UPDATE OF c''',

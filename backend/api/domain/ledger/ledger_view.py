@@ -1251,6 +1251,8 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
     else:
         from domain.ledger import confirmed_transfers
         decisions = confirmed_transfers.read(cur, limit=None)
+    from domain.ledger.confirmed_transfers_v2 import transfer_accounting_identity
+
     result = []
     for item in decisions:
         left, right = item['from_evidence'], item['to_evidence']
@@ -1258,8 +1260,7 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
         right_day = _as_date(right.get('day'))
         if not any(day and start <= day <= end for day in (left_day, right_day)):
             continue
-        kind = ('investment_funding' if right.get('kind') == 'trade' else
-                'investment_withdrawal' if left.get('kind') == 'trade' else 'internal_transfer')
+        kind, _ = transfer_accounting_identity(left, right)
         result.append((item, left, right, left_day, right_day, kind))
     return result
 
@@ -1267,7 +1268,7 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
                            account_profiles=None, decisions=None) -> list[dict[str, Any]]:
     from domain.ledger.cash_transfer_pairs import cash_pair_type
-    from domain.ledger.confirmed_transfers_v2 import REDEMPTION_PURPOSE
+    from domain.ledger.confirmed_transfers_v2 import REDEMPTION_PURPOSE, transfer_accounting_identity
 
     result = []
     if decisions is None:
@@ -1281,11 +1282,12 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
             continue
         if not cash_pairs_only and left_day != right_day:
             continue
+        match_day = left_day
         if redemption:
-            kind = 'internal_transfer'
+            kind, receipt_day = transfer_accounting_identity(left, right)
+            match_day = _as_date(receipt_day)
         elif cash_pairs_only:
             kind = cash_pair_type(item['from_account_code'], item['to_account_code'], account_profiles or {})
-        match_day = right_day if redemption else left_day
         fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
         cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
             SELECT CASE WHEN matches.currency_norm = %(base)s THEN 1 ELSE fx_hist.rate END AS fx_rate

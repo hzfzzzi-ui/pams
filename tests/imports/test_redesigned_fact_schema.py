@@ -309,8 +309,8 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redempti
                 f.update(action='redeem', status='confirmed', confirmed_date='2026-01-02', name='合成基金')
                 reported = {'到账提示': '01-02 15:50 资金已到账活期 +'}
             elif redemption:
-                f.update(action='transfer', business_date='2026-01-02', summary='理财通活期+转入')
-                reported = {'买入方式': '其他产品买入'}
+                f.update(action='transfer', business_date='2026-01-02', trade_time='15:50:10', summary='理财通活期+转入')
+                reported = {'买入方式': '其他产品买入', '买入时间': '2026-01-02 15:50:10'}
             elif kind == 'trade':
                 f['trade_type'] = 'deposit'
             evidence = {'source': {'context': {'reported_fields': reported}}} if redemption else f
@@ -330,6 +330,10 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redempti
             assert transfers.is_independent_equal_pair(left, right)
             assert not transfers.is_independent_equal_pair(left, {**right, 'day': '2026-01-03'})
             assert not transfers.is_independent_equal_pair(left, {**right, 'account_code': 'bank-b'})
+            receipt, = transfers._leg_rows(w, 'cashflow', [cash], lock=False)
+            assert transfers.redemption_receipt_time(left, receipt) == '15:50:10'
+            assert transfers.redemption_receipt_time({**left, 'receipt_time': '15:51'}, receipt) is None
+            assert transfers.redemption_receipt_time({**left, 'receipt_time': '15:50:11'}, receipt) is None
         result=transfers.confirm(w,**legs,note='checked',confirmed=True)
         assert result['transfer_id']
         replay=transfers.confirm(w,**legs,note='checked',confirmed=True)

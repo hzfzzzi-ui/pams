@@ -93,6 +93,8 @@ def _redemption_candidates(cur, rows, occupied):
     if not ids:
         return []
     originals = SourceOriginals(cur)
+    receipt_facts = {fact['id']: fact for fact in
+                     confirmation._leg_rows(cur, 'cashflow', [row['id'] for row in receipts], lock=False)}
     candidates = []
     for fact in confirmation._leg_rows(cur, 'trade', ids, lock=False):
         try:
@@ -104,6 +106,10 @@ def _redemption_candidates(cur, rows, occupied):
                      'day': str(row['transaction_date'])}
             if not is_independent_equal_pair(left, right):
                 continue
+            receipt = receipt_facts.get(right['id'])
+            target_time = confirmation.redemption_receipt_time(left, receipt) if receipt else None
+            if target_time is None:
+                continue
             candidates.append({
                 'match_key': f"candidate:redemption:{left['id']}:{right['id']}",
                 'match_type': 'internal_transfer', 'status': 'review_required',
@@ -114,8 +120,12 @@ def _redemption_candidates(cur, rows, occupied):
                 'amount': -Decimal(left['amount']), 'currency': left['currency'],
                 'source_summary': (fact['parsed_fields'].get('name') or '') + ' · 基金赎回',
                 'target_summary': row['summary'], 'confirmation_supported': True,
+                'source': {'description': f"截图到账 {left['receipt_day']} {left['receipt_time']}",
+                           'source_item_id': left['source_item_id']},
+                'target': {'description': f"截图转入 {right['day']} {target_time}",
+                           'source_item_id': str(right['source_item_id'])},
                 'ambiguity_status': 'unique_candidate',
-                'note': '基金赎回原件显示到账活期+，与转入流水日期及金额一致。',
+                'note': '基金赎回原件显示到账活期+，与转入流水的日期、时间和金额一致。',
             })
     return candidates
 
