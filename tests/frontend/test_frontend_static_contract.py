@@ -415,6 +415,7 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'href="#transfers" data-ledger-transfer-link>查看内部划转' in html
     assert 'data-transfer-review="confirmed"' in html
     assert 'data-transfer-review="pending"' in html
+    assert 'renderTransferPair: transfers.renderPair' in js
     assert "'#transfers': 'recent'" in js
     assert 'id="recentSearchToggle"' in html
     assert 'id="recentSearchBar"' not in html

@@ -73,7 +73,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
           const search = query.get('search')?.toLowerCase() || '';
           const group = query.get('accountGroup');
           const groupAccounts = streamAccountGroups.find(item => item.code === group)?.accounts || [];
-          const rows = (payload[`recent_rows_${period}`] || []).filter(row => {
+          let rows = (payload[`recent_rows_${period}`] || []).filter(row => {
             const transfer = row.flow_type === 'transfer' || row.is_internal_transfer;
             if (['cashflow', 'cash_transfer'].includes(flow) && !/^\d+$/.test(row.id)) return false;
             if (['internal_transfer', 'cash_transfer'].includes(flow) && !transfer) return false;
@@ -84,6 +84,15 @@ async function makePage(legacy = false, fixtureData = fixture) {
             if (group && !groupAccounts.some(account => account.code === row.account_code)) return false;
             return Object.values(row).join(' ').toLowerCase().includes(search);
           });
+          if (query.get('pairCards') === 'true') {
+            const matches = payload.transfer_pairs || [];
+            rows = [...new Map(rows.map(row => {
+              const pair = matches.find(item => [item.source_row_id, item.target_row_id].includes(row.id));
+              const entry = pair ? { id:'transfer-pair-' + pair.id, transaction_date:pair.match_date,
+                transfer_pair:pair, amount:pair.amount, amount_cny:pair.amount_cny } : row;
+              return [entry.id, entry];
+            })).values()];
+          }
           const sort = query.get('sort');
           if (sort) rows.sort((a, b) => (sort === 'amount_asc' ? 1 : -1) *
             (Math.abs(a.amount_cny ?? a.amount) - Math.abs(b.amount_cny ?? b.amount)));
@@ -430,6 +439,15 @@ async function checkStreamLayout() {
     currency:'CNY', summary:'信用卡测试消费', subcategory_pending:false};
   stream.recent_rows_ytd.push(cardExpense, {...cardExpense, id:'8', account_code:'ibkr', amount_cny:-700, summary:'其他账户消费'});
   stream.recent_rows_month.push(cardExpense);
+  stream.recent_rows_ytd.push({...stream.recent_rows_ytd.find(row => row.id === '4'),
+    id:'9', account_code:'ccb_credit_0453', amount:200, amount_cny:200});
+  stream.transfer_pairs = [{
+    id:'pair-1', source_row_id:'4', target_row_id:'9',
+    match_date:'2026-09-28', source_date:'2026-09-28', target_date:'2026-09-28',
+    from_account_code:'ccb_7332', to_account_code:'ccb_credit_0453',
+    match_type:'credit_card_payment', amount:200, amount_cny:200, currency_norm:'CNY',
+    source:{summary:'合成划转转出'}, target:{summary:'合成划转转入'},
+  }];
   const {page, context} = await makePage(false, stream);
   await page.locator('[data-ledger-tab="recent"]').click();
   const list = page.locator('#recentRows');
@@ -504,21 +522,30 @@ async function checkStreamLayout() {
   await list.getByRole('button',{name:/信用卡测试消费/}).waitFor();
 
   const transfers = page.getByRole('button',{name:'内部划转',exact:true});
+  await page.locator('#recentSortToggle').click();
+  await page.locator('[data-recent-sort-option=""]').click();
   await transfers.click();
   assert.equal(await transfers.getAttribute('aria-pressed'), 'true');
   await list.getByText('暂无流水').waitFor();
   await page.locator('#recentPeriodToggle').click();
   await page.locator('#recentPeriodForm').getByText('年初至今').click();
   await page.locator('#recentPeriodForm').getByRole('button',{name:'确认'}).click();
-  await list.locator('[data-detail-target="recentRows-detail-4"]').waitFor();
-  assert.equal(await list.locator('.ledgerListRow').count(),1);
+  const pairCard = list.locator('.ledgerPair');
+  await pairCard.locator('summary').waitFor();
+  assert.equal(await pairCard.count(),1);
+  assert.equal(await list.locator('.ledgerStreamDayHeader time').getAttribute('datetime'),'2026-09-28');
+  assert.equal(await pairCard.locator('summary img').count(),2);
+  assert.equal(await pairCard.locator('.ledgerPairArrow').isVisible(),true);
+  assert.equal(await list.getByRole('button',{name:'展开更多'}).count(),0);
+  await pairCard.locator('summary').click();
+  await pairCard.getByText('合成划转转入').waitFor();
   await toggle.click();
   await picker.getByRole('button',{name:'IBKR 证券账户',exact:true}).click();
   await list.getByText('暂无流水').waitFor();
   assert.equal(await page.evaluate(() => {
     const query = new URL(__ledgerTest.reads.at(-1).url, location.origin).searchParams;
-    return query.get('flow') + ':' + query.get('account');
-  }), 'cash_transfer:ibkr');
+    return query.get('flow') + ':' + query.get('account') + ':' + query.get('pairCards');
+  }), 'cash_transfer:ibkr:true');
   assert.equal(await page.evaluate(() => __ledgerTest.writes.length),0);
   await context.close();
 }

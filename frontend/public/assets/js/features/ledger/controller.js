@@ -57,6 +57,7 @@ export function createLedgerController({ root = document, host = window, sheetSe
     canEdit: () => !state.streamIsRemembered, reload: loadWorkbench,
   });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
+    renderTransferPair: transfers.renderPair,
     reloadRecent: () => loadStream().catch(showError),
     loadMore: () => loadStream(state.streamNext).catch(showError),
   });
