@@ -201,9 +201,9 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
           <strong class="ledgerPairTitle">${escape(label)}</strong>
           ${transferParty(sender, 'out')}
           <span class="ledgerPairCenter">
-            <strong class="ledgerPairAmount is-out">${escape(debit)}</strong>
-            <span class="ledgerPairArrows" aria-hidden="true"><i class="ledgerPairArrow"></i><i class="ledgerPairArrow is-left"></i></span>
             <strong class="ledgerPairAmount is-in">${escape(credit)}</strong>
+            <span class="ledgerPairArrows" aria-hidden="true"><i class="ledgerPairArrow is-left"></i><i class="ledgerPairArrow"></i></span>
+            <strong class="ledgerPairAmount is-out">${escape(debit)}</strong>
           </span>
           ${transferParty(receiver, 'in')}
           <time class="ledgerListDate" datetime="${date}">${date}</time>

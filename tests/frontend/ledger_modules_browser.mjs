@@ -404,10 +404,11 @@ async function checkTransferLayout() {
       const incomingArrow = rect('.ledgerPairArrow.is-left');
       const date = summary.querySelector('time');
       return summary.scrollWidth <= summary.clientWidth && sender.right <= center.left && center.right <= receiver.left
-        && outgoingArrow.top - rect('.is-out').bottom === 1
-        && rect('.is-in').top - incomingArrow.bottom === 1
-        && incomingArrow.width >= 104
-        && incomingArrow.bottom < date.getBoundingClientRect().top;
+        && incomingArrow.top - rect('.is-in').bottom === 1
+        && outgoingArrow.top - incomingArrow.bottom === 3
+        && rect('.is-out').top - outgoingArrow.bottom === 1
+        && outgoingArrow.width >= 104
+        && outgoingArrow.bottom < date.getBoundingClientRect().top;
     }), true, `transfer row at ${width}px`);
   }
   await route.focus();
