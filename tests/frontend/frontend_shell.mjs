@@ -57,6 +57,17 @@ await context.route('**/*', async route => {
               cash_net:333333.23, subcategory_pending_count:123, pending_count:123,
             }},
             monthly_trend:[{period:'2026-10', income:120, expense:20, net:100}],
+            category_insights:{
+              periods:['2026-09','2026-10'],
+              monthly:{expense:{餐饮:[0,20],金融费用:[10,20]},income:{}},
+              ytd:{income:[],expense:[
+                {category:'金融费用',amount:30,count:2,share:.6,children:[
+                  {category:'券商利息',amount:20,count:1,share:2/3},
+                  {category:'银行费用',amount:10,count:1,share:1/3},
+                ]},
+                {category:'餐饮',amount:20,count:1,share:.4,children:[]},
+              ]},
+            },
             recent_rows_ytd:recentRows,
           },
       '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
@@ -201,6 +212,21 @@ try {
     releaseChart();
     const ledgerFrame = chartPage.frames().find(frame => frame.parentFrame() === chartPage.mainFrame());
     await ledgerFrame.waitForFunction(() => Boolean(window.__cashflowTrendChart));
+    await ledger.locator('[data-overview-flow="expense"]').click();
+    const categoryRank = ledger.locator('#overviewCategoryRank');
+    const financial = categoryRank.getByRole('button',{name:/金融费用/});
+    assert.equal(await categoryRank.locator('[data-overview-category]').count(),2);
+    await financial.click();
+    assert.equal(await financial.getAttribute('aria-expanded'),'true');
+    assert.equal(await ledger.locator('#overviewCategoryTotalValue').textContent(),'¥30.00');
+    assert.equal(await categoryRank.locator('.categoryBarChildren .categoryBarRow').count(),2);
+    const october = ledger.getByRole('button',{name:'10月 ¥20.00'});
+    await october.click();
+    assert.equal(await october.getAttribute('aria-pressed'),'true');
+    assert.equal(await october.locator('.categoryMonthTip').isVisible(),true);
+    await financial.click();
+    assert.equal(await categoryRank.locator('[data-overview-category]').count(),2);
+    assert.equal(await categoryRank.locator('.categoryBarChildren').count(),0);
     assert.equal(await ledger.getByRole('link',{name:'查看内部划转'}).count(),0);
     await ledger.getByRole('link',{name:'流水',exact:true}).click();
     await ledger.getByRole('button',{name:'内部划转',exact:true}).click();

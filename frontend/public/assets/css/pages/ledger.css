@@ -223,20 +223,58 @@
 .categoryBarRow:last-child { border-bottom:none }
 .categoryBarRank { width:27px; height:27px; display:grid; place-items:center; border-radius:50%; background:color-mix(in srgb,var(--ledger-rank-color) 19%,transparent); color:color-mix(in srgb,var(--ledger-rank-color) 60%,white); font-size:12px; font-weight:600; font-variant-numeric:tabular-nums }
 .categoryBarMain { min-width:0 }
-.categoryBarName { overflow-wrap:anywhere; white-space:normal; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
-.categoryBarCount { margin-top:4px; color:var(--muted); font-size:11px; line-height:1; font-weight:600 }
+.categoryBarName { display:block; overflow-wrap:anywhere; white-space:normal; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
+.categoryBarCount { display:block; margin-top:4px; color:var(--muted); font-size:11px; line-height:1; font-weight:600 }
 .categoryBarMeta { display:grid; gap:4px; justify-items:end; min-width:92px; white-space:nowrap }
 .categoryBarMeta b { color:var(--text); font-family:var(--pams-font-sans); font-size:14px; line-height:1.15; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:0 }
 .categoryBarMeta span { color:var(--muted); font-size:12px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums }
 .categoryInsightPanel { display:grid; min-width:0 }
 .categoryInsightGrid { display:grid; grid-template-columns:minmax(0,1fr); min-width:0 }
-.categoryPieWrap { position:relative; width:166px; height:166px; justify-self:center; margin:5px 0 14px }
-.categoryPieWrap canvas { width:166px !important; height:166px !important }
+.categoryInsightCharts {
+  display:grid;
+  grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);
+  align-items:center;
+  gap:14px;
+  margin:8px 0 14px;
+}
+.categoryPieWrap { position:relative; width:100%; max-width:128px; aspect-ratio:1; justify-self:center }
+.categoryPieWrap canvas { width:100% !important; height:100% !important }
 .categoryPieFallback { position:absolute; inset:0; border-radius:50%; mask-image:radial-gradient(circle closest-side, transparent 73%, #000 75%) }
-.ledgerRingTotal { position:absolute; inset:0; display:grid; place-content:center; gap:2px; text-align:center; pointer-events:none; font-size:12px; color:var(--text-secondary) }
-.ledgerRingTotal strong { font-size:clamp(12px, 4.6vw, 18px); color:var(--text); font-variant-numeric:tabular-nums; max-width:112px; overflow-wrap:anywhere }
-.categoryPieWrap:has(.categoryPieEmpty:not([hidden])) { display:none }
+.ledgerRingTotal { position:absolute; inset:0 11%; display:grid; align-content:center; gap:2px; text-align:center; pointer-events:none; font-size:10px; color:var(--text-secondary) }
+.ledgerRingTotal strong { font-size:clamp(11px, 3.2vw, 14px); color:var(--text); font-variant-numeric:tabular-nums; overflow-wrap:anywhere }
+.categoryPieEmpty { text-align:center; color:var(--text-secondary); font-size:11px }
+.categoryPieWrap:has(.ledgerRingTotal:not([hidden])) .categoryPieEmpty { display:none }
 .ledgerRingTotal[hidden] { display:none }
+.categoryMonths { position:relative; min-width:0; color:var(--text-secondary); font-size:11px }
+.categoryMonthsLabel { display:block; margin-bottom:8px }
+.categoryMonthBars { display:flex; gap:3px; height:53px; border-bottom:1px solid var(--ledger-overview-rule) }
+.categoryMonthBar {
+  display:flex;
+  align-items:flex-end;
+  flex:1 1 0;
+  min-width:0;
+  padding:0;
+  border:0;
+  background:none;
+  color:inherit;
+  cursor:pointer;
+}
+.categoryMonthBar::before { content:""; width:100%; height:var(--month-height); background:#58a6ff; border-radius:2px 2px 0 0 }
+.categoryMonthBar[aria-pressed="true"]::before, .categoryMonthBar:focus-visible::before { background:var(--ledger-overview-accent) }
+.categoryMonthTip { display:none; position:absolute; inset:0 0 auto auto; z-index:2; padding:3px 5px; border-radius:4px; white-space:nowrap; background:var(--ledger-overview-accent); color:#201609; font-size:10px; pointer-events:none }
+.categoryMonthBar[aria-pressed="true"] .categoryMonthTip, .categoryMonthBar:focus-visible .categoryMonthTip { display:block }
+@media (hover:hover) {
+  .categoryMonthBar:hover::before { background:var(--ledger-overview-accent) }
+  .categoryMonthBar:hover .categoryMonthTip { display:block; z-index:3 }
+  .categoryMonthBars:has(.categoryMonthBar:hover) .categoryMonthBar:not(:hover) .categoryMonthTip { display:none }
+}
+.categoryMonthAxis { display:flex; justify-content:space-between; margin-top:4px }
+.categoryBarButton { width:100%; text-align:left; background:none; border:0; border-bottom:1px solid var(--ledger-overview-rule); color:inherit; cursor:pointer; font:inherit }
+.categoryBarButton[aria-expanded="true"] { color:var(--ledger-overview-accent); background:color-mix(in srgb,var(--ledger-overview-accent) 9%,transparent); border-radius:8px; border-bottom-color:transparent }
+.categoryBarButton[aria-expanded="true"] .categoryBarName { color:inherit }
+.categoryBarButton[aria-expanded="true"] .categoryBarName::after { content:"⌃"; margin-left:6px }
+.categoryBarChildren { margin-left:13px; padding-left:8px; border-left:1px solid var(--ledger-overview-rule) }
+.categoryBarChildren .categoryBarRow { min-height:42px }
 .ruleItem { padding:var(--sp-2) 0; border-bottom:1px solid var(--line) }
 .ruleItem:last-child { border-bottom:none }
 .ruleName { font-weight:600; margin-bottom:4px }

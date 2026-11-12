@@ -76,13 +76,17 @@
                   </div>
                 </div>
                 <div class="categoryInsightGrid">
-                  <div class="categoryPieWrap">
-                    <canvas id="overviewCategoryPieChart"></canvas>
-                    <div class="ledgerRingTotal" id="overviewCategoryTotal" hidden>
-                      <span id="overviewCategoryTotalLabel"></span>
-                      <strong id="overviewCategoryTotalValue"></strong>
+                  <div class="categoryInsightCharts">
+                    <div class="categoryPieWrap">
+                      <canvas id="overviewCategoryPieChart"></canvas>
+                      <div class="ledgerRingTotal" id="overviewCategoryTotal" hidden>
+                        <span id="overviewCategoryTotalLabel"></span>
+                        <strong id="overviewCategoryTotalValue"></strong>
+                      </div>
+                      <div id="overviewCategoryPieEmpty" class="categoryPieEmpty" hidden></div>
                     </div>
-                    <div id="overviewCategoryPieEmpty" class="categoryPieEmpty" hidden></div>
+                    <div id="overviewCategoryMonths" class="categoryMonths" aria-label="分类每月趋势" hidden>
+                    </div>
                   </div>
                   <div id="overviewCategoryRank"></div>
                 </div>

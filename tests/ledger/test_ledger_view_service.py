@@ -14,6 +14,7 @@ if str(API_ROOT) not in sys.path:
 import pytest
 
 import domain.ledger.ledger_view as ledger_view  # noqa: E402
+from domain.ledger.category_insights import category_insights  # noqa: E402
 
 
 
@@ -41,6 +42,34 @@ def test_financial_expenses_group_without_changing_cashflow_direction(category):
     ]
     assert ledger_view._classify_cash_direction(row, {1})["flow_type"] == "transfer"
     assert ledger_view._classify_cash_direction({**row, "amount": 20}, set())["coarse_category"] == "券商利息"
+
+
+def test_category_insights_roll_up_children_and_months_without_moving_cashflows():
+    def row(flow, category, child, amount, month, status="confirmed"):
+        return dict(flow_type=flow, category=category, subcategory=child, amount_cny=amount,
+                    transaction_date_obj=date(2026, month, 1), classification_status=status)
+
+    rows = [
+        row("expense", "消费", "外卖", -20, 1),
+        row("expense", "餐饮", "咖啡饮品", -10, 3),
+        row("expense", "内部划转", "信用卡还款", -9, 3),
+        row("expense", "消费", "未知", None, 3, "pending"),
+        row("transfer", "内部划转", "信用卡还款", 100, 3),
+        row("income", "收入", "工资", 100, 1),
+    ]
+    result = category_insights(rows, date(2026, 3, 1), redesigned=True)
+    assert result["periods"] == ["2026-01", "2026-02", "2026-03"]
+    dining = result["ytd"]["expense"][0]
+    assert (dining["category"], dining["count"], dining["amount"], dining["share"]) == ("餐饮", 2, 30, None)
+    assert [(child["category"], child["share"]) for child in dining["children"]] == [
+        ("外卖", .6667), ("咖啡饮品", .3333),
+    ]
+    assert result["monthly"]["expense"] == {
+        "餐饮": [20, 0, 10], "资金往来（未配对）": [0, 0, 9], "分类待补": [0, 0, None],
+    }
+    assert result["month"]["expense"][0]["amount"] == 10
+    assert result["month"]["income"] == []
+    assert result["monthly"]["income"] == {"工资薪酬": [100, 0, 0]}
 
 
 def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
