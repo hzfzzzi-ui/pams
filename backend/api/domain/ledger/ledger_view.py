@@ -20,6 +20,7 @@ import yaml
 from domain.accounts.account_identity import account_display
 from domain.imports.source_row_read import source_row_relation
 from domain.ledger.cashflow_classification import classification_hint
+from domain.ledger.category_insights import category_insights
 
 
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
@@ -1724,6 +1725,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             'income_categories_month': _group_amounts(month_rows, 'income'),
             'expense_categories_ytd': _group_amounts(ytd_rows, 'expense'),
             'income_categories_ytd': _group_amounts(ytd_rows, 'income'),
+            'category_insights': category_insights(ytd_rows, month_start, redesigned=redesigned),
             'monthly_trend': _trend(display_rows, ytd_start, month_end, 'monthly'),
             'weekly_trend': _trend(display_rows, ytd_start, month_end, 'weekly'),
             'classification_rules': SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,

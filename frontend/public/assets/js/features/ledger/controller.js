@@ -210,6 +210,20 @@ function bindEvents() {
       if (state.data) renderOverviewCategoryInsight(state.data);
     });
   });
+  const categoryRank = $('overviewCategoryRank');
+  if (categoryRank) events.listen('page', categoryRank, 'click', event => {
+    const button = event.target.closest('[data-overview-category]');
+    if (button && state.data) overview.toggleOverviewCategory(state.data, button.dataset.overviewCategory);
+  });
+  const categoryMonths = $('overviewCategoryMonths');
+  if (categoryMonths) events.listen('page', categoryMonths, 'click', event => {
+    const button = event.target.closest('[data-category-month]');
+    if (!button) return;
+    const pressed = button.getAttribute('aria-pressed') === 'true';
+    categoryMonths.querySelectorAll('[data-category-month]').forEach(month => {
+      month.setAttribute('aria-pressed', String(month === button && !pressed));
+    });
+  });
   events.listen('page', $('trendMonthly'), 'click', () => {
     selectTrendMode('monthly');
     if (state.data) renderTrendChart(state.data);

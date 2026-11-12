@@ -67,6 +67,7 @@ export function createLedgerOverview({ root, host, state, model, dom, ChartClass
   let trendChart = null;
   let netTrendChart = null;
   let pieChart = null;
+  const selectedCategories = {income: '', expense: ''};
 
 function renderOverviewPeriodButtons() {
   root.querySelectorAll('[data-overview-period]').forEach((btn) => {
@@ -119,7 +120,7 @@ function renderLedgerMobileHero(data) {
   `;
 }
 
-function renderCategoryBars(id, rows, emptyText, flowType = 'income') {
+function renderCategoryBars(id, rows, emptyText, flowType, {selectable = false, selected} = {}) {
   const el = $(id);
   if (!el) return;
   if (!rows?.length) {
@@ -127,26 +128,27 @@ function renderCategoryBars(id, rows, emptyText, flowType = 'income') {
     return;
   }
   const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
-  el.innerHTML = `
-    <div class="categoryBarList ${flowType === 'expense' ? 'expense' : 'income'}">
-      ${rows.map((row, index) => `
-        <div class="categoryBarRow">
-          <div class="categoryBarRank" style="--ledger-rank-color:${colors[Math.min(index, colors.length - 1)]}">${index + 1}</div>
-          <div class="categoryBarMain">
-            <div class="categoryBarName">${escapeHtml(row.category)}</div>
-            <div class="categoryBarCount">${row.count || 0} 笔</div>
-          </div>
-          <div class="categoryBarMeta">
-            <b>${row.amount == null ? '—' : money(row.amount)}</b>
-            <span>${row.share == null ? '—' : formatPercent(row.share, 1)}</span>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
+  const rowBody = (row, index) => `
+    <span class="categoryBarRank" style="--ledger-rank-color:${colors[index % colors.length]}">${index + 1}</span>
+    <span class="categoryBarMain">
+      <span class="categoryBarName">${escapeHtml(row.category)}</span>
+      <span class="categoryBarCount">${row.count || 0} 笔</span>
+    </span>
+    <span class="categoryBarMeta">
+      <b>${row.amount == null ? '—' : money(row.amount)}</b>
+      <span>${row.share == null ? '—' : formatPercent(row.share, 1)}</span>
+    </span>`;
+  const rendered = selected ? [selected] : rows;
+  el.innerHTML = `<div class="categoryBarList ${flowType}">${rendered.map(row => {
+    const body = rowBody(row, rows.indexOf(row));
+    if (!selectable) return `<div class="categoryBarRow">${body}</div>`;
+    return `<button type="button" class="categoryBarRow categoryBarButton" data-overview-category="${escapeHtml(row.category)}"
+      aria-expanded="${Boolean(selected)}">${body}</button>`;
+  }).join('')}${selected ? `<div class="categoryBarChildren">${selected.children.map((row, index) =>
+    `<div class="categoryBarRow">${rowBody(row, index)}</div>`).join('')}</div>` : ''}</div>`;
 }
 
-function renderOverviewCategoryPieFallback(canvas, chartRows, flowType) {
+function renderOverviewCategoryPieFallback(canvas, chartRows, colors) {
   const wrap = canvas?.parentElement;
   if (!wrap) return;
 
@@ -154,12 +156,11 @@ function renderOverviewCategoryPieFallback(canvas, chartRows, flowType) {
   const total = chartRows.reduce((sum, row) => sum + num(row.amount), 0);
   if (!total) return;
 
-  const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
   let cursor = 0;
   const slices = chartRows.map((row, index) => {
     const start = cursor;
     cursor += (num(row.amount) / total) * 100;
-    return `${colors[index % colors.length]} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+    return `${colors[index]} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
   }).join(', ');
 
   const fallback = (root.ownerDocument || root).createElement('div');
@@ -173,7 +174,7 @@ function renderOverviewCategoryPieFallback(canvas, chartRows, flowType) {
   canvas.hidden = true;
 }
 
-function renderOverviewCategoryPie(rows, flowType) {
+function renderOverviewCategoryPie(rows, flowType, hierarchical = false) {
   const canvas = $('overviewCategoryPieChart');
   const empty = $('overviewCategoryPieEmpty');
   if (pieChart) {
@@ -184,7 +185,7 @@ function renderOverviewCategoryPie(rows, flowType) {
   canvas?.parentElement?.querySelector('.categoryPieFallback')?.remove();
   if (!canvas) return;
 
-  const chartRows = overviewPieRows(rows);
+  const chartRows = hierarchical ? rows.filter(row => num(row.amount) > 0) : overviewPieRows(rows);
   const hasRows = chartRows.length > 0;
   canvas.hidden = !hasRows;
   if (empty) {
@@ -192,20 +193,21 @@ function renderOverviewCategoryPie(rows, flowType) {
     empty.textContent = hasRows ? '' : `暂无${overviewFlowLabel(flowType)}分类`;
   }
   if (!hasRows) return;
+  const palette = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
+  const colors = chartRows.map((row, index) => palette[(hierarchical ? rows.indexOf(row) : index) % palette.length]);
   if (typeof ChartClass !== 'function') {
-    renderOverviewCategoryPieFallback(canvas, chartRows, flowType);
+    renderOverviewCategoryPieFallback(canvas, chartRows, colors);
     return;
   }
   canvas.hidden = false;
 
-  const colors = CATEGORY_PIE_COLORS[flowType] || CATEGORY_PIE_COLORS.income;
   pieChart = new ChartClass(canvas, {
     type: 'doughnut',
     data: {
       labels: chartRows.map((row) => row.category),
       datasets: [{
         data: chartRows.map((row) => num(row.amount)),
-        backgroundColor: chartRows.map((_, index) => colors[index % colors.length]),
+        backgroundColor: colors,
         borderColor: CHART_THEME.background,
         borderWidth: 2,
         hoverOffset: 3,
@@ -213,6 +215,7 @@ function renderOverviewCategoryPie(rows, flowType) {
     },
     options: {
       responsive: true,
+      animation: false,
       maintainAspectRatio: false,
       cutout: '74%',
       plugins: {
@@ -233,15 +236,44 @@ function renderOverviewCategoryPie(rows, flowType) {
   host.__overviewCategoryPieChart = pieChart;
 }
 
+function renderCategoryMonths(insights, overall, flowType, selected) {
+  const el = $('overviewCategoryMonths');
+  if (!el) return;
+  const periods = insights?.periods || [];
+  el.hidden = !periods.length;
+  if (!periods.length) {
+    el.textContent = '';
+    return;
+  }
+  const byMonth = new Map((overall || []).map(row => [row.period, (row.confirmed_subtotal ?? row)[flowType]]));
+  const amounts = selected
+    ? insights.monthly[flowType][selected.category]
+    : periods.map(period => byMonth.has(period) ? byMonth.get(period) : 0);
+  const max = Math.max(0, ...amounts.map(num));
+  const months = periods.map(trendPeriodLabel);
+  el.innerHTML = `<span class="categoryMonthsLabel">每月趋势</span>
+    <div class="categoryMonthBars">${amounts.map((amount, index) => {
+      const value = amount == null ? '待核对' : money(amount);
+      return `<button type="button" class="categoryMonthBar" aria-label="${months[index]} ${value}" aria-pressed="false"
+        data-category-month style="--month-height:${max ? num(amount) / max * 100 : 0}%">
+        <span class="categoryMonthTip" aria-hidden="true">${months[index]}　${value}</span>
+      </button>`;
+    }).join('')}</div><div class="categoryMonthAxis" aria-hidden="true">${months.length <= 2
+      ? months.map(month => `<span>${month}</span>`).join('')
+      : [months[0], months[Math.floor((months.length - 1) / 2)], months.at(-1)].map(month => `<span>${month}</span>`).join('')}</div>`;
+}
+
 function renderOverviewCategoryInsight(data) {
   const flowType = overviewFlowKey();
-  const rows = currentOverviewCategories(data, flowType);
+  const insights = data.category_insights;
+  const rows = insights?.[overviewPeriodKey()]?.[flowType] ?? currentOverviewCategories(data, flowType);
+  const selected = insights && rows.find(row => row.category === selectedCategories[flowType]);
   const total = $('overviewCategoryTotal');
   if (total) {
     const period = currentOverviewPeriod(data);
-    const amount = (period.confirmed_subtotal ?? period)[flowType];
-    total.hidden = !rows.some(row => num(row.amount) > 0);
-    setText('overviewCategoryTotalLabel', `${overviewFlowLabel(flowType)}合计`);
+    const amount = selected ? selected.amount : (period.confirmed_subtotal ?? period)[flowType];
+    total.hidden = !rows.length;
+    setText('overviewCategoryTotalLabel', `${selected?.category || overviewFlowLabel(flowType)}合计`);
     setText('overviewCategoryTotalValue', amount == null ? '—' : money(amount));
   }
   setText('categoryInsightTitle', `${overviewFlowLabel(flowType)}排行`);
@@ -251,8 +283,18 @@ function renderOverviewCategoryInsight(data) {
     rows,
     `${overviewPeriodLabel()}暂无${overviewFlowLabel(flowType)}流水。`,
     flowType,
+    {selectable: Boolean(insights), selected},
   );
-  renderOverviewCategoryPie(rows, flowType);
+  renderOverviewCategoryPie(selected ? selected.children : rows, flowType, Boolean(insights));
+  renderCategoryMonths(insights, data.monthly_trend, flowType, selected);
+}
+
+function toggleOverviewCategory(data, category) {
+  const flowType = overviewFlowKey();
+  selectedCategories[flowType] = selectedCategories[flowType] === category ? '' : category;
+  renderOverviewCategoryInsight(data);
+  [...$('overviewCategoryRank').querySelectorAll('[data-overview-category]')]
+    .find(button => button.dataset.overviewCategory === category)?.focus({preventScroll: true});
 }
 
 function renderRules(rows) {
@@ -341,7 +383,7 @@ function renderTrendChart(data) {
 
   return {
     setChartClass(chartClass) { ChartClass = chartClass; },
-    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, renderRules, renderTrendChart,
+    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, toggleOverviewCategory, renderRules, renderTrendChart,
     dispose() {
       disposeTrendCharts();
       pieChart?.destroy();
