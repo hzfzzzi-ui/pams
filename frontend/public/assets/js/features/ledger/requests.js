@@ -41,9 +41,8 @@ export function readLedgerTransfers({ month, manualPending, signal }) {
   return jget(`/api/ledger/workbench?${params}`, { cache: false, signal });
 }
 
-export function readManualTransferOptions(anchor, { month, offset }) {
+export function readManualTransferOptions(anchor, offset) {
   const params = new URLSearchParams({ offset });
-  if (month) params.set('month', month);
   return jget(`/api/bank-reconcile/transfers/manual-pending/${encodeURIComponent(anchor)}/options?${params}`, {
     cache: false,
   });

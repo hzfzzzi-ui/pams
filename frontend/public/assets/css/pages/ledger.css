@@ -187,10 +187,36 @@
 }
 .ledgerPairLeg > :nth-child(n+3) { grid-column:1 / -1 }
 .ledgerPairMore { margin-top:10px }
-.ledgerManualPairSearch { display:flex; flex-wrap:wrap; align-items:end; gap:8px }
-.ledgerManualPairSearch label { display:grid; gap:4px }
-#transferManualPending summary { cursor:pointer }
-#transferManualPending summary > small { display:block; padding:4px 10px; color:var(--text-secondary) }
+.ledgerManualPairSummary {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:12px;
+  padding:10px;
+  border-radius:10px;
+  background:var(--pams-bg-soft);
+  cursor:pointer;
+  list-style:none;
+}
+.ledgerManualPairSummary::-webkit-details-marker { display:none }
+.ledgerManualPairSummary::after {
+  content:"";
+  width:6px;
+  height:6px;
+  border:solid var(--text-secondary);
+  border-width:0 1px 1px 0;
+  transform:rotate(-45deg);
+}
+.ledgerPair[open] > .ledgerManualPairSummary::after { transform:rotate(45deg) }
+.ledgerManualPairSummary .ledgerPairLeg { min-width:0; padding:0; background:transparent }
+.ledgerManualPairSummary .ledgerPairLeg strong { overflow-wrap:anywhere }
+.ledgerManualPairSummary time,
+.ledgerManualPairDescription,
+#transferManualPending .ledgerPairDetails > small { color:var(--text-secondary) }
+.ledgerManualPairSummary time { font-size:12px; font-variant-numeric:tabular-nums }
+#transferManualPending .ledgerPairDetails { padding:8px 10px 12px }
+.ledgerManualPairDescription { margin:0 }
+#transferManualPending [data-find-manual] { justify-self:start; min-height:44px }
 #transferManualPending [data-manual-options] > .ledgerPair { margin:6px 0 }
 .ledgerOverviewCoverage { margin:0 0 10px; color:var(--text-secondary); font-size:12px; line-height:1.5 }
 .ledgerTrendLegend {

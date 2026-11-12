@@ -83,11 +83,16 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
   }
 
   function manualLeg(row) {
+    const day = escape(row.transaction_date);
     return `<span class="ledgerPairLeg">
       <strong>${escape(accountName(row.account_code))}</strong>
       <span>${row.amount > 0 ? '+' : ''}${escape(moneyText(row.amount, row.currency))}</span>
-      <small>${escape(row.transaction_date)} · ${escape(row.description || row.summary || '暂无摘要')}</small>
+      <time datetime="${day}">${day}</time>
     </span>`;
+  }
+
+  function manualLegDescription(row) {
+    return `<p class="ledgerManualPairDescription">${escape(row.description || row.summary || '暂无摘要')}</p>`;
   }
 
   function renderManualPending() {
@@ -96,14 +101,12 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     const rows = visibleRows(data.manual_pending || []);
     host.innerHTML = rows.length ? `<h4>单边待配对 <small>${rows.length} 笔</small></h4>` +
       rows.slice(0, manualLimit).map(row => `<details class="ledgerPair" data-manual-anchor="${row.id}">
-        <summary>${manualLeg(row)}<small>${escape(row.subcategory || '内部转账')} · 待选${row.amount > 0 ? '转出' : '转入'}流水</small></summary>
+        <summary class="ledgerManualPairSummary">${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
+          ${manualLegDescription(row)}
+          <small>${escape(row.subcategory || '内部转账')} · 待选${row.amount > 0 ? '转出' : '转入'}流水</small>
           ${row.source_evidence_status === 'verified' ? `
-            <div class="ledgerManualPairSearch">
-              <label>查找月份 <input type="month" class="formInput" data-manual-month max="${currentBusinessMonth()}"
-                placeholder="YYYY-MM" pattern="[0-9]{4}-(0[1-9]|1[0-2])"></label>
-              <button class="btn" type="button" data-find-manual>查找另一笔</button>
-            </div>
+            <button class="btn" type="button" data-find-manual>查找另一笔</button>
             <div data-manual-options aria-live="polite"></div>`
             : '<p class="muted">来源凭证待核对。</p>'}
         </div>
@@ -116,17 +119,13 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     const list = card.querySelector('[data-manual-options]');
     const find = card.querySelector('[data-find-manual]');
     const anchorId = Number(card.dataset.manualAnchor);
-    const monthInput = card.querySelector('[data-manual-month]');
-    const month = monthInput.value;
-    if (!monthInput.reportValidity()) return;
-    const previous = manualOptions.get(card);
-    const offset = previous?.month === month ? Number(button.dataset.manualOffset || 0) : 0;
-    const selection = offset ? previous.choices : new Map();
+    const offset = Number(button.dataset.manualOffset || 0);
+    const selection = offset ? manualOptions.get(card) : new Map();
     if (find.disabled) return;
     if (!offset) list.textContent = '正在查找…';
-    find.disabled = button.disabled = monthInput.disabled = true;
+    find.disabled = button.disabled = true;
     try {
-      const result = await readManualTransferOptions(anchorId, {month, offset});
+      const result = await readManualTransferOptions(anchorId, offset);
       if (!current() || !card.isConnected) return;
       list.querySelector('[data-manual-offset]')?.remove();
       const anchor = data.manual_pending.find(row => row.id === anchorId);
@@ -138,11 +137,12 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
           target_row_id: target.id, target_kind: target.kind || 'cashflow', manual_anchor_id: anchorId,
         });
       }
-      manualOptions.set(card, {month, choices: selection});
+      manualOptions.set(card, selection);
       if (!offset) list.textContent = result.rows.length ? '' : '这个范围没有可选流水。';
       list.insertAdjacentHTML('beforeend', result.rows.map(row => `<details class="ledgerPair">
-        <summary>${manualLeg(row)}</summary>
+        <summary class="ledgerManualPairSummary">${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
+          ${manualLegDescription(row)}
           <p class="muted">${row.match_type === 'fx_conversion' ? '换汇 · ' : ''}请核对两笔流水是否为同一笔资金。</p>
           <button class="btn" type="button" data-confirm-manual="${escape(manualOptionKey(row))}">确认这两笔配对</button>
           <p class="muted" data-pair-status role="status"></p>
@@ -153,10 +153,10 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     } catch (error) {
       if (current() && card.isConnected) {
         list.textContent = error.status === 409
-          ? '流水状态已变更或查询月份无效，请刷新待配对列表后重试。' : '读取失败，请重新查找。';
+          ? '流水状态已变更，请刷新待配对列表后重试。' : '读取失败，请重新查找。';
       }
     } finally {
-      find.disabled = button.disabled = monthInput.disabled = false;
+      find.disabled = button.disabled = false;
     }
   }
 
@@ -374,7 +374,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         render();
       } else if ((button.dataset.confirmPair || button.dataset.confirmManual) && !submitting) {
         const pair = button.dataset.confirmManual
-          ? manualOptions.get(button.closest('[data-manual-anchor]'))?.choices.get(button.dataset.confirmManual)
+          ? manualOptions.get(button.closest('[data-manual-anchor]'))?.get(button.dataset.confirmManual)
           : candidates?.find(row => row.match_key === button.dataset.confirmPair);
         if (!pair) return;
         if ((pair.source_kind === 'trade' || pair.target_currency) && pair.ambiguity_status === 'ambiguous' &&
