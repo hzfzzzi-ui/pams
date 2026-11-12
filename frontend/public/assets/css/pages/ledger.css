@@ -216,25 +216,7 @@
 .ledgerManualPairSummary time { font-size:12px; font-variant-numeric:tabular-nums }
 #transferManualPending .ledgerPairDetails { padding:8px 10px 12px }
 .ledgerManualPairDescription { margin:0 }
-.ledgerManualPairSearch {
-  display:grid;
-  grid-template-columns:minmax(0,1fr) max-content;
-  align-items:end;
-  gap:8px;
-}
-.ledgerManualPairSearch label { display:grid; gap:4px; min-width:0 }
-.ledgerManualPairSearch input {
-  display:block;
-  box-sizing:border-box;
-  width:100%;
-  min-width:0;
-  max-width:100%;
-  min-height:44px;
-}
-.ledgerManualPairSearch .btn { min-height:44px }
-@media (max-width:360px) {
-  .ledgerManualPairSearch { grid-template-columns:minmax(0,1fr) }
-}
+#transferManualPending [data-find-manual] { justify-self:start; min-height:44px }
 #transferManualPending [data-manual-options] > .ledgerPair { margin:6px 0 }
 .ledgerOverviewCoverage { margin:0 0 10px; color:var(--text-secondary); font-size:12px; line-height:1.5 }
 .ledgerTrendLegend {
