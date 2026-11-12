@@ -87,7 +87,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
           ${leg('转出', from, pair.source_date, pair.source, pair.source_summary, '−')}
           ${leg('转入', to, pair.target_date, pair.target, pair.target_summary, '+')}
           ${pending ? `<p class="muted">${escape(pair.note || '')}</p>
-            <button class="btn" type="button" data-confirm-pair="${escape(pair.match_key)}">确认这两笔配对</button>` : ''}
+            <button class="btn" type="button" data-confirm-pair="${escape(pair.match_key)}">确认这两笔配对</button>
+            <p class="muted" data-pair-status role="status"></p>` : ''}
         </div>
       </details>`;
   }
@@ -256,7 +257,9 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
             !window.confirm('这笔赎回有多个可能的配对。请核对展开的两侧凭证，确认是同一笔资金后再继续。')) return;
         submitting = true;
         button.disabled = true;
-        message('transferPairNotice', '正在确认配对…');
+        const status = button.parentElement.querySelector('[data-pair-status]');
+        status.textContent = '正在确认配对…';
+        message('transferPairNotice', '');
         try {
           await confirmTransferPair(pair);
           if (!current()) return;
@@ -266,7 +269,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
             if (current()) message('transferPairNotice', '配对已确认。收支总览刷新失败，请刷新页面查看。');
           })]);
         } catch (error) {
-          if (current()) message('transferPairNotice', error.message || '操作未完成，请重试。');
+          const reason = typeof error.detail === 'string' ? error.detail : error.detail?.message;
+          if (current()) status.textContent = `确认失败。 ${reason || error.message || '请重试。'}`;
         } finally {
           submitting = false;
           if (current()) button.disabled = false;

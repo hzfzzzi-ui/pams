@@ -39,6 +39,10 @@ await context.route('**/*', async route => {
     return route.fulfill({status:404, json:{}, headers:{'access-control-allow-origin':base}});
   }
   if (workflowFixtures && url.hostname === '127.0.0.1') {
+    if (url.pathname === '/api/bank-reconcile/transfers/confirm') {
+      assert.equal(route.request().postDataJSON().confirmed, true);
+      return route.fulfill({status:409,json:{detail:'合成配对冲突'},headers:{'access-control-allow-origin':base}});
+    }
     const accounts = [{account_code:'fixture', display_name:'示例储蓄卡', currency:'CNY'}];
     const recentRows = Array.from({length:12}, (_, index) => ({
       id:index + 1, account_code:'fixture', transaction_date:'2026-10-29', amount:-20,
@@ -248,7 +252,8 @@ try {
     await ledger.getByRole('heading',{name:'待配对'}).waitFor();
     assert.equal(await streamRows.isVisible(), false);
     await ledger.locator('#transferPending summary').click();
-    await ledger.getByRole('button',{name:'确认这两笔配对'}).waitFor();
+    await ledger.getByRole('button',{name:'确认这两笔配对'}).click();
+    await ledger.locator('#transferPending').getByText(/确认失败.*合成配对冲突/).waitFor();
     await ledger.getByRole('button',{name:'待配对',exact:true}).click();
     assert.equal(await streamRows.isVisible(), true);
   } finally {

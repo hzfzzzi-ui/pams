@@ -348,7 +348,7 @@ export async function jget(path, options = {}) {
   return requestPromise;
 }
 
-export async function jpost(path, bodyObj) {
+export async function jpost(path, bodyObj, {includeErrorDetail = false} = {}) {
   let res;
   try {
     res = await fetchWithTimeout(
@@ -364,7 +364,14 @@ export async function jpost(path, bodyObj) {
     if (e && e.name === "AbortError") throw new Error("Request timeout (90s)");
     throw e;
   }
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const error = new Error(`${res.status} ${res.statusText}`);
+    if (includeErrorDetail) {
+      const response = await res.json().catch(() => null);
+      error.detail = response?.detail;
+    }
+    throw error;
+  }
   const data = await res.json();
   clearApiCache();
   return data;

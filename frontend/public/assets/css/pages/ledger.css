@@ -173,6 +173,8 @@
   transform:rotate(45deg);
 }
 .ledgerPairDetails { display:grid; gap:8px; padding:2px 0 12px; overflow-wrap:anywhere }
+.ledgerPairDetails [data-pair-status] { margin:0 }
+.ledgerPairDetails [data-pair-status]:empty { display:none }
 .ledgerPairLeg {
   display:grid;
   grid-template-columns:minmax(0,1fr) auto;
