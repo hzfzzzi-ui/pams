@@ -83,11 +83,16 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
   }
 
   function manualLeg(row) {
+    const day = escape(row.transaction_date);
     return `<span class="ledgerPairLeg">
       <strong>${escape(accountName(row.account_code))}</strong>
       <span>${row.amount > 0 ? '+' : ''}${escape(moneyText(row.amount, row.currency))}</span>
-      <small>${escape(row.transaction_date)} · ${escape(row.description || row.summary || '暂无摘要')}</small>
+      <time datetime="${day}">${day}</time>
     </span>`;
+  }
+
+  function manualLegDescription(row) {
+    return `<p class="ledgerManualPairDescription">${escape(row.description || row.summary || '暂无摘要')}</p>`;
   }
 
   function renderManualPending() {
@@ -96,8 +101,10 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     const rows = visibleRows(data.manual_pending || []);
     host.innerHTML = rows.length ? `<h4>单边待配对 <small>${rows.length} 笔</small></h4>` +
       rows.slice(0, manualLimit).map(row => `<details class="ledgerPair" data-manual-anchor="${row.id}">
-        <summary>${manualLeg(row)}<small>${escape(row.subcategory || '内部转账')} · 待选${row.amount > 0 ? '转出' : '转入'}流水</small></summary>
+        <summary class="ledgerManualPairSummary">${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
+          ${manualLegDescription(row)}
+          <small>${escape(row.subcategory || '内部转账')} · 待选${row.amount > 0 ? '转出' : '转入'}流水</small>
           ${row.source_evidence_status === 'verified' ? `
             <div class="ledgerManualPairSearch">
               <label>查找月份 <input type="month" class="formInput" data-manual-month max="${currentBusinessMonth()}"
@@ -141,8 +148,9 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
       manualOptions.set(card, {month, choices: selection});
       if (!offset) list.textContent = result.rows.length ? '' : '这个范围没有可选流水。';
       list.insertAdjacentHTML('beforeend', result.rows.map(row => `<details class="ledgerPair">
-        <summary>${manualLeg(row)}</summary>
+        <summary class="ledgerManualPairSummary">${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
+          ${manualLegDescription(row)}
           <p class="muted">${row.match_type === 'fx_conversion' ? '换汇 · ' : ''}请核对两笔流水是否为同一笔资金。</p>
           <button class="btn" type="button" data-confirm-manual="${escape(manualOptionKey(row))}">确认这两笔配对</button>
           <p class="muted" data-pair-status role="status"></p>
