@@ -456,7 +456,8 @@
 .ledgerTransferReviewActions:not([hidden]) { display:flex; gap:14px; margin-bottom:10px }
 .ledgerTransferReviewActions button { min-height:36px; padding:0; border:0; background:none; color:var(--pams-text-secondary); font:inherit; font-size:13px; cursor:pointer }
 .ledgerTransferReviewActions button[aria-expanded="true"] { color:var(--pams-text-primary); text-decoration:underline; text-underline-offset:4px }
-#recentStreamToolbar[hidden] { display:none }
+#recentStreamToolbar[hidden],
+#recentRows[hidden] { display:none }
 #transferReviewPanel:not([hidden]) { display:grid; gap:12px }
 .ledgerStreamDay + .ledgerStreamDay { margin-top:12px }
 .ledgerStreamDayHeader {
