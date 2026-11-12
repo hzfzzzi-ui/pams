@@ -130,3 +130,72 @@ def test_manual_pending_matches_an_unclassified_opposite_leg_across_months(empty
         )
         assert Decimal(str(pair['amount_cny'])) == Decimal('350')
         assert client.get(options_url).status_code == 409
+
+
+def test_manual_bank_outflow_pairs_with_verified_broker_deposit(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from endpoints import bank_reconcile, ledger
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_cashflow, _publish_synthetic_trades
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO pams_accounts(account_code,display_name)
+                           VALUES ('synthetic_bank','Synthetic bank'),('synthetic_broker','Synthetic broker')""")
+        _publish_synthetic_cashflow(conn, account='synthetic_bank',
+                                    fields={'business_date': '2026-10-19', 'net_cash': '-50000', 'currency': 'CNY'},
+                                    classification='investment_funding')
+        _publish_synthetic_trades(conn, [
+            {'business_date': day, 'trade_type': 'deposit', 'currency': 'CNY', 'net_cash': amount}
+            for day, amount in [('2026-10-19', '50000'), ('2026-10-19', '49999'), ('2026-10-20', '50000')]
+        ], account_code='synthetic_broker')
+        with conn.cursor() as cur:
+            cur.execute("SELECT cashflow_id FROM pams_cashflow_fact WHERE account_code='synthetic_bank'")
+            anchor = cur.fetchone()[0]
+            cur.execute("SELECT trade_id FROM pams_investment_trade_fact WHERE net_cash=49999")
+            wrong_amount = cur.fetchone()[0]
+
+    monkeypatch.setattr(bank_reconcile, 'get_conn', connect)
+    monkeypatch.setattr(ledger, 'get_conn', connect)
+    app = FastAPI()
+    app.include_router(bank_reconcile.router, prefix='/api')
+    app.include_router(ledger.router, prefix='/api')
+    overview_url = '/api/ledger/workbench?view=overview&month=2026-10'
+    transfers_url = '/api/ledger/workbench?view=transfers&month=2026-10&manualPending=true'
+    stream_url = '/api/ledger/workbench?view=stream&month=2026-10&flow=cashflow&pairCards=true'
+    options_url = f'/api/bank-reconcile/transfers/manual-pending/{anchor}/options'
+    confirm_url = '/api/bank-reconcile/transfers/confirm'
+    with TestClient(app) as client:
+        before = client.get(overview_url).raise_for_status().json()['periods']['month']
+        assert client.get(options_url + '?month=2026-11').raise_for_status().json()['rows'] == []
+        candidate, = client.get(options_url).raise_for_status().json()['rows']
+        assert (candidate['kind'], candidate['account_code'], Decimal(candidate['amount']), candidate['match_type']) == (
+            'trade', 'synthetic_broker', 50000, 'investment_funding')
+        payload = dict(from_kind='cashflow', from_id=anchor, to_kind='trade', to_id=candidate['id'],
+                       manual_anchor_id=anchor, note='Synthetic receipts reviewed', confirmed=True)
+        assert client.post(confirm_url, json={**payload, 'to_id': wrong_amount}).status_code == 409
+        saved = client.post(confirm_url, json=payload).raise_for_status().json()
+        assert client.post(confirm_url, json=payload).raise_for_status().json()['replayed']
+        after = client.get(overview_url).raise_for_status().json()
+        totals = after['periods']['month']
+        assert before['expense'] - totals['expense'] == 50000
+        assert totals['investment_funding'] - before['investment_funding'] == 50000
+        assert totals['income'] == before['income']
+        assert totals['cash_net'] == before['cash_net']
+        transfers = client.get(transfers_url).raise_for_status().json()
+        assert transfers['manual_pending'] == []
+        pair, = transfers['transfer_pairs']
+        assert pair['id'] == saved['transfer_id']
+        assert pair['target_trade_id'] == candidate['id'] and pair['target']['summary'] == '券商入金'
+        assert after['transfer_summary_month'] == transfers['transfer_summary_month']
+        stream = client.get(stream_url).raise_for_status().json()['rows']
+        assert [row['transfer_pair']['id'] for row in stream] == [saved['transfer_id']]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute('SELECT net_cash FROM pams_investment_trade_fact WHERE trade_id=%s', (candidate['id'],))
+        assert cur.fetchone()[0] == 50000
+        cur.execute('SELECT COUNT(*) FROM pams_cashflow_fact')
+        assert cur.fetchone()[0] == 1

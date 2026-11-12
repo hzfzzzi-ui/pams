@@ -12,6 +12,7 @@ export const TRANSFER_TYPES = {
 };
 const FIRST_PAGE = 10;
 const moneyText = (value, currency) => value == null ? '—' : money(value, currency);
+const manualOptionKey = row => `${row.kind || 'cashflow'}:${row.id}`;
 const rowDate = row => row.match_date || row.transaction_date;
 const byDate = (left, right) => rowDate(right).localeCompare(rowDate(left));
 const comparableAmount = row => {
@@ -132,7 +133,10 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
       if (!anchor) return;
       for (const row of result.rows) {
         const [source, target] = anchor.amount < 0 ? [anchor, row] : [row, anchor];
-        selection.set(row.id, {source_row_id: source.id, target_row_id: target.id, manual_anchor_id: anchorId});
+        selection.set(manualOptionKey(row), {
+          source_row_id: source.id, source_kind: source.kind || 'cashflow',
+          target_row_id: target.id, target_kind: target.kind || 'cashflow', manual_anchor_id: anchorId,
+        });
       }
       manualOptions.set(card, {month, choices: selection});
       if (!offset) list.textContent = result.rows.length ? '' : '这个范围没有可选流水。';
@@ -140,7 +144,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         <summary>${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
           <p class="muted">${row.match_type === 'fx_conversion' ? '换汇 · ' : ''}请核对两笔流水是否为同一笔资金。</p>
-          <button class="btn" type="button" data-confirm-manual="${row.id}">确认这两笔配对</button>
+          <button class="btn" type="button" data-confirm-manual="${escape(manualOptionKey(row))}">确认这两笔配对</button>
           <p class="muted" data-pair-status role="status"></p>
         </div>
       </details>`).join(''));
@@ -370,7 +374,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         render();
       } else if ((button.dataset.confirmPair || button.dataset.confirmManual) && !submitting) {
         const pair = button.dataset.confirmManual
-          ? manualOptions.get(button.closest('[data-manual-anchor]'))?.choices.get(Number(button.dataset.confirmManual))
+          ? manualOptions.get(button.closest('[data-manual-anchor]'))?.choices.get(button.dataset.confirmManual)
           : candidates?.find(row => row.match_key === button.dataset.confirmPair);
         if (!pair) return;
         if ((pair.source_kind === 'trade' || pair.target_currency) && pair.ambiguity_status === 'ambiguous' &&

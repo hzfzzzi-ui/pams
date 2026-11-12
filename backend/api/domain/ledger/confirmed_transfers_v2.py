@@ -13,6 +13,7 @@ from domain.imports.source_original_read import SourceOriginals
 REDEMPTION_ACCOUNT = 'tencent_licaitong'
 REDEMPTION_PURPOSE = 'fund_redemption_receipt'
 FX_PAIR = 'fx_conversion'
+MANUAL_FUNDING_PAIR = 'investment_funding'
 
 
 def _reported_fields(raw):
@@ -134,6 +135,11 @@ def is_independent_equal_pair(left, right):
             and -Decimal(left['amount']) == Decimal(right['amount']))
 
 
+def is_manual_funding_pair(left, right):
+    return (left['kind'] == 'cashflow' and right['kind'] == 'trade'
+            and left['day'] == right['day'] and is_independent_equal_pair(left, right))
+
+
 def _validate_cross_currency_pair(cur, left, right):
     from domain.ledger.cashflow_read_v2 import load_cash_rows
     from domain.ledger.cash_transfer_pairs import is_cross_currency_card_repayment
@@ -185,18 +191,13 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
             return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
         raise ValueError('transfer leg already confirmed')
     if manual_anchor_id is not None:
-        from domain.ledger.manual_transfer_pairs import load_leg, manual_pair_type
+        from domain.ledger.manual_transfer_pairs import validate_manual_pair
 
-        if from_kind != 'cashflow' or to_kind != 'cashflow' or manual_anchor_id not in (from_id, to_id):
-            raise ValueError('请选择两笔现金流水，并保留原待配对记录。')
-        left = load_leg(cur, from_id, date.fromisoformat(a['day']))
-        right = load_leg(cur, to_id, date.fromisoformat(b['day']))
-        anchor, other = (left, right) if manual_anchor_id == from_id else (right, left)
-        pair_type = manual_pair_type(anchor, other) if left and right and is_independent_opposite_pair(a, b) else None
+        pair_type = validate_manual_pair(cur, a, b, manual_anchor_id)
         if not pair_type:
             raise ValueError('两笔流水已变更或不符合配对条件，请重新选择。')
-        if pair_type == FX_PAIR:
-            a = {**a, 'pair_type': FX_PAIR}
+        if pair_type in {FX_PAIR, MANUAL_FUNDING_PAIR}:
+            a = {**a, 'pair_type': pair_type}
     elif not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b):
         raise ValueError('两笔流水的来源、币种或金额不符合配对条件')
     if a.get('purpose') == REDEMPTION_PURPOSE:
@@ -250,8 +251,9 @@ def read(cur, *, limit=200, originals=None):
             valid = (_valid_id(left['id']) and _valid_id(right['id'])
                      and verified.get((left['kind'], left['id'])) == left_fact
                      and verified.get((right['kind'], right['id'])) == right
-                     and (pair_type is None or (
-                         pair_type == FX_PAIR and left['kind'] == right['kind'] == 'cashflow'
+                     and (pair_type is None
+                          or (pair_type == MANUAL_FUNDING_PAIR and is_manual_funding_pair(left, right))
+                          or (pair_type == FX_PAIR and left['kind'] == right['kind'] == 'cashflow'
                          and left['currency'] != right['currency'] and is_independent_opposite_pair(left, right)
                      )))
         except (ValueError, KeyError, TypeError):
