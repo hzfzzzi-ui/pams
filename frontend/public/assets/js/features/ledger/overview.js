@@ -94,6 +94,28 @@ function renderTransferSummary(data) {
   }).join('');
 }
 
+function renderLoanSummary(data) {
+  const card = $('overviewLoanSection');
+  if (!card) return;
+  const summary = currentOverviewPeriod(data).personal_loan;
+  card.hidden = !summary;
+  if (!summary) return;
+  setText('overviewLoanBorrowed', summary.borrowed == null ? '—' : money(summary.borrowed));
+  setText('overviewLoanRepaid', summary.repaid == null ? '—' : money(summary.repaid));
+  setText('overviewLoanNet', summary.net == null ? '—' : summary.net === 0 ? money(0) : signedMoney(summary.net));
+  setText('overviewLoanCount', `${summary.count} 笔`);
+  $('overviewLoanDetails').hidden = summary.count === 0;
+  $('overviewLoanEmpty').hidden = summary.count !== 0;
+  const rows = data.personal_loan_recent?.[overviewPeriodKey()] || [];
+  $('overviewLoanRows').innerHTML = rows.map(row => {
+    const identity = model.ledgerAccountIdentity(row.account_code);
+    const account = [identity.institution, identity.name].filter(Boolean).join(' ');
+    const amount = row.amount_cny == null ? model.originalCurrencyText(row) || '—' : signedMoney(row.amount_cny);
+    return `<li class="ledgerLoanLine"><div><strong>${escapeHtml(model.rowCategoryText(row))}</strong>
+      <small>${escapeHtml(model.rowDateText(row))} · ${escapeHtml(account)}</small></div><strong>${escapeHtml(amount)}</strong></li>`;
+  }).join('');
+}
+
 function renderLedgerMobileHero(data) {
   const el = $('ledgerMobileHero');
   if (!el) return;
@@ -396,7 +418,7 @@ function renderTrendChart(data) {
 
   return {
     setChartClass(chartClass) { ChartClass = chartClass; },
-    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderTransferSummary, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, toggleOverviewCategory, renderRules, renderTrendChart,
+    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderTransferSummary, renderLoanSummary, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, toggleOverviewCategory, renderRules, renderTrendChart,
     dispose() {
       disposeTrendCharts();
       pieChart?.destroy();

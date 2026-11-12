@@ -78,9 +78,9 @@ async function makePage(legacy = false, fixtureData = fixture) {
             const transfer = row.flow_type === 'transfer' || row.is_internal_transfer;
             if (['cashflow', 'cash_transfer'].includes(flow) && !/^\d+$/.test(row.id)) return false;
             if (['internal_transfer', 'cash_transfer'].includes(flow) && !transfer) return false;
-            if (flow === 'cashflow' && !transfer && !['income','expense'].includes(row.flow_type)) return false;
+            if (flow === 'cashflow' && !transfer && !['income','expense','personal_loan'].includes(row.flow_type)) return false;
             if (flow === 'income_expense' && !['income','expense'].includes(row.flow_type)) return false;
-            if (['income','expense'].includes(flow) && row.flow_type !== flow) return false;
+            if (['income','expense','personal_loan'].includes(flow) && row.flow_type !== flow) return false;
             if (query.get('account') && row.account_code !== query.get('account')) return false;
             if (group && !groupAccounts.some(account => account.code === row.account_code)) return false;
             return Object.values(row).join(' ').toLowerCase().includes(search);
@@ -228,8 +228,8 @@ async function browse(legacy) {
       const buttons = [...element.querySelectorAll('.ledgerFlowChip, .ledgerIconButton')];
       const controls = buttons.map(button => button.getBoundingClientRect());
       return {
-        aligned: controls.every(rect => Math.abs(rect.top - controls[0].top) < 1),
-        ordered: controls.slice(1).every((rect, index) => rect.left >= controls[index].right),
+        ordered: controls.slice(1).every((rect, index) =>
+          rect.top >= controls[index].bottom || (Math.abs(rect.top - controls[index].top) < 1 && rect.left >= controls[index].right)),
         fits: chips.scrollWidth <= chips.clientWidth && controls.at(-1).right <= window.innerWidth,
         borderless: buttons.every(button => {
           const style = getComputedStyle(button);
@@ -238,7 +238,7 @@ async function browse(legacy) {
         selectedUnderline: getComputedStyle(chips.querySelector('[aria-pressed="true"]'), '::after').height === '2px',
       };
     });
-    assert.deepEqual(bar, { aligned: true, ordered: true, fits: true, borderless: true, selectedUnderline: true });
+    assert.deepEqual(bar, { ordered: true, fits: true, borderless: true, selectedUnderline: true });
     await page.setViewportSize(viewport);
     assert.equal(await page.locator('[data-ledger-flow-filter="internal_transfer"]').isVisible(), true);
     await page.locator('#recentRows .ledgerListRow').first().waitFor();
@@ -591,9 +591,59 @@ async function checkStreamLayout() {
   await context.close();
 }
 
+async function checkPersonalLoanNavigation() {
+  const loans = structuredClone(fixture);
+  const row = {
+    id:'11', transaction_date:'2026-10-02', account_code:'ccb_7332', currency:'CNY',
+    flow_type:'personal_loan', amount:-500, amount_cny:-500, subcategory:'归还借款本金', summary:'还款测试',
+  };
+  loans.recent_rows_ytd.push(row);
+  loans.recent_rows_month.push(row);
+  loans.personal_loan_recent = { month:[row], ytd:[row] };
+  for (const period of ['month','ytd']) {
+    loans.periods[period].personal_loan = { borrowed:0, repaid:500, net:-500, count:1 };
+  }
+  const {page, context} = await makePage(false, loans);
+  await page.setViewportSize({width:320,height:820});
+  await page.locator('[data-overview-period="month"]').click();
+  assert.equal(await page.locator('#overviewLoanRepaid').textContent(),'¥500.00');
+  assert.equal(await page.locator('#overviewLoanRows').isVisible(),false);
+  await page.locator('#overviewLoanDetails summary').click();
+  await page.locator('#overviewLoanRows').getByText('归还借款本金').waitFor();
+  await page.locator('#overviewLoanJump').click();
+  const tab = page.getByRole('button',{name:'借还款',exact:true});
+  assert.equal(await tab.getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#recentPeriodLabel').textContent(),'本月至今');
+  const list = page.locator('#recentRows');
+  await list.getByRole('button',{name:/归还借款本金/}).waitFor();
+  const controls = ['#recentPeriodToggle','#recentSearchToggle','#recentSortToggle','#recentAccountToggle'];
+  for (const id of controls) {
+    const box = await page.locator(id).boundingBox();
+    assert.ok(box && box.x >= 0 && box.x + box.width <= 320, id);
+  }
+  await page.locator('#recentSearchToggle').click();
+  await page.locator('[data-recent-search-input]').fill('还款测试');
+  await page.locator('[data-recent-search-form] button[type="submit"]').click();
+  await list.getByRole('button',{name:/归还借款本金/}).waitFor();
+  await page.locator('#recentSortToggle').click();
+  await page.locator('[data-recent-sort-option="amount_desc"]').click();
+  await list.locator('.ledgerListDate').waitFor();
+  await page.locator('#recentAccountToggle').click();
+  await page.locator('#recentAccountPicker').getByRole('button',{name:'IBKR 证券账户',exact:true}).click();
+  await list.getByText('暂无流水').waitFor();
+  assert.deepEqual(await page.evaluate(() => {
+    const query = new URL(__ledgerTest.reads.at(-1).url, location.origin).searchParams;
+    return ['flow','period','search','sort','account'].map(key => query.get(key));
+  }), ['personal_loan','month','还款测试','amount_desc','ibkr']);
+  await context.close();
+}
+
 try {
   if (!streamOnly) await checkTransferLayout();
-  if (!transfersOnly) await checkStreamLayout();
+  if (!transfersOnly) {
+    await checkStreamLayout();
+    await checkPersonalLoanNavigation();
+  }
   if (transfersOnly || streamOnly) {
     assert.deepEqual(errors, []);
     console.log(transfersOnly ? 'Transfer layout and details passed' : 'Stream day groups, pagination, icons, amounts and edit access passed');

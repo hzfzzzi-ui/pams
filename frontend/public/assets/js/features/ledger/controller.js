@@ -177,6 +177,7 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
 function renderAll(data) {
   renderOverviewPeriodButtons();
   renderLedgerMobileHero(data);
+  overview.renderLoanSummary(data);
   renderTransferSummary(data);
   renderOverviewCategoryInsight(data);
   renderRules(data.classification_rules || []);
@@ -252,6 +253,15 @@ function bindEvents() {
     });
   });
   bindRecentPeriod();
+  const loanJump = $('overviewLoanJump');
+  if (loanJump) events.listen('page', loanJump, 'click', () => {
+    state.recentPeriod = state.overviewPeriod;
+    selectRecentFlow('personal_loan');
+    replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.recent}`);
+    setLedgerPanel('recent');
+    renderRecentPeriodButton();
+    host.scrollTo({ top: 0, behavior: 'smooth' });
+  });
   bindRecentAccountPicker();
   renderRecentAccountPicker();
   const recentSearchToggle = $('recentSearchToggle');
