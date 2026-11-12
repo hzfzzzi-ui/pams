@@ -27,10 +27,15 @@ export function createRecordsEditor(context) {
     if (key === 'business_date' && displayAssetType(state.buffer.asset_type) === 'fund' && state.buffer.kind === 'trade') label.firstChild.textContent = '申请日期';
     if (key === 'fee_amount') label.firstChild.textContent = state.buffer.fee_scope === 'total_charges' ? '税费合计' : state.buffer.fee_scope === 'separate' ? '手续费' : '费用金额';
     if (key === 'net_cash' && state.buffer.kind === 'holding') label.firstChild.textContent = '现金余额';
+    if (key === 'net_cash' && directionSetsSign()) label.firstChild.textContent = '金额（输入正数）';
     label.append(input); $(group).append(label); return input;
   }
   function capture() {
     $('record-form').querySelectorAll('[name]').forEach(input => { state.buffer[input.name] = input.value; });
+  }
+  function directionSetsSign() {
+    return state.useSourceRecords && state.batch?.mode === 'manual' && state.batch.kind === 'cash'
+      && account()?.source_only_cash && ['income', 'expense'].includes(state.buffer.action);
   }
   function rememberEditor() {
     capture(); state.suspended = { index: state.edit, fields: { ...state.buffer }, excluded: $('row-excluded').checked };
@@ -45,6 +50,9 @@ export function createRecordsEditor(context) {
     state.edit = index;
     const row = state.batch.rows[index];
     state.buffer = { ...(saved?.fields || row?.fields || { kind: $('kind').value, asset_type: account()?.default_asset_type || '', currency: account()?.currency || '', status: 'confirmed' }) };
+    if (!saved && directionSetsSign() && state.buffer.net_cash != null) {
+      state.buffer.net_cash = String(state.buffer.net_cash).replace(/^[-+]/, '');
+    }
     const checked = state.preview?.batch_id === state.batch.batch_id && state.preview?.revision === state.batch.revision ? state.preview.rows?.find(item => item.row_id === row?.row_id) : null;
     editorCandidates = checked?.bank_candidates || [];
     if (!saved && row && !state.buffer.asset_type && checked?.fields?.asset_type) state.buffer.asset_type = checked.fields.asset_type;
@@ -131,6 +139,11 @@ export function createRecordsEditor(context) {
     const fields = Object.fromEntries(Object.entries(state.buffer).filter(([key]) => key === 'asset_id' || !Object.hasOwn(LABELS, key) || visible.includes(key)));
     fields.kind = state.batch.kind;
     for (const key of DECIMALS) if (key in fields) fields[key] = $('row-excluded').checked ? String(fields[key] ?? '') || null : decimalString(fields[key]) || null;
+    if (directionSetsSign() && !$('row-excluded').checked) {
+      if (!(Number(fields.net_cash) > 0)) throw new Error('请输入大于 0 的金额，收支方向决定入账正负。');
+      fields.net_cash = `${fields.action === 'expense' ? '-' : ''}${fields.net_cash.replace(/^\+/, '')}`;
+      if (fields.note) fields.summary = fields.note;
+    }
     if (fields.fee_scope === 'total_charges') fields.tax_amount = null;
     if (fields.duplicate_decision === '') fields.duplicate_decision = null;
     if (fields.kind === 'cash') { fields.asset_type = 'cash'; delete fields.asset_id; }

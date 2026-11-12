@@ -190,6 +190,45 @@ def test_confirm_bank_source_keeps_all_original_rows_and_reports_suspected_dupli
         assert cur.fetchone()["n"] == 0
 
 
+def test_manual_bank_expense_requires_signed_amount_and_posts_once():
+    from domain.imports.bank_source_confirmation import confirm
+    from domain.imports.cash_preview_v2 import preview_cash
+
+    with scratch_database() as params, psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        install_redesign(cur)
+        cur.execute("ALTER TABLE redesign_test.pams_accounts ADD COLUMN base_currency text")
+        cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('santander', 'MXN')")
+        cur.execute("""CREATE TABLE redesign_test.pams_fx_rates_daily(
+            as_of date,base_currency text,quote_currency text,rate numeric,source text)""")
+        db = SchemaCursor(cur)
+        sid, iid = uuid4(), uuid4()
+        fields = {"business_date": "2026-10-30", "currency": "MXN", "net_cash": "250", "action": "expense"}
+        source_records_v2.create_source(db, source_id=sid, account_code="santander", source_name="manual",
+            acquisition_method="manual", document_type="cash")
+        source_records_v2.add_item(db, source_id=sid, item_id=iid, parse_method="manual",
+            parsed_fields=fields, raw_fields={"entered_fields": fields})
+        with pytest.raises(ValueError, match="手工流水"):
+            confirm(db, sid, 2)
+        revision = source_records_v2.review_item(db, source_id=sid, item_id=iid, expected_revision=2,
+            parsed_fields=fields, review_status="confirmed")
+        preview = preview_cash(db, source_id=sid, expected_revision=revision)
+        assert preview["rows"][0]["issues"][0]["code"] == "manual_bank_cash"
+        corrected = {**fields, "net_cash": "-250"}
+        revision = source_records_v2.review_item(db, source_id=sid, item_id=iid, expected_revision=revision,
+            parsed_fields=corrected, review_status="confirmed")
+        assert not preview_cash(db, source_id=sid, expected_revision=revision)["can_publish"]
+        cur.execute("""INSERT INTO redesign_test.pams_fx_rates_daily
+            VALUES ('2026-10-30','CNY','MXN',0.4,'test')""")
+        preview = preview_cash(db, source_id=sid, expected_revision=revision)
+        assert preview["can_publish"]
+        assert preview["rows"][0]["cash_preview"]["amount_cny"] == "-100.00"
+        source_records_v2.publish_cash_source(db, source_id=sid, expected_revision=revision)
+        with pytest.raises(ValueError):
+            source_records_v2.publish_cash_source(db, source_id=sid, expected_revision=revision)
+        cur.execute("SELECT amount FROM redesign_test.pams_cashflow_fact")
+        assert [row["amount"] for row in cur.fetchall()] == [-250]
+
+
 def test_published_distinct_review_preserves_source_and_reopens_for_new_member():
     from domain.accounts.bank_source_status import anomalies, confirm_distinct, summaries
     from domain.imports.bank_source_confirmation import confirm

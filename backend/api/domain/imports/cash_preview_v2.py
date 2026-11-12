@@ -27,6 +27,30 @@ def _fields(item):
     return day, posting_day, amount, currency
 
 
+def _manual_bank_amount(cur, day, amount, currency, account_currency, action, rates):
+    if (not amount or (action == 'expense' and amount > 0)
+            or (action == 'income' and amount < 0) or action not in {'expense', 'income', 'transfer'}):
+        raise ValueError('手工流水的收支方向与金额不一致')
+    if currency != account_currency:
+        raise ValueError('流水币种与子账户币种不一致')
+    if currency == 'CNY':
+        rate = Decimal(1)
+    else:
+        key = (day, currency)
+        if key not in rates:
+            cur.execute("""SELECT rate FROM public.pams_fx_rates_daily
+                WHERE as_of=%s AND base_currency='CNY' AND quote_currency=%s
+                  AND rate>0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+                  AND NULLIF(btrim(source),'') IS NOT NULL""", key)
+            row = cur.fetchone()
+            rates[key] = _record(cur, row)['rate'] if row else None
+        rate = rates[key]
+        if rate is None:
+            raise ValueError('缺少交易日人民币汇率')
+    return {'business_date': day.isoformat(), 'currency': currency, 'net_cash': str(amount),
+            'amount_cny': str((amount * rate).quantize(Decimal('0.01'))), 'fx_rate_to_cny': str(rate)}
+
+
 def _exists(cur, account, signature, *, official):
     if official:
         cur.execute('''SELECT 1 FROM public.pams_cashflow_fact f
@@ -56,6 +80,7 @@ def _separate_statement_rows(source, items):
 def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verified_ibkr_ids=False) -> dict:
     """Prepare normalized facts and review outcomes, locking before a publish recheck."""
     from domain.imports.source_records_v2 import _verify_deferred_source
+    from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
 
     ident = str(source_id)
     locked_account = None
@@ -80,6 +105,10 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
             or source['revision'] != expected_revision or (for_write and source['account_code'] != locked_account)):
         raise ValueError('source changed or cannot publish cashflow')
     account = source['account_code']
+    manual_bank = source['acquisition_method'] == 'manual' and account in SOURCE_ONLY_ACCOUNTS
+    if manual_bank:
+        cur.execute('SELECT base_currency FROM public.pams_accounts WHERE account_code=%s', (account,))
+        account_currency = _record(cur, cur.fetchone())['base_currency']
     if verified_ibkr_ids and (account != 'ibkr' or source['source_name'] != 'ibkr_historical_flex'):
         raise ValueError('official cash identity requires an IBKR historical source')
     if source['content'] is not None and sha256(bytes(source['content'])).hexdigest() != source['sha256']:
@@ -92,6 +121,9 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
     groups = defaultdict(list)
     candidates = {}
     statuses = {}
+    issues = {}
+    cash_preview = {}
+    rates = {}
     for item in items:
         item_id = str(item['source_item_id'])
         raw = json.dumps(item['raw_fields'], ensure_ascii=False, sort_keys=True, separators=(',', ':'),
@@ -104,6 +136,13 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
         _verify_deferred_source(cur, source_id, item)
         try:
             day, posting, amount, currency = _fields(item)
+            if manual_bank:
+                try:
+                    cash_preview[item_id] = _manual_bank_amount(
+                        cur, day, amount, currency, account_currency, item['parsed_fields'].get('action'), rates)
+                except ValueError as exc:
+                    issues[item_id] = [{'code': 'manual_bank_cash', 'message': str(exc)}]
+                    raise
             signature = (day, amount, currency)
             if verified_ibkr_ids:
                 signature = item['source_uid']
@@ -123,7 +162,6 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
         item['review_status'] == 'confirmed' and item['parsed_fields'].get('duplicate_decision') == 'distinct'
         for item in groups[signature])}
     ready = []
-    issues = {}
     for item_id, (signature, fact) in candidates.items():
         if signature in reviewable and signature not in distinct:
             issues[item_id] = [{'code': 'possible_duplicate',
@@ -142,6 +180,7 @@ def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verifi
         'source_id': ident, 'revision': expected_revision,
         'counts': {key: counts[key] for key in ('ready', 'pending', 'duplicate', 'invalid', 'excluded')},
         'rows': [{'source_item_id': item_id, 'status': status,
+                  **({'cash_preview': cash_preview[item_id]} if item_id in cash_preview else {}),
                   **({'issues': issues[item_id]} if item_id in issues else {})} for item_id, status in statuses.items()],
         'can_publish': bool(ready) and not unresolved,
         'can_publish_ready': bool(ready) and bool(unresolved),

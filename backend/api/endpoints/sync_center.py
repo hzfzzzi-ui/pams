@@ -68,14 +68,15 @@ def account_sync_status():
 
 @router.get('/accounts/{account_code}/source-anomalies')
 def account_source_anomalies(account_code: str, offset: int = 0,
-                             kind: Literal['duplicates', 'cashflow', 'investment', 'balance'] = 'duplicates'):
-    from domain.accounts.bank_source_status import anomalies
+                             kind: Literal['duplicates', 'cashflow', 'investment', 'balance', 'unposted_manual'] = 'duplicates'):
+    from domain.accounts.bank_source_status import anomalies, unposted_manual
 
     with closing(get_conn()) as conn:
         conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             offset = max(0, offset)
-            rows = (anomalies(cur, account_code, offset) if kind == 'duplicates'
+            bank_reviews = {'duplicates': anomalies, 'unposted_manual': unposted_manual}
+            rows = (bank_reviews[kind](cur, account_code, offset) if kind in bank_reviews
                     else review_records(cur, _load_accounts_config(), account_code, kind, offset))
             return _norm({'rows': rows})
 

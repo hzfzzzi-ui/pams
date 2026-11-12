@@ -62,6 +62,8 @@ def _compact_summary(row, published_at, *, liability, now, source_balance=None):
     if row['active']:
         if source.get('duplicate_count', 0) > 0:
             reasons.append({'kind': 'duplicates', 'count': source['duplicate_count']})
+        if source.get('unposted_manual_count', 0) > 0:
+            reasons.append({'kind': 'unposted_manual', 'count': source['unposted_manual_count']})
         for kind, evidence in (('cashflow', row['cashflow']), ('investment', row['investment']), ('balance', balance)):
             if evidence.get('status') == 'review' or evidence.get('has_unverified'):
                 reasons.append({'kind': kind})
@@ -78,6 +80,8 @@ def _compact_summary(row, published_at, *, liability, now, source_balance=None):
         status = 'stale' if now > deadline else 'normal'
     result = {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day,
               'last_synced_at': synced_at, 'review_reasons': reasons}
+    if row['source_data'] is not None:
+        result.update(latest_source_on=source.get('as_of'), latest_cashflow_on=row['cashflow'].get('as_of'))
     if amount is not None:
         result.update(balance_as_of=as_of, balance_basis=basis)
         if basis in {'bank_statement', 'credit_card_statement'}:

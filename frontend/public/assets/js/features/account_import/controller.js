@@ -59,7 +59,8 @@ export function mount(root, context = {}) {
     state.mode = modes.includes(preferred) ? preferred : modes[0] ?? null;
   }
   const accountLabel = a => a.selection_label || a.label || a.account_code;
-  const sourceOnly = () => state.useSourceRecords && state.batch?.kind === 'cash' && account()?.source_only_cash === true;
+  const sourceOnly = () => state.useSourceRecords && state.batch?.kind === 'cash' && account()?.source_only_cash === true
+    && (state.batch.mode !== 'manual' || (state.batch.status === 'published' && state.batch.has_cash_facts === false));
   const editable = () => !state.batch || state.batch.status === 'draft';
   const canPublishReady = () => state.caps?.publish_enabled === true && state.batch?.status === 'draft' &&
     !state.dirty && state.preview?.can_publish_ready === true && state.preview.batch_id === state.batch.batch_id &&
@@ -200,7 +201,7 @@ export function mount(root, context = {}) {
     $('save-draft').disabled ||= !state.batch && !state.mode;
     $('file-list').querySelectorAll('.import-mapping button, .import-mapping select').forEach(control => { control.disabled = locked; });
     $('next').disabled = locked || !(state.batch?.rows?.length || images().length) || !!state.suspended;
-    $('publish').textContent = sourceOnly() ? '确认资料' : '确认入库';
+    $('publish').textContent = sourceOnly() ? '确认资料' : state.batch?.kind === 'cash' && state.batch.mode === 'manual' ? '确认入账' : '确认入库';
     $('publish').disabled = state.busy || state.conflict || state.needsRefresh ||
       (sourceOnly() ? !editable() || !state.preview || state.dirty : !publishable(state.caps, state.batch, state.preview, state.dirty));
     $('publish-ready').disabled = state.busy || state.conflict || state.needsRefresh || !canPublishReady();
@@ -606,6 +607,10 @@ export function mount(root, context = {}) {
       node.append(heading, el('p', status, 'import-status'));
       if (row.issues?.length) node.append(el('p', issues(row.issues), 'import-warning'));
       node.append(el('p',[record.business_date, TEXT[record.action] || ({income:'收入',expense:'支出'})[record.action],record.market_value ?? record.gross_amount ?? record.net_cash,record.currency].filter(value=>value!=null&&value!=='').join(' · '),'import-meta'));
+      if (row.cash_preview) {
+        const cash = row.cash_preview;
+        node.append(el('p', `${account()?.label || state.batch.account_code} · 折合 ¥${cash.amount_cny} · 汇率 ${cash.fx_rate_to_cny}`, 'import-meta'));
+      }
       const allValues=el('details'); allValues.append(el('summary','前后值与底表条目'));
       const planned=(p.write_plan || []).filter(entry=>entry.row_id===row.row_id);
       if (!planned.length) allValues.append(values('待核对字段',row.fields || row.after));
