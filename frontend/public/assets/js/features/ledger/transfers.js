@@ -24,10 +24,12 @@ function transferParty({name, institution, logoUrl}, direction) {
   const title = institution || name;
   return `<span class="ledgerPairParty" data-direction="${direction}">
     <span class="ledgerPairAvatar" aria-hidden="true">${logoUrl
-      ? `<img src="${escape(logoUrl)}" alt="" width="46" height="46" decoding="async">`
+      ? `<img src="${escape(logoUrl)}" alt="" width="36" height="36" decoding="async">`
       : escape(title.slice(0, 1))}</span>
-    ${institution ? `<small>${escape(institution)}</small>` : ''}
-    <strong>${escape(name)}</strong>
+    <span class="ledgerPairAccount">
+      ${institution ? `<span>${escape(institution)}</span>` : ''}
+      <span>${escape(name)}</span>
+    </span>
   </span>`;
 }
 
@@ -174,15 +176,16 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     const to = name(receiver);
     const currency = pair.currency_norm || pair.currency;
     const value = moneyText(pair.amount, currency);
-    const amount = escape(value);
     const differentCurrency = pair.target_currency && pair.target_currency !== currency;
-    const targetValue = differentCurrency ? moneyText(pair.target_amount, pair.target_currency) : value;
+    const targetValue = moneyText(pair.target_amount ?? (differentCurrency ? null : pair.amount), pair.target_currency || currency);
+    const debit = value === '—' ? value : '−' + value;
+    const credit = targetValue === '—' ? targetValue : '+' + targetValue;
     const label = TRANSFER_TYPES[pair.match_type] || '内部划转';
     const date = escape(pair.match_date);
     const conversion = !pending && currency !== 'CNY'
       ? pair.amount_cny == null ? '人民币折算待补' : `≈ ${moneyText(pair.amount_cny)}` : '';
     const ambiguous = pending && pair.ambiguity_status === 'ambiguous';
-    const accessible = ['转出 ' + from + ' ' + value, '转入 ' + to + ' ' + targetValue, label, pair.match_date, conversion,
+    const accessible = ['转出 ' + from, '转入 ' + to, label, pair.match_date, debit, credit,
       ambiguous ? '有多个候选' : ''].filter(Boolean).join('，');
     const leg = (title, account, day, fact, summary, legAmount) => `
       <div class="ledgerPairLeg">
@@ -195,21 +198,21 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     return `
       <details class="ledgerPair">
         <summary class="ledgerPairRoute" aria-label="${escape(accessible)}">
+          <strong class="ledgerPairTitle">${escape(label)}</strong>
           ${transferParty(sender, 'out')}
           <span class="ledgerPairCenter">
-            <strong class="ledgerPairAmount">${differentCurrency ? '−' : ''}${amount}</strong>
-            ${differentCurrency ? `<strong class="ledgerPairAmount">+${escape(targetValue)}</strong>` : ''}
-            <span class="ledgerPairArrow" aria-hidden="true"></span>
-            <small>${escape(label)}</small>
-            <time datetime="${date}">${date}</time>
-            ${ambiguous ? '<small>有多个候选</small>' : ''}
-            ${conversion ? `<small>${escape(conversion)}</small>` : ''}
+            <strong class="ledgerPairAmount is-out">${escape(debit)}</strong>
+            <span class="ledgerPairArrows" aria-hidden="true"><i class="ledgerPairArrow is-left"></i><i class="ledgerPairArrow"></i></span>
+            <strong class="ledgerPairAmount is-in">${escape(credit)}</strong>
           </span>
           ${transferParty(receiver, 'in')}
+          <time class="ledgerListDate" datetime="${date}">${date}</time>
+          ${ambiguous ? '<small class="ledgerPairAmbiguity">有多个候选</small>' : ''}
         </summary>
         <div class="ledgerPairDetails">
-          ${leg('转出', from, pair.source_date, pair.source, pair.source_summary, '−' + value)}
-          ${leg('转入', to, pair.target_date, pair.target, pair.target_summary, '+' + targetValue)}
+          ${leg('转出', from, pair.source_date, pair.source, pair.source_summary, debit)}
+          ${leg('转入', to, pair.target_date, pair.target, pair.target_summary, credit)}
+          ${conversion ? `<small>${escape(conversion)}</small>` : ''}
           ${differentCurrency && pair.settlement_rate != null
             ? `<small>两端金额折算率 ${Number(pair.settlement_rate).toFixed(5)} ${escape(currency)}/${escape(pair.target_currency)}</small>` : ''}
           ${pending ? `<p class="muted">${escape(pair.note || '')}</p>

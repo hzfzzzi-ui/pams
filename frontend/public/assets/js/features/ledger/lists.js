@@ -279,13 +279,13 @@ function renderRows(id, rows) {
           <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
           <small class="ledgerListAccount">${category && category !== title
             ? `<span class="${pending ? 'ledgerReviewHint' : ''}">${escapeHtml(category)}</span> · ` : ''}${escapeHtml(accountName)}</small>
-          ${showRowDate ? `<time class="ledgerListDate" datetime="${escapeHtml(dateText)}">${escapeHtml(dateText)}</time>` : ''}
         </span>
         <span class="ledgerListSide">
           <b class="${displayAmount === '—' ? '' : amountClass}">${escapeHtml(displayAmount)}</b>
           ${originalAmount && !showOriginal ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
           ${row.needs_review && !pending ? '<small class="ledgerReviewHint">待确认</small>' : ''}
         </span>
+        <time class="ledgerListDate" datetime="${escapeHtml(dateText)}">${escapeHtml(dateText)}</time>
       </button>
       <div id="${escapeHtml(detailId)}" class="ledgerInlineDetail" hidden>
         ${rowDetailHtml(row)}
