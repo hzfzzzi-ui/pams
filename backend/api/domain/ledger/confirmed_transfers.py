@@ -162,7 +162,8 @@ def revoke(cur, *, transfer_id, note, confirmed):
     row = cur.fetchone()
     if not row:
         raise ValueError('transfer confirmation not found')
-    _lock_accounts(cur, (row['from_account_code'],row['to_account_code']))
+    extra_accounts = [leg['account_code'] for leg in (row.get('to_evidence') or {}).get('additional_targets', [])]
+    _lock_accounts(cur, (row['from_account_code'],row['to_account_code'], *extra_accounts))
     cur.execute('''UPDATE public.evidence_confirmation SET revoked_at=now(),revocation_note=%s
         WHERE confirmation_id=%s AND revoked_at IS NULL RETURNING confirmation_id''', (note.strip(),str(transfer_id)))
     created = cur.fetchone()

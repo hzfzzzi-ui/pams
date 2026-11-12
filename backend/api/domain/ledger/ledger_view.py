@@ -1331,6 +1331,24 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
             FROM matches {fx_join}""",
             {'currency': item['currency'], 'day': match_day, 'base': base_currency})
         fx = cur.fetchone()['fx_rate']
+        group = {}
+        if right.get('additional_targets'):
+            from domain.ledger.confirmed_transfers_v2 import decision_legs
+
+            targets = sorted(decision_legs(item)[1:], key=lambda leg: leg['account_code'])
+            from domain.ledger.cashflow_read_v2 import load_cash_rows
+
+            cash = load_cash_rows(cur, start=match_day, end=match_day, base_currency=base_currency,
+                                  account_codes=[leg['account_code'] for leg in targets])
+            projections = {row['id']: row['amount_cny'] for row in cash}
+            amounts = [projections.get(leg['id']) for leg in targets]
+            received = sum(amounts) if None not in amounts else None
+            group = {
+                'targets': [{**{key: leg[key] for key in ('id', 'account_code', 'currency')},
+                             'transaction_date': leg['day'], 'amount': Decimal(leg['amount'])} for leg in targets],
+                'received_cny': received,
+                'reference_difference_cny': item['amount'] * fx - received if fx is not None and received is not None else None,
+            }
         result.append({'id': str(item['transfer_id']), 'relation_code': None, 'match_type': kind,
             'match_date': match_day, 'from_account_code': item['from_account_code'],
             'to_account_code': item['to_account_code'],
@@ -1341,15 +1359,19 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
             'both_cash_legs': both_cash if cash_pairs_only else False,
             **({'target_amount': Decimal(right['amount']), 'target_currency': right['currency'],
                 'settlement_rate': item['amount'] / Decimal(right['amount'])}
-               if both_cash and left.get('currency') != right.get('currency') else {}),
+               if not group and both_cash and left.get('currency') != right.get('currency') else {}),
             **({'source_trade_id': left['id']} if redemption else {}),
             **({'target_trade_id': right['id']} if funding else {}),
-            'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
+            'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None, **group})
     return result
 
 
+def _match_cash_ids(match):
+    return (match.get('source_row_id'), match.get('target_row_id'), *(leg['id'] for leg in match.get('targets', ())))
+
+
 def _transfer_pair_details(cur, matches):
-    row_ids = sorted({row_id for match in matches for row_id in (match['source_row_id'], match['target_row_id'])
+    row_ids = sorted({row_id for match in matches for row_id in _match_cash_ids(match)
                       if row_id is not None})
     if not row_ids:
         return []
@@ -1368,7 +1390,9 @@ def _transfer_pair_details(cur, matches):
                        FROM public.pams_investment_trade_fact WHERE trade_id = ANY(%s)""", (trade_ids,))
         trade_details = {row['trade_id']: dict(row) for row in cur.fetchall()}
     return [{**match, 'source': trade_details.get(match.get('source_trade_id')) or details.get(match['source_row_id']),
-             'target': trade_details.get(match.get('target_trade_id')) or details.get(match['target_row_id'])}
+             'target': trade_details.get(match.get('target_trade_id')) or details.get(match['target_row_id']),
+             **({'targets': [{**(details.get(leg['id']) or {}), **leg} for leg in match['targets']]}
+                if match.get('targets') else {})}
             for match in matches]
 
 
@@ -1625,7 +1649,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
         filtered.append(row)
     if transfer_matches:
         matches_by_leg = {leg_id: match for match in transfer_matches
-                          for leg_id in (match['source_row_id'], match['target_row_id'])}
+                          for leg_id in _match_cash_ids(match) if leg_id is not None}
         unique_rows = {}
         for row in filtered:
             match = matches_by_leg.get(row['id'])
@@ -1701,7 +1725,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     transfer_row_ids = {
         row_id
         for match in transfer_matches
-        for row_id in (match.get("source_row_id"), match.get("target_row_id"))
+        for row_id in _match_cash_ids(match)
         if isinstance(row_id, int)
     }
 

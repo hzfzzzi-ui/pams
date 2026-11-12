@@ -126,8 +126,10 @@ def unmatched(cur, *, since, limit):
     else:
         from domain.ledger import confirmed_transfers
     recorded = confirmed_transfers.read(cur, limit=10000)
+    from domain.ledger.confirmed_transfers_v2 import decision_legs
+
     linked = {leg['id'] for match in recorded if match['evidence_status'] == 'confirmed'
-              for leg in (match['from_evidence'], match['to_evidence']) if leg['kind'] == 'cashflow'}
+              for leg in decision_legs(match) if leg['kind'] == 'cashflow'}
     result = []
     for row in rows(cur, since=since, limit=limit):
         if row['cashflow_type'] not in {'internal_transfer','investment_funding','investment_withdrawal'} or row['cashflow_id'] in linked:
