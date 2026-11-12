@@ -3,6 +3,7 @@ from calendar import monthrange
 from datetime import date, timedelta
 
 from domain.imports.source_original_read import SourceOriginals
+from domain.ledger.cashflow_classification import personal_loan_principal
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 from domain.ledger.confirmed_transfers_v2 import (
     FX_PAIR, MANUAL_FUNDING_PAIR, _leg_rows, _verified_leg, is_independent_equal_pair,
@@ -17,11 +18,12 @@ MANUAL_TYPES = {'internal_transfer', 'fx_conversion', 'debt_repayment',
 def is_manual_anchor(row):
     return (row.get('classification_status') == 'confirmed'
             and row.get('classification_source') == 'manual'
+            and not personal_loan_principal(row)
             and row.get('cashflow_type') in MANUAL_TYPES)
 
 
 def manual_pair_type(anchor, other):
-    if not is_manual_anchor(anchor) or any(
+    if not is_manual_anchor(anchor) or personal_loan_principal(other) or any(
         row.get('source_evidence_status') != 'verified' or not row.get('amount')
         for row in (anchor, other)
     ):

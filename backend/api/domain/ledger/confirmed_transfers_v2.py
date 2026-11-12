@@ -175,6 +175,15 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
         if not row: raise ValueError('transfer fact missing')
         accounts.add(row['account_code'])
     for account in sorted(accounts): cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",('account-import:'+account,))
+    cash_ids = [ident for kind, ident in keys if kind == 'cashflow']
+    if cash_ids:
+        from domain.ledger.cashflow_classification import PERSONAL_LOAN_CATEGORY
+
+        cur.execute("""SELECT 1 FROM public.cashflow_classification
+            WHERE cashflow_id=ANY(%s) AND category=%s AND status='confirmed' LIMIT 1""",
+            (cash_ids, PERSONAL_LOAN_CATEGORY))
+        if cur.fetchone():
+            raise ValueError('个人借款本金不能配对为内部划转')
     legs={key:_leg(cur,*key) for key in sorted(keys)};a,b=legs[keys[0]],legs[keys[1]]
     cur.execute('''SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
         ((%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s)) OR
