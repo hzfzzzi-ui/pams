@@ -51,6 +51,8 @@ await context.route('**/*', async route => {
       '/api/accounts/overview': {accounts},
       '/api/ledger/workbench': url.searchParams.get('view') === 'stream'
         ? {rows:recentRows, next_offset:null}
+        : url.searchParams.get('view') === 'transfers'
+        ? {month:'2026-10', transfer_pairs:[]}
         : {
             periods:{ytd:{
               income:2345678.90, expense:2012345.67, net:333333.23, investment_funding:123456.78,
@@ -73,6 +75,12 @@ await context.route('**/*', async route => {
       '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
       '/api/bank-reconcile/imports': {},
       '/api/bank-reconcile/transfer-matches': {},
+      '/api/bank-reconcile/transfer-matches/run': {matches:[{
+        match_key:'candidate:101:102', match_type:'investment_funding',
+        from_account_code:'fixture', to_account_code:'ibkr',
+        match_date:'2026-10-29', source_date:'2026-10-29', target_date:'2026-10-30',
+        amount:100, currency:'CNY', status:'review_required', confirmation_supported:true,
+      }]},
       '/api/bank-reconcile/unmatched-rows': {},
       '/api/account-import/capabilities': {schema_ready:true},
       '/api/account-import/context': {accounts:[{...accounts[0],label:'示例储蓄卡',kinds:['cash']}]},
@@ -230,11 +238,19 @@ try {
     assert.equal(await ledger.getByRole('link',{name:'查看内部划转'}).count(),0);
     await ledger.getByRole('link',{name:'流水',exact:true}).click();
     await ledger.getByRole('button',{name:'内部划转',exact:true}).click();
+    const streamRows = ledger.locator('#recentRows');
+    await streamRows.locator('.ledgerListRow').first().waitFor();
     await ledger.getByRole('button',{name:'已确认',exact:true}).click();
+    assert.equal(await streamRows.isVisible(), false);
     await ledger.getByRole('heading',{name:'划转汇总'}).waitFor();
     await ledger.getByRole('heading',{name:'已确认'}).waitFor();
     await ledger.getByRole('button',{name:'待配对',exact:true}).click();
     await ledger.getByRole('heading',{name:'待配对'}).waitFor();
+    assert.equal(await streamRows.isVisible(), false);
+    await ledger.locator('#transferPending summary').click();
+    await ledger.getByRole('button',{name:'确认这两笔配对'}).waitFor();
+    await ledger.getByRole('button',{name:'待配对',exact:true}).click();
+    assert.equal(await streamRows.isVisible(), true);
   } finally {
     releaseChart();
     workflowFixtures = false;
