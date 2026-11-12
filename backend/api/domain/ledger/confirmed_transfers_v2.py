@@ -33,6 +33,8 @@ def _redemption_arrival(fields, raw, trade_day):
 
 
 def transfer_accounting_identity(left, right):
+    if right.get('additional_targets'):
+        return 'credit_card_payment', left['day']
     if left.get('pair_type') == FX_PAIR:
         return FX_PAIR, left['day']
     if left.get('purpose') == REDEMPTION_PURPOSE:
@@ -159,9 +161,17 @@ def _validate_cross_currency_pair(cur, left, right):
 
 def occupied_cashflow_ids(cur):
     """Use the same active-confirmation scope as the write path."""
-    cur.execute('''SELECT from_cashflow_id, to_cashflow_id FROM public.evidence_confirmation
+    cur.execute('''SELECT from_cashflow_id, to_cashflow_id, to_evidence FROM public.evidence_confirmation
         WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL''')
-    return {row[key] for row in cur.fetchall() for key in ('from_cashflow_id', 'to_cashflow_id') if row[key] is not None}
+    rows = cur.fetchall()
+    return ({row[key] for row in rows for key in ('from_cashflow_id', 'to_cashflow_id') if row[key] is not None}
+            | {leg['id'] for row in rows for leg in (row.get('to_evidence') or {}).get('additional_targets', [])})
+
+
+def decision_legs(item):
+    left, right = item['from_evidence'], item['to_evidence']
+    return (left, {key: value for key, value in right.items() if key != 'additional_targets'},
+            *right.get('additional_targets', []))
 
 
 def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_anchor_id=None):
@@ -199,6 +209,8 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
                 existing[0]['note'] == note.strip()):
             return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
         raise ValueError('transfer leg already confirmed')
+    if set(cash_ids) & occupied_cashflow_ids(cur):
+        raise ValueError('transfer leg already confirmed')
     if manual_anchor_id is not None:
         from domain.ledger.manual_transfer_pairs import validate_manual_pair
 
@@ -232,7 +244,7 @@ def read(cur, *, limit=200, originals=None):
     ids = {'cashflow': set(), 'trade': set()}
     for row in rows:
         if row['revoked_at'] is None:
-            for evidence in (row['from_evidence'], row['to_evidence']):
+            for evidence in decision_legs(row):
                 if isinstance(evidence, dict):
                     kind, ident = evidence.get('kind'), evidence.get('id')
                     if isinstance(kind, str) and kind in ids and _valid_id(ident):
@@ -257,9 +269,16 @@ def read(cur, *, limit=200, originals=None):
             left, right = row['from_evidence'], row['to_evidence']
             left_fact = dict(left)
             pair_type = left_fact.pop('pair_type', None)
+            _, primary, *additional = decision_legs(row)
             valid = (_valid_id(left['id']) and _valid_id(right['id'])
                      and verified.get((left['kind'], left['id'])) == left_fact
-                     and verified.get((right['kind'], right['id'])) == right
+                     and verified.get((right['kind'], right['id'])) == primary
+                     and (not additional or (left['kind'] == primary['kind'] == 'cashflow'
+                          and primary['day'] == left['day'] and is_independent_opposite_pair(left, primary)
+                          and len({leg['account_code'] for leg in (primary, *additional)}) == 1 + len(additional)))
+                     and all(leg['kind'] == 'cashflow' and verified.get(('cashflow', leg['id'])) == leg
+                             and leg['day'] == left['day'] and is_independent_opposite_pair(left, leg)
+                             for leg in additional)
                      and (pair_type is None
                           or (pair_type == MANUAL_FUNDING_PAIR and is_manual_funding_pair(left, right))
                           or (pair_type == FX_PAIR and left['kind'] == right['kind'] == 'cashflow'

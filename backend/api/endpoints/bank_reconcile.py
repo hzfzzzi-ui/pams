@@ -13,7 +13,7 @@ import psycopg2
 import psycopg2.extras
 import yaml
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
 from domain.imports.isolation import source_enabled
@@ -406,6 +406,13 @@ class RevokeTransferRequest(BaseModel):
     confirmed: bool = False
 
 
+class ConfirmCombinedRepaymentRequest(BaseModel):
+    source_id: int
+    target_ids: list[int] = Field(min_length=2, max_length=4)
+    note: str
+    confirmed: bool = False
+
+
 class ConfirmPaymentProxyRequest(BaseModel):
     source_id: int
     target_id: int
@@ -461,6 +468,24 @@ def confirm_transfer(req: ConfirmTransferRequest):
                 arguments.pop('manual_anchor_id')
             result = confirmed_transfers.confirm(cur, **arguments)
         return _norm(result)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/bank-reconcile/transfers/confirm-combined-repayment")
+def confirm_combined_repayment(req: ConfirmCombinedRepaymentRequest):
+    from domain.imports.isolation import account_import_scope, source_enabled
+    from domain.ledger import combined_card_repayment
+    from domain.ledger.ledger_view import _load_accounts_config
+
+    try:
+        with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with account_import_scope():
+                if not _table_exists(cur, 'source_records') or not source_enabled(cur):
+                    raise ValueError('当前账本暂时无法确认合并还款。')
+            return _norm(combined_card_repayment.confirm(
+                cur, **req.model_dump(), profiles=_load_accounts_config().get('accounts', {}),
+            ))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

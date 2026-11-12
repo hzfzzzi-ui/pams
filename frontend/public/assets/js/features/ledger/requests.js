@@ -53,6 +53,12 @@ export function readTransferCandidates() {
 }
 
 export function confirmTransferPair(pair) {
+  if (pair.targets?.length) {
+    return updateLedger('/api/bank-reconcile/transfers/confirm-combined-repayment', {
+      source_id: pair.source_row_id, target_ids: pair.targets.map(leg => leg.id),
+      note: '在收支内部划转页人工核对整组还款', confirmed: true,
+    }, {includeErrorDetail: true});
+  }
   return updateLedger('/api/bank-reconcile/transfers/confirm', {
     from_kind: pair.source_kind || 'cashflow', from_id: pair.source_row_id,
     to_kind: pair.target_kind || 'cashflow', to_id: pair.target_row_id,

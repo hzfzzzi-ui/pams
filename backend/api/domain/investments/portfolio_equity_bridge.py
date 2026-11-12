@@ -544,12 +544,12 @@ def _source_cashflow_breakdown(cur, start_date, end_date, excluded):
     from domain.ledger.cashflow_classification import personal_loan_principal
     from domain.ledger.cashflow_fact import _cashflow_flags
     from domain.ledger.cashflow_read_v2 import load_cash_rows
-    from domain.ledger.confirmed_transfers_v2 import read
+    from domain.ledger.confirmed_transfers_v2 import decision_legs, read
     from domain.ledger.payment_proxy_confirmation import decisions
 
     confirmed = {leg['id'] for item in read(cur, limit=None)
                  if item['evidence_status'] == 'confirmed'
-                 for leg in (item['from_evidence'], item['to_evidence'])
+                 for leg in decision_legs(item)
                  if leg['kind'] == 'cashflow'}
     confirmed.update(item['from_cashflow_id'] for item in decisions(cur)
                      if item['evidence_status'] == 'confirmed')

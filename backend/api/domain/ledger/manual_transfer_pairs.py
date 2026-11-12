@@ -32,6 +32,12 @@ def manual_pair_type(anchor, other):
     left, right = outgoing['pair_evidence'], incoming['pair_evidence']
     if is_independent_equal_pair(left, right):
         return 'internal_transfer'
+    from domain.ledger.cash_transfer_pairs import is_cross_currency_card_repayment
+    from domain.ledger.ledger_view import _load_accounts_config
+
+    if (left['currency'] != right['currency'] and
+            is_cross_currency_card_repayment(outgoing, incoming, _load_accounts_config().get('accounts', {}))):
+        return 'credit_card_payment'
     if (left['currency'] != right['currency']
             and any(row.get('cashflow_type') == FX_PAIR and is_manual_anchor(row) for row in (anchor, other))
             and is_independent_opposite_pair(left, right)):
@@ -151,5 +157,9 @@ def pairing_options(cur, anchor_id, *, month=None, offset=0, limit=10):
                 row.get('kind') != 'trade', -row['id'])
 
     options.sort(key=sort_key)
-    return {'rows': options[offset:offset + limit],
+    from domain.ledger.combined_card_repayment import candidates
+    from domain.ledger.ledger_view import _load_accounts_config
+
+    groups = list(candidates(rows, _load_accounts_config().get('accounts', {}), occupied, anchor_id=anchor_id)) if offset == 0 else []
+    return {'rows': options[offset:offset + limit], 'repayment_groups': groups,
             'next_offset': offset + limit if offset + limit < len(options) else None}

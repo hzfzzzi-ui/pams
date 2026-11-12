@@ -86,6 +86,11 @@ def confirm(cur, *, source_id, target_id, note, confirmed):
         if len(prior)==1 and prior[0]['confirmation_type']=='payment_proxy' and prior[0]['from_evidence']==left and prior[0]['to_evidence']==right and prior[0]['note']==note.strip():
             return {'confirmation_id':str(prior[0]['confirmation_id']),'replayed':True}
         raise ValueError('payment fact belongs to another active confirmation')
+    if redesigned:
+        from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+
+        if set(ids) & occupied_cashflow_ids(cur):
+            raise ValueError('payment fact belongs to another active confirmation')
     ident=str(uuid4())
     cur.execute('''INSERT INTO evidence_confirmation
       (confirmation_id,confirmation_type,from_cashflow_id,to_cashflow_id,from_account_code,to_account_code,

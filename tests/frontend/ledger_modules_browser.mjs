@@ -106,6 +106,7 @@ async function makePage(legacy = false, fixtureData = fixture) {
         return Promise.resolve(select(structuredClone(test.fixture)));
       }
       if (url === '/api/accounts/overview') return Promise.resolve(structuredClone(test.accounts));
+      if (url.includes('/manual-pending/')) return Promise.resolve(structuredClone(test.fixture.manual_options));
       return Promise.resolve({});
     };
     window.__ledgerWrite = (url, body) => {
@@ -682,12 +683,63 @@ async function checkSaveKeepsStreamPosition() {
   await context.close();
 }
 
+async function checkCombinedCardRepayment() {
+  const data = structuredClone(fixture);
+  const source = {id: 31, account_code: 'ccb_7332', transaction_date: '2026-09-27',
+    amount: -1702, currency: 'CNY', subcategory: '信用卡还款', source_evidence_status: 'verified'};
+  const group = {id: 'group', match_key: 'combined:31:32:33', match_type: 'credit_card_payment',
+    from_account_code: source.account_code, to_account_code: 'gf_7443', source_row_id: source.id,
+    target_row_id: 32, source_date: source.transaction_date, match_date: source.transaction_date,
+    target_date: source.transaction_date, amount: 1702, currency: 'CNY', received_cny: 1700,
+    reference_difference_cny: 2, source, targets: [
+      {id: 32, account_code: 'gf_7443', transaction_date: source.transaction_date, amount: 1000, currency: 'CNY'},
+      {id: 33, account_code: 'gf_9711', transaction_date: source.transaction_date, amount: 100, currency: 'USD'},
+    ]};
+  data.month = '2026-10';
+  data.transfer_pairs = [];
+  data.manual_pending = [source];
+  data.manual_options = {rows: [], repayment_groups: [group]};
+  const {page, context} = await makePage(false, data);
+  await page.setViewportSize({width: 320, height: 800});
+  await page.locator('[data-ledger-tab="recent"]').click();
+  await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
+  await page.locator('[data-transfer-review="pending"]').click();
+  await page.locator('[data-manual-anchor="31"] > summary').click();
+  await page.getByRole('button', {name:'查找另一笔'}).click();
+  const card = page.locator('.ledgerRepaymentRoute');
+  await card.waitFor();
+  const names = card.locator('.ledgerRepaymentTargets .ledgerPairAccount');
+  assert.deepEqual(await names.evaluateAll(labels => labels.map(label => label.innerText.replace(/\s+/g, ' '))),
+    ['广发 7443', '广发 9711']);
+  assert.equal(await card.evaluate(summary => {
+    const [left, right] = summary.querySelectorAll('.ledgerRepaymentTargets img');
+    const a = left.getBoundingClientRect();
+    const b = right.getBoundingClientRect();
+    return a.top === b.top && b.left > a.right && b.right <= summary.getBoundingClientRect().right;
+  }), true);
+  await card.click();
+  await page.getByRole('button', {name:'确认整组'}).click();
+  await page.waitForFunction(() => __ledgerTest.writes.some(item => item.url.endsWith('/confirm-combined-repayment')));
+  assert.deepEqual(await page.evaluate(() => __ledgerTest.writes.at(-1).body.target_ids), [32, 33]);
+  await page.evaluate(group => {
+    __ledgerTest.fixture.manual_pending = [];
+    __ledgerTest.fixture.transfer_pairs = [group];
+    __ledgerTest.pendingPosts.pop().resolve({ok: true});
+  }, group);
+  await card.waitFor({state:'hidden'});
+  await page.locator('[data-transfer-review="confirmed"]').click();
+  await card.waitFor();
+  assert.equal(await card.count(), 1);
+  await context.close();
+}
+
 try {
   if (!streamOnly) await checkTransferLayout();
   if (!transfersOnly) {
     await checkStreamLayout();
     await checkPersonalLoanNavigation();
     await checkSaveKeepsStreamPosition();
+    await checkCombinedCardRepayment();
   }
   if (transfersOnly || streamOnly) {
     assert.deepEqual(errors, []);
