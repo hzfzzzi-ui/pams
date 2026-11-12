@@ -117,11 +117,11 @@ const LEDGER_EDIT_DEFAULTS = {
   debt_repayment: { category: '内部划转', subcategory: '信用卡还款' },
   fx_conversion: { category: '内部划转', subcategory: '换汇转账' },
   debt_drawdown: { category: '融资', subcategory: '信用卡取现' },
-  fee: { category: '其他支出', subcategory: '银行费用' },
+  fee: { category: '金融费用', subcategory: '银行费用' },
 };
 
 const LEDGER_EDIT_CATEGORY_OPTIONS = {
-  operating_expense: ['餐饮', '交通出行', '居住', '通讯网络', '工具订阅', '购物', '医疗健康', '娱乐休闲', '学习成长', '人情往来', '借还款/往来', '其他支出', '待确认支出'],
+  operating_expense: ['餐饮', '交通出行', '居住', '通讯网络', '工具订阅', '购物', '医疗健康', '娱乐休闲', '学习成长', '人情往来', '借还款/往来', '金融费用', '其他支出', '待确认支出'],
   operating_income: ['工资薪酬', '奖金', '报销补贴', '福利保障', '退款返现', '人情往来收入', '借还款/往来', '利息收入', '其他收入'],
   investment_funding: ['内部划转'],
   investment_withdrawal: ['内部划转'],
@@ -129,7 +129,7 @@ const LEDGER_EDIT_CATEGORY_OPTIONS = {
   debt_repayment: ['内部划转'],
   fx_conversion: ['内部划转'],
   debt_drawdown: ['融资'],
-  fee: ['其他支出'],
+  fee: ['金融费用'],
 };
 
 const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {
@@ -144,7 +144,8 @@ const LEDGER_EDIT_SUBCATEGORY_OPTIONS = {
   学习成长: ['课程培训', '图书资料', '考试认证', '手动确认'],
   人情往来: ['红包转账', '礼金', '代付代收', '手动确认'],
   '借还款/往来': ['借款', '还款', '往来款', '手动确认'],
-  其他支出: ['其他支出', '利息支出', '券商利息', '银行费用', '手动确认'],
+  金融费用: ['利息支出', '券商利息', '银行费用', '券商费用', '投资税费', '提现手续费', '逾期违约金', '手动确认'],
+  其他支出: ['其他支出', '手动确认'],
   待确认支出: ['手动确认'],
   工资薪酬: ['工资', '薪金', '手动确认'],
   奖金: ['年终奖', '绩效奖金', '手动确认'],
@@ -163,7 +164,7 @@ const LEDGER_EDIT_SUBCATEGORY_OPTIONS_BY_TYPE = {
   debt_repayment: { 内部划转: ['信用卡还款', '手动确认'] },
   fx_conversion: { 内部划转: ['换汇转账', '手动确认'] },
   debt_drawdown: { 融资: ['信用卡取现', '手动确认'] },
-  fee: { 其他支出: ['银行费用', '手动确认'] },
+  fee: { 金融费用: ['银行费用', '手动确认'] },
 };
 
 export function createLedgerLegacyModel(state) {

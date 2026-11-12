@@ -131,7 +131,7 @@ function bindLedgerEditSheet(row, session) {
     try {
       const category = fieldValue('category');
       const subcategory = fieldValue('subcategory');
-      const selectedFee = category === '其他支出' && subcategory === '银行费用';
+      const selectedFee = category === '金融费用' && subcategory === '银行费用';
       const retainedFee = initialType === 'fee' && category === initialCategory && subcategory === initialSubcategory;
       const cashflowType = isExpense() && row.classification_status && (selectedFee || retainedFee)
         ? 'fee' : classificationType();

@@ -757,7 +757,7 @@ async function checkLedgerLifecycle() {
   const brokerInterest = hintFixture.recent_rows_ytd.find(row => row.id === '5');
   Object.assign(brokerInterest, { category: '消费', subcategory: '券商利息', summary: '券商利息' });
   hintFixture.recent_rows_ytd.push({...brokerInterest, id:'80', cashflow_type:'fee',
-    category:'其他支出', subcategory:'银行费用', classification_status:'confirmed', summary:'合成银行费用'});
+    category:'金融费用', subcategory:'银行费用', classification_status:'confirmed', summary:'合成银行费用'});
   for (const row of [hinted, unknown]) Object.assign(row, {
     classification_status: 'pending', subcategory_pending: true, account_flow_type: row.flow_type, coarse_category: '待分类',
     cashflow_type: null, category: null, subcategory: null, needs_review: true,
@@ -776,7 +776,7 @@ async function checkLedgerLifecycle() {
   const category = form.locator('[data-edit-field="category"]');
   const subcategory = form.locator('[data-edit-field="subcategory"]');
   assert.equal(await type.inputValue(), 'operating_expense');
-  assert.equal(await category.inputValue(), '其他支出');
+  assert.equal(await category.inputValue(), '金融费用');
   assert.equal(await subcategory.inputValue(), '券商利息');
   assert.equal(await form.getByRole('button', { name: '消费', exact: true }).count(), 0);
   await form.locator('[data-sheet-close]').click();
@@ -826,6 +826,8 @@ async function checkLedgerLifecycle() {
   await expense.getByRole('button', { name: '其他支出', exact: true }).click();
   assert.equal(await submit.isDisabled(), true);
   assert.equal(await details.getByRole('button', { name: '交通卡', exact: true }).count(), 0);
+  assert.equal(await details.getByRole('button', { name: '利息支出', exact: true }).count(), 0);
+  await expense.getByRole('button', { name: '金融费用', exact: true }).click();
   await details.getByRole('button', { name: '利息支出', exact: true }).click();
   assert.equal(await subcategory.inputValue(), '利息支出');
   await type.selectOption('internal_transfer');
@@ -850,12 +852,12 @@ async function checkLedgerLifecycle() {
   await form.waitFor({state:'hidden'});
   await openStreamEdit(hintPage.page, '80');
   assert.equal(await type.inputValue(), 'operating_expense');
-  assert.equal(await category.inputValue(), '其他支出');
+  assert.equal(await category.inputValue(), '金融费用');
   assert.equal(await subcategory.inputValue(), '银行费用');
   await submit.click();
   await hintPage.page.waitForFunction(() => __ledgerTest.writes.length === 2);
   assert.deepEqual(await hintPage.page.evaluate(() => __ledgerTest.writes[1]), {
-    url:'/api/ledger/rows/80/update', body:{cashflow_type:'fee', category:'其他支出',
+    url:'/api/ledger/rows/80/update', body:{cashflow_type:'fee', category:'金融费用',
       subcategory:'银行费用', counterparty:''},
   });
   await hintPage.page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ok:true}));

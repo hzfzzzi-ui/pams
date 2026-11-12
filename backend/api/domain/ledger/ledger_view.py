@@ -84,6 +84,10 @@ EXPENSE_CATEGORY_MAP = {
     "其他": "其他支出",
 }
 
+FINANCIAL_EXPENSE_SUBCATEGORIES = {
+    "利息支出", "券商利息", "银行费用", "券商费用", "投资税费", "提现手续费", "逾期违约金",
+}
+
 CLASSIFICATION_RULES = [
     {
         "name": "资金流转优先",
@@ -402,6 +406,11 @@ def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int])
     result = {"account_flow_type": direction, "flow_type": direction, "coarse_category": subcategory or category or "子类待补",
               "subcategory_pending": not subcategory, "needs_review": not subcategory,
               "is_operating": True, "is_internal_transfer": False}
+    if direction == "expense" and (
+        category == "金融费用"
+        or (category in {None, "", "其他", "其他支出", "费用"} and subcategory in FINANCIAL_EXPENSE_SUBCATEGORIES)
+    ):
+        result.update(category="金融费用", coarse_category="金融费用")
     if not confirmed:
         result["classification_hint"] = classification_hint(row)
     return result

@@ -14,6 +14,9 @@ if str(API_ROOT) not in sys.path:
 import pytest
 
 import domain.ledger.ledger_view as ledger_view  # noqa: E402
+
+
+
 from domain.ledger.ledger_view import (  # noqa: E402
     _account_summary,
     _merge_investment_account_rows,
@@ -23,6 +26,21 @@ from domain.ledger.ledger_view import (  # noqa: E402
     classify_ledger_row,
     summarize_period,
 )
+
+
+@pytest.mark.parametrize("category", ["消费", "其他支出", "金融费用"])
+def test_financial_expenses_group_without_changing_cashflow_direction(category):
+    row = {"id": 1, "amount": -20, "amount_cny": -20, "classification_status": "confirmed",
+           "category": category, "subcategory": "券商利息"}
+    classified = {**row, **ledger_view._classify_cash_direction(row, set())}
+    assert (classified["flow_type"], classified["category"], classified["subcategory"]) == (
+        "expense", "金融费用", "券商利息",
+    )
+    assert ledger_view._group_amounts([classified], "expense") == [
+        {"category": "金融费用", "amount": 20, "count": 1, "share": 1},
+    ]
+    assert ledger_view._classify_cash_direction(row, {1})["flow_type"] == "transfer"
+    assert ledger_view._classify_cash_direction({**row, "amount": 20}, set())["coarse_category"] == "券商利息"
 
 
 def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
