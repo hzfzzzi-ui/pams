@@ -1278,7 +1278,9 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
                            account_profiles=None, decisions=None) -> list[dict[str, Any]]:
     from domain.ledger.cash_transfer_pairs import cash_pair_type
-    from domain.ledger.confirmed_transfers_v2 import FX_PAIR, REDEMPTION_PURPOSE, transfer_accounting_identity
+    from domain.ledger.confirmed_transfers_v2 import (
+        FX_PAIR, MANUAL_FUNDING_PAIR, REDEMPTION_PURPOSE, transfer_accounting_identity,
+    )
 
     result = []
     if decisions is None:
@@ -1287,8 +1289,9 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
         if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
             continue
         redemption = cash_pairs_only and left.get('purpose') == REDEMPTION_PURPOSE
+        funding = cash_pairs_only and left.get('pair_type') == MANUAL_FUNDING_PAIR
         both_cash = left['kind'] == right['kind'] == 'cashflow'
-        if cash_pairs_only and not (both_cash or redemption):
+        if cash_pairs_only and not (both_cash or redemption or funding):
             continue
         if not cash_pairs_only and left_day != right_day:
             continue
@@ -1296,7 +1299,7 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
         if redemption:
             kind, receipt_day = transfer_accounting_identity(left, right)
             match_day = _as_date(receipt_day)
-        elif cash_pairs_only and kind != FX_PAIR:
+        elif both_cash and cash_pairs_only and kind != FX_PAIR:
             kind = cash_pair_type(item['from_account_code'], item['to_account_code'], account_profiles or {})
         fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
         cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
@@ -1316,6 +1319,7 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
                 'settlement_rate': item['amount'] / Decimal(right['amount'])}
                if both_cash and left.get('currency') != right.get('currency') else {}),
             **({'source_trade_id': left['id']} if redemption else {}),
+            **({'target_trade_id': right['id']} if funding else {}),
             'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
     return result
 
@@ -1331,15 +1335,17 @@ def _transfer_pair_details(cur, matches):
                    JOIN public.source_items i ON i.source_item_id = f.source_item_id
                    WHERE f.cashflow_id = ANY(%s)''', (row_ids,))
     details = {row['cashflow_id']: dict(row) for row in cur.fetchall()}
-    trade_ids = sorted({match['source_trade_id'] for match in matches if 'source_trade_id' in match})
+    trade_ids = sorted({match[key] for match in matches for key in ('source_trade_id', 'target_trade_id') if key in match})
     trade_details = {}
     if trade_ids:
-        cur.execute("""SELECT trade_id, concat_ws(' · ', name, '基金赎回') AS summary,
+        cur.execute("""SELECT trade_id, concat_ws(' · ', NULLIF(name, ''),
+                                  CASE trade_type WHEN 'deposit' THEN '券商入金' ELSE '基金赎回' END) AS summary,
                               source_item_id::text AS source_item_id
                        FROM public.pams_investment_trade_fact WHERE trade_id = ANY(%s)""", (trade_ids,))
         trade_details = {row['trade_id']: dict(row) for row in cur.fetchall()}
     return [{**match, 'source': trade_details.get(match.get('source_trade_id')) or details.get(match['source_row_id']),
-             'target': details.get(match['target_row_id'])} for match in matches]
+             'target': trade_details.get(match.get('target_trade_id')) or details.get(match['target_row_id'])}
+            for match in matches]
 
 
 def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None, decisions=None,
