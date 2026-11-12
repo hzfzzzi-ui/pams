@@ -32,6 +32,7 @@ from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import sync_center
 from endpoints import analysis
 from endpoints import account_import
+from domain.accounts.account_ownership import resolve_account_ownership
 from domain.accounts.accounts_view import (
     build_account_detail_payload as _build_account_detail_payload,
     build_accounts_payload as _build_accounts_payload,
@@ -295,9 +296,10 @@ def _accounts_cfg() -> dict[str, Any]:
         return {}
     try:
         with path.open("r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+            config = yaml.safe_load(f) or {}
     except Exception:
         return {}
+    return resolve_account_ownership(config)
 
 
 def _reported_returns_cfg() -> dict[str, Any]:

@@ -20,8 +20,9 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.accounts.account_ownership import resolve_account_ownership
 from domain.imports.source_row_read import source_row_relation
+from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 
 router = APIRouter()
 
@@ -134,7 +135,7 @@ def _load_yaml(primary: Path, fallback: Path) -> dict[str, Any]:
 
 
 def _load_accounts_config() -> dict[str, Any]:
-    return _load_yaml(CONFIG_PATH, LOCAL_CONFIG_PATH)
+    return resolve_account_ownership(_load_yaml(CONFIG_PATH, LOCAL_CONFIG_PATH))
 
 
 def _load_bank_config() -> dict[str, Any]:
