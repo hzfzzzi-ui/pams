@@ -646,11 +646,48 @@ async function checkPersonalLoanNavigation() {
   await context.close();
 }
 
+async function checkSaveKeepsStreamPosition() {
+  const data = structuredClone(fixture);
+  data.stream_page_size = 12;
+  data.recent_rows_ytd = Array.from({length: 30}, (_, index) => ({
+    ...fixture.recent_rows_ytd[0], id: String(index + 1), summary: `测试流水 ${index + 1}`,
+  }));
+  const {page, context} = await makePage(false, data);
+  await page.setViewportSize({width: 390, height: 700});
+  await page.locator('[data-ledger-tab="recent"]').click();
+  const list = page.locator('#recentRows');
+  await list.getByRole('button', {name: '展开更多'}).click();
+  const row = list.locator('[data-detail-target="recentRows-detail-19"]');
+  await row.waitFor();
+  const before = await row.evaluate(element => {
+    element.scrollIntoView({block: 'center'});
+    return element.getBoundingClientRect().top;
+  });
+  await openStreamEdit(page, '19');
+  await page.locator('[data-ledger-edit-form] button[type="submit"]').click();
+  await page.evaluate(() => {
+    __ledgerTest.deferReads = true;
+    __ledgerTest.fixture.recent_rows_ytd[18].summary = '已保存的测试流水';
+    __ledgerTest.pendingPosts.shift().resolve({ok: true});
+  });
+  await page.waitForFunction(() => __ledgerTest.pendingReads.length === 1);
+  assert.equal(await list.locator('.ledgerListRow').count(), 24);
+  for (let index = 0; index < 2; index++) {
+    await page.waitForFunction(() => __ledgerTest.pendingReads.length === 1);
+    await page.evaluate(() => __ledgerTest.pendingReads.shift().resolve(__ledgerTest.fixture));
+  }
+  await row.getByText('已保存的测试流水').waitFor();
+  assert.equal(await list.locator('.ledgerListRow').count(), 24);
+  assert.ok(Math.abs((await row.boundingBox()).y - before) <= 2);
+  await context.close();
+}
+
 try {
   if (!streamOnly) await checkTransferLayout();
   if (!transfersOnly) {
     await checkStreamLayout();
     await checkPersonalLoanNavigation();
+    await checkSaveKeepsStreamPosition();
   }
   if (transfersOnly || streamOnly) {
     assert.deepEqual(errors, []);
