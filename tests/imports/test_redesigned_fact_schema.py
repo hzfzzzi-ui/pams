@@ -278,17 +278,21 @@ def test_partial_cash_publication_preserves_pending_and_both_duplicate_sides():
         cur.execute('SET CONSTRAINTS ALL IMMEDIATE')
 
 
-@pytest.mark.parametrize('redemption', [False, True])
-def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redemption):
+@pytest.mark.parametrize('scenario', ['funding', 'redemption', 'cross_currency'])
+def test_transfer_confirmation_matches_independent_cash_and_trade_facts(scenario, monkeypatch):
     from pathlib import Path
     import sys
     from uuid import UUID
     from psycopg2.extras import RealDictCursor
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
     from domain.imports import source_records_v2 as source
-    from domain.ledger import confirmed_transfers_v2 as transfers
+    from domain.ledger import confirmed_transfers_v2 as transfers, ledger_view
+    redemption = scenario == 'redemption'
+    cross_currency = scenario == 'cross_currency'
     class SchemaCursor:
         def __init__(self,inner): self.inner=inner
+        @property
+        def description(self): return self.inner.description
         @property
         def connection(self): return self.inner.connection
         @property
@@ -302,6 +306,15 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redempti
             cur.execute("INSERT INTO redesign_test.pams_accounts VALUES ('tencent_licaitong'),('tencent_licaitong_current_plus')")
         entries = ([(61,62,'tencent_licaitong','trade','10'), (63,64,'tencent_licaitong_current_plus','cash','10')]
                    if redemption else [(61,62,'bank-a','cash','-10'),(63,64,'bank-b','trade','10')])
+        if cross_currency:
+            entries = [(61,62,'bank-a','cash','-70'),(63,64,'bank-b','cash','10')]
+            cur.execute("""CREATE TABLE redesign_test.pams_fx_rates_daily(
+                as_of date,base_currency text,quote_currency text,rate numeric,source text)""")
+            cur.execute("INSERT INTO redesign_test.pams_fx_rates_daily VALUES ('2026-01-01','CNY','USD',6.98,'test')")
+            monkeypatch.setattr(ledger_view, '_load_accounts_config', lambda: {'accounts': {
+                'bank-a': {'account_type': 'funding'},
+                'bank-b': {'account_type': 'liability', 'institution': '合成银行'},
+            }})
         for source_n,item_n,account,kind,amount in entries:
             sid=UUID(int=source_n);iid=UUID(int=item_n)
             f={'business_date':'2026-01-01','net_cash':amount,'currency':'CNY'}
@@ -313,6 +326,11 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redempti
                 reported = {'买入方式': '其他产品买入', '买入时间': '2026-01-02 15:50:10'}
             elif kind == 'trade':
                 f['trade_type'] = 'deposit'
+            elif cross_currency:
+                if account == 'bank-a':
+                    f['summary'] = '合成银行信用卡还款'
+                else:
+                    f.update(currency='USD', description='跨行购汇还款')
             evidence = {'source': {'context': {'reported_fields': reported}}} if redemption else f
             original = dict(filename='synthetic.png', file_format='png', content=bytes([source_n])) if redemption else {}
             source.create_source(w,source_id=sid,account_code=account,source_name='Synthetic',
@@ -320,6 +338,31 @@ def test_transfer_confirmation_matches_independent_cash_and_trade_facts(redempti
             source.add_item(w,source_id=sid,item_id=iid,parse_method='ocr' if redemption else 'manual',raw_fields=evidence,parsed_fields=f)
             source.review_item(w,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=f,review_status='confirmed')
             (source.publish_cash_source if kind=='cash' else source.publish_trade_source)(w,source_id=sid,expected_revision=3)
+        if cross_currency:
+            from datetime import date
+            from domain.ledger.cashflow_read_v2 import load_cash_rows
+            day = date(2026, 1, 1)
+            facts = load_cash_rows(w, start=day, end=day, base_currency='CNY')
+            debit, credit = sorted(facts, key=lambda row: row['amount'])
+            kwargs = dict(from_kind='cashflow', from_id=debit['id'], to_kind='cashflow', to_id=credit['id'],
+                          note='checked', confirmed=True)
+            def summary(matched):
+                rows = [{**r, 'amount_cny': float(r['amount_cny']),
+                         **ledger_view._classify_cash_direction(r, matched)} for r in facts]
+                return ledger_view.summarize_period(rows, [], day, day)
+            before = summary(set())
+            assert (before['expense'], before['income']) == (70, 69.8)
+            result = transfers.confirm(w, **kwargs)
+            assert transfers.confirm(w, **kwargs) == {**result, 'replayed': True}
+            decision, = transfers.read(w)
+            assert decision['evidence_status'] == 'confirmed'
+            assert decision['from_evidence']['currency'] == 'CNY'
+            assert decision['to_evidence']['currency'] == 'USD'
+            after = summary({debit['id'], credit['id']})
+            assert (after['expense'], after['income']) == (0, 0)
+            cur.execute('SELECT count(*) AS n FROM redesign_test.pams_cashflow_fact')
+            assert cur.fetchone()['n'] == 2
+            return
         cur.execute('SELECT cashflow_id FROM redesign_test.pams_cashflow_fact');cash=cur.fetchone()['cashflow_id']
         cur.execute('SELECT trade_id FROM redesign_test.pams_investment_trade_fact');trade=cur.fetchone()['trade_id']
         legs = dict(from_kind='trade', from_id=trade, to_kind='cashflow', to_id=cash) if redemption else dict(

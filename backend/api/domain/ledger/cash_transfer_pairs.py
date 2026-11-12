@@ -6,7 +6,7 @@ import re
 
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 from domain.ledger import confirmed_transfers_v2 as confirmation
-from domain.ledger.confirmed_transfers_v2 import is_independent_equal_pair, occupied_cashflow_ids
+from domain.ledger.confirmed_transfers_v2 import is_independent_equal_pair, is_independent_opposite_pair, occupied_cashflow_ids
 from domain.imports.source_original_read import SourceOriginals
 
 
@@ -15,6 +15,9 @@ TRANSFER_TEXT = re.compile(r'信用卡.{0,10}还款|银转证|证转银|银证�
                            r'electronic fund transfers?|transferencia a interactive brokers', re.IGNORECASE)
 INVESTMENT_TYPES = {'brokerage', 'fund_platform'}
 MAX_DAYS = 3
+CARD_PAYMENT = re.compile(r'信用卡.{0,10}还款')
+FX_REPAYMENT = re.compile(r'购汇还')
+FX_REVIEW_TOLERANCE = Decimal('0.01')
 
 
 def cash_pair_type(from_account, to_account, profiles):
@@ -34,13 +37,43 @@ def has_transfer_hint(row):
             or bool(TRANSFER_TEXT.search(' '.join(row.get(key) or '' for key in ('summary', 'description')))))
 
 
+def _cash_text(row):
+    return ' '.join(row.get(key) or '' for key in ('summary', 'description', 'counterparty'))
+
+
+def _fx_repayment_target(row, profiles):
+    text = _cash_text(row)
+    return (profiles.get(row['account_code'], {}).get('account_type') == 'liability'
+            and FX_REPAYMENT.search(text) and '合并' not in text)
+
+
+def is_cross_currency_card_repayment(source, target, profiles):
+    """Narrow suggestions to same-day, independently evidenced card repayments."""
+    source_profile = profiles.get(source['account_code'], {})
+    target_institution = profiles.get(target['account_code'], {}).get('institution')
+    source_text = _cash_text(source)
+    if (source['currency'] == target['currency'] or source['transaction_date'] != target['transaction_date']
+            or source_profile.get('account_type') != 'funding' or not target_institution
+            or target_institution not in source_text or not CARD_PAYMENT.search(source_text)
+            or '合并' in source_text or not _fx_repayment_target(target, profiles)
+            or any(row.get('source_evidence_status') != 'verified' for row in (source, target))
+            or not is_independent_opposite_pair(source['pair_evidence'], target['pair_evidence'])):
+        return False
+    outgoing, incoming = source.get('amount_cny'), target.get('amount_cny')
+    return (outgoing is not None and incoming is not None and outgoing < 0 < incoming
+            and abs(outgoing + incoming) <= -outgoing * FX_REVIEW_TOLERANCE)
+
+
 def suggest(rows, profiles, occupied, *, limit=None):
     available = [row for row in rows if row['id'] not in occupied and row['source_evidence_status'] == 'verified'
                  and row['amount'] and row['currency'] and row['transaction_date']]
     deposits = defaultdict(list)
+    fx_repayments = defaultdict(list)
     for row in available:
         if row['amount'] > 0:
             deposits[row['currency'], row['amount']].append(row)
+            if _fx_repayment_target(row, profiles):
+                fx_repayments[row['transaction_date']].append(row)
 
     matches = []
     for source in available:
@@ -53,6 +86,9 @@ def suggest(rows, profiles, occupied, *, limit=None):
             hints = int(has_transfer_hint(source)) + int(has_transfer_hint(target))
             if hints:
                 matches.append((source, target, delta, hints))
+        for target in fx_repayments[source['transaction_date']]:
+            if is_cross_currency_card_repayment(source, target, profiles):
+                matches.append((source, target, 0, 2))
 
     usage = Counter(row['id'] for source, target, _, _ in matches for row in (source, target))
     matches.sort(key=lambda match: (any(usage[row['id']] > 1 for row in match[:2]), -match[3], match[2],
@@ -60,6 +96,7 @@ def suggest(rows, profiles, occupied, *, limit=None):
     result = []
     for source, target, delta, hints in matches[:limit]:
         ambiguous = usage[source['id']] > 1 or usage[target['id']] > 1
+        different_currency = source['currency'] != target['currency']
         result.append({
             'match_key': f"candidate:{source['id']}:{target['id']}",
             'match_type': cash_pair_type(source['account_code'], target['account_code'], profiles),
@@ -71,8 +108,11 @@ def suggest(rows, profiles, occupied, *, limit=None):
             'source': {key: source.get(key) for key in ('summary', 'description', 'source_item_id')},
             'target': {key: target.get(key) for key in ('summary', 'description', 'source_item_id')},
             'amount': -source['amount'], 'currency': source['currency'], 'status': 'review_required',
+            **({'target_amount': target['amount'], 'target_currency': target['currency'],
+                'settlement_rate': -source['amount'] / target['amount']} if different_currency else {}),
             'ambiguity_status': 'ambiguous' if ambiguous else 'unique_candidate', 'confirmation_supported': True,
-            'note': '同币种等额，' + ('两边有划转线索' if hints == 2 else '单边有划转线索'),
+            'note': ('请按银行还款回单核对两边实扣和到账金额。' if different_currency
+                     else '同币种等额，' + ('两边有划转线索' if hints == 2 else '单边有划转线索')),
         })
     return result
 
