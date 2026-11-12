@@ -400,8 +400,8 @@ async function checkTransferLayout() {
       const sender = rect('[data-direction="out"]');
       const center = rect('.ledgerPairCenter');
       const receiver = rect('[data-direction="in"]');
-      const outgoingArrow = rect('.ledgerPairArrow.is-left');
-      const incomingArrow = rect('.ledgerPairArrow:not(.is-left)');
+      const outgoingArrow = rect('.ledgerPairArrow:not(.is-left)');
+      const incomingArrow = rect('.ledgerPairArrow.is-left');
       const date = summary.querySelector('time');
       return summary.scrollWidth <= summary.clientWidth && sender.right <= center.left && center.right <= receiver.left
         && outgoingArrow.top - rect('.is-out').bottom === 1
