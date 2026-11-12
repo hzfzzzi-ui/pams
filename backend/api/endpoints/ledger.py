@@ -56,7 +56,7 @@ LEDGER_MANUAL_DEFAULTS = {
     "debt_repayment": ("内部划转", "信用卡还款"),
     "fx_conversion": ("内部划转", "换汇转账"),
     "debt_drawdown": ("融资", "信用卡取现"),
-    "fee": ("其他支出", "银行费用"),
+    "fee": ("金融费用", "银行费用"),
 }
 
 

@@ -50,7 +50,7 @@ rules:
     summary_labels: [取现, 信用卡取现]
   - direction: outflow
     cashflow_type: fee
-    category: 其他支出
+    category: 金融费用
     subcategory: 银行费用
     summary_labels: [费用]
   - direction: outflow
@@ -65,9 +65,14 @@ rules:
     keywords: [存入 约定还款]
   - direction: outflow
     cashflow_type: operating_expense
-    category: 其他支出
+    category: 金融费用
     subcategory: 利息支出
     keywords: [信用卡利息, 利息 利息, credit card interest]
+  - direction: outflow
+    cashflow_type: operating_expense
+    category: 金融费用
+    subcategory: 券商利息
+    keywords: [券商利息, broker interest paid]
   - direction: outflow
     cashflow_type: investment_funding
     category: 内部划转
