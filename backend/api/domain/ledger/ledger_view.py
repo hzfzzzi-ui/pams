@@ -1312,6 +1312,9 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
             'target_row_id': right['id'] if right['kind'] == 'cashflow' else None,
             'amount': item['amount'], 'currency_norm': item['currency'], 'status': 'confirmed',
             'both_cash_legs': both_cash if cash_pairs_only else False,
+            **({'target_amount': Decimal(right['amount']), 'target_currency': right['currency'],
+                'settlement_rate': item['amount'] / Decimal(right['amount'])}
+               if both_cash and left.get('currency') != right.get('currency') else {}),
             **({'source_trade_id': left['id']} if redemption else {}),
             'fx_rate': fx, 'amount_cny': item['amount'] * fx if fx is not None else None})
     return result
@@ -1339,7 +1342,8 @@ def _transfer_pair_details(cur, matches):
              'target': details.get(match['target_row_id'])} for match in matches]
 
 
-def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None, decisions=None) -> list[dict[str, Any]]:
+def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None, decisions=None,
+                                 account_profiles=None) -> list[dict[str, Any]]:
     """Expose known open bank facts and invalidated decisions without confirming them."""
     if _table_exists(cur, 'source_records'):
         from domain.ledger.cash_transfer_pairs import has_transfer_hint, suggest
@@ -1351,7 +1355,7 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None,
         rows = cash_rows if cash_rows is not None else _load_cash_rows(
             cur, start=start, end=end, base_currency='CNY', include_pair_evidence=True)
         by_leg = defaultdict(list)
-        for match in suggest(rows, {}, linked):
+        for match in suggest(rows, account_profiles or {}, linked):
             left, right = match['source_row_id'], match['target_row_id']
             by_leg[left].append((right, match['ambiguity_status']))
             by_leg[right].append((left, match['ambiguity_status']))
@@ -1650,7 +1654,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
                                                    cash_pairs_only=redesigned, account_profiles=account_profiles, **decision_args)
     pending_transfer_cases = _load_pending_transfer_cases(
-        cur, start=ytd_start, end=month_end, **({'cash_rows': cash_rows} if redesigned else {}), **decision_args,
+        cur, start=ytd_start, end=month_end, account_profiles=account_profiles,
+        **({'cash_rows': cash_rows} if redesigned else {}), **decision_args,
     ) if view == 'full' else []
     payment_proxy_source_row_ids = {
         row_id

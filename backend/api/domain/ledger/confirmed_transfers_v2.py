@@ -113,18 +113,39 @@ def _leg(cur, kind, ident, *, lock=True):
     return _verified_leg(rows[0] if rows else None, kind, SourceOriginals(cur))
 
 
+def is_independent_opposite_pair(left, right):
+    return (left['account_code'] != right['account_code'] and left['source_item_id'] != right['source_item_id']
+            and left['source_id'] != right['source_id']
+            and (left['source_hash'] is None or left['source_hash'] != right['source_hash'])
+            and Decimal(left['amount']) < 0 < Decimal(right['amount']))
+
+
 def is_independent_equal_pair(left, right):
     if left.get('purpose') == REDEMPTION_PURPOSE and (
         right['kind'] != 'cashflow' or right['account_code'] != left['target_account']
         or right['day'] != left['receipt_day']
     ):
         return False
-    return (left['account_code'] != right['account_code'] and left['source_item_id'] != right['source_item_id']
-            and left['source_id'] != right['source_id']
-            and (left['source_hash'] is None or left['source_hash'] != right['source_hash'])
+    return (is_independent_opposite_pair(left, right)
             and left['currency'] == right['currency']
-            and Decimal(left['amount']) < 0 < Decimal(right['amount'])
             and -Decimal(left['amount']) == Decimal(right['amount']))
+
+
+def _validate_cross_currency_pair(cur, left, right):
+    from domain.ledger.cashflow_read_v2 import load_cash_rows
+    from domain.ledger.cash_transfer_pairs import is_cross_currency_card_repayment
+    from domain.ledger.ledger_view import _load_accounts_config
+
+    if (left['kind'] != 'cashflow' or right['kind'] != 'cashflow'
+            or left['currency'] == right['currency'] or not is_independent_opposite_pair(left, right)):
+        return False
+    rows = [
+        load_cash_rows(cur, start=date.fromisoformat(leg['day']), end=date.fromisoformat(leg['day']),
+                       base_currency='CNY', fact_id=leg['id'], include_pair_evidence=True)
+        for leg in (left, right)
+    ]
+    return all(rows) and is_cross_currency_card_repayment(
+        rows[0][0], rows[1][0], _load_accounts_config().get('accounts', {}))
 
 
 def occupied_cashflow_ids(cur):
@@ -146,12 +167,6 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
         accounts.add(row['account_code'])
     for account in sorted(accounts): cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",('account-import:'+account,))
     legs={key:_leg(cur,*key) for key in sorted(keys)};a,b=legs[keys[0]],legs[keys[1]]
-    if not is_independent_equal_pair(a, b):
-        raise ValueError('transfer facts conflict or are not independent')
-    if a.get('purpose') == REDEMPTION_PURPOSE:
-        receipt = _leg_rows(cur, 'cashflow', [to_id], lock=False)[0]
-        if redemption_receipt_time(a, receipt) is None:
-            raise ValueError('Target screenshot does not establish the same redemption receipt time')
     cur.execute('''SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL AND
         ((%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s)) OR
          (%s='cashflow' AND (from_cashflow_id=%s OR to_cashflow_id=%s)) OR (%s='trade' AND (from_trade_id=%s OR to_trade_id=%s))) FOR UPDATE OF c''',
@@ -163,6 +178,12 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
                 existing[0]['note'] == note.strip()):
             return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
         raise ValueError('transfer leg already confirmed')
+    if not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b):
+        raise ValueError('两笔流水的来源、币种或金额不符合配对条件')
+    if a.get('purpose') == REDEMPTION_PURPOSE:
+        receipt = _leg_rows(cur, 'cashflow', [to_id], lock=False)[0]
+        if redemption_receipt_time(a, receipt) is None:
+            raise ValueError('Target screenshot does not establish the same redemption receipt time')
     transfer_id=uuid4()
     cur.execute('''INSERT INTO public.evidence_confirmation(confirmation_id,confirmation_type,from_cashflow_id,from_trade_id,
         to_cashflow_id,to_trade_id,from_account_code,to_account_code,amount,currency,from_evidence,to_evidence,note)

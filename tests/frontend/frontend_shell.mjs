@@ -80,10 +80,11 @@ await context.route('**/*', async route => {
       '/api/bank-reconcile/imports': {},
       '/api/bank-reconcile/transfer-matches': {},
       '/api/bank-reconcile/transfer-matches/run': {matches:[{
-        match_key:'candidate:101:102', match_type:'investment_funding',
-        from_account_code:'fixture', to_account_code:'ibkr',
+        match_key:'candidate:101:102', match_type:'credit_card_payment',
+        from_account_code:'fixture', to_account_code:'gf_9711',
         match_date:'2026-10-29', source_date:'2026-10-29', target_date:'2026-10-30',
-        amount:100, currency:'CNY', status:'review_required', confirmation_supported:true,
+        amount:100, currency:'CNY', target_amount:14, target_currency:'USD', settlement_rate:7.14286,
+        status:'review_required', confirmation_supported:true,
       }]},
       '/api/bank-reconcile/unmatched-rows': {},
       '/api/account-import/capabilities': {schema_ready:true},
@@ -251,7 +252,10 @@ try {
     await ledger.getByRole('button',{name:'待配对',exact:true}).click();
     await ledger.getByRole('heading',{name:'待配对'}).waitFor();
     assert.equal(await streamRows.isVisible(), false);
-    await ledger.locator('#transferPending summary').click();
+    const candidateSummary = ledger.locator('#transferPending summary');
+    assert.match(await candidateSummary.innerText(), /100\.00[\s\S]*14\.00[\s\S]*信用卡还款/);
+    await candidateSummary.click();
+    await ledger.getByText('两端金额折算率 7.14286 CNY/USD',{exact:true}).waitFor();
     await ledger.getByRole('button',{name:'确认这两笔配对'}).click();
     await ledger.locator('#transferPending').getByText(/确认失败.*合成配对冲突/).waitFor();
     await ledger.getByRole('button',{name:'待配对',exact:true}).click();

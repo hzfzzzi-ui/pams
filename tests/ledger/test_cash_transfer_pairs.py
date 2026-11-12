@@ -33,3 +33,26 @@ def test_ambiguity_and_evidence_are_checked_before_limiting_results():
     matches = suggest(rows, {}, {9}, limit=10)
     assert [(m['target_row_id'], m['ambiguity_status']) for m in matches] == [(2, 'ambiguous'), (3, 'ambiguous')]
     assert suggest(rows, {}, {9}, limit=1)[0]['ambiguity_status'] == 'ambiguous'
+
+
+def test_cross_currency_card_candidates_require_independent_same_day_repayment_evidence():
+    profiles = {'bank_a': {'account_type': 'funding'},
+                'card': {'account_type': 'liability', 'institution': '合成银行'}}
+    debit = {**cash_row(1, 'bank_a', '-700'), 'amount_cny': Decimal('-700'),
+             'summary': '银联代收 合成银行信用卡还款'}
+    credit = {**cash_row(2, 'card', '100', currency='USD'), 'amount_cny': Decimal('698'),
+              'description': '跨行购汇还款'}
+    match, = suggest([debit, credit], profiles, set())
+    assert match['match_type'] == 'credit_card_payment'
+    assert (match['currency'], match['amount'], match['target_currency'], match['target_amount']) == (
+        'CNY', Decimal('700'), 'USD', Decimal('100'))
+    assert match['settlement_rate'] == Decimal('7')
+    for invalid in (
+        {**credit, 'description': '合并购汇还款'},
+        {**credit, 'description': 'MC rebate'},
+        {**credit, 'amount_cny': Decimal('650')},
+        {**credit, 'transaction_date': credit['transaction_date'] + timedelta(days=1)},
+        {**credit, 'pair_evidence': {**credit['pair_evidence'], 'source_id': 1}},
+    ):
+        assert suggest([debit, invalid], profiles, set()) == []
+    assert suggest([debit, credit], profiles, {2}) == []

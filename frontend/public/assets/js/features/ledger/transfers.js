@@ -54,16 +54,18 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     const currency = pair.currency_norm || pair.currency;
     const value = moneyText(pair.amount, currency);
     const amount = escape(value);
+    const differentCurrency = pair.target_currency && pair.target_currency !== currency;
+    const targetValue = differentCurrency ? moneyText(pair.target_amount, pair.target_currency) : value;
     const label = TYPES[pair.match_type] || '内部划转';
     const date = escape(pair.match_date);
     const conversion = !pending && currency !== 'CNY'
       ? pair.amount_cny == null ? '人民币折算待补' : `≈ ${moneyText(pair.amount_cny)}` : '';
     const ambiguous = pending && pair.ambiguity_status === 'ambiguous';
-    const accessible = ['转出 ' + from, '转入 ' + to, value, label, pair.match_date, conversion,
+    const accessible = ['转出 ' + from + ' ' + value, '转入 ' + to + ' ' + targetValue, label, pair.match_date, conversion,
       ambiguous ? '有多个候选' : ''].filter(Boolean).join('，');
-    const leg = (title, account, day, fact, summary, sign) => `
+    const leg = (title, account, day, fact, summary, legAmount) => `
       <div class="ledgerPairLeg">
-        <strong>${title} · ${escape(account)}</strong><span>${sign}${amount}</span>
+        <strong>${title} · ${escape(account)}</strong><span>${escape(legAmount)}</span>
         <small>${escape(day)}</small>
         <div>${escape(fact?.summary || summary || '暂无摘要')}</div>
         ${fact?.description && fact.description !== fact.summary ? `<small>${escape(fact.description)}</small>` : ''}
@@ -74,7 +76,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
         <summary class="ledgerPairRoute" aria-label="${escape(accessible)}">
           ${transferParty(sender, 'out')}
           <span class="ledgerPairCenter">
-            <strong class="ledgerPairAmount">${amount}</strong>
+            <strong class="ledgerPairAmount">${differentCurrency ? '−' : ''}${amount}</strong>
+            ${differentCurrency ? `<strong class="ledgerPairAmount">+${escape(targetValue)}</strong>` : ''}
             <span class="ledgerPairArrow" aria-hidden="true"></span>
             <small>${escape(label)}</small>
             <time datetime="${date}">${date}</time>
@@ -84,8 +87,10 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
           ${transferParty(receiver, 'in')}
         </summary>
         <div class="ledgerPairDetails">
-          ${leg('转出', from, pair.source_date, pair.source, pair.source_summary, '−')}
-          ${leg('转入', to, pair.target_date, pair.target, pair.target_summary, '+')}
+          ${leg('转出', from, pair.source_date, pair.source, pair.source_summary, '−' + value)}
+          ${leg('转入', to, pair.target_date, pair.target, pair.target_summary, '+' + targetValue)}
+          ${differentCurrency && pair.settlement_rate != null
+            ? `<small>两端金额折算率 ${Number(pair.settlement_rate).toFixed(5)} ${escape(currency)}/${escape(pair.target_currency)}</small>` : ''}
           ${pending ? `<p class="muted">${escape(pair.note || '')}</p>
             <button class="btn" type="button" data-confirm-pair="${escape(pair.match_key)}">确认这两笔配对</button>
             <p class="muted" data-pair-status role="status"></p>` : ''}
@@ -253,8 +258,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       } else if (button.dataset.confirmPair && !submitting) {
         const pair = candidates?.find(row => row.match_key === button.dataset.confirmPair);
         if (!pair) return;
-        if (pair.source_kind === 'trade' && pair.ambiguity_status === 'ambiguous' &&
-            !window.confirm('这笔赎回有多个可能的配对。请核对展开的两侧凭证，确认是同一笔资金后再继续。')) return;
+        if ((pair.source_kind === 'trade' || pair.target_currency) && pair.ambiguity_status === 'ambiguous' &&
+            !window.confirm('这笔流水有多个可能的配对。请核对两侧凭证，确认是同一笔资金后再继续。')) return;
         submitting = true;
         button.disabled = true;
         const status = button.parentElement.querySelector('[data-pair-status]');
