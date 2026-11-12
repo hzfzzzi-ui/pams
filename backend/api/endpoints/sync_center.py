@@ -21,6 +21,8 @@ from domain.operations.sync_health import read_overseas_quote_health, scheduler_
 from domain.accounts.sync_status import read_account_sync, review_records
 from domain.imports.source_row_read import source_row_relation
 from domain.investments.portfolio_state import _load_accounts_config
+from domain.brokers.ibkr import ibkr_daily_holdings
+from domain.brokers.ibkr.ibkr_performance import flex_credentials, published_report_status
 from domain.brokers.ibkr.ibkr_reconciliation import read_ibkr_reconciliation
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -190,17 +192,38 @@ def _row(
     }
 
 
+def _ibkr_archive_row(publication):
+    holdings_ready = publication["publication_verified"]
+    facts_ready = publication["facts_verified_for_target"]
+    if not holdings_ready:
+        label = "当日报表待归档"
+    elif not facts_ready:
+        label = "持仓已归档，交易和资金待核对"
+    else:
+        label = "已同步"
+    return _row(
+        id="ibkr-flex", source="IBKR Flex", sync_type="账户真值同步",
+        latest_date=publication["statement_as_of"],
+        status="ok" if holdings_ready and facts_ready else "review", status_label=label,
+        action="按报表业务日自动重试", href="data_sources.html#syncMatrix",
+        details=(f"应有报告日期 {publication['expected_statement_as_of']}。"
+                 f"已归档持仓至 {publication['statement_as_of'] or '暂无'}，"
+                 f"交易和资金事实至 {publication['facts_as_of'] or '暂无'}。"
+                 "组合净值还需要其他纳入账户的有效估值资料。"),
+    )
+
+
 @router.get("/center")
 def sync_center() -> dict[str, Any]:
     """Return a normalized sync matrix for the mobile sync center."""
     now = _now_local()
-    reconciliation = read_ibkr_reconciliation()
-    with get_conn() as conn:
+    archive_mode = bool(ibkr_daily_holdings.credentials() and not all(flex_credentials()))
+    reconciliation = None if archive_mode else read_ibkr_reconciliation()
+    with closing(get_conn()) as conn, conn:
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
-        from domain.brokers.ibkr.ibkr_performance import published_report_status
-
-        ibkr_quality = published_report_status(conn)
+        ibkr_quality = None if archive_mode else published_report_status(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            archive_status = ibkr_daily_holdings.publication_status(cur) if archive_mode else None
             a_stock = _holding_summary(cur, major_category="A股", minor_category="A股")
             a_fund = _holding_summary(cur, major_category="A股", minor_category="A股基金")
             us_stock = read_overseas_quote_health(cur, now)
@@ -262,9 +285,22 @@ def sync_center() -> dict[str, Any]:
                 """,
             )
 
-    ibkr_status, ibkr_label = ibkr_quality["status"], ibkr_quality["label"]
-    if ibkr_status == 'ok' and reconciliation['status'] != 'ok':
-        ibkr_status, ibkr_label = reconciliation['status'], reconciliation['label']
+    if archive_mode:
+        ibkr_row = _ibkr_archive_row(archive_status)
+    else:
+        ibkr_status, ibkr_label = ibkr_quality["status"], ibkr_quality["label"]
+        if ibkr_status == 'ok' and reconciliation['status'] != 'ok':
+            ibkr_status, ibkr_label = reconciliation['status'], reconciliation['label']
+        ibkr_row = _row(
+            id="ibkr-flex", source="IBKR Flex", sync_type="账户真值同步",
+            latest_date=ibkr_quality["statement_as_of"], rows=ibkr_quality["active_row_count"],
+            status=ibkr_status, status_label=ibkr_label,
+            action="后台自动同步，失败自动重试", href="data_sources.html#syncMatrix",
+            details=(f"{ibkr_label}；应有报告日期 {ibkr_quality['expected_statement_as_of'] or '待核准'}；"
+                     f"最近尝试 {ibkr_quality['last_attempt_status'] or '未知'}。"
+                     "失败、过期或未提交的原始文件不替代有效报告。"
+                     "正常同步无需逐次确认；历史账目诊断独立保留。" + reconciliation['details']),
+        )
     fund_needs_review = int(fund_review.get("review_rows") or 0) > 0
     fund_status, fund_label = _fresh_status(
         fund_review.get("as_of") or a_fund.get("as_of"),
@@ -334,22 +370,7 @@ def sync_center() -> dict[str, Any]:
             trigger_endpoint="/api/prices/refresh/investments",
             trigger_body={"scopes": ["precious_metal"]},
         ),
-        _row(
-            id="ibkr-flex",
-            source="IBKR Flex",
-            sync_type="账户真值同步",
-            latest_date=ibkr_quality["statement_as_of"],
-            latest_time=None,
-            rows=ibkr_quality["active_row_count"],
-            status=ibkr_status,
-            status_label=ibkr_label,
-            action="后台自动同步，失败自动重试",
-            href="data_sources.html#syncMatrix",
-            details=(f"{ibkr_label}；应有报告日期 {ibkr_quality['expected_statement_as_of'] or '待核准'}；"
-                     f"最近尝试 {ibkr_quality['last_attempt_status'] or '未知'}。"
-                     "失败、过期或未提交的原始文件不替代有效报告。"
-                     "正常同步无需逐次确认；历史账目诊断独立保留。" + reconciliation['details']),
-        ),
+        ibkr_row,
         _row(
             id="investment-ledger",
             source="投资交易确认",
@@ -406,7 +427,8 @@ def sync_center() -> dict[str, Any]:
 
     next(row for row in rows if row["id"] == "market-us-stock")["coverage"] = _norm(us_stock["coverage"])
 
-    health = scheduler_health(Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/scheduler-state/refresh.json")))
+    health = scheduler_health(Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/scheduler-state/refresh.json")),
+                              archive_ibkr=archive_mode)
     rows.append(_row(
         id="automatic-refresh", source="自动收益刷新", sync_type="同步健康",
         latest_date=None, latest_time=health.get("latest_time"), rows=len(health["jobs"]),

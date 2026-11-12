@@ -19,6 +19,7 @@ from collectors.ibkr_flex import (
     sync_ibkr_flex_to_db,
 )
 from domain.brokers.ibkr.ibkr_performance import (
+    flex_credentials as _credentials,
     read_published_performance,
     published_report_status,
     get_conn,
@@ -180,16 +181,6 @@ def _record(row: dict[str, Any] | None) -> dict[str, Any] | None:
     return {k: _norm(v) for k, v in row.items()}
 
 
-def _credentials() -> tuple[str | None, str | None]:
-    token = os.environ.get("IBKR_FLEX_TOKEN")
-    query_id = (
-        os.environ.get("IBKR_FLEX_POSITIONS_QUERY_ID")
-        or os.environ.get("IBKR_FLEX_OPEN_POSITIONS_QUERY_ID")
-        or os.environ.get("IBKR_FLEX_QUERY_ID")
-    )
-    return token, query_id
-
-
 @router.get("/flex/status")
 def ibkr_flex_status() -> dict[str, Any]:
     """Return the latest local IBKR Flex sync status without exposing secrets."""
@@ -232,24 +223,12 @@ def ibkr_daily_close_sync(req: IBKRFlexSyncRequest) -> dict[str, Any]:
 
 @router.get("/daily-holdings/status")
 def ibkr_daily_holdings_status() -> dict[str, Any]:
-    from domain.brokers.ibkr import ibkr_daily_holdings as holdings
-    from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
-    from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+    from domain.brokers.ibkr.ibkr_daily_holdings import publication_status
 
-    target = expected_statement_date()
     with closing(get_conn()) as conn:
         conn.set_session(readonly=True)
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready")
-            ready = cur.fetchone()['ready']
-            latest = holdings.last_publication(cur) if ready else None
-            facts_through = daily_facts_through(cur) if ready else None
-    return {'configured': bool(ready and holdings.credentials()),
-            'expected_statement_as_of': target.isoformat(),
-            'statement_as_of': latest['period_end'].isoformat() if latest else None,
-            'publication_verified': bool(latest and latest['period_end'] == target),
-            'facts_as_of': facts_through.isoformat() if facts_through else None,
-            'facts_verified_for_target': bool(facts_through and facts_through >= target)}
+            return publication_status(cur)
 
 
 @router.post("/daily-holdings/sync")
@@ -333,6 +312,10 @@ def ibkr_performance() -> dict[str, Any]:
     try:
         result = read_published_performance()
         if result is None:
+            from domain.brokers.ibkr.ibkr_daily_holdings import credentials
+
+            if credentials() and not all(_credentials()):
+                return {"status": "unavailable", "reason": "legacy_flex_not_configured"}
             raise HTTPException(status_code=404, detail="No published IBKR Flex report is available")
         return result
     except HTTPException:

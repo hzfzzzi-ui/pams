@@ -210,6 +210,18 @@ def test_http_error_contract_preserved(report, monkeypatch, client):
     assert "detail" in response.json()
 
 
+def test_archive_only_runtime_treats_legacy_performance_as_unavailable(monkeypatch, client):
+    from domain.brokers.ibkr import ibkr_daily_holdings
+
+    monkeypatch.setattr(ibkr, "read_published_performance", lambda: None)
+    monkeypatch.setattr(ibkr_daily_holdings, "credentials", lambda: ("token", "query", "account", "secret"))
+    monkeypatch.setattr(ibkr, "_credentials", lambda: ("token", None))
+
+    response = client.get("/api/ibkr/performance")
+    assert response.status_code == 200
+    assert response.json() == {"status": "unavailable", "reason": "legacy_flex_not_configured"}
+
+
 def test_risk_uses_service_without_endpoint_import(monkeypatch):
     monkeypatch.setitem(sys.modules, "endpoints.ibkr", None)
     monkeypatch.setattr(service, "read_published_performance", lambda: dict(EXPECTED))

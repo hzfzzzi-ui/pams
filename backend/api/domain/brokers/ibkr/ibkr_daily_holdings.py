@@ -161,6 +161,25 @@ def last_publication(cur, *, through=None):
     return cur.fetchone()
 
 
+def publication_status(cur):
+    from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
+    from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+
+    target = expected_statement_date()
+    cur.execute("SELECT to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready")
+    ready = cur.fetchone()['ready']
+    latest = last_publication(cur) if ready else None
+    facts_through = daily_facts_through(cur) if ready else None
+    return {
+        'configured': bool(ready and credentials()),
+        'expected_statement_as_of': target.isoformat(),
+        'statement_as_of': latest['period_end'].isoformat() if latest else None,
+        'publication_verified': bool(latest and latest['period_end'] == target),
+        'facts_as_of': facts_through.isoformat() if facts_through else None,
+        'facts_verified_for_target': bool(facts_through and facts_through >= target),
+    }
+
+
 def _bind_positions(cur, parsed, previous, complete):
     # Prefer an explicit contract alias. Existing name-based snapshot readers
     # require the same stored name across dates for a single contract.
