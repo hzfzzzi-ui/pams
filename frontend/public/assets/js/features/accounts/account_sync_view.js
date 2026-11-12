@@ -38,8 +38,13 @@ export function accountSyncMetadata(doc, data = {}) {
   const updatedAt = hasValuationTime ? valuationAt : syncAt;
   const updatedLabel = Number.isFinite(updatedAt?.valueOf())
     ? localTime.format(updatedAt).replaceAll('/', '-') : '—';
-  metadata.append(element(doc, 'dt', '最近交易'), element(doc, 'dd', data.latest_trade_on || '—'),
-    element(doc, 'dt', hasValuationTime ? '估值更新' : '上次同步'), element(doc, 'dd', updatedLabel));
+  if (Object.hasOwn(data, 'latest_source_on')) {
+    metadata.append(element(doc, 'dt', '最近资料'), element(doc, 'dd', data.latest_source_on || '—'),
+      element(doc, 'dt', '最近入账'), element(doc, 'dd', data.latest_cashflow_on || '—'));
+  } else {
+    metadata.append(element(doc, 'dt', '最近交易'), element(doc, 'dd', data.latest_trade_on || '—'));
+  }
+  metadata.append(element(doc, 'dt', hasValuationTime ? '估值更新' : '上次同步'), element(doc, 'dd', updatedLabel));
   return metadata;
 }
 

@@ -9,7 +9,7 @@ SOURCE_ONLY_ACCOUNTS = frozenset({'ccb_7332', 'ccb_credit_0453', 'gf_7443', 'gf_
 
 
 def confirm(cur, source_id, revision):
-    cur.execute("""SELECT account_code,status,revision FROM public.source_records
+    cur.execute("""SELECT account_code,status,revision,acquisition_method FROM public.source_records
         WHERE source_id=%s AND document_type='cash' AND
         (acquisition_method='manual' OR (acquisition_method IN ('file','screenshot') AND sha256 IS NOT NULL))
         FOR UPDATE""", (str(source_id),))
@@ -18,6 +18,8 @@ def confirm(cur, source_id, revision):
         raise ValueError('此资料不支持银行来源确认')
     if source['status'] == 'published' and source['revision'] == revision + 1:
         return {'source_id': str(source_id), 'revision': source['revision']}
+    if source['acquisition_method'] == 'manual':
+        raise ValueError('手工流水请重新预检并确认入账')
     if source['status'] != 'draft' or source['revision'] != revision:
         from domain.imports.source_records_v2 import SourceRevisionConflict
         raise SourceRevisionConflict('来源资料已变化')

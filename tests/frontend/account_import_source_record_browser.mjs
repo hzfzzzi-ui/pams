@@ -8,6 +8,7 @@ const page=await browser.newPage({viewport:{width:390,height:844}});
 const root=path.resolve('frontend/public'), calls=[], errors=[];
 let source=null, kind='cash', publishes=0, previewUnavailable=true, ocrAvailable=true;
 let mixed = null;
+let manualBank = false;
 page.on('pageerror',e=>errors.push(e.message));
 await page.route('**/*',async route=>{
  const req=route.request(),url=new URL(req.url()),p=url.pathname;
@@ -18,7 +19,7 @@ await page.route('**/*',async route=>{
   if(p.endsWith('/capabilities')) return send({schema_ready:false,source_record_schema_ready:true,source_record_publish_enabled:true,source_record_ocr_available:ocrAvailable,limits:{files:10,file_bytes:10485760}});
   if(p.endsWith('/source-records/context')) return send({accounts:[
    {account_code:'bank_other',label:'合成另一张卡',group_code:'group',group_label:'合成银行',kinds:['cash']},
-   {account_code:'bank',label:'旧名称',selection_label:'合成 4209 储蓄卡',group_code:'group',group_label:'合成银行',currency:'CNY',default_asset_type:'cash',kinds:['cash','trade','holding'],trade_actions:{cash:['income'],stock:['buy']}},
+   {account_code:'bank',label:'旧名称',selection_label:'合成 4209 储蓄卡',group_code:'group',group_label:'合成银行',currency:'CNY',default_asset_type:'cash',kinds:['cash','trade','holding'],source_only_cash:manualBank,trade_actions:{cash:['income','expense'],stock:['buy']}},
    {account_code:'tencent_licaitong',label:'腾讯理财通',group_code:'tencent',group_label:'腾讯',kinds:['trade','holding'],import_modes:['ocr']},
    ...(mixed ? [{account_code:'tencent_licaitong_current_plus',label:'理财通活期+',kinds:['cash'],import_modes:['ocr']}] : []),
   ],counter_accounts:[]});
@@ -44,11 +45,16 @@ await page.route('**/*',async route=>{
   }
   if(p.endsWith('/source-records') && req.method()==='GET') {
    const account=url.searchParams.get('account_code');
-   if (account) assert.equal(account,'tencent_licaitong');
+   if (account) assert.equal(account,manualBank?'bank':'tencent_licaitong');
    return send({sources:source?[source]:[]});
   }
-  if(p.endsWith('/source-records/s/original')) return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')});
+  if(/\/source-records\/(s|cash-draft|fund-draft)\/original$/.test(p)) return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')});
   if(p.endsWith('/detect')) return send({kind:null,status:'unknown'});
+  if(p.endsWith('/source-records/manual') && manualBank) {
+   source={source_id:'s',account_code:'bank',document_type:'cash',acquisition_method:'manual',
+    status:'draft',revision:1,items:[],has_cash_facts:false};
+   return send({source_id:'s',revision:1});
+  }
   if(p.endsWith('/source-records') && req.method()==='POST') {
    if(url.searchParams.get('account_code')==='tencent_licaitong') {
     assert.equal(url.searchParams.get('document_type'),'trade');
@@ -63,10 +69,15 @@ await page.route('**/*',async route=>{
    return send({source_id:'s',revision:2});
   }
   if(p.endsWith('/source-records/s') && req.method()==='GET') return send(source);
-  if(p.endsWith('/source-records/s/reviews')) {const body=req.postDataJSON();assert.equal(body.revision,source.revision);source.items[0].parsed_fields=body.items[0].parsed_fields;source.items[0].review_status=body.items[0].review_status;source.revision++;return send({revision:source.revision});}
+  if(p.endsWith('/source-records/s/reviews')) {
+   const body=req.postDataJSON();assert.equal(body.revision,source.revision);
+   if(manualBank && !source.items.length) source.items.push({source_item_id:'i',parse_method:'manual',raw_fields:{}});
+   source.items[0].parsed_fields=body.items[0].parsed_fields;source.items[0].review_status=body.items[0].review_status;
+   source.revision++;return send({revision:source.revision});
+  }
   if(p.endsWith('/cash-preview')) {
    if(previewUnavailable) { previewUnavailable=false; return send({detail:{message:'合成预检暂不可用'}},503); }
-   const ready=source.items[0].review_status==='confirmed';return send({revision:source.revision,counts:{ready:ready?1:0,pending:ready?0:1,duplicate:0,invalid:0},rows:[{source_item_id:'i',status:ready?'ready':'pending'}],can_publish:ready,can_publish_ready:false,preview_token:ready?'a'.repeat(64):null});
+   const ready=source.items[0].review_status==='confirmed';return send({revision:source.revision,counts:{ready:ready?1:0,pending:ready?0:1,duplicate:0,invalid:0},rows:[{source_item_id:'i',status:ready?'ready':'pending',...(manualBank&&{cash_preview:{amount_cny:'-25.00',fx_rate_to_cny:'1'}})}],can_publish:ready,can_publish_ready:false,preview_token:ready?'a'.repeat(64):null});
   }
   if(p.endsWith('/trade-preview')) return send({revision:source.revision,items:[{source_item_id:'i'}],rows:[{source_item_id:'i',status:'ready'}],can_publish:true,preview_token:'b'.repeat(64)});
   if(p.endsWith('/holding-preview')) {
@@ -74,7 +85,7 @@ await page.route('**/*',async route=>{
    return send({revision:source.revision,holdings:[{source_item_id:'i'}],preview_token:'c'.repeat(64)});
   }
   if(p.endsWith('/holding-publish')) assert.equal(req.postDataJSON().scope.note,'合成范围');
-  if(p.endsWith('/cash-publish')||p.endsWith('/trade-publish')||p.endsWith('/holding-publish')) {assert.equal(req.postDataJSON().revision,source.revision);assert.equal(source.items[0].review_status,'confirmed');source.status='published';publishes++;return send({published:1});}
+  if(p.endsWith('/cash-publish')||p.endsWith('/trade-publish')||p.endsWith('/holding-publish')) {assert.equal(req.postDataJSON().revision,source.revision);assert.equal(source.items[0].review_status,'confirmed');source.status='published';source.has_cash_facts=p.endsWith('/cash-publish');publishes++;return send({published:1});}
   throw new Error('Unexpected API '+req.method()+' '+p);
  }
  const file=path.resolve(root,'.'+p);assert.ok(file.startsWith(root+path.sep));
@@ -171,4 +182,22 @@ try {
  assert.ok(calls.slice(mixedStart).every(([,p])=>!p.endsWith('-publish')));
  assert.equal(publishes,3);assert.deepEqual(errors,[]);
  assert.ok(calls.every(([,p])=>!p.includes('/batches')));
+ mixed=null;manualBank=true;source=null;
+ const manualStart=calls.length;
+ await page.goto('http://import.invalid/account_import.html?account=bank&mode=manual');
+ await page.locator('#mode-manual').click();
+ await page.locator('#kind').selectOption('cash');
+ await page.locator('#add-row').click();
+ await page.locator('#field-business_date').fill('2026-01-02');
+ await page.locator('#field-action').selectOption('expense');
+ await page.locator('#field-net_cash').fill('25.00');
+ await page.locator('#record-form [type=submit]').click();
+ await page.locator('#editor').waitFor({state:'hidden'});
+ await page.locator('#next').click();
+ await page.getByText(/折合 ¥-25.00/).waitFor();
+ assert.equal(source.items[0].parsed_fields.net_cash,'-25.00');
+ await page.getByRole('button',{name:'确认入账',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('已发布'));
+ assert.equal(publishes,4);
+ assert.ok(calls.slice(manualStart).every(([,p])=>!p.endsWith('/confirm-bank-source')));
 } finally {await browser.close();}

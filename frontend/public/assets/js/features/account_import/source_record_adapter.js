@@ -7,6 +7,7 @@ export function sourceBatch(source) {
   return {
     batch_id:id, account_code:source.account_code, kind:source.document_type,
     mode:source.acquisition_method === 'manual' ? 'manual' : 'upload', status:source.status,
+    has_cash_facts:source.has_cash_facts,
     revision:source.revision, updated_at:source.updated_at, completeness:'partial',
     files:source.filename ? [{file_id:id,filename:source.filename,content_type:contentType,
       metadata:{template_status:'matched'}}] : [],
@@ -87,7 +88,8 @@ export function createSourceRecordAdapter(request, recovery) {
         return {batch_id:batch.batch_id,revision:value.revision,preview_token:value.preview_token || readyToken,ready_token:readyToken,
           can_publish:value.can_publish,can_publish_ready:value.can_publish_ready,
           counts:{new:value.counts.ready,duplicates:value.counts.duplicate,blocked:value.counts.invalid,pending:value.counts.pending},
-          rows:value.rows.map(item=>({row_id:item.source_item_id,status:item.status==='invalid'?'blocked':item.status,issues:item.issues}))};
+          rows:value.rows.map(item=>({row_id:item.source_item_id,status:item.status==='invalid'?'blocked':item.status,issues:item.issues,
+            cash_preview:item.cash_preview}))};
       }
       const route = `${path(batch.batch_id)}/trade-preview`;
       const value = await request(route,'POST',{revision:batch.revision});

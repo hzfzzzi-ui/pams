@@ -9,6 +9,21 @@ from domain.imports.source_records_v2 import add_item, create_source
 
 BANK_DUPLICATE_REVIEW_SOURCE = 'bank_duplicate_review'
 
+_UNPOSTED_MANUAL = """
+    FROM public.source_records r JOIN public.source_items i USING(source_id)
+    WHERE r.account_code=ANY(%s::text[]) AND r.status='published'
+      AND r.document_type='cash' AND r.acquisition_method='manual' AND i.review_status='confirmed'
+      AND i.parsed_fields->>'action' IS DISTINCT FROM 'balance'
+      AND NOT EXISTS (SELECT 1 FROM public.pams_cashflow_fact f WHERE f.source_item_id=i.source_item_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM public.source_records fix JOIN public.source_items fi USING(source_id)
+          JOIN public.pams_cashflow_fact f ON f.source_item_id=fi.source_item_id
+          WHERE fix.account_code=r.account_code AND fix.status='published'
+            AND fix.acquisition_method='manual' AND fi.review_status='confirmed'
+            AND fi.raw_fields->>'corrects_source_item_id'=i.source_item_id::text
+      )
+"""
+
 _DUPLICATES = f"""
 WITH bank_rows AS (
     SELECT r.account_code,r.source_id,r.filename,i.source_item_id,i.source_position,
@@ -63,7 +78,20 @@ def summaries(cur, active):
                 (accounts,))
     for row in cur.fetchall():
         result[row['account_code']]['duplicate_count'] = row['count']
+    cur.execute("SELECT r.account_code,count(*) AS count " + _UNPOSTED_MANUAL + " GROUP BY r.account_code", (accounts,))
+    for row in cur.fetchall():
+        result[row['account_code']]['unposted_manual_count'] = row['count']
     return result
+
+
+def unposted_manual(cur, account_code, offset):
+    if account_code not in SOURCE_ONLY_ACCOUNTS:
+        return []
+    cur.execute("""SELECT i.parsed_fields->>'business_date' AS day,i.parsed_fields->>'currency' AS currency,
+        i.parsed_fields->>'net_cash' AS amount,COALESCE(i.parsed_fields->>'summary',i.parsed_fields->>'note') AS summary
+        """ + _UNPOSTED_MANUAL + " ORDER BY i.created_at DESC,i.source_item_id LIMIT 100 OFFSET %s",
+        ([account_code], offset))
+    return [dict(row) for row in cur.fetchall()]
 
 
 def anomalies(cur, account_code, offset=0):

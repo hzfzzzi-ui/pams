@@ -353,8 +353,11 @@ def create_manual_source_item(source_id: UUID, body: ManualSourceItem, request: 
 @router.get('/source-records/{source_id}')
 def get_source_record(source_id: UUID, request: Request):
     def read(cur):
-        cur.execute('''SELECT source_id,account_code,source_name,acquisition_method,document_type,filename,
-            file_format,status,revision,created_at,updated_at FROM public.source_records WHERE source_id=%s''', (str(source_id),))
+        cur.execute('''SELECT r.source_id,account_code,source_name,acquisition_method,document_type,filename,
+            file_format,status,revision,created_at,updated_at,
+            EXISTS (SELECT 1 FROM public.source_items i JOIN public.pams_cashflow_fact f USING(source_item_id)
+                    WHERE i.source_id=r.source_id) AS has_cash_facts
+            FROM public.source_records r WHERE r.source_id=%s''', (str(source_id),))
         row = cur.fetchone()
         if not row:
             raise store.ImportProblem('source_missing', '来源资料不存在', 404)
@@ -431,9 +434,9 @@ def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request
     from domain.imports.cash_publication_v2 import publish
 
     def publish_ledger(cur):
-        cur.execute('SELECT account_code FROM public.source_records WHERE source_id=%s', (str(source_id),))
+        cur.execute('SELECT account_code,acquisition_method FROM public.source_records WHERE source_id=%s', (str(source_id),))
         row = cur.fetchone()
-        if row and row['account_code'] in SOURCE_ONLY_ACCOUNTS:
+        if row and row['account_code'] in SOURCE_ONLY_ACCOUNTS and row['acquisition_method'] != 'manual':
             raise ValueError('此银行账户请先确认来源资料，流水异常在同步中心处理')
         return publish(cur, source_id=source_id, revision=body.revision,
                        mode=body.mode, preview_token=body.preview_token)
