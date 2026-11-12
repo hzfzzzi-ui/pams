@@ -59,7 +59,8 @@ export function createLedgerController({ root = document, host = window, sheetSe
   });
   const editor = createLedgerEditor({
     model, templates, sheets, dom, current,
-    canEdit: () => !state.streamIsRemembered, reload: loadWorkbench,
+    canEdit: () => !state.streamIsRemembered,
+    reload: () => loadStream(0, {keepPosition: true}),
   });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
     renderTransferPair: transfers.renderPair,
@@ -128,13 +129,14 @@ function setStreamAccountGroups(groups) {
   if (firstCatalog) transfers.applyFilters({resetLimit: false});
 }
 
-async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
+async function loadStream(offset = 0, {replay = false, restore = false, keepPosition = false} = {}) {
   if (!current() || state.activePanel !== 'recent' || offset == null) return null;
   if (offset > 0 && streamLoading) return null;
   const generation = ++streamGeneration;
   const query = variant + '|' + ledgerStreamQuery(state);
   const remembered = offset === 0 && replay && memory?.read('stream', query);
-  if (offset === 0) {
+  const loadedCount = keepPosition ? state.streamRows?.length ?? 0 : 0;
+  if (offset === 0 && !keepPosition) {
     showRefresh(remembered ? 'refreshing' : '');
     state.streamIsRemembered = Boolean(remembered);
     state.streamRows = remembered?.rows || [];
@@ -146,8 +148,25 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
   }
   streamLoading = true;
   try {
-    const result = await reads.run('stream', signal => readLedgerStream(state, {offset, signal}));
+    const result = await reads.run('stream', async signal => {
+      const first = await readLedgerStream(state, {offset, signal});
+      if (first.next_offset == null || first.next_offset >= loadedCount) return first;
+      const rows = [...first.rows];
+      let nextOffset = first.next_offset;
+      while (nextOffset != null && nextOffset < loadedCount) {
+        signal.throwIfAborted();
+        const next = await readLedgerStream(state, {offset: nextOffset, signal});
+        rows.push(...next.rows);
+        nextOffset = next.next_offset;
+      }
+      return {...first, rows, next_offset: nextOffset};
+    });
     if (!current() || generation !== streamGeneration || state.activePanel !== 'recent') return null;
+    const scroller = keepPosition ? pageScroller(host) : null;
+    const scrollTop = scroller?.scrollTop;
+    const visibleRow = scroller && Array.from($('recentRows').querySelectorAll('[data-detail-target]'))
+      .find(row => row.getBoundingClientRect().bottom > Math.max(0, scroller.getBoundingClientRect().top));
+    const rowTop = visibleRow?.getBoundingClientRect().top;
     if (offset === 0) {
       state.streamIsRemembered = false;
       state.streamRows = [];
@@ -158,6 +177,12 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
     state.streamRows.push(...result.rows.filter(row => !existing.has(String(row.id))));
     state.streamNext = result.next_offset;
     renderRecentRows();
+    if (scroller) {
+      const sameRow = visibleRow && $('recentRows').querySelector(
+        `[data-detail-target="${visibleRow.dataset.detailTarget}"]`);
+      const top = sameRow ? scroller.scrollTop + sameRow.getBoundingClientRect().top - rowTop : scrollTop;
+      scroller.scrollTo({top, behavior: 'instant'});
+    }
     if (offset === 0) {
       memory?.write('stream', query, {rows: state.streamRows, account_groups: state.streamAccountGroups});
       showRefresh();
