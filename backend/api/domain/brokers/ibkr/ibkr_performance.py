@@ -74,6 +74,16 @@ def published_report_status(conn=None) -> dict[str, Any]:
     return report_state.report_quality(report, latest)
 
 
+def flex_credentials() -> tuple[str | None, str | None]:
+    token = os.environ.get("IBKR_FLEX_TOKEN")
+    query_id = (
+        os.environ.get("IBKR_FLEX_POSITIONS_QUERY_ID")
+        or os.environ.get("IBKR_FLEX_OPEN_POSITIONS_QUERY_ID")
+        or os.environ.get("IBKR_FLEX_QUERY_ID")
+    )
+    return token, query_id
+
+
 def read_published_performance() -> dict[str, Any] | None:
     from domain.brokers.ibkr import ibkr_daily_close_read as daily
     with get_conn() as conn:
