@@ -93,6 +93,10 @@
               </div>
             </div>
           </div>
+          <div class="ledgerOverviewCard" id="overviewTransferSection" hidden>
+            <div class="sectionTitle"><h3>划转汇总</h3></div>
+            <div id="transferSummary" class="ledgerTransferSummary"></div>
+          </div>
         </div>
       </section>
     </div>
@@ -128,6 +132,14 @@
                     <span>本月至今</span>
                     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"></path></svg>
                   </label>
+                  <label id="transferHistoryOption" hidden>
+                    <input type="radio" name="recentPeriod" value="history" />
+                    <span>历史月份</span>
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"></path></svg>
+                  </label>
+                  <label class="ledgerTransferMonth" id="transferMonthPicker" hidden>选择月份
+                    <input id="transferMonth" type="month" disabled />
+                  </label>
                 </fieldset>
                 <button class="ledgerPeriodApply" type="submit">确认</button>
               </form>
@@ -161,20 +173,9 @@
         </div>
         <div id="recentRows" class="ledgerList"></div>
         <div id="transferReviewPanel" hidden>
-          <section class="ledgerSection ledgerJumpCard" id="transfers">
-            <div class="sectionTitle">
-              <h3>划转汇总</h3>
-              <div class="ledgerTextSwitch" role="group" aria-label="划转统计周期">
-                <button type="button" data-transfer-period="month" aria-pressed="false">本月</button>
-                <button type="button" data-transfer-period="ytd" aria-pressed="true">本年</button>
-                <button type="button" data-transfer-period="history" aria-pressed="false">历史月份</button>
-              </div>
-            </div>
-            <label class="ledgerTransferMonth" id="transferMonthPicker" hidden>选择月份
-              <input id="transferMonth" type="month" required />
-            </label>
-            <div id="transferSummary" class="ledgerTransferSummary" aria-live="polite"></div>
-          </section>
+          <div id="transfers" class="ledgerJumpCard">
+            <p id="transferReviewStatus" class="muted" role="status" hidden></p>
+          </div>
           <section class="ledgerSection" id="transferConfirmedSection">
             <div class="sectionTitle"><h3>已确认</h3><span id="transferConfirmedCount" class="muted"></span></div>
             <div id="transferConfirmed"></div>

@@ -48,9 +48,14 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const events = createLedgerEvents(current);
   const sheets = createLedgerSheets(sheetService || createBottomSheet(root.ownerDocument || root), events, current);
   const overview = createLedgerOverview({ root, host, state, model, dom, ChartClass });
-  const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderOverviewCategoryInsight, renderRules, renderTrendChart } = overview;
+  const { renderOverviewPeriodButtons, renderLedgerMobileHero, renderTransferSummary, renderOverviewCategoryInsight, renderRules, renderTrendChart } = overview;
   const transfers = createLedgerTransfers({
-    root, state, model, dom, events, reads, current, memory, variant, showRefresh, reloadWorkbench: loadWorkbench,
+    state, model, dom, events, reads, current, memory, variant, showRefresh, reloadWorkbench: loadWorkbench,
+    reloadStream: () => loadStream().catch(showError),
+    onReviewChange: () => {
+      closeRecentPeriod();
+      renderRecentPeriodButton();
+    },
   });
   const editor = createLedgerEditor({
     model, templates, sheets, dom, current,
@@ -58,7 +63,10 @@ export function createLedgerController({ root = document, host = window, sheetSe
   });
   const listView = createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails,
     renderTransferPair: transfers.renderPair,
-    reloadRecent: () => loadStream().catch(showError),
+    isTransferReview: transfers.isOpen,
+    reloadRecent: change => transfers.isOpen()
+      ? change === 'period' ? transfers.load({replay: true}) : transfers.applyFilters()
+      : loadStream().catch(showError),
     loadMore: () => loadStream(state.streamNext).catch(showError),
   });
   const { renderRecentSearchButton, openRecentSearchSheet, renderRecentAccountPicker, bindRecentAccountPicker, closeRecentAccountPicker, renderRecentPeriodButton,
@@ -117,7 +125,7 @@ function setStreamAccountGroups(groups) {
   if (!groups) return;
   const firstCatalog = !state.streamAccountGroups.length && groups.length;
   state.streamAccountGroups = groups;
-  if (firstCatalog) transfers.render();
+  if (firstCatalog) transfers.applyFilters({resetLimit: false});
 }
 
 async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
@@ -169,6 +177,7 @@ async function loadStream(offset = 0, {replay = false, restore = false} = {}) {
 function renderAll(data) {
   renderOverviewPeriodButtons();
   renderLedgerMobileHero(data);
+  renderTransferSummary(data);
   renderOverviewCategoryInsight(data);
   renderRules(data.classification_rules || []);
   renderTrendChart(data);

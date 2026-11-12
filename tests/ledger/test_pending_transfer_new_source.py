@@ -97,6 +97,7 @@ def test_manual_pending_matches_an_unclassified_opposite_leg_across_months(empty
                    note='Synthetic receipts reviewed', confirmed=True)
     with TestClient(app) as client:
         overview = client.get(overview_url).raise_for_status().json()
+        assert overview['transfer_summary_ytd'] == []
         assert [row['id'] for row in client.get(pending_url).raise_for_status().json()['manual_pending']] == [anchor]
         assert client.get(options_url + '?month=2026-11').raise_for_status().json()['rows'] == []
         options = client.get(options_url).raise_for_status().json()['rows']
@@ -118,6 +119,10 @@ def test_manual_pending_matches_an_unclassified_opposite_leg_across_months(empty
         assert after_months.get('2026-11', {}).get('income', 0) == 0
         transfers = client.get(pending_url).raise_for_status().json()
         assert transfers['manual_pending'] == []
+        assert after['transfer_summary_month'] == transfers['transfer_summary_month'] == []
+        summary = after['transfer_summary_ytd']
+        assert summary == transfers['transfer_summary_ytd']
+        assert [(row['match_type'], row['count'], row['amount']) for row in summary] == [('fx_conversion', 1, 350)]
         pair, = transfers['transfer_pairs']
         assert pair['id'] == saved['transfer_id'] and pair['match_type'] == 'fx_conversion'
         assert (pair['currency_norm'], pair['target_currency'], pair['source_date'], pair['target_date']) == (
