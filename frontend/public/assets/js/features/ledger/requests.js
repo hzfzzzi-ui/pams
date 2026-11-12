@@ -23,10 +23,10 @@ export function readLedgerStream(state, { offset, signal }) {
   return jget(`/api/ledger/workbench?${ledgerStreamQuery(state, offset)}`, { cache: false, signal });
 }
 
-async function updateLedger(path, body) {
+async function updateLedger(path, body, options) {
   const invalidate = pageDataInvalidator();
   invalidate();
-  try { return await jpost(path, body); }
+  try { return await jpost(path, body, options); }
   finally { invalidate(); }
 }
 
@@ -49,5 +49,5 @@ export function confirmTransferPair(pair) {
     from_kind: pair.source_kind || 'cashflow', from_id: pair.source_row_id,
     to_kind: pair.target_kind || 'cashflow', to_id: pair.target_row_id,
     note: '在收支内部划转页人工核对确认', confirmed: true,
-  });
+  }, {includeErrorDetail: true});
 }

@@ -447,10 +447,11 @@ def confirm_transfer(req: ConfirmTransferRequest):
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if _table_exists(cur, 'source_records'):
-                from domain.imports.isolation import source_enabled
+                from domain.imports.isolation import account_import_scope, source_enabled
                 from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
-                if not source_enabled(cur):
-                    raise ValueError('transfer confirmation requires source access')
+                with account_import_scope():
+                    if not source_enabled(cur):
+                        raise ValueError('来源核验未启用，暂时无法确认配对')
             else:
                 from domain.ledger import confirmed_transfers
             result = confirmed_transfers.confirm(cur, **req.model_dump())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +14,26 @@ import pytest
 from fastapi import HTTPException
 
 from endpoints import ledger  # noqa: E402
+
+
+def test_confirm_source_record_transfer_uses_runtime_scope(monkeypatch):
+    from domain.imports import isolation
+    from domain.ledger import confirmed_transfers_v2
+    from endpoints import bank_reconcile
+
+    conn = MagicMock()
+    monkeypatch.setenv("PAMS_IMPORT_RUNTIME_ENABLED", "true")
+    monkeypatch.setattr(bank_reconcile, "get_conn", lambda: conn)
+    monkeypatch.setattr(bank_reconcile, "_table_exists", lambda cur, table: table == "source_records")
+    monkeypatch.setattr(isolation, "source_enabled", lambda cur: isolation.runtime_import_active())
+    confirm = MagicMock(return_value={"transfer_id": "fixture"})
+    monkeypatch.setattr(confirmed_transfers_v2, "confirm", confirm)
+    request = bank_reconcile.ConfirmTransferRequest(
+        from_kind="cashflow", from_id=1, to_kind="cashflow", to_id=2, note="人工核对", confirmed=True,
+    )
+    assert bank_reconcile.confirm_transfer(request) == {"transfer_id": "fixture"}
+    assert confirm.call_args.kwargs == request.model_dump()
+    assert not isolation.runtime_import_active()
 
 @pytest.mark.parametrize("month", ["2099-01", "2026-13"])
 def test_ledger_workbench_rejects_invalid_history_month_before_connecting(monkeypatch, month) -> None:
