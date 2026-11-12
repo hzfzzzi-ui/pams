@@ -34,10 +34,19 @@ export function updateLedgerRow(row, fields) {
   return updateLedger(`/api/ledger/rows/${encodeURIComponent(row.id)}/update`, fields);
 }
 
-export function readLedgerTransfers({ month, signal }) {
+export function readLedgerTransfers({ month, manualPending, signal }) {
   const params = new URLSearchParams({ view: 'transfers' });
   if (month) params.set('month', month);
+  if (manualPending) params.set('manualPending', 'true');
   return jget(`/api/ledger/workbench?${params}`, { cache: false, signal });
+}
+
+export function readManualTransferOptions(anchor, { month, offset }) {
+  const params = new URLSearchParams({ offset });
+  if (month) params.set('month', month);
+  return jget(`/api/bank-reconcile/transfers/manual-pending/${encodeURIComponent(anchor)}/options?${params}`, {
+    cache: false,
+  });
 }
 
 export function readTransferCandidates() {
@@ -49,5 +58,6 @@ export function confirmTransferPair(pair) {
     from_kind: pair.source_kind || 'cashflow', from_id: pair.source_row_id,
     to_kind: pair.target_kind || 'cashflow', to_id: pair.target_row_id,
     note: '在收支内部划转页人工核对确认', confirmed: true,
+    ...(pair.manual_anchor_id ? {manual_anchor_id: pair.manual_anchor_id} : {}),
   }, {includeErrorDetail: true});
 }
