@@ -1278,7 +1278,7 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
                            account_profiles=None, decisions=None) -> list[dict[str, Any]]:
     from domain.ledger.cash_transfer_pairs import cash_pair_type
-    from domain.ledger.confirmed_transfers_v2 import REDEMPTION_PURPOSE, transfer_accounting_identity
+    from domain.ledger.confirmed_transfers_v2 import FX_PAIR, REDEMPTION_PURPOSE, transfer_accounting_identity
 
     result = []
     if decisions is None:
@@ -1296,7 +1296,7 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
         if redemption:
             kind, receipt_day = transfer_accounting_identity(left, right)
             match_day = _as_date(receipt_day)
-        elif cash_pairs_only:
+        elif cash_pairs_only and kind != FX_PAIR:
             kind = cash_pair_type(item['from_account_code'], item['to_account_code'], account_profiles or {})
         fx_join = _daily_fx_join(cur, currency_sql='matches.currency_norm', date_sql='matches.match_date', alias='fx_hist')
         cur.execute(f"""WITH matches AS (SELECT %(currency)s::text AS currency_norm, %(day)s::date AS match_date)
@@ -1629,6 +1629,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
 
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30,
                                    include_transfer_pairs: bool = False, pair_cards: bool = False, view: str = "full",
+                                   include_manual_pending: bool = False,
                                    period: str = "ytd", account: str = "", account_group: str = "",
                                    flow: str = "", search: str = "",
                                    sort: str = "", offset: int = 0, limit: int = 80,
@@ -1711,11 +1712,16 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     month_transfer_matches = [m for m in transfer_matches if m.get('match_date_obj') and month_start <= m['match_date_obj'] <= month_end]
     ytd_transfer_matches = [m for m in transfer_matches if m.get('match_date_obj') and ytd_start <= m['match_date_obj'] <= month_end]
     if view == 'transfers':
+        manual_pending = []
+        if redesigned and include_manual_pending:
+            from domain.ledger.manual_transfer_pairs import pending_rows
+            manual_pending = pending_rows(cur, start=ytd_start, end=month_end, **original_args)
         return {
             'month': month_start.strftime('%Y-%m'),
             'transfer_summary_month': _transfer_summary(month_transfer_matches),
             'transfer_summary_ytd': _transfer_summary(ytd_transfer_matches),
             'transfer_pairs': _transfer_pair_details(cur, ytd_transfer_matches) if redesigned else [],
+            **({'manual_pending': manual_pending} if include_manual_pending else {}),
         }
     if view in {'overview', 'full'}:
         overview = {

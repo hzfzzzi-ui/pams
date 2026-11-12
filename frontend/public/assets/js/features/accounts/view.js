@@ -317,6 +317,7 @@ function matchTypeLabel(type) {
     investment_funding: "投资入金",
     investment_withdrawal: "投资出金",
     internal_transfer: "普通转账",
+    fx_conversion: "换汇",
     benefit_income: "福利收入确认",
     account_transfer: "银行转账匹配",
     credit_card_payment: "信用卡还款匹配",

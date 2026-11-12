@@ -107,6 +107,7 @@ def ledger_workbench(
     account: str = Query("", max_length=120),
     accountGroup: str = Query("", max_length=120),
     pairCards: bool = False,
+    manualPending: bool = False,
     flow: str = Query("", pattern="^(|income|expense|income_expense|internal_transfer|cashflow|cash_transfer)$"),
     search: str = Query("", max_length=200),
     matchingAccounts: str = Query("", max_length=1800),
@@ -128,6 +129,7 @@ def ledger_workbench(
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return build_ledger_workbench_payload(cur, month=month, base_currency=baseCurrency.upper(),
                                                   recent_days=recentDays, include_transfer_pairs=includeTransferPairs, pair_cards=pairCards,
+                                                  include_manual_pending=manualPending,
                                                   view=view, period=period, account=account, account_group=accountGroup,
                                                   flow=flow, search=search,
                                                   sort=sort, offset=offset, limit=limit,

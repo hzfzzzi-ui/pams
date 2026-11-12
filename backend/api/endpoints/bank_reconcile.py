@@ -12,7 +12,7 @@ from uuid import UUID
 import psycopg2
 import psycopg2.extras
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
@@ -398,6 +398,7 @@ class ConfirmTransferRequest(BaseModel):
     to_id: int
     note: str
     confirmed: bool = False
+    manual_anchor_id: int | None = None
 
 
 class RevokeTransferRequest(BaseModel):
@@ -446,6 +447,7 @@ def confirm_transfer(req: ConfirmTransferRequest):
     """Record a user-confirmed link between two independent source facts."""
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            arguments = req.model_dump()
             if _table_exists(cur, 'source_records'):
                 from domain.imports.isolation import account_import_scope, source_enabled
                 from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
@@ -453,9 +455,31 @@ def confirm_transfer(req: ConfirmTransferRequest):
                     if not source_enabled(cur):
                         raise ValueError('来源核验未启用，暂时无法确认配对')
             else:
+                if req.manual_anchor_id is not None:
+                    raise ValueError('当前账本不支持手动选择划转对手。')
                 from domain.ledger import confirmed_transfers
-            result = confirmed_transfers.confirm(cur, **req.model_dump())
+                arguments.pop('manual_anchor_id')
+            result = confirmed_transfers.confirm(cur, **arguments)
         return _norm(result)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/bank-reconcile/transfers/manual-pending/{anchor_id}/options")
+def manual_transfer_options(
+    anchor_id: int,
+    month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    offset: int = Query(0, ge=0),
+):
+    from domain.ledger.manual_transfer_pairs import pairing_options
+
+    try:
+        with get_conn() as conn:
+            conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if not _table_exists(cur, 'source_records'):
+                    raise ValueError('当前账本不支持手动选择划转对手。')
+                return _norm(pairing_options(cur, anchor_id, month=month, offset=offset))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -535,7 +559,9 @@ def list_transfer_matches(limit: int = 200):
             profiles = _load_accounts_config().get('accounts') or {}
             for match in matches:
                 left, right = match['from_evidence'], match['to_evidence']
-                if right['kind'] == 'trade':
+                if left.get('pair_type') == 'fx_conversion':
+                    match_type = 'fx_conversion'
+                elif right['kind'] == 'trade':
                     match_type = 'investment_funding'
                 elif left['kind'] == 'trade':
                     match_type = 'investment_withdrawal'

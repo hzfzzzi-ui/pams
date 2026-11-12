@@ -12,6 +12,7 @@ from domain.imports.source_original_read import SourceOriginals
 
 REDEMPTION_ACCOUNT = 'tencent_licaitong'
 REDEMPTION_PURPOSE = 'fund_redemption_receipt'
+FX_PAIR = 'fx_conversion'
 
 
 def _reported_fields(raw):
@@ -31,6 +32,8 @@ def _redemption_arrival(fields, raw, trade_day):
 
 
 def transfer_accounting_identity(left, right):
+    if left.get('pair_type') == FX_PAIR:
+        return FX_PAIR, left['day']
     if left.get('purpose') == REDEMPTION_PURPOSE:
         return 'internal_transfer', left['receipt_day']
     kind = ('investment_funding' if right['kind'] == 'trade' else
@@ -155,7 +158,7 @@ def occupied_cashflow_ids(cur):
     return {row[key] for row in cur.fetchall() for key in ('from_cashflow_id', 'to_cashflow_id') if row[key] is not None}
 
 
-def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
+def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_anchor_id=None):
     if cur.connection.autocommit or confirmed is not True or not isinstance(note,str) or not note.strip() or len(note)>1000:
         raise ValueError('explicit transfer confirmation and a transaction are required')
     keys=[(from_kind,from_id),(to_kind,to_id)]; accounts=set()
@@ -173,12 +176,28 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed):
         (from_kind,from_id,from_id,from_kind,from_id,from_id,to_kind,to_id,to_id,to_kind,to_id,to_id))
     existing = cur.fetchall()
     if existing:
+        existing_left = dict(existing[0]['from_evidence'] or {})
+        pair_type = existing_left.pop('pair_type', None)
         if (len(existing) == 1 and existing[0]['confirmation_type'] == 'transfer' and
-                existing[0]['from_evidence'] == a and existing[0]['to_evidence'] == b and
+                existing_left == a and existing[0]['to_evidence'] == b and
+                (pair_type is None or manual_anchor_id in (from_id, to_id)) and
                 existing[0]['note'] == note.strip()):
             return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
         raise ValueError('transfer leg already confirmed')
-    if not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b):
+    if manual_anchor_id is not None:
+        from domain.ledger.manual_transfer_pairs import load_leg, manual_pair_type
+
+        if from_kind != 'cashflow' or to_kind != 'cashflow' or manual_anchor_id not in (from_id, to_id):
+            raise ValueError('请选择两笔现金流水，并保留原待配对记录。')
+        left = load_leg(cur, from_id, date.fromisoformat(a['day']))
+        right = load_leg(cur, to_id, date.fromisoformat(b['day']))
+        anchor, other = (left, right) if manual_anchor_id == from_id else (right, left)
+        pair_type = manual_pair_type(anchor, other) if left and right and is_independent_opposite_pair(a, b) else None
+        if not pair_type:
+            raise ValueError('两笔流水已变更或不符合配对条件，请重新选择。')
+        if pair_type == FX_PAIR:
+            a = {**a, 'pair_type': FX_PAIR}
+    elif not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b):
         raise ValueError('两笔流水的来源、币种或金额不符合配对条件')
     if a.get('purpose') == REDEMPTION_PURPOSE:
         receipt = _leg_rows(cur, 'cashflow', [to_id], lock=False)[0]
@@ -226,9 +245,15 @@ def read(cur, *, limit=200, originals=None):
             continue
         try:
             left, right = row['from_evidence'], row['to_evidence']
+            left_fact = dict(left)
+            pair_type = left_fact.pop('pair_type', None)
             valid = (_valid_id(left['id']) and _valid_id(right['id'])
-                     and verified.get((left['kind'], left['id'])) == left
-                     and verified.get((right['kind'], right['id'])) == right)
+                     and verified.get((left['kind'], left['id'])) == left_fact
+                     and verified.get((right['kind'], right['id'])) == right
+                     and (pair_type is None or (
+                         pair_type == FX_PAIR and left['kind'] == right['kind'] == 'cashflow'
+                         and left['currency'] != right['currency'] and is_independent_opposite_pair(left, right)
+                     )))
         except (ValueError, KeyError, TypeError):
             valid = False
         row['evidence_status'] = 'confirmed' if valid else 'invalidated'

@@ -1,13 +1,14 @@
 import { isReadCancelled } from '../../shared/read_scope.js';
 import { escapeHtml as escape, formatMoneyFixed2 as money } from '../../utils.js';
 import { renderLedgerDays } from './days.js';
-import { confirmTransferPair, readLedgerTransfers, readTransferCandidates } from './requests.js';
+import { confirmTransferPair, readLedgerTransfers, readManualTransferOptions, readTransferCandidates } from './requests.js';
 
 const TYPES = {
   internal_transfer: '普通转账',
   credit_card_payment: '信用卡还款',
   investment_funding: '投资入金',
   investment_withdrawal: '投资出金',
+  fx_conversion: '换汇',
 };
 const FIRST_PAGE = 10;
 const moneyText = (value, currency) => value == null ? '—' : money(value, currency);
@@ -38,6 +39,89 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
   let submitting = false;
   let confirmedLimit = FIRST_PAGE;
   let pendingLimit = FIRST_PAGE;
+  let manualLimit = FIRST_PAGE;
+  const manualOptions = new WeakMap();
+
+  function accountName(code) {
+    const account = model.ledgerAccountIdentity(code);
+    return [account.institution, account.name].filter(Boolean).join(' ');
+  }
+
+  function manualLeg(row) {
+    return `<span class="ledgerPairLeg">
+      <strong>${escape(accountName(row.account_code))}</strong>
+      <span>${row.amount > 0 ? '+' : ''}${escape(moneyText(row.amount, row.currency))}</span>
+      <small>${escape(row.transaction_date)} · ${escape(row.description || row.summary || '暂无摘要')}</small>
+    </span>`;
+  }
+
+  function renderManualPending() {
+    const host = $('transferManualPending');
+    if (!data || review !== 'pending') return;
+    const rows = (data.manual_pending || []).filter(row => state.transferPeriod === 'ytd'
+      || row.transaction_date.startsWith(data.month));
+    host.innerHTML = rows.length ? `<h4>单边待配对 <small>${rows.length} 笔</small></h4>` +
+      rows.slice(0, manualLimit).map(row => `<details class="ledgerPair" data-manual-anchor="${row.id}">
+        <summary>${manualLeg(row)}<small>${escape(row.subcategory || '内部转账')} · 待选${row.amount > 0 ? '转出' : '转入'}流水</small></summary>
+        <div class="ledgerPairDetails">
+          ${row.source_evidence_status === 'verified' ? `
+            <div class="ledgerManualPairSearch">
+              <label>查找月份 <input type="month" class="formInput" data-manual-month max="${currentBusinessMonth()}"
+                placeholder="YYYY-MM" pattern="[0-9]{4}-(0[1-9]|1[0-2])"></label>
+              <button class="btn" type="button" data-find-manual>查找另一笔</button>
+            </div>
+            <div data-manual-options aria-live="polite"></div>`
+            : '<p class="muted">来源凭证待核对。</p>'}
+        </div>
+      </details>`).join('') + (rows.length > manualLimit
+        ? '<button class="btn ledgerPairMore" type="button" data-expand-manual>展开更多单边流水</button>' : '') : '';
+  }
+
+  async function findManualOptions(button) {
+    const card = button.closest('[data-manual-anchor]');
+    const list = card.querySelector('[data-manual-options]');
+    const find = card.querySelector('[data-find-manual]');
+    const anchorId = Number(card.dataset.manualAnchor);
+    const monthInput = card.querySelector('[data-manual-month]');
+    const month = monthInput.value;
+    if (!monthInput.reportValidity()) return;
+    const previous = manualOptions.get(card);
+    const offset = previous?.month === month ? Number(button.dataset.manualOffset || 0) : 0;
+    const selection = offset ? previous.choices : new Map();
+    if (find.disabled) return;
+    if (!offset) list.textContent = '正在查找…';
+    find.disabled = button.disabled = monthInput.disabled = true;
+    try {
+      const result = await readManualTransferOptions(anchorId, {month, offset});
+      if (!current() || !card.isConnected) return;
+      list.querySelector('[data-manual-offset]')?.remove();
+      const anchor = data.manual_pending.find(row => row.id === anchorId);
+      if (!anchor) return;
+      for (const row of result.rows) {
+        const [source, target] = anchor.amount < 0 ? [anchor, row] : [row, anchor];
+        selection.set(row.id, {source_row_id: source.id, target_row_id: target.id, manual_anchor_id: anchorId});
+      }
+      manualOptions.set(card, {month, choices: selection});
+      if (!offset) list.textContent = result.rows.length ? '' : '这个范围没有可选流水。';
+      list.insertAdjacentHTML('beforeend', result.rows.map(row => `<details class="ledgerPair">
+        <summary>${manualLeg(row)}</summary>
+        <div class="ledgerPairDetails">
+          <p class="muted">${row.match_type === 'fx_conversion' ? '换汇 · ' : ''}请核对两笔流水是否为同一笔资金。</p>
+          <button class="btn" type="button" data-confirm-manual="${row.id}">确认这两笔配对</button>
+          <p class="muted" data-pair-status role="status"></p>
+        </div>
+      </details>`).join(''));
+      if (result.next_offset != null) list.insertAdjacentHTML('beforeend',
+        `<button class="btn ledgerPairMore" type="button" data-manual-offset="${result.next_offset}">查看更多流水</button>`);
+    } catch (error) {
+      if (current() && card.isConnected) {
+        list.textContent = error.status === 409
+          ? '流水状态已变更或查询月份无效，请刷新待配对列表后重试。' : '读取失败，请重新查找。';
+      }
+    } finally {
+      find.disabled = button.disabled = monthInput.disabled = false;
+    }
+  }
 
   function message(id, text) {
     const element = $(id);
@@ -123,6 +207,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     const summary = isYear ? data.transfer_summary_ytd : data.transfer_summary_month;
     $('transferSummary').innerHTML = Object.entries(TYPES).map(([kind, label]) => {
       const item = (summary || []).find(row => row.match_type === kind);
+      if (kind === 'fx_conversion' && !item) return '';
       return `<div><span>${label}</span><strong>${moneyText(item ? item.amount : 0)}</strong><small>${item?.count || 0} 对</small></div>`;
     }).join('');
     $('transferConfirmedCount').textContent = `${confirmed.length} 对`;
@@ -156,11 +241,12 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     if (!review) return;
     data = null;
     showRefresh();
-    confirmedLimit = pendingLimit = FIRST_PAGE;
+    confirmedLimit = pendingLimit = manualLimit = FIRST_PAGE;
     $('transferConfirmedCount').textContent = '';
     $('transferConfirmed').textContent = '';
     $('transferPendingCount').textContent = '';
     $('transferPending').textContent = '';
+    $('transferManualPending').textContent = '';
     const history = state.transferPeriod === 'history';
     $('transferMonthPicker').hidden = !history;
     root.querySelectorAll('[data-transfer-period]').forEach(button => {
@@ -178,7 +264,8 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       $('transferSummary').textContent = '请选择要查看的月份。';
       return;
     }
-    const cacheKey = variant + '|' + month;
+    const manualPending = review === 'pending';
+    const cacheKey = variant + '|' + month + (manualPending ? '|pending' : '');
     const remembered = replay && memory?.read('transfers', cacheKey);
     showRefresh(remembered ? 'refreshing' : '');
     if (remembered) {
@@ -188,10 +275,11 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       $('transferSummary').textContent = '正在加载划转…';
     }
     try {
-      const result = await reads.run('transfers', signal => readLedgerTransfers({ month, signal }));
+      const result = await reads.run('transfers', signal => readLedgerTransfers({ month, manualPending, signal }));
       if (!current()) return;
       data = result;
       render();
+      renderManualPending();
       memory?.write('transfers', cacheKey, result);
       showRefresh();
       if (review === 'pending' && !candidates) {
@@ -251,12 +339,19 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
         load();
       } else if (button.hasAttribute('data-retry-candidates')) {
         loadCandidates();
+      } else if (button.hasAttribute('data-expand-manual')) {
+        manualLimit = Infinity;
+        renderManualPending();
+      } else if (button.hasAttribute('data-find-manual') || button.hasAttribute('data-manual-offset')) {
+        await findManualOptions(button);
       } else if (button.dataset.expandPairs) {
         if (button.dataset.expandPairs === 'pending') pendingLimit = Infinity;
         else confirmedLimit = Infinity;
         render();
-      } else if (button.dataset.confirmPair && !submitting) {
-        const pair = candidates?.find(row => row.match_key === button.dataset.confirmPair);
+      } else if ((button.dataset.confirmPair || button.dataset.confirmManual) && !submitting) {
+        const pair = button.dataset.confirmManual
+          ? manualOptions.get(button.closest('[data-manual-anchor]'))?.choices.get(Number(button.dataset.confirmManual))
+          : candidates?.find(row => row.match_key === button.dataset.confirmPair);
         if (!pair) return;
         if ((pair.source_kind === 'trade' || pair.target_currency) && pair.ambiguity_status === 'ambiguous' &&
             !window.confirm('这笔流水有多个可能的配对。请核对两侧凭证，确认是同一笔资金后再继续。')) return;
