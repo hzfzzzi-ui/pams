@@ -86,7 +86,6 @@ function renderLedgerMobileHero(data) {
   const period = currentOverviewPeriod(data);
   const amounts = period.confirmed_subtotal ?? period;
   const disposableNet = amounts.disposable_net ?? amounts.net;
-  const cashNet = amounts.cash_net;
   const unclassified = num(period.unclassified_count);
   const subcategoryPending = num(period.subcategory_pending_count);
   const otherPending = Math.max(0, num(period.pending_count) - unclassified - subcategoryPending);
@@ -104,6 +103,12 @@ function renderLedgerMobileHero(data) {
         <span>消费</span>
         <strong class="${amounts.expense == null ? '' : 'down'}">${amountText(amounts.expense, value => signedMoney(-Math.abs(value)))}</strong>
       </div>
+    </div>
+    <div class="ledgerMobileStats">
+      <div class="ledgerMobileStat">
+        <span>投资入金</span>
+        <strong>${amountText(period.investment_funding)}</strong>
+      </div>
       <div class="ledgerMobileStat">
         <span>${unclassified ? '待分类' : '子类待补'}</span>
         <strong class="${unclassified ? 'down' : ''}">${unclassified || subcategoryPending}</strong>
@@ -111,16 +116,6 @@ function renderLedgerMobileHero(data) {
     </div>
     ${unclassified || otherPending ? `<p class="ledgerOverviewCoverage">${unclassified
       ? (disposableNet == null ? '暂无已确认且可计入的收支。' : '仅统计已确认且金额可用的收支。') : ''}${otherPending ? `另有 ${otherPending} 笔待核对。` : ''}</p>` : ''}
-    <div class="ledgerMobileStats ledgerFundingStats">
-      <div class="ledgerMobileStat">
-        <span>投资入金</span>
-        <strong>${amountText(period.investment_funding)}</strong>
-      </div>
-      <div class="ledgerMobileStat">
-        <span>现金净变化</span>
-        <strong class="${amountTone(cashNet)}">${amountText(cashNet, signedMoney)}</strong>
-      </div>
-    </div>
   `;
 }
 

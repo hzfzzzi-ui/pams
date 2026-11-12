@@ -51,7 +51,14 @@ await context.route('**/*', async route => {
       '/api/accounts/overview': {accounts},
       '/api/ledger/workbench': url.searchParams.get('view') === 'stream'
         ? {rows:recentRows, next_offset:null}
-        : {periods:{ytd:{income:120, expense:20, net:100}}, recent_rows_ytd:recentRows},
+        : {
+            periods:{ytd:{
+              income:2345678.90, expense:2012345.67, net:333333.23, investment_funding:123456.78,
+              cash_net:333333.23, subcategory_pending_count:123, pending_count:123,
+            }},
+            monthly_trend:[{period:'2026-10', income:120, expense:20, net:100}],
+            recent_rows_ytd:recentRows,
+          },
       '/api/bank-reconcile/config': {profiles:{fixture:{account_code:'fixture',label:'示例模板'}}},
       '/api/bank-reconcile/imports': {},
       '/api/bank-reconcile/transfer-matches': {},
@@ -172,11 +179,36 @@ try {
     await ledger.getByRole('button', {name:/^示例流水 1 /}).waitFor();
     assert.equal(chartRequests,0);
     await ledger.locator('.ledgerAnchorNav [data-ledger-tab="overview"]').click();
-    await ledger.locator('#ledgerMobileHero .ledgerMobileValue').getByText('+¥100.00', {exact:true}).waitFor();
+    const hero = ledger.locator('#ledgerMobileHero');
+    await hero.locator('.ledgerMobileValue').getByText('+¥333,333.23', {exact:true}).waitFor();
+    const rows = hero.locator('.ledgerMobileStats');
+    assert.equal(await rows.count(), 2);
+    assert.deepEqual(await rows.nth(0).locator('span').allTextContents(), ['收入','消费']);
+    assert.deepEqual(await rows.nth(0).locator('strong').allTextContents(), ['¥2,345,678.90','-¥2,012,345.67']);
+    assert.deepEqual(await rows.nth(1).locator('span').allTextContents(), ['投资入金','子类待补']);
+    assert.deepEqual(await rows.nth(1).locator('strong').allTextContents(), ['¥123,456.78','123']);
+    for (const width of [320,390,1280]) {
+      await chartPage.setViewportSize({width,height:844});
+      for (const amount of await rows.locator('strong').all()) {
+        assert.ok(await amount.evaluate(node => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          return range.getClientRects().length === 1 && node.scrollWidth <= node.clientWidth;
+        }), `Summary amount wraps or overflows at ${width}px`);
+      }
+    }
     assert.equal(chartRequests,1);
     releaseChart();
     const ledgerFrame = chartPage.frames().find(frame => frame.parentFrame() === chartPage.mainFrame());
     await ledgerFrame.waitForFunction(() => Boolean(window.__cashflowTrendChart));
+    assert.equal(await ledger.getByRole('link',{name:'查看内部划转'}).count(),0);
+    await ledger.getByRole('link',{name:'流水',exact:true}).click();
+    await ledger.getByRole('button',{name:'内部划转',exact:true}).click();
+    await ledger.getByRole('button',{name:'已确认',exact:true}).click();
+    await ledger.getByRole('heading',{name:'划转汇总'}).waitFor();
+    await ledger.getByRole('heading',{name:'已确认'}).waitFor();
+    await ledger.getByRole('button',{name:'待配对',exact:true}).click();
+    await ledger.getByRole('heading',{name:'待配对'}).waitFor();
   } finally {
     releaseChart();
     workflowFixtures = false;
@@ -445,11 +477,6 @@ try {
   await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).waitFor();
   await page.waitForFunction(() => new URL(location).searchParams.get('account') === 'fixture');
   await page.locator('[data-page="ledger.html"]').click();
-  await workflow.getByRole('link',{name:'查看内部划转'}).click();
-  await workflow.getByRole('heading',{name:'划转汇总'}).waitFor();
-  await workflow.getByRole('heading',{name:'已确认'}).waitFor();
-  await workflow.getByRole('heading',{name:'待配对'}).waitFor();
-  await page.waitForFunction(() => location.hash === '#transfers');
   await workflow.getByRole('link',{name:'流水',exact:true}).click();
   await workflow.locator('#recentSearchToggle').click();
   const searchPanel = await workflow.locator('.appBottomSheetPanel').boundingBox();

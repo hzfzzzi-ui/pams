@@ -412,7 +412,8 @@ def test_ledger_page_uses_card_list_navigation_contract() -> None:
     assert 'id="accountFlowRows"' not in html
     assert 'data-ledger-tab="account"' not in html
     assert 'data-ledger-tab="transfer"' not in html
-    assert 'href="#transfers" data-ledger-transfer-link>查看内部划转' in html
+    assert '查看内部划转' not in html
+    assert 'data-ledger-flow-filter="internal_transfer"' in html
     assert 'data-transfer-review="confirmed"' in html
     assert 'data-transfer-review="pending"' in html
     assert 'renderTransferPair: transfers.renderPair' in js
@@ -938,8 +939,7 @@ def test_cashflow_and_transaction_scripts_share_display_helpers() -> None:
 def test_ledger_narrow_mobile_summary_keeps_amounts_on_one_line() -> None:
     css = _read_public("assets/css/pages/ledger.css")
     assert "@media (max-width: 389px)" in css
-    assert ".ledgerMobileStats { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:8px; }" in css
-    assert ".ledgerMobileStat:nth-child(3)" in css
+    assert "grid-template-columns:repeat(2, minmax(0,1fr));" in css.split(".ledgerMobileStats {", 1)[1].split("}", 1)[0]
     assert ".ledgerMobileStat strong { font-size:clamp(10.5px,3.4vw,13px); white-space:nowrap; overflow-wrap:normal; }" in css
 
 
