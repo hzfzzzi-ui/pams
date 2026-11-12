@@ -20,6 +20,11 @@ rules:
   - direction: inflow
     cashflow_type: operating_income
     category: 退款返现
+    subcategory: 返现
+    keywords: [mc rebate, credit card cashback, 信用卡返现]
+  - direction: inflow
+    cashflow_type: operating_income
+    category: 退款返现
     subcategory: 退货退税
     summary_labels: [退货退税]
   - direction: both

@@ -110,6 +110,9 @@ def test_merchant_aliases_require_an_identifiable_purchase(summary, subcategory)
 @pytest.mark.parametrize('summary,amount,expected', [
     ('消费退货 原交易退款', 100, ('operating_income', '消费退款')),
     ('消费退货 原交易退款', -100, None),
+    ('(还款)MC rebate USD1', 1, ('operating_income', '返现')),
+    ('(还款)MC rebate USD1', -1, None),
+    ('MC rebate reversal', 1, None),
     ('信用卡卡号还款', -100, ('debt_repayment', '信用卡还款')),
     ('信用卡卡号还款', 100, None),
     ('存入 约定还款', 100, ('debt_repayment', '信用卡还款')),
