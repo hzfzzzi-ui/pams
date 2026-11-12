@@ -1,5 +1,6 @@
 import { escapeHtml, formatMoneyFixed2 as money, formatPercent, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as num } from '../../utils.js';
 import { CHART_THEME } from '../../shared/chart_theme.js';
+import { TRANSFER_TYPES } from './transfers.js';
 // Restore the ledger's established semantic palette without changing shared charts or chrome.
 const CATEGORY_PIE_COLORS = {
   income: ['#3fb950', '#58a6ff', '#d29922', '#a371f7', '#2ea043', '#79c0ff', '#8b949e'],
@@ -79,6 +80,18 @@ function renderOverviewFlowButtons() {
   root.querySelectorAll('[data-overview-flow]').forEach((btn) => {
     btn.setAttribute('aria-pressed', String(btn.dataset.overviewFlow === overviewFlowKey()));
   });
+}
+
+function renderTransferSummary(data) {
+  const rows = overviewPeriodKey() === 'month' ? data.transfer_summary_month : data.transfer_summary_ytd;
+  $('overviewTransferSection').hidden = !Array.isArray(rows);
+  if (!Array.isArray(rows)) return;
+  $('transferSummary').innerHTML = Object.entries(TRANSFER_TYPES).map(([kind, label]) => {
+    const item = rows.find(row => row.match_type === kind);
+    if (kind === 'fx_conversion' && !item) return '';
+    const amount = item ? item.amount : 0;
+    return `<div><span>${label}</span><strong>${escapeHtml(amount == null ? '—' : money(amount))}</strong><small>${escapeHtml(item?.count ?? 0)} 对</small></div>`;
+  }).join('');
 }
 
 function renderLedgerMobileHero(data) {
@@ -383,7 +396,7 @@ function renderTrendChart(data) {
 
   return {
     setChartClass(chartClass) { ChartClass = chartClass; },
-    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, toggleOverviewCategory, renderRules, renderTrendChart,
+    renderOverviewPeriodButtons, renderOverviewFlowButtons, renderLedgerMobileHero, renderTransferSummary, renderCategoryBars, renderOverviewCategoryPieFallback, renderOverviewCategoryPie, renderOverviewCategoryInsight, toggleOverviewCategory, renderRules, renderTrendChart,
     dispose() {
       disposeTrendCharts();
       pieChart?.destroy();

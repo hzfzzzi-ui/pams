@@ -102,8 +102,10 @@
 }
 .ledgerTransferSummary strong { grid-column:1 / -1; grid-row:2; font-variant-numeric:tabular-nums }
 .ledgerTransferSummary small, .ledgerPair small { color:var(--text-secondary); overflow-wrap:anywhere }
-.ledgerTransferMonth:not([hidden]) { display:flex; align-items:center; gap:8px; margin-top:10px }
+.ledgerPeriodPopover .ledgerTransferMonth:not([hidden]) { display:grid; gap:4px; margin-bottom:8px; font-size:12px }
 .ledgerTransferMonth input {
+  box-sizing:border-box;
+  width:100%;
   min-height:44px;
   padding:0 10px;
   border:1px solid var(--pams-line-subtle);
@@ -400,8 +402,8 @@
 .ledgerAccountAvatar svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.6 }
 .ledgerPeriodPopover fieldset { min-width:0; margin:0; padding:0; border:0 }
 .ledgerPeriodPopover legend { padding:0 4px; color:var(--pams-text-secondary); font-size:12px }
-.ledgerPeriodPopover label { position:relative; display:flex; align-items:center; justify-content:space-between; min-height:44px; gap:8px; padding:0 4px; cursor:pointer }
-.ledgerPeriodPopover input { position:absolute; width:1px; height:1px; margin:0; clip-path:inset(50%) }
+.ledgerPeriodPopover label:not([hidden]) { position:relative; display:flex; align-items:center; justify-content:space-between; min-height:44px; gap:8px; padding:0 4px; cursor:pointer }
+.ledgerPeriodPopover input[type="radio"] { position:absolute; width:1px; height:1px; margin:0; clip-path:inset(50%) }
 .ledgerPeriodPopover label svg { width:16px; height:16px; visibility:hidden; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round }
 .ledgerPeriodPopover input:checked ~ svg { visibility:visible }
 .ledgerPeriodPopover label:has(input:focus-visible),

@@ -1740,6 +1740,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             'monthly_trend': _trend(display_rows, ytd_start, month_end, 'monthly'),
             'weekly_trend': _trend(display_rows, ytd_start, month_end, 'weekly'),
             'classification_rules': SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,
+            'transfer_summary_month': _transfer_summary(month_transfer_matches),
+            'transfer_summary_ytd': _transfer_summary(ytd_transfer_matches),
         }
         if view == 'overview':
             return overview
@@ -1793,9 +1795,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         "recent_rows_month": recent_rows_month,
         "recent_rows_ytd": recent_rows_ytd,
         "review_rows": review_rows,
-        "transfer_summary": _transfer_summary(ytd_transfer_matches),
-        "transfer_summary_month": _transfer_summary(month_transfer_matches),
-        "transfer_summary_ytd": _transfer_summary(ytd_transfer_matches),
+        "transfer_summary": overview["transfer_summary_ytd"],
         **({'transfer_pairs': _transfer_pair_details(cur, ytd_transfer_matches) if redesigned else []}
            if include_transfer_pairs else {}),
     }

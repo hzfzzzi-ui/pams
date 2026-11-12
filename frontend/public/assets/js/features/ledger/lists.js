@@ -3,6 +3,7 @@ import { accountInstitution } from '../../shared/account_institutions.js';
 import { categoryIconPath } from './category_icons.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
 import { renderLedgerDays } from './days.js';
+import { currentBusinessMonth } from './transfers.js';
 
 const accountGlyph = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>';
 
@@ -12,7 +13,7 @@ function accountAvatar(groupCode) {
 }
 
 export function createLedgerLists({ root, host, state, model, templates, dom, events, sheets, showDetails, renderTransferPair,
-  reloadRecent = () => renderRecentRows(), loadMore }) {
+  reloadRecent = () => renderRecentRows(), isTransferReview, loadMore }) {
   const { $ } = dom;
   const { rowAmountClass, rowCategoryText, rowTitle, rowDateText, originalCurrencyText,
     accountDisplayName, ledgerAccountIdentity, filteredRecentRows, isInternalTransferRow } = model;
@@ -133,7 +134,9 @@ function bindRecentAccountPicker() {
 }
 
 function recentPeriodLabel() {
-  return state.recentPeriod === 'month' ? '本月至今' : '年初至今';
+  const period = isTransferReview() ? state.transferPeriod : state.recentPeriod;
+  if (period === 'history') return state.transferMonth || '历史月份';
+  return period === 'month' ? '本月至今' : '年初至今';
 }
 
 function renderRecentPeriodButton() {
@@ -160,22 +163,48 @@ function bindRecentPeriod() {
   if (!control) return;
   const toggle = $('recentPeriodToggle');
   const form = $('recentPeriodForm');
+  const selected = form.elements.namedItem('recentPeriod');
+  const month = $('transferMonth');
+  function updateMonthField() {
+    const history = isTransferReview() && selected.value === 'history';
+    $('transferMonthPicker').hidden = !history;
+    month.required = history;
+    month.disabled = !history;
+  }
   events.listen('page', toggle, 'click', () => {
     if (!form.hidden) {
       closeRecentPeriod();
       return;
     }
-    const selected = form.elements.namedItem('recentPeriod');
-    selected.value = state.recentPeriod;
+    $('transferHistoryOption').hidden = !isTransferReview();
+    selected.value = isTransferReview() ? state.transferPeriod : state.recentPeriod;
+    month.value = state.transferMonth;
+    month.max = currentBusinessMonth();
+    month.setCustomValidity('');
+    updateMonthField();
     form.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
     form.querySelector('input:checked')?.focus();
   });
+  events.listen('page', form, 'change', updateMonthField);
+  events.listen('page', month, 'input', () => month.setCustomValidity(''));
   events.listen('page', form, 'submit', event => {
     event.preventDefault();
-    state.recentPeriod = form.elements.namedItem('recentPeriod').value;
+    if (isTransferReview()) {
+      if (selected.value === 'history') {
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month.value) || month.value > month.max) {
+          month.setCustomValidity('请选择有效的历史月份。');
+          month.reportValidity();
+          return;
+        }
+        state.transferMonth = month.value;
+      }
+      state.transferPeriod = selected.value;
+    } else {
+      state.recentPeriod = selected.value;
+    }
     renderRecentPeriodButton();
-    reloadRecent();
+    reloadRecent('period');
     closeRecentPeriod({ restoreFocus: true });
   });
   events.listen('page', root, 'click', event => {

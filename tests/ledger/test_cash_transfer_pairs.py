@@ -48,6 +48,7 @@ def test_cross_currency_card_candidates_require_independent_same_day_repayment_e
     assert match['match_type'] == 'credit_card_payment'
     assert (match['currency'], match['amount'], match['target_currency'], match['target_amount']) == (
         'CNY', Decimal('700'), 'USD', Decimal('100'))
+    assert match['amount_cny'] == Decimal('700')
     assert match['settlement_rate'] == Decimal('7')
     for invalid in (
         {**credit, 'description': '合并购汇还款'},

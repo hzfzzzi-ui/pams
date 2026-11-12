@@ -3,7 +3,7 @@ import { escapeHtml as escape, formatMoneyFixed2 as money } from '../../utils.js
 import { renderLedgerDays } from './days.js';
 import { confirmTransferPair, readLedgerTransfers, readManualTransferOptions, readTransferCandidates } from './requests.js';
 
-const TYPES = {
+export const TRANSFER_TYPES = {
   internal_transfer: '普通转账',
   credit_card_payment: '信用卡还款',
   investment_funding: '投资入金',
@@ -12,7 +12,12 @@ const TYPES = {
 };
 const FIRST_PAGE = 10;
 const moneyText = (value, currency) => value == null ? '—' : money(value, currency);
-const byDate = (left, right) => right.match_date.localeCompare(left.match_date);
+const rowDate = row => row.match_date || row.transaction_date;
+const byDate = (left, right) => rowDate(right).localeCompare(rowDate(left));
+const comparableAmount = row => {
+  const value = row.amount_cny ?? ((row.currency_norm || row.currency) === 'CNY' ? row.amount : null);
+  return value != null && Number.isFinite(Number(value)) ? Math.abs(Number(value)) : null;
+};
 
 function transferParty({name, institution, logoUrl}, direction) {
   const title = institution || name;
@@ -25,12 +30,13 @@ function transferParty({name, institution, logoUrl}, direction) {
   </span>`;
 }
 
-function currentBusinessMonth() {
+export function currentBusinessMonth() {
   const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit'}).formatToParts(new Date());
   return `${parts.find(part => part.type === 'year').value}-${parts.find(part => part.type === 'month').value}`;
 }
 
-export function createLedgerTransfers({ root, state, model, dom, events, reads, current, memory, variant, showRefresh = () => {}, reloadWorkbench }) {
+export function createLedgerTransfers({ state, model, dom, events, reads, current, memory, variant,
+  showRefresh = () => {}, reloadWorkbench, onReviewChange, reloadStream }) {
   const { $ } = dom;
   let data = null;
   let review = '';
@@ -47,6 +53,34 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     return [account.institution, account.name].filter(Boolean).join(' ');
   }
 
+  function visibleRows(rows) {
+    const { recentAccountFilter, recentAccountGroup, recentSearch, recentAmountSort, transferPeriod } = state;
+    const codes = recentAccountFilter ? new Set([recentAccountFilter]) : recentAccountGroup
+      ? new Set(state.streamAccountGroups.find(group => group.code === recentAccountGroup)?.accounts.map(account => account.code))
+      : null;
+    const search = recentSearch.trim().toLowerCase();
+    const endMonth = data.month;
+    const startMonth = transferPeriod === 'ytd' ? `${endMonth.slice(0, 4)}-01` : endMonth;
+    const matches = rows.filter(row => {
+      const month = rowDate(row).slice(0, 7);
+      if (month < startMonth || month > endMonth) return false;
+      const accounts = row.match_date ? [row.from_account_code, row.to_account_code] : [row.account_code];
+      if (codes && !accounts.some(code => codes.has(code))) return false;
+      if (!search) return true;
+      return [...accounts, ...accounts.map(accountName), rowDate(row), row.source_date, row.target_date,
+        row.summary, row.description, row.source_summary, row.target_summary, row.source?.summary, row.source?.description,
+        row.target?.summary, row.target?.description, TRANSFER_TYPES[row.match_type], row.subcategory,
+        row.amount, row.target_amount, row.amount_cny].join(' ').toLowerCase().includes(search);
+    });
+    return matches.sort((left, right) => {
+      if (!recentAmountSort) return byDate(left, right);
+      const a = comparableAmount(left);
+      const b = comparableAmount(right);
+      if (a == null || b == null) return a == null && b == null ? byDate(left, right) : a == null ? 1 : -1;
+      return (recentAmountSort === 'amount_asc' ? a - b : b - a) || byDate(left, right);
+    });
+  }
+
   function manualLeg(row) {
     return `<span class="ledgerPairLeg">
       <strong>${escape(accountName(row.account_code))}</strong>
@@ -58,8 +92,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
   function renderManualPending() {
     const host = $('transferManualPending');
     if (!data || review !== 'pending') return;
-    const rows = (data.manual_pending || []).filter(row => state.transferPeriod === 'ytd'
-      || row.transaction_date.startsWith(data.month));
+    const rows = visibleRows(data.manual_pending || []);
     host.innerHTML = rows.length ? `<h4>单边待配对 <small>${rows.length} 笔</small></h4>` +
       rows.slice(0, manualLimit).map(row => `<details class="ledgerPair" data-manual-anchor="${row.id}">
         <summary>${manualLeg(row)}<small>${escape(row.subcategory || '内部转账')} · 待选${row.amount > 0 ? '转出' : '转入'}流水</small></summary>
@@ -140,7 +173,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     const amount = escape(value);
     const differentCurrency = pair.target_currency && pair.target_currency !== currency;
     const targetValue = differentCurrency ? moneyText(pair.target_amount, pair.target_currency) : value;
-    const label = TYPES[pair.match_type] || '内部划转';
+    const label = TRANSFER_TYPES[pair.match_type] || '内部划转';
     const date = escape(pair.match_date);
     const conversion = !pending && currency !== 'CNY'
       ? pair.amount_cny == null ? '人民币折算待补' : `≈ ${moneyText(pair.amount_cny)}` : '';
@@ -185,8 +218,10 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
   function renderList(element, rows, pending) {
     const limit = pending ? pendingLimit : confirmedLimit;
     const empty = pending ? '本期暂无可核对的配对候选。' : '本期暂无已确认的划转。';
+    const page = rows.slice(0, limit);
+    const card = row => renderPair(row, pending);
     element.innerHTML = rows.length
-      ? renderLedgerDays(rows.slice(0, limit), row => row.match_date, row => renderPair(row, pending), {
+      ? state.recentAmountSort ? page.map(card).join('') : renderLedgerDays(page, rowDate, card, {
         countUnit: pending ? '个候选' : '对',
         partialLastDay: limit < rows.length && rows[limit - 1].match_date === rows[limit].match_date,
       })
@@ -199,23 +234,21 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
 
   function render({includeCandidates = true} = {}) {
     if (!data) return;
-    const isYear = state.transferPeriod === 'ytd';
-    const inPeriod = row => isYear
-      ? row.match_date.startsWith(data.month.slice(0, 4)) && row.match_date.slice(0, 7) <= data.month
-      : row.match_date.startsWith(data.month);
-    const confirmed = [...(data.transfer_pairs || [])].filter(inPeriod).sort(byDate);
-    const summary = isYear ? data.transfer_summary_ytd : data.transfer_summary_month;
-    $('transferSummary').innerHTML = Object.entries(TYPES).map(([kind, label]) => {
-      const item = (summary || []).find(row => row.match_type === kind);
-      if (kind === 'fx_conversion' && !item) return '';
-      return `<div><span>${label}</span><strong>${moneyText(item ? item.amount : 0)}</strong><small>${item?.count || 0} 对</small></div>`;
-    }).join('');
-    $('transferConfirmedCount').textContent = `${confirmed.length} 对`;
-    renderList($('transferConfirmed'), confirmed, false);
-    if (!includeCandidates || !candidates) return;
-    const pending = candidates.filter(inPeriod).sort(byDate);
-    $('transferPendingCount').textContent = `${pending.length} 个候选`;
-    renderList($('transferPending'), pending, true);
+    if (review === 'confirmed') {
+      const confirmed = visibleRows(data.transfer_pairs || []);
+      $('transferConfirmedCount').textContent = `${confirmed.length} 对`;
+      renderList($('transferConfirmed'), confirmed, false);
+    } else if (review === 'pending' && includeCandidates && candidates) {
+      const pending = visibleRows(candidates);
+      $('transferPendingCount').textContent = `${pending.length} 个候选`;
+      renderList($('transferPending'), pending, true);
+    }
+  }
+
+  function applyFilters({resetLimit = true} = {}) {
+    if (resetLimit) confirmedLimit = pendingLimit = manualLimit = FIRST_PAGE;
+    render();
+    renderManualPending();
   }
 
   async function loadCandidates() {
@@ -228,7 +261,7 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
       const result = await readTransferCandidates();
       if (!current()) return;
       candidates = (result.matches || []).filter(row => row.status === 'review_required'
-        && row.confirmation_supported && Object.hasOwn(TYPES, row.match_type) && row.match_key?.startsWith('candidate:'));
+        && row.confirmation_supported && Object.hasOwn(TRANSFER_TYPES, row.match_type) && row.match_key?.startsWith('candidate:'));
       render();
     } catch {
       if (current()) $('transferPending').innerHTML = '<button class="btn" type="button" data-retry-candidates>候选加载失败，重试</button>';
@@ -247,21 +280,10 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     $('transferPendingCount').textContent = '';
     $('transferPending').textContent = '';
     $('transferManualPending').textContent = '';
-    const history = state.transferPeriod === 'history';
-    $('transferMonthPicker').hidden = !history;
-    root.querySelectorAll('[data-transfer-period]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.transferPeriod === state.transferPeriod));
-    });
-    const month = history ? state.transferMonth : '';
-    $('transferMonth').max = currentBusinessMonth();
-    if (history && month > $('transferMonth').max) {
+    const month = state.transferPeriod === 'history' ? state.transferMonth : '';
+    if (state.transferPeriod === 'history' && (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month > currentBusinessMonth())) {
       reads.cancel('transfers');
-      $('transferSummary').textContent = '历史月份不能晚于当前业务月。';
-      return;
-    }
-    if (history && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
-      reads.cancel('transfers');
-      $('transferSummary').textContent = '请选择要查看的月份。';
+      message('transferReviewStatus', '请选择有效的历史月份。');
       return;
     }
     const manualPending = review === 'pending';
@@ -270,16 +292,18 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     showRefresh(remembered ? 'refreshing' : '');
     if (remembered) {
       data = remembered;
+      message('transferReviewStatus', '');
       render({includeCandidates: false});
+      renderManualPending();
     } else {
-      $('transferSummary').textContent = '正在加载划转…';
+      message('transferReviewStatus', '正在加载划转…');
     }
     try {
       const result = await reads.run('transfers', signal => readLedgerTransfers({ month, manualPending, signal }));
       if (!current()) return;
       data = result;
-      render();
-      renderManualPending();
+      message('transferReviewStatus', '');
+      applyFilters({resetLimit: false});
       memory?.write('transfers', cacheKey, result);
       showRefresh();
       if (review === 'pending' && !candidates) {
@@ -292,7 +316,9 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
           showRefresh('failed');
           return;
         }
-        $('transferSummary').innerHTML = '<button class="btn" type="button" data-retry-transfers>划转加载失败，重试</button>';
+        const status = $('transferReviewStatus');
+        status.innerHTML = '<button class="btn" type="button" data-retry-transfers>划转加载失败，重试</button>';
+        status.hidden = false;
       }
     }
   }
@@ -303,13 +329,12 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     const open = Boolean(review);
     $('transferReviewPanel').hidden = !open;
     $('recentRows').hidden = open;
-    $('recentStreamToolbar').hidden = open;
-    $('recentStreamScope').hidden = open;
     $('transferConfirmedSection').hidden = review !== 'confirmed';
     $('transferPendingSection').hidden = review !== 'pending';
     $('transferReviewActions').querySelectorAll('[data-transfer-review]').forEach(button => {
       button.setAttribute('aria-expanded', String(button.dataset.transferReview === review));
     });
+    onReviewChange();
     if (open) load({ replay: true });
     else {
       reads.cancel('transfers');
@@ -322,20 +347,15 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     if (!panel) return;
     events.listen('page', $('transferReviewActions'), 'click', event => {
       const choice = event.target.closest('[data-transfer-review]')?.dataset.transferReview;
-      if (choice) selectReview(review === choice ? '' : choice);
-    });
-    $('transferMonth').value = state.transferMonth;
-    events.listen('page', $('transferMonth'), 'change', event => {
-      state.transferMonth = event.target.value;
-      load();
+      if (!choice) return;
+      const closing = review === choice;
+      selectReview(closing ? '' : choice);
+      if (closing) reloadStream();
     });
     events.listen('page', panel, 'click', async event => {
       const button = event.target.closest('button');
       if (!button) return;
-      if (button.dataset.transferPeriod) {
-        state.transferPeriod = button.dataset.transferPeriod;
-        load();
-      } else if (button.hasAttribute('data-retry-transfers')) {
+      if (button.hasAttribute('data-retry-transfers')) {
         load();
       } else if (button.hasAttribute('data-retry-candidates')) {
         loadCandidates();
@@ -379,5 +399,5 @@ export function createLedgerTransfers({ root, state, model, dom, events, reads, 
     });
   }
 
-  return { bind, selectReview, renderPair, render };
+  return { bind, selectReview, isOpen: () => Boolean(review), renderPair, applyFilters, load };
 }

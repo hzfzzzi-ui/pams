@@ -108,6 +108,7 @@ def suggest(rows, profiles, occupied, *, limit=None):
             'source': {key: source.get(key) for key in ('summary', 'description', 'source_item_id')},
             'target': {key: target.get(key) for key in ('summary', 'description', 'source_item_id')},
             'amount': -source['amount'], 'currency': source['currency'], 'status': 'review_required',
+            'amount_cny': abs(source['amount_cny']) if source.get('amount_cny') is not None else None,
             **({'target_amount': target['amount'], 'target_currency': target['currency'],
                 'settlement_rate': -source['amount'] / target['amount']} if different_currency else {}),
             'ambiguity_status': 'ambiguous' if ambiguous else 'unique_candidate', 'confirmation_supported': True,
