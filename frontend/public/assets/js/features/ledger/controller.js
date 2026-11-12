@@ -276,15 +276,14 @@ function setLedgerPanel(panel = 'overview', { openTransfers = false } = {}) {
 }
 
 function bindLedgerAnchors() {
-  root.querySelectorAll('a[data-ledger-tab], a[data-ledger-transfer-link]').forEach((link) => {
+  root.querySelectorAll('a[data-ledger-tab]').forEach((link) => {
     events.listen('page', link, 'click', (event) => {
       event.preventDefault();
-      const panel = link.hasAttribute('data-ledger-transfer-link') ? 'recent' : link.dataset.ledgerTab;
       const nextHash = link.hash || LEDGER_PANEL_HASH.overview;
       if (host.location.hash !== nextHash) {
         replaceContentAddress(`${host.location.pathname}${host.location.search}${nextHash}`);
       }
-      setLedgerPanel(panel, { openTransfers: nextHash === '#transfers' });
+      setLedgerPanel(link.dataset.ledgerTab);
       host.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
