@@ -319,8 +319,8 @@
 
 .ledgerPanelGroup { display:grid; gap:12px }
 .ledgerPanelGroup[hidden] { display:none !important }
-.ledgerRecentBar { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:10px }
-.ledgerFlowChips { display:flex; gap:4px; min-width:0; overflow:auto hidden; scrollbar-width:none }
+.ledgerRecentBar { display:flex; flex-wrap:wrap; align-items:center; gap:0 6px; margin-bottom:10px }
+.ledgerFlowChips { display:flex; flex-wrap:wrap; gap:0 4px; min-width:0 }
 .ledgerFlowChip {
   position:relative;
   flex:0 0 auto;
@@ -345,7 +345,7 @@
   background:currentColor;
   content:"";
 }
-.ledgerSectionToolbar { display:flex; flex:0 0 auto; align-items:center; gap:4px }
+.ledgerSectionToolbar { display:flex; flex:0 0 auto; align-items:center; gap:4px; margin-inline-start:auto }
 .ledgerIconButton {
   position:relative;
   display:grid;
@@ -387,7 +387,7 @@
 .accountFlowList { display:grid; border-top:1px solid var(--line) }
 .ledgerPopoverControl { position:relative }
 @media (max-width:400px) {
-  .ledgerFlowChips { gap:3px }
+  .ledgerFlowChips { column-gap:3px }
   .ledgerFlowChip { padding-inline:2px }
   .ledgerSectionToolbar { gap:2px }
   .ledgerSectionToolbar .ledgerIconButton { width:32px }
@@ -610,6 +610,43 @@
   letter-spacing:0;
   overflow-wrap:anywhere;
 }
+.ledgerLoanLine {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  margin:0;
+  padding:9px 0;
+  border:0;
+  border-top:1px solid var(--ledger-overview-rule);
+  font-size:13px;
+}
+.ledgerLoanLine small { color:var(--muted); }
+.ledgerLoanLine > strong { flex-shrink:0; font-variant-numeric:tabular-nums; }
+.ledgerLoanRows { list-style:none; padding:0; margin:0; }
+.ledgerLoanRows small { display:block; margin-top:3px; }
+.ledgerLoanCard summary { min-height:44px; cursor:pointer; list-style:none; }
+.ledgerLoanCard summary::-webkit-details-marker { display:none; }
+.ledgerLoanCard summary::after {
+  content:"";
+  width:7px;
+  height:7px;
+  margin-right:3px;
+  border:solid var(--muted);
+  border-width:0 1.5px 1.5px 0;
+  transform:rotate(45deg);
+}
+.ledgerLoanCard details[open] summary::after { transform:rotate(225deg); }
+.ledgerLoanLink {
+  width:100%;
+  min-height:44px;
+  border-radius:0;
+  background:transparent;
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+}
+.ledgerLoanLine[hidden] { display:none; }
 .ledgerConfirmSheet { display:grid; gap:12px }
 .ledgerConfirmLead {
   padding:0;

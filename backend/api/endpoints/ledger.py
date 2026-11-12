@@ -109,7 +109,7 @@ def ledger_workbench(
     accountGroup: str = Query("", max_length=120),
     pairCards: bool = False,
     manualPending: bool = False,
-    flow: str = Query("", pattern="^(|income|expense|income_expense|internal_transfer|cashflow|cash_transfer)$"),
+    flow: str = Query("", pattern="^(|income|expense|income_expense|internal_transfer|cashflow|cash_transfer|personal_loan)$"),
     search: str = Query("", max_length=200),
     matchingAccounts: str = Query("", max_length=1800),
     sort: str = Query("", pattern="^(|amount_asc|amount_desc)$"),

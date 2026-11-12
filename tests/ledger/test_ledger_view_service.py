@@ -58,6 +58,17 @@ def test_personal_loan_principal_changes_monthly_cash_without_affecting_spending
     for month, movement in [(5, 100), (6, -100)]:
         totals = summarize_period(rows, [], date(2024, month, 1), date(2024, month, 30))
         assert (totals["income"], totals["expense"], totals["disposable_net"], totals["cash_net"]) == (0, 0, 0, movement)
+        assert totals["personal_loan"] == {
+            "borrowed": max(movement, 0), "repaid": max(-movement, 0), "net": movement, "count": 1,
+        }
+    start, end = date(2024, 5, 1), date(2024, 6, 30)
+    assert summarize_period(rows, [], start, end)["personal_loan"] == {
+        "borrowed": 100, "repaid": 100, "net": 0, "count": 2,
+    }
+    missing_fx = [rows[0], dict(rows[1], amount_cny=None)]
+    totals = summarize_period(missing_fx, [], start, end)
+    assert totals["personal_loan"] == {"borrowed": 100, "repaid": None, "net": None, "count": 2}
+    assert (totals["income"], totals["expense"], totals["cash_net"]) == (0, 0, None)
     assert not is_manual_anchor(repaid)
     assert is_manual_anchor(card_payment)
     assert ledger_view._classify_cash_direction(card_payment, set())["flow_type"] == "expense"
@@ -134,7 +145,8 @@ def test_stream_filters_before_paging_and_breaks_amount_ties_by_date():
 
 
 def test_income_expense_stream_pages_only_direction_classified_rows():
-    entries = [(4, 'transfer', -700), (3, 'investment_inflow', 700),
+    entries = [(6, 'personal_loan', -100), (5, 'personal_loan', 100),
+               (4, 'transfer', -700), (3, 'investment_inflow', 700),
                (2, 'expense', -20), (1, 'income', 80)]
     rows = [
         {'id': ident, 'account_code': 'bank', 'flow_type': flow,
@@ -148,12 +160,15 @@ def test_income_expense_stream_pages_only_direction_classified_rows():
     second = ledger_view._ledger_stream_page(rows, offset=first['next_offset'], flow='income_expense', **filters)
     assert [page['rows'][0]['id'] for page in (first, second)] == [2, 1]
     assert second['next_offset'] is None
-    assert ledger_view._ledger_stream_page(rows, offset=0, flow='', **filters)['rows'][0]['id'] == 4
+    assert ledger_view._ledger_stream_page(rows, offset=0, flow='', **filters)['rows'][0]['id'] == 6
 
     cash_rows = [row for row in rows if row['flow_type'] != 'investment_inflow']
     all_filters = {**filters, 'limit': 10}
     stream = ledger_view._ledger_stream_page(cash_rows, offset=0, flow='cashflow', **all_filters)
-    assert [row['id'] for row in stream['rows']] == [4, 2, 1]
+    assert [row['id'] for row in stream['rows']] == [6, 5, 4, 2, 1]
+    loans = ledger_view._ledger_stream_page(rows, offset=0, flow='personal_loan',
+                                            **{**all_filters, 'search': '借还款'})
+    assert [row['id'] for row in loans['rows']] == [6, 5]
     transfers = ledger_view._ledger_stream_page(cash_rows, offset=0, flow='cash_transfer', **all_filters)
     assert [(row['id'], row['amount']) for row in transfers['rows']] == [(4, -700)]
     another_account = ledger_view._ledger_stream_page(

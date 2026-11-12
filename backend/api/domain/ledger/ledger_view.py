@@ -444,7 +444,12 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     missing_income_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "income" for r in period_rows)
     missing_expense_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "expense" for r in period_rows)
     missing_transfer_row_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "transfer" for r in period_rows)
-    missing_principal_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "personal_loan" for r in period_rows)
+    loan_rows = [r for r in period_rows if r.get("flow_type") == "personal_loan"]
+    borrowed_rows = [r for r in loan_rows if r["amount"] > 0]
+    repaid_rows = [r for r in loan_rows if r["amount"] < 0]
+    missing_borrowed_fx = any(r["amount_cny"] is None for r in borrowed_rows)
+    missing_repaid_fx = any(r["amount_cny"] is None for r in repaid_rows)
+    missing_principal_fx = missing_borrowed_fx or missing_repaid_fx
     income_amounts = [r["amount_cny"] for r in known_rows if r["flow_type"] == "income" and r["amount_cny"] > 0]
     expense_amounts = [-r["amount_cny"] for r in known_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0]
     income = sum(income_amounts)
@@ -463,7 +468,9 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     # Cash-to-cash pairs have already been removed from both directional totals.
     one_sided_investment_net = sum(abs(t['amount_cny']) * _investment_transfer_sign(t)
                                   for t in known_transfers if not t.get('both_cash_legs'))
-    principal_net = sum(r["amount_cny"] for r in known_rows if r["flow_type"] == "personal_loan")
+    borrowed = sum(r["amount_cny"] for r in borrowed_rows if r["amount_cny"] is not None)
+    repaid = -sum(r["amount_cny"] for r in repaid_rows if r["amount_cny"] is not None)
+    principal_net = borrowed - repaid
     cash_net = disposable_net + one_sided_investment_net + principal_net
     other_transfer = max(transfer - investment_transfer, 0.0)
     result = {
@@ -472,6 +479,12 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         "net": round(disposable_net, 2),
         "disposable_net": round(disposable_net, 2),
         "cash_net": round(cash_net, 2),
+        "personal_loan": {
+            "borrowed": None if missing_borrowed_fx else round(borrowed, 2),
+            "repaid": None if missing_repaid_fx else round(repaid, 2),
+            "net": None if missing_principal_fx else round(principal_net, 2),
+            "count": len(loan_rows),
+        },
         "investment_transfer": round(investment_transfer, 2),
         "investment_funding": investment_funding,
         "investment_transfer_net": round(investment_transfer_net, 2),
@@ -1559,7 +1572,7 @@ def _transfer_summary(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 _INCOME_EXPENSE_FLOWS = {"income", "expense"}
-_CASH_STREAM_FILTERS = _INCOME_EXPENSE_FLOWS | {"income_expense", "cashflow", "cash_transfer"}
+_CASH_STREAM_FILTERS = _INCOME_EXPENSE_FLOWS | {"income_expense", "cashflow", "cash_transfer", "personal_loan"}
 
 
 def _stream_account_groups(rows, config):
@@ -1582,7 +1595,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
                         account_group='', matching_accounts=None, transfer_matches=(), period_start=None):
     profiles = account_config.get('accounts') or {}
     groups, group_by_account = _stream_account_groups(rows, account_config)
-    labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转', 'personal_loan': '个人借款',
+    labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转', 'personal_loan': '借还款 个人借款',
               'investment_return': '投资收益', 'investment_inflow': '投资流入',
               'investment_outflow': '投资流出', 'investment_fee': '投资费用',
               'investment_transfer': '投资划转'}
@@ -1601,7 +1614,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
             continue
         if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
-        if flow in _INCOME_EXPENSE_FLOWS and row_flow != flow:
+        if flow in _INCOME_EXPENSE_FLOWS | {'personal_loan'} and row_flow != flow:
             continue
         if search and code not in (matching_accounts or ()):
             values = [row.get(key) for key in ('summary', 'description', 'counterparty', 'counter_account_code',
@@ -1759,6 +1772,17 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             'classification_rules': SOURCE_RECORD_CLASSIFICATION_RULES if redesigned else CLASSIFICATION_RULES,
             'transfer_summary_month': _transfer_summary(month_transfer_matches),
             'transfer_summary_ytd': _transfer_summary(ytd_transfer_matches),
+            'personal_loan_recent': {
+                key: [
+                    _serialize_row(row, base_currency=base_currency)
+                    for row in sorted(
+                        (row for row in rows if row['flow_type'] == 'personal_loan'),
+                        key=lambda row: (row['transaction_date_obj'], str(row['id'])),
+                        reverse=True,
+                    )[:10]
+                ]
+                for key, rows in (('month', month_rows), ('ytd', ytd_rows))
+            },
         }
         if view == 'overview':
             return overview

@@ -50,5 +50,5 @@ export function snapshotLedgerViewState(state) {
 export function restoreLedgerViewState(state, snapshot) {
   if (!snapshot) return;
   for (const key of VIEW_FIELDS) if (key in snapshot) state[key] = snapshot[key];
-  if (!['income', 'expense', 'internal_transfer'].includes(state.recentFlowFilter)) state.recentFlowFilter = '';
+  if (!['income', 'expense', 'internal_transfer', 'personal_loan'].includes(state.recentFlowFilter)) state.recentFlowFilter = '';
 }

@@ -256,7 +256,7 @@ function renderRows(id, rows) {
     const detailId = `${id}-detail-${String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const amount = num(row.amount_cny ?? row.amount);
     const amountClass = rowAmountClass(row, amount);
-    const title = rowTitle(row);
+    const title = state.recentFlowFilter === 'personal_loan' ? rowCategoryText(row) : rowTitle(row);
     const dateText = rowDateText(row);
     const account = ledgerAccountIdentity(row.account_code);
     const accountName = [account.institution, account.name].filter(Boolean).join(' ');
@@ -277,7 +277,7 @@ function renderRows(id, rows) {
         <span class="ledgerStreamCategoryIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${icon}"/></svg></span>
         <span class="ledgerListMain">
           <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
-          <small class="ledgerListAccount">${category
+          <small class="ledgerListAccount">${category && category !== title
             ? `<span class="${pending ? 'ledgerReviewHint' : ''}">${escapeHtml(category)}</span> · ` : ''}${escapeHtml(accountName)}</small>
           ${showRowDate ? `<time class="ledgerListDate" datetime="${escapeHtml(dateText)}">${escapeHtml(dateText)}</time>` : ''}
         </span>
