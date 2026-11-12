@@ -87,6 +87,8 @@ const LEDGER_EDIT_GROUPS = [
   ['operating_expense', '消费'],
   ['operating_income', '收入'],
   ['internal_transfer', '内部转账'],
+  ['personal_loan_drawdown', '个人借入本金'],
+  ['personal_loan_repayment', '归还借款本金'],
 ];
 
 function ledgerEditGroup(type, amount = 0) {
@@ -111,6 +113,8 @@ const LEDGER_EDIT_TYPES = [
 const LEDGER_EDIT_DEFAULTS = {
   operating_expense: { category: '其他支出', subcategory: '手动确认' },
   operating_income: { category: '其他收入', subcategory: '手动确认' },
+  personal_loan_drawdown: { category: '个人借款', subcategory: '个人借入本金' },
+  personal_loan_repayment: { category: '个人借款', subcategory: '归还借款本金' },
   investment_funding: { category: '内部划转', subcategory: '投资入金' },
   investment_withdrawal: { category: '内部划转', subcategory: '投资出金' },
   internal_transfer: { category: '内部划转', subcategory: '内部转账' },
@@ -173,6 +177,7 @@ function flowLabel(flowType) {
     income: '收入',
     expense: '消费',
     transfer: '资金流转',
+    personal_loan: '个人借款',
     investment_return: '投资收益',
     investment_inflow: '投资流入',
     investment_outflow: '投资流出',
@@ -239,6 +244,9 @@ function isEditableLedgerRow(row) {
 
 function ledgerEditType(row) {
   const cashflowType = cashflowTypeText(row);
+  if (row.flow_type === 'personal_loan') {
+    return cashflowType === 'debt_drawdown' ? 'personal_loan_drawdown' : 'personal_loan_repayment';
+  }
   if (row?.subcategory_pending) {
     return row.account_flow_type === 'income' ? 'operating_income' : 'operating_expense';
   }
@@ -254,7 +262,8 @@ function ledgerEditType(row) {
 }
 
 function ledgerEditTypeLabel(cashflowType) {
-  return LEDGER_EDIT_TYPES.find(([value]) => value === cashflowType)?.[1] || cashflowType || '未分类';
+  return LEDGER_EDIT_TYPES.find(([value]) => value === cashflowType)?.[1]
+    || LEDGER_EDIT_GROUPS.find(([value]) => value === cashflowType)?.[1] || cashflowType || '未分类';
 }
 
 function ledgerEditActionLabel(row) {
@@ -858,7 +867,7 @@ function filteredRecentRows() {
     if (state.recentAccountGroup && !groupAccounts.has(row.account_code)) return false;
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
     const kind = isInternalTransferRow(row) ? 'internal_transfer' : row.flow_type;
-    if (!['income', 'expense', 'internal_transfer'].includes(kind) || (flow && kind !== flow)) return false;
+    if (!['income', 'expense', 'internal_transfer', 'personal_loan'].includes(kind) || (flow && kind !== flow)) return false;
     if (search && !rowSearchText(row).includes(search)) {
       return false;
     }

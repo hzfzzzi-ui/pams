@@ -772,7 +772,8 @@ async function checkLedgerLifecycle() {
   const form = hintPage.page.locator('[data-ledger-edit-form]');
   const type = form.locator('[data-edit-field="flow_group"]');
   const transferType = form.locator('[data-edit-field="transfer_type"]');
-  assert.deepEqual((await type.locator('option').allTextContents()).map(label => label.trim()), ['消费', '收入', '内部转账']);
+  assert.deepEqual((await type.locator('option').allTextContents()).map(label => label.trim()),
+    ['消费', '收入', '内部转账', '归还借款本金']);
   const category = form.locator('[data-edit-field="category"]');
   const subcategory = form.locator('[data-edit-field="subcategory"]');
   assert.equal(await type.inputValue(), 'operating_expense');

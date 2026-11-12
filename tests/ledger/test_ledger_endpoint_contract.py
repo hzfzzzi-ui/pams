@@ -74,3 +74,39 @@ def test_ledger_manual_update_uses_fact_flags() -> None:
 
     assert repayment_flags["affects_spending"] is False
     assert repayment_flags["affects_nav"] is False
+
+
+@pytest.mark.parametrize(("kind", "amount", "stored_type", "subcategory"), [
+    ("personal_loan_drawdown", 100, "debt_drawdown", "个人借入本金"),
+    ("personal_loan_repayment", -100, "debt_repayment", "归还借款本金"),
+])
+def test_personal_loan_classification_requires_matching_unpaired_direction(
+    monkeypatch, kind, amount, stored_type, subcategory,
+):
+    from domain.ledger import cashflow_classification, confirmed_transfers_v2
+
+    conn = MagicMock()
+    cur = conn.__enter__.return_value.cursor.return_value.__enter__.return_value
+    cur.fetchone.return_value = {"account_code": "bank"}
+    row = {"amount": amount}
+    monkeypatch.setattr(ledger, "get_conn", lambda: conn)
+    monkeypatch.setattr(ledger, "_table_exists", lambda cur, table: True)
+    monkeypatch.setattr(ledger, "_verified_new_cashflow", lambda cur, row_id: row)
+    occupied = set()
+    monkeypatch.setattr(confirmed_transfers_v2, "occupied_cashflow_ids", lambda cur: occupied)
+    confirm = MagicMock()
+    monkeypatch.setattr(cashflow_classification, "confirm", confirm)
+    payload = ledger.LedgerRowUpdate(cashflow_type=kind)
+
+    ledger.update_ledger_row(1, payload)
+    confirm.assert_called_once_with(cur, cashflow_id=1, cashflow_type=stored_type,
+                                    category="个人借款", subcategory=subcategory)
+    confirm.reset_mock()
+    row["amount"] = -amount
+    with pytest.raises(HTTPException, match="方向"):
+        ledger.update_ledger_row(1, payload)
+    row["amount"] = amount
+    occupied.add(1)
+    with pytest.raises(HTTPException, match="撤销配对"):
+        ledger.update_ledger_row(1, payload)
+    confirm.assert_not_called()

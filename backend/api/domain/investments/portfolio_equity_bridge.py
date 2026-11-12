@@ -541,6 +541,7 @@ def _attribution_reconciliation_pnl(attribution: dict[str, Any]) -> Decimal:
 
 
 def _source_cashflow_breakdown(cur, start_date, end_date, excluded):
+    from domain.ledger.cashflow_classification import personal_loan_principal
     from domain.ledger.cashflow_fact import _cashflow_flags
     from domain.ledger.cashflow_read_v2 import load_cash_rows
     from domain.ledger.confirmed_transfers_v2 import read
@@ -554,7 +555,7 @@ def _source_cashflow_breakdown(cur, start_date, end_date, excluded):
                      if item['evidence_status'] == 'confirmed')
     cash_rows = []
     for row in load_cash_rows(cur, start=start_date, end=end_date, base_currency='CNY'):
-        if row['account_code'] in excluded or row['id'] in confirmed:
+        if row['account_code'] in excluded or row['id'] in confirmed or personal_loan_principal(row):
             continue
         kind = row['cashflow_type']
         classification_known = (row['classification_status'] == 'confirmed'

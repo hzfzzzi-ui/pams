@@ -390,6 +390,8 @@ def classify_ledger_row(
 
 
 def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int]) -> dict[str, Any]:
+    from domain.ledger.cashflow_classification import personal_loan_principal
+
     amount = row["amount"]
     if amount == 0:
         return {"flow_type": "other", "coarse_category": "零金额", "needs_review": False, "is_operating": False}
@@ -398,6 +400,9 @@ def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int])
     if row["id"] in matched_cash_ids:
         return {"account_flow_type": direction, "flow_type": "transfer", "coarse_category": "内部划转",
                 "needs_review": False, "is_operating": False, "is_internal_transfer": True}
+    if personal_loan_principal(row):
+        return {"account_flow_type": direction, "flow_type": "personal_loan", "coarse_category": row["subcategory"],
+                "needs_review": False, "is_operating": False, "is_internal_transfer": False}
 
     confirmed = row.get("classification_status") == "confirmed"
     subcategory = row.get("subcategory") if confirmed else None
@@ -439,6 +444,7 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     missing_income_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "income" for r in period_rows)
     missing_expense_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "expense" for r in period_rows)
     missing_transfer_row_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "transfer" for r in period_rows)
+    missing_principal_fx = any(r.get("amount_cny") is None and r.get("flow_type") == "personal_loan" for r in period_rows)
     income_amounts = [r["amount_cny"] for r in known_rows if r["flow_type"] == "income" and r["amount_cny"] > 0]
     expense_amounts = [-r["amount_cny"] for r in known_rows if r["flow_type"] == "expense" and r["amount_cny"] < 0]
     income = sum(income_amounts)
@@ -457,7 +463,8 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     # Cash-to-cash pairs have already been removed from both directional totals.
     one_sided_investment_net = sum(abs(t['amount_cny']) * _investment_transfer_sign(t)
                                   for t in known_transfers if not t.get('both_cash_legs'))
-    cash_net = disposable_net + one_sided_investment_net
+    principal_net = sum(r["amount_cny"] for r in known_rows if r["flow_type"] == "personal_loan")
+    cash_net = disposable_net + one_sided_investment_net + principal_net
     other_transfer = max(transfer - investment_transfer, 0.0)
     result = {
         "income": round(income, 2),
@@ -500,6 +507,10 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
             result['expense'] = None
         for key in ("net", "disposable_net", "cash_net"):
             result[key] = None
+    if missing_principal_fx:
+        result["cash_net"] = None
+        if "confirmed_subtotal" in result:
+            result["confirmed_subtotal"]["cash_net"] = None
     if missing_fx or missing_row_fx:
         result.update(fx_status="incomplete", fx_missing_count=missing_fx + missing_row_fx)
     elif any(row.get('fx_basis') == 'daily_market_projection' for row in period_rows):
@@ -1571,7 +1582,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
                         account_group='', matching_accounts=None, transfer_matches=(), period_start=None):
     profiles = account_config.get('accounts') or {}
     groups, group_by_account = _stream_account_groups(rows, account_config)
-    labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转',
+    labels = {'income': '收入', 'expense': '消费', 'transfer': '资金流转', 'personal_loan': '个人借款',
               'investment_return': '投资收益', 'investment_inflow': '投资流入',
               'investment_outflow': '投资流出', 'investment_fee': '投资费用',
               'investment_transfer': '投资划转'}
@@ -1586,7 +1597,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
         internal = row_flow == 'transfer' or row.get('is_internal_transfer') is True
         if flow in {'internal_transfer', 'cash_transfer'} and not internal:
             continue
-        if flow == 'cashflow' and not internal and row_flow not in _INCOME_EXPENSE_FLOWS:
+        if flow == 'cashflow' and not internal and row_flow not in _INCOME_EXPENSE_FLOWS | {'personal_loan'}:
             continue
         if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue

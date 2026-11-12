@@ -75,8 +75,9 @@ function bindLedgerEditSheet(row, session) {
   function syncClassificationFields() {
     const expense = isExpense();
     const transfer = isTransfer();
-    form.querySelector('[data-ledger-income-category]').hidden = expense || transfer;
-    form.querySelector('[data-ledger-standard-classification]').hidden = expense;
+    const principal = classificationType().startsWith('personal_loan_');
+    form.querySelector('[data-ledger-income-category]').hidden = expense || transfer || principal;
+    form.querySelector('[data-ledger-standard-classification]').hidden = expense || principal;
     form.querySelector('[data-ledger-transfer-type]').hidden = !transfer;
     const canEditCounterAccount = transfer && !row.classification_status;
     counterAccount.disabled = !canEditCounterAccount;

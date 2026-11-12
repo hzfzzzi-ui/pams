@@ -95,6 +95,8 @@ function ledgerEditSheetHtml(row) {
   const cashflowType = currentType || group;
   const isExpense = group === 'operating_expense';
   const isTransfer = group === 'internal_transfer';
+  const principalOption = Number(row.amount) > 0 ? 'personal_loan_drawdown'
+    : Number(row.amount) < 0 ? 'personal_loan_repayment' : null;
   const categoryType = isExpense ? group : cashflowType;
   const showCounterAccount = isTransfer && !row.classification_status;
   const defaultEdit = LEDGER_EDIT_DEFAULTS[cashflowType] || {};
@@ -134,7 +136,8 @@ function ledgerEditSheetHtml(row) {
         <label class="ledgerEditType">
           <span>流水分类</span>
           <select class="formInput" data-edit-field="flow_group" required>
-            ${LEDGER_EDIT_GROUPS.map(([value, label]) => `
+            ${LEDGER_EDIT_GROUPS.filter(([value]) => !value.startsWith('personal_loan_')
+              || (row.classification_status && value === principalOption)).map(([value, label]) => `
               <option value="${escapeHtml(value)}" ${value === group ? 'selected' : ''}>${escapeHtml(label)}</option>
             `).join('')}
           </select>
@@ -155,7 +158,7 @@ function ledgerEditSheetHtml(row) {
             ${optionHtml(ledgerCategoryOptions(categoryType, category), category)}
           </select>
         </label>
-        <label data-ledger-standard-classification ${isExpense ? 'hidden' : ''}>
+        <label data-ledger-standard-classification ${isExpense || group.startsWith('personal_loan_') ? 'hidden' : ''}>
           <span>细分类</span>
           <select class="formInput" data-edit-field="subcategory">
             ${isExpense ? '<option value=""></option>' : ''}

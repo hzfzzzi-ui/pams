@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from domain.ledger.cashflow_fact import _cashflow_flags as cashflow_flags_for_type
+from domain.ledger.cashflow_classification import PERSONAL_LOAN_CATEGORY, PERSONAL_LOAN_PRINCIPAL
 from domain.ledger.ledger_view import build_ledger_workbench_payload, _table_exists
 
 
@@ -201,10 +202,16 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
     """Manually update one cashflow fact row's business classification."""
 
     cashflow_type = (payload.cashflow_type or "").strip().lower()
-    if cashflow_type not in LEDGER_MANUAL_CASHFLOW_TYPES | LEDGER_NEW_MANUAL_CASHFLOW_TYPES:
+    principal = PERSONAL_LOAN_PRINCIPAL.get(cashflow_type)
+    if not principal and cashflow_type not in LEDGER_MANUAL_CASHFLOW_TYPES | LEDGER_NEW_MANUAL_CASHFLOW_TYPES:
         raise HTTPException(status_code=400, detail="unsupported cashflow_type")
 
-    category, subcategory = _manual_category(cashflow_type, payload.category, payload.subcategory)
+    if principal:
+        category, subcategory = PERSONAL_LOAN_CATEGORY, principal[1]
+    else:
+        category, subcategory = _manual_category(cashflow_type, payload.category, payload.subcategory)
+        if category == PERSONAL_LOAN_CATEGORY:
+            raise HTTPException(status_code=400, detail="请通过个人借款选项确认本金")
     counterparty = _clean_optional(payload.counterparty)
     counter_account_code = _clean_optional(payload.counter_account_code)
 
@@ -212,7 +219,22 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if _table_exists(cur, 'source_records'):
                 from domain.ledger.cashflow_classification import confirm
+                if principal:
+                    from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+
+                    cur.execute("SELECT account_code FROM pams_cashflow_fact WHERE cashflow_id=%s", (row_id,))
+                    account = cur.fetchone()
+                    if account:
+                        cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                                    ("account-import:" + account["account_code"],))
                 row = _verified_new_cashflow(cur, row_id)
+                if principal:
+                    expected_direction = row['amount'] > 0 if cashflow_type == 'personal_loan_drawdown' else row['amount'] < 0
+                    if not expected_direction:
+                        raise HTTPException(status_code=409, detail='借款本金的分类与原流水方向不符')
+                    if row_id in occupied_cashflow_ids(cur):
+                        raise HTTPException(status_code=409, detail='这笔流水已有配对，请先撤销配对')
+                    cashflow_type = principal[0]
                 if counterparty is not None and counterparty != _clean_optional(row.get('counterparty')):
                     raise HTTPException(status_code=409, detail='source counterparty cannot be changed by classification')
                 if counter_account_code is not None:
@@ -220,7 +242,7 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
                 confirm(cur, cashflow_id=row_id, cashflow_type=cashflow_type, category=category, subcategory=subcategory)
                 return {'ok': True, 'row_id': row_id, 'cashflow_type': cashflow_type,
                         'category': category, 'subcategory': subcategory}
-            if cashflow_type in LEDGER_NEW_MANUAL_CASHFLOW_TYPES:
+            if principal or cashflow_type in LEDGER_NEW_MANUAL_CASHFLOW_TYPES:
                 raise HTTPException(status_code=400, detail="unsupported cashflow_type")
             flags = cashflow_flags_for_type(cashflow_type)
             cur.execute(

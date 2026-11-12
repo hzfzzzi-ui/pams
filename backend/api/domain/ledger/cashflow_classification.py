@@ -8,6 +8,28 @@ import re
 import yaml
 
 
+PERSONAL_LOAN_CATEGORY = '个人借款'
+PERSONAL_LOAN_PRINCIPAL = {
+    'personal_loan_drawdown': ('debt_drawdown', '个人借入本金'),
+    'personal_loan_repayment': ('debt_repayment', '归还借款本金'),
+}
+
+
+def personal_loan_principal(row):
+    """Identify an explicitly classified principal movement by its original direction."""
+    amount = row.get('amount')
+    if (not amount or row.get('classification_status') != 'confirmed'
+            or row.get('category') != PERSONAL_LOAN_CATEGORY
+            or row.get('classification_source') != 'manual'
+            or row.get('source_evidence_status') != 'verified'):
+        return None
+    kind = 'personal_loan_drawdown' if amount > 0 else 'personal_loan_repayment'
+    cashflow_type, subcategory = PERSONAL_LOAN_PRINCIPAL[kind]
+    if row.get('cashflow_type') == cashflow_type and row.get('subcategory') == subcategory:
+        return kind
+    return None
+
+
 def _normalize(text):
     return ' '.join(str(text or '').casefold().split())
 

@@ -65,8 +65,10 @@ def is_cross_currency_card_repayment(source, target, profiles):
 
 
 def suggest(rows, profiles, occupied, *, limit=None):
+    from domain.ledger.cashflow_classification import personal_loan_principal
+
     available = [row for row in rows if row['id'] not in occupied and row['source_evidence_status'] == 'verified'
-                 and row['amount'] and row['currency'] and row['transaction_date']]
+                 and row['amount'] and row['currency'] and row['transaction_date'] and not personal_loan_principal(row)]
     deposits = defaultdict(list)
     fx_repayments = defaultdict(list)
     for row in available:

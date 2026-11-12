@@ -44,6 +44,26 @@ def test_financial_expenses_group_without_changing_cashflow_direction(category):
     assert ledger_view._classify_cash_direction({**row, "amount": 20}, set())["coarse_category"] == "券商利息"
 
 
+def test_personal_loan_principal_changes_monthly_cash_without_affecting_spending():
+    from domain.ledger.manual_transfer_pairs import is_manual_anchor
+
+    received = dict(id=1, amount=100, amount_cny=100, transaction_date_obj=date(2024, 5, 25),
+                    classification_status="confirmed", classification_source="manual",
+                    source_evidence_status="verified", cashflow_type="debt_drawdown",
+                    category="个人借款", subcategory="个人借入本金")
+    repaid = dict(received, id=2, amount=-100, amount_cny=-100, transaction_date_obj=date(2024, 6, 2),
+                  cashflow_type="debt_repayment", subcategory="归还借款本金")
+    card_payment = dict(repaid, id=3, category="内部划转", subcategory="信用卡还款")
+    rows = [dict(row, **ledger_view._classify_cash_direction(row, set())) for row in (received, repaid)]
+    for month, movement in [(5, 100), (6, -100)]:
+        totals = summarize_period(rows, [], date(2024, month, 1), date(2024, month, 30))
+        assert (totals["income"], totals["expense"], totals["disposable_net"], totals["cash_net"]) == (0, 0, 0, movement)
+    assert not is_manual_anchor(repaid)
+    assert is_manual_anchor(card_payment)
+    assert ledger_view._classify_cash_direction(card_payment, set())["flow_type"] == "expense"
+    assert ledger_view._classify_cash_direction(dict(received, classification_status="suggested"), set())["flow_type"] == "income"
+
+
 def test_category_insights_roll_up_children_and_months_without_moving_cashflows():
     def row(flow, category, child, amount, month, status="confirmed"):
         return dict(flow_type=flow, category=category, subcategory=child, amount_cny=amount,
