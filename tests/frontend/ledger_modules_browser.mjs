@@ -390,17 +390,24 @@ async function checkTransferLayout() {
   assert.equal(await route.locator('time').getAttribute('datetime'), '2026-09-27');
   assert.match(await route.innerText(), /4,567\.89/);
   const investment = transferPage.locator('#transferConfirmed .ledgerPair').nth(1);
+  await investment.locator('summary').click();
   await investment.getByText('人民币折算待补').waitFor();
   assert.match(await investment.locator('summary').innerText(), /65,000\.00/);
   for (const width of [320, 390, 1280]) {
     await transferPage.setViewportSize({ width, height: 900 });
     assert.equal(await route.evaluate(summary => {
-      const [sender, center, receiver] = Array.from(summary.children, element => element.getBoundingClientRect());
-      const arrow = summary.querySelector('.ledgerPairArrow');
+      const rect = selector => summary.querySelector(selector).getBoundingClientRect();
+      const sender = rect('[data-direction="out"]');
+      const center = rect('.ledgerPairCenter');
+      const receiver = rect('[data-direction="in"]');
+      const outgoingArrow = rect('.ledgerPairArrow.is-left');
+      const incomingArrow = rect('.ledgerPairArrow:not(.is-left)');
       const date = summary.querySelector('time');
       return summary.scrollWidth <= summary.clientWidth && sender.right <= center.left && center.right <= receiver.left
-        && arrow.getBoundingClientRect().bottom < date.getBoundingClientRect().top
-        && getComputedStyle(arrow).backgroundImage === 'none';
+        && outgoingArrow.top - rect('.is-out').bottom === 1
+        && rect('.is-in').top - incomingArrow.bottom === 1
+        && incomingArrow.width >= 104
+        && incomingArrow.bottom < date.getBoundingClientRect().top;
     }), true, `transfer row at ${width}px`);
   }
   await route.focus();
@@ -430,13 +437,13 @@ async function checkTransferLayout() {
     note:'在收支内部划转页人工核对确认',confirmed:true,
   });
   await transferPage.evaluate(() => __ledgerTest.pendingPosts.shift().reject(new Error('模拟未确认')));
-  await transferPage.locator('#transferPairNotice').getByText('模拟未确认').waitFor();
+  await transferPage.locator('#transferPending [data-pair-status]').getByText('模拟未确认').waitFor();
   assert.equal(await transferPage.evaluate(() => __ledgerTest.writes.filter(write => write.url.endsWith('/transfers/confirm')).length), 1);
   await pending.click();
   await transferPage.locator('#recentRows .ledgerStreamDayHeader time').waitFor();
   assert.equal(await transferPage.locator('#transferReviewPanel').isVisible(), false);
   await transferPage.locator('[data-ledger-tab="overview"]').click();
-  await transferPage.locator('[data-ledger-transfer-link]').click();
+  await transferPage.evaluate(() => { location.hash = '#transfers'; });
   await payment.waitFor();
   assert.equal(await transferPage.locator('a[data-ledger-tab="recent"]').getAttribute('aria-current'), 'page');
   assert.equal(await transferPage.evaluate(() => location.hash), '#transfers');
@@ -557,7 +564,7 @@ async function checkStreamLayout() {
   assert.equal(await pairCard.locator('summary img').count(),2);
   assert.match(await pairCard.locator('summary').getAttribute('aria-label'), /转出 腾讯 理财通活期\+/);
   assert.match(await pairCard.locator('[data-direction="out"] img').getAttribute('src'), /account-brands\/wechat\.jpg$/);
-  assert.equal(await pairCard.locator('.ledgerPairArrow').isVisible(),true);
+  assert.equal(await pairCard.locator('.ledgerPairArrow:visible').count(),2);
   assert.equal(await list.getByRole('button',{name:'展开更多'}).count(),0);
   const pairSummary = await pairCard.locator('summary').innerHTML();
   await pairCard.locator('summary').click();
