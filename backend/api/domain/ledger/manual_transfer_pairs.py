@@ -72,6 +72,16 @@ def pairing_options(cur, anchor_id, *, month=None, offset=0, limit=10):
     rows = load_cash_rows(cur, start=start, end=end, base_currency='CNY', include_pair_evidence=True)
     options = [{**_display_row(row), 'match_type': match_type} for row in rows
                if row['id'] not in occupied and (match_type := manual_pair_type(anchor, row))]
-    options.sort(key=lambda row: (abs(row['transaction_date'] - day), -row['id']))
+
+    def sort_key(row):
+        if row['currency'] == anchor['currency']:
+            difference = abs(anchor['amount'] + row['amount'])
+        elif anchor['amount_cny'] is not None and row['amount_cny'] is not None:
+            difference = abs(anchor['amount_cny'] + row['amount_cny'])
+        else:
+            difference = None
+        return (difference is None, difference or 0, abs(row['transaction_date'] - day), -row['id'])
+
+    options.sort(key=sort_key)
     return {'rows': options[offset:offset + limit],
             'next_offset': offset + limit if offset + limit < len(options) else None}

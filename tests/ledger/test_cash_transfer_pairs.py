@@ -1,6 +1,8 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import Mock
 
+from domain.ledger import manual_transfer_pairs
 from domain.ledger.cash_transfer_pairs import suggest
 
 
@@ -56,3 +58,26 @@ def test_cross_currency_card_candidates_require_independent_same_day_repayment_e
     ):
         assert suggest([debit, invalid], profiles, set()) == []
     assert suggest([debit, credit], profiles, {2}) == []
+
+
+def test_manual_options_rank_comparable_amounts_before_date_and_paginate(monkeypatch):
+    anchor = {**cash_row(1, 'cny', '11000', hint='fx_conversion'),
+              'classification_source': 'manual', 'amount_cny': Decimal('11000')}
+    rows = [
+        {**cash_row(2, 'usd_card', '-3.51', currency='USD'), 'amount_cny': Decimal('-25.00')},
+        {**cash_row(3, 'mxn', '-30000', currency='MXN', day_offset=-1), 'amount_cny': Decimal('-10785.15')},
+        {**cash_row(4, 'usd_bank', '-1540', currency='USD', day_offset=2), 'amount_cny': Decimal('-10785.15')},
+        {**cash_row(5, 'foreign_bank', '-11000', currency='USD'), 'amount_cny': None},
+        {**cash_row(6, 'other_cny', '-11000', day_offset=3), 'amount_cny': None},
+    ]
+    cur = Mock()
+    cur.fetchone.return_value = {'event_date': anchor['transaction_date']}
+    monkeypatch.setattr(manual_transfer_pairs, 'occupied_cashflow_ids', lambda cur: set())
+    monkeypatch.setattr(manual_transfer_pairs, 'load_leg', lambda cur, ident, day: anchor)
+    monkeypatch.setattr(manual_transfer_pairs, 'load_cash_rows', lambda *args, **kwargs: rows)
+
+    first = manual_transfer_pairs.pairing_options(cur, anchor['id'], limit=2)
+    assert [row['id'] for row in first['rows']] == [6, 3]
+    second = manual_transfer_pairs.pairing_options(cur, anchor['id'], offset=first['next_offset'])
+    assert [row['id'] for row in second['rows']] == [4, 2, 5]
+    assert second['next_offset'] is None
