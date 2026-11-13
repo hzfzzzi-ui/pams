@@ -36,3 +36,33 @@ def test_balance_requires_one_verified_member(monkeypatch):
         'status': 'recorded', 'as_of': day, 'amount': '18971.58', 'synced_at': published, 'historical_as_of': None,
     }
     assert sync_status._balance(None, [row, dict(row, id=2)], {})['status'] == 'review'
+
+
+
+def test_manual_position_value_keeps_asset_and_debt_dates_separate(monkeypatch):
+    asset_day = date(2026, 7, 31)
+    debt_day = date(2026, 11, 13)
+    rows = [
+        {'id': 1, 'as_of': asset_day, 'currency': 'CNY', 'asset_liability': '资产',
+         'market_value': Decimal('706500.00')},
+        {'id': 2, 'as_of': debt_day, 'currency': 'CNY', 'asset_liability': '负债',
+         'market_value': Decimal('310000.00')},
+    ]
+
+    class Cursor:
+        def execute(self, query, params):
+            assert params == ('manual_broker', debt_day)
+
+        def fetchall(self):
+            return rows
+
+    monkeypatch.setattr(sync_status, 'current_holding_source', lambda cur, ident: {'status': 'recorded'})
+    assert sync_status._manual_position_value(Cursor(), 'manual_broker', debt_day) == {
+        'balance_amount': '396500.00', 'balance_currency': 'CNY', 'balance_label': '参考净值',
+        'position_value': '706500.00', 'position_as_of': asset_day,
+        'position_debt': '310000.00', 'position_debt_as_of': debt_day,
+    }
+    monkeypatch.setattr(sync_status, 'current_holding_source', lambda cur, ident: {
+        'status': 'recorded' if ident == 1 else 'unknown',
+    })
+    assert sync_status._manual_position_value(Cursor(), 'manual_broker', debt_day) is None
