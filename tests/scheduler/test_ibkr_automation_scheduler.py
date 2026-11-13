@@ -137,7 +137,6 @@ def test_daily_holdings_scheduler_waits_for_publication(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "STATE_PATH", tmp_path / "refresh.json")
     observed = None
     calls = []
-    monkeypatch.setattr(module, "_historical_usd_cny", lambda day: day.isoformat() == "2026-10-23")
 
     def request(method, url, label, **kwargs):
         nonlocal observed
@@ -166,7 +165,8 @@ def test_us_return_recovery_retries_late_report_and_repairs_only_missing_fx(tmp_
     older = "2026-10-22"
     calls = []
     clock = NOW
-    ready = False
+    report_ready = False
+    fx_ready = False
     published = False
     fx = set()
 
@@ -175,22 +175,22 @@ def test_us_return_recovery_retries_late_report_and_repairs_only_missing_fx(tmp_
         if "historical-usd-cny" in url:
             target = url.split("=")[-1]
             calls.append(("fx", target))
-            if target == day and clock == NOW:
+            if target == day and not fx_ready:
                 return {"status": "waiting"}
             fx.add(target)
             return {"status": "ok", "as_of": target, "source": "openexchangerates"}
         assert "/ibkr/daily-holdings/" in url
         if method == "post":
-            assert day in fx
+            assert day not in fx
             calls.append(("report", day))
-            if not ready:
+            if not report_ready:
                 return {"status": "blocked", "reason": "stale_statement_date"}
             published = True
         return {"configured": True, "expected_statement_as_of": day,
                 "statement_as_of": day if published else older, "publication_verified": published}
 
     def snapshot(endpoint, _):
-        assert published and endpoint.endswith(f"&expected_through={day}")
+        assert published and day in fx and endpoint.endswith(f"&expected_through={day}")
         calls.append(("snapshot", day))
         if older not in fx:
             return {"status": "blocked", "missing_fx_date": older}
@@ -200,12 +200,18 @@ def test_us_return_recovery_retries_late_report_and_repairs_only_missing_fx(tmp_
     monkeypatch.setattr(module, "_post_root", snapshot)
     confirm = module.run_daily_holdings_confirmation
     monkeypatch.setattr(module, "run_daily_holdings_confirmation", lambda: confirm(now=clock))
-    assert module.run_daily_us_return_recovery()["reason"] == "waiting_for_fx"
-    clock += timedelta(minutes=31)
     assert module.run_daily_us_return_recovery()["reason"] == "report_delayed"
-    ready = True
+    report_ready = True
+    clock += timedelta(minutes=31)
+    waiting = module.run_daily_us_return_recovery()
+    assert published
+    assert waiting["status"] == "blocked"
+    assert waiting["steps"] == [{"name": "fx", "issues": ["waiting_for_fx"]}]
+    assert calls == [("report", day), ("report", day), ("fx", day)]
+
+    fx_ready = True
     clock += timedelta(minutes=31)
     assert module.run_daily_us_return_recovery()["status"] == "success"
-    assert calls == [("fx", day), ("fx", day), ("report", day), ("fx", day), ("report", day),
-                     ("fx", day), ("snapshot", day), ("fx", older), ("snapshot", day)]
+    assert calls == [("report", day), ("report", day), ("fx", day), ("fx", day),
+                     ("snapshot", day), ("fx", older), ("snapshot", day)]
     assert module.run_daily_us_return_recovery()["reason"] == "already_completed"
