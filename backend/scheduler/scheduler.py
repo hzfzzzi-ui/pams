@@ -190,8 +190,6 @@ def run_daily_holdings_confirmation(now=None):
                              failure_details=True, max_attempts=1)
 
     def sync(target):
-        if not _historical_usd_cny(target):
-            return {"reason": "waiting_for_fx"}
         return _request_json('post', f'{API_BASE}/ibkr/daily-holdings/sync', 'IBKR holdings',
                              headers={'X-PAMS-Holdings-Token': token},
                              json={'expected_statement_reference': target.isoformat()},
