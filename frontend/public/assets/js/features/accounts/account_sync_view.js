@@ -44,6 +44,15 @@ export function accountSyncMetadata(doc, data = {}) {
   } else {
     metadata.append(element(doc, 'dt', '最近交易'), element(doc, 'dd', data.latest_trade_on || '—'));
   }
+  const money = new Intl.NumberFormat('zh-CN', {style: 'currency', currency: data.balance_currency || 'CNY'});
+  if (data.position_value != null) {
+    metadata.append(element(doc, 'dt', '持仓 · ' + data.position_as_of),
+      element(doc, 'dd', money.format(data.position_value)));
+  }
+  if (data.position_debt != null) {
+    metadata.append(element(doc, 'dt', '负债 · ' + data.position_debt_as_of),
+      element(doc, 'dd', money.format(data.position_debt)));
+  }
   metadata.append(element(doc, 'dt', hasValuationTime ? '估值更新' : '上次同步'), element(doc, 'dd', updatedLabel));
   return metadata;
 }

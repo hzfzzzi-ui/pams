@@ -16,6 +16,7 @@ from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.portfolio_state import _excluded_accounts
 from domain.investments.trade_read_v2 import load_trade_rows
+from domain.investments.valuation_input_evidence import current_holding_source
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 
 
@@ -104,6 +105,30 @@ def _latest_cash_snapshots(cur, codes):
         LEFT JOIN public.source_records r ON r.source_id=i.source_id
         WHERE h.major_category='现金' ''', (codes,))
     return cur.fetchall()
+
+
+def _manual_position_value(cur, account_code, day):
+    cur.execute("""SELECT DISTINCT ON (name, currency) id, as_of, currency, asset_liability, market_value
+        FROM public.pams_holdings_snapshot
+        WHERE account_code=%s AND as_of<=%s AND major_category<>'现金'
+        ORDER BY name, currency, as_of DESC, id DESC""", (account_code, day))
+    rows = cur.fetchall()
+    if not rows or any(row['currency'] != 'CNY' or row['market_value'] is None
+                       or current_holding_source(cur, row['id'])['status'] != 'recorded' for row in rows):
+        return None
+    assets = [row for row in rows if row['asset_liability'] == '资产']
+    debts = [row for row in rows if row['asset_liability'] == '负债']
+    if not assets or len(assets) + len(debts) != len(rows):
+        return None
+    asset_value = sum(row['market_value'] for row in assets)
+    debt_value = sum(abs(row['market_value']) for row in debts)
+    return {
+        'balance_amount': str(asset_value - debt_value),
+        'balance_currency': 'CNY', 'balance_label': '参考净值',
+        'position_value': str(asset_value), 'position_as_of': min(row['as_of'] for row in assets),
+        'position_debt': str(debt_value) if debts else None,
+        'position_debt_as_of': min((row['as_of'] for row in debts), default=None),
+    }
 
 
 def review_records(cur, config, account_code, kind, offset):
@@ -195,6 +220,12 @@ def read_account_sync(cur, config):
         }
         row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability',
                                           now=now, source_balance=source_balances.get(code))
+        if (row['active'] and row['summary']['balance_amount'] is None
+                and cfg.get('account_type') == 'brokerage' and cfg.get('truth_source') == 'manual'
+                and cfg.get('reconcile_method') == 'position_nav' and row['currency'] == 'CNY'):
+            position = _manual_position_value(cur, code, now.date())
+            if position:
+                row['summary'].update(position)
         group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}
