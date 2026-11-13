@@ -322,6 +322,11 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
                 VALUES (%s,'CNY','USD',6.9,'exchangerate-api')""", (second,))
             assert curve()['source_through'] == str(DAY)
             assert curve()['missing_fx_date'] == str(second)
+            cur.execute("""UPDATE pams_fx_rates_daily SET source='openexchangerates',
+                fetched_at=%s::date::timestamp AT TIME ZONE 'UTC'
+                WHERE as_of=%s AND base_currency='CNY' AND quote_currency='USD'""", (second, second))
+            assert curve()['source_through'] == str(DAY)
+            assert curve()['missing_fx_date'] == str(second)
             add_fx(second)
             assert curve()['source_through'] == str(second)
 

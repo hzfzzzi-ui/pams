@@ -188,7 +188,8 @@ def build_verified_us_return(cur, *, start, end, interval, owner_ratio):
         return None
     cur.execute("""SELECT as_of, rate FROM public.pams_fx_rates_daily
         WHERE base_currency='CNY' AND quote_currency='USD' AND source=%s
-          AND as_of BETWEEN %s AND %s AND rate>0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')""",
+          AND as_of BETWEEN %s AND %s AND rate>0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
+          AND fetched_at >= ((as_of + 1)::timestamp AT TIME ZONE 'UTC')""",
                 (FX_SOURCE, start, end))
     rates = {row['as_of']: row['rate'] for row in cur.fetchall()}
     best = None
