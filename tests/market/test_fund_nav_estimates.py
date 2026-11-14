@@ -233,9 +233,11 @@ def test_late_confirmed_nav_advances_snapshot_on_the_nav_date(monkeypatch):
     monkeypatch.setattr(nav, "current_china_fund_date", lambda: today)
     monkeypatch.setattr(nav, "ensure_fund_nav_estimate_table", lambda cur: None)
     monkeypatch.setattr(nav, "load_latest_active_fund_holdings", lambda cur: [holding])
-    monkeypatch.setattr(nav, "fetch_confirmed_nav", lambda *args: nav.ConfirmedNav(
+    monkeypatch.setattr(nav, "_stored_nav_prices", lambda *args: {})
+    monkeypatch.setattr(nav, "lock_holding_accounts", lambda *args: None)
+    monkeypatch.setattr(nav, "fetch_eastmoney_nav_history", lambda *args, **kwargs: [nav.ConfirmedNav(
         nav_date=confirmed, unit_nav=Decimal("1.20"), accumulated_nav=None,
-        growth_pct=None, source="synthetic"))
+        growth_pct=None, source="synthetic")])
     monkeypatch.setattr(nav, "existing_estimate", lambda *args, **kwargs: None)
     monkeypatch.setattr(nav, "upsert_estimate_row", lambda *args, **kwargs: None)
     monkeypatch.setattr(nav, "upsert_asset_market_daily_nav", lambda *args, **kwargs: None)
@@ -247,3 +249,49 @@ def test_late_confirmed_nav_advances_snapshot_on_the_nav_date(monkeypatch):
     assert [(row["as_of"], row["market_value"], row["update_existing"]) for row in writes] == [
         (confirmed, Decimal("120.00"), False),
     ]
+
+
+def test_fund_history_checks_eastmoney_when_tushare_lags(monkeypatch):
+    from datetime import date
+    from domain.market import fund_nav_estimates as nav
+
+    day1, gap, day2, day3 = (date(2026, 11, d) for d in (10, 11, 12, 13))
+    tushare = [nav.ConfirmedNav(day1, Decimal("1"), None, None, "tushare_fund_nav"),
+               nav.ConfirmedNav(day2, Decimal("1.2"), None, None, "tushare_fund_nav")]
+    eastmoney = [nav.ConfirmedNav(gap, Decimal("1.1"), None, None),
+                 nav.ConfirmedNav(day2, Decimal("99"), None, None),
+                 nav.ConfirmedNav(day3, Decimal("1.3"), None, None)]
+    monkeypatch.setattr(nav, "fetch_tushare_nav_history", lambda *args, **kwargs: tushare)
+    monkeypatch.setattr(nav, "fetch_eastmoney_nav_history", lambda *args, **kwargs: eastmoney)
+    rows, errors = nav.fetch_confirmed_nav_history("123456", session=None, pro=object(),
+        start=day1, end=day3, missing_days={gap, day3})
+    assert not errors
+    assert rows == [tushare[0], eastmoney[0], tushare[1], eastmoney[2]]
+
+
+def test_tushare_never_uses_announcement_date_as_nav_date():
+    frame = pd.DataFrame([{"ts_code": "123456.OF", "ann_date": "20261113", "unit_nav": "1.34"}])
+    assert parse_tushare_fund_nav_frame(frame) is None
+
+
+def test_eastmoney_history_uses_published_unit_nav_and_its_own_date(monkeypatch):
+    from datetime import date
+    from types import SimpleNamespace
+    from domain.market import fund_nav_estimates as nav
+
+    monkeypatch.setattr("domain.imports.isolation.require_external_access", lambda: None)
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+        "ErrCode": 0, "Data": {"LSJZList": [
+            {"FSRQ": "2026-11-13", "DWJZ": "1.1701", "LJJZ": "1.3000", "JZZZL": "-1.20"},
+            {"FSRQ": "2026-11-12", "DWJZ": "", "LJJZ": "1.3000"},
+            {"FSRQ": "2026-11-16", "DWJZ": "2.0000"},
+        ]},
+    })
+    start, end = date(2026, 11, 11), date(2026, 11, 15)
+    rows = nav.fetch_eastmoney_nav_history(
+        "024239", session=SimpleNamespace(get=lambda *args, **kwargs: response), start=start, end=end,
+    )
+    assert len(rows) == 1
+    assert (rows[0].nav_date, rows[0].unit_nav, rows[0].source) == (
+        date(2026, 11, 13), Decimal("1.1701"), "eastmoney_f10",
+    )

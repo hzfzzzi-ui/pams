@@ -17,9 +17,10 @@ import html
 import json
 import os
 import re
+from collections import defaultdict
 import time
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -36,6 +37,7 @@ QUANTITY = Decimal("0.000001")
 PRICE = Decimal("0.000001")
 RATIO = Decimal("0.000001")
 
+NAV_HISTORY_DAYS = 14
 DEFAULT_REVIEW_PCT = Decimal("0.01")
 DEFAULT_REVIEW_AMOUNT = Decimal("200")
 TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
@@ -83,7 +85,7 @@ def optional_dec(value: Any, quant: Decimal = PRICE) -> Decimal | None:
     if value in (None, ""):
         return None
     parsed = dec(value, quant)
-    return parsed if parsed != 0 else None
+    return parsed if parsed.is_finite() and parsed != 0 else None
 
 
 def parse_confirmed_nav_rows(script_text: str) -> list[ConfirmedNav]:
@@ -164,23 +166,24 @@ def tushare_fund_ts_code_candidates(symbol: str) -> list[str]:
     return candidates
 
 
-def parse_tushare_fund_nav_frame(df: Any) -> ConfirmedNav | None:
-    """Parse Tushare fund_nav rows into the latest confirmed NAV."""
+def _parse_tushare_nav_history(df: Any) -> list[ConfirmedNav]:
+    """Parse one current value per published NAV date, newest first."""
     if df is None or getattr(df, "empty", True):
-        return None
+        return []
     rows = df.copy()
     if "unit_nav" not in rows:
-        return None
-    date_column = next((column for column in ("nav_date", "end_date", "ann_date") if column in rows), None)
+        return []
+    date_column = next((column for column in ("nav_date", "end_date") if column in rows), None)
     if not date_column:
-        return None
+        return []
     sort_columns = [date_column]
-    if date_column != "ann_date" and "ann_date" in rows:
+    if "ann_date" in rows:
         sort_columns.append("ann_date")
     rows = rows.sort_values(sort_columns, ascending=False)
+    by_date: dict[date, ConfirmedNav] = {}
     for _, row in rows.iterrows():
         unit_nav = optional_dec(row.get("unit_nav"), PRICE)
-        if unit_nav is None:
+        if unit_nav is None or unit_nav <= 0:
             continue
         raw_date = str(row.get(date_column) or "").strip()
         if not raw_date:
@@ -192,15 +195,20 @@ def parse_tushare_fund_nav_frame(df: Any) -> ConfirmedNav | None:
                 nav_date = datetime.strptime(raw_date[:10], "%Y-%m-%d").date()
             except ValueError:
                 continue
-        return ConfirmedNav(
+        by_date.setdefault(nav_date, ConfirmedNav(
             nav_date=nav_date,
             unit_nav=unit_nav,
             accumulated_nav=optional_dec(row.get("accum_nav"), PRICE),
             growth_pct=None,
             source="tushare_fund_nav",
             ts_code=str(row.get("ts_code") or ""),
-        )
-    return None
+        ))
+    return list(by_date.values())
+
+
+def parse_tushare_fund_nav_frame(df: Any) -> ConfirmedNav | None:
+    rows = _parse_tushare_nav_history(df)
+    return rows[0] if rows else None
 
 
 def infer_units(market_value: Decimal, quantity: Decimal, price: Decimal, fallback_nav: Decimal) -> Decimal:
@@ -297,26 +305,71 @@ def fetch_confirmed_nav_tushare(symbol: str, pro: Any | None = None) -> Confirme
     return None
 
 
-def fetch_confirmed_nav_prefer_tushare(
-    symbol: str,
-    *,
-    session: requests.Session | None = None,
-    pro: Any | None = None,
-) -> tuple[ConfirmedNav | None, str | None]:
-    """Fetch confirmed NAV from Tushare first, falling back to Eastmoney."""
+def fetch_tushare_nav_history(symbol, *, pro, start, end):
+    from domain.imports.isolation import require_external_access
+    require_external_access()
+    for code in tushare_fund_ts_code_candidates(symbol):
+        frame = pro.fund_nav(
+            ts_code=code, start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"),
+            fields="ts_code,ann_date,nav_date,end_date,unit_nav,accum_nav",
+        )
+        rows = [replace(nav, ts_code=code) for nav in _parse_tushare_nav_history(frame)
+                if nav.ts_code == code and start <= nav.nav_date <= end]
+        if rows:
+            return rows
+    return []
+
+
+def fetch_eastmoney_nav_history(symbol, *, session, start, end):
+    """Read published unit NAV history from Eastmoney's F10 JSON endpoint."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
+    if not re.fullmatch(r"\d{6}", symbol):
+        raise ValueError("invalid fund symbol")
+    response = session.get(
+        "https://api.fund.eastmoney.com/f10/lsjz",
+        params={"fundCode": symbol, "pageIndex": 1, "pageSize": NAV_HISTORY_DAYS + 1,
+                "startDate": start.isoformat(), "endDate": end.isoformat()},
+        headers={"User-Agent": "Mozilla/5.0",
+                 "Referer": f"https://fundf10.eastmoney.com/jjjz_{symbol}.html"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("ErrCode") != 0:
+        raise ValueError("Eastmoney fund NAV history unavailable")
+    rows = {}
+    for row in (payload.get("Data") or {}).get("LSJZList") or []:
+        nav_date = date.fromisoformat(row["FSRQ"])
+        nav = optional_dec(row.get("DWJZ"), PRICE)
+        if start <= nav_date <= end and nav is not None and nav > 0:
+            record = ConfirmedNav(nav_date, nav, optional_dec(row.get("LJJZ"), PRICE),
+                                  optional_dec(row.get("JZZZL"), RATIO), source="eastmoney_f10")
+            if nav_date in rows and rows[nav_date].unit_nav != nav:
+                raise ValueError("conflicting Eastmoney NAVs")
+            rows[nav_date] = record
+    return list(rows.values())
+
+
+def fetch_confirmed_nav_history(symbol, *, session, pro, start, end, missing_days):
+    """Keep the primary source for shared dates and use the backup for missing dates."""
+    errors = []
     try:
-        nav = fetch_confirmed_nav_tushare(symbol, pro=pro)
-        if nav:
-            return nav, None
+        primary = fetch_tushare_nav_history(symbol, pro=pro, start=start, end=end) if pro else []
     except Exception as exc:
-        tushare_error = f"tushare fund_nav failed: {exc}"
-    else:
-        tushare_error = None
-    try:
-        nav = fetch_confirmed_nav(symbol, session=session)
-        return nav, tushare_error
-    except Exception:
-        raise
+        errors.append(f"Tushare: {type(exc).__name__}")
+        primary = []
+    by_date = {nav.nav_date: nav for nav in primary}
+    if not by_date or missing_days.difference(by_date):
+        try:
+            backup = fetch_eastmoney_nav_history(symbol, session=session, start=start, end=end)
+            for nav in backup:
+                if start <= nav.nav_date <= end:
+                    by_date.setdefault(nav.nav_date, nav)
+        except Exception as exc:
+            errors.append(f"Eastmoney: {type(exc).__name__}")
+    return sorted((nav for nav in by_date.values() if start <= nav.nav_date <= end),
+                  key=lambda nav: nav.nav_date), errors
 
 
 def fetch_intraday_estimate(symbol: str, session: requests.Session | None = None) -> IntradayEstimate | None:
@@ -668,6 +721,128 @@ def current_china_fund_date() -> date:
     return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
 
+def _fund_history_days(current_date):
+    import exchange_calendars as xcals
+
+    start = current_date - timedelta(days=NAV_HISTORY_DAYS)
+    calendar = xcals.get_calendar("XSHG")
+    return {day.date() for day in calendar.sessions_in_range(start.isoformat(), current_date.isoformat())}
+
+
+def _stored_nav_prices(cur, symbol, start, end):
+    cur.execute("""SELECT as_of, unit_nav FROM market_observations
+        WHERE observation_type='daily' AND market='基金' AND currency='CNY' AND symbol=%s
+          AND as_of BETWEEN %s AND %s AND source IN ('tushare_fund_nav','eastmoney_f10')
+          AND unit_nav>0 AND unit_nav::text NOT IN ('NaN','Infinity','-Infinity')""",
+                (symbol, start, end))
+    prices = defaultdict(set)
+    for row in cur.fetchall():
+        prices[row['as_of']].add(row['unit_nav'])
+    return prices
+
+
+def _fund_history_holdings(cur, holding, start):
+    cur.execute("""SELECT * FROM pams_holdings_snapshot
+        WHERE account_code=%s AND symbol=%s AND currency='CNY'
+          AND as_of BETWEEN %s AND %s ORDER BY as_of,id""",
+                (holding['account_code'], holding['symbol'], start, holding['as_of']))
+    rows = defaultdict(list)
+    for row in cur.fetchall():
+        rows[row['as_of']].append(dict(row))
+    return rows
+
+
+def _historical_holding_basis(cur, holding, snapshots, day):
+    """Require dated position evidence or explicitly reconciled trade quantities."""
+    if day in snapshots:
+        rows = snapshots[day]
+        return rows[0] if len(rows) == 1 and rows[0]['name'] == holding['name'] else None
+    prior_days = [known_day for known_day in snapshots if known_day < day]
+    if prior_days:
+        rows = snapshots[max(prior_days)]
+        if len(rows) != 1:
+            return None
+        basis = rows[0]
+    else:
+        basis = holding
+    if basis['name'] != holding['name']:
+        return None
+    first, last = sorted((basis['as_of'], day))
+    cur.execute("""SELECT COUNT(*) FILTER (WHERE GREATEST(trade_date, COALESCE(settle_date,trade_date))>%s
+                    AND LEAST(trade_date,COALESCE(settle_date,trade_date))<=%s) AS changes,
+            COALESCE(SUM(CASE WHEN trade_type IN ('fund_subscription','buy') THEN ABS(quantity)
+                             WHEN trade_type IN ('fund_redemption','sell') THEN -ABS(quantity)
+                             ELSE 0 END) FILTER (
+                WHERE GREATEST(trade_date,COALESCE(settle_date,trade_date))<=%s),0) AS proven_units,
+            COUNT(*) FILTER (WHERE GREATEST(trade_date,COALESCE(settle_date,trade_date))<=%s
+                  AND (quantity IS NULL OR execution_status IS DISTINCT FROM 'confirmed'
+                       OR source_item_id IS NULL OR trade_type IS NULL
+                       OR trade_type NOT IN ('fund_subscription','fund_redemption','buy','sell'))) AS unverified
+        FROM pams_investment_trade_fact
+        WHERE account_code=%s AND symbol=%s""",
+                (first, last, day, day, holding['account_code'], holding['symbol']))
+    trades = cur.fetchone()
+    if trades['changes'] or trades['unverified'] or trades['proven_units'] != basis['quantity']:
+        return None
+    return basis
+
+
+def _backfill_fund_nav(cur, holding, history, known_prices, start):
+    """Add confirmed observations and historical positions supported by account evidence."""
+    if not history:
+        return 0, 0, [], []
+    snapshots = _fund_history_holdings(cur, holding, start)
+    observations = valuations = 0
+    pending_days = []
+    conflict_days = []
+    for nav in history:
+        day = nav.nav_date
+        prior = known_prices.get(day, set())
+        if prior and prior != {nav.unit_nav}:
+            conflict_days.append(day.isoformat())
+            continue
+        raw = {"source": nav.source, "ts_code": nav.ts_code, "nav_date": day.isoformat(),
+               "unit_nav": str(nav.unit_nav)}
+        if not prior:
+            upsert_asset_market_daily_nav(cur, holding=holding, as_of=day,
+                                          unit_nav=nav.unit_nav, source=nav.source, raw=raw)
+            known_prices.setdefault(day, set()).add(nav.unit_nav)
+            observations += 1
+        existing = existing_estimate(cur, as_of=day, account_code=holding['account_code'],
+                                     symbol=holding['symbol'], name=holding['name'])
+        if existing:
+            if (existing['status'] not in {'confirmed', 'confirmed_corrected'}
+                    or existing['confirmed_unit_nav'] != nav.unit_nav
+                    or existing['confirmed_nav_date'] != day or day not in snapshots
+                    or len(snapshots[day]) != 1 or snapshots[day][0]['current_price'] != nav.unit_nav):
+                pending_days.append(day.isoformat())
+            continue
+        basis = _historical_holding_basis(cur, holding, snapshots, day)
+        if (not basis or not basis['quantity'] or basis['quantity'] <= 0 or basis['cost'] is None
+                or (day in snapshots and basis['current_price'] != nav.unit_nav)):
+            pending_days.append(day.isoformat())
+            continue
+        value = estimate_value(basis['quantity'], nav.unit_nav)
+        if day not in snapshots:
+            if not insert_or_update_generated_snapshot(cur, holding=basis, as_of=day, market_value=value,
+                                                        units=basis['quantity'], unit_nav=nav.unit_nav,
+                                                        update_existing=False):
+                pending_days.append(day.isoformat())
+                continue
+            valuations += 1
+        upsert_estimate_row(cur, {
+            "as_of": day, "account_code": holding['account_code'], "symbol": holding['symbol'],
+            "name": holding['name'], "confirmed_nav_date": day, "confirmed_unit_nav": nav.unit_nav,
+            "confirmed_growth_pct": nav.growth_pct, "estimate_time": None, "estimated_unit_nav": None,
+            "estimated_growth_pct": None, "anchor_as_of": basis['as_of'],
+            "anchor_market_value": basis['market_value'], "anchor_unit_nav": basis['current_price'],
+            "estimated_market_value": value, "estimated_delta": Decimal(0), "estimated_delta_pct": Decimal(0),
+            "status": "confirmed", "note": "Published historical fund NAV",
+            "raw_json": psycopg2.extras.Json({**raw, "holding_anchor_id": basis['id']}),
+        })
+    return observations, valuations, pending_days, conflict_days
+
+
 def refresh_fund_nav_estimates(
     conn,
     *,
@@ -686,6 +861,12 @@ def refresh_fund_nav_estimates(
     if use_intraday_estimates is None:
         use_intraday_estimates = intraday_estimates_enabled()
     current_date = current_china_fund_date()
+    start = current_date - timedelta(days=NAV_HISTORY_DAYS)
+    expected_days = _fund_history_days(current_date)
+    # The newest session is checked even when an older observation is already stored.
+    latest_session = max(expected_days) if expected_days else None
+    history_by_symbol = {}
+    history_observations = history_valuations = 0
     tushare_available = bool(os.environ.get("TUSHARE_TOKEN"))
     tushare_pro: Any | None = None
     if tushare_available:
@@ -702,30 +883,41 @@ def refresh_fund_nav_estimates(
         holdings = load_latest_active_fund_holdings(cur)
         # Writers retain transaction locks until commit; use one account order.
         holdings.sort(key=lambda row: (str(row.get('account_code') or ''), str(row.get('name') or ''), str(row.get('id') or '')))
+        for symbol in sorted({str(row["symbol"]).zfill(6) for row in holdings}):
+            prices = _stored_nav_prices(cur, symbol, start, current_date)
+            missing_days = expected_days - prices.keys()
+            if latest_session is not None:
+                missing_days.add(latest_session)
+            history, provider_errors = fetch_confirmed_nav_history(
+                symbol, session=session, pro=tushare_pro, start=start, end=current_date,
+                missing_days=missing_days,
+            )
+            history_by_symbol[symbol] = history, prices
+            errors.extend(f"{symbol}: {error}" for error in provider_errors)
+
+        lock_holding_accounts(cur, [row['account_code'] for row in holdings])
         for holding in holdings:
             symbol = str(holding["symbol"]).zfill(6)
             market_value = dec(holding.get("market_value"), MONEY)
             quantity = dec(holding.get("quantity"), QUANTITY)
             stored_price = dec(holding.get("current_price"), PRICE)
-            confirmed: ConfirmedNav | None = None
             intraday: IntradayEstimate | None = None
-            try:
-                if tushare_available:
-                    confirmed, tushare_error = fetch_confirmed_nav_prefer_tushare(
-                        symbol,
-                        session=session,
-                        pro=tushare_pro,
-                    )
-                    if tushare_error:
-                        errors.append(f"{symbol} {holding['name']}: {tushare_error}; fell back to Eastmoney")
-                else:
-                    confirmed = fetch_confirmed_nav(symbol, session)
-            except Exception as exc:  # pragma: no cover - network edge
-                errors.append(f"{symbol} {holding['name']}: confirmed NAV failed: {exc}")
-            # A provider date later than the local business date is not usable.
-            if confirmed and confirmed.nav_date > current_date:
-                errors.append(f"{symbol}: confirmed NAV date is in the future")
+            history, prices = history_by_symbol[symbol]
+            confirmed = history[-1] if history else None
+            historical = history[:-1]
+            if confirmed and confirmed.nav_date < holding['as_of']:
+                historical = history
                 confirmed = None
+            observations, valuations, pending, conflicts = _backfill_fund_nav(
+                cur, holding, historical, prices, start,
+            )
+            history_observations += observations
+            history_valuations += valuations
+            if confirmed and prices.get(confirmed.nav_date, {confirmed.unit_nav}) != {confirmed.unit_nav}:
+                conflicts.append(confirmed.nav_date.isoformat())
+                confirmed = None
+            missing_dates = set(expected_days) - prices.keys() - {nav.nav_date for nav in history}
+            errors.extend(f"{symbol}: confirmed NAV conflict on {day}" for day in conflicts)
             if use_intraday_estimates:
                 try:
                     intraday = fetch_intraday_estimate(symbol, session)
@@ -743,8 +935,12 @@ def refresh_fund_nav_estimates(
                 "account_code": holding["account_code"],
                 "anchor_as_of": holding["as_of"].isoformat() if hasattr(holding["as_of"], "isoformat") else holding["as_of"],
                 "anchor_market_value": str(market_value),
-                "status": "missing_nav",
+                "status": "historical_nav_checked" if history else "missing_nav",
+                "missing_nav_dates": sorted(day.isoformat() for day in missing_dates),
+                "pending_valuation_dates": pending,
             }
+            if history and confirmed is None:
+                item["confirmed_date"] = history[-1].nav_date.isoformat()
 
             if confirmed:
                 precise_value = estimate_value(units, confirmed.unit_nav)
@@ -758,6 +954,7 @@ def refresh_fund_nav_estimates(
                 if (not intraday and existing and holding["as_of"] >= confirmed.nav_date
                         and existing.get("status") in {"confirmed", "confirmed_corrected"}
                         and existing.get("confirmed_unit_nav") == confirmed.unit_nav
+                        and confirmed.unit_nav in prices.get(confirmed.nav_date, ())
                         and (holding["as_of"] > confirmed.nav_date or stored_price == confirmed.unit_nav)):
                     item.update(confirmed_date=confirmed.nav_date.isoformat(),
                                 confirmed_unit_nav=str(confirmed.unit_nav),
@@ -952,6 +1149,8 @@ def refresh_fund_nav_estimates(
         "processed": len(processed),
         "inserted_estimate_snapshots": inserted_snapshots,
         "corrected_confirmed_snapshots": corrected_snapshots,
+        "historical_nav_observations": history_observations,
+        "historical_valuation_snapshots": history_valuations,
         "manual_review_items": review_items,
         "intraday_estimates_enabled": use_intraday_estimates,
         "review_threshold_pct": str(pct_threshold),
