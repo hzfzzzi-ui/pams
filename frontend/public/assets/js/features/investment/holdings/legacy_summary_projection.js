@@ -202,7 +202,7 @@ export function applyLegacySummaryPayload(payloads, context) {
       portfolioValuationState,
       accountCash: {
         ...accountCash,
-        cashLiabilities: accountCash.cashLiabilities + Math.max(-ibkrCashValue, 0),
+        cashLiabilities: accountCash.cashLiabilities + Math.max(-safeNum(usCategorySummary.cashValue), 0),
       },
       fallbackAsOf: asof,
     });
