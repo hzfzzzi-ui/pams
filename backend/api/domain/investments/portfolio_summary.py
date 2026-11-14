@@ -161,6 +161,32 @@ def build_holdings_summary_payload(
     return result
 
 
+def _fund_card_valuation(row, cash, *, scope_complete, owner_ratio):
+    """Value the card from priced fund positions and separately verified cash.
+
+    The display estimate does not attest to complete holdings and must not
+    become an input to the published portfolio NAV.
+    """
+    value = row.get('known_value_base')
+    gross = row.get('gross_position_value')
+    if (cash is None or value is None or gross is None or row['fx_missing_count']
+            or row.get('has_snapshot_cash') or not row.get('fund_positions_only')
+            or cash.get('total_value_base') is None
+            or cash['holdings_as_of'] != row['holdings_as_of']):
+        return None
+    cash_value = cash['total_value_base']
+    net = value + cash_value
+    confirmed = scope_complete and row.get('single_snapshot_day')
+    return {
+        'amount_base': str(net),
+        'cash_base': str(cash_value),
+        'as_of': _norm(row['holdings_as_of']),
+        'cash_as_of': _norm(cash['holdings_as_of']),
+        'leverage_ratio': float(gross * owner_ratio / net) if net > 0 else None,
+        'status': 'confirmed_fund_and_cash' if confirmed else 'estimated_fund_and_cash',
+    }
+
+
 def build_holdings_by_account_payload(
     cur,
     *,
@@ -184,6 +210,10 @@ def build_holdings_by_account_payload(
             MAX(h.updated_at) AT TIME ZONE 'UTC' AS holdings_updated_at,
             COUNT(DISTINCT h.as_of) FILTER (WHERE h.market_value <> 0) <= 1 AS single_snapshot_day,
             BOOL_OR(h.major_category = '现金' OR LEFT(h.symbol, 5) = 'CASH_') AS has_snapshot_cash,
+            BOOL_AND(h.asset_liability IS NOT DISTINCT FROM '资产'
+                     AND h.minor_category IS NOT DISTINCT FROM 'A股基金'
+                     AND h.currency IS NOT DISTINCT FROM 'CNY' AND h.market_value IS NOT NULL
+                     AND h.market_value >= 0) AS fund_positions_only,
             SUM(ABS(h.market_value * h.fx_rate)) FILTER (
                 WHERE h.asset_liability = '资产' AND h.major_category <> '现金'
                   AND COALESCE(LEFT(h.symbol, 5), '') <> 'CASH_'
@@ -254,13 +284,13 @@ def build_holdings_by_account_payload(
     complete_fund_cash = next((row for row in rows if row['account_code'] == 'tencent_licaitong_current_plus'
                                and row['account_code'] not in incomplete), None)
     verified_fund_cash = (complete_fund_cash if complete_fund_cash and complete_fund_cash.get('has_snapshot_cash')
-                          and complete_fund_cash.get('single_snapshot_day')
+                          and complete_fund_cash['holdings_count'] == 1
                           and not complete_fund_cash['fx_missing_count']
                           and complete_fund_cash['gross_position_value'] is None else None)
     items = []
     for raw in rows:
         item = {key: _norm(value) for key, value in raw.items()
-                if key not in {'single_snapshot_day', 'has_snapshot_cash', 'gross_position_value'}}
+                if key not in {'single_snapshot_day', 'has_snapshot_cash', 'gross_position_value', 'fund_positions_only'}}
         if str(item.get('account_code')) in incomplete:
             item.update(known_value_base=item.get('known_value_base', item['total_value_base']),
                         total_value_base=None, snapshot_scope_status='incomplete')
@@ -277,19 +307,16 @@ def build_holdings_by_account_payload(
             if portfolio is not None:
                 item['portfolio_value'] = portfolio
         if (portfolio_owner_ratio is not None and base_currency == 'CNY'
-                and item['account_code'] == 'tencent_licaitong' and item.get('total_value_base') is not None
-                and raw.get('single_snapshot_day') and not raw.get('has_snapshot_cash') and verified_fund_cash
-                and verified_fund_cash['total_value_base'] is not None
-                and verified_fund_cash['holdings_as_of'] == raw['holdings_as_of']):
-            cash = verified_fund_cash['total_value_base']
-            net = raw['total_value_base'] + cash
-            gross = raw.get('gross_position_value')
-            item['portfolio_value'] = {
-                'amount_base': str(net), 'cash_base': str(cash), 'as_of': item['holdings_as_of'],
-                'leverage_ratio': float(gross * portfolio_owner_ratio(item['account_code']) / net)
-                if gross is not None and net > 0 else None,
-                'status': 'confirmed_fund_and_cash',
-            }
+                and item['account_code'] == 'tencent_licaitong'):
+            fund_card = _fund_card_valuation(
+                raw, verified_fund_cash,
+                scope_complete=item.get('total_value_base') is not None,
+                owner_ratio=portfolio_owner_ratio(item['account_code']),
+            )
+            if fund_card is not None:
+                item['fund_card_valuation'] = fund_card
+                if fund_card['status'] == 'confirmed_fund_and_cash':
+                    item['portfolio_value'] = fund_card
         items.append(item)
 
     return {

@@ -98,7 +98,7 @@ function mobileHeroMetaItem(label, value, tone = '') {
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   if (profile.accountCard) {
-    const { netValue, daily, cumulative, cumulativeLabel, market, cash, leverage } = profile.accountCard;
+    const { netValue, estimatedNetValue, daily, cumulative, cumulativeLabel, market, cash, leverage } = profile.accountCard;
     const money = (amount, signed = false) => {
       if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return '—';
       return signed || Number(amount) < 0 ? fmtSignedCny(amount) : fmtCny(amount);
@@ -111,7 +111,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
       </div></div>
       <div class="mobileHeroPrimaryGrid">
-        <div class="mobileHeroPrimaryMetric main"><span>账户净值</span><strong>${money(netValue)}</strong></div>
+        <div class="mobileHeroPrimaryMetric main"><span>${estimatedNetValue ? '账户净值（估算）' : '账户净值'}</span><strong>${money(netValue)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>最近一日盈亏</span><strong class="${valueTone(daily)}">${money(daily, true)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(cumulativeLabel || '累计盈亏')}</span><strong class="${valueTone(cumulative)}">${money(cumulative, true)}</strong></div>
       </div>

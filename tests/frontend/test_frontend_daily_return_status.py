@@ -65,7 +65,7 @@ const profileInput = {
   usRows: input.rows, usSummary: {totalValue: 1000},
   recentUsReturn: input.recent,
   ibkrOfficialValue: {status:'official_close', amount_base:'900.00', position_value_base:'1000.00', cash_base:'-100.00', leverage_ratio:1.11, display_period_pnl_base:'-70.00'},
-  fundAccountPosition: {known_value_base:500}, fundAccountPnl:'25.00',
+  fundAccountPosition: {known_value_base:500, fund_card_valuation:input.fundValuation}, fundAccountPnl:'25.00',
   fundHoldingPerformance: {recent_daily_pnl_cny:'-9.75'},
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
@@ -101,14 +101,15 @@ def holding(**fields):
 
 
 def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False,
-           stock_position=None, stock_positions_as_of="2026-10-27", stock_performance=None):
+           stock_position=None, stock_positions_as_of="2026-10-27", stock_performance=None, fund_valuation=None):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
         input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent,
                           "scopeIncomplete": scope_incomplete, "stockPosition": stock_position,
-                          "stockPositionsAsOf": stock_positions_as_of, "stockPerformance": stock_performance}),
+                          "stockPositionsAsOf": stock_positions_as_of, "stockPerformance": stock_performance,
+                          "fundValuation": fund_valuation}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
@@ -335,3 +336,18 @@ def test_pending_keeps_native_and_fx_placeholders_only_where_lines_already_exist
     for label in ["\u672c\u5e01\u4eca\u65e5", "\u6c47\u7387\u5f71\u54cd"]:
         assert (label in valid["sheet"]) == (label in pending["sheet"])
     assert valid["mobile"].count('class="mobileHoldingFxImpact"') == pending["mobile"].count('class="mobileHoldingFxImpact"')
+
+
+
+def test_fund_card_displays_cash_and_estimate_without_portfolio_share():
+    output = render([], fund_valuation={
+        "status": "estimated_fund_and_cash",
+        "amount_base": "500.20",
+        "cash_base": "0.20",
+        "leverage_ratio": 0.9996,
+    })
+    html = output["fundHtml"]
+    assert "<span>账户净值（估算）</span><strong>¥500.20</strong>" in html
+    assert "<strong>¥0.20</strong>" in html
+    assert "1.00×" in html
+    assert "55.58%" not in html
