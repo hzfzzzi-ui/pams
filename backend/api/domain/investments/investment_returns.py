@@ -48,7 +48,7 @@ from domain.investments.investment_return_data import (
     _tonghuashun_external_flow_events,
 )
 from domain.investments.holdings_view import build_holdings_by_category_payload
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE, _table_exists
 from domain.investments.investment_return_ibkr import (
     _close_on_or_before,  # noqa: F401  # legacy import surface
     _fetch_yfinance_closes,  # noqa: F401  # legacy import surface
@@ -1040,6 +1040,20 @@ def build_section_return_series_payload(
             if today_label_date is not None:
                 verified['today_window'] = None
             return verified
+    if section == "a_fund" and base_currency.upper() == "CNY" and _table_exists(cur, "source_records"):
+        from domain.investments.fund_return_history import build_fund_return_history
+
+        payload = build_fund_return_history(
+            cur, start=start_date, end=view_as_of, interval=interval,
+            owner_ratio=account_owner_ratio, excluded_accounts=excluded_holding_accounts,
+        )
+        if today_label_date is not None:
+            payload["today_window"] = _holdings_category_today_window_payload(
+                cur, category="A股", minor_category="A股基金", view_as_of=view_as_of,
+                excluded_holding_accounts=excluded_holding_accounts,
+                account_owner_ratio=account_owner_ratio, label_date=today_label_date,
+            )
+        return payload
     reported = _reported_section_performance(section, reported_returns_cfg)
     terminal_date = view_as_of
     reported_as_of = _reported_as_of_date(reported, reported_returns_cfg)

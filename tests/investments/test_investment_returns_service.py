@@ -880,6 +880,7 @@ def test_build_section_return_series_payload_ignores_a_stock_reported_anchor_by_
 
 
 def test_build_section_return_series_payload_clamps_start_after_terminal(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(investment_returns, "_table_exists", lambda *_: False)
     terminal = date(2026, 5, 31)
     monkeypatch.setattr(investment_returns, "_section_first_activity_date", lambda cur, section: None)
     monkeypatch.setattr(investment_returns, "load_fx_timelines", lambda cur, base_currency: {"CNY": [(terminal, Decimal("1"))]})
@@ -910,6 +911,7 @@ def test_build_section_return_series_payload_clamps_start_after_terminal(monkeyp
 
 
 def test_build_section_return_series_payload_compounds_stale_reported_total(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(investment_returns, "_table_exists", lambda *_: False)
     dates = [date(2026, 6, 2), date(2026, 6, 3)]
     monkeypatch.setattr(investment_returns, "_section_first_activity_date", lambda cur, section: dates[0])
     monkeypatch.setattr(investment_returns, "series_dates", lambda start_date, end_date, interval: dates)

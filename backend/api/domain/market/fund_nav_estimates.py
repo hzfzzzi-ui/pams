@@ -326,28 +326,34 @@ def fetch_eastmoney_nav_history(symbol, *, session, start, end):
     require_external_access()
     if not re.fullmatch(r"\d{6}", symbol):
         raise ValueError("invalid fund symbol")
-    response = session.get(
-        "https://api.fund.eastmoney.com/f10/lsjz",
-        params={"fundCode": symbol, "pageIndex": 1, "pageSize": NAV_HISTORY_DAYS + 1,
-                "startDate": start.isoformat(), "endDate": end.isoformat()},
-        headers={"User-Agent": "Mozilla/5.0",
-                 "Referer": f"https://fundf10.eastmoney.com/jjjz_{symbol}.html"},
-        timeout=10,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("ErrCode") != 0:
-        raise ValueError("Eastmoney fund NAV history unavailable")
+    days = (end - start).days + 1
+    page_size = min(max(days, 1), 49)
     rows = {}
-    for row in (payload.get("Data") or {}).get("LSJZList") or []:
-        nav_date = date.fromisoformat(row["FSRQ"])
-        nav = optional_dec(row.get("DWJZ"), PRICE)
-        if start <= nav_date <= end and nav is not None and nav > 0:
-            record = ConfirmedNav(nav_date, nav, optional_dec(row.get("LJJZ"), PRICE),
-                                  optional_dec(row.get("JZZZL"), RATIO), source="eastmoney_f10")
-            if nav_date in rows and rows[nav_date].unit_nav != nav:
-                raise ValueError("conflicting Eastmoney NAVs")
-            rows[nav_date] = record
+    for page in range(1, (days + page_size - 1) // page_size + 1):
+        response = session.get(
+            "https://api.fund.eastmoney.com/f10/lsjz",
+            params={"fundCode": symbol, "pageIndex": page, "pageSize": page_size,
+                    "startDate": start.isoformat(), "endDate": end.isoformat()},
+            headers={"User-Agent": "Mozilla/5.0",
+                     "Referer": f"https://fundf10.eastmoney.com/jjjz_{symbol}.html"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("ErrCode") != 0:
+            raise ValueError("Eastmoney fund NAV history unavailable")
+        observations = (payload.get("Data") or {}).get("LSJZList") or []
+        for row in observations:
+            nav_date = date.fromisoformat(row["FSRQ"])
+            nav = optional_dec(row.get("DWJZ"), PRICE)
+            if start <= nav_date <= end and nav is not None and nav > 0:
+                record = ConfirmedNav(nav_date, nav, optional_dec(row.get("LJJZ"), PRICE),
+                                      optional_dec(row.get("JZZZL"), RATIO), source="eastmoney_f10")
+                if nav_date in rows and rows[nav_date].unit_nav != nav:
+                    raise ValueError("conflicting Eastmoney NAVs")
+                rows[nav_date] = record
+        if len(observations) < page_size:
+            break
     return list(rows.values())
 
 
@@ -522,7 +528,8 @@ def upsert_asset_market_daily_nav(
     estimated_unit_nav: Decimal | None = None,
     source: str,
     raw: dict[str, Any],
-) -> None:
+    preserve_existing: bool = False,
+) -> bool:
     """Store fund NAV in the normalized asset market daily table."""
     symbol = str(holding["symbol"]).zfill(6)
     source_key = f"{source}:{symbol}:{as_of.isoformat()}"
@@ -536,7 +543,8 @@ def upsert_asset_market_daily_nav(
             %(as_of)s, %(source)s, %(source_key)s, %(asset_id)s, %(symbol)s, %(name)s,
             '基金', 'CNY', %(unit_nav)s, %(estimated_unit_nav)s, %(confidence)s, %(raw_json)s
         )
-        ON CONFLICT (as_of, source, source_key) WHERE observation_type = 'daily' DO UPDATE SET
+        ON CONFLICT (as_of, source, source_key) WHERE observation_type = 'daily'
+        """ + ("DO NOTHING" if preserve_existing else """DO UPDATE SET
             asset_id = EXCLUDED.asset_id,
             symbol = EXCLUDED.symbol,
             name = EXCLUDED.name,
@@ -547,7 +555,7 @@ def upsert_asset_market_daily_nav(
             confidence = EXCLUDED.confidence,
             raw_json = EXCLUDED.raw_json,
             updated_at = now()
-        """,
+        """) + " RETURNING 1",
         {
             "as_of": as_of,
             "source": source,
@@ -561,6 +569,8 @@ def upsert_asset_market_daily_nav(
             "raw_json": psycopg2.extras.Json(raw),
         },
     )
+    if preserve_existing and not cur.fetchone():
+        return False
     upsert_quote_snapshot(
         cur,
         quote_snapshot_from_market_daily(
@@ -580,6 +590,7 @@ def upsert_asset_market_daily_nav(
             }
         ),
     )
+    return True
 
 
 def insert_or_update_generated_snapshot(
@@ -721,10 +732,10 @@ def current_china_fund_date() -> date:
     return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
 
-def _fund_history_days(current_date):
+def _fund_history_days(current_date, *, start=None):
     import exchange_calendars as xcals
 
-    start = current_date - timedelta(days=NAV_HISTORY_DAYS)
+    start = start or current_date - timedelta(days=NAV_HISTORY_DAYS)
     calendar = xcals.get_calendar("XSHG")
     return {day.date() for day in calendar.sessions_in_range(start.isoformat(), current_date.isoformat())}
 
