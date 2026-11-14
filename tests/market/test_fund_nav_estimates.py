@@ -214,3 +214,36 @@ def test_intraday_estimates_are_opt_in(monkeypatch) -> None:
 
     monkeypatch.setenv("PAMS_FUND_NAV_USE_INTRADAY_ESTIMATE", "true")
     assert intraday_estimates_enabled() is True
+
+
+def test_late_confirmed_nav_advances_snapshot_on_the_nav_date(monkeypatch):
+    from contextlib import nullcontext
+    from datetime import date
+    from types import SimpleNamespace
+    from domain.market import fund_nav_estimates as nav
+
+    prior, confirmed, today = (date(2026, 11, day) for day in (12, 13, 14))
+    holding = {"symbol": "123456", "name": "Example", "account_code": "example",
+               "as_of": prior, "market_value": Decimal("100"), "quantity": Decimal("100"),
+               "current_price": Decimal("1")}
+    writes = []
+    conn = SimpleNamespace(cursor=lambda **kwargs: nullcontext(object()), commit=lambda: None)
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    monkeypatch.setattr("domain.imports.isolation.require_external_access", lambda: None)
+    monkeypatch.setattr(nav, "current_china_fund_date", lambda: today)
+    monkeypatch.setattr(nav, "ensure_fund_nav_estimate_table", lambda cur: None)
+    monkeypatch.setattr(nav, "load_latest_active_fund_holdings", lambda cur: [holding])
+    monkeypatch.setattr(nav, "fetch_confirmed_nav", lambda *args: nav.ConfirmedNav(
+        nav_date=confirmed, unit_nav=Decimal("1.20"), accumulated_nav=None,
+        growth_pct=None, source="synthetic"))
+    monkeypatch.setattr(nav, "existing_estimate", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nav, "upsert_estimate_row", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nav, "upsert_asset_market_daily_nav", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nav, "insert_or_update_generated_snapshot",
+                        lambda cur, **kwargs: writes.append(kwargs) or True)
+
+    nav.refresh_fund_nav_estimates(conn, use_intraday_estimates=False)
+
+    assert [(row["as_of"], row["market_value"], row["update_existing"]) for row in writes] == [
+        (confirmed, Decimal("120.00"), False),
+    ]

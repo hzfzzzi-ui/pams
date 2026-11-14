@@ -251,9 +251,9 @@ def test_confirmed_full_account_snapshots_do_not_double_count_cash_flows(client,
         'account_code':'tonghuashun','primary_balance':{'gross_amount':'1100',
             'amount':'1100','as_of':anchor.isoformat()}}]})
     with TestClient(main.app) as app:
-        response=app.get('/api/account-performance/tonghuashun')
+        response=app.get('/api/investment/accounts-view')
         assert response.status_code==200,response.text
-        payload=response.json()
+        payload=response.json()['tonghuashun']
         assert Decimal(payload['net_liquidation_cny'])==Decimal(1110)
         assert Decimal(payload['cash_or_uninvested_cny'])==Decimal(60)
         assert Decimal(payload['observed_external_net_flow_cny'])==Decimal(-10)

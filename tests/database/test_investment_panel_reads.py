@@ -91,4 +91,5 @@ def test_accounts_view_uses_one_balance_verification(empty_source_db, monkeypatc
         payload = combined.json()
         assert 'accounts' in payload['overview']
         standalone = client.get('/api/account-performance/tonghuashun')
-        assert payload['tonghuashun'] == (None if standalone.status_code == 404 else standalone.json())
+        assert standalone.status_code == 404
+        assert 'tonghuashun' in payload

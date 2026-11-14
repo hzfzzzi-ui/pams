@@ -326,3 +326,29 @@ def test_summary2_stale_valuation_cannot_override_empty_or_fx_unknown():
                     {'totals':{'market_value':None},'value_status':'incomplete'}):
         result=apply(payload,candidate)
         assert result['totals']['market_value'] is None and not result['valuation_state']['overlay_applied']
+
+
+def test_licaitong_portfolio_includes_only_verified_same_day_cash(monkeypatch):
+    from domain.investments import portfolio_summary
+
+    day = date(2026, 11, 13)
+    fund = dict(account_code="tencent_licaitong", total_value_base=Decimal("100"),
+                gross_position_value=Decimal("100"), fx_missing_count=0,
+                has_snapshot_cash=False, single_snapshot_day=True, holdings_as_of=day)
+    cash = dict(fund, account_code="tencent_licaitong_current_plus", total_value_base=Decimal("25"),
+                has_snapshot_cash=True, gross_position_value=None)
+
+    def read(cash_row, incomplete):
+        monkeypatch.setattr(portfolio_summary, "_incomplete_snapshot_accounts", lambda *args: incomplete)
+        return build_holdings_by_account_payload(
+            FakeCursor([{"as_of": day}, [fund, cash_row]]),
+            base_currency="CNY", view_as_of=day, owner_ratio_sql="1", owner_ratio_params=[],
+            portfolio_owner_ratio=lambda account: Decimal("1"),
+        )["by_account"][0]
+
+    assert read(cash, set())["portfolio_value"] == {
+        "amount_base": "125", "cash_base": "25", "as_of": str(day),
+        "leverage_ratio": 0.8, "status": "confirmed_fund_and_cash",
+    }
+    assert "portfolio_value" not in read(cash, {cash["account_code"]})
+    assert "portfolio_value" not in read(dict(cash, holdings_as_of=date(2026, 11, 12)), set())

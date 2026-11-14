@@ -64,8 +64,9 @@ const profileInput = {
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
   recentUsReturn: input.recent,
-  ibkrOfficialValue: {status:'official_close', amount_base:'900.00', position_value_base:'1000.00', cash_base:'-100.00', leverage_ratio:1.11},
+  ibkrOfficialValue: {status:'official_close', amount_base:'900.00', position_value_base:'1000.00', cash_base:'-100.00', leverage_ratio:1.11, display_period_pnl_base:'-70.00'},
   fundAccountPosition: {known_value_base:500}, fundAccountPnl:'25.00',
+  fundHoldingPerformance: {recent_daily_pnl_cny:'-9.75'},
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
   aStockRowsSummary: {totalValue: 800}, aStockSummary: {},
@@ -129,7 +130,7 @@ def test_account_cards_share_fields_and_show_only_supported_values():
         "cash_as_of": "2026-10-23", "status": "cash_carried_forward",
     }}
     output = render([], scope_incomplete=True, stock_position=position)
-    labels = ('账户净值', '最近一日盈亏', '累计盈亏', '持仓市值', '现金余额', '组合占比', '杠杆倍数')
+    labels = ('账户净值', '最近一日盈亏', '持仓市值', '现金余额', '组合占比', '杠杆倍数')
     for html in (output['stockHtml'], output['fundHtml'], output['html']):
         assert all(f'<span>{label}</span>' in html for label in labels)
         assert '<em' not in html
@@ -138,6 +139,8 @@ def test_account_cards_share_fields_and_show_only_supported_values():
     assert '850.00' in output['stockHtml']
     assert '2026-10-23' not in output['stockHtml']
     assert '900.00' in output['html']
+    assert '-¥70.00' in output['html'] and '年内盈亏（折合）' in output['html']
+    assert '-¥9.75' in output['fundHtml'] and '已核对盈亏' in output['fundHtml']
     assert '1.11×' in output['html']
     assert '<span>账户净值</span><strong>—</strong>' in output['fundHtml']
     assert '¥500.00' in output['fundHtml'] and '+¥25.00' in output['fundHtml']

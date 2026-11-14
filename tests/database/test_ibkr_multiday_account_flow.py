@@ -225,13 +225,4 @@ def test_daily_original_bridges_use_event_day_fx_or_remain_unknown(empty_source_
             'account_code':'ibkr','primary_balance':{'gross_amount':'1491','amount':'1491',
                                                      'as_of':opening.isoformat()}}]})
         with TestClient(main.app,base_url='http://pams.local') as web:
-            response=web.get('/api/account-performance/ibkr')
-            assert response.status_code==200,response.text
-            data=response.json()
-            assert Decimal(data['net_liquidation_cny'])==gross
-            if variant in {'complete','independent_match'}:
-                assert Decimal(data['daily_pnl_cny'])==Decimal(313)
-                assert Decimal(data['total_pnl_cny'])==Decimal(313)
-                assert len(data['total_pnl_evidence']['daily_flow_fx_evidence'])==2
-            else:
-                assert data['daily_pnl_cny'] is None and data['total_pnl_cny'] is None
+            assert web.get('/api/account-performance/ibkr').status_code == 404

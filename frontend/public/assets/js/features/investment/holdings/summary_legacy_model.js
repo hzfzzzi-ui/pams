@@ -343,9 +343,9 @@ export function makeMobileHeroProfiles({
   aStockHoldingPerformance,
   fundAccountPosition,
   ibkrOfficialValue,
-  ibkrAccountSummary,
   fundDisplaySummary,
   fundAccountPnl,
+  fundHoldingPerformance,
   usSummary,
   usRows = [],
   recentUsReturn = null,
@@ -366,11 +366,10 @@ export function makeMobileHeroProfiles({
   const stockMarket = position?.known_value_base ?? aStockRowsSummary.totalValue ?? null;
   const fundCash = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong_current_plus', fxRates)?.amountCny;
   const fundNetValue = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong', fxRates)?.amountCny;
+  const fundPortfolio = fundAccountPosition?.portfolio_value;
   const officialIbkr = ibkrOfficialValue?.status === 'official_close' ? ibkrOfficialValue : null;
   const ibkrHasFreshAccount = Boolean(
-    ibkrSummary?.flexCoversPositionDate ||
-    ibkrSummary?.holdingsNetCoversPositionDate ||
-    ibkrSummary?.accountValueSource === 'holdings_snapshot_net_liquidation'
+    ibkrSummary?.holdingsNetCoversPositionDate
   );
   const ibkrMarket = safeNum(ibkrHasFreshAccount ? ibkrSummary?.positionValue : usSummary.totalValue);
   const ibkrCash = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.cashValue))
@@ -393,7 +392,7 @@ export function makeMobileHeroProfiles({
   const accountShare = value => summary.scopeIncomplete || value == null || !(summary.marketValue > 0)
     ? null : Number(value) / portfolioValue;
   const stockNetValue = matchingEstimate?.amount_base ?? aStockAccountSummary?.totalValue;
-  const ibkrNetValue = officialIbkr?.amount_base ?? ibkrAccountSummary?.totalValue;
+  const ibkrNetValue = officialIbkr?.amount_base;
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
@@ -446,11 +445,14 @@ export function makeMobileHeroProfiles({
       identity: '腾讯理财通',
       accountSubtitle: '基金与活期+ · 人民币账户',
       accountCard: {
-        netValue: fundNetValue,
-        share: accountShare(fundNetValue),
+        netValue: fundPortfolio?.amount_base ?? fundNetValue,
+        share: accountShare(fundPortfolio?.amount_base ?? fundNetValue),
+        leverage: fundPortfolio?.leverage_ratio,
         market: fundAccountPosition?.known_value_base,
-        cash: fundCash,
+        cash: fundPortfolio?.cash_base ?? fundCash,
+        daily: fundHoldingPerformance?.recent_daily_pnl_cny,
         cumulative: fundAccountPnl,
+        cumulativeLabel: fundAccountPnl != null ? '已核对盈亏' : undefined,
       },
     },
     '美股/海外': {
@@ -462,9 +464,10 @@ export function makeMobileHeroProfiles({
         netValue: ibkrNetValue,
         share: accountShare(ibkrNetValue),
         daily: showRecentUsReturn ? recentUsReturn.amount_cny : null,
-        cumulative: ibkrAccountSummary?.totalPnl,
-        market: officialIbkr ? officialIbkr.position_value_base : ibkrAccountSummary?.positionValue,
-        cash: officialIbkr ? officialIbkr.cash_base : ibkrAccountSummary?.cashValue,
+        cumulative: officialIbkr?.display_period_pnl_base,
+        cumulativeLabel: officialIbkr?.display_period_pnl_base != null ? '年内盈亏（折合）' : undefined,
+        market: officialIbkr?.position_value_base,
+        cash: officialIbkr?.cash_base,
         leverage: officialIbkr?.leverage_ratio,
       },
     },
@@ -579,29 +582,6 @@ export function esc(value) {
     '"': '&quot;',
     "'": '&#39;',
   }[ch]));
-}
-
-export function confirmedIbkrAccountSummary(perf, positionAsOf = null) {
-  if (perf?.status !== 'ok' || perf.daily_close?.status !== 'ok' || perf.daily_close.fx_status !== 'available') return null;
-  if (!isoDateKey(perf.as_of) || (positionAsOf && !isSameOrAfterDate(perf.as_of, positionAsOf))) return null;
-  const account = perf.portfolio_account;
-  if (account?.status !== 'ok' || account.account_code !== 'ibkr' || account.ownership_basis !== 'owner_adjusted' || account.currency !== 'CNY') return null;
-  if (typeof perf.daily_close.source_account_id !== 'string' || !perf.daily_close.source_account_id || !/^[0-9a-f]{64}$/.test(perf.daily_close.source_sha256 || '') || account.source_account_id !== perf.daily_close.source_account_id || account.as_of !== perf.as_of || account.source_sha256 !== perf.daily_close.source_sha256) return null;
-  const ratio = account.owner_ratio;
-  if (!(typeof ratio === 'number' || (typeof ratio === 'string' && ratio.trim() !== '')) || !Number.isFinite(Number(ratio)) || Number(ratio) < 0) return null;
-  const fields = ['net_liquidation_cny', 'total_pnl_cny', 'return_capital_cny', 'cash_cny', 'position_value_cny'];
-  if (!fields.every(key => typeof account[key] === 'number' && Number.isFinite(account[key]))) return null;
-  const rate = account.return_ratio == null ? null : account.return_ratio;
-  if (rate != null && (typeof rate !== 'number' || !Number.isFinite(rate))) return null;
-  return {
-    totalValue: account.net_liquidation_cny,
-    totalPnl: account.total_pnl_cny,
-    totalCost: account.return_capital_cny,
-    cashValue: account.cash_cny,
-    positionValue: account.position_value_cny,
-    totalReturnRate: rate,
-    asOf: perf.as_of,
-  };
 }
 
 export function displayPnlPct(r) {
@@ -835,7 +815,7 @@ export function buildInvestmentConclusion(summary, categories, issues) {
   </div>`;
 }
 
-export function deriveDataQualityIssues({ reportedReturns, staleReportedReturns = false, ibkrPerf, esopRows, fundRows, preciousRows }) {
+export function deriveDataQualityIssues({ reportedReturns, staleReportedReturns = false, ibkrOfficialValue, esopRows, fundRows, preciousRows }) {
   const issues = [];
   if (staleReportedReturns) {
     issues.push('基金、贵金属平台收益日期早于当前持仓，已跳过旧口径覆盖');
@@ -849,10 +829,8 @@ export function deriveDataQualityIssues({ reportedReturns, staleReportedReturns 
   if ((esopRows || []).length) {
     issues.push('内部股份属于低流动性资产，估值和分红可持续性待确认');
   }
-  if (ibkrPerf && ibkrPerf.status === 'ok' && ibkrPerf.other_pnl_base !== undefined) {
-    issues.push('美股/海外今日收益已拆分价格与汇率贡献；账户层其他盈亏仍需核准');
-  } else {
-    issues.push('IBKR 账户表现字段可能缺失');
+  if (ibkrOfficialValue?.display_period_pnl_base == null) {
+    issues.push('IBKR 期间收盈缺少已核验日结');
   }
   if ((fundRows || []).some(row => !row.current_price && !row.quantity)) {
     issues.push('部分基金缺少份额/净值字段，收益率依赖平台口径');

@@ -331,22 +331,9 @@ def test_ibkr_incomplete_account_performance_does_not_drive_total_pnl() -> None:
     """IBKR account performance without total PnL/deposit should not infer a large account loss."""
 
     js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
-    renderer_block = js.split("function renderIbkrPerformance", 1)[1].split(
-        "function renderAStockOwnerPerformance",
-        1,
-    )[0]
-    ibkr_block = js.split("const ibkrFlexCoversPositionDate", 1)[1].split(
-        "if (ibkrUsesNetLiquidation)",
-        1,
-    )[0]
-
-    assert "const accountNetDeposit = perf.net_deposit_cny == null" in renderer_block
-    assert "const accountTotalPnl = perf.total_pnl_cny == null" in renderer_block
-    assert "totalCost: accountNetDeposit" in renderer_block
-    assert "totalPnl: accountTotalPnl" in renderer_block
-    assert "ibkrHasAccountTotalPnl = ibkrSummary?.totalPnl != null" in ibkr_block
-    assert "(ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit)" in ibkr_block
-    assert " : safeNum(usSummary.totalPnl)" in ibkr_block
+    assert "cumulative: officialIbkr?.display_period_pnl_base" in js
+    assert "/api/ibkr/performance" not in js
+    assert "/api/account-performance/" not in js
 
 
 def test_legacy_frontend_entrypoints_stay_removed() -> None:
@@ -691,7 +678,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "priceDailyPnl: aStockAccountDailyPnlEffective ? aStockAccountSummary.dailyPnl : aStockRowsSummary.dailyPnl" in holdings_js
     assert "fxDailyPnl: aStockAccountDailyPnlEffective ? 0 : aStockRowsSummary.fxDailyPnl" in holdings_js
     assert "const dailyPnlEffective = perf.daily_pnl_effective !== false" in holdings_js
-    assert "dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))" in holdings_js
+    assert "dailyPnlEffective && perf.daily_pnl_cny != null" in holdings_js
     assert 'id="investmentNavChart"' in html
     assert "function renderInvestmentNavChart(rows, windowKey, isMobile)" in chart_source
     assert "function createInvestmentReturnCanvasFallback(canvas, data)" in chart_source
@@ -713,25 +700,13 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "setUTCDate" in chart_source
     assert "setUTCMonth" in chart_source
     assert "/nav/series" not in holdings_js + chart_source
-    assert "dailyPnl: null" in holdings_js
-    assert "flexCoversPositionDate" in holdings_js
     assert "accountNetLiquidationFromHoldings" in holdings_js
     assert "holding('holdings', '/holdings/latest?limit=500').catch(error => readFallback(error, null))" in holdings_js
     assert "accountPrimaryBalanceCny(accountOverview, 'ibkr', fxRates)" in holdings_js
     assert "ibkrOverviewCoversPositionDate" in holdings_js
-    assert "safeNum(ibkrOverviewBalance.amountCny) > 0" in holdings_js
     assert "const ibkrHoldingsNet = accountNetLiquidationFromHoldings(latestHoldings, 'ibkr')" in holdings_js
-    assert "const ibkrUsesNetLiquidation = Boolean(" in holdings_js
     assert "holdings_snapshot_net_liquidation" in holdings_js
-    assert "ibkrSummary?.flexCoversPositionDate ||" in holdings_js
-    assert "ibkrSummary?.holdingsNetCoversPositionDate ||" in holdings_js
     assert "{ ...usCategorySummary, dailyPnl: usCategorySummary.dailyTotalPnl }" in holdings_js
-    assert "const ibkrHasAccountTotalPnl = ibkrSummary?.totalPnl != null" in holdings_js
-    assert "const ibkrHasAccountNetDeposit = ibkrSummary?.totalCost != null" in holdings_js
-    assert "(ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit)" in holdings_js
-    assert "totalValue: ibkrUsesNetLiquidation ? ibkrAccountValue : usSummary.totalValue" in holdings_js
-    assert "positionValue: ibkrPositionValue" in holdings_js
-    assert "dailyPnl: usSummary.dailyPnl" in holdings_js
     assert "ibkrSummary: usCategorySummary" in holdings_js
     assert "function freshValuationStateForTarget" in holdings_js
     assert "const summaryFresh = isFreshPayloadAsOf(portfolioSummary, targetAsOf)" in holdings_js
@@ -857,11 +832,6 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "cash_as_of" in holding_rows_js
     assert "returnRateFromCapitalBase" in holdings_js
     assert "holdingReturnRateFromSummary" in holdings_js
-    assert "displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate" in holdings_js
-    assert "returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率'" in holdings_js
-    assert "const ibkrAccountReturnRate = confirmedIbkrSummary" in holdings_js
-    assert "? confirmedIbkrSummary.totalReturnRate" in holdings_js
-    assert ": useIbkrAccountTotals && ibkrNetDeposit > 0" in holdings_js
     assert "leverage: officialIbkr?.leverage_ratio" in holdings_js
     assert "cumulative: aStockAccountSummary?.accountTotalPnl ?? aStockHoldingPerformance?.cumulative_pnl_cny" in holdings_js
     assert "returnRateLabel: '持仓收益率'" in holdings_js

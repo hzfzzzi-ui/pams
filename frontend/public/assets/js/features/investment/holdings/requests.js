@@ -22,13 +22,12 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
       holding('holdings', '/holdings/latest?limit=500').catch(error => readFallback(error, null)),
       selectPart(account, 'overview', () => jgetFresh('/api/accounts/overview')).catch(error => readFallback(error, null)),
       jgetFresh('/api/fx-rates/latest?base_currency=CNY'),
-      jgetFresh('/api/ibkr/performance').catch(error => readFallback(error, null)),
-      selectPart(account, 'tonghuashun', () => jgetFresh('/api/account-performance/tonghuashun')).catch(error => readFallback(error, null)),
+      account ? account.then(data => data?.tonghuashun ?? null).catch(error => readFallback(error, null)) : null,
       jgetFresh('/api/investment-returns/reported').catch(error => readFallback(error, null)),
       part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null)),
       jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(error => readFallback(error, null)),
       (loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
-      part('closed_trade_returns', () => null).catch(error => readFallback(error, null)),
+      view ? view.then(data => data?.closed_trade_returns ?? null).catch(error => readFallback(error, null)) : null,
   ]);
 }
 

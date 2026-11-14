@@ -1,9 +1,9 @@
 import {
-  cnyValue, fmtUsd, fmtCny, fmtSignedUsd,
+  cnyValue, fmtCny,
   fmtSignedCny, fmtPctValue, formatCurrency, formatCompactCurrency,
   formatTableNumber, formatPercentRate, profitColor, toneFromNumber,
   isInternalInvestmentLabel, pctFromAmount, signedPctText, formatSyncTimestamp,
-  normalizeMobileHeroGroup, shareTone, formatOptionalMoney, isSameOrAfterDate,
+  normalizeMobileHeroGroup, shareTone, formatOptionalMoney,
   contributionPct, formatNativeDaily, esc, displayPnlPct,
   fmtSignedPctFromRate, sectionTodayReturnAmount, annualizedRateFromPeriod, buildInvestmentConclusion
 } from './summary_legacy_model.js';
@@ -367,51 +367,6 @@ function setKpiLabel(valueId, label) {
   if (labelEl) labelEl.textContent = label;
 }
 
-function renderIbkrPerformance(perf, positionAsOf = null) {
-  if (!perf || perf.status !== 'ok') return null;
-
-  const flexCoversPositionDate = !positionAsOf || isSameOrAfterDate(perf.as_of, positionAsOf);
-  const accountNetDeposit = perf.net_deposit_cny == null || perf.net_deposit_cny === ''
-    ? null
-    : safeNum(perf.net_deposit_cny);
-  const accountTotalPnl = perf.total_pnl_cny == null || perf.total_pnl_cny === ''
-    ? null
-    : safeNum(perf.total_pnl_cny);
-  const summary = {
-    totalValue: safeNum(perf.net_liquidation_cny),
-    totalCost: accountNetDeposit,
-    totalPnl: accountTotalPnl,
-    dailyPnl: null,
-    positionValue: safeNum(perf.position_value_cny),
-    cashValue: safeNum(perf.cash_cny),
-    totalReturnRate: safeNum(perf.return_ratio),
-    asOf: perf.as_of,
-    flexCoversPositionDate,
-  };
-
-  if (!flexCoversPositionDate) return summary;
-
-  setKpiLabel('totalValueUSStock', '账户净值');
-  setKpiLabel('totalPnlUSStock', '账户收益');
-  setKpiLabel('countKpiUSStock', '杠杆比例');
-  setKpiLabel('holdingPnlUSStock', '账户资金收益率');
-
-  const totalPnl = safeNum(perf.total_pnl_base);
-  const totalPnlEl = document.getElementById('totalPnlUSStock');
-
-  document.getElementById('totalValueUSStock').textContent = fmtUsd(perf.net_liquidation_base);
-  totalPnlEl.textContent = fmtSignedUsd(totalPnl);
-  totalPnlEl.style.color = totalPnl >= 0 ? 'var(--good)' : 'var(--bad)';
-  document.getElementById('countKpiUSStock').textContent = fmtPctValue(perf.leverage_ratio);
-  const rateEl = document.getElementById('holdingPnlUSStock');
-  if (rateEl) {
-    rateEl.textContent = fmtSignedPctFromRate(perf.return_ratio);
-    rateEl.style.color = safeNum(perf.return_ratio) >= 0 ? 'var(--good)' : 'var(--bad)';
-  }
-
-  return summary;
-}
-
 function renderAStockOwnerPerformance(perf) {
   if (!perf || perf.status !== 'ok') return null;
 
@@ -420,9 +375,9 @@ function renderAStockOwnerPerformance(perf) {
   setKpiLabel('countKpiAStockEquity', '持股比例');
   setKpiLabel('holdingPnlAStockEquity', '持仓收益率');
 
-  const accountTotalPnl = safeNum(perf.total_pnl_cny);
+  const accountTotalPnl = perf.total_pnl_cny;
   const dailyPnlEffective = perf.daily_pnl_effective !== false;
-  const dailyPnl = dailyPnlEffective && Number.isFinite(Number(perf.daily_pnl_cny))
+  const dailyPnl = dailyPnlEffective && perf.daily_pnl_cny != null && Number.isFinite(Number(perf.daily_pnl_cny))
     ? safeNum(perf.daily_pnl_cny)
     : null;
 
@@ -846,7 +801,7 @@ function AssetAllocationPanel(categories, totalValue) {
   }).join('') || '<div class="muted">暂无分布数据</div>';
 }
 
-return { statusBadge, ReturnMethodBadge, metricCard, InvestmentSummaryHeader, InvestmentSummaryHeaderCompact, DailyReturnBreakdown, currentMobileHeroGroup, mobileHeroMetaItem, MobilePortfolioHero, updateMobilePortfolioHero, bindMobileMethodology, DataQualityBanner, contributionItem, ContributionList, ProfitContributionPanel, topMoverRow, topMoverGroup, TopContributionPanel, setKpiLabel, renderIbkrPerformance, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, closedBadge, renderSection, writeSectionFinancials, renderReturnNotes, setKpiFxNote, applySectionReturnMetrics, applyStaticReturnMetrics, renderReturnMethodBar, publishHoldingsKpiSummary, renderDataQualityPanel, renderInvestmentDashboard, AssetAllocationPanel,
+return { statusBadge, ReturnMethodBadge, metricCard, InvestmentSummaryHeader, InvestmentSummaryHeaderCompact, DailyReturnBreakdown, currentMobileHeroGroup, mobileHeroMetaItem, MobilePortfolioHero, updateMobilePortfolioHero, bindMobileMethodology, DataQualityBanner, contributionItem, ContributionList, ProfitContributionPanel, topMoverRow, topMoverGroup, TopContributionPanel, setKpiLabel, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, closedBadge, renderSection, writeSectionFinancials, renderReturnNotes, setKpiFxNote, applySectionReturnMetrics, applyStaticReturnMetrics, renderReturnMethodBar, publishHoldingsKpiSummary, renderDataQualityPanel, renderInvestmentDashboard, AssetAllocationPanel,
   dispose() {
     if (window.__pamsHoldingsKpiSummary === publishedSummary) delete window.__pamsHoldingsKpiSummary;
     mobileHeroContext = null;

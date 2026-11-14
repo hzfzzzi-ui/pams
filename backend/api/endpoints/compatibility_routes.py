@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.holding_return_snapshot import return_snapshot_revision
-from domain.investments.holding_return_display import attach_a_stock_holding_performance
+from domain.investments.holding_return_display import attach_dated_holding_performance
 from domain.investments.period_trade_returns import (
     attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
 )
@@ -109,10 +109,12 @@ def create_compatibility_router(
                            daily_pnl_start_as_of=daily, **config, **scope)
 
         payload = load(view_date, active_date)
-        if category == minor_category == 'A股':
-            return attach_a_stock_holding_performance(
-                payload, account_code='tonghuashun', active_date=active_date, limit=limit,
+        holding_account = {'A股': 'tonghuashun', 'A股基金': 'tencent_licaitong'}.get(minor_category) if category == 'A股' else None
+        if holding_account and (holding_account == 'tonghuashun' or include_closed):
+            return attach_dated_holding_performance(
+                payload, account_code=holding_account, active_date=active_date, limit=limit,
                 load_date=lambda day: load(day, day),
+                allow_mixed_snapshot_days=holding_account == 'tencent_licaitong',
             )
         return attach_recent_market_returns(
             cur, payload, active_date=active_date,
@@ -170,6 +172,10 @@ def create_compatibility_router(
                     )
                     if fund_returns := closed_returns.get('a_fund'):
                         fund_returns['known_holding_and_closed_pnl'] = fund_holding_profit(funds_all, fund_returns)
+                        fund_returns['by_account'] = {
+                            code: fund_holding_profit(funds_all, fund_returns, account_code=code)
+                            for code in {item['account_code'] for item in fund_returns['items']}
+                        }
                     return json({
                         "holdings": read_holdings(cur, context),
                         "a_stock": category('A股', 'A股', closed=True),
@@ -226,15 +232,6 @@ def create_compatibility_router(
             "daily_pnl_cny": None,
             "return_ratio": None,
         }
-
-    @router.get("/api/account-performance/{account_code}")
-    def account_performance(account_code: str):
-        """Return one account's personal performance."""
-        with get_conn() as conn:
-            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                overview = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
-                return json(read_account_performance(cur, account_code, overview))
 
     @router.get("/api/investment/accounts-view")
     def investment_accounts_view():
@@ -669,4 +666,4 @@ def create_compatibility_router(
                 return json(_build_risk_latest_payload(cur, limit=limit))
 
 
-    return router, (summary2_latest, holdings_latest_compat, holdings_by_category, account_performance, holdings_history_by_category, nav_series, investment_section_return_series, refresh_investment_section_return_series_snapshot, nav_weekly, investment_return_series, refresh_investment_return_series_snapshot, nav_drawdown, cashflow_series, risk_latest)
+    return router, (summary2_latest, holdings_latest_compat, holdings_by_category, holdings_history_by_category, nav_series, investment_section_return_series, refresh_investment_section_return_series_snapshot, nav_weekly, investment_return_series, refresh_investment_return_series_snapshot, nav_drawdown, cashflow_series, risk_latest)

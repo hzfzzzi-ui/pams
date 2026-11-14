@@ -132,13 +132,7 @@ def test_published_account_and_report_prove_period_flow_and_returns(empty_source
             'account_code':'ibkr','primary_balance':{'gross_amount':'1491','amount':'1491',
                                                      'as_of':previous.isoformat()}}]})
         with TestClient(main.app,base_url='http://pams.local') as web:
-            response=web.get('/api/account-performance/ibkr')
-            assert response.status_code==200,response.text
-            payload=response.json()
-            assert Decimal(payload['net_liquidation_cny'])==Decimal(1631)
-            assert Decimal(payload['daily_pnl_cny'])==0 and Decimal(payload['total_pnl_cny'])==0
-            assert payload['external_flow_coverage']=='verified'
-            assert payload['daily_pnl_evidence']['source_sha256']
+            assert web.get('/api/account-performance/ibkr').status_code == 404
         assert performance(initial_day=None)['total_pnl_cny'] is None
         assert performance(initial_day=previous-timedelta(days=1))['total_pnl_cny'] is None
         with psycopg2.connect(**empty_source_db) as read:

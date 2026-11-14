@@ -2,7 +2,7 @@ import {
   cnyValue, accountPrimaryBalanceCny, accountNetLiquidationFromHoldings, fmtCny,
   fmtSignedCny, isInternalInvestmentLabel, latestSyncTimestamp, canonicalPortfolioDashboardSummary,
   categoryByLabel, isSameOrAfterDate, isFreshPayloadAsOf, makeMobileHeroProfiles,
-  confirmedIbkrAccountSummary, summarizeRows, holdingReturnRateFromSummary, withReportedPnlRows,
+  summarizeRows, holdingReturnRateFromSummary, withReportedPnlRows,
   withEsopDisplayRows, applyReportedReturnTotal, categoryMetric, buildContributionRows,
   deriveDataQualityIssues
 } from './summary_legacy_model.js';
@@ -14,8 +14,8 @@ import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js';
 // Legacy projection statements retained verbatim; dependencies are page-owned.
 export function applyLegacySummaryPayload(payloads, context) {
   const { document, Chart, showClosedPositions, view } = context;
-  const { setKpiLabel, renderIbkrPerformance, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, renderSection, writeSectionFinancials, renderReturnNotes, applySectionReturnMetrics, applyStaticReturnMetrics, publishHoldingsKpiSummary, renderInvestmentDashboard } = view;
-  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, ibkrPerf, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions, closedTradeReturns] = payloads;
+  const { setKpiLabel, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, renderSection, writeSectionFinancials, renderReturnNotes, applySectionReturnMetrics, applyStaticReturnMetrics, publishHoldingsKpiSummary, renderInvestmentDashboard } = view;
+  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions, closedTradeReturns] = payloads;
     const aStockReturn = null;
     const aFundReturn = null;
     const usStockReturn = null;
@@ -111,8 +111,7 @@ export function applyLegacySummaryPayload(payloads, context) {
       activeHoldingPnl: usHoldingRateSummary.activeHoldingPnl,
       activeTotalCost: usHoldingRateSummary.activeTotalCost,
     };
-    const ibkrSummary = renderIbkrPerformance(ibkrPerf, usStock.as_of);
-    const confirmedIbkrSummary = confirmedIbkrAccountSummary(ibkrPerf, usStock.as_of);
+    const ibkrOfficialValue = accountPositions?.by_account?.find(account => account.account_code === 'ibkr')?.portfolio_value;
     const preciousRows = preciousMetal.rows || [];
     const preciousDisplaySummary = renderSection(preciousRows, renderRowFundLike, 'rowsPreciousMetal', 'countPreciousMetal', 'totalValuePreciousMetal', 'totalPnlPreciousMetal', 'dailyPnlPreciousMetal', 'countKpiPreciousMetal', 'holdingPnlPreciousMetal', fxRates);
     const preciousHoldingRateSummary = summarizeRows(preciousRows.filter((row) => !row.is_closed));
@@ -143,101 +142,26 @@ export function applyLegacySummaryPayload(payloads, context) {
     applySectionReturnMetrics(preciousMetalReturn, { totalPnlId: 'totalPnlPreciousMetal', dailyPnlId: 'dailyPnlPreciousMetal', returnId: 'holdingPnlPreciousMetal' });
     applyStaticReturnMetrics(esopSummary, { totalPnlId: 'totalPnlESOP', dailyPnlId: 'dailyPnlESOP', returnId: 'holdingPnlESOP' }, { oncePerYear: true });
 
-    const ibkrFlexCoversPositionDate = Boolean(ibkrSummary?.flexCoversPositionDate);
     const ibkrHoldingsNet = accountNetLiquidationFromHoldings(latestHoldings, 'ibkr');
-    const ibkrHoldingsCoversPositionDate = Boolean(
-      ibkrHoldingsNet?.netValue != null &&
-      isSameOrAfterDate(ibkrHoldingsNet.asOf, usStock.as_of)
-    );
+    const ibkrHoldingsCoversPositionDate = Boolean(ibkrHoldingsNet?.netValue != null &&
+      isSameOrAfterDate(ibkrHoldingsNet.asOf, usStock.as_of));
     const ibkrOverviewBalance = accountPrimaryBalanceCny(accountOverview, 'ibkr', fxRates);
-    const ibkrOverviewCoversPositionDate = Boolean(
-      ibkrOverviewBalance?.amountCny != null &&
-      safeNum(ibkrOverviewBalance.amountCny) > 0 &&
-      isSameOrAfterDate(ibkrOverviewBalance.asOf, usStock.as_of)
-    );
-    const ibkrHasAccountTotalPnl = ibkrSummary?.totalPnl != null && Number.isFinite(Number(ibkrSummary.totalPnl));
-    const ibkrHasAccountNetDeposit = ibkrSummary?.totalCost != null && Number.isFinite(Number(ibkrSummary.totalCost)) && safeNum(ibkrSummary.totalCost) > 0;
-    const useIbkrAccountTotals = Boolean(
-      ibkrSummary &&
-      ibkrFlexCoversPositionDate &&
-      (ibkrHasAccountTotalPnl || ibkrHasAccountNetDeposit) &&
-      (!ibkrPerf?.daily_close || Boolean(confirmedIbkrSummary))
-    );
-    const ibkrUsesNetLiquidation = Boolean(
-      useIbkrAccountTotals || ibkrHoldingsCoversPositionDate || ibkrOverviewCoversPositionDate
-    );
-    const ibkrHasFlexCashValue = useIbkrAccountTotals && Number.isFinite(Number(ibkrSummary?.cashValue));
-    const ibkrPositionValue = confirmedIbkrSummary
-      ? confirmedIbkrSummary.positionValue
-      : ibkrHoldingsCoversPositionDate
-      ? safeNum(ibkrHoldingsNet.grossAssets)
-      : safeNum(usSummary.totalValue);
-    const ibkrCashValue = confirmedIbkrSummary
-      ? confirmedIbkrSummary.cashValue
-      : ibkrHasFlexCashValue
-      ? safeNum(ibkrSummary.cashValue)
-      : (ibkrHoldingsCoversPositionDate ? safeNum(ibkrHoldingsNet.liabilities) : 0);
-    const ibkrAccountValue = confirmedIbkrSummary
-      ? confirmedIbkrSummary.totalValue
-      : useIbkrAccountTotals
-      ? (ibkrHasFlexCashValue ? ibkrPositionValue + ibkrCashValue : safeNum(ibkrSummary?.totalValue))
-      : (ibkrHoldingsCoversPositionDate
-        ? safeNum(ibkrHoldingsNet.netValue)
-        : (ibkrOverviewCoversPositionDate ? safeNum(ibkrOverviewBalance.amountCny) : usSummary.totalValue));
-    const ibkrNetDeposit = useIbkrAccountTotals && ibkrHasAccountNetDeposit
-      ? safeNum(ibkrSummary?.totalCost)
-      : safeNum(usSummary.totalCost);
-    const ibkrDerivedTotalPnl = confirmedIbkrSummary
-      ? confirmedIbkrSummary.totalPnl
-      : useIbkrAccountTotals
-      ? (ibkrHasAccountNetDeposit && ibkrNetDeposit > 0
-        ? ibkrAccountValue - ibkrNetDeposit
-        : safeNum(ibkrSummary?.totalPnl))
-      : safeNum(usSummary.totalPnl);
-    const usGrossHoldingReturnRate = holdingReturnRateFromSummary(usSummary);
-    const ibkrRateEvidence = confirmedIbkrAccountSummary(ibkrPerf);
-    const ibkrAccountReturnRate = confirmedIbkrSummary
-      ? confirmedIbkrSummary.totalReturnRate
-      : useIbkrAccountTotals && ibkrNetDeposit > 0
-      ? ibkrDerivedTotalPnl / ibkrNetDeposit
-      : (useIbkrAccountTotals && ibkrSummary?.totalReturnRate != null && Number.isFinite(Number(ibkrSummary.totalReturnRate))
-        ? safeNum(ibkrSummary.totalReturnRate)
-        : null);
-    const usCategorySummary = (ibkrSummary || ibkrUsesNetLiquidation)
+    const ibkrOverviewCoversPositionDate = Boolean(ibkrOverviewBalance?.amountCny > 0 &&
+      isSameOrAfterDate(ibkrOverviewBalance.asOf, usStock.as_of));
+    const ibkrUsesNetLiquidation = ibkrHoldingsCoversPositionDate || ibkrOverviewCoversPositionDate;
+    const usCategorySummary = ibkrUsesNetLiquidation
       ? {
         ...usSummary,
-        totalValue: ibkrUsesNetLiquidation ? ibkrAccountValue : usSummary.totalValue,
-        totalCost: confirmedIbkrSummary ? confirmedIbkrSummary.totalCost : (ibkrUsesNetLiquidation ? (ibkrNetDeposit || usSummary.totalCost) : usSummary.totalCost),
-        totalPnl: ibkrUsesNetLiquidation ? ibkrDerivedTotalPnl : usSummary.totalPnl,
-        totalReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
-        holdingReturnRate: usGrossHoldingReturnRate,
-        displayReturnRate: ibkrUsesNetLiquidation ? ibkrAccountReturnRate : usGrossHoldingReturnRate,
-        accountReturnRate: ibkrAccountReturnRate,
-        accountReturnRateUndefined: Boolean(ibkrUsesNetLiquidation && ibkrAccountReturnRate == null),
-        accountReturnRateAsOf: confirmedIbkrSummary?.asOf || null,
-        accountReturnRateEvidenceAsOf: ibkrRateEvidence?.asOf || null,
-        grossHoldingReturnRate: usGrossHoldingReturnRate,
-        returnRateLabel: ibkrUsesNetLiquidation ? '账户资金收益率' : '持仓收益率',
-        activeHoldingPnl: usSummary.activeHoldingPnl,
-        activeTotalCost: usSummary.activeTotalCost,
-        positionValue: ibkrPositionValue,
-        cashValue: ibkrCashValue,
-        accountAsOf: confirmedIbkrSummary?.asOf || ibkrHoldingsNet?.asOf || ibkrSummary?.asOf,
-        accountValueAsOf: confirmedIbkrSummary?.asOf || ibkrHoldingsNet?.asOf || ibkrOverviewBalance?.asOf || ibkrSummary?.asOf,
-        accountValueSource: confirmedIbkrSummary ? 'ibkr_flex' : ibkrHoldingsCoversPositionDate
-          ? 'holdings_snapshot_net_liquidation'
-          : (ibkrOverviewCoversPositionDate ? ibkrOverviewBalance.source : 'holdings_position_value'),
-        positionAsOf: usStock.as_of,
-        flexCoversPositionDate: ibkrFlexCoversPositionDate,
+        totalValue: ibkrHoldingsCoversPositionDate ? ibkrHoldingsNet.netValue : ibkrOverviewBalance.amountCny,
+        positionValue: ibkrHoldingsCoversPositionDate ? ibkrHoldingsNet.grossAssets : usSummary.totalValue,
+        cashValue: ibkrHoldingsCoversPositionDate ? ibkrHoldingsNet.liabilities : null,
+        accountAsOf: ibkrHoldingsCoversPositionDate ? ibkrHoldingsNet.asOf : ibkrOverviewBalance.asOf,
+        accountValueSource: ibkrHoldingsCoversPositionDate ? 'holdings_snapshot_net_liquidation' : ibkrOverviewBalance.source,
         holdingsNetCoversPositionDate: ibkrHoldingsCoversPositionDate,
-        dailyPnl: usSummary.dailyPnl,
-        priceDailyPnl: usSummary.dailyPnl,
-        fxDailyPnl: usSummary.fxDailyPnl,
-        dailyTotalPnl: usSummary.dailyTotalPnl,
+        accountReturnRateUndefined: true,
       }
       : usSummary;
     if (ibkrUsesNetLiquidation) {
-      setKpiLabel('totalValueUSStock', '账户净值');
       setKpiLabel('totalValueUSStock', '净清算价值');
       writeSectionFinancials(
         { ...usCategorySummary, dailyPnl: usCategorySummary.dailyTotalPnl },
@@ -385,7 +309,7 @@ export function applyLegacySummaryPayload(payloads, context) {
     const dataIssues = deriveDataQualityIssues({
       reportedReturns: reportedReturnsFresh ? reportedReturns : null,
       staleReportedReturns: Boolean(reportedReturns && !reportedReturnsFresh),
-      ibkrPerf,
+      ibkrOfficialValue,
       esopRows,
       fundRows,
       preciousRows: preciousMetal.rows || [],
@@ -410,12 +334,10 @@ export function applyLegacySummaryPayload(payloads, context) {
       aStockHoldingPerformance: aStockEquity.holding_performance,
       aStockAccountSummary,
       fundAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tencent_licaitong'),
-      ibkrOfficialValue: accountPositions?.by_account?.find(account => account.account_code === 'ibkr')?.portfolio_value,
-      ibkrAccountSummary: confirmedIbkrSummary,
+      ibkrOfficialValue,
       fundDisplaySummary,
-      fundAccountPnl: fundSummaryRows.length && fundSummaryRows.every(row => (row.account_code || row.account) === 'tencent_licaitong')
-        && fundReturns?.items?.length && fundReturns.items.every(item => item.account_code === 'tencent_licaitong')
-        ? knownFundPnl : null,
+      fundAccountPnl: fundReturns?.by_account?.tencent_licaitong,
+      fundHoldingPerformance: aFundAll.holding_performance,
       usSummary,
       usRows,
       ibkrSummary: usCategorySummary,

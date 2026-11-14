@@ -71,7 +71,6 @@ try {
     {account_code:'test_wallet',display_name:'合成钱包',account_type:'wallet',primary_balance:{amount:10,currency:'CNY'}},
     {account_code:'tonghuashun',primary_balance:{amount:150,currency:'CNY'},platform_balance:{amount:120,currency:'CNY'}},
    ]};
-   if(url==='/api/ibkr/performance')return{cash_cny:70,cash_base:10};
    if(url.startsWith('/summary2/'))return{as_of:'2026-10-20',totals:{market_value:120,pnl:20,daily_pnl:2}};
    if(url.startsWith('/investment/section-return-series'))return{rows:[{date:'2026-10-20',value:120,market_value:120,net_flow:0,return_rate:0.2}]};
    return null;

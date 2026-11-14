@@ -28,8 +28,6 @@ function apiCacheTtl(path) {
   if (raw.includes("/holdings/by-category/")) return 45_000;
   if (raw.includes("/api/holdings/latest")) return 45_000;
   if (raw.includes("/api/accounts/overview")) return 45_000;
-  if (raw.includes("/api/account-performance/")) return 45_000;
-  if (raw.includes("/api/ibkr/performance")) return 45_000;
   if (raw.includes("/api/investment-returns/reported")) return 45_000;
   if (raw.includes("/api/ledger/workbench")) return 30_000;
   if (raw.includes("/api/sync/center")) return 45_000;

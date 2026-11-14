@@ -262,9 +262,10 @@ def attach_recent_market_returns(
     return result
 
 
-def attach_a_stock_holding_performance(
+def attach_dated_holding_performance(
     payload: dict[str, Any], *, account_code: str, active_date: date,
     load_date: Callable[[date], dict[str, Any]], limit: int,
+    allow_mixed_snapshot_days: bool = False,
 ) -> dict[str, Any]:
     """Publish personal-share holding returns independently from cash/NAV coverage."""
     def positions(data):
@@ -284,28 +285,36 @@ def attach_a_stock_holding_performance(
         "recent_daily_pnl_cny": None,
         "recent_daily_as_of": None,
     }
-    if len(snapshot_dates) != 1 or "" in snapshot_dates or "" in symbols or len(symbols) != len(rows):
+    if ("" in snapshot_dates or "" in symbols or len(symbols) != len(rows)
+            or (len(snapshot_dates) != 1 and not allow_mixed_snapshot_days)):
         return {**payload, "holding_performance": result}
     try:
-        day = date.fromisoformat(next(iter(snapshot_dates)))
+        day = date.fromisoformat(min(snapshot_dates))
     except ValueError:
         return {**payload, "holding_performance": result}
     dated_rows = rows
-    if day < active_date and any(row.get("daily_pnl_stale") for row in rows):
+    if day <= active_date and (len(snapshot_dates) > 1 or any(row.get("daily_pnl_stale") for row in rows)):
         try:
-            dated_rows = positions(load_date(day))
+            historical = load_date(day)
+            dated_rows = positions(historical) if len(historical.get("rows", [])) < limit else []
         except Exception as exc:
-            logger.warning("Recent A-share close replay unavailable (%s)", type(exc).__name__)
+            logger.warning("Recent holding close replay unavailable (%s)", type(exc).__name__)
             dated_rows = []
+
+    def confirmed_close(row):
+        if row.get("daily_pnl_stale") or str(row.get("snapshot_as_of"))[:10] != day.isoformat():
+            return False
+        if row.get("fund_nav_raw_status") in {"confirmed", "confirmed_corrected"}:
+            nav = _decimal(row.get("fund_nav_confirmed_unit_nav"))
+            return (nav is not None and nav > 0 and nav == _decimal(row.get("current_price"))
+                    and (_decimal(row.get("previous_price")) or Decimal(0)) > 0
+                    and str(row.get("fund_nav_confirmed_date"))[:10] == day.isoformat())
+        return (row.get("daily_return_status") == "confirmed" and bool(row.get("daily_return_status_source"))
+                and str(row.get("daily_return_status_as_of"))[:10] == day.isoformat())
 
     if len(dated_rows) == len(rows) and {_key(row)[1] for row in dated_rows} == symbols:
         amounts = [_decimal(row.get("daily_total_pnl_cny")) for row in dated_rows]
-        if None not in amounts and all(
-            row.get("daily_return_status") == "confirmed" and row.get("daily_return_status_source")
-            and not row.get("daily_pnl_stale") and str(row.get("snapshot_as_of"))[:10] == day.isoformat()
-            and str(row.get("daily_return_status_as_of"))[:10] == day.isoformat()
-            for row in dated_rows
-        ):
+        if None not in amounts and all(confirmed_close(row) for row in dated_rows):
             result.update(recent_daily_pnl_cny=str(sum(value for value in amounts if value is not None)),
                           recent_daily_as_of=day.isoformat())
     return {**payload, "holding_performance": result}

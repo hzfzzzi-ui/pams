@@ -14,7 +14,7 @@ from tests.database.test_isolated_source_bootstrap import empty_source_db  # noq
 
 
 @pytest.mark.parametrize('method,path,conflict',[
-    ('GET', '/api/account-performance/demo', False),
+    ('GET', '/api/investment/accounts-view', False),
     ('GET', '/investment/section-return-series?section=a_stock&start=2026-01-01', False),
     ('GET', '/investment/return-series?start=2026-01-01', False),
     ('GET', '/nav/weekly?start=2026-01-01&latest=true', False),
@@ -47,12 +47,12 @@ def test_account_overview_and_asset_read_same_snapshot(empty_source_db, monkeypa
         assert cur.fetchone()['amount'] == 100
         read_started.set()
         assert write_finished.wait(5)
-        return {'demo': {'account_code':'demo','base_currency':'CNY','display_name':'demo','active':True,'is_asset':True}}
+        return {'tonghuashun': {'account_code':'tonghuashun','base_currency':'CNY','display_name':'tonghuashun','active':True,'is_asset':True}}
     def holdings(cur):
         cur.execute('SELECT amount FROM snapshot_probe WHERE id=1')
         value = cur.fetchone()['amount']
-        return {'demo': [{'currency':'CNY','market_value':value,'as_of':day,'asset_liability':'资产'}]}
-    monkeypatch.setattr(accounts, '_load_accounts_config', lambda: {'accounts': {'demo':{
+        return {'tonghuashun': [{'currency':'CNY','market_value':value,'as_of':day,'asset_liability':'资产'}]}
+    monkeypatch.setattr(accounts, '_load_accounts_config', lambda: {'accounts': {'tonghuashun':{
         'account_type':'brokerage','truth_source':'platform_snapshot','base_currency':'CNY',
         'owner_ratio':'1','include_in_nav':True}}})
     monkeypatch.setattr(accounts, '_load_bank_config', lambda: {})
@@ -112,8 +112,9 @@ def test_account_overview_and_asset_read_same_snapshot(empty_source_db, monkeypa
         else:
             assert response.status_code == 200,response.text
             if method == 'GET':
-                assert Decimal(response.json()['overview']) == 100
-                assert Decimal(response.json()['current_fact']) == 100
+                payload = response.json()['tonghuashun'] if path == '/api/investment/accounts-view' else response.json()
+                assert Decimal(payload['overview']) == 100
+                assert Decimal(payload['current_fact']) == 100
             else:
                 with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
                     cur.execute('SELECT anchor,fact FROM snapshot_results')
