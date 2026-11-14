@@ -784,6 +784,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       let estimateStatus = '';
       if (estimate?.method === 'ibkr_unrealized_pnl_over_position_cost') {
         estimateStatus = 'IBKR 美股持仓估算按未实现盈亏除以持仓成本计算。';
+      } else if (estimate?.method === 'fund_verified_trade_nav_replay') {
+        estimateStatus = `基金部分覆盖（${estimate.instrument_count} 只，${estimate.source_from} 起算）`;
       } else if (estimate?.method === 'fund_partial_snapshot_return') {
         estimateStatus = '基金曲线仅覆盖部分历史估值';
       }

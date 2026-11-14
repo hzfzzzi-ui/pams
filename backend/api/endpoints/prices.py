@@ -2982,6 +2982,29 @@ def refresh_fund_nav_estimates(
     return _json(result)
 
 
+@router.post("/prices/refresh/fund-nav-history")
+def refresh_fund_nav_history(start: date, preview: bool = True):
+    """Preview or explicitly archive historical unit NAVs for portfolio funds."""
+    from fastapi import HTTPException
+    from domain.imports.isolation import source_mode
+    from domain.investments.fund_return_history import load_fund_history_inputs
+    from domain.market.fund_nav_archive import archive_fund_nav_history
+    from domain.market.fund_nav_estimates import current_china_fund_date
+
+    if source_mode() == "development":
+        raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
+    end = current_china_fund_date()
+    if not end - timedelta(days=366) <= start <= end:
+        raise HTTPException(status_code=400, detail="Start must be within the last 366 days")
+    with _get_conn() as conn:
+        conn.set_session(readonly=preview)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if not source_enabled(cur):
+                raise HTTPException(status_code=409, detail="Fund trade source evidence is unavailable")
+            assets, _, _ = load_fund_history_inputs(cur, end=end, include_trades=False)
+        return _json(archive_fund_nav_history(conn, assets=assets, start=start, end=end, preview=preview))
+
+
 def _normalize_investment_refresh_scopes(scopes: List[str]) -> List[str]:
     aliases = {
         "all": ["a_stock", "us_stock", "a_fund", "precious_metal"],

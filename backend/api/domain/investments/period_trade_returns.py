@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from domain.brokers.ibkr.ibkr_daily_holdings import MARKET_LABELS
 from domain.imports.source_original_read import SourceOriginals
 from domain.imports.ths_asset_candidates import MARKETS
+from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.holdings_positions import _trade_order_ambiguous
 from domain.investments.investment_return_data import exact_fx_rate_at
 from domain.investments.trade_read_v2 import load_trade_rows
@@ -209,7 +210,7 @@ def attach_closed_trade_returns(payload, closed_returns):
     if not closed_returns:
         return payload
     result = {**payload, 'closed_trade_returns': closed_returns}
-    if payload.get('section') != 'a_fund':
+    if payload.get('section') != 'a_fund' or payload.get('method') == FUND_HISTORY_METHOD:
         return result
     # The legacy fund curve uses sparse account snapshots. It has no verified
     # marks for these trade-only positions, so the resulting rate is incomplete.

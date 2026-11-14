@@ -6,6 +6,7 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
+from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.holdings_account_cards import build_holdings_account_cards
 from domain.investments.portfolio_summary import build_holdings_by_account_payload
 from domain.investments.holding_return_snapshot import return_snapshot_revision
@@ -69,7 +70,7 @@ def create_compatibility_router(
     def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg, section=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
-            "version": 2 if section == "us_stock" else 1,
+            "version": {"us_stock": 2, "a_fund": 3}.get(section, 1),
             "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
             "today_label_date": today_label_date,
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
@@ -365,7 +366,8 @@ def create_compatibility_router(
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
                     )
-                    payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
+                    if payload.get("method") != FUND_HISTORY_METHOD:
+                        payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                 if section == 'us_stock' and payload.get('fx_source') == OPEN_EXCHANGE_RATES_SOURCE and (
                     payload.get('status') == 'available'
                 ):
@@ -421,7 +423,8 @@ def create_compatibility_router(
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
                     )
-                    payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
+                    if payload.get("method") != FUND_HISTORY_METHOD:
+                        payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                     if expected_through and (
                         payload.get("fx_source") != OPEN_EXCHANGE_RATES_SOURCE
                         or payload.get("source_through") != expected_through.isoformat()

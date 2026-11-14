@@ -51,7 +51,8 @@ def _matches(row: dict) -> bool:
 
 def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None,
                     source_id=None, originals: SourceOriginals | None = None,
-                    include_instrument_identity: bool = False, candidate_sale_start: date | None = None) -> list[dict]:
+                    include_instrument_identity: bool = False, candidate_sale_start: date | None = None,
+                    include_fund_execution: bool = False) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
     fact_filter = ' AND f.trade_id=%s' if fact_id is not None else ''
     params = (account_code, start, end) if fact_id is None else (account_code, start, end, fact_id)
@@ -111,6 +112,14 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
             if ibkr_report and isinstance(attributes, dict):
                 row['instrument_identity'] = attributes.get('conid')
                 row['listing_exchange'] = attributes.get('listingExchange') or attributes.get('exchange')
+        if include_fund_execution:
+            fields = row['parsed_fields'] or {}
+            raw_fields = row['raw_fields'] or {}
+            row['fund_execution_confirmed'] = (
+                row['execution_status'] == 'confirmed' or
+                (row['execution_status'] is None and fields.get('status') == 'confirmed')
+            )
+            row['fund_pricing_date'] = raw_fields.get('pricing_date') or raw_fields.get('nav_date_inferred')
         for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
                     'source_account', 'content', 'original_source_id', 'inline_original', 'sha256', 'item_source_uid', 'source_name',
                     'acquisition_method', 'file_format', 'parse_method', 'asset_identity'):
