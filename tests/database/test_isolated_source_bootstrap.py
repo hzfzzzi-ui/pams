@@ -845,10 +845,10 @@ def test_confirmed_fund_poll_picks_up_new_import_on_the_next_pass(empty_source_d
     nav_day = anchor_day + timedelta(days=1)
     monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
     monkeypatch.setattr(nav, "current_china_fund_date", lambda: nav_day + timedelta(days=1))
-    monkeypatch.setattr(nav, "fetch_confirmed_nav", lambda symbol, session: nav.ConfirmedNav(
+    monkeypatch.setattr(nav, "fetch_eastmoney_nav_history", lambda symbol, **kwargs: [nav.ConfirmedNav(
         nav_date=nav_day, unit_nav=Decimal("1.20"), accumulated_nav=None,
-        growth_pct=None, source="synthetic",
-    ))
+        growth_pct=None, source="eastmoney_f10",
+    )])
 
     def poll():
         with psycopg2.connect(**params) as conn:
@@ -920,3 +920,64 @@ def test_reviewed_weekend_cash_reaches_fund_card_without_certifying_nav(empty_so
     estimate = fund['fund_card_valuation']
     assert (estimate['amount_base'], estimate['cash_base']) == ('125.25', '0.25')
     assert (estimate['market_as_of'], estimate['cash_as_of']) == (str(fund_day), str(cash_day))
+
+
+
+def test_confirmed_fund_history_fills_published_gap_with_dated_share_evidence(empty_source_db, monkeypatch):
+    from datetime import date
+    from decimal import Decimal
+    from psycopg2.extras import RealDictCursor
+    from domain.imports import source_records_v2 as source
+    from domain.market import fund_nav_estimates as nav
+
+    start, gap, latest = (date(2026, 11, day) for day in (11, 12, 13))
+    account, symbol = 'tencent_licaitong', '011613'
+    src, item = uuid4(), uuid4()
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    monkeypatch.setattr(nav, "current_china_fund_date", lambda: date(2026, 11, 15))
+    rows = [nav.ConfirmedNav(start, Decimal('1.0'), None, None),
+            nav.ConfirmedNav(gap, Decimal('1.1'), None, None),
+            nav.ConfirmedNav(latest, Decimal('1.2'), None, None)]
+    monkeypatch.setattr(nav, 'fetch_eastmoney_nav_history', lambda *args, **kw: rows)
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""INSERT INTO pams_holdings_snapshot
+                (account_code,symbol,name,currency,major_category,minor_category,asset_liability,
+                 market_value,cost,quantity,current_price,as_of)
+                VALUES (%s,%s,'Synthetic fund','CNY','A股','A股基金','资产',120,100,100,1.2,%s)""",
+                        (account, symbol, latest))
+
+    def poll():
+        with psycopg2.connect(**empty_source_db) as conn:
+            return nav.refresh_fund_nav_estimates(conn, use_intraday_estimates=False)
+
+    first = poll()
+    assert first['historical_nav_observations'] == 2
+    assert first['historical_valuation_snapshots'] == 0
+    assert first['rows'][0]['pending_valuation_dates'] == [str(start), str(gap)]
+
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        source.create_source(cur, source_id=src, account_code=account, source_name='synthetic',
+                             acquisition_method='manual', document_type='trade')
+        fields = {'symbol': symbol, 'quantity': '100', 'business_date': str(start)}
+        rev = source.add_manual_item(cur, source_id=src, item_id=item, expected_revision=1, parsed_fields=fields)
+        source.review_item(cur, source_id=src, item_id=item, expected_revision=rev,
+                           parsed_fields=fields, review_status='confirmed')
+        cur.execute("UPDATE source_records SET status='published' WHERE source_id=%s", (str(src),))
+        cur.execute("""INSERT INTO pams_investment_trade_fact
+            (account_code,trade_date,settle_date,symbol,currency,trade_type,
+             quantity,execution_status,source_item_id,fact_role)
+            VALUES (%s,%s,%s,%s,'CNY','fund_subscription',100,'confirmed',%s,'trade')""",
+                    (account, start, start, symbol, str(item)))
+
+    second = poll()
+    assert second['historical_nav_observations'] == 0
+    assert second['historical_valuation_snapshots'] == 2
+    assert second['rows'][0]['pending_valuation_dates'] == []
+    assert poll()['historical_valuation_snapshots'] == 0
+    with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
+        cur.execute("""SELECT as_of, quantity, cost, current_price, market_value
+            FROM pams_holdings_snapshot WHERE account_code=%s ORDER BY as_of""", (account,))
+        assert cur.fetchall() == [(row.nav_date, 100, 100, row.unit_nav, row.unit_nav * 100) for row in rows]
