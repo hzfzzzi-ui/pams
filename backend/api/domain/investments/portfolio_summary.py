@@ -461,7 +461,8 @@ def build_summary2_from_holdings_latest_payload(
             "confirmed" if daily_statuses == {"confirmed"} else "provided",
     }
     if missing_value_accounts or missing_value_classes:
-        result.update(value_status='incomplete', value_unavailable_accounts=sorted(missing_value_accounts))
+        result.update(value_status='incomplete', value_unavailable_accounts=sorted(missing_value_accounts),
+                      known_market_value=str(known_market_value) if known_market_value is not None else None)
     if incomplete:
         result.update(snapshot_scope_status='incomplete', snapshot_scope_unavailable_accounts=incomplete,
                       known_market_value=str(known_market_value) if known_market_value is not None else None)
