@@ -15,7 +15,7 @@ import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js';
 export function applyLegacySummaryPayload(payloads, context) {
   const { document, Chart, showClosedPositions, view } = context;
   const { setKpiLabel, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, renderSection, writeSectionFinancials, renderReturnNotes, applySectionReturnMetrics, applyStaticReturnMetrics, publishHoldingsKpiSummary, renderInvestmentDashboard } = view;
-  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions, closedTradeReturns] = payloads;
+  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions, closedTradeReturns, accountCards] = payloads;
     const aStockReturn = null;
     const aFundReturn = null;
     const usStockReturn = null;
@@ -328,20 +328,11 @@ export function applyLegacySummaryPayload(payloads, context) {
       fxRates,
       aStockRowsSummary,
       aStockSummary,
-      aStockAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tonghuashun'),
-      aStockPositionsAsOf: accountPositions?.as_of,
-      aStockAsOf: aStockEquity.as_of,
-      aStockHoldingPerformance: aStockEquity.holding_performance,
-      aStockAccountSummary,
-      fundAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tencent_licaitong'),
-      ibkrOfficialValue,
+      accountCards,
       fundDisplaySummary,
-      fundAccountPnl: fundReturns?.by_account?.tencent_licaitong,
-      fundHoldingPerformance: aFundAll.holding_performance,
       usSummary,
       usRows,
       ibkrSummary: usCategorySummary,
-      recentUsReturn: usStock.recent_confirmed_returns?.by_account?.ibkr || null,
       preciousSummary: { ...preciousSummary, totalReturnRate: categoryByLabel(dashboardCategories, '贵金属').totalReturnRate },
       esopSummary: { ...esopSummary, totalReturnRate: categoryByLabel(dashboardCategories, '内部股份/分红').totalReturnRate },
     });
