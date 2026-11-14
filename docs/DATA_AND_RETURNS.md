@@ -37,6 +37,8 @@
 
 ## 估值、收益和归属
 
+融资负债与共同投资账户的拟议口径见 [融资与共同账户设计](FINANCING_AND_JOINT_ACCOUNT_DESIGN.md)。
+
 隔离空库的 `market_observations` 统一保存日行情、报价和账户基金估值记录，通过类型区分粒度；业务日、报价时点、来源、估算或确认状态及基金账户锚点仍分别保留。它不替代共享的证券日线和历史汇率。
 
 组合净清算价值 = 总资产 − 总负债。assets_cny 包含持仓及各账户现金；liabilities_cny 包含融资、保证金负债等；net_liquidation_value_cny、as_of、status、quality_flags 同时表达值、日期、完整性与缺口。

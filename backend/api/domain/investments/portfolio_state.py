@@ -20,6 +20,7 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
+from domain.accounts.account_ownership import resolve_account_ownership
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.accounts.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
@@ -185,7 +186,7 @@ def _load_accounts_config() -> dict[str, Any]:
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        return resolve_account_ownership(yaml.safe_load(f) or {})
 
 
 def _table_exists(cur, table_name: str) -> bool:

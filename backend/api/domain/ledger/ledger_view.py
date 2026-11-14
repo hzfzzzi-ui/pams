@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 from domain.accounts.account_identity import account_display
+from domain.accounts.account_ownership import resolve_account_ownership
 from domain.imports.source_row_read import source_row_relation
 from domain.ledger.cashflow_classification import classification_hint
 from domain.ledger.category_insights import category_insights
@@ -565,9 +566,10 @@ def _load_accounts_config() -> dict[str, Any]:
     path = ACCOUNTS_CONFIG_PATH if ACCOUNTS_CONFIG_PATH.exists() else LOCAL_ACCOUNTS_CONFIG_PATH
     try:
         with path.open("r", encoding="utf-8") as fh:
-            return yaml.safe_load(fh) or {}
+            config = yaml.safe_load(fh) or {}
     except Exception:
         return {}
+    return resolve_account_ownership(config)
 
 
 def _load_configured_account_codes(account_config: Mapping[str, Any] | None = None) -> set[str]:
@@ -584,7 +586,7 @@ def _account_capital_config(account_config: Mapping[str, Any] | None, account_co
     personal_capital = cfg.get("personal_capital")
     capital_base = cfg.get("capital_base")
     return {
-        "owner_ratio": owner_ratio or 1.0,
+        "owner_ratio": owner_ratio if cfg.get("ownership_basis") == "net_contributions" else owner_ratio or 1.0,
         "personal_capital": _to_float(personal_capital) if personal_capital not in (None, "") else None,
         "capital_base": _to_float(capital_base) if capital_base not in (None, "") else None,
     }
