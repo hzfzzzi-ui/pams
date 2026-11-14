@@ -71,6 +71,17 @@ def test_account_holdings_and_fx_routes_preserve_contract(prepared):
     assert client.get("/api/fx-rates/latest?base_currency=USD").json() == {"base_currency": "USD"}
 
 
+def test_holdings_account_card_uses_natural_date_for_cash(prepared, monkeypatch):
+    main, _, _, client = prepared
+    monkeypatch.setattr(main, "_view_as_of", lambda: date(2026, 1, 3))
+    monkeypatch.setattr(main, "_build_holdings_by_account_payload", lambda cur, **kw: {
+        "market": str(kw["view_as_of"]), "cash": str(kw["cash_view_as_of"]),
+    })
+    assert client.get("/api/holdings/by-account?include_portfolio_cash=true").json() == {
+        "market": "2026-01-02", "cash": "2026-01-03",
+    }
+
+
 def test_fx_refresh_preserves_origin_guard_and_synthetic_write(prepared, monkeypatch):
     from collectors import open_exchange_rates
 

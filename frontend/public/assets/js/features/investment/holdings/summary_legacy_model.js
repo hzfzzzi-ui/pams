@@ -366,7 +366,7 @@ export function makeMobileHeroProfiles({
   const stockMarket = position?.known_value_base ?? aStockRowsSummary.totalValue ?? null;
   const fundCash = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong_current_plus', fxRates)?.amountCny;
   const fundNetValue = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong', fxRates)?.amountCny;
-  const fundPortfolio = fundAccountPosition?.portfolio_value;
+  const fundPortfolio = fundAccountPosition?.fund_card_valuation ?? fundAccountPosition?.portfolio_value;
   const officialIbkr = ibkrOfficialValue?.status === 'official_close' ? ibkrOfficialValue : null;
   const ibkrHasFreshAccount = Boolean(
     ibkrSummary?.holdingsNetCoversPositionDate
@@ -446,11 +446,14 @@ export function makeMobileHeroProfiles({
       accountSubtitle: '基金与活期+ · 人民币账户',
       accountCard: {
         netValue: fundPortfolio?.amount_base ?? fundNetValue,
-        share: accountShare(fundPortfolio?.amount_base ?? fundNetValue),
+        estimatedNetValue: fundPortfolio?.status === 'estimated_fund_and_cash',
+        share: accountShare(fundPortfolio?.status === 'confirmed_fund_and_cash' ? fundPortfolio.amount_base : fundNetValue),
         leverage: fundPortfolio?.leverage_ratio,
         market: fundAccountPosition?.known_value_base,
         cash: fundPortfolio?.cash_base ?? fundCash,
         daily: fundHoldingPerformance?.recent_daily_pnl_cny,
+        dailyAsOf: fundHoldingPerformance?.recent_daily_as_of,
+        dailyMissingText: '同日数据待齐',
         cumulative: fundAccountPnl,
         cumulativeLabel: fundAccountPnl != null ? '已核对盈亏' : undefined,
       },

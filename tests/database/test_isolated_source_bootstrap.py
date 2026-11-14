@@ -871,3 +871,52 @@ def test_confirmed_fund_poll_picks_up_new_import_on_the_next_pass(empty_source_d
     assert len(first) == 1 and first[0]["confirmed_nav_date"] == nav_day
     assert poll()["rows"][0]["status"] == "confirmed_unchanged"
     assert sql("SELECT * FROM market_observations WHERE observation_type = 'fund'") == first
+
+
+def test_reviewed_weekend_cash_reaches_fund_card_without_certifying_nav(empty_source_db, monkeypatch):
+    from datetime import date
+    from decimal import Decimal
+    from psycopg2.extras import RealDictCursor
+    from domain.imports import holding_publication_v2 as holdings
+    from domain.imports import source_records_v2 as source
+    from domain.investments.portfolio_summary import build_holdings_by_account_payload
+
+    monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
+    monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', 'a3' * 32)
+    fund_day, cash_day = date(2026, 11, 13), date(2026, 11, 14)
+    account = 'tencent_licaitong_current_plus'
+    source_id, item_id = uuid4(), uuid4()
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name,base_currency,active) VALUES (%s,'Synthetic cash','CNY',true)", (account,))
+            cur.execute("""INSERT INTO pams_holdings_snapshot
+                (account_code,name,symbol,currency,major_category,minor_category,asset_liability,
+                 market_value,cost,quantity,current_price,as_of)
+                VALUES ('tencent_licaitong','Synthetic fund','999999','CNY','A股','A股基金','资产',
+                        125,100,100,1.25,%s)""", (fund_day,))
+            fields = {'asset_type': 'cash', 'currency': 'CNY', 'net_cash': '0.25', 'business_date': str(cash_day)}
+            source.create_source(cur, source_id=source_id, account_code=account, source_name='synthetic',
+                                 acquisition_method='manual', document_type='holding')
+            revision = source.add_manual_item(cur, source_id=source_id, item_id=item_id,
+                                             expected_revision=1, parsed_fields=fields)
+            revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=revision,
+                                          parsed_fields=fields, review_status='confirmed', note='synthetic')
+            scope = {'confirmed': True, 'as_of': str(cash_day), 'member_count': 1, 'cash_amount': '0.25', 'note': 'synthetic'}
+            plan = holdings.preview(cur, source_id=source_id, revision=revision, scope=scope)
+            receipt = holdings.publish(cur, source_id=source_id, revision=revision,
+                                       preview_token=plan['preview_token'], scope=scope)
+            assert receipt['published'] == 1 and receipt['coverage_status'] == 'complete'
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            view = build_holdings_by_account_payload(
+                cur, base_currency='CNY', view_as_of=fund_day, cash_view_as_of=cash_day,
+                owner_ratio_sql='1', owner_ratio_params=[], portfolio_owner_ratio=lambda _: Decimal(1),
+            )
+    fund = next(row for row in view['by_account'] if row['account_code'] == 'tencent_licaitong')
+    assert fund['total_value_base'] is None and 'portfolio_value' not in fund
+    assert 'fund_card_valuation' in fund, view
+    estimate = fund['fund_card_valuation']
+    assert (estimate['amount_base'], estimate['cash_base']) == ('125.25', '0.25')
+    assert (estimate['market_as_of'], estimate['cash_as_of']) == (str(fund_day), str(cash_day))
