@@ -98,13 +98,15 @@ function mobileHeroMetaItem(label, value, tone = '') {
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   if (profile.accountCard) {
-    const { netValue, estimatedNetValue, daily, cumulative, cumulativeLabel, market, cash, leverage } = profile.accountCard;
+    const { netValue, estimatedNetValue, daily, dailyAsOf, dailyMissingText, cumulative, cumulativeLabel, market, cash, leverage } = profile.accountCard;
     const money = (amount, signed = false) => {
       if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return '—';
       return signed || Number(amount) < 0 ? fmtSignedCny(amount) : fmtCny(amount);
     };
     const valueTone = amount => amount == null || Number(amount) === 0 ? '' : Number(amount) < 0 ? 'down' : 'up';
     const share = profile.accountCard.share;
+    const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}` : '最近一日盈亏';
+    const dailyValue = daily == null && dailyMissingText ? esc(dailyMissingText) : money(daily, true);
     return `
       <div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
         <span class="mobileAccountIcon">${esc(profile.icon)}</span>
@@ -112,7 +114,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       </div></div>
       <div class="mobileHeroPrimaryGrid">
         <div class="mobileHeroPrimaryMetric main"><span>${estimatedNetValue ? '账户净值（估算）' : '账户净值'}</span><strong>${money(netValue)}</strong></div>
-        <div class="mobileHeroPrimaryMetric"><span>最近一日盈亏</span><strong class="${valueTone(daily)}">${money(daily, true)}</strong></div>
+        <div class="mobileHeroPrimaryMetric"><span>${esc(dailyLabel)}</span><strong class="${valueTone(daily)}">${dailyValue}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(cumulativeLabel || '累计盈亏')}</span><strong class="${valueTone(cumulative)}">${money(cumulative, true)}</strong></div>
       </div>
       <div class="mobileHeroMiniGrid">

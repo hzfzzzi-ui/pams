@@ -452,6 +452,8 @@ export function makeMobileHeroProfiles({
         market: fundAccountPosition?.known_value_base,
         cash: fundPortfolio?.cash_base ?? fundCash,
         daily: fundHoldingPerformance?.recent_daily_pnl_cny,
+        dailyAsOf: fundHoldingPerformance?.recent_daily_as_of,
+        dailyMissingText: '同日数据待齐',
         cumulative: fundAccountPnl,
         cumulativeLabel: fundAccountPnl != null ? '已核对盈亏' : undefined,
       },

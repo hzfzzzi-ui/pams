@@ -27,6 +27,7 @@ def create_core_router(
     _build_holdings_by_account_payload,
     _build_latest_fx_rates_payload,
     _account_owner_ratio,
+    _view_as_of,
 ):
     router = APIRouter()
 
@@ -112,6 +113,7 @@ def create_core_router(
                         owner_ratio_sql=owner_ratio_sql,
                         owner_ratio_params=owner_ratio_params,
                         portfolio_owner_ratio=_account_owner_ratio if include_portfolio_cash else None,
+                        cash_view_as_of=_view_as_of() if include_portfolio_cash else None,
                     )
                 )
 

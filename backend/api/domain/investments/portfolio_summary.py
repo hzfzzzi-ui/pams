@@ -6,7 +6,7 @@ queries out of ``main.py``.
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from domain.investments.account_portfolio_value import read_account_portfolio_value
@@ -172,19 +172,49 @@ def _fund_card_valuation(row, cash, *, scope_complete, owner_ratio):
     if (cash is None or value is None or gross is None or row['fx_missing_count']
             or row.get('has_snapshot_cash') or not row.get('fund_positions_only')
             or cash.get('total_value_base') is None
-            or cash['holdings_as_of'] != row['holdings_as_of']):
+            or cash['holdings_as_of'] < row['holdings_as_of']):
         return None
     cash_value = cash['total_value_base']
     net = value + cash_value
-    confirmed = scope_complete and row.get('single_snapshot_day')
+    confirmed = (scope_complete and row.get('single_snapshot_day')
+                 and cash['holdings_as_of'] == row['holdings_as_of'])
     return {
         'amount_base': str(net),
         'cash_base': str(cash_value),
-        'as_of': _norm(row['holdings_as_of']),
+        'as_of': _norm(cash['holdings_as_of']),
+        'market_as_of': _norm(row['holdings_as_of']),
         'cash_as_of': _norm(cash['holdings_as_of']),
         'leverage_ratio': float(gross * owner_ratio / net) if net > 0 else None,
         'status': 'confirmed_fund_and_cash' if confirmed else 'estimated_fund_and_cash',
     }
+
+
+def _latest_licaitong_cash(cur, *, as_of, owner_ratio):
+    """Read the latest reviewed CNY cash-only snapshot up to the account date."""
+    account = 'tencent_licaitong_current_plus'
+    cur.execute("""
+        SELECT as_of, COUNT(*) AS member_count,
+               SUM(market_value) FILTER (
+                   WHERE currency = 'CNY' AND asset_liability = '资产'
+                     AND major_category = '现金' AND market_value >= 0
+                     AND market_value::text NOT IN ('NaN', 'Infinity', '-Infinity')
+               ) AS cash
+        FROM pams_holdings_snapshot
+        WHERE account_code = %s AND as_of <= %s
+        GROUP BY as_of
+        ORDER BY as_of DESC
+        LIMIT 1
+    """, (account, as_of))
+    row = cur.fetchone()
+    if not row or row['member_count'] != 1 or row['cash'] is None:
+        return None
+    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+    day = row['as_of']
+    proof = load_account_snapshot_coverage(cur, {(account, day)}).get((account, day), {})
+    if proof.get('status') != 'complete':
+        return None
+    cash_base = (row['cash'] * owner_ratio(account)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    return {'holdings_as_of': day, 'total_value_base': cash_base}
 
 
 def build_holdings_by_account_payload(
@@ -195,6 +225,7 @@ def build_holdings_by_account_payload(
     owner_ratio_sql: str,
     owner_ratio_params: tuple[Any, ...] | list[Any],
     portfolio_owner_ratio=None,
+    cash_view_as_of=None,
 ) -> dict[str, Any]:
     """Return the legacy /api/holdings/by-account payload."""
     cur.execute("SELECT MAX(as_of) as as_of FROM pams_holdings_snapshot")
@@ -281,12 +312,12 @@ def build_holdings_by_account_payload(
     )
     rows = cur.fetchall()
     incomplete = _incomplete_snapshot_accounts(cur, view_as_of)
-    complete_fund_cash = next((row for row in rows if row['account_code'] == 'tencent_licaitong_current_plus'
-                               and row['account_code'] not in incomplete), None)
-    verified_fund_cash = (complete_fund_cash if complete_fund_cash and complete_fund_cash.get('has_snapshot_cash')
-                          and complete_fund_cash['holdings_count'] == 1
-                          and not complete_fund_cash['fx_missing_count']
-                          and complete_fund_cash['gross_position_value'] is None else None)
+    verified_fund_cash = None
+    if (portfolio_owner_ratio is not None and base_currency == 'CNY'
+            and any(row['account_code'] == 'tencent_licaitong' for row in rows)):
+        verified_fund_cash = _latest_licaitong_cash(
+            cur, as_of=cash_view_as_of or view_as_of, owner_ratio=portfolio_owner_ratio,
+        )
     items = []
     for raw in rows:
         item = {key: _norm(value) for key, value in raw.items()
