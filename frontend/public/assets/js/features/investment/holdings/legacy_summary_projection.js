@@ -98,7 +98,7 @@ export function applyLegacySummaryPayload(payloads, context) {
       ...(knownFundPnl != null ? {
         totalPnl: Number(knownFundPnl),
         accountReturnRateUndefined: true,
-        returnRateLabel: '本年收益率',
+        returnRateLabel: '累计收益率',
       } : {}),
     }, 'totalValueAFund', 'totalPnlAFund', 'dailyPnlAFund', 'holdingPnlAFund');
     const usRows = usStock.rows || [];

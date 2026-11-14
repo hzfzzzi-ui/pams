@@ -166,7 +166,7 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
         JOIN pams_holdings_snapshot h ON h.as_of <= boundary
         WHERE h.account_code=ANY(%s::text[]) AND h.symbol IS NOT NULL
         ORDER BY boundary,h.account_code,h.symbol,h.currency,h.as_of DESC,h.id DESC""",
-                (start - timedelta(days=1), end, accounts))
+                (start - timedelta(days=1) if start > date.min else None, end, accounts))
     observed = cur.fetchall()
     opening = {(row['account_code'], identity, row['currency'])
                for row in observed if row['boundary'] < start and row['quantity'] != 0

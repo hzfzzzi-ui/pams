@@ -100,6 +100,17 @@ def test_ytd_does_not_treat_a_prior_year_buy_as_current_year_cost():
     ]) == {}
 
 
+def test_lifetime_returns_include_closed_cycles_from_prior_years():
+    trades = [
+        trade(1, '2024-12-02', 'fund_subscription', '10', '-10'),
+        trade(2, '2025-07-13', 'fund_redemption', '10', '15'),
+        trade(3, '2026-01-22', 'fund_subscription', '10', '-20'),
+        trade(4, '2026-07-13', 'fund_redemption', '10', '23'),
+    ]
+    cycles = summarize(trades, start=date.min)['a_fund'][0]['cycles']
+    assert [cycle['trade_pnl'] for cycle in cycles] == [Decimal('5'), Decimal('3')]
+
+
 def test_keep_verified_ibkr_returns_and_withhold_unverified_fund_rate():
     closed = {'amount': '12641.96', 'status': 'partial'}
     ibkr = {'section': 'us_stock', 'status': 'available',

@@ -479,10 +479,10 @@ export function makeMobileHeroProfiles({
       totalPnl: safeNum(knownFundPnl ?? fundSummary.totalPnl),
       totalRate: safeNum(fundSummary.holdingReturnRate ?? categoryByLabel(categories, '基金').holdingReturnRate),
       totalRateUndefined: knownFundPnl != null,
-      ratePendingLabel: knownFundPnl != null ? '本年收益率待核验' : undefined,
+      ratePendingLabel: knownFundPnl != null ? '累计收益率待核验' : undefined,
       share: fundNlv / portfolioValue,
       miniMetrics: fundClosed ? [{
-        label: '本年已核对清仓',
+        label: '已核对清仓',
         value: formatOptionalMoney(Number(fundClosed.amount), 'CNY', { signed: true }),
         tone: Number(fundClosed.amount) < 0 ? 'down' : 'up',
       }] : [],

@@ -157,7 +157,7 @@ def create_compatibility_router(
                     funds_all = category('A股', 'A股基金', closed=True)
                     view_date = context[0]
                     closed_returns = load_closed_trade_returns(
-                        cur, start=view_date.replace(month=1, day=1), end=view_date,
+                        cur, start=Date.min, end=view_date,
                         owner_ratio=_account_owner_ratio, sections={'a_fund'},
                         excluded_accounts=context[2]['excluded_accounts'],
                     )
