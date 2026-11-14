@@ -134,7 +134,7 @@ def client():
 
 
 @pytest.mark.parametrize("fx", [None, Decimal("7"), Decimal("0")])
-def test_parser_and_http_preserve_all_fields_and_amounts(report, monkeypatch, client, fx):
+def test_parser_and_service_preserve_all_fields_and_amounts(report, monkeypatch, fx):
     monkeypatch.setattr(service, "_latest_usd_cny_rate", lambda: fx)
     selected = service.report_state.PublishedReport(report, date(2026, 10, 21), 1,
         hashlib.sha256(report.read_bytes()).hexdigest(), None)
@@ -149,9 +149,7 @@ def test_parser_and_http_preserve_all_fields_and_amounts(report, monkeypatch, cl
             expected[key + "_cny"] = float(Decimal(str(expected[key + "_base"])) * fx)
     before = report.read_bytes()
     assert service._parse_flex_performance(report) == expected
-    response = client.get("/api/ibkr/performance")
-    assert response.status_code == 200
-    payload = response.json()
+    payload = service.read_published_performance()
     assert payload.pop("report_quality")["statement_as_of"] == expected["as_of"]
     assert payload == expected
     assert report.read_bytes() == before
@@ -194,32 +192,8 @@ def test_latest_report_selection_preserves_env_and_default_root(tmp_path, monkey
     assert calls[-1] == tmp_path / "other/raw/ibkr"
 
 
-def test_http_error_contract_preserved(report, monkeypatch, client):
-    monkeypatch.setattr(ibkr, "read_published_performance", lambda: None)
-    response = client.get("/api/ibkr/performance")
-    assert response.status_code == 404
-    assert response.json() == {"detail": "No published IBKR Flex report is available"}
-    monkeypatch.setattr(ibkr, "read_published_performance", lambda: service._parse_flex_performance(report))
-    report.write_text("<R/>", encoding="utf-8")
-    response = client.get("/api/ibkr/performance")
-    assert response.status_code == 422
-    assert response.json() == {"detail": "IBKR Flex report has no BASE_SUMMARY cash report"}
-    report.write_text("<broken", encoding="utf-8")
-    response = client.get("/api/ibkr/performance")
-    assert response.status_code == 500
-    assert "detail" in response.json()
-
-
-def test_archive_only_runtime_treats_legacy_performance_as_unavailable(monkeypatch, client):
-    from domain.brokers.ibkr import ibkr_daily_holdings
-
-    monkeypatch.setattr(ibkr, "read_published_performance", lambda: None)
-    monkeypatch.setattr(ibkr_daily_holdings, "credentials", lambda: ("token", "query", "account", "secret"))
-    monkeypatch.setattr(ibkr, "_credentials", lambda: ("token", None))
-
-    response = client.get("/api/ibkr/performance")
-    assert response.status_code == 200
-    assert response.json() == {"status": "unavailable", "reason": "legacy_flex_not_configured"}
+def test_legacy_performance_route_is_retired(client):
+    assert client.get("/api/ibkr/performance").status_code == 404
 
 
 def test_risk_uses_service_without_endpoint_import(monkeypatch):

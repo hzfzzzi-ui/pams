@@ -127,7 +127,7 @@ def test_main_keeps_public_python_function_aliases(prepared):
     main, _, _, _ = prepared
     names = ("get_accounts", "get_account_detail", "get_categories", "holdings_latest",
              "holdings_summary", "holdings_by_account", "get_latest_fx_rates", "refresh_fx_rates",
-             "summary2_latest", "holdings_latest_compat", "holdings_by_category", "account_performance",
+             "summary2_latest", "holdings_latest_compat", "holdings_by_category",
              "holdings_history_by_category", "nav_series", "investment_section_return_series",
              "refresh_investment_section_return_series_snapshot", "nav_weekly", "investment_return_series",
              "refresh_investment_return_series_snapshot", "nav_drawdown", "cashflow_series", "risk_latest")

@@ -900,28 +900,22 @@ def refresh_fund_nav_estimates(
                         "status": "estimated" if wrote else "estimated_existing_snapshot_kept",
                     }
                 )
-            elif confirmed:
-                if should_copy_confirmed_nav_to_current_snapshot(confirmed.nav_date, current_date):
-                    copied_value = estimate_value(units, confirmed.unit_nav)
+            if confirmed and status != "needs_review":
+                wrote = False
+                if holding['as_of'] < confirmed.nav_date <= current_date:
                     wrote = insert_or_update_generated_snapshot(
                         cur,
                         holding=holding,
-                        as_of=current_date,
-                        market_value=copied_value,
+                        as_of=confirmed.nav_date,
+                        market_value=precise_value,
                         units=units,
                         unit_nav=confirmed.unit_nav,
                         update_existing=False,
                     )
-                    if wrote:
-                        inserted_snapshots += 1
-                    item.update({"status": "confirmed_no_intraday_estimate"})
-                else:
-                    item.update(
-                        {
-                            "status": "confirmed_stale_no_intraday_estimate",
-                            "current_date": current_date.isoformat(),
-                        }
-                    )
+                    inserted_snapshots += int(wrote)
+                if not intraday:
+                    item["status"] = ("confirmed_no_intraday_estimate" if wrote or confirmed.nav_date == current_date
+                                      else "confirmed_stale_no_intraday_estimate")
 
             processed.append(item)
         conn.commit()

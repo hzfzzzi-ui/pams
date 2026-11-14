@@ -64,8 +64,7 @@ def test_source_report_selected_by_run_and_verified_in_real_http(empty_source_db
             assert ibkr_report_state.select_report(conn,tmp_path)[0] is None
             conn.rollback()
         performance=web.get('/api/ibkr/performance')
-        assert performance.status_code==200,performance.text
-        assert performance.json()['status']=='ok'
+        assert performance.status_code==404,performance.text
         from domain.brokers.ibkr import ibkr_daily_close_sync, ibkr_account_audit_read, ibkr_reconciliation
         subject,_,scope=ibkr_daily_close_sync._production_context()
         assert subject and scope==('U_TEST','USD') and subject.path.read_bytes()==raw.encode()
@@ -77,7 +76,7 @@ def test_source_report_selected_by_run_and_verified_in_real_http(empty_source_db
         assert reconciliation['report']['sha256']==sha256(raw.encode()).hexdigest()
         with monkeypatch.context() as disabled:
             disabled.setenv('PAMS_UNIFIED_SOURCE_ISOLATED','false')
-            assert web.get('/api/ibkr/performance').json()['status']=='ok'
+            assert web.get('/api/ibkr/performance').status_code==404
             blocked=web.post('/api/ibkr/flex/sync',json={})
             assert blocked.status_code>=400
             with psycopg2.connect(**empty_source_db) as conn:

@@ -251,6 +251,12 @@ def build_holdings_by_account_payload(
     )
     rows = cur.fetchall()
     incomplete = _incomplete_snapshot_accounts(cur, view_as_of)
+    complete_fund_cash = next((row for row in rows if row['account_code'] == 'tencent_licaitong_current_plus'
+                               and row['account_code'] not in incomplete), None)
+    verified_fund_cash = (complete_fund_cash if complete_fund_cash and complete_fund_cash.get('has_snapshot_cash')
+                          and complete_fund_cash.get('single_snapshot_day')
+                          and not complete_fund_cash['fx_missing_count']
+                          and complete_fund_cash['gross_position_value'] is None else None)
     items = []
     for raw in rows:
         item = {key: _norm(value) for key, value in raw.items()
@@ -270,6 +276,20 @@ def build_holdings_by_account_payload(
             )
             if portfolio is not None:
                 item['portfolio_value'] = portfolio
+        if (portfolio_owner_ratio is not None and base_currency == 'CNY'
+                and item['account_code'] == 'tencent_licaitong' and item.get('total_value_base') is not None
+                and raw.get('single_snapshot_day') and not raw.get('has_snapshot_cash') and verified_fund_cash
+                and verified_fund_cash['total_value_base'] is not None
+                and verified_fund_cash['holdings_as_of'] == raw['holdings_as_of']):
+            cash = verified_fund_cash['total_value_base']
+            net = raw['total_value_base'] + cash
+            gross = raw.get('gross_position_value')
+            item['portfolio_value'] = {
+                'amount_base': str(net), 'cash_base': str(cash), 'as_of': item['holdings_as_of'],
+                'leverage_ratio': float(gross * portfolio_owner_ratio(item['account_code']) / net)
+                if gross is not None and net > 0 else None,
+                'status': 'confirmed_fund_and_cash',
+            }
         items.append(item)
 
     return {

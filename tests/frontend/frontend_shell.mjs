@@ -282,10 +282,10 @@ try {
   let separateReads = 0;
   await memoryPage.route(url => url.pathname === '/api/investment/holdings-view' ||
     ['/api/investment/accounts-view','/api/portfolio/risk-and-config','/api/holdings/by-account',
-      '/api/account-performance/tonghuashun','/api/portfolio/risk-disclosure','/api/portfolio/config'].includes(url.pathname) ||
+      '/api/portfolio/risk-disclosure','/api/portfolio/config'].includes(url.pathname) ||
     url.pathname === '/holdings/latest' || url.pathname === '/summary2/latest' ||
     url.pathname.startsWith('/holdings/by-category/') || url.pathname === '/api/fx-rates/latest' ||
-    url.pathname === '/api/ibkr/performance' || url.searchParams.get('view') === 'stream', async route => {
+    url.searchParams.get('view') === 'stream', async route => {
     const url = new URL(route.request().url());
     const headers = {'access-control-allow-origin':base};
     const respond = json => route.fulfill({json, headers});

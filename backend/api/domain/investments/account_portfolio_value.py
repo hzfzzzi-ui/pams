@@ -1,6 +1,7 @@
 """Read cash-inclusive brokerage values for the account center."""
 
 import os
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from domain.brokers.ibkr.ibkr_daily_close import POSITION_FIELDS, parse_daily_close_evidence
@@ -41,8 +42,15 @@ def _ibkr_value(cur, *, as_of, base_currency, owner_ratio):
     if close['nav_base'] > 0 and None not in position_splits:
         gross = sum(split['long'] - split['short'] for split in position_splits if split is not None)
         leverage = float(gross / close['nav_base'])
+    period_start = date(day.year, 1, 1)
+    period = parse_daily_close_evidence(
+        original, account_id=account, as_of=day, period_start=period_start,
+        expected_sha256=report['sha256'],
+    ).get('period')
     return {'amount_base': _money(close['nav_base'] * rate), 'cash_base': _money(close['cash_base'] * rate),
             'position_value_base': _money(close['position_value_base'] * rate), 'leverage_ratio': leverage,
+            'display_period_pnl_base': _money(period['pnl_base'] * rate) if period else None,
+            'period_start': period_start.isoformat() if period else None,
             'as_of': day.isoformat(), 'cash_as_of': day.isoformat(), 'status': 'official_close',
             'updated_at': report['updated_at'].isoformat() if report['updated_at'] else None}
 

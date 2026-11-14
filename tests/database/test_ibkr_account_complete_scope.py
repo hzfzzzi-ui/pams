@@ -264,12 +264,7 @@ def test_published_account_scope_covers_each_security_and_cash_currency(empty_so
                 drawdown=nav_web.get('/nav/drawdown?limit=2')
                 assert drawdown.status_code==200 and drawdown.json()['rows'][-1]['total_market_value'] is None,drawdown.text
                 assert drawdown.json()['max_drawdown'] is None
-                performance=nav_web.get('/api/account-performance/ibkr')
-                assert performance.status_code==200,performance.text
-                assert performance.json()['status']=='unavailable',performance.text
-                assert performance.json()['net_liquidation_cny'] is None
-                assert {v['currency'] for v in performance.json()['currency_values']}=={'USD','EUR'}
-                assert nav_web.get('/api/account-performance/not-an-account').status_code==404
+                assert nav_web.get('/api/account-performance/ibkr').status_code==404
             with conn.cursor() as cur:
                 cur.execute("UPDATE pams_fx_rates_daily SET source='synthetic' WHERE quote_currency='EUR' AND as_of=%s",(DAY,))
             conn.commit()

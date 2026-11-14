@@ -20,7 +20,6 @@ from collectors.ibkr_flex import (
 )
 from domain.brokers.ibkr.ibkr_performance import (
     flex_credentials as _credentials,
-    read_published_performance,
     published_report_status,
     get_conn,
     _norm,
@@ -304,26 +303,6 @@ def ibkr_cash_event_sync_run(req: IBKRFlexSyncRequest) -> dict[str, Any]:
 def ibkr_account_audit(period_start: date | None = None) -> dict[str, Any]:
     """Audit published account evidence without refreshing or changing any ledger."""
     return read_ibkr_account_audit(period_start=period_start)
-
-
-@router.get("/performance")
-def ibkr_performance() -> dict[str, Any]:
-    """Return IBKR account performance from Flex account NAV and net deposits."""
-    try:
-        result = read_published_performance()
-        if result is None:
-            from domain.brokers.ibkr.ibkr_daily_holdings import credentials
-
-            if credentials() and not all(_credentials()):
-                return {"status": "unavailable", "reason": "legacy_flex_not_configured"}
-            raise HTTPException(status_code=404, detail="No published IBKR Flex report is available")
-        return result
-    except HTTPException:
-        raise
-    except IBKRFlexError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/flex/sync")

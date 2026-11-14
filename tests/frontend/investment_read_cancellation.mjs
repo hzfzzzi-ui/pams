@@ -15,10 +15,10 @@ for (const kind of ['summary', 'list']) {
     reads.push({path, options});
     return path === finalPath ? last.promise : Promise.resolve({synthetic: path});
   });
-  assert.equal(reads.length, summary ? 15 : 2);
+  assert.equal(reads.length, summary ? 13 : 2);
   if (summary) {
     assert.equal(reads[0].path, '/holdings/by-category/A股?minor_category=A股&limit=500&include_closed=true');
-    assert.equal(reads[12].summary, true);
+    assert.equal(reads[10].summary, true);
     assert.ok(reads.filter(read => !read.summary).every(read => read.options.cache === false));
   } else assert.equal(reads[0].path, closed('/holdings/latest'));
   // Required responses are already successful: cancelling only the last optional
@@ -28,8 +28,8 @@ for (const kind of ['summary', 'list']) {
 
   reads.length = 0;
   const ordinary = await run(path => path === finalPath ? Promise.reject(new Error('ordinary unavailable')) : Promise.resolve({synthetic: path}));
-  assert.equal(ordinary.at(-1), null, 'ordinary optional failures retain the old null fallback');
+  assert.equal(ordinary.at(summary ? -2 : -1), null, 'ordinary optional failures retain the old null fallback');
   assert.match(ordinary[0].synthetic, /^\/holdings\//);
   await assert.rejects(run(path => path.startsWith('/holdings/') ? Promise.reject(new Error('required unavailable')) : Promise.resolve({})), /required unavailable/);
 }
-console.log('Investment reads: fifteen/two dependency shape, fresh summary position, optional cancellation and ordinary/required failure semantics passed.');
+console.log('Investment reads: thirteen/two dependency shape, fresh summary position, optional cancellation and ordinary/required failure semantics passed.');

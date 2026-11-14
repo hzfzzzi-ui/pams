@@ -502,7 +502,6 @@ _compatibility_router, (
     summary2_latest,
     holdings_latest_compat,
     holdings_by_category,
-    account_performance,
     holdings_history_by_category,
     nav_series,
     investment_section_return_series,

@@ -189,14 +189,19 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
     } for section, rows in groups.items()}
 
 
-def fund_holding_profit(holdings, closed_returns):
+def fund_holding_profit(holdings, closed_returns, *, account_code=None):
     """A reconciliation of current floating and known closed profit, on separate bases."""
-    active = [row for row in holdings.get('rows', []) if not row.get('is_closed')]
+    active = [row for row in holdings.get('rows', []) if not row.get('is_closed')
+              and (account_code is None or (row.get('account_code') or row.get('account')) == account_code)]
     amounts = [(_number(row.get('market_value_cny')), _number(row.get('cost_cny'))) for row in active]
     if any(value is None or cost is None for value, cost in amounts):
         return None
     floating = sum((value - cost for value, cost in amounts), Decimal(0))
-    return str(floating + Decimal(closed_returns['amount']))
+    closed = (Decimal(closed_returns['amount']) if account_code is None else
+              sum((Decimal(cycle['trade_pnl']) + Decimal(cycle['distributions'])
+                   for item in closed_returns['items'] if item['account_code'] == account_code
+                   for cycle in item['cycles']), Decimal(0)))
+    return str(floating + closed)
 
 
 def attach_closed_trade_returns(payload, closed_returns):

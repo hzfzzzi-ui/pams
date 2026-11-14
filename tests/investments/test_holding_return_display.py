@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
-from domain.investments.holding_return_display import attach_a_stock_holding_performance, attach_recent_us_returns
+from domain.investments.holding_return_display import attach_dated_holding_performance, attach_recent_us_returns
 from domain.investments.investment_view_date import daily_pnl_window_date, market_data_candidate_date
 
 
@@ -172,7 +172,7 @@ def test_a_stock_card_keeps_dated_close_separate_and_does_not_require_account_ca
         calls.append(day)
         return {"rows": historical}
 
-    found = attach_a_stock_holding_performance(payload, account_code="example",
+    found = attach_dated_holding_performance(payload, account_code="example",
                                                active_date=ACTIVE, load_date=load, limit=500)
     assert calls == [DAY]
     assert payload == original and found["rows"] == original["rows"]
@@ -181,3 +181,27 @@ def test_a_stock_card_keeps_dated_close_separate_and_does_not_require_account_ca
         "recent_daily_pnl_cny": "82" if complete_close else None,
         "recent_daily_as_of": str(DAY) if complete_close else None,
     }
+
+
+def test_fund_daily_card_uses_one_common_confirmed_nav_date():
+    def fund(symbol, day):
+        return holding(account="fund", symbol=symbol, asset_liability="\u8d44\u4ea7",
+                       snapshot_as_of=str(day), holding_pnl_cny="-2")
+    current = [fund("A", DAY), fund("B", ACTIVE)]
+    history = [{**fund(symbol, DAY), "daily_pnl_stale": False, "daily_total_pnl_cny": "-3",
+                "fund_nav_raw_status": "confirmed", "fund_nav_confirmed_date": str(DAY),
+                "fund_nav_confirmed_unit_nav": "1.02", "current_price": "1.02",
+                "previous_price": "1.05"} for symbol in ("A", "B")]
+    calls = []
+
+    def load(day):
+        calls.append(day)
+        return {"rows": history}
+
+    result = attach_dated_holding_performance(
+        {"rows": current}, account_code="fund", active_date=ACTIVE, load_date=load,
+        limit=500, allow_mixed_snapshot_days=True,
+    )["holding_performance"]
+    assert calls == [DAY]
+    assert result["recent_daily_pnl_cny"] == "-6"
+    assert result["recent_daily_as_of"] == str(DAY)

@@ -409,9 +409,8 @@ def test_postgres_route_is_server_readonly_repeatable_and_preserves_performance(
     client = audit_client
     monkeypatch.setattr(performance, "get_conn", database)
     before = stored_state(database)
-    old_response = client.get("/api/ibkr/performance")
-    assert old_response.status_code == 200 and old_response.json()["status"] == "ok"
-    old = old_response.json()
+    old = performance.read_published_performance()
+    assert old["status"] == "ok"
     monkeypatch.setattr(performance, "get_conn", guarded)
     for _ in range(2):
         response = client.get("/api/ibkr/account-audit?period_start=2026-10-01")
@@ -420,7 +419,7 @@ def test_postgres_route_is_server_readonly_repeatable_and_preserves_performance(
         assert result["status"] == "review" and check(result, "cash")["status"] == "ok"
     assert client.get("/api/ibkr/account-audit?period_start=not-a-date").status_code == 422
     monkeypatch.setattr(performance, "get_conn", database)
-    assert client.get("/api/ibkr/performance").json() == old
+    assert performance.read_published_performance() == old
     assert statements and before == stored_state(database)
 
 
