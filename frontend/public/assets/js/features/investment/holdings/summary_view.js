@@ -42,7 +42,7 @@ function metricCard(label, value, help, kind = '', extra = '') {
 }
 
 function InvestmentSummaryHeader(summary) {
-  if (summary.scopeIncomplete) return metricCard('投资组合价值', '待核验', '账户资产资料未完整，已知持仓见下方', 'info');
+  if (summary.scopeIncomplete) return InvestmentSummaryHeaderCompact(summary);
   return `
     ${metricCard('市值', formatCompactCurrency(summary.marketValue), '含持仓与现金/活期', 'info')}
     ${metricCard('累计收益', formatCompactCurrency(summary.totalPnl, 'CNY', { signed: true }), '综合口径', summary.totalPnl >= 0 ? 'good' : 'bad')}
@@ -52,7 +52,12 @@ function InvestmentSummaryHeader(summary) {
 }
 
 function InvestmentSummaryHeaderCompact(summary) {
-  if (summary.scopeIncomplete) return metricCard('投资组合价值', '待核验', '账户资产资料未完整，已知持仓见下方', 'info');
+  if (summary.scopeIncomplete) return `
+    ${metricCard('已知资产市值', summary.knownMarketValue == null ? '—' : formatCompactCurrency(summary.knownMarketValue), '', 'info')}
+    ${metricCard('累计收益', '—', '')}
+    ${metricCard('收益率', '—', '')}
+    ${metricCard('今日收益', '—', '')}
+  `;
   const hasReturnRate = Number.isFinite(Number(summary.twr));
   const returnRate = hasReturnRate ? Number(summary.twr) : null;
   const dailyPnl = Number.isFinite(Number(summary.dailyPnl)) ? Number(summary.dailyPnl) : null;
@@ -97,17 +102,12 @@ function mobileHeroMetaItem(label, value, tone = '') {
 }
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
-  if (profile.scopeIncomplete) return `
-    <div class="mobileHeroPrimaryMetric main">
-      <span>投资组合价值</span><strong class="mobileHeroValue">待核验</strong>
-      <p>账户资产资料未完整，已知持仓见下方</p>
-    </div>`;
   const value = safeNum(profile.value);
   const dailyPending = profile.dailyStatus === 'pending';
   const dailyPartial = profile.dailyStatus === 'partial';
   const dailyHistorical = profile.dailyStatus === 'historical';
   const dailyPnl = Number.isFinite(Number(profile.dailyPnl)) ? safeNum(profile.dailyPnl) : 0;
-  const dailyTone = dailyPending ? '' : dailyPnl >= 0 ? 'up' : 'down';
+  const dailyTone = dailyPending || profile.dailyPnl == null ? '' : dailyPnl >= 0 ? 'up' : 'down';
   const dailyStatusLabel = { pending: '待更新', partial: '仅含已更新标的，仍有持仓待更新', estimated: '预估收益', confirmed: '今日收益已确认', historical: profile.dailyStatusTitle }[profile.dailyStatus] || '';
   const dailyBase = Math.max(value - dailyPnl, 1);
   const dailyRate = Number.isFinite(Number(profile.dailyRate)) ? safeNum(profile.dailyRate) : pctFromAmount(dailyPnl, dailyBase);
@@ -125,7 +125,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <span>${esc(profile.identity || 'CNY PAMS')}</span>
       </div>
       ${profile.hideShare ? '' : `<div class="mobileAccountWeight ${tone}">
-        <span>仓位 ${signedPctText(rawShare).replace('+', '')}</span>
+        <span>组合占比 ${signedPctText(rawShare).replace('+', '')}</span>
         <i><b style="width:${Math.max(2, Math.min(100, shareWidth * 100))}%"></b></i>
       </div>`}
     </div>`}
@@ -136,13 +136,13 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       </div>
       <div class="mobileHeroPrimaryMetric">
         <span${dailyStatusLabel ? ` title="${esc(dailyStatusLabel)}"` : ''}>${esc(dailyPartial ? '今日盈亏（部分）' : profile.dailyLabel || '今日盈亏')}</span>
-        <strong class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatOptionalMoney(dailyPnl, 'CNY', { signed: true })}</strong>
-        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending || dailyPartial || dailyHistorical ? '--' : signedPctText(dailyRate)}</em>
+        <strong class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${profile.dailyPnl == null ? '—' : dailyPending ? '待更新' : formatOptionalMoney(dailyPnl, 'CNY', { signed: true })}</strong>
+        <em class="${dailyTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${profile.dailyPnl == null || dailyPending || dailyPartial || dailyHistorical ? '--' : signedPctText(dailyRate)}</em>
       </div>
       <div class="mobileHeroPrimaryMetric">
         <span>${esc(profile.totalLabel || '总盈亏')}</span>
-        <strong class="${totalPnl >= 0 ? 'up' : 'down'}">${formatOptionalMoney(totalPnl, 'CNY', { signed: true })}</strong>
-        <em class="${profile.ratePendingLabel ? 'muted' : totalPnl >= 0 ? 'up' : 'down'}"${profile.totalRateTitle ? ` title="${esc(profile.totalRateTitle)}"` : ''}>${profile.totalRateUndefined === true ? esc(profile.ratePendingLabel || '--') : signedPctText(totalRate)}</em>
+        <strong class="${profile.totalPnl == null ? '' : totalPnl >= 0 ? 'up' : 'down'}">${profile.totalPnl == null ? '—' : formatOptionalMoney(totalPnl, 'CNY', { signed: true })}</strong>
+        <em class="${profile.ratePendingLabel || profile.totalPnl == null ? 'muted' : totalPnl >= 0 ? 'up' : 'down'}"${profile.totalRateTitle ? ` title="${esc(profile.totalRateTitle)}"` : ''}>${profile.totalPnl == null || profile.totalRateUndefined === true ? esc(profile.ratePendingLabel || '--') : signedPctText(totalRate)}</em>
       </div>
     </div>
     <div class="mobileHeroMiniGrid ${miniMetrics ? '' : 'mobileHeroMiniGrid-empty'}">${miniMetrics}</div>
@@ -167,12 +167,12 @@ function bindMobileMethodology(summary, dataIssues, asOf) {
     openBottomSheet('投资口径', `
       <div class="rowDetailGrid">
         <div><strong>快照日期</strong><span>${esc(asOf || '待核准')}</span></div>
-        <div><strong>组合价值</strong><span class="mono">${formatCompactCurrency(summary.marketValue)}</span></div>
+        <div><strong>${summary.scopeIncomplete ? '已知资产市值' : '组合价值'}</strong><span class="mono">${summary.scopeIncomplete ? (summary.knownMarketValue == null ? '—' : formatCompactCurrency(summary.knownMarketValue)) : formatCompactCurrency(summary.marketValue)}</span></div>
         <div><strong>总负债</strong><span class="mono">${formatCompactCurrency(safeNum(summary.totalLiabilities))}</span></div>
         <div><strong>现金/活期</strong><span class="mono">${formatCompactCurrency(summary.cashActiveValue, 'CNY', { signed: safeNum(summary.cashActiveValue) < 0 })}</span></div>
         <div><strong>现金负债</strong><span class="mono">${formatCompactCurrency(-safeNum(summary.cashActiveLiabilities), 'CNY', { signed: safeNum(summary.cashActiveLiabilities) > 0 })}</span></div>
-        <div><strong>今日收益</strong><span class="mono">${formatCompactCurrency(summary.dailyPnl, 'CNY', { signed: true })}</span></div>
-        <div><strong>总收益率</strong><span class="mono">${formatPercentRate(summary.twr)}</span></div>
+        <div><strong>今日收益</strong><span class="mono">${summary.scopeIncomplete ? '—' : formatCompactCurrency(summary.dailyPnl, 'CNY', { signed: true })}</span></div>
+        <div><strong>总收益率</strong><span class="mono">${summary.scopeIncomplete ? '—' : formatPercentRate(summary.twr)}</span></div>
       </div>
       ${dataIssues.length ? `<div class="issueList" style="margin-top:12px">${dataIssues.map(issue => `<div class="issueRow"><span>${esc(issue)}</span></div>`).join('')}</div>` : ''}
     `);
@@ -791,7 +791,7 @@ function renderInvestmentDashboard({
   void contributionRows;
 
   const allocationEl = document.getElementById('assetAllocationPanel');
-  if (allocationEl) allocationEl.innerHTML = AssetAllocationPanel(categories, summary.marketValue);
+  if (allocationEl) allocationEl.innerHTML = AssetAllocationPanel(categories, summary.scopeIncomplete ? null : summary.marketValue);
 
   if (document.getElementById('investmentDataQualityPanel')) {
     renderDataQualityPanel(dataIssues, asOf);
@@ -803,15 +803,15 @@ function AssetAllocationPanel(categories, totalValue) {
     .filter(c => safeNum(c.totalValue) > 0)
     .sort((a, b) => safeNum(b.totalValue) - safeNum(a.totalValue));
   return rows.map(row => {
-    const ratio = totalValue > 0 ? safeNum(row.totalValue) / totalValue : 0;
+    const ratio = totalValue > 0 ? safeNum(row.totalValue) / totalValue : null;
     const dailyPnl = safeNum(row.dailyPnl);
     const totalPnl = safeNum(row.totalPnl);
     return `<div class="allocationRow">
       <div class="allocationMeta">
         <strong>${esc(row.label)}</strong>
-        <span>${formatCompactCurrency(row.totalValue)} · ${formatPercentRate(ratio)}</span>
+        <span>${formatCompactCurrency(row.totalValue)}${ratio == null ? '' : ` · ${formatPercentRate(ratio)}`}</span>
       </div>
-      <div class="allocationTrack" aria-hidden="true"><span style="width:${Math.min(100, ratio * 100)}%"></span></div>
+      ${ratio == null ? '' : `<div class="allocationTrack" aria-hidden="true"><span style="width:${Math.min(100, ratio * 100)}%"></span></div>`}
       <div class="allocationNumbers">
         <span class="${dailyPnl >= 0 ? 'up' : 'down'}">${fmtSignedCny(dailyPnl)}</span>
         <small class="${totalPnl >= 0 ? 'up' : 'down'}">${fmtSignedCny(totalPnl)}</small>

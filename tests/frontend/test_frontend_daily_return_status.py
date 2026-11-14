@@ -60,7 +60,7 @@ const heroContext = load('holdings_categories.js', {
   accountCashBreakdown: () => ({netCash: 0, cashAssets: 0, cashLiabilities: 0}),
 });
 const profileInput = {
-  summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1, scopeIncomplete: input.scopeIncomplete === true},
+  summary: {marketValue: 900, knownMarketValue: input.knownMarketValue, dailyPnl: input.daily, totalPnl: -70, twr: -0.1, scopeIncomplete: input.scopeIncomplete === true},
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
   recentUsReturn: input.recent,
@@ -96,14 +96,14 @@ def holding(**fields):
 
 
 def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False,
-           stock_position=None, stock_positions_as_of="2026-10-27"):
+           stock_position=None, stock_positions_as_of="2026-10-27", known_market_value=None):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
         input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent,
                           "scopeIncomplete": scope_incomplete, "stockPosition": stock_position,
-                          "stockPositionsAsOf": stock_positions_as_of}),
+                          "stockPositionsAsOf": stock_positions_as_of, "knownMarketValue": known_market_value}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
@@ -113,10 +113,15 @@ def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=Fa
 
 
 def test_incomplete_account_scope_never_displays_partial_value_as_total():
-    output = render([], scope_incomplete=True)
-    assert '待核验' in output['allHtml']
-    assert '账户资产资料未完整' in output['allHtml']
+    output = render([], scope_incomplete=True, known_market_value=800)
+    assert '已知资产市值' in output['allHtml']
+    assert '800.00' in output['allHtml']
     assert '900' not in output['allHtml']
+    assert '投资组合价值' not in output['allHtml']
+    assert output['allProfile']['dailyPnl'] is None
+    assert '900.00' in output['html']
+    assert '组合占比' not in output['html']
+    assert '已知资产市值' in render([], scope_incomplete=True)['allHtml']
 
 
 def test_stock_card_shows_account_estimate_with_carried_cash_date_despite_incomplete_portfolio():
@@ -125,7 +130,7 @@ def test_stock_card_shows_account_estimate_with_carried_cash_date_despite_incomp
         "cash_as_of": "2026-10-23", "status": "cash_carried_forward",
     }}
     output = render([], scope_incomplete=True, stock_position=position)
-    assert '待核验' in output['allHtml']
+    assert '已知资产市值' in output['allHtml']
     assert '账户估值（含沿用现金）' in output['stockHtml']
     assert '850.00' in output['stockHtml']
     assert '2026-10-23' in output['stockHtml']

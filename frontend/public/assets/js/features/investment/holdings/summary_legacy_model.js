@@ -277,7 +277,11 @@ export function canonicalPortfolioDashboardSummary({
     safeNum(accountCash?.cashLiabilities)
   );
   return {
-    scopeIncomplete: portfolioSummary?.snapshot_scope_status === 'incomplete',
+    scopeIncomplete: !Number.isFinite(Number(valuationState?.net_liquidation_value ?? NaN))
+      && [portfolioSummary?.snapshot_scope_status, portfolioSummary?.value_status,
+        portfolioSummary?.fx_status, valuationState?.data_completeness].some(status => ['incomplete', 'partial'].includes(status)),
+    knownMarketValue: summaryFresh && portfolioSummary?.known_market_value != null
+      && Number.isFinite(Number(portfolioSummary.known_market_value)) ? Number(portfolioSummary.known_market_value) : null,
     marketValue,
     totalPnl,
     currentFloatPnl,
@@ -419,18 +423,17 @@ export function makeMobileHeroProfiles({
   const allProfile = {
     key: '全部',
     hideHeader: true,
-    scopeIncomplete: summary.scopeIncomplete,
-    valueLabel: '投资组合价值',
-    value: summary.marketValue,
+    valueLabel: summary.scopeIncomplete ? '已知资产市值' : '投资组合价值',
+    value: summary.scopeIncomplete ? summary.knownMarketValue : summary.marketValue,
     dailyLabel: '今日盈亏',
-    dailyPnl: summary.dailyPnl,
+    dailyPnl: summary.scopeIncomplete ? null : summary.dailyPnl,
     dailyStatus: usDailyStatus === 'pending' ? 'pending' : '',
     dailyRate: pctFromAmount(summary.dailyPnl, Math.max(summary.marketValue - summary.dailyPnl, 1)),
     totalLabel: '总盈亏',
-    totalPnl: summary.totalPnl,
+    totalPnl: summary.scopeIncomplete ? null : summary.totalPnl,
     totalRate: summary.twr,
     share: 1,
-    miniMetrics: [
+    miniMetrics: summary.scopeIncomplete ? [] : [
       { label: '总市值', value: formatOptionalMoney(totalMarketValue) },
       { label: '当前浮盈', value: formatOptionalMoney(currentFloatPnl, 'CNY', { signed: true }), tone: currentFloatPnl < 0 ? 'down' : 'up' },
       { label: '总负债', value: formatOptionalMoney(totalLiabilities), tone: totalLiabilities > 0 ? 'down' : '' },
@@ -481,6 +484,7 @@ export function makeMobileHeroProfiles({
       totalRateUndefined: knownFundPnl != null,
       ratePendingLabel: knownFundPnl != null ? '累计收益率待核验' : undefined,
       share: fundNlv / portfolioValue,
+      hideShare: summary.scopeIncomplete,
       miniMetrics: fundClosed ? [{
         label: '已核对清仓',
         value: formatOptionalMoney(Number(fundClosed.amount), 'CNY', { signed: true }),
@@ -502,6 +506,7 @@ export function makeMobileHeroProfiles({
       totalRateUndefined: usProfileCategory.accountReturnRateUndefined === true,
       totalRateTitle: ibkrRateTitle,
       share: ibkrNlv / portfolioValue,
+      hideShare: summary.scopeIncomplete,
       miniMetrics: [
         { label: '总市值', value: formatOptionalMoney(ibkrMarket) },
         { label: '可用现金', value: ibkrCash < 0 ? formatOptionalMoney(ibkrCash, 'CNY', { signed: true }) : formatOptionalMoney(ibkrCash), tone: ibkrCash < 0 ? 'down' : '' },
@@ -520,6 +525,7 @@ export function makeMobileHeroProfiles({
       totalPnl: safeNum(preciousSummary.totalPnl),
       totalRate: safeNum(preciousSummary.holdingReturnRate ?? categoryByLabel(categories, '贵金属').holdingReturnRate),
       share: safeNum(preciousSummary.totalValue) / portfolioValue,
+      hideShare: summary.scopeIncomplete,
     },
     '内部股份/分红': {
       key: '内部股份/分红',
@@ -533,6 +539,7 @@ export function makeMobileHeroProfiles({
       totalPnl: safeNum(esopSummary.totalPnl),
       totalRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
       share: safeNum(esopSummary.totalValue) / portfolioValue,
+      hideShare: summary.scopeIncomplete,
     },
     '现金/活期': {
       key: '现金/活期',
@@ -548,6 +555,7 @@ export function makeMobileHeroProfiles({
       totalPnl: 0,
       totalRate: 0,
       share: netCash / portfolioValue,
+      hideShare: summary.scopeIncomplete,
       miniMetrics: [
         { label: '现金资产', value: formatOptionalMoney(cashAssets) },
         { label: '现金负债', value: formatOptionalMoney(-cashLiabilities, 'CNY', { signed: cashLiabilities > 0 }), tone: cashLiabilities > 0 ? 'down' : '' },
