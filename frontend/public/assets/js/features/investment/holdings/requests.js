@@ -3,13 +3,13 @@ import { accountPositionsPath } from './view_request.js';
 
 // Summary and list reads share available view payloads and retain legacy fallbacks.
 function selectPart(view, name, legacy) {
-  return view ? view.then(data => data ? data[name] : legacy()) : legacy();
+  return view ? view.then(data => data?.[name] ?? legacy()) : legacy();
 }
 
 export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryFresh, loadHoldingView, loadAccountView, loadAccountPositions }) {
   const jgetFresh = path => get(path, { cache: false });
   const view = loadHoldingView?.();
-  const account = loadAccountView?.();
+  const account = view ? selectPart(view, 'accounts', () => loadAccountView?.()) : loadAccountView?.();
   const part = (name, legacy) => selectPart(view, name, legacy);
   const holding = (name, path) => part(name, () => jgetFresh(path));
   return Promise.all([
@@ -26,14 +26,16 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
       jgetFresh('/api/investment-returns/reported').catch(error => readFallback(error, null)),
       part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null)),
       jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(error => readFallback(error, null)),
-      (loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
+      part('account_positions', () => loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
       view ? view.then(data => data?.closed_trade_returns ?? null).catch(error => readFallback(error, null)) : null,
+      view ? view.then(data => data?.account_cards ?? {}).catch(error => readFallback(error, {})) : {},
   ]);
 }
 
 export function readListInputs({ get: jget, withClosedParam, onHoldings, onSupplementError, loadHoldingView, loadAccountPositions }) {
   const legacy = () => jget(withClosedParam('/holdings/latest'));
-  const request = loadHoldingView ? loadHoldingView().then(view => view ? view.holdings : legacy()) : legacy();
+  const view = loadHoldingView?.();
+  const request = selectPart(view, 'holdings', legacy);
   const holdings = request.then(payload => {
     onHoldings?.(payload);
     return payload;
@@ -45,6 +47,6 @@ export function readListInputs({ get: jget, withClosedParam, onHoldings, onSuppl
   };
   return Promise.all([
     holdings,
-    (loadAccountPositions ? loadAccountPositions() : jget(accountPositionsPath)).catch(fallback),
+    selectPart(view, 'account_positions', () => loadAccountPositions ? loadAccountPositions() : jget(accountPositionsPath)).catch(fallback),
   ]);
 }

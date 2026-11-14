@@ -98,15 +98,29 @@ function mobileHeroMetaItem(label, value, tone = '') {
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   if (profile.accountCard) {
-    const { netValue, estimatedNetValue, daily, dailyAsOf, dailyMissingText, cumulative, cumulativeLabel, market, cash, leverage } = profile.accountCard;
+    const { net_value, recent_daily_pnl, cumulative_pnl, market_value, cash: cashMetric, leverage: leverageMetric,
+      portfolio_share } = profile.accountCard;
+    const netValue = net_value?.value;
+    const estimatedNetValue = net_value?.status === 'estimated';
+    const daily = recent_daily_pnl?.value;
+    const dailyAsOf = recent_daily_pnl?.as_of;
+    const cumulative = cumulative_pnl?.value;
+    const cumulativeLabel = {
+      holding_cumulative: '持仓累计盈亏',
+      holding_and_closed: '已核对盈亏',
+      official_year_to_date: '年内盈亏（折合）',
+    }[cumulative_pnl?.basis];
+    const market = market_value?.value;
+    const cash = cashMetric?.value;
+    const leverage = leverageMetric?.value;
     const money = (amount, signed = false) => {
       if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return '—';
       return signed || Number(amount) < 0 ? fmtSignedCny(amount) : fmtCny(amount);
     };
     const valueTone = amount => amount == null || Number(amount) === 0 ? '' : Number(amount) < 0 ? 'down' : 'up';
-    const share = profile.accountCard.share;
+    const share = portfolio_share?.value;
     const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}` : '最近一日盈亏';
-    const dailyValue = daily == null && dailyMissingText ? esc(dailyMissingText) : money(daily, true);
+    const dailyValue = daily == null && profile.key === 'A股基金' ? '同日数据待齐' : money(daily, true);
     return `
       <div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
         <span class="mobileAccountIcon">${esc(profile.icon)}</span>
