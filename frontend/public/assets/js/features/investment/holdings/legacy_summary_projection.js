@@ -407,9 +407,14 @@ export function applyLegacySummaryPayload(payloads, context) {
       aStockAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tonghuashun'),
       aStockPositionsAsOf: accountPositions?.as_of,
       aStockAsOf: aStockEquity.as_of,
+      aStockAccountSummary,
+      fundAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tencent_licaitong'),
+      ibkrOfficialValue: accountPositions?.by_account?.find(account => account.account_code === 'ibkr')?.portfolio_value,
+      ibkrAccountSummary: confirmedIbkrSummary,
       fundDisplaySummary,
-      fundSummary: { ...fundSummary, totalReturnRate: categoryByLabel(dashboardCategories, '基金').totalReturnRate },
-      closedTradeReturns,
+      fundAccountPnl: fundSummaryRows.length && fundSummaryRows.every(row => (row.account_code || row.account) === 'tencent_licaitong')
+        && fundReturns?.items?.length && fundReturns.items.every(item => item.account_code === 'tencent_licaitong')
+        ? knownFundPnl : null,
       usSummary,
       usRows,
       ibkrSummary: usCategorySummary,

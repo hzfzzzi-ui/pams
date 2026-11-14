@@ -92,7 +92,7 @@ const confirmedIbkrSummary = confirmedIbkrAccountSummary(ibkrPerf, usStock.as_of
 const category = categoryMetric('\u7f8e\u80a1/\u6d77\u5916', usCategorySummary, null);
 const profiles = makeMobileHeroProfiles({summary:{marketValue:2000},categories:[category],
     accountOverview,fxRates,aStockRowsSummary:{},aStockSummary:{},fundDisplaySummary:{},
-    fundSummary:{},usSummary,ibkrSummary:usCategorySummary,preciousSummary:{},esopSummary:{}});
+    usSummary,ibkrSummary:usCategorySummary,ibkrAccountSummary:confirmedIbkrSummary,preciousSummary:{},esopSummary:{}});
 const profile = profiles['\u7f8e\u80a1/\u6d77\u5916'];
 const html = MobilePortfolioHero(profile, usStock.as_of);
 writeSectionFinancials(usCategorySummary, 'value', 'pnl', 'daily', 'rate');
@@ -104,10 +104,6 @@ console.log(JSON.stringify({confirmed:confirmedIbkrSummary,summary:usCategorySum
     return json.loads(result.stdout)
 
 
-def hero_total_rate(result):
-    return re.findall(r"<em[^>]*>(.*?)</em>", result["html"])[-1]
-
-
 @pytest.mark.parametrize("day", ["2024-01-04", None, "invalid"])
 def test_stale_or_undated_close_cannot_supply_current_account_rate(day):
     result = render(payload(day))
@@ -115,19 +111,16 @@ def test_stale_or_undated_close_cannot_supply_current_account_rate(day):
     assert result["summary"]["accountReturnRate"] is None
     assert result["summary"]["accountReturnRateUndefined"] is True
     assert result["category"]["accountReturnRateUndefined"] is True
-    assert result["profile"]["totalRateUndefined"] is True
-    assert hero_total_rate(result) == "--"
-    assert DAY in result["profile"]["totalRateTitle"]
+    assert "<em" not in result["html"]
     if day == "2024-01-04":
-        assert day in result["profile"]["totalRateTitle"]
         assert result["category"]["accountReturnRateEvidenceAsOf"] == day
     else:
         assert result["category"]["accountReturnRateEvidenceAsOf"] is None
     assert result["section"]["rate"] == "--"
-    assert result["profile"]["value"] == 1100
-    assert result["profile"]["totalPnl"] == -100
-    assert result["profile"]["miniMetrics"][0]["value"] == "1600"
-    assert result["profile"]["miniMetrics"][1]["value"] == "-500"
+    assert result["summary"]["totalValue"] == 1100
+    assert result["summary"]["totalPnl"] == -100
+    assert result["summary"]["positionValue"] == 1600
+    assert result["summary"]["cashValue"] == -500
 
 
 @pytest.mark.parametrize("rate", [-0.1, 0])
@@ -135,20 +128,19 @@ def test_same_day_confirmed_rate_and_personal_amounts_stay_directly_bound(rate):
     result = render(payload(rate=rate))
     assert result["summary"]["accountReturnRate"] == rate
     assert result["summary"]["accountReturnRateUndefined"] is False
-    assert result["profile"]["value"] == 700
-    assert result["profile"]["totalPnl"] == -70
-    assert DAY in result["profile"]["totalRateTitle"]
+    assert result["profile"]["accountCard"]["netValue"] == 700
+    assert result["profile"]["accountCard"]["cumulative"] == -70
     assert result["category"]["accountReturnRateAsOf"] == DAY
-    assert hero_total_rate(result) == ("+0.00%" if rate == 0 else "-10.00%")
+    assert "<em" not in result["html"]
 
 
-def test_undefined_confirmed_rate_is_not_coerced_to_a_zero_on_the_mobile_card():
+def test_undefined_confirmed_rate_is_not_coerced_to_zero():
     result = render(payload(rate=None, capital=0))
     assert result["confirmed"]["totalCost"] == 0
     assert result["summary"]["totalValue"] == 700
     assert result["summary"]["totalPnl"] == -70
     assert result["category"]["accountReturnRate"] is None
-    assert hero_total_rate(result) == "--"
+    assert "<em" not in result["html"]
     assert result["section"]["rate"] == "--"
 
 
@@ -156,26 +148,24 @@ def test_same_day_legacy_account_formula_is_preserved():
     data = payload()
     data.pop("daily_close")
     result = render(data)
-    assert result["profile"]["value"] == 1300
-    assert result["profile"]["totalPnl"] == 300
-    assert hero_total_rate(result) == "+30.00%"
+    assert result["summary"]["totalValue"] == 1300
+    assert result["summary"]["totalPnl"] == 300
+    assert "<em" not in result["html"]
 
 
 def test_positions_only_fallback_keeps_its_own_rate_not_an_old_account_rate():
     result = render(payload("2024-01-04"), holdings=False)
     assert result["summary"]["accountReturnRate"] is None
     assert result["summary"]["accountReturnRateUndefined"] is False
-    assert hero_total_rate(result) == "+12.50%"
+    assert "<em" not in result["html"]
 
 
 def test_unverified_close_date_is_not_advertised_as_official_rate_evidence():
     data = payload("2024-01-04")
     data["portfolio_account"]["source_sha256"] = "b" * 64
     result = render(data)
-    assert hero_total_rate(result) == "--"
+    assert "<em" not in result["html"]
     assert result["category"]["accountReturnRateEvidenceAsOf"] is None
-    assert "2024-01-04" not in result["profile"]["totalRateTitle"]
-    assert DAY in result["profile"]["totalRateTitle"]
 
 
 def test_investment_entry_uses_a_distinct_binding_module_cache_key():
