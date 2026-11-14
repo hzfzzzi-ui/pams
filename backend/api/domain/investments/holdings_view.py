@@ -1114,7 +1114,7 @@ def build_holdings_by_category_payload(
         )
 
     current_rows = _filter_current_holding_rows(
-        _enrich_esop_realized_income(cur, [dict(row) for row in cur.fetchall()]),
+        _enrich_esop_realized_income(cur, [dict(row) for row in cur.fetchall()], view_as_of=view_as_of),
         excluded_accounts=excluded_accounts,
     )
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
@@ -1167,6 +1167,10 @@ def build_holdings_by_category_payload(
         "data_as_of_max": max(snapshot_dates).isoformat() if snapshot_dates else None,
         "rows": [{key: _norm(value) for key, value in dict(row).items()} for row in rows],
     }
+    if category == "ESOP" and any("annual_dividend_income_cny" in row for row in rows):
+        from domain.investments.esop_dividends import summarize_dividends
+
+        payload["esop_performance"] = {key: _norm(value) for key, value in summarize_dividends(rows).items()}
     if closed_evidence:
         payload["closed_positions_evidence"] = closed_evidence
     return payload
@@ -1779,7 +1783,7 @@ def build_holdings_latest_payload(
         (view_as_of, view_as_of, limit),
     )
     current_rows = _filter_current_holding_rows(
-        _enrich_esop_realized_income(cur, [dict(r) for r in cur.fetchall()]),
+        _enrich_esop_realized_income(cur, [dict(r) for r in cur.fetchall()], view_as_of=view_as_of),
         excluded_accounts=excluded_accounts,
     )
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)

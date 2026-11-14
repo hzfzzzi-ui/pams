@@ -436,8 +436,13 @@ export function makeMobileHeroProfiles({
       identity: '股权分红',
       value: safeNum(esopSummary.totalValue),
       dailyLabel: '当年盈亏',
-      dailyPnl: safeNum(esopSummary.totalPnl),
-      dailyRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
+      dailyStatus: esopSummary.annualPerformance?.annual_pnl_cny === null ? 'pending' : undefined,
+      dailyPnl: esopSummary.annualPerformance
+        ? esopSummary.annualPerformance.annual_pnl_cny
+        : safeNum(esopSummary.totalPnl),
+      dailyRate: esopSummary.annualPerformance
+        ? esopSummary.annualPerformance.annual_return_rate
+        : safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
       totalLabel: '总盈亏',
       totalPnl: safeNum(esopSummary.totalPnl),
       totalRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
