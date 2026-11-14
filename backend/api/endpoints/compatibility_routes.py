@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Query
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
+from domain.investments.holdings_account_cards import build_holdings_account_cards
+from domain.investments.portfolio_summary import build_holdings_by_account_payload
 from domain.investments.holding_return_snapshot import return_snapshot_revision
 from domain.investments.holding_return_display import attach_dated_holding_performance
 from domain.investments.period_trade_returns import (
@@ -177,17 +179,36 @@ def create_compatibility_router(
                             code: fund_holding_profit(funds_all, fund_returns, account_code=code)
                             for code in {item['account_code'] for item in fund_returns['items']}
                         }
+                    stock = category('A股', 'A股', closed=True)
+                    overseas = category('美股')
+                    accounts = read_investment_accounts(cur)
+                    owner_sql, owner_params = _owner_ratio_case_sql("h")
+                    positions = build_holdings_by_account_payload(
+                        cur, base_currency="CNY", view_as_of=view_date,
+                        owner_ratio_sql=owner_sql, owner_ratio_params=owner_params,
+                        portfolio_owner_ratio=_account_owner_ratio, cash_view_as_of=_view_as_of(),
+                    )
+                    summary = _build_summary2_latest_payload_for_request(cur)
+                    cards = build_holdings_account_cards(
+                        positions=positions, overview=accounts["overview"], stock_performance=accounts["tonghuashun"],
+                        stock=stock, funds=funds_all, overseas=overseas, closed_returns=closed_returns,
+                        summary=summary,
+                    )
                     return json({
                         "holdings": read_holdings(cur, context),
-                        "a_stock": category('A股', 'A股', closed=True),
+                        "a_stock": stock,
                         "funds": funds_all if show_closed else category('A股', 'A股基金'),
                         "funds_all": funds_all,
                         "closed_trade_returns": closed_returns,
-                        "us_stock": category('美股'),
+                        "us_stock": overseas,
                         "precious_metal": category('贵金属'),
                         "esop": category('ESOP'),
-                        "summary": _build_summary2_latest_payload_for_request(cur),
+                        "summary": summary,
+                        "account_cards": cards,
+                        "account_positions": positions,
+                        "accounts": accounts,
                     })
+
 
     def read_account_performance(cur, account_code, overview_payload):
         owner_ratio = _account_owner_ratio(account_code)
@@ -234,20 +255,24 @@ def create_compatibility_router(
             "return_ratio": None,
         }
 
+    def read_investment_accounts(cur):
+        overview = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
+        try:
+            performance = read_account_performance(cur, 'tonghuashun', overview)
+        except HTTPException as error:
+            if error.status_code != 404:
+                raise
+            performance = None
+        return {"overview": accounts_endpoint._norm(overview), "tonghuashun": performance}
+
+
     @router.get("/api/investment/accounts-view")
     def investment_accounts_view():
         """Read account balances and Tonghuashun performance with one verification."""
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                overview = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
-                try:
-                    performance = read_account_performance(cur, 'tonghuashun', overview)
-                except HTTPException as error:
-                    if error.status_code != 404:
-                        raise
-                    performance = None
-                return json({'overview': accounts_endpoint._norm(overview), 'tonghuashun': performance})
+                return json(read_investment_accounts(cur))
 
 
     @router.get("/holdings/history/{category}")

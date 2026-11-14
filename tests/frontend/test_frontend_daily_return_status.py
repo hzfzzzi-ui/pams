@@ -7,6 +7,8 @@ import subprocess
 
 import pytest
 
+from backend.api.domain.investments.holdings_account_cards import build_holdings_account_cards
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = r"""
@@ -63,16 +65,10 @@ const profileInput = {
   summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1, scopeIncomplete: input.scopeIncomplete === true},
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
-  recentUsReturn: input.recent,
-  ibkrOfficialValue: {status:'official_close', amount_base:'900.00', position_value_base:'1000.00', cash_base:'-100.00', leverage_ratio:1.11, display_period_pnl_base:'-70.00'},
-  fundAccountPosition: {known_value_base:500, fund_card_valuation:input.fundValuation}, fundAccountPnl:'25.00',
-  fundHoldingPerformance: {recent_daily_pnl_cny:'-9.75'},
+  accountCards: input.accountCards,
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
-  aStockRowsSummary: {totalValue: 800}, aStockSummary: {},
-  aStockHoldingPerformance: input.stockPerformance,
-  aStockAccountPosition: input.stockPosition, aStockPositionsAsOf: input.stockPositionsAsOf,
-  aStockAsOf: '2026-10-27', fundDisplaySummary: {},
+  aStockRowsSummary: {totalValue: 800}, aStockSummary: {}, fundDisplaySummary: {},
   preciousSummary: {}, esopSummary: {},
 };
 const profileBefore = JSON.stringify(profileInput);
@@ -104,12 +100,30 @@ def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=Fa
            stock_position=None, stock_positions_as_of="2026-10-27", stock_performance=None, fund_valuation=None):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
+    day = "2026-10-27"
+    cards = build_holdings_account_cards(
+        positions={"as_of": stock_positions_as_of, "by_account": [
+            {"account_code": "tonghuashun", **(stock_position or {})},
+            {"account_code": "tencent_licaitong", "known_value_base": "500",
+             "holdings_as_of": day, "fund_card_valuation": fund_valuation},
+            {"account_code": "ibkr", "portfolio_value": {
+                "status": "official_close", "amount_base": "900", "position_value_base": "1000",
+                "cash_base": "-100", "leverage_ratio": "1.11", "display_period_pnl_base": "-70",
+                "as_of": day, "period_start": "2026-01-01",
+            }},
+        ]},
+        overview={}, stock_performance=None,
+        stock={"as_of": day, "holding_performance": stock_performance, "rows": [{"market_value_cny": "800"}]},
+        funds={"holding_performance": {"recent_daily_pnl_cny": "-9.75"}},
+        overseas={"recent_confirmed_returns": {"by_account": {"ibkr": recent}}},
+        closed_returns={"a_fund": {"by_account": {"tencent_licaitong": "25"}}},
+        summary={"as_of": day, "snapshot_scope_status": "incomplete" if scope_incomplete else "complete",
+                 "totals": {"market_value": "900"}},
+    )
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
-        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent,
-                          "scopeIncomplete": scope_incomplete, "stockPosition": stock_position,
-                          "stockPositionsAsOf": stock_positions_as_of, "stockPerformance": stock_performance,
-                          "fundValuation": fund_valuation}),
+        input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows,
+                          "scopeIncomplete": scope_incomplete, "accountCards": cards}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
@@ -131,12 +145,13 @@ def test_account_cards_share_fields_and_show_only_supported_values():
         "cash_as_of": "2026-10-23", "status": "cash_carried_forward",
     }}
     output = render([], scope_incomplete=True, stock_position=position)
-    labels = ('账户净值', '最近一日盈亏', '持仓市值', '现金余额', '组合占比', '杠杆倍数')
+    labels = ('最近一日盈亏', '持仓市值', '现金余额', '组合占比', '杠杆倍数')
     for html in (output['stockHtml'], output['fundHtml'], output['html']):
         assert all(f'<span>{label}</span>' in html for label in labels)
         assert '<em' not in html
         assert '待核验' not in html
         assert '100.00%' not in html
+    assert '账户净值（估算）' in output['stockHtml']
     assert '850.00' in output['stockHtml']
     assert '2026-10-23' not in output['stockHtml']
     assert '900.00' in output['html']
@@ -164,8 +179,8 @@ def test_stock_card_uses_holding_performance_without_portfolio_net_value():
 
 
 def test_account_card_shows_complete_historical_daily_return_without_caption():
-    result = render([], recent={"amount_cny": "-777.77", "partial": False})
-    assert "-¥777.77" in result["html"]
+    result = render([], recent={"amount_cny": "-777.77", "partial": False, "as_of": "2026-10-27"})
+    assert "-¥777.77" in result["html"] and "最近一日盈亏 · 10/27" in result["html"]
     assert "title=" not in result["html"]
 
 

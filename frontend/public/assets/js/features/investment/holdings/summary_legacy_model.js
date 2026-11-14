@@ -332,23 +332,14 @@ export function freshValuationStateForTarget(valuationState, targetAsOf) {
 export function makeMobileHeroProfiles({
   summary,
   categories,
+  accountCards = {},
   accountOverview,
   fxRates,
   aStockRowsSummary,
   aStockSummary,
-  aStockAccountPosition,
-  aStockPositionsAsOf,
-  aStockAsOf,
-  aStockAccountSummary,
-  aStockHoldingPerformance,
-  fundAccountPosition,
-  ibkrOfficialValue,
   fundDisplaySummary,
-  fundAccountPnl,
-  fundHoldingPerformance,
   usSummary,
   usRows = [],
-  recentUsReturn = null,
   ibkrSummary,
   preciousSummary,
   esopSummary,
@@ -358,16 +349,6 @@ export function makeMobileHeroProfiles({
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
-  const stockDate = isoDateKey(aStockAsOf);
-  const position = stockDate && isoDateKey(aStockPositionsAsOf) === stockDate ? aStockAccountPosition : null;
-  const estimate = position?.portfolio_value;
-  const matchingEstimate = stockDate && isoDateKey(estimate?.as_of) === stockDate ? estimate : null;
-  const cash = matchingEstimate?.cash_base ?? null;
-  const stockMarket = position?.known_value_base ?? aStockRowsSummary.totalValue ?? null;
-  const fundCash = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong_current_plus', fxRates)?.amountCny;
-  const fundNetValue = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong', fxRates)?.amountCny;
-  const fundPortfolio = fundAccountPosition?.fund_card_valuation ?? fundAccountPosition?.portfolio_value;
-  const officialIbkr = ibkrOfficialValue?.status === 'official_close' ? ibkrOfficialValue : null;
   const ibkrHasFreshAccount = Boolean(
     ibkrSummary?.holdingsNetCoversPositionDate
   );
@@ -388,11 +369,6 @@ export function makeMobileHeroProfiles({
     ? (usDailyStatuses.some(status => ['estimated', 'confirmed'].includes(status)) ? 'partial' : 'pending')
     : usDailyStatuses.includes('estimated') ? 'estimated'
       : usDailyStatuses.length && usDailyStatuses.every(status => status === 'confirmed') ? 'confirmed' : '';
-  const showRecentUsReturn = recentUsReturn?.amount_cny != null && recentUsReturn.partial === false;
-  const accountShare = value => summary.scopeIncomplete || value == null || !(summary.marketValue > 0)
-    ? null : Number(value) / portfolioValue;
-  const stockNetValue = matchingEstimate?.amount_base ?? aStockAccountSummary?.totalValue;
-  const ibkrNetValue = officialIbkr?.amount_base;
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
@@ -426,53 +402,21 @@ export function makeMobileHeroProfiles({
       icon: '🇨🇳',
       identity: '同花顺',
       accountSubtitle: 'A 股证券 · 人民币 · 个人份额',
-      accountCard: {
-        netValue: stockNetValue,
-        share: accountShare(stockNetValue),
-        daily: (aStockAccountSummary?.dailyPnlEffective ? aStockAccountSummary.dailyPnl : null)
-          ?? aStockHoldingPerformance?.recent_daily_pnl_cny,
-        cumulative: aStockAccountSummary?.accountTotalPnl ?? aStockHoldingPerformance?.cumulative_pnl_cny,
-        cumulativeLabel: aStockAccountSummary?.accountTotalPnl == null && aStockHoldingPerformance?.cumulative_pnl_cny != null
-          ? '持仓累计盈亏' : undefined,
-        leverage: matchingEstimate?.leverage_ratio,
-        market: stockMarket,
-        cash,
-      },
+      accountCard: accountCards.tonghuashun ?? {},
     },
     'A股基金': {
       key: 'A股基金',
       icon: '🇨🇳',
       identity: '腾讯理财通',
       accountSubtitle: '基金与活期+ · 人民币账户',
-      accountCard: {
-        netValue: fundPortfolio?.amount_base ?? fundNetValue,
-        estimatedNetValue: fundPortfolio?.status === 'estimated_fund_and_cash',
-        share: accountShare(fundPortfolio?.status === 'confirmed_fund_and_cash' ? fundPortfolio.amount_base : fundNetValue),
-        leverage: fundPortfolio?.leverage_ratio,
-        market: fundAccountPosition?.known_value_base,
-        cash: fundPortfolio?.cash_base ?? fundCash,
-        daily: fundHoldingPerformance?.recent_daily_pnl_cny,
-        dailyAsOf: fundHoldingPerformance?.recent_daily_as_of,
-        dailyMissingText: '同日数据待齐',
-        cumulative: fundAccountPnl,
-        cumulativeLabel: fundAccountPnl != null ? '已核对盈亏' : undefined,
-      },
+      accountCard: accountCards.tencent_licaitong ?? {},
     },
     '美股/海外': {
       key: '美股/海外',
       icon: '🇺🇸🇰🇷🇭🇰',
       identity: 'IBKR',
       accountSubtitle: '海外证券 · 美元账户',
-      accountCard: {
-        netValue: ibkrNetValue,
-        share: accountShare(ibkrNetValue),
-        daily: showRecentUsReturn ? recentUsReturn.amount_cny : null,
-        cumulative: officialIbkr?.display_period_pnl_base,
-        cumulativeLabel: officialIbkr?.display_period_pnl_base != null ? '年内盈亏（折合）' : undefined,
-        market: officialIbkr?.position_value_base,
-        cash: officialIbkr?.cash_base,
-        leverage: officialIbkr?.leverage_ratio,
-      },
+      accountCard: accountCards.ibkr ?? {},
     },
     '贵金属': {
       key: '贵金属',

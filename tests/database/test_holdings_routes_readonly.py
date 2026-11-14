@@ -66,6 +66,13 @@ def test_holdings_screen_matches_separate_reads_in_one_snapshot(empty_source_db,
             assert response.status_code == 200
             assert seen == [1]
             grouped = response.json()
+            assert set(grouped["account_cards"]) == {"tonghuashun", "tencent_licaitong", "ibkr"}
+            ibkr = grouped["account_cards"]["ibkr"]
+            assert ibkr["net_value"]["status"] == "unavailable"
+            assert ibkr["net_value"]["value"] is None
+            assert grouped["account_positions"] == web.get(
+                "/api/holdings/by-account", params={"include_portfolio_cash": True},
+            ).json()
             assert any(row['symbol'] == 'SYN' for row in grouped['holdings']['rows'])
             for key, url in {
                 'holdings': '/holdings/latest?limit=500',
