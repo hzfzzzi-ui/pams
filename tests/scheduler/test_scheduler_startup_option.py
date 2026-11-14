@@ -22,7 +22,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
     calls = []
     for name in (
         "refresh_us_quotes", "refresh_overseas_quotes", "refresh_crypto",
-        "run_flex_confirmation", "run_daily_close_confirmation", "run_calendar_fx", "run_daily_us_return_recovery", "run_cash_event_confirmation",
+        "run_flex_confirmation", "run_daily_close_confirmation", "run_calendar_fx", "run_daily_us_return_recovery", "run_cash_event_confirmation", "poll_confirmed_fund_nav",
     ):
         monkeypatch.setattr(scheduler, name, lambda name=name: calls.append(name))
     monkeypatch.setattr(scheduler, "run_due_window", lambda region: calls.append(f"due:{region}"))
@@ -67,7 +67,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
     startup = [
         "refresh_us_quotes", "refresh_overseas_quotes", "refresh_crypto",
         "run_flex_confirmation", "run_daily_close_confirmation", "run_calendar_fx", "run_daily_us_return_recovery", "run_cash_event_confirmation",
-        "due:asia", "due:north_america",
+        "due:asia", "due:north_america", "poll_confirmed_fund_nav",
     ]
     assert calls == ([] if skip == "true" else startup)
     assert [(interval, unit, at) for interval, unit, at, _ in jobs] == [
@@ -76,7 +76,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
         (30, "minutes", None), (5, "minutes", None), (5, "minutes", None),
         (30, "minutes", None), (30, "minutes", None), (30, "minutes", None),
         (30, "minutes", None),
-        (30, "minutes", None), (30, "minutes", None), (30, "minutes", None),
+        (30, "minutes", None), (30, "minutes", None), (30, "minutes", None), (30, "minutes", None),
     ]
 
     calls.clear()
@@ -85,7 +85,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
     assert calls == [
         "due:asia", "due:north_america", "refresh_crypto", "refresh_us_quotes",
         "refresh_overseas_quotes", "due:asia", "due:north_america",
-        "run_flex_confirmation", "run_daily_close_confirmation", "run_calendar_fx", "run_daily_us_return_recovery", "run_cash_event_confirmation",
+        "run_flex_confirmation", "run_daily_close_confirmation", "run_calendar_fx", "poll_confirmed_fund_nav", "run_daily_us_return_recovery", "run_cash_event_confirmation",
     ]
 
 

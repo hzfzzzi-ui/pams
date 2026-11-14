@@ -824,3 +824,50 @@ def test_new_source_original_download_checks_hash(empty_source_db, monkeypatch):
             cur.execute('UPDATE source_records SET content=%s WHERE source_id=%s', (psycopg2.Binary(b'changed'), str(source_id)))
             cur.execute('ALTER TABLE source_records ENABLE TRIGGER USER')
         assert client.get(url).status_code == 409
+
+
+def test_confirmed_fund_poll_picks_up_new_import_on_the_next_pass(empty_source_db, monkeypatch):
+    from domain.market import fund_nav_estimates as nav
+    from datetime import date, timedelta
+    from decimal import Decimal
+    from psycopg2.extras import RealDictCursor
+
+    params = empty_source_db
+    with psycopg2.connect(**params) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+
+    def sql(query, values=None):
+        with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, values)
+            return cur.fetchall() if cur.description else None
+
+    anchor_day = date(2026, 11, 12)
+    nav_day = anchor_day + timedelta(days=1)
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    monkeypatch.setattr(nav, "current_china_fund_date", lambda: nav_day + timedelta(days=1))
+    monkeypatch.setattr(nav, "fetch_confirmed_nav", lambda symbol, session: nav.ConfirmedNav(
+        nav_date=nav_day, unit_nav=Decimal("1.20"), accumulated_nav=None,
+        growth_pct=None, source="synthetic",
+    ))
+
+    def poll():
+        with psycopg2.connect(**params) as conn:
+            return nav.refresh_fund_nav_estimates(conn, use_intraday_estimates=False)
+
+    assert poll()["processed"] == 0
+    sql("""INSERT INTO pams_holdings_snapshot
+        (account_code, symbol, name, currency, major_category, minor_category, asset_liability,
+         market_value, cost, quantity, current_price, as_of)
+        VALUES ('tencent_licaitong', '011613', 'Synthetic fund', 'CNY', 'A股', 'A股基金', '资产',
+                100, 100, 100, 1, %s)""", (anchor_day,))
+    before = sql("SELECT as_of, quantity, cost, current_price FROM pams_holdings_snapshot")
+    assert poll()["inserted_estimate_snapshots"] == 1
+    rows = sql("SELECT as_of, quantity, cost, current_price FROM pams_holdings_snapshot ORDER BY as_of")
+    assert rows == [before[0], {**before[0], "as_of": nav_day, "current_price": Decimal("1.20")}]
+    stored = sql("""SELECT as_of, market_value FROM pams_holdings_snapshot
+        WHERE as_of = %s""", (nav_day,))
+    assert stored[0]["market_value"] == before[0]["quantity"] * Decimal("1.20")
+    first = sql("SELECT * FROM market_observations WHERE observation_type = 'fund'")
+    assert len(first) == 1 and first[0]["confirmed_nav_date"] == nav_day
+    assert poll()["rows"][0]["status"] == "confirmed_unchanged"
+    assert sql("SELECT * FROM market_observations WHERE observation_type = 'fund'") == first

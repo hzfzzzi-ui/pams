@@ -322,6 +322,31 @@ def refresh_fund_nav_estimates(use_intraday_estimate: bool | None = None):
     return _call(endpoint, label)
 
 
+def poll_confirmed_fund_nav():
+    """Poll independently of trading-day windows and their completion checkpoints."""
+    try:
+        with job_lock(STATE_PATH, "fund_nav"):
+            result = refresh_fund_nav_estimates(use_intraday_estimate=False)
+            issues = result_issues(result)
+            if isinstance(result, dict):
+                rows = result.get("rows")
+                if not isinstance(rows, list) or result.get("processed") != len(rows):
+                    issues.append("incomplete_fund_response")
+                elif any(not isinstance(row, dict) or row.get("status") == "missing_nav" for row in rows):
+                    issues.append("missing_fund_nav")
+            if issues:
+                logger.warning("Confirmed fund NAV polling incomplete: %s", sorted(set(issues)))
+            else:
+                logger.info("Confirmed fund NAV polling complete: processed=%s new_snapshots=%s",
+                            result.get("processed"), result.get("inserted_estimate_snapshots"))
+            return result
+    except BlockingIOError:
+        return {"status": "deferred", "reason": "job_busy"}
+    except (OSError, ValueError):
+        logger.exception("Confirmed fund NAV polling failed")
+        return {"status": "error", "reason": "fund_nav_poll_failed"}
+
+
 def refresh_investment_return_snapshots(sections: tuple[str, ...]):
     """Rebuild section and total return snapshots after market data refresh."""
     errors = []
@@ -671,11 +696,13 @@ def main():
         run_cash_event_confirmation()
         run_due_window("asia")
         run_due_window("north_america")
+        poll_confirmed_fund_nav()
     schedule.every(30).minutes.do(lambda: run_due_window("asia"))
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
     schedule.every(30).minutes.do(run_flex_confirmation)
     schedule.every(30).minutes.do(run_daily_close_confirmation)
     schedule.every(30).minutes.do(run_calendar_fx)
+    schedule.every(30).minutes.do(poll_confirmed_fund_nav)
     schedule.every(30).minutes.do(run_daily_us_return_recovery)
     schedule.every(30).minutes.do(run_cash_event_confirmation)
 
