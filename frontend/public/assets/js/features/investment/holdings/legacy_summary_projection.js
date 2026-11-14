@@ -126,6 +126,7 @@ export function applyLegacySummaryPayload(payloads, context) {
     const esopHoldingRateSummary = summarizeRows(esopRows.filter((row) => !row.is_closed));
     const esopSummary = {
       ...esopDisplaySummary,
+      annualPerformance: esop.esop_performance,
       holdingReturnRate: holdingReturnRateFromSummary(esopHoldingRateSummary),
       totalReturnRate: holdingReturnRateFromSummary(esopHoldingRateSummary),
       activeHoldingPnl: esopHoldingRateSummary.activeHoldingPnl,

@@ -54,6 +54,8 @@ def _apply_owner_ratio(
         "daily_realized_trade_pnl",
         "diluted_cost",
         "net_distributions",
+        "realized_income",
+        "annual_dividend_income",
     ):
         cny_key = f"{key}_cny"
         if cny_key in out:
@@ -94,16 +96,15 @@ def _filter_current_holding_rows(
         out.append(row)
     return out
 
-def _enrich_esop_realized_income(cur, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _enrich_esop_realized_income(cur, rows: list[dict[str, Any]], *, view_as_of=None) -> list[dict[str, Any]]:
     """Add confirmed ESOP dividends to current holding PnL without changing position cost."""
     if not rows or not any(str(row.get('major_category') or '') == 'ESOP' for row in rows):
         return rows
 
     if _table_exists(cur, 'source_records'):
-        for row in rows:
-            if str(row.get('major_category') or '') == 'ESOP':
-                row['realized_income_status'] = 'unavailable_source_reconciliation'
-        return rows
+        from domain.investments.esop_dividends import enrich_verified_dividends
+
+        return enrich_verified_dividends(cur, rows, view_as_of=view_as_of)
 
     cur.execute(
         """
