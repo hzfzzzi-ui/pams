@@ -3,7 +3,7 @@
 import os
 from decimal import Decimal, ROUND_HALF_UP
 
-from domain.brokers.ibkr.ibkr_daily_close import parse_daily_close_evidence
+from domain.brokers.ibkr.ibkr_daily_close import POSITION_FIELDS, parse_daily_close_evidence
 from domain.brokers.ibkr.ibkr_daily_close_read import historical_fx
 from domain.brokers.ibkr.ibkr_daily_holdings import last_publication
 from domain.investments.nav_trade_source_v2 import read_reconciled_cash
@@ -35,7 +35,14 @@ def _ibkr_value(cur, *, as_of, base_currency, owner_ratio):
     if fx['status'] != 'ok':
         return None
     rate = fx['rate'] * owner_ratio
+    splits = close['component_proof']['subcomponent_checks']
+    position_splits = [splits.get(f'{field}_long_short') for field in POSITION_FIELDS]
+    leverage = None
+    if close['nav_base'] > 0 and None not in position_splits:
+        gross = sum(split['long'] - split['short'] for split in position_splits if split is not None)
+        leverage = float(gross / close['nav_base'])
     return {'amount_base': _money(close['nav_base'] * rate), 'cash_base': _money(close['cash_base'] * rate),
+            'position_value_base': _money(close['position_value_base'] * rate), 'leverage_ratio': leverage,
             'as_of': day.isoformat(), 'cash_as_of': day.isoformat(), 'status': 'official_close',
             'updated_at': report['updated_at'].isoformat() if report['updated_at'] else None}
 

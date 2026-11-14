@@ -324,7 +324,7 @@ def test_a_stock_account_total_pnl_drives_profile_summary() -> None:
     assert "totalPnl: aStockAccountSummary.accountTotalPnl" in summary_block
     assert "totalReturnRate: aStockAccountSummary.accountReturnRate" in summary_block
     assert "displayReturnRate: aStockAccountSummary.accountReturnRate" in summary_block
-    assert profile_block.index("aStockSummary.accountReturnRate") < profile_block.index("aStockSummary.holdingReturnRate")
+    assert "cumulative: aStockAccountSummary?.accountTotalPnl" in profile_block
 
 
 def test_ibkr_incomplete_account_performance_does_not_drive_total_pnl() -> None:
@@ -683,7 +683,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     first_main_load = _read_public("assets/js/features/investment/holdings/requests.js").split("export function readSummaryInputs", 1)[1].split("export function readListInputs", 1)[0]
     assert "runWhenInvestmentAnalysisVisible" in holdings_js
     assert "loadAllCategoryReturnCharts" in holdings_js
-    assert "const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))" in holdings_js
+    assert "daily: aStockAccountSummary?.dailyPnlEffective ? aStockAccountSummary.dailyPnl : null" in holdings_js
     assert "const aStockAccountDailyPnlEffective = Boolean(" in holdings_js
     assert "aStockAccountSummary.dailyPnlEffective !== false" in holdings_js
     assert "aStockAccountSummary.dailyPnl != null" in holdings_js
@@ -738,8 +738,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "portfolioSummaryFreshForAsOf && portfolioSummary?.totals?.daily_pnl" in holdings_js
     assert "const reportedReturnsFresh = isFreshPayloadAsOf(reportedReturns, asof)" in holdings_js
     assert "staleReportedReturns" in holdings_js
-    assert "'账户估值（含沿用现金）'" in holdings_js
-    assert "'已知持仓市值'" in holdings_js
+    assert "matchingEstimate?.amount_base" in holdings_js
+    assert "<span>账户净值</span>" in holdings_js
     assert "btnLoadInvestmentReturnChart" not in holdings_js
     assert "加载收益曲线" not in holdings_js
     assert "有效历史不足" not in holdings_js
@@ -862,10 +862,8 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "const ibkrAccountReturnRate = confirmedIbkrSummary" in holdings_js
     assert "? confirmedIbkrSummary.totalReturnRate" in holdings_js
     assert ": useIbkrAccountTotals && ibkrNetDeposit > 0" in holdings_js
-    assert "const ibkrGrossHoldingRate" in holdings_js
-    assert "accountTotalPnl" in holdings_js
-    assert "totalPnl: safeNum(aStockSummary.totalPnl)" in holdings_js
-    assert "aStockSummary.holdingReturnRate ??" in holdings_js
+    assert "leverage: officialIbkr?.leverage_ratio" in holdings_js
+    assert "cumulative: aStockAccountSummary?.accountTotalPnl" in holdings_js
     assert "returnRateLabel: '持仓收益率'" in holdings_js
     assert "summary.returnRateLabel || '持仓收益率'" in holdings_js
     assert "activeHoldingPnl" in holdings_js
@@ -1672,7 +1670,7 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "row.daily_return_status || row.daily_pnl_status" in profiles
     assert "[row.major_category, row.minor_category, row.type]" in profiles
     assert "dailyStatus: usDailyStatus" in profiles
-    assert "Date" not in profiles.split("const usDailyStatuses", 1)[1].split("const ibkrTotalPnl", 1)[0]
+    assert "Date" not in profiles.split("const usDailyStatuses", 1)[1].split("const showRecentUsReturn", 1)[0]
     assert "      usRows,\n      ibkrSummary: usCategorySummary" in hero_js
 
     hero = hero_js.split("function MobilePortfolioHero(", 1)[1].split("function categoryByLabel", 1)[0]

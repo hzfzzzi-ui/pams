@@ -64,12 +64,14 @@ const profileInput = {
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
   recentUsReturn: input.recent,
+  ibkrOfficialValue: {status:'official_close', amount_base:'900.00', position_value_base:'1000.00', cash_base:'-100.00', leverage_ratio:1.11},
+  fundAccountPosition: {known_value_base:500}, fundAccountPnl:'25.00',
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
   aStockRowsSummary: {totalValue: 800}, aStockSummary: {},
   aStockAccountPosition: input.stockPosition, aStockPositionsAsOf: input.stockPositionsAsOf,
   aStockAsOf: '2026-10-27', fundDisplaySummary: {},
-  fundSummary: {}, preciousSummary: {}, esopSummary: {},
+  preciousSummary: {}, esopSummary: {},
 };
 const profileBefore = JSON.stringify(profileInput);
 const profiles = heroContext.makeMobileHeroProfiles(profileInput);
@@ -79,6 +81,7 @@ const html = heroContext.MobilePortfolioHero(us, '2024-01-05');
 const allHtml = heroContext.MobilePortfolioHero(all, '2024-01-05');
 const stockHtml = heroContext.MobilePortfolioHero(profiles['A股个股'], '2026-10-27');
 console.log(JSON.stringify({renders, aggregate, profile: us, allProfile: all, html, allHtml, stockHtml,
+  fundHtml: heroContext.MobilePortfolioHero(profiles['A股基金']),
   unchanged: before === JSON.stringify(input) && profileBefore === JSON.stringify(profileInput)}));
 """
 
@@ -119,23 +122,35 @@ def test_incomplete_account_scope_never_displays_partial_value_as_total():
     assert '900' not in output['allHtml']
 
 
-def test_stock_card_shows_account_estimate_with_carried_cash_date_despite_incomplete_portfolio():
+def test_account_cards_share_fields_and_show_only_supported_values():
     position = {"known_value_base": "800.00", "total_value_base": None, "portfolio_value": {
         "amount_base": "850.00", "cash_base": "50.00", "as_of": "2026-10-27",
         "cash_as_of": "2026-10-23", "status": "cash_carried_forward",
     }}
     output = render([], scope_incomplete=True, stock_position=position)
-    assert '待核验' in output['allHtml']
-    assert '账户估值（含沿用现金）' in output['stockHtml']
+    labels = ('账户净值', '最近一日盈亏', '累计盈亏', '持仓市值', '现金余额', '组合占比', '杠杆倍数')
+    for html in (output['stockHtml'], output['fundHtml'], output['html']):
+        assert all(f'<span>{label}</span>' in html for label in labels)
+        assert '<em' not in html
+        assert '待核验' not in html
+        assert '100.00%' not in html
     assert '850.00' in output['stockHtml']
-    assert '2026-10-23' in output['stockHtml']
-    assert '待核验' not in output['stockHtml']
+    assert '2026-10-23' not in output['stockHtml']
+    assert '900.00' in output['html']
+    assert '1.11×' in output['html']
+    assert '<span>账户净值</span><strong>—</strong>' in output['fundHtml']
+    assert '¥500.00' in output['fundHtml'] and '+¥25.00' in output['fundHtml']
 
     fallback = render([], scope_incomplete=True, stock_position=position, stock_positions_as_of="2026-10-26")
-    assert '已知持仓市值' in fallback['stockHtml']
+    assert '<span>账户净值</span><strong>—</strong>' in fallback['stockHtml']
     assert '800.00' in fallback['stockHtml']
     assert '850.00' not in fallback['stockHtml']
-    assert '待核验' in fallback['stockHtml']
+
+
+def test_account_card_shows_complete_historical_daily_return_without_caption():
+    result = render([], recent={"amount_cny": "-777.77", "partial": False})
+    assert "-¥777.77" in result["html"]
+    assert "title=" not in result["html"]
 
 
 def recent_return():
@@ -168,10 +183,7 @@ def test_last_confirmed_display_does_not_replace_today_or_recalculate_account_am
         assert "10/27收益" in html and "10/27已确认" in html
         assert "+¥41.00" in html and "10/28预估待更新" in html
         assert "今日收益已确认" not in html
-    assert data["profile"]["dailyStatus"] == "historical"
-    assert data["profile"]["dailyPnl"] == 777.77
-    assert "10/27收益（部分）" in data["html"] and "+¥777.77" in data["html"]
-    assert '>--</em>' in data["html"]
+    assert "10/27收益（部分）" not in data["html"] and "+¥777.77" not in data["html"]
     assert data["allProfile"]["dailyPnl"] == 0  # No historical amount in today's portfolio summary.
     assert "待更新" in row["table"] and "+¥41.00" not in row["table"]
 
@@ -180,13 +192,10 @@ def test_current_estimate_or_partial_current_account_takes_precedence_over_old_c
     data = render([holding(daily_return_status="estimated", daily_pnl_cny=23, daily_total_pnl_cny=23,
                            recent_confirmed_return=recent_return())], daily=23,
                   recent={"amount_cny": "999", "label": "10/27收益"})
-    assert data["profile"]["dailyStatus"] == "estimated"
-    assert data["profile"]["dailyPnl"] == 23
     assert "10/27收益" not in data["renders"][0]["mobile"]
     data = render([holding(daily_return_status="confirmed", daily_total_pnl_cny=23),
                    holding(daily_return_status="pending", recent_confirmed_return=recent_return())], daily=23,
                   recent={"amount_cny": "999", "label": "10/27收益"})
-    assert data["profile"]["dailyStatus"] == "partial" and data["profile"]["dailyPnl"] == 23
 
 
 def test_multiple_account_aggregate_never_uses_only_first_accounts_prior_return():
@@ -226,12 +235,10 @@ def test_pending_or_stale_is_not_a_green_zero_in_any_renderer(fields):
     assert ("\u8bc1\u5238\u6c47\u5151\u4f30\u7b97" in row["sheet"]) == (fields.get("daily_fx_pnl_cny", 0) != 0)
     for template in ("detail", "sheet"):
         assert '<strong>\u6536\u76ca\u72b6\u6001</strong><span>\u5f85\u66f4\u65b0</span>' in row[template]
-    assert data["profile"]["dailyStatus"] == "pending"
-    assert data["profile"]["dailyPnl"] == 0
-    for html in (data["html"], data["allHtml"]):
-        assert '<strong class="" style="color:var(--muted)">\u5f85\u66f4\u65b0</strong>' in html
-        assert '<em class="" style="color:var(--muted)">--</em>' in html
-        assert 'class="muted"' not in html
+    html = data["allHtml"]
+    assert '<strong class="" style="color:var(--muted)">\u5f85\u66f4\u65b0</strong>' in html
+    assert '<em class="" style="color:var(--muted)">--</em>' in html
+    assert 'class="muted"' not in html
 
 
 @pytest.mark.parametrize("status,label", [("confirmed", "\u4eca\u65e5\u6536\u76ca\u5df2\u786e\u8ba4"), ("estimated", "\u9884\u4f30\u6536\u76ca")])
@@ -243,24 +250,17 @@ def test_valid_zero_estimates_and_confirmations_keep_amounts_and_backend_status(
     money = f"{'+' if amount >= 0 else '-'}\u00a5{abs(amount):.2f}"
     assert row["pending"] is False
     assert label in row["badge"]
-    for html in (row["mobile"], row["table"], row["detail"], row["sheet"], data["html"]):
+    for html in (row["mobile"], row["table"], row["detail"], row["sheet"]):
         assert money in html
         assert "\u5f85\u66f4\u65b0" not in html
-    assert data["profile"]["dailyStatus"] == status
-    assert data["profile"]["dailyPnl"] == amount
-    assert data["profile"]["totalPnl"] == -70
-    assert f'title="{label}"' in data["html"]
 
 
 def test_confirmed_amount_does_not_hide_another_pending_position():
     data = render([holding(daily_return_status="confirmed", daily_pnl_cny=42,
                            daily_total_pnl_cny=42), holding(daily_return_status="pending")], daily=42)
-    assert data["profile"]["dailyStatus"] == "partial"
-    assert data["profile"]["dailyPnl"] == 42
     assert data["allProfile"]["dailyPnl"] == 42
-    assert '\u4eca\u65e5\u76c8\u4e8f\uff08\u90e8\u5206\uff09' in data["html"]
-    assert '+\u00a542.00' in data["html"]
-    assert '>--</em>' in data["html"]
+    assert '\u4eca\u65e5\u76c8\u4e8f\uff08\u90e8\u5206\uff09' not in data["html"]
+    assert '+\u00a542.00' not in data["html"]
 
 
 @pytest.mark.parametrize("cash_fields", [
@@ -271,18 +271,14 @@ def test_confirmed_amount_does_not_hide_another_pending_position():
 def test_negative_cash_quality_does_not_mark_account_pending(cash_fields):
     cash = holding(**cash_fields, market_value_cny=-100, daily_return_status="pending", daily_pnl_stale=True)
     data = render([holding(daily_return_status="confirmed"), cash])
-    assert data["profile"]["dailyStatus"] == "confirmed"
     assert data["allProfile"]["dailyStatus"] == ""
-    assert "+\u00a50.00" in data["html"]
+    assert "+\u00a50.00" not in data["html"]
     assert "\u5f85\u66f4\u65b0" not in data["html"]
     assert "-\u00a5100.00" in data["html"]
 
 
 def test_closed_history_does_not_mask_current_account_and_unknown_is_not_confirmation():
     data = render([holding(daily_return_status="confirmed"), holding(is_closed=True, daily_return_status="pending")])
-    assert data["profile"]["dailyStatus"] == "confirmed"
-    assert render([holding(), holding(daily_return_status="confirmed")])["profile"]["dailyStatus"] == ""
-    assert render([])["profile"]["dailyStatus"] == ""
 
 
 @pytest.mark.parametrize("first_status,second_status,expected", [

@@ -97,6 +97,32 @@ function mobileHeroMetaItem(label, value, tone = '') {
 }
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
+  if (profile.accountCard) {
+    const { netValue, daily, cumulative, market, cash, leverage } = profile.accountCard;
+    const money = (amount, signed = false) => {
+      if (amount == null || amount === '' || !Number.isFinite(Number(amount))) return '—';
+      return signed || Number(amount) < 0 ? fmtSignedCny(amount) : fmtCny(amount);
+    };
+    const valueTone = amount => amount == null || Number(amount) === 0 ? '' : Number(amount) < 0 ? 'down' : 'up';
+    const share = profile.accountCard.share;
+    return `
+      <div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
+        <span class="mobileAccountIcon">${esc(profile.icon)}</span>
+        <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
+      </div></div>
+      <div class="mobileHeroPrimaryGrid">
+        <div class="mobileHeroPrimaryMetric main"><span>账户净值</span><strong>${money(netValue)}</strong></div>
+        <div class="mobileHeroPrimaryMetric"><span>最近一日盈亏</span><strong class="${valueTone(daily)}">${money(daily, true)}</strong></div>
+        <div class="mobileHeroPrimaryMetric"><span>累计盈亏</span><strong class="${valueTone(cumulative)}">${money(cumulative, true)}</strong></div>
+      </div>
+      <div class="mobileHeroMiniGrid">
+        ${mobileHeroMetaItem('持仓市值', money(market))}
+        ${mobileHeroMetaItem('现金余额', money(cash), Number(cash) < 0 ? 'down' : '')}
+        ${mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
+        ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
+      </div>
+    `;
+  }
   if (profile.scopeIncomplete) return `
     <div class="mobileHeroPrimaryMetric main">
       <span>投资组合价值</span><strong class="mobileHeroValue">待核验</strong>

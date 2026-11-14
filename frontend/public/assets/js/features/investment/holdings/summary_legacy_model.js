@@ -339,9 +339,12 @@ export function makeMobileHeroProfiles({
   aStockAccountPosition,
   aStockPositionsAsOf,
   aStockAsOf,
+  aStockAccountSummary,
+  fundAccountPosition,
+  ibkrOfficialValue,
+  ibkrAccountSummary,
   fundDisplaySummary,
-  fundSummary,
-  closedTradeReturns,
+  fundAccountPnl,
   usSummary,
   usRows = [],
   recentUsReturn = null,
@@ -349,32 +352,25 @@ export function makeMobileHeroProfiles({
   preciousSummary,
   esopSummary,
 }) {
-  const portfolioValue = Math.max(safeNum(summary.marketValue), 1);
+  const portfolioValue = safeNum(summary.marketValue);
   const fundValue = safeNum(fundDisplaySummary.totalValue);
-  const fundNlv = fundValue;
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
-  const fundClosed = closedTradeReturns?.a_fund;
-  const knownFundPnl = fundClosed?.known_holding_and_closed_pnl;
   const stockDate = isoDateKey(aStockAsOf);
   const position = stockDate && isoDateKey(aStockPositionsAsOf) === stockDate ? aStockAccountPosition : null;
   const estimate = position?.portfolio_value;
   const matchingEstimate = stockDate && isoDateKey(estimate?.as_of) === stockDate ? estimate : null;
-  const accountValue = matchingEstimate?.amount_base ?? position?.total_value_base ?? null;
   const cash = matchingEstimate?.cash_base ?? null;
-  const cashDate = matchingEstimate?.cash_as_of;
   const stockMarket = position?.known_value_base ?? aStockRowsSummary.totalValue ?? null;
-  const stockCardValue = accountValue ?? stockMarket;
-  const aStockDailyPnl = aStockSummary.dailyPnl != null && Number.isFinite(Number(aStockSummary.dailyPnl))
-    ? safeNum(aStockSummary.dailyPnl)
-    : safeNum(aStockRowsSummary.dailyPnl);
+  const fundCash = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong_current_plus', fxRates)?.amountCny;
+  const fundNetValue = accountPrimaryBalanceCny(accountOverview, 'tencent_licaitong', fxRates)?.amountCny;
+  const officialIbkr = ibkrOfficialValue?.status === 'official_close' ? ibkrOfficialValue : null;
   const ibkrHasFreshAccount = Boolean(
     ibkrSummary?.flexCoversPositionDate ||
     ibkrSummary?.holdingsNetCoversPositionDate ||
     ibkrSummary?.accountValueSource === 'holdings_snapshot_net_liquidation'
   );
-  const ibkrNlv = safeNum(ibkrHasFreshAccount ? ibkrSummary?.totalValue : usSummary.totalValue);
   const ibkrMarket = safeNum(ibkrHasFreshAccount ? ibkrSummary?.positionValue : usSummary.totalValue);
   const ibkrCash = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.cashValue))
     ? safeNum(ibkrSummary.cashValue)
@@ -384,7 +380,6 @@ export function makeMobileHeroProfiles({
   const netCash = brokerageCash + accountCash.netCash;
   const cashAssets = Math.max(aStockCash, 0) + Math.max(ibkrCash, 0) + accountCash.cashAssets;
   const cashLiabilities = Math.max(-ibkrCash, 0) + accountCash.cashLiabilities;
-  const usProfileCategory = categoryByLabel(categories, '美股/海外');
   // Cash balances and historical closed positions do not establish today's price-return quality.
   const usDailyStatuses = usRows.filter(row => !row.is_closed
     && ![row.major_category, row.minor_category, row.type].some(category => ['现金', '现金/活期'].includes(category)))
@@ -393,25 +388,11 @@ export function makeMobileHeroProfiles({
     ? (usDailyStatuses.some(status => ['estimated', 'confirmed'].includes(status)) ? 'partial' : 'pending')
     : usDailyStatuses.includes('estimated') ? 'estimated'
       : usDailyStatuses.length && usDailyStatuses.every(status => status === 'confirmed') ? 'confirmed' : '';
-  const showRecentUsReturn = usDailyStatus === 'pending' && recentUsReturn?.amount_cny != null
-    && Number.isFinite(Number(recentUsReturn.amount_cny));
-  const ibkrTotalPnl = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.totalPnl))
-    ? safeNum(ibkrSummary.totalPnl)
-    : safeNum(usProfileCategory.totalPnl);
-  const ibkrTotalRate = safeNum(
-    usProfileCategory.accountReturnRate ??
-    usProfileCategory.displayReturnRate ??
-    usProfileCategory.totalReturnRate
-  );
-  const ibkrGrossHoldingRate = Number.isFinite(Number(usProfileCategory.grossHoldingReturnRate))
-    ? safeNum(usProfileCategory.grossHoldingReturnRate)
-    : safeNum(usProfileCategory.holdingReturnRate);
-  const ibkrRateAsOf = isoDateKey(usProfileCategory.accountReturnRateAsOf);
-  const ibkrRateEvidenceAsOf = isoDateKey(usProfileCategory.accountReturnRateEvidenceAsOf);
-  const ibkrPositionAsOf = isoDateKey(ibkrSummary?.positionAsOf);
-  const ibkrRateTitle = usProfileCategory.accountReturnRateUndefined === true
-    ? `账户收益率暂无同日口径${ibkrPositionAsOf ? `（当前估值 ${ibkrPositionAsOf}）` : ''}；${ibkrRateEvidenceAsOf ? `可验证官方日结 ${ibkrRateEvidenceAsOf}，无当前可绑定收益率` : '缺少可验证日结证据'}`
-    : (ibkrRateAsOf ? `账户收益率对应官方日结 ${ibkrRateAsOf}` : '');
+  const showRecentUsReturn = recentUsReturn?.amount_cny != null && recentUsReturn.partial === false;
+  const accountShare = value => summary.scopeIncomplete || value == null || !(summary.marketValue > 0)
+    ? null : Number(value) / portfolioValue;
+  const stockNetValue = matchingEstimate?.amount_base ?? aStockAccountSummary?.totalValue;
+  const ibkrNetValue = officialIbkr?.amount_base ?? ibkrAccountSummary?.totalValue;
   const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
   const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
   const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
@@ -443,71 +424,44 @@ export function makeMobileHeroProfiles({
     'A股个股': {
       key: 'A股个股',
       icon: '🇨🇳',
-      identity: 'CNY · 同花顺',
-      valueLabel: matchingEstimate?.status === 'cash_carried_forward'
-        ? '账户估值（含沿用现金）' : accountValue == null ? '已知持仓市值' : '账户净值',
-      value: stockCardValue,
-      dailyLabel: '今日盈亏',
-      dailyPnl: aStockDailyPnl,
-      dailyRate: pctFromAmount(aStockDailyPnl, Math.max(aStockMarket - aStockDailyPnl, 1)),
-      totalLabel: '总盈亏',
-      totalPnl: safeNum(aStockSummary.totalPnl),
-      totalRate: safeNum(
-        aStockSummary.accountReturnRate ??
-        aStockSummary.displayReturnRate ??
-        aStockSummary.holdingReturnRate ??
-        categoryByLabel(categories, 'A股个股').totalReturnRate
-      ),
-      share: safeNum(stockCardValue) / portfolioValue,
-      hideShare: summary.scopeIncomplete || accountValue == null,
-      miniMetrics: [
-        ...(accountValue != null && stockMarket != null ? [{ label: '持仓市值', value: formatOptionalMoney(stockMarket) }] : []),
-        { label: cashDate ? `现金余额 · ${cashDate}` : '现金余额', value: cash == null ? '待核验' : formatOptionalMoney(cash), tone: cash < 0 ? 'down' : '' },
-        ...(cash != null && accountValue > 0 && stockMarket != null ? [
-          { label: '仓位占比', value: `${Math.max(0, pctFromAmount(stockMarket, accountValue) * 100).toFixed(1)}%` },
-        ] : []),
-      ],
+      identity: '同花顺',
+      accountSubtitle: 'A 股证券 · 人民币 · 个人份额',
+      accountCard: {
+        netValue: stockNetValue,
+        share: accountShare(stockNetValue),
+        daily: aStockAccountSummary?.dailyPnlEffective ? aStockAccountSummary.dailyPnl : null,
+        cumulative: aStockAccountSummary?.accountTotalPnl,
+        market: stockMarket,
+        cash,
+      },
     },
     'A股基金': {
       key: 'A股基金',
       icon: '🇨🇳',
-      identity: 'CNY · 建行 / 腾讯理财通',
-      value: fundNlv,
-      dailyLabel: '今日盈亏',
-      dailyPnl: categoryByLabel(categories, '基金').dailyPnl,
-      totalLabel: knownFundPnl != null ? '已知盈亏' : '总盈亏',
-      totalPnl: safeNum(knownFundPnl ?? fundSummary.totalPnl),
-      totalRate: safeNum(fundSummary.holdingReturnRate ?? categoryByLabel(categories, '基金').holdingReturnRate),
-      totalRateUndefined: knownFundPnl != null,
-      ratePendingLabel: knownFundPnl != null ? '累计收益率待核验' : undefined,
-      share: fundNlv / portfolioValue,
-      miniMetrics: fundClosed ? [{
-        label: '已核对清仓',
-        value: formatOptionalMoney(Number(fundClosed.amount), 'CNY', { signed: true }),
-        tone: Number(fundClosed.amount) < 0 ? 'down' : 'up',
-      }] : [],
+      identity: '腾讯理财通',
+      accountSubtitle: '基金与活期+ · 人民币账户',
+      accountCard: {
+        netValue: fundNetValue,
+        share: accountShare(fundNetValue),
+        market: fundAccountPosition?.known_value_base,
+        cash: fundCash,
+        cumulative: fundAccountPnl,
+      },
     },
     '美股/海外': {
       key: '美股/海外',
       icon: '🇺🇸🇰🇷🇭🇰',
-      identity: 'USD · IBKR',
-      value: ibkrNlv,
-      dailyLabel: showRecentUsReturn ? `${recentUsReturn.label}${recentUsReturn.partial ? '（部分）' : ''}` : '今日盈亏',
-      dailyPnl: showRecentUsReturn ? Number(recentUsReturn.amount_cny) : categoryByLabel(categories, '美股/海外').dailyPnl,
-      dailyStatus: showRecentUsReturn ? 'historical' : usDailyStatus,
-      dailyStatusTitle: showRecentUsReturn ? recentUsReturn.title : '',
-      totalLabel: '总盈亏',
-      totalPnl: ibkrTotalPnl,
-      totalRate: ibkrTotalRate,
-      totalRateUndefined: usProfileCategory.accountReturnRateUndefined === true,
-      totalRateTitle: ibkrRateTitle,
-      share: ibkrNlv / portfolioValue,
-      miniMetrics: [
-        { label: '总市值', value: formatOptionalMoney(ibkrMarket) },
-        { label: '可用现金', value: ibkrCash < 0 ? formatOptionalMoney(ibkrCash, 'CNY', { signed: true }) : formatOptionalMoney(ibkrCash), tone: ibkrCash < 0 ? 'down' : '' },
-        { label: '价格收益率', value: signedPctText(ibkrGrossHoldingRate), tone: ibkrGrossHoldingRate < 0 ? 'down' : 'up' },
-        { label: '仓位占比', value: `${Math.max(0, pctFromAmount(ibkrMarket, ibkrNlv) * 100).toFixed(1)}%` },
-      ],
+      identity: 'IBKR',
+      accountSubtitle: '海外证券 · 美元账户',
+      accountCard: {
+        netValue: ibkrNetValue,
+        share: accountShare(ibkrNetValue),
+        daily: showRecentUsReturn ? recentUsReturn.amount_cny : null,
+        cumulative: ibkrAccountSummary?.totalPnl,
+        market: officialIbkr ? officialIbkr.position_value_base : ibkrAccountSummary?.positionValue,
+        cash: officialIbkr ? officialIbkr.cash_base : ibkrAccountSummary?.cashValue,
+        leverage: officialIbkr?.leverage_ratio,
+      },
     },
     '贵金属': {
       key: '贵金属',

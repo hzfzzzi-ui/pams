@@ -11386,6 +11386,14 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     white-space: nowrap;
   }
 
+  .page-investments .mobileAccountSubtitle {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+    white-space: normal;
+  }
+
   .page-investments .mobileAccountIcon {
     display: inline-flex;
     align-items: center;
