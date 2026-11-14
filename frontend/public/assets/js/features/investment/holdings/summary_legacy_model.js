@@ -340,6 +340,7 @@ export function makeMobileHeroProfiles({
   aStockPositionsAsOf,
   aStockAsOf,
   aStockAccountSummary,
+  aStockHoldingPerformance,
   fundAccountPosition,
   ibkrOfficialValue,
   ibkrAccountSummary,
@@ -429,8 +430,12 @@ export function makeMobileHeroProfiles({
       accountCard: {
         netValue: stockNetValue,
         share: accountShare(stockNetValue),
-        daily: aStockAccountSummary?.dailyPnlEffective ? aStockAccountSummary.dailyPnl : null,
-        cumulative: aStockAccountSummary?.accountTotalPnl,
+        daily: (aStockAccountSummary?.dailyPnlEffective ? aStockAccountSummary.dailyPnl : null)
+          ?? aStockHoldingPerformance?.recent_daily_pnl_cny,
+        cumulative: aStockAccountSummary?.accountTotalPnl ?? aStockHoldingPerformance?.cumulative_pnl_cny,
+        cumulativeLabel: aStockAccountSummary?.accountTotalPnl == null && aStockHoldingPerformance?.cumulative_pnl_cny != null
+          ? '持仓累计盈亏' : undefined,
+        leverage: matchingEstimate?.leverage_ratio,
         market: stockMarket,
         cash,
       },

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.holding_return_snapshot import return_snapshot_revision
+from domain.investments.holding_return_display import attach_a_stock_holding_performance
 from domain.investments.period_trade_returns import (
     attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
 )
@@ -107,8 +108,14 @@ def create_compatibility_router(
             return builder(cur, limit=limit, include_closed=include_closed, view_as_of=view,
                            daily_pnl_start_as_of=daily, **config, **scope)
 
+        payload = load(view_date, active_date)
+        if category == minor_category == 'A股':
+            return attach_a_stock_holding_performance(
+                payload, account_code='tonghuashun', active_date=active_date, limit=limit,
+                load_date=lambda day: load(day, day),
+            )
         return attach_recent_market_returns(
-            cur, load(view_date, active_date), active_date=active_date,
+            cur, payload, active_date=active_date,
             load_date=lambda day: load(day, day),
         )
 

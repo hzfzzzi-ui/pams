@@ -69,6 +69,7 @@ const profileInput = {
   ibkrSummary: {flexCoversPositionDate: true, totalValue: 900,
     positionValue: 1000, cashValue: -100, totalPnl: -70},
   aStockRowsSummary: {totalValue: 800}, aStockSummary: {},
+  aStockHoldingPerformance: input.stockPerformance,
   aStockAccountPosition: input.stockPosition, aStockPositionsAsOf: input.stockPositionsAsOf,
   aStockAsOf: '2026-10-27', fundDisplaySummary: {},
   preciousSummary: {}, esopSummary: {},
@@ -99,14 +100,14 @@ def holding(**fields):
 
 
 def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False,
-           stock_position=None, stock_positions_as_of="2026-10-27"):
+           stock_position=None, stock_positions_as_of="2026-10-27", stock_performance=None):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
     result = subprocess.run(
         [node, "-e", SCRIPT], cwd=ROOT,
         input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows, "recent": recent,
                           "scopeIncomplete": scope_incomplete, "stockPosition": stock_position,
-                          "stockPositionsAsOf": stock_positions_as_of}),
+                          "stockPositionsAsOf": stock_positions_as_of, "stockPerformance": stock_performance}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
@@ -145,6 +146,17 @@ def test_account_cards_share_fields_and_show_only_supported_values():
     assert '<span>账户净值</span><strong>—</strong>' in fallback['stockHtml']
     assert '800.00' in fallback['stockHtml']
     assert '850.00' not in fallback['stockHtml']
+
+
+def test_stock_card_uses_holding_performance_without_portfolio_net_value():
+    position = {"portfolio_value": {"amount_base": "850.00", "cash_base": "50.00",
+                                    "as_of": "2026-10-27", "leverage_ratio": 0.94}}
+    data = render([], scope_incomplete=True, stock_position=position,
+                  stock_performance={"cumulative_pnl_cny": "-45.25", "recent_daily_pnl_cny": "0"})
+    html = data["stockHtml"]
+    assert "\u6301\u4ed3\u7d2f\u8ba1\u76c8\u4e8f" in html and "-\u00a545.25" in html
+    assert "+\u00a50.00" in html and "0.94\u00d7" in html
+    assert '<span>\u7ec4\u5408\u5360\u6bd4</span>' in html and '%' not in html
 
 
 def test_account_card_shows_complete_historical_daily_return_without_caption():

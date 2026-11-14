@@ -61,7 +61,10 @@ def read_account_portfolio_value(cur, row, *, as_of, base_currency, owner_ratio)
     cash_day, broker_cash = evidence
     cash = broker_cash * owner_ratio
     updated_at = row['holdings_updated_at']
-    return {'amount_base': _money(row['known_value_base'] + cash), 'cash_base': _money(cash),
+    net_value = row['known_value_base'] + cash
+    gross = row.get('gross_position_value')
+    leverage = float(gross * owner_ratio / net_value) if gross is not None and net_value > 0 else None
+    return {'amount_base': _money(net_value), 'cash_base': _money(cash), 'leverage_ratio': leverage,
             'as_of': day.isoformat(), 'cash_as_of': cash_day.isoformat(),
             'updated_at': updated_at.isoformat() if updated_at else None,
             'status': 'cash_carried_forward' if cash_day < day else 'reconciled_cash'}

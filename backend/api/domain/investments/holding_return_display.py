@@ -1,4 +1,4 @@
-"""Dated overseas close returns; never replace the active daily bucket."""
+"""Dated holding returns kept separate from the active daily bucket."""
 from __future__ import annotations
 
 import logging
@@ -260,3 +260,52 @@ def attach_recent_market_returns(
             "title": f"{day} 各市场已确认收益；仅汇总同一日期，未计入今日汇总",
         }
     return result
+
+
+def attach_a_stock_holding_performance(
+    payload: dict[str, Any], *, account_code: str, active_date: date,
+    load_date: Callable[[date], dict[str, Any]], limit: int,
+) -> dict[str, Any]:
+    """Publish personal-share holding returns independently from cash/NAV coverage."""
+    def positions(data):
+        return [row for row in data.get("rows", []) if _key(row)[0] == account_code
+                and not row.get("is_closed") and row.get("asset_liability") == "资产"
+                and (_decimal(row.get("quantity")) or Decimal(0)) > 0]
+
+    rows = positions(payload)
+    if not rows or len(payload["rows"]) >= limit:
+        return payload
+    snapshot_dates = {str(row.get("snapshot_as_of") or "")[:10] for row in rows}
+    symbols = {_key(row)[1] for row in rows}
+    cumulative = [_decimal(row.get("holding_pnl_cny")) for row in rows]
+    result = {
+        "cumulative_pnl_cny": str(sum(value for value in cumulative if value is not None))
+        if None not in cumulative else None,
+        "recent_daily_pnl_cny": None,
+        "recent_daily_as_of": None,
+    }
+    if len(snapshot_dates) != 1 or "" in snapshot_dates or "" in symbols or len(symbols) != len(rows):
+        return {**payload, "holding_performance": result}
+    try:
+        day = date.fromisoformat(next(iter(snapshot_dates)))
+    except ValueError:
+        return {**payload, "holding_performance": result}
+    dated_rows = rows
+    if day < active_date and any(row.get("daily_pnl_stale") for row in rows):
+        try:
+            dated_rows = positions(load_date(day))
+        except Exception as exc:
+            logger.warning("Recent A-share close replay unavailable (%s)", type(exc).__name__)
+            dated_rows = []
+
+    if len(dated_rows) == len(rows) and {_key(row)[1] for row in dated_rows} == symbols:
+        amounts = [_decimal(row.get("daily_total_pnl_cny")) for row in dated_rows]
+        if None not in amounts and all(
+            row.get("daily_return_status") == "confirmed" and row.get("daily_return_status_source")
+            and not row.get("daily_pnl_stale") and str(row.get("snapshot_as_of"))[:10] == day.isoformat()
+            and str(row.get("daily_return_status_as_of"))[:10] == day.isoformat()
+            for row in dated_rows
+        ):
+            result.update(recent_daily_pnl_cny=str(sum(value for value in amounts if value is not None)),
+                          recent_daily_as_of=day.isoformat())
+    return {**payload, "holding_performance": result}

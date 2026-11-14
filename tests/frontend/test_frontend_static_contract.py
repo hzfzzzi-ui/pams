@@ -324,7 +324,7 @@ def test_a_stock_account_total_pnl_drives_profile_summary() -> None:
     assert "totalPnl: aStockAccountSummary.accountTotalPnl" in summary_block
     assert "totalReturnRate: aStockAccountSummary.accountReturnRate" in summary_block
     assert "displayReturnRate: aStockAccountSummary.accountReturnRate" in summary_block
-    assert "cumulative: aStockAccountSummary?.accountTotalPnl" in profile_block
+    assert "cumulative: aStockAccountSummary?.accountTotalPnl ?? aStockHoldingPerformance?.cumulative_pnl_cny" in profile_block
 
 
 def test_ibkr_incomplete_account_performance_does_not_drive_total_pnl() -> None:
@@ -683,7 +683,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     first_main_load = _read_public("assets/js/features/investment/holdings/requests.js").split("export function readSummaryInputs", 1)[1].split("export function readListInputs", 1)[0]
     assert "runWhenInvestmentAnalysisVisible" in holdings_js
     assert "loadAllCategoryReturnCharts" in holdings_js
-    assert "daily: aStockAccountSummary?.dailyPnlEffective ? aStockAccountSummary.dailyPnl : null" in holdings_js
+    assert "?? aStockHoldingPerformance?.recent_daily_pnl_cny" in holdings_js
     assert "const aStockAccountDailyPnlEffective = Boolean(" in holdings_js
     assert "aStockAccountSummary.dailyPnlEffective !== false" in holdings_js
     assert "aStockAccountSummary.dailyPnl != null" in holdings_js
@@ -863,7 +863,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "? confirmedIbkrSummary.totalReturnRate" in holdings_js
     assert ": useIbkrAccountTotals && ibkrNetDeposit > 0" in holdings_js
     assert "leverage: officialIbkr?.leverage_ratio" in holdings_js
-    assert "cumulative: aStockAccountSummary?.accountTotalPnl" in holdings_js
+    assert "cumulative: aStockAccountSummary?.accountTotalPnl ?? aStockHoldingPerformance?.cumulative_pnl_cny" in holdings_js
     assert "returnRateLabel: '持仓收益率'" in holdings_js
     assert "summary.returnRateLabel || '持仓收益率'" in holdings_js
     assert "activeHoldingPnl" in holdings_js
