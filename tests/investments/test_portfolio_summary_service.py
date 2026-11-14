@@ -120,6 +120,7 @@ def test_holdings_by_account_adds_reconciled_cash_once_and_preserves_coverage(mo
     monkeypatch.setattr(nav_trade_source_v2, "_read_event_prefix", lambda cur: (events, None))
     row = {"account_code": "tonghuashun", "total_value_base": Decimal("1000.00"),
            "known_value_base": Decimal("1000.00"), "fx_missing_count": 0,
+           "gross_position_value": Decimal("2000.00"),
            "has_snapshot_cash": False, "single_snapshot_day": True, "holdings_as_of": holdings_day,
            "holdings_updated_at": updated_at}
     cur = FakeCursor([{"as_of": holdings_day}, [row], [{"account_code": "tonghuashun", "as_of": holdings_day}]])
@@ -133,7 +134,7 @@ def test_holdings_by_account_adds_reconciled_cash_once_and_preserves_coverage(mo
     assert item["holdings_as_of"] == holdings_day.isoformat()
     assert item["holdings_updated_at"] == updated_at.isoformat()
     assert item["portfolio_value"] == {
-        "amount_base": "1250.00", "cash_base": "250.00", "as_of": "2026-06-02",
+        "amount_base": "1250.00", "cash_base": "250.00", "leverage_ratio": 0.8, "as_of": "2026-06-02",
         "cash_as_of": "2026-06-01", "status": "cash_carried_forward", "updated_at": updated_at.isoformat(),
     }
     assert "has_snapshot_cash" not in item

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
-from domain.investments.holding_return_display import attach_recent_us_returns
+from domain.investments.holding_return_display import attach_a_stock_holding_performance, attach_recent_us_returns
 from domain.investments.investment_view_date import daily_pnl_window_date, market_data_candidate_date
 
 
@@ -155,3 +155,29 @@ def test_optional_history_failure_keeps_current_holdings_and_does_not_log_raw_de
     result = attach_recent_us_returns(Cursor(), payload, active_date=ACTIVE, load_date=unavailable)
     assert result is payload
     assert "RuntimeError" in caplog.text and "private-details" not in caplog.text
+
+@pytest.mark.parametrize("complete_close", [True, False])
+def test_a_stock_card_keeps_dated_close_separate_and_does_not_require_account_cash(complete_close):
+    def stock(row):
+        return {**row, "account": "example", "currency": "CNY", "asset_liability": "\u8d44\u4ea7",
+                "holding_pnl_cny": "-24.50"}
+    current = [stock(holding()), stock(holding(symbol="SECOND")),
+               stock(holding(is_closed=True)), holding(account="other")]
+    historical = [stock(confirmed()), stock(confirmed(symbol="SECOND",
+                    daily_return_status="confirmed" if complete_close else "estimated"))]
+    payload = {"rows": current}
+    original = deepcopy(payload)
+    calls = []
+    def load(day):
+        calls.append(day)
+        return {"rows": historical}
+
+    found = attach_a_stock_holding_performance(payload, account_code="example",
+                                               active_date=ACTIVE, load_date=load, limit=500)
+    assert calls == [DAY]
+    assert payload == original and found["rows"] == original["rows"]
+    assert found["holding_performance"] == {
+        "cumulative_pnl_cny": "-49.00",
+        "recent_daily_pnl_cny": "82" if complete_close else None,
+        "recent_daily_as_of": str(DAY) if complete_close else None,
+    }

@@ -407,6 +407,7 @@ export function applyLegacySummaryPayload(payloads, context) {
       aStockAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tonghuashun'),
       aStockPositionsAsOf: accountPositions?.as_of,
       aStockAsOf: aStockEquity.as_of,
+      aStockHoldingPerformance: aStockEquity.holding_performance,
       aStockAccountSummary,
       fundAccountPosition: accountPositions?.by_account?.find(account => account.account_code === 'tencent_licaitong'),
       ibkrOfficialValue: accountPositions?.by_account?.find(account => account.account_code === 'ibkr')?.portfolio_value,

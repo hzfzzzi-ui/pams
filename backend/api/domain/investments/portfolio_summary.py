@@ -184,6 +184,10 @@ def build_holdings_by_account_payload(
             MAX(h.updated_at) AT TIME ZONE 'UTC' AS holdings_updated_at,
             COUNT(DISTINCT h.as_of) FILTER (WHERE h.market_value <> 0) <= 1 AS single_snapshot_day,
             BOOL_OR(h.major_category = '现金' OR LEFT(h.symbol, 5) = 'CASH_') AS has_snapshot_cash,
+            SUM(ABS(h.market_value * h.fx_rate)) FILTER (
+                WHERE h.asset_liability = '资产' AND h.major_category <> '现金'
+                  AND COALESCE(LEFT(h.symbol, 5), '') <> 'CASH_'
+            ) AS gross_position_value,
     """ if portfolio_owner_ratio is not None else ""
     cur.execute(
         f"""
@@ -250,7 +254,7 @@ def build_holdings_by_account_payload(
     items = []
     for raw in rows:
         item = {key: _norm(value) for key, value in raw.items()
-                if key not in {'single_snapshot_day', 'has_snapshot_cash'}}
+                if key not in {'single_snapshot_day', 'has_snapshot_cash', 'gross_position_value'}}
         if str(item.get('account_code')) in incomplete:
             item.update(known_value_base=item.get('known_value_base', item['total_value_base']),
                         total_value_base=None, snapshot_scope_status='incomplete')
