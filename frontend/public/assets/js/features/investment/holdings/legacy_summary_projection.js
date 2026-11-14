@@ -15,7 +15,7 @@ import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js';
 export function applyLegacySummaryPayload(payloads, context) {
   const { document, Chart, showClosedPositions, view } = context;
   const { setKpiLabel, renderIbkrPerformance, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, renderSection, writeSectionFinancials, renderReturnNotes, applySectionReturnMetrics, applyStaticReturnMetrics, publishHoldingsKpiSummary, renderInvestmentDashboard } = view;
-  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, ibkrPerf, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions] = payloads;
+  const [aStockEquity, aFund, aFundAll, usStock, preciousMetal, esop, latestHoldings, accountOverview, fxData, ibkrPerf, aStockPerf, reportedReturns, portfolioSummary, portfolioValuationState, accountPositions, closedTradeReturns] = payloads;
     const aStockReturn = null;
     const aFundReturn = null;
     const usStockReturn = null;
@@ -82,6 +82,8 @@ export function applyLegacySummaryPayload(payloads, context) {
       };
     const fundDisplaySummary = renderSection(fundRows, renderRowStock, 'rowsAFund', 'countAFund', 'totalValueAFund', 'totalPnlAFund', 'dailyPnlAFund', 'countKpiAFund', 'holdingPnlAFund', fxRates);
     const fundSummaryBase = applyReportedReturnTotal(summarizeRows(fundSummaryRows), fundSummaryRows, fundReport);
+    const fundReturns = closedTradeReturns?.a_fund;
+    const knownFundPnl = fundReturns?.known_holding_and_closed_pnl;
     const fundSummary = {
       ...fundSummaryBase,
       holdingReturnRate: holdingReturnRateFromSummary(fundDisplaySummary),
@@ -89,8 +91,16 @@ export function applyLegacySummaryPayload(payloads, context) {
       activeHoldingPnl: fundDisplaySummary.activeHoldingPnl,
       activeTotalCost: fundDisplaySummary.activeTotalCost,
     };
-    setKpiLabel('totalPnlAFund', '投资收益');
-    writeSectionFinancials({ ...fundSummary, totalValue: fundDisplaySummary.totalValue }, 'totalValueAFund', 'totalPnlAFund', 'dailyPnlAFund', 'holdingPnlAFund');
+    setKpiLabel('totalPnlAFund', knownFundPnl != null ? '已知盈亏' : '投资收益');
+    writeSectionFinancials({
+      ...fundSummary,
+      totalValue: fundDisplaySummary.totalValue,
+      ...(knownFundPnl != null ? {
+        totalPnl: Number(knownFundPnl),
+        accountReturnRateUndefined: true,
+        returnRateLabel: '本年收益率',
+      } : {}),
+    }, 'totalValueAFund', 'totalPnlAFund', 'dailyPnlAFund', 'holdingPnlAFund');
     const usRows = usStock.rows || [];
     const usDisplaySummary = renderSection(usRows, renderRowStock, 'rowsUSStock', 'countUSStock', 'totalValueUSStock', 'totalPnlUSStock', 'dailyPnlUSStock', 'countKpiUSStock', 'holdingPnlUSStock', fxRates);
     const usHoldingRateSummary = summarizeRows(usRows.filter((row) => !row.is_closed));
@@ -399,6 +409,7 @@ export function applyLegacySummaryPayload(payloads, context) {
       aStockAsOf: aStockEquity.as_of,
       fundDisplaySummary,
       fundSummary: { ...fundSummary, totalReturnRate: categoryByLabel(dashboardCategories, '基金').totalReturnRate },
+      closedTradeReturns,
       usSummary,
       usRows,
       ibkrSummary: usCategorySummary,

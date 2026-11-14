@@ -7,6 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.holding_return_snapshot import return_snapshot_revision
+from domain.investments.period_trade_returns import (
+    attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
+)
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
 
@@ -152,11 +155,20 @@ def create_compatibility_router(
                                              category=major, minor_category=minor)
 
                     funds_all = category('A股', 'A股基金', closed=True)
+                    view_date = context[0]
+                    closed_returns = load_closed_trade_returns(
+                        cur, start=view_date.replace(month=1, day=1), end=view_date,
+                        owner_ratio=_account_owner_ratio, sections={'a_fund'},
+                        excluded_accounts=context[2]['excluded_accounts'],
+                    )
+                    if fund_returns := closed_returns.get('a_fund'):
+                        fund_returns['known_holding_and_closed_pnl'] = fund_holding_profit(funds_all, fund_returns)
                     return json({
                         "holdings": read_holdings(cur, context),
                         "a_stock": category('A股', 'A股', closed=True),
                         "funds": funds_all if show_closed else category('A股', 'A股基金'),
                         "funds_all": funds_all,
+                        "closed_trade_returns": closed_returns,
                         "us_stock": category('美股'),
                         "precious_metal": category('贵金属'),
                         "esop": category('ESOP'),
@@ -308,24 +320,34 @@ def create_compatibility_router(
                         reported_returns_cfg=reported_returns_cfg, section=section,
                     ),
                 )
-                if snapshot_payload is not None:
-                    return json(snapshot_payload)
-                payload = _build_section_return_series_payload(
+                payload = snapshot_payload
+                if payload is None:
+                    payload = _build_section_return_series_payload(
+                        cur,
+                        section=section,
+                        start_date=start_date,
+                        interval=interval,
+                        base_currency=baseCurrency,
+                        view_as_of=view_as_of,
+                        reported_returns_cfg=reported_returns_cfg,
+                        overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+                        owner_ratio_case_sql=_owner_ratio_case_sql,
+                        account_owner_ratio=_account_owner_ratio,
+                        excluded_holding_accounts=_excluded_holding_accounts(),
+                        today_label_date=today_label_date,
+                    )
+                    payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
+                if section == 'us_stock' and payload.get('fx_source') == OPEN_EXCHANGE_RATES_SOURCE and (
+                    payload.get('status') == 'available'
+                ):
+                    return json(payload)
+                closed_returns = load_closed_trade_returns(
                     cur,
-                    section=section,
-                    start_date=start_date,
-                    interval=interval,
-                    base_currency=baseCurrency,
-                    view_as_of=view_as_of,
-                    reported_returns_cfg=reported_returns_cfg,
-                    overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
-                    owner_ratio_case_sql=_owner_ratio_case_sql,
-                    account_owner_ratio=_account_owner_ratio,
-                    excluded_holding_accounts=_excluded_holding_accounts(),
-                    today_label_date=today_label_date,
+                    start=start_date, end=view_as_of, base_currency=baseCurrency.upper(),
+                    owner_ratio=_account_owner_ratio, sections={section},
+                    excluded_accounts=_excluded_holding_accounts(),
                 )
-                payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
-                return json(payload)
+                return json(attach_closed_trade_returns(payload, closed_returns.get(section)))
 
 
     @router.post("/investment/section-return-series/snapshot")
