@@ -761,6 +761,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         if (!wasVisible && chart.data.datasets.some(row => row.returnSeriesKey === mode && !row.hidden)) return;
       }
       const dataset = chart.data.datasets.find(row => row.label === selected.datasetLabel);
+      const closed = state?.activeWindow === 'ytd' && state.sectionClosedTradeReturns?.get(selected.key);
+      const closedStatus = closed?.base_currency === 'CNY' && closed.amount != null
+        ? `${selected.label}年内已核对清仓 ${fmtSignedCny(Number(closed.amount))}` : '';
       if (mode === 'total' && !dataset?.data.some(value => value != null) && state?.loadSection && !state.loadedSections.has('a_stock')) {
         showStatus('正在加载可用收益…');
         if (!await state.loadSection('a_stock') || disposed || chart !== returnChart) return;
@@ -768,15 +771,23 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       }
       if (!dataset?.data.some(value => value != null)) {
         const reason = state?.sectionReasons?.get(selected.key);
+        if (closedStatus) {
+          showStatus(`${closedStatus} · 完整收益率待核验`);
+          return;
+        }
         showStatus(reason === 'ibkr_position_history_unavailable'
           ? '美股缺少 IBKR 历史持仓，暂无法绘制收益曲线。'
           : `${selected.label}在此区间暂无可用收益率。`);
         return;
       }
       const estimate = state?.sectionEstimates.get(selected.key);
-      showStatus(dataset.hidden && estimate?.method === 'ibkr_unrealized_pnl_over_position_cost'
-        ? 'IBKR 美股持仓估算按未实现盈亏除以持仓成本计算。'
-        : '');
+      let estimateStatus = '';
+      if (estimate?.method === 'ibkr_unrealized_pnl_over_position_cost') {
+        estimateStatus = 'IBKR 美股持仓估算按未实现盈亏除以持仓成本计算。';
+      } else if (estimate?.method === 'fund_partial_snapshot_return') {
+        estimateStatus = '基金曲线仅覆盖部分历史估值';
+      }
+      showStatus(dataset.hidden ? [estimateStatus, closedStatus].filter(Boolean).join(' · ') : '');
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;

@@ -50,13 +50,24 @@ def _matches(row: dict) -> bool:
 
 
 def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None,
-                    source_id=None, originals: SourceOriginals | None = None) -> list[dict]:
+                    source_id=None, originals: SourceOriginals | None = None,
+                    include_instrument_identity: bool = False, candidate_sale_start: date | None = None) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
     fact_filter = ' AND f.trade_id=%s' if fact_id is not None else ''
     params = (account_code, start, end) if fact_id is None else (account_code, start, end, fact_id)
     if source_id is not None:
         fact_filter += ' AND r.source_id=%s'
         params += (str(source_id),)
+    if candidate_sale_start is not None:
+        # Select sale candidates on the fact index before reading their source
+        # originals. Their whole history is still needed to establish cost.
+        fact_filter += """ AND EXISTS (
+            SELECT 1 FROM public.pams_investment_trade_fact s
+            WHERE s.account_code=f.account_code AND s.trade_date BETWEEN %s AND %s
+              AND s.trade_type IN ('sell','fund_redemption') AND s.currency=f.currency
+              AND (s.asset_id=f.asset_id OR ((s.asset_id IS NULL OR f.asset_id IS NULL) AND s.symbol=f.symbol))
+        )"""
+        params += (candidate_sale_start, end)
     cur.execute('''SELECT f.*, i.raw_fields, i.parsed_fields, i.record_hash,
         i.review_status AS item_review, i.source_uid AS item_source_uid,
         r.source_name,r.acquisition_method,r.file_format, r.status AS source_status,
@@ -95,6 +106,11 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
         row['fee_scope'] = (row['parsed_fields'] or {}).get('fee_scope')
         origin = row['raw_fields'].get('source') if isinstance(row['raw_fields'], dict) else None
         row['source_market'] = origin.get('market') if isinstance(origin, dict) else None
+        if include_instrument_identity and account_code == 'ibkr':
+            attributes = (row['raw_fields'] or {}).get('official_attributes') or {}
+            if ibkr_report and isinstance(attributes, dict):
+                row['instrument_identity'] = attributes.get('conid')
+                row['listing_exchange'] = attributes.get('listingExchange') or attributes.get('exchange')
         for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
                     'source_account', 'content', 'original_source_id', 'inline_original', 'sha256', 'item_source_uid', 'source_name',
                     'acquisition_method', 'file_format', 'parse_method', 'asset_identity'):

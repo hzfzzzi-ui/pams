@@ -341,6 +341,7 @@ export function makeMobileHeroProfiles({
   aStockAsOf,
   fundDisplaySummary,
   fundSummary,
+  closedTradeReturns,
   usSummary,
   usRows = [],
   recentUsReturn = null,
@@ -354,6 +355,8 @@ export function makeMobileHeroProfiles({
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
+  const fundClosed = closedTradeReturns?.a_fund;
+  const knownFundPnl = fundClosed?.known_holding_and_closed_pnl;
   const stockDate = isoDateKey(aStockAsOf);
   const position = stockDate && isoDateKey(aStockPositionsAsOf) === stockDate ? aStockAccountPosition : null;
   const estimate = position?.portfolio_value;
@@ -472,10 +475,17 @@ export function makeMobileHeroProfiles({
       value: fundNlv,
       dailyLabel: '今日盈亏',
       dailyPnl: categoryByLabel(categories, '基金').dailyPnl,
-      totalLabel: '总盈亏',
-      totalPnl: safeNum(fundSummary.totalPnl),
+      totalLabel: knownFundPnl != null ? '已知盈亏' : '总盈亏',
+      totalPnl: safeNum(knownFundPnl ?? fundSummary.totalPnl),
       totalRate: safeNum(fundSummary.holdingReturnRate ?? categoryByLabel(categories, '基金').holdingReturnRate),
+      totalRateUndefined: knownFundPnl != null,
+      ratePendingLabel: knownFundPnl != null ? '累计收益率待核验' : undefined,
       share: fundNlv / portfolioValue,
+      miniMetrics: fundClosed ? [{
+        label: '已核对清仓',
+        value: formatOptionalMoney(Number(fundClosed.amount), 'CNY', { signed: true }),
+        tone: Number(fundClosed.amount) < 0 ? 'down' : 'up',
+      }] : [],
     },
     '美股/海外': {
       key: '美股/海外',

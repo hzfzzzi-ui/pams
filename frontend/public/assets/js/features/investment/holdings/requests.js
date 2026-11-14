@@ -28,6 +28,7 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
       part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null)),
       jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(error => readFallback(error, null)),
       (loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
+      part('closed_trade_returns', () => null).catch(error => readFallback(error, null)),
   ]);
 }
 

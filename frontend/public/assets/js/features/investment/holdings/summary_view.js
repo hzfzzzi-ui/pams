@@ -142,7 +142,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       <div class="mobileHeroPrimaryMetric">
         <span>${esc(profile.totalLabel || '总盈亏')}</span>
         <strong class="${totalPnl >= 0 ? 'up' : 'down'}">${formatOptionalMoney(totalPnl, 'CNY', { signed: true })}</strong>
-        <em class="${totalPnl >= 0 ? 'up' : 'down'}"${profile.totalRateTitle ? ` title="${esc(profile.totalRateTitle)}"` : ''}>${profile.totalRateUndefined === true ? '--' : signedPctText(totalRate)}</em>
+        <em class="${profile.ratePendingLabel ? 'muted' : totalPnl >= 0 ? 'up' : 'down'}"${profile.totalRateTitle ? ` title="${esc(profile.totalRateTitle)}"` : ''}>${profile.totalRateUndefined === true ? esc(profile.ratePendingLabel || '--') : signedPctText(totalRate)}</em>
       </div>
     </div>
     <div class="mobileHeroMiniGrid ${miniMetrics ? '' : 'mobileHeroMiniGrid-empty'}">${miniMetrics}</div>
