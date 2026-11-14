@@ -388,6 +388,7 @@ def load_latest_active_fund_holdings(cur) -> list[dict[str, Any]]:
         ) matched_asset ON TRUE
         WHERE h.rn = 1
           AND COALESCE(h.market_value, 0) >= 0
+          AND (h.quantity > 0 OR h.market_value > 0)
           AND h.symbol IS NOT NULL
           AND h.symbol <> ''
         ORDER BY h.market_value DESC, h.account_code, h.name
@@ -721,9 +722,16 @@ def refresh_fund_nav_estimates(
                     confirmed = fetch_confirmed_nav(symbol, session)
             except Exception as exc:  # pragma: no cover - network edge
                 errors.append(f"{symbol} {holding['name']}: confirmed NAV failed: {exc}")
+            # A provider date later than the local business date is not usable.
+            if confirmed and confirmed.nav_date > current_date:
+                errors.append(f"{symbol}: confirmed NAV date is in the future")
+                confirmed = None
             if use_intraday_estimates:
                 try:
                     intraday = fetch_intraday_estimate(symbol, session)
+                    if intraday and (intraday.estimate_time.date() != current_date
+                                     or (confirmed and confirmed.nav_date >= current_date)):
+                        intraday = None
                 except Exception as exc:  # pragma: no cover - network edge
                     errors.append(f"{symbol} {holding['name']}: intraday estimate failed: {exc}")
 
@@ -747,10 +755,29 @@ def refresh_fund_nav_estimates(
                     symbol=symbol,
                     name=holding["name"],
                 )
-                prior_estimated_value = dec(existing.get("estimated_market_value"), MONEY) if existing else Decimal("0.00")
+                if (not intraday and existing and holding["as_of"] >= confirmed.nav_date
+                        and existing.get("status") in {"confirmed", "confirmed_corrected"}
+                        and existing.get("confirmed_unit_nav") == confirmed.unit_nav
+                        and (holding["as_of"] > confirmed.nav_date or stored_price == confirmed.unit_nav)):
+                    item.update(confirmed_date=confirmed.nav_date.isoformat(),
+                                confirmed_unit_nav=str(confirmed.unit_nav),
+                                confirmed_source=confirmed.source, status="confirmed_unchanged")
+                    processed.append(item)
+                    continue
+                # Confirmed rows also carry a market value. It is not an estimate.
+                prior_estimated_value = Decimal("0.00")
+                if existing:
+                    if existing.get("estimated_unit_nav") is not None:
+                        prior_estimated_value = dec(existing.get("estimated_market_value"), MONEY)
+                    elif existing.get("status") == "needs_review":
+                        prior_estimated_value = (dec(existing.get("estimated_market_value"), MONEY)
+                                                 - dec(existing.get("estimated_delta"), MONEY))
                 correction_delta = precise_value - prior_estimated_value if prior_estimated_value > 0 else Decimal("0.00")
                 status = "confirmed"
                 note = "confirmed NAV stored"
+                if existing and existing.get("status") == "confirmed_corrected":
+                    status = "confirmed_corrected"
+                    note = "prior estimate corrected with confirmed NAV"
                 if prior_estimated_value > 0:
                     status = deviation_status(
                         correction_delta,
