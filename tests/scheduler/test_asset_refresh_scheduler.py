@@ -124,3 +124,27 @@ def test_north_america_startup_catch_up_uses_new_york_cutoff(monkeypatch) -> Non
     assert module.should_catch_up_north_america_investments(datetime(2026, 6, 1, 20, 30, tzinfo=timezone.utc)) is True
     assert module.should_catch_up_north_america_investments(datetime(2026, 12, 1, 21, 29, tzinfo=timezone.utc)) is False
     assert module.should_catch_up_north_america_investments(datetime(2026, 12, 1, 21, 30, tzinfo=timezone.utc)) is True
+
+
+
+def test_confirmed_fund_poll_continues_after_weekend_cutoff(monkeypatch, tmp_path):
+    module = _load_scheduler(monkeypatch)
+    monkeypatch.setattr(module, "STATE_PATH", tmp_path / "refresh.json")
+    calls = []
+
+    def refresh(*, use_intraday_estimate):
+        assert use_intraday_estimate is False
+        calls.append(use_intraday_estimate)
+        # The second pass can find positions imported after the first pass.
+        rows = [] if len(calls) == 1 else [{"status": "confirmed_no_intraday_estimate",
+                                          "confirmed_date": "2026-11-13"}]
+        return {"status": "ok", "processed": len(rows), "rows": rows}
+
+    monkeypatch.setattr(module, "refresh_fund_nav_estimates", refresh)
+    weekend = datetime(2026, 11, 14, 1, tzinfo=timezone.utc)
+    assert module.run_due_window("north_america", now=weekend)["steps"] == [
+        {"name": "history", "issues": ["historical_backfill_required"]},
+    ]
+    assert module.poll_confirmed_fund_nav()["processed"] == 0
+    assert module.poll_confirmed_fund_nav()["rows"][0]["confirmed_date"] == "2026-11-13"
+    assert calls == [False, False]
