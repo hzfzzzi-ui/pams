@@ -220,7 +220,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       : null;
   }
 
-  function drawInvestmentReturnCanvasFallback(canvas, chartData) {
+  function drawInvestmentReturnCanvasFallback(canvas, chartData, axis) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const width = Math.max(rect.width || canvas.clientWidth || 320, 240);
@@ -232,13 +232,16 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    const labels = chartData?.labels || [];
+    const allLabels = chartData?.labels || [];
+    const start = axis.min == null ? 0 : allLabels.indexOf(axis.min);
+    const end = axis.max == null ? allLabels.length : allLabels.indexOf(axis.max) + 1;
+    const labels = allLabels.slice(start, end);
     const visibleDatasets = (chartData?.datasets || [])
       .filter(dataset => !dataset.hidden && dataset.returnSeriesKey !== 'events')
-      .map(dataset => ({
-        ...dataset,
-        values: (dataset.data || []).filter(value => value != null).map(value => Number(value)).filter(value => Number.isFinite(value)),
-      }))
+      .map(dataset => {
+        const data = (dataset.data || []).slice(start, end);
+        return { ...dataset, data, values: data.filter(value => value != null).map(Number).filter(Number.isFinite) };
+      })
       .filter(dataset => dataset.values.length);
     if (!labels.length || !visibleDatasets.length) {
       ctx.fillStyle = CHART_THEME.text;
@@ -307,12 +310,12 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       __fallback: true,
       canvas,
       data,
-      options: {},
+      options: { scales: { x: {} } },
       scales: {},
       destroy() { this.destroyed = true; },
       update() {
         if (this.destroyed) return;
-        drawInvestmentReturnCanvasFallback(canvas, this.data);
+        drawInvestmentReturnCanvasFallback(canvas, this.data, this.options.scales.x);
       },
       getDatasetMeta() {
         return { data: [] };
@@ -751,6 +754,22 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         btn.classList.toggle('active', active);
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
+      const visible = chart.data.datasets.filter(dataset => !dataset.hidden && dataset.returnSeriesKey !== 'events');
+      const fund = visible.length === 1 && visible[0].returnSeriesKey === 'a_fund' ? visible[0] : null;
+      const estimate = state?.sectionEstimates.get('a_fund');
+      const dates = fund && estimate?.method === 'fund_verified_trade_nav_replay'
+        ? chart.data.labels.filter((_, index) => fund.data[index] != null)
+        : [];
+      const start = dates[0];
+      const end = dates.at(-1);
+      chart.options.scales.x.min = start;
+      chart.options.scales.x.max = end;
+      if (dates.length) {
+        const coverage = `基金部分覆盖（${estimate.instrument_count} 只，${start} 至 ${end}）`;
+        const closed = state.activeWindow === 'ytd' && state.sectionClosedTradeReturns?.get('a_fund');
+        showStatus(closed?.base_currency === 'CNY' && closed.amount != null
+          ? `${coverage} · 基金年内已核对清仓 ${fmtSignedCny(Number(closed.amount))}` : coverage);
+      }
     };
     const toggleSeries = async (mode) => {
       const selected = options.find(item => item.key === mode) || options[0];
