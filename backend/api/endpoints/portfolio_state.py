@@ -78,9 +78,11 @@ def portfolio_valuation_state(
 def portfolio_valuation_state_publish(
     baseCurrency: str = Query("CNY"),
     cycle: str = Query("manual_publish"),
+    minimumAsOf: Date | None = Query(None),
 ):
     """Publish the current PortfolioState valuation as the canonical state."""
     return publish_portfolio_valuation_state_payload(
         base_currency=baseCurrency,
         cycle=cycle,
+        minimum_as_of=minimumAsOf,
     )
