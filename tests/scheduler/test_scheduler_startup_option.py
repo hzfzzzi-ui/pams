@@ -26,6 +26,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
     ):
         monkeypatch.setattr(scheduler, name, lambda name=name: calls.append(name))
     monkeypatch.setattr(scheduler, "run_due_window", lambda region: calls.append(f"due:{region}"))
+    monkeypatch.setattr(scheduler, "run_portfolio_valuation_publication", lambda: calls.append("publish_valuation"))
     sleeps = []
     monkeypatch.setattr(scheduler.time, "sleep", lambda seconds: sleeps.append(seconds))
 
@@ -77,6 +78,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
         (30, "minutes", None), (30, "minutes", None), (30, "minutes", None),
         (30, "minutes", None),
         (30, "minutes", None), (30, "minutes", None), (30, "minutes", None), (30, "minutes", None),
+        (30, "minutes", None),
     ]
 
     calls.clear()
@@ -86,6 +88,7 @@ def test_startup_option_only_controls_immediate_jobs(monkeypatch, skip):
         "due:asia", "due:north_america", "refresh_crypto", "refresh_us_quotes",
         "refresh_overseas_quotes", "due:asia", "due:north_america",
         "run_flex_confirmation", "run_daily_close_confirmation", "run_calendar_fx", "poll_confirmed_fund_nav", "run_daily_us_return_recovery", "run_cash_event_confirmation",
+        "publish_valuation",
     ]
 
 

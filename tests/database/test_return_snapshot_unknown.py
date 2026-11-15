@@ -16,6 +16,60 @@ from domain.investments.holding_return_snapshot import (
 )
 
 
+def test_scheduled_publication_waits_for_current_account_evidence(empty_source_db, monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+    from fastapi import FastAPI
+    from domain.brokers.ibkr import ibkr_daily_close_read
+    from domain.investments import portfolio_valuation_state as service
+    from endpoints import portfolio_state as route
+    from tests.scheduler.test_asset_refresh_scheduler import _load_scheduler
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+
+    balances = [{'account_code': 'synthetic', 'account_type': 'cash', 'include_in_nav': True,
+                 'as_of': date(2026, 11, 12), 'amount_cny': Decimal(900),
+                 'snapshot_scope_status': 'partial'}]
+    monkeypatch.setattr(service, '_load_accounts_config', lambda: {})
+    monkeypatch.setattr(service, 'load_account_balances', lambda *a: balances)
+    monkeypatch.setattr(service, 'load_investment_positions', lambda *a, **kw: [])
+    monkeypatch.setattr(ibkr_daily_close_read, 'configured', lambda: False)
+    monkeypatch.setattr(route, 'publish_portfolio_valuation_state_payload',
+                        lambda **kw: service.publish_portfolio_valuation_state_payload(conn_factory=connect, **kw))
+    scheduler = _load_scheduler(monkeypatch)
+    monkeypatch.setattr(scheduler, 'STATE_PATH', tmp_path / 'refresh.json')
+    app = FastAPI()
+    app.include_router(route.router, prefix='/api')
+    now = datetime(2026, 11, 14, 10, tzinfo=timezone.utc)
+    attempts = []
+    with TestClient(app) as client:
+        def request(method, url, label, **kwargs):
+            response = client.post(url[url.index('/api/'):])
+            assert response.status_code == 200, response.text
+            attempts.append(response.json())
+            return attempts[-1]
+
+        monkeypatch.setattr(scheduler, '_request_json', request)
+        assert scheduler.run_portfolio_valuation_publication(now)['status'] == 'blocked'
+        assert attempts[-1]['reason'] == 'valuation_date_not_ready'
+        balances[0]['as_of'] = date(2026, 11, 13)
+        assert scheduler.run_portfolio_valuation_publication(now)['status'] == 'blocked'
+        assert attempts[-1]['snapshot_scope_unavailable_accounts'] == ['synthetic']
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM valuation_results WHERE result_type='portfolio_published'")
+            assert cur.fetchone() == (0,)
+        balances[0]['snapshot_scope_status'] = 'complete'
+        assert scheduler.run_portfolio_valuation_publication(now)['status'] == 'success'
+        assert scheduler.run_portfolio_valuation_publication(now)['reason'] == 'already_completed'
+    assert len(attempts) == 3
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT valuation_date, net_liquidation_value, daily_pnl_cny FROM valuation_results")
+        assert cur.fetchall() == [(date(2026, 11, 13), Decimal('900'), None)]
+
+
 def test_snapshot_refresh_does_not_overwrite_published_portfolio(empty_source_db, monkeypatch):
     from domain.investments import portfolio_valuation_state as portfolio
 

@@ -285,11 +285,13 @@ def scheduler_health(path: Path, now: datetime | None = None, *, archive_ibkr: b
             return {"status": "missing", "label": "未运行", "jobs": {}}
         issues = []
         times = []
-        for key in ("asia", "north_america"):
+        market_jobs = ("asia", "north_america")
+        valuation_jobs = ("portfolio_valuation",) if "portfolio_valuation" in jobs else ()
+        for key in (*market_jobs, *valuation_jobs):
             job = jobs.get(key, {})
             if job.get("status") != "success":
                 issues.append(key + ":blocked")
-            if job.get("history_gap_since") or job.get("history_coverage") != "verified":
+            if key in market_jobs and (job.get("history_gap_since") or job.get("history_coverage") != "verified"):
                 issues.append(key + ":history_unverified")
             finished = job.get("finished_at")
             if not finished:
