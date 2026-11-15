@@ -22,3 +22,11 @@ def historical_balance(reference, today, owner_ratio, *, base_currency, basis):
         'balance_basis': basis,
         'balance_as_of': as_of,
     }
+
+
+def historical_account_balance(cfg, as_of, owner_ratio):
+    reference = cfg.get('account_balance_reference') or {}
+    if not reference.get('source'):
+        return None
+    return historical_balance(reference, as_of, owner_ratio, base_currency=cfg.get('base_currency'),
+                              basis='historical_account_reference')

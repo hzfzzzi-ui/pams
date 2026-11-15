@@ -41,6 +41,9 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
         account_balances=[
             dict(account_code="current_plus", amount_cny=Decimal("0.20"), as_of=settled),
             dict(account_code="unknown", amount_cny=None, as_of=settled),
+            dict(account_code="benefit", amount_cny=None),
+            dict(account_code="reference_future", amount_cny=None),
+            dict(account_code="reference_excluded", amount_cny=None, include_in_nav=False),
         ],
         investment_positions=[
             position("huawei_stock", "esop", "700000", earlier),
@@ -53,6 +56,17 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
         ],
         confirmed_values={"current_plus": Decimal("0.20"), "unknown": Decimal(0),
                           "future": Decimal(100), "blocked": Decimal(100)},
+        account_config={"accounts": {
+            "benefit": {"owner_ratio": "0.50", "account_balance_reference": {
+                "source": "archive", "amount": "250.00", "as_of": "2026-06-18"}},
+            "current_plus": {"account_balance_reference": {
+                "source": "archive", "amount": "100", "as_of": earlier}},
+            "reference_future": {"account_balance_reference": {
+                "source": "archive", "amount": "50", "as_of": date(2026, 11, 15)}},
+            "reference_excluded": {"account_balance_reference": {
+                "source": "archive", "amount": "50", "as_of": earlier}},
+            "unknown": {"account_balance_reference": {"amount": "50", "as_of": earlier}},
+        }},
     )
     partial = {"date": terminal, "net_worth": None,
                "available_net_worth": Decimal("500000.20"),
@@ -61,9 +75,10 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
     _add_terminal_display_values(partial, values)
     _add_terminal_display_values(partial, values)
     row = normalize_nav_row(partial)
-    assert row["availableNetWorth"] == "942000.20"
+    assert row["availableNetWorth"] == "942125.2000"
     assert row["netWorth"] is None
-    assert row["available_accounts"] == ["current_plus", "huawei_stock", "ibkr", "tencent_licaitong"]
+    assert row["available_accounts"] == ["benefit", "current_plus", "huawei_stock", "ibkr", "tencent_licaitong"]
+    assert row["latest_known_components"]["benefit"] == {"from": "2026-06-18", "through": "2026-06-18"}
     assert row["latest_known_components"]["tencent_licaitong"] == {"from": "2026-11-12", "through": "2026-11-13"}
     complete = {"date": terminal, "net_worth": Decimal(250)}
     _add_terminal_display_values(complete, values)

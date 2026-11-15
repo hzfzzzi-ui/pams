@@ -522,6 +522,7 @@ def create_compatibility_router(
                     investment_positions=investment_positions,
                     terminal_date=terminal_date,
                     confirmed_values=terminal_account_values,
+                    account_config=account_cfg,
                 )
         return _build_nav_weekly_payload(
                 cur,

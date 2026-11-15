@@ -7,7 +7,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.accounts.account_identity import account_display
-from domain.accounts.balance_reference import historical_balance
+from domain.accounts.balance_reference import historical_account_balance
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net
@@ -269,11 +269,8 @@ def read_account_sync(cur, config):
                                           now=now, source_balance=source_balances.get(code))
         if row['active'] and row['summary']['balance_amount'] is None:
             balance = _position_balance_summary(cur, config, code, cfg, now.date())
-            reference = cfg.get('account_balance_reference') or {}
-            if balance is None and reference.get('source'):
-                balance = historical_balance(reference, now.date(), _owner_ratio(config, code),
-                                             base_currency=cfg.get('base_currency'),
-                                             basis='historical_account_reference')
+            if balance is None:
+                balance = historical_account_balance(cfg, now.date(), _owner_ratio(config, code))
             if balance:
                 _apply_balance_summary(row['summary'], balance, cfg, now.date())
         group['rows'].append(row)
