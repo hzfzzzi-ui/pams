@@ -106,18 +106,11 @@ def account_anchor_value_cny(
     return amount * rate if rate is not None else None
 
 
-def manual_effective_date(account: dict[str, Any], terminal_date: Date) -> Date:
-    """Return when a manual balance should begin contributing to the NAV curve."""
+def _cash_balance_effective_date(account: dict[str, Any], anchor_date: Date) -> Date:
+    """Return when the selected balance can be used without earlier cash evidence."""
     if str(account.get("account_code") or "") in STABLE_ANCHOR_ACCOUNTS:
         return Date(2026, 1, 1)
-    balance = account.get("manual_balance") or account.get("primary_balance") or {}
-    raw = balance.get("as_of") or account.get("as_of") or terminal_date
-    if isinstance(raw, Date):
-        return raw
-    try:
-        return Date.fromisoformat(str(raw)[:10])
-    except ValueError:
-        return terminal_date
+    return anchor_date
 
 
 def select_weekly_nav_accounts(
@@ -657,13 +650,13 @@ def format_weekly_nav_payload(
 
 
 class StatementRowsByAccount(dict):
-    """Verified cash movements plus accounts with unavailable evidence."""
+    """Verified cash movements and dated failures to verify the underlying facts."""
     def __init__(self):
         super().__init__()
-        self.evidence_problems: dict[str, set[str]] = {}
+        self.evidence_problems: dict[str, dict[Date | None, set[str]]] = {}
 
-    def unknown(self, account_code: str, reason: str) -> None:
-        self.evidence_problems.setdefault(account_code, set()).add(reason)
+    def unknown(self, account_code: str, reason: str, day: Date | None = None) -> None:
+        self.evidence_problems.setdefault(account_code, {}).setdefault(day, set()).add(reason)
 
 
 def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, terminal_date: Date) -> StatementRowsByAccount:
@@ -682,7 +675,8 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
         for item in rows:
             code = item['account_code']
             if item['source_evidence_status'] != 'verified':
-                result.unknown(code, item.get('source_issue') or 'source_evidence_unavailable')
+                result.unknown(code, item.get('source_issue') or 'source_evidence_unavailable',
+                               _row_date(item.get('transaction_date')))
                 continue
             item['statement_balance'] = None
             result.setdefault(code, []).append(item)
@@ -705,7 +699,8 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
         code = str(item['account_code'])
         proof = verifier.verify(table='pams_cashflow_fact', fact_id=int(item['id']))
         if proof.get('status') != 'verified':
-            result.unknown(code, str(proof.get('reason') or 'source_evidence_unavailable'))
+            result.unknown(code, str(proof.get('reason') or 'source_evidence_unavailable'),
+                           _row_date(item.get('transaction_date')))
             continue
         # A transaction row's incidental balance is not a separately approved
         # account balance; preserve it as unavailable for anchor purposes.
@@ -778,6 +773,15 @@ def _statement_balance_native_value(
     return future_balance - reverse_flow, latest_balance_date or future_date
 
 
+def _cash_account_at_terminal(account: dict[str, Any], terminal_date: Date) -> dict[str, Any]:
+    if ((account.get('primary_balance') or {}).get('source') != VERIFIED_BANK_BALANCE_SOURCE
+            or account_anchor_date(account, terminal_date) <= terminal_date):
+        return account
+    previous = [balance for balance in (account.get('manual_balance'), account.get('statement_balance'))
+                if balance and (_row_date(balance.get('as_of')) or Date.max) <= terminal_date]
+    return {**account, 'primary_balance': max(previous, key=lambda balance: str(balance['as_of']), default=None)}
+
+
 def _bank_backcast_series(
     *,
     accounts: list[dict[str, Any]],
@@ -791,64 +795,51 @@ def _bank_backcast_series(
     values: dict[Date, dict[str, Any]] = {d: {"assets": Decimal("0"), "liabilities": Decimal("0"), "net_worth": Decimal("0")} for d in dates}
     for account in accounts:
         verified_snapshot = (account.get('primary_balance') or {}).get('source') == VERIFIED_BANK_BALANCE_SOURCE
-        if verified_snapshot and account_anchor_date(account, terminal_date) > terminal_date:
-            prior = [balance for balance in (account.get('manual_balance'), account.get('statement_balance'))
-                     if balance and (_row_date(balance.get('as_of')) or Date.max) <= terminal_date]
-            account = {**account, 'primary_balance': max(prior, key=lambda balance: str(balance['as_of']), default=None)}
-            verified_snapshot = False
         anchor = account_anchor_amount(account)
         code = str(account.get("account_code") or "")
         rows = rows_by_account.get(code, [])
-        problems = getattr(rows_by_account, 'evidence_problems', {}).get(code)
-        if problems and not verified_snapshot:
-            for sample_date in dates:
-                values[sample_date].setdefault('unavailable_accounts', []).append(code)
-                values[sample_date].setdefault('source_evidence_unavailable_accounts', []).append(code)
-            continue
+        problem_dates = getattr(rows_by_account, 'evidence_problems', {}).get(code, {})
         if anchor is None:
             anchor_currency = str(account.get("base_currency") or "CNY").upper()
-            if not rows:
-                for sample_date in dates:
-                    values[sample_date].setdefault('unavailable_accounts', []).append(code)
-                continue
-            has_statement_balance = any(_statement_balance(row) is not None for row in rows)
-            if not has_statement_balance:
-                for sample_date in dates:
-                    values[sample_date].setdefault('unavailable_accounts', []).append(code)
-                continue
             anchor_amount = Decimal("0")
             anchor_date = terminal_date
         else:
             anchor_amount, anchor_currency = anchor
             anchor_date = account_anchor_date(account, terminal_date)
-        has_statement_rows = bool(rows)
-        effective_date = manual_effective_date(account, terminal_date)
+        effective_date = _cash_balance_effective_date(account, anchor_date)
+        owner_ratio = Decimal(str(account.get('owner_ratio', 1)))
+        native_movements = [
+            (row['transaction_date'], _dec(row['amount'])) for row in rows
+            if str(row.get('currency') or anchor_currency).upper() == anchor_currency
+        ]
 
         for sample_date in dates:
-            if verified_snapshot:
-                bucket = values[sample_date]
-                if problems and sample_date != anchor_date:
+            bucket = values[sample_date]
+            start, end = sorted((anchor_date if anchor is not None else sample_date, sample_date))
+            # Only failures in the balance's calculation interval can invalidate
+            # it. A verified snapshot is independent of movements on its own day.
+            if not verified_snapshot or sample_date != anchor_date:
+                problems = None in problem_dates or any(
+                    (start < day <= end if verified_snapshot else start <= day <= end)
+                    for day in problem_dates if day is not None
+                )
+                if problems:
                     bucket.setdefault('unavailable_accounts', []).append(code)
                     bucket.setdefault('source_evidence_unavailable_accounts', []).append(code)
                     continue
+            movements = [amount for day, amount in native_movements if start < day <= end]
+            flow = sum(movements, Decimal(0)) * owner_ratio
+            projected_amount = anchor_amount + (flow if sample_date >= anchor_date else -flow)
+            if verified_snapshot:
                 rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
                 if rate is None:
                     bucket.setdefault('unavailable_accounts', []).append(code)
                     continue
-                start, end = sorted((anchor_date, sample_date))
-                flow = sum((_dec(row['amount']) for row in rows
-                            if start < row['transaction_date'] <= end and row['currency'] == anchor_currency), Decimal(0))
-                flow *= Decimal(str(account.get('owner_ratio', 1)))
-                native_value = anchor_amount + (flow if sample_date >= anchor_date else -flow)
-                add_nav_amount(bucket, native_value * rate)
+                add_nav_amount(bucket, projected_amount * rate)
                 bucket.setdefault('available_accounts', []).append(code)
                 if sample_date != anchor_date:
                     bucket.setdefault('estimated_accounts', []).append(code)
                 continue
-            # Individual source rows do not prove the statement interval is
-            # complete. Back-casts away from the confirmed anchor are estimates.
-            if isinstance(rows_by_account, StatementRowsByAccount) and sample_date != anchor_date:
-                values[sample_date].setdefault('estimated_accounts', []).append(code)
             statement_value = _statement_balance_native_value(
                 rows,
                 sample_date=sample_date,
@@ -866,25 +857,23 @@ def _bank_backcast_series(
                 and not (anchor is not None and latest_statement_date is not None and sample_date > latest_statement_date and anchor_date >= latest_statement_date)
             ):
                 native_value = statement_native_value
-            elif not has_statement_rows and sample_date < effective_date:
-                native_value = Decimal("0")
+            elif anchor is None or (sample_date < effective_date and not movements):
+                bucket.setdefault('unavailable_accounts', []).append(code)
+                continue
             else:
-                reverse_flow = Decimal("0")
-                for row in rows:
-                    if sample_date < row["transaction_date"] <= terminal_date:
-                        row_currency = str(row.get("currency") or anchor_currency).upper()
-                        if row_currency == anchor_currency:
-                            reverse_flow += _dec(row.get("amount"))
-                native_value = anchor_amount - reverse_flow
+                native_value = projected_amount
 
             signed_native_value = signed_account_native_value(account, native_value)
             rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
             if rate is None:
-                values[sample_date].setdefault("unavailable_accounts", []).append(code)
+                bucket.setdefault("unavailable_accounts", []).append(code)
             else:
-                add_nav_amount(values[sample_date], signed_native_value * rate)
-                if has_statement_rows or sample_date >= effective_date:
-                    values[sample_date].setdefault("available_accounts", []).append(code)
+                add_nav_amount(bucket, signed_native_value * rate)
+                bucket.setdefault("available_accounts", []).append(code)
+                # Cash movements can support an estimate away from the anchor.
+                # An individual verified movement does not prove full coverage.
+                if isinstance(rows_by_account, StatementRowsByAccount) and sample_date != anchor_date:
+                    bucket.setdefault('estimated_accounts', []).append(code)
     return values
 
 
@@ -1381,10 +1370,16 @@ def build_nav_weekly_payload(
         if account.get("include_in_nav")
     ]
     bank_accounts, investment_snapshot_accounts = select_weekly_nav_accounts(overview_accounts)
+    bank_accounts = [_cash_account_at_terminal(account, terminal_date) for account in bank_accounts]
 
     fx_timelines = load_fx_timelines(cur, base_currency)
-    bank_flow_start = min([start_date, *(account_anchor_date(account, terminal_date) for account in bank_accounts
-        if (account.get('primary_balance') or {}).get('source') == VERIFIED_BANK_BALANCE_SOURCE)])
+    # Fetch the facts needed to connect samples to balance anchors, including
+    # movements between a pre-window anchor and the first visible sample.
+    bank_flow_start = min(start_date, min(
+        (account_anchor_date(account, terminal_date) for account in bank_accounts
+         if account_anchor_amount(account) is not None),
+        default=terminal_date,
+    ))
     rows_by_account = _statement_rows_by_account(
         cur,
         [str(account.get("account_code")) for account in bank_accounts],

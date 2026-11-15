@@ -517,7 +517,7 @@ def test_statement_rows_by_account_missing_schema_is_unknown() -> None:
     cur = FakeCursor([{"cashflow_fact_exists": False}])
     rows = _statement_rows_by_account(cur, ["ccb"], date(2026, 5, 24), date(2026, 5, 31))
     assert rows == {}
-    assert rows.evidence_problems["ccb"] == {"cash_source_schema_unavailable"}
+    assert rows.evidence_problems["ccb"] == {None: {"cash_source_schema_unavailable"}}
 
 
 def test_bank_backcast_prefers_statement_running_balance_for_opening_nav() -> None:
@@ -791,3 +791,70 @@ def test_current_snapshot_gap_does_not_erase_past_nav(monkeypatch):
     assert rows[0]["netWorth"] == "100"
     assert rows[1]["netWorth"] is None
     assert rows[1]["unavailable_accounts"] == ["funding"]
+
+
+def test_current_plus_nav_is_independent_of_chart_start(monkeypatch):
+    from domain.investments import valuation_nav as nav
+    from domain.ledger import cashflow_read_v2
+
+    prior, latest = date(2026, 11, 13), date(2026, 11, 14)
+    plus = "tencent_licaitong_current_plus"
+    facts = [
+        {"account_code": plus, "transaction_date": date(2026, 8, 6), "amount": Decimal("-11241.13"),
+         "currency": "CNY", "source_evidence_status": "verified"},
+    ]
+
+    def load_cash_rows(cur, *, start, end, base_currency, account_codes):
+        return [dict(fact) for fact in facts if start <= fact["transaction_date"] <= end]
+
+    monkeypatch.setattr(cashflow_read_v2, "load_cash_rows", load_cash_rows)
+    accounts = [
+        {"account_code": plus, "account_type": "cash_management", "include_in_nav": True,
+         "primary_balance": {"amount": "0.20", "currency": "CNY", "as_of": latest,
+                             "source": "platform_snapshot"}},
+        {"account_code": "bank", "account_type": "funding", "include_in_nav": True,
+         "primary_balance": {"amount": "100", "currency": "CNY", "as_of": date(2026, 11, 10),
+                             "source": "platform_snapshot"}},
+    ]
+    facts.append({"account_code": "bank", "transaction_date": date(2026, 11, 11),
+                  "amount": Decimal("5"), "currency": "CNY", "source_evidence_status": "verified"})
+
+    def nav_points(start):
+        cur = FakeCursor([[], {"redesigned": True, "item_exists": True, "cashflow_fact_exists": True}])
+        payload = nav.build_nav_weekly_payload(
+            cur, start_date=start, terminal_date=latest, interval="daily", base_currency="CNY",
+            overview_payload={"accounts": accounts}, include_ibkr=False,
+            owner_ratio_case_sql=_owner_ratio_case_sql, account_owner_ratio=_account_owner_ratio,
+        )
+        return payload["rows"][-2:]
+
+    def check_windows():
+        long_window = nav_points(date(2026, 1, 1))
+        short_window = nav_points(prior)
+        assert long_window == short_window
+        return long_window
+
+    estimated, terminal = check_windows()
+    assert estimated["netWorth"] is None
+    assert estimated["availableNetWorth"] == "105"
+    assert estimated["available_accounts"] == ["bank"]
+    assert estimated["unavailable_accounts"] == [plus]
+    assert estimated["estimated_accounts"] == ["bank"]
+    assert "source_evidence_unavailable_accounts" not in estimated
+    assert terminal["netWorth"] == "105.20"
+
+    facts.append({"account_code": plus, "transaction_date": date(2026, 8, 5), "amount": Decimal("1"),
+                  "currency": "CNY", "source_evidence_status": "unavailable"})
+    assert check_windows() == [estimated, terminal]
+
+    facts.append({"account_code": plus, "transaction_date": latest, "amount": Decimal("-2"),
+                  "currency": "CNY", "source_evidence_status": "verified"})
+    estimated, terminal = check_windows()
+    assert estimated["netWorth"] == "107.20"
+    assert estimated["estimated_accounts"] == ["bank", plus]
+    assert terminal["netWorth"] == "105.20"
+
+    facts[-1]["source_evidence_status"] = "unavailable"
+    estimated, _ = check_windows()
+    assert estimated["availableNetWorth"] == "105"
+    assert estimated["source_evidence_unavailable_accounts"] == [plus]
