@@ -19,10 +19,31 @@ function load(file, globals) {
   vm.runInContext(fs.readFileSync('frontend/public/assets/js/shared/chart_theme.js', 'utf8').replace(/^export /gm, ''), ctx);
   vm.runInContext(source, ctx); return ctx;
 }
+const rowClickHandlers = [];
+const mobileList = {
+  innerHTML: '',
+  querySelectorAll() {
+    return [...this.innerHTML.matchAll(/data-mobile-holding-index="(\d+)"/g)].map(match => ({
+      dataset: {mobileHoldingIndex: match[1]},
+      addEventListener(type, callback) {if (type === 'click') rowClickHandlers.push(callback);},
+    }));
+  },
+};
+let holdingDetail;
 const rows = load('holdings.js', {
   URLSearchParams, window: {location: {search: ''}, matchMedia: () => ({matches: false})},
+  document: {getElementById: () => mobileList},
+  typeLabel: value => value,
+  accountLabel: value => value,
+  openBottomSheet: (name, html) => {holdingDetail = html;},
 });
 const rendered = rows.holdingSyncTime(input.row);
+if (input.reference) {
+  rows.renderMobileHoldingRows([rows.historicalReferenceRow(input.reference), input.row], {total: 100});
+  rowClickHandlers[0]();
+  console.log(JSON.stringify({list: mobileList.innerHTML, details: holdingDetail}));
+  process.exit(0);
+}
 let choice = '\u5168\u90e8', events = {};
 const hero = {innerHTML: '', classList: {toggle() {}}};
 const ctx = load('holdings_categories.js', {
@@ -83,3 +104,25 @@ def test_merged_fund_uses_oldest_account_and_never_hides_missing_provenance():
 @pytest.mark.parametrize("quantity,expected", [(10, "10"), ("20.000000", "20"), ("20.010", "20.01"), ("75.010", "75.01"), (20.1, "20.1"), ("32665.908748", "32,665.909"), ("0.001", "0.001"), (None, "--"), (0, "--"), ("invalid", "--")])
 def test_quantity_trims_only_padding_zeros_at_existing_precision(quantity, expected):
     assert run({"quantity": quantity}, "quantity") == expected
+
+
+def test_historical_reference_uses_same_row_and_keeps_returns_unknown():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node is required for real JS execution")
+    reference = {"name": "历史基金", "symbol": "110020", "category": "A股基金",
+                 "value": "123.45", "currency": "CNY", "as_of": "2026-06-02", "account_name": "建行理财"}
+    row = {"name": "历史基金", "symbol": "110020", "minor_category": "A股基金",
+           "market_value_cny": 100, "cost_cny": 95}
+    result = subprocess.run(
+        [node, "-e", SCRIPT], input=json.dumps({"row": row, "reference": reference}), text=True,
+        encoding="utf-8", capture_output=True, cwd=ROOT, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    output = json.loads(result.stdout)
+    assert output["list"].count('class="mobileHoldingRow"') == 2
+    assert output["list"].count("<em>持仓成本</em>") == 2
+    assert "¥123.45" in output["list"] and "¥95.00" in output["list"]
+    assert "历史参考 · <time datetime=\"2026-06-02\">" in output["list"]
+    assert "参考市值" in output["details"] and "建行理财" in output["details"]
+    assert "¥0.00" not in output["details"] and "123.5%" not in output["details"]
