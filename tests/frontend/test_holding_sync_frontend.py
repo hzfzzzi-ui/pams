@@ -113,7 +113,7 @@ def test_historical_reference_uses_same_row_and_keeps_returns_unknown():
     reference = {"name": "历史基金", "symbol": "110020", "category": "A股基金",
                  "value": "123.45", "currency": "CNY", "as_of": "2026-06-02", "account_name": "建行理财"}
     row = {"name": "历史基金", "symbol": "110020", "minor_category": "A股基金",
-           "market_value_cny": 100, "cost_cny": 95}
+           "market_value_cny": 100, "cost_cny": 95, "realized_trade_pnl_cny": 4.25}
     result = subprocess.run(
         [node, "-e", SCRIPT], input=json.dumps({"row": row, "reference": reference}), text=True,
         encoding="utf-8", capture_output=True, cwd=ROOT, timeout=20,
@@ -123,6 +123,9 @@ def test_historical_reference_uses_same_row_and_keeps_returns_unknown():
     assert output["list"].count('class="mobileHoldingRow"') == 2
     assert output["list"].count("<em>持仓成本</em>") == 2
     assert "¥123.45" in output["list"] and "¥95.00" in output["list"]
+    assert output["list"].count("含已实现") == 1
+    assert "含已实现 +¥4.25" in output["list"]
+    assert "-¥123.45" not in output["list"]
     assert "历史参考 · <time datetime=\"2026-06-02\">" in output["list"]
     assert "参考市值" in output["details"] and "建行理财" in output["details"]
     assert "¥0.00" not in output["details"] and "123.5%" not in output["details"]
