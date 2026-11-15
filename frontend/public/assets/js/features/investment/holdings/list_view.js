@@ -15,6 +15,7 @@ export function createListView({ document, host: window, showDetails: openBottom
   function clearRows() { for (const remove of rowListeners) remove(); rowListeners.clear(); }
   function bindRow(node, type, callback) { rowListeners.add(scope.listen(node, type, callback)); }
 function dataBadge(row) {
+  if (row.reference_as_of) return `<span class="miniBadge pending">历史参考 · ${esc(row.reference_as_of)}</span>`;
   const category = row.major_category || row.type || '';
   if (category === 'ESOP') return '<span class="miniBadge pending">待核准</span>';
   if (category === '贵金属' || String(row.minor_category || '').includes('基金')) return '<span class="miniBadge warn">需核准</span>';
@@ -52,6 +53,34 @@ function snapshotQuoteDate(row) {
     ? String(row.snapshot_as_of).slice(0, 10) : '';
 }
 
+function holdingMetrics(row, total) {
+  const value = safeNum(cnyValue(row, 'market_value'));
+  const historical = Boolean(row.reference_as_of);
+  return {
+    value,
+    weight: historical || total == null ? '—' : `${(total > 0 ? value / total * 100 : 0).toFixed(1)}%`,
+    valueLabel: historical ? '参考市值' : '市值',
+    costValue: historical ? null : holdingCostValue(row),
+    floatPnl: historical ? null : currentFloatPnl(row),
+    realized: historical ? null : realizedPnl(row),
+    totalPnl: historical ? null : cumulativePnl(row),
+    dailyPnl: historical ? null : displayDailyPnl(row),
+    dailyPending: !historical && holdingDailyPnlPending(row),
+  };
+}
+
+function pnlText(value) {
+  return value == null ? '—' : formatSignedCurrency(value);
+}
+
+function pnlTone(value) {
+  return value == null ? 'muted' : signedMoneyClass(value);
+}
+
+function holdingAccountName(row) {
+  return row.account_name || accountLabel(row.account || row.account_code || '');
+}
+
 function renderRows(rows, options = {}){
   clearRows();
   const tbody = document.getElementById('rows');
@@ -66,15 +95,10 @@ function renderRows(rows, options = {}){
       || groupA.localeCompare(groupB, 'zh-CN')
       || safeNum(cnyValue(b, 'market_value')) - safeNum(cnyValue(a, 'market_value'));
   });
-  renderMobileHoldingRows(displayRows, { total, hasReferences: options.hasReferences });
+  renderMobileHoldingRows(displayRows, { total });
   let lastGroup = '';
   for(const [index, r] of displayRows.entries()){
-    const value = safeNum(cnyValue(r, 'market_value'));
-    const floatPnl = currentFloatPnl(r);
-    const totalPnl = cumulativePnl(r);
-    const dailyPnl = displayDailyPnl(r);
-    const dailyPending = holdingDailyPnlPending(r);
-    const weight = total > 0 ? value / total * 100 : 0;
+    const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
     const groupLabel = holdingGroupLabel(r);
     if (showGroupRows && groupLabel !== lastGroup) {
       const group = document.createElement('tr');
@@ -91,12 +115,12 @@ function renderRows(rows, options = {}){
       <td class="nowrap">${esc(r.symbol || '—')}</td>
       <td class="name" title="${esc(r.name || '')}">${esc(r.name || '')}${closedBadge(r)}${holdingDailyStatusBadge(r)}</td>
       <td>${esc(groupLabel)}</td>
-      <td>${esc(accountLabel(r.account || r.account_code || ''))}</td>
+      <td>${esc(holdingAccountName(r))}</td>
       <td class="mono num">${formatCompactCurrency(value)}</td>
       <td class="mono num">${holdingQuantityText(r)}</td>
       <td class="mono num">${r.current_price ? formatNumber(r.current_price, 3) : '价格缺失'}</td>
-      <td class="mono num" style="color:${dailyPending ? 'var(--muted)' : dailyPnl>=0?'var(--good)':'var(--bad)'}">${dailyPending ? '待更新' : formatSignedCurrency(dailyPnl)}</td>
-      <td class="mono num" style="color:${totalPnl>=0?'var(--good)':'var(--bad)'}">${formatSignedCurrency(totalPnl)}</td>
+      <td class="mono num ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</td>
+      <td class="mono num ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</td>
       <td class="mono">${realizedPnlNote(r)}</td>
       <td>${dataBadge(r)}</td>
     `;
@@ -109,15 +133,15 @@ function renderRows(rows, options = {}){
       <td colspan="11">
         <div class="rowDetailGrid">
           <div><strong>类别</strong><span>${esc(typeLabel(r.minor_category || r.type || r.major_category) || '其他')}</span></div>
-          <div><strong>账户</strong><span>${esc(accountLabel(r.account || r.account_code || ''))}</span></div>
+          <div><strong>账户</strong><span>${esc(holdingAccountName(r))}</span></div>
           <div><strong>币种</strong><span>${esc(r.currency || 'CNY')}</span></div>
-          <div><strong>持仓占比</strong><span class="mono">${total == null ? '—' : `${weight.toFixed(1)}%`}</span></div>
-          <div><strong>市值</strong><span class="mono">${formatCompactCurrency(cnyValue(r, 'market_value'))}</span></div>
-          <div><strong>剩余成本</strong><span class="mono">${formatCompactCurrency(cnyValue(r, 'cost'))}</span></div>
-          <div><strong>当前浮盈</strong><span class="mono ${signedMoneyClass(floatPnl)}">${formatSignedCurrency(floatPnl)}</span></div>
-          <div><strong>已实现</strong><span class="mono ${signedMoneyClass(realizedPnl(r))}">${formatSignedCurrency(realizedPnl(r))}</span></div>
-          <div><strong>累计盈亏</strong><span class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</span></div>
-          <div><strong>今日盈亏</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(dailyPnl)}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatSignedCurrency(dailyPnl)}</span></div>
+          <div><strong>持仓占比</strong><span class="mono">${weight}</span></div>
+          <div><strong>${valueLabel}</strong><span class="mono">${formatCompactCurrency(value)}</span></div>
+          <div><strong>剩余成本</strong><span class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</span></div>
+          <div><strong>当前浮盈</strong><span class="mono ${pnlTone(floatPnl)}">${pnlText(floatPnl)}</span></div>
+          <div><strong>已实现</strong><span class="mono ${pnlTone(realized)}">${pnlText(realized)}</span></div>
+          <div><strong>累计盈亏</strong><span class="mono ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</span></div>
+          <div><strong>今日盈亏</strong><span class="mono ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</span></div>
           <div><strong>收益状态</strong><span>${dailyPending ? '待更新' : holdingDailyStatusBadge(r) || '<span class="muted">—</span>'}</span></div>
           <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(r))}</span></div>
           <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(r))}</span></div>
@@ -125,7 +149,7 @@ function renderRows(rows, options = {}){
           <div><strong>现价</strong><span class="mono">${esc(holdingPriceText(r))}</span></div>
           <div><strong>数据</strong><span>${dataBadge(r)}</span></div>
           ${snapshotQuoteDate(r) ? `<div><strong>行情日期</strong><span>${esc(snapshotQuoteDate(r))}</span></div>` : ''}
-          <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(r, floatPnl, realizedPnl(r), totalPnl)}</span></div>
+          ${totalPnl == null ? '' : `<div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(r, floatPnl, realized, totalPnl)}</span></div>`}
         </div>
       </td>
     `;
@@ -142,6 +166,10 @@ function renderRows(rows, options = {}){
 }
 
 function holdingSyncTime(row) {
+  if (row.reference_as_of) {
+    const date = esc(row.reference_as_of);
+    return `<span class="mobileHoldingSync">历史参考 · <time datetime="${date}">${date}</time></span>`;
+  }
   const rows = row.__accountRows || [row];
   const balanceDate = rows.length === 1 ? String(rows[0].balance_as_of || '') : '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(balanceDate)) {
@@ -167,39 +195,34 @@ function holdingSyncTime(row) {
   return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">${short}</time></span>`;
 }
 
-function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
+function renderMobileHoldingRows(rows, { total }) {
   const el = document.getElementById('mobileHoldingList');
   if (!el) return;
 
   const displayRows = aggregateMobileHoldingRows(rows);
   if (!rows.length) {
-    el.innerHTML = hasReferences ? '' : '<div class="mobileEmpty">暂无持仓</div>';
+    el.innerHTML = '<div class="mobileEmpty">暂无持仓</div>';
     return;
   }
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
-    const value = safeNum(cnyValue(r, 'market_value'));
-    const costValue = holdingCostValue(r);
-    const floatPnl = currentFloatPnl(r);
-    const totalPnl = cumulativePnl(r);
-    const dailyPnl = displayDailyPnl(r);
-    const dailyPending = holdingDailyPnlPending(r);
+    const { value, valueLabel, costValue, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
     const dailyBreakdown = dailyPnlBreakdown(r);
     const changePct = holdingPriceChangePct(r);
     const name = shortHoldingName(r);
     const isCash = holdingGroupLabel(r) === '现金/活期';
     const cashNative = safeNum(r.market_value_native ?? r.market_value);
-    const quoteSub = isCash
+    const quoteSub = r.reference_as_of ? formatCompactCurrency(value) : isCash
       ? (String(r.currency || 'CNY').toUpperCase() === 'CNY' ? '' : formatNumber(cashNative, 2))
       : holdingPriceText(r);
     const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
     const quantityText = holdingQuantityText(r);
     const quoteItems = [
       quantityText === '--' ? '' : `<span><em>份数</em><strong class="mono">${esc(quantityText)}</strong></span>`,
-      quoteSub ? `<span><em>${isCash ? '本币' : '现价'}</em><strong class="mono">${esc(quoteSub)}</strong></span>` : '',
+      quoteSub ? `<span><em>${r.reference_as_of ? valueLabel : isCash ? '本币' : '现价'}</em><strong class="mono">${esc(quoteSub)}</strong></span>` : '',
     ].filter(Boolean).join('<i aria-hidden="true">·</i>');
     const quoteLine = quoteItems ? `<span class="mobileHoldingQuoteLine">${quoteItems}</span>` : '';
-    const dailyChange = isCash ? '' : `<small class="mobileHoldingChangePct mono ${dailyPending ? '' : quoteTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : signedPercentText(changePct)}</small>`;
+    const dailyChange = isCash || dailyPnl == null ? '' : `<small class="mobileHoldingChangePct mono ${dailyPending ? '' : quoteTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : signedPercentText(changePct)}</small>`;
     return `
       <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${esc(r.name || name)}">
         <span class="mobileHoldingMain">
@@ -217,17 +240,17 @@ function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
         <span class="mobileHoldingMetrics">
           <span class="mobileHoldingMetric">
             <em>持仓成本</em>
-            <strong class="mono">${formatCompactCurrency(costValue)}</strong>
+            <strong class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</strong>
           </span>
           <span class="mobileHoldingMetric">
             <em>累计盈亏</em>
-            <strong class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</strong>
+            <strong class="mono ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</strong>
             ${hasRealizedPnl(r) ? `<small class="mobileHoldingFxImpact">${realizedPnlNote(r)}</small>` : ''}
           </span>
           <span class="mobileHoldingMetric">
             <em${r.__dailyReturnNote ? ` title="${esc(r.__dailyReturnNote)}"` : ''}>${esc(r.__dailyReturnLabel || '今日盈亏')}</em>
             <span class="mobileHoldingDailyLine">
-              <strong class="mono ${dailyPending ? '' : signedMoneyClass(dailyPnl)}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatSignedCurrency(dailyPnl)}</strong>
+              <strong class="mono ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</strong>
               ${dailyChange}
             </span>
             ${dailyBreakdown ? `<small class="mobileHoldingFxImpact">${esc(dailyBreakdown)}</small>` : ''}
@@ -239,14 +262,8 @@ function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
   el.querySelectorAll('[data-mobile-holding-index]').forEach((node) => {
     bindRow(node, 'click', () => {
       const row = datedReturnRow(displayRows[Number(node.dataset.mobileHoldingIndex)]);
-      const value = safeNum(cnyValue(row, 'market_value'));
-      const weight = total > 0 ? value / total * 100 : 0;
+      const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(row, total);
       const changePct = holdingPriceChangePct(row);
-      const floatPnl = currentFloatPnl(row);
-      const realized = realizedPnl(row);
-      const totalPnl = cumulativePnl(row);
-      const dailyPnl = displayDailyPnl(row);
-      const dailyPending = holdingDailyPnlPending(row);
       const priceDailyPnl = safeNum(cnyValue(row, 'daily_pnl'));
       const detailNativeDaily = dailyNativeText(row);
       const detailFxDaily = dailyFxText(row);
@@ -262,15 +279,15 @@ function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
         <div class="rowDetailGrid">
           <div><strong>名称</strong><span>${esc(row.name || row.symbol || '缺数据')}</span></div>
           <div><strong>类别</strong><span>${esc(holdingGroupLabel(row))}</span></div>
-          <div><strong>持仓占比</strong><span class="mono">${total == null ? '—' : `${weight.toFixed(1)}%`}</span></div>
-          <div><strong>账户</strong><span>${esc(accountLabel(row.account || row.account_code || '') || '缺数据')}</span></div>
+          <div><strong>持仓占比</strong><span class="mono">${weight}</span></div>
+          <div><strong>账户</strong><span>${esc(holdingAccountName(row) || '缺数据')}</span></div>
           <div><strong>币种</strong><span>${esc(row.currency || 'CNY')}</span></div>
-          <div><strong>市值</strong><span class="mono">${formatCompactCurrency(value)}</span></div>
-          <div><strong>剩余成本</strong><span class="mono">${formatCompactCurrency(cnyValue(row, 'cost'))}</span></div>
-          <div><strong>当前浮盈</strong><span class="mono ${signedMoneyClass(floatPnl)}">${formatSignedCurrency(floatPnl)}</span></div>
-          <div><strong>已实现</strong><span class="mono ${signedMoneyClass(realized)}">${formatSignedCurrency(realized)}</span></div>
-          <div><strong>累计盈亏</strong><span class="mono ${signedMoneyClass(totalPnl)}">${formatSignedCurrency(totalPnl)}</span></div>
-          <div><strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(dailyPnl)}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '待更新' : formatSignedCurrency(dailyPnl)}</span></div>
+          <div><strong>${valueLabel}</strong><span class="mono">${formatCompactCurrency(value)}</span></div>
+          <div><strong>剩余成本</strong><span class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</span></div>
+          <div><strong>当前浮盈</strong><span class="mono ${pnlTone(floatPnl)}">${pnlText(floatPnl)}</span></div>
+          <div><strong>已实现</strong><span class="mono ${pnlTone(realized)}">${pnlText(realized)}</span></div>
+          <div><strong>累计盈亏</strong><span class="mono ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</span></div>
+          <div><strong>${esc(row.__dailyReturnLabel || '今日盈亏')}</strong><span class="mono ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</span></div>
           <div><strong>收益状态</strong><span>${dailyPending ? '待更新' : holdingDailyStatusBadge(row) || '<span class="muted">—</span>'}</span></div>
           ${hasDailyTotalPnl(row) ? `<div><strong>价格影响</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(priceDailyPnl)}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : formatSignedCurrency(priceDailyPnl)}</span></div>` : ''}
           ${detailNativeDaily ? `<div><strong>${row.__dailyReturnDate ? `本币${esc(row.__dailyReturnDate.slice(5).replace('-', '/'))}` : '本币今日'}</strong><span class="mono">${esc(detailNativeDaily)}</span></div>` : ''}
@@ -282,7 +299,7 @@ function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
           <div><strong>涨跌幅</strong><span class="mono ${dailyPending ? '' : Number(changePct) >= 0 ? 'up' : 'down'}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : signedPercentText(changePct)}</span></div>
           <div><strong>数据</strong><span>${dataBadge(row)}</span></div>
           ${snapshotQuoteDate(row) ? `<div><strong>行情日期</strong><span>${esc(snapshotQuoteDate(row))}</span></div>` : ''}
-          <div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(row, floatPnl, realized, totalPnl)}</span></div>
+          ${totalPnl == null ? '' : `<div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(row, floatPnl, realized, totalPnl)}</span></div>`}
           ${accountBreakdown}
         </div>
       `;
@@ -291,20 +308,5 @@ function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
   });
 }
 
-function renderReferences(references) {
-  const section = document.getElementById('historicalHoldingReferences');
-  if (!section) return;
-  section.hidden = references.length === 0;
-  section.innerHTML = references.map(row => {
-    const value = new Intl.NumberFormat('zh-CN', {style: 'currency', currency: row.currency}).format(row.value);
-    return `<div class="historicalHoldingReference">
-      <strong>${esc(row.name)}</strong>
-      <strong class="mono">${esc(value)}</strong>
-      <small>${esc(row.account_name)} · ${esc(row.category)}</small>
-      <small>历史参考 · <time datetime="${esc(row.as_of)}">${esc(row.as_of)}</time></small>
-    </div>`;
-  }).join('');
-}
-
-return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, renderReferences, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
+return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
 }

@@ -1,6 +1,6 @@
 import {
   esc, holdingGroupLabel, holdingGroupRank, buildAccountCashRows,
-  isInvestmentRow
+  isInvestmentRow, historicalReferenceRow
 } from './list_legacy_model.js';
 import {
   createListView
@@ -28,7 +28,7 @@ export function mount(root, context) {
   const { withClosedParam } = closed;
   const details = createOwnedDetails(context.showDetails, context.closeDetails);
   const view = createListView({document, host: window, showDetails: details.show, scope});
-  const { renderRows, renderReferences } = view;
+  const { renderRows } = view;
   const memory = pageMemory(window);
   const variant = window.location.search;
   const isHoldings = () => ['', '#holdings-smart-table'].includes(window.location.hash);
@@ -46,14 +46,14 @@ export function mount(root, context) {
   let releaseGroupFilter = () => {};
 function setupHoldingGroupFilter(allRows, { cashPending = false, references = [] } = {}) {
   releaseGroupFilter();
+  const displayRows = [...allRows, ...references.map(historicalReferenceRow)];
   const sel = document.getElementById('holdingGroupFilter');
   const chips = document.getElementById('mobileHoldingFilterChips');
   if (!sel) {
-    renderRows(allRows, { totalRows: allRows, showGroupRows: true, cashPending });
-    renderReferences(references);
+    renderRows(displayRows, { totalRows: allRows, showGroupRows: true, cashPending });
     return;
   }
-  const groups = Array.from(new Set([...allRows.map(holdingGroupLabel), ...references.map(row => row.category)]))
+  const groups = Array.from(new Set(displayRows.map(holdingGroupLabel)))
     .sort((a, b) => holdingGroupRank(a) - holdingGroupRank(b) || a.localeCompare(b, 'zh-CN'));
   sel.innerHTML = '';
   const allLabel = '全部';
@@ -91,10 +91,8 @@ function setupHoldingGroupFilter(allRows, { cashPending = false, references = []
     const selected = selectedGroup === allLabel ? allLabel : sel.value;
     selectedGroup = selected || allLabel;
     currentGroup = selectedGroup;
-    const rows = selectedGroup === allLabel ? allRows : allRows.filter((row) => holdingGroupLabel(row) === selectedGroup);
-    const visibleReferences = selectedGroup === allLabel ? references : references.filter(row => row.category === selectedGroup);
-    renderRows(rows, { totalRows: allRows, showGroupRows: false, cashPending, hasReferences: visibleReferences.length > 0 });
-    renderReferences(visibleReferences);
+    const rows = selectedGroup === allLabel ? displayRows : displayRows.filter((row) => holdingGroupLabel(row) === selectedGroup);
+    renderRows(rows, { totalRows: allRows, showGroupRows: false, cashPending });
     renderChips();
     window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: selectedGroup, sourceRoot: root } }));
   };

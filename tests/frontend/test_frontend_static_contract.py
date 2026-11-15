@@ -304,11 +304,11 @@ def test_mobile_holdings_primary_amount_uses_cost_basis() -> None:
 
     assert "function holdingCostValue(row)" in js
     assert "return safeNum(cnyValue(row, 'cost'))" in js
-    assert "const costValue = holdingCostValue(r)" in mobile_renderer
+    assert "costValue" in mobile_renderer
+    assert "holdingMetrics(r, total)" in mobile_renderer
     assert "<em>持仓成本</em>" in mobile_renderer
     assert "formatCompactCurrency(costValue)" in mobile_renderer
     assert "<em>持有金额</em>" not in mobile_renderer
-    assert "formatCompactCurrency(value)" not in mobile_renderer
 
 
 def test_a_stock_account_total_pnl_drives_profile_summary() -> None:

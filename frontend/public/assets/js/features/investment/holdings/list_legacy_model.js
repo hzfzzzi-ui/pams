@@ -328,8 +328,21 @@ export function buildAccountCashRows(accountValues, existingRows) {
   return {rows, missing};
 }
 
+export function historicalReferenceRow(reference) {
+  return {
+    account_code: reference.account_code,
+    account_name: reference.account_name,
+    symbol: reference.symbol,
+    name: reference.name,
+    currency: reference.currency,
+    minor_category: reference.category,
+    market_value_cny: reference.value,
+    reference_as_of: reference.as_of,
+  };
+}
+
 export function shouldAggregateForMobile(row) {
-  return holdingGroupLabel(row) === 'A股基金';
+  return !row.reference_as_of && holdingGroupLabel(row) === 'A股基金';
 }
 
 export function aggregateMobileHoldingRows(rows) {
