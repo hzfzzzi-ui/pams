@@ -186,6 +186,8 @@ accounts:
     reconcile_method: position_nav
     nature_label: 基金持仓
     role: 建行渠道基金持仓
+    # 旧库最后一个持仓快照所属日，与余额参考日和迁入日期分别保存。
+    historical_sync_as_of: 2026-10-30
     manual_balance:
       amount: 22488.13
       currency: CNY
@@ -196,6 +198,7 @@ accounts:
   ccb_fund_subscription_pending:
     display_name: 建行基金申购在途
     account_type: bridge
+    show_in_account_center: false
     parent_account_code: ccb
     institution: 建设银行
     base_currency: CNY
@@ -221,6 +224,7 @@ accounts:
     reconcile_method: position_nav
     nature_label: 黄金积存金
     role: 建行黄金积存金
+    historical_sync_as_of: 2026-10-30
     manual_balance:
       amount: 9852.10
       currency: CNY

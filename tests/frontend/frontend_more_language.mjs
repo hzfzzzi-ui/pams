@@ -18,7 +18,8 @@ const sync = {groups: [
       review_reasons:[{kind:'duplicates',count:101}]}},
   ]},
   {code:'legacy',label:'合成旧账户',rows:[
-    {account_code:'fixture_legacy',label:'很长的合成外币账户名称',currency:'MXN',summary:{status:'stale',balance_amount:null}},
+    {account_code:'fixture_legacy',label:'很长的合成外币账户名称',currency:'MXN',
+      summary:{status:'stale',balance_amount:null,last_synced_on:'2026-10-30'}},
   ]},
   {code:'ibkr',label:'合成券商',rows:[
     {account_code:'tonghuashun',active:true,label:'合成 A 股账户',currency:'CNY',summary:{status:'normal',
@@ -117,7 +118,7 @@ try{
   assert.equal(await account.locator('[data-status="review"]').count(),1);
   await page.waitForFunction(() => document.querySelector('[data-institution="ccb"] img')?.naturalWidth === 100);
   assert.equal(await page.locator('[data-institution="legacy"] img').count(),0);
-  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','超月未同步','正常','正常']);
+  assert.deepEqual(await page.locator('.accountSyncBadge').allTextContents(),['正常','待核查','待刷新','正常','正常']);
   assert.deepEqual(await page.locator('.accountSyncEntry:visible').first().locator('.accountSyncMetadata dd').allTextContents(),
     ['2026-11-01','2026-11-07 17:33']);
   assert.deepEqual(await page.locator('.accountSyncAmount').evaluateAll(nodes=>nodes.map(n=>n.dataset.sign)),['positive','negative','neutral','positive','positive']);
@@ -126,6 +127,7 @@ try{
   assert.deepEqual(await page.locator('.accountSyncAmount').allTextContents().then(values=>values.slice(3)),['¥1,434.56','¥6,890.12']);
   assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
   for (const [code, values] of [
+    ['fixture_legacy', ['最近交易', '—', '上次同步', '2026-10-30']],
     ['tonghuashun', ['最近交易', '2026-10-23', '估值更新', '2026-11-05 21:26']],
     ['ibkr', ['最近交易', '—', '估值更新', '2026-11-06 10:30']],
   ]) {

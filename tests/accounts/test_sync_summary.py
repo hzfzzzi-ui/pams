@@ -46,6 +46,53 @@ def test_no_successful_sync_does_not_report_normal():
     assert result["review_reasons"] == [{"kind": "no_sync"}]
 
 
+def test_account_center_keeps_legacy_sync_date_separate_from_import_and_balance(monkeypatch):
+    imported_at = datetime.fromisoformat("2026-11-15T11:24:00+08:00")
+    reference_day = date(2026, 6, 2)
+    sync_day = date(2026, 10, 30)
+
+    class Clock:
+        @staticmethod
+        def now(zone):
+            return imported_at.astimezone(zone)
+
+    class Cursor:
+        def execute(self, query, params=None):
+            self.rows = ([{"account_code": "recovered_fund", "synced_at": imported_at}]
+                         if "FROM public.source_records" in query else [])
+            if params:
+                assert "closed_bridge" not in params[0]
+
+        def fetchall(self):
+            return self.rows
+
+    monkeypatch.setattr(sync_status, "datetime", Clock)
+    monkeypatch.setattr(sync_status, "summaries", lambda cur, active: {})
+    monkeypatch.setattr(sync_status, "SourceOriginals", lambda cur: None)
+    monkeypatch.setattr(sync_status, "load_cash_rows", lambda *args, **kwargs: [])
+    monkeypatch.setattr(sync_status, "statement_balances", lambda *args, **kwargs: {})
+    monkeypatch.setattr(sync_status, "_manual_position_value", lambda *args: None)
+    fund = {"account_type": "fund_platform", "truth_source": "manual", "reconcile_method": "position_nav",
+            "historical_sync_as_of": sync_day, "manual_balance": {"amount": "100", "as_of": reference_day}}
+    config = {"accounts": {
+        "recovered_fund": fund,
+        "reference_only": fund,
+        "closed_bridge": {"account_type": "bridge", "show_in_account_center": False},
+        "inactive": {"active": False},
+    }}
+
+    groups = sync_status.read_account_sync(Cursor(), config)["groups"]
+    rows = {row["account_code"]: row["summary"] for group in groups for row in group["rows"]}
+    assert set(rows) == {"recovered_fund", "reference_only", "inactive"}
+    assert rows["inactive"]["status"] == "inactive"
+    for code in ("recovered_fund", "reference_only"):
+        assert rows[code]["status"] == "stale"
+        assert rows[code]["last_synced_at"] is None
+        assert rows[code]["last_synced_on"] == sync_day
+        assert rows[code]["balance_as_of"] == reference_day
+        assert rows[code]["balance_amount"] == "100"
+
+
 def test_account_center_uses_the_same_amount_field_for_snapshot_and_statement():
     now = datetime.fromisoformat("2026-11-08T09:00:00+08:00")
     day = date(2026, 11, 2)
