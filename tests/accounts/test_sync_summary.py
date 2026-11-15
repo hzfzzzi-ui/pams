@@ -17,6 +17,7 @@ def test_summary_uses_confirmed_sources_and_preserves_unknown_balance():
     assert _compact_summary(row, published, liability=False, now=published) == {
         "status": "normal", "balance_amount": None, "latest_trade_on": "2026-11-02",
         "last_synced_at": published, "review_reasons": [],
+        "latest_source_on": "2026-11-02", "latest_cashflow_on": date(2026, 11, 1),
     }
 
 

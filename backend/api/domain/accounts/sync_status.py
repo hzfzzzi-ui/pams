@@ -3,7 +3,7 @@
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from domain.accounts.account_identity import account_display
@@ -14,7 +14,7 @@ from domain.imports.account_import_statement import profiles as statement_profil
 from domain.imports.account_import_store import supported_import_modes
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
-from domain.investments.portfolio_state import _excluded_accounts
+from domain.investments.portfolio_state import _excluded_accounts, _owner_ratio
 from domain.investments.trade_read_v2 import load_trade_rows
 from domain.investments.valuation_input_evidence import current_holding_source
 from domain.ledger.cashflow_read_v2 import load_cash_rows
@@ -131,6 +131,50 @@ def _manual_position_value(cur, account_code, day):
     }
 
 
+def _historical_position_reference(config, account_code, cfg, today):
+    manual = cfg.get('manual_balance') or {}
+    currency = str(manual.get('currency') or cfg.get('base_currency') or 'CNY').upper()
+    if currency != 'CNY':
+        return None
+    try:
+        amount = Decimal(str(manual.get('amount')))
+        as_of = date.fromisoformat(str(manual.get('as_of')))
+    except (InvalidOperation, ValueError):
+        return None
+    if not amount.is_finite() or amount < 0 or as_of > today:
+        return None
+    return {
+        'balance_amount': str(amount * _owner_ratio(config, account_code)),
+        'balance_currency': currency,
+        'balance_label': '历史参考余额',
+        'balance_basis': 'manual_position_reference',
+        'balance_as_of': as_of,
+    }
+
+
+def _position_balance_summary(cur, config, account_code, cfg, today):
+    account_type = cfg.get('account_type')
+    if (account_type not in {'brokerage', 'fund_platform'}
+            or cfg.get('truth_source') != 'manual'
+            or cfg.get('reconcile_method') != 'position_nav'
+            or cfg.get('base_currency', 'CNY') != 'CNY'):
+        return None
+    reference = (_historical_position_reference(config, account_code, cfg, today)
+                 if account_type == 'fund_platform' else None)
+    position = _manual_position_value(cur, account_code, today)
+    if position and (reference is None or position['position_as_of'] >= reference['balance_as_of']):
+        if account_type == 'fund_platform':
+            ratio = _owner_ratio(config, account_code)
+            position = {
+                **position,
+                **{key: str(Decimal(position[key]) * ratio)
+                   for key in ('balance_amount', 'position_value', 'position_debt') if position.get(key) is not None},
+                'balance_as_of': position['position_as_of'],
+            }
+        return position
+    return reference
+
+
 def review_records(cur, config, account_code, kind, offset):
     """List the records behind an evidence warning using the same scope as the summary."""
     account = config.get('accounts', {}).get(account_code)
@@ -220,10 +264,8 @@ def read_account_sync(cur, config):
         }
         row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability',
                                           now=now, source_balance=source_balances.get(code))
-        if (row['active'] and row['summary']['balance_amount'] is None
-                and cfg.get('account_type') == 'brokerage' and cfg.get('truth_source') == 'manual'
-                and cfg.get('reconcile_method') == 'position_nav' and row['currency'] == 'CNY'):
-            position = _manual_position_value(cur, code, now.date())
+        if row['active'] and row['summary']['balance_amount'] is None:
+            position = _position_balance_summary(cur, config, code, cfg, now.date())
             if position:
                 row['summary'].update(position)
         group['rows'].append(row)

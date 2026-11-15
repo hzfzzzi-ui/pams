@@ -66,3 +66,30 @@ def test_manual_position_value_keeps_asset_and_debt_dates_separate(monkeypatch):
         'status': 'recorded' if ident == 1 else 'unknown',
     })
     assert sync_status._manual_position_value(Cursor(), 'manual_broker', debt_day) is None
+
+
+def test_fund_platform_shows_dated_reference_until_recorded_valuation(monkeypatch):
+    today = date(2026, 11, 15)
+    old = date(2026, 6, 2)
+    cfg = {
+        'account_type': 'fund_platform', 'truth_source': 'manual', 'reconcile_method': 'position_nav',
+        'owner_ratio': '0.5', 'manual_balance': {'amount': '1200.00', 'as_of': old},
+    }
+    config = {'accounts': {'fund': cfg}}
+    monkeypatch.setattr(sync_status, '_manual_position_value', lambda *args: None)
+    reference = sync_status._position_balance_summary(None, config, 'fund', cfg, today)
+    assert reference == {
+        'balance_amount': '600.000', 'balance_currency': 'CNY', 'balance_label': '历史参考余额',
+        'balance_basis': 'manual_position_reference', 'balance_as_of': old,
+    }
+    position = {'balance_amount': '710.00', 'position_as_of': today}
+    monkeypatch.setattr(sync_status, '_manual_position_value', lambda *args: position)
+    assert sync_status._position_balance_summary(None, config, 'fund', cfg, today) == {
+        **position, 'balance_amount': '355.000', 'balance_as_of': today,
+    }
+    position['position_as_of'] = date(2026, 6, 1)
+    assert sync_status._position_balance_summary(None, config, 'fund', cfg, today) == reference
+    monkeypatch.setattr(sync_status, '_manual_position_value', lambda *args: None)
+    for bad in ({'amount': 'NaN', 'as_of': old}, {'amount': '100'}, {'amount': '100', 'as_of': '2026-11-16'}):
+        cfg['manual_balance'] = bad
+        assert sync_status._position_balance_summary(None, config, 'fund', cfg, today) is None
