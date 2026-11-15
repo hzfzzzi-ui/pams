@@ -7,6 +7,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.accounts.account_identity import account_display
+from domain.accounts.balance_reference import historical_balance
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net
@@ -155,14 +156,18 @@ def _position_balance_summary(cur, config, account_code, cfg, today):
     return reference
 
 
-def _apply_position_balance(summary, position, cfg, today):
-    summary.update(position)
-    if position.get('balance_basis') != 'manual_position_reference':
+def _apply_balance_summary(summary, balance, cfg, today):
+    summary.update(balance)
+    basis = balance.get('balance_basis')
+    if basis not in {'manual_position_reference', 'historical_account_reference'}:
         return
 
     # Importing old transactions refreshes local records, not the source account.
+    source_day = cfg.get('historical_sync_as_of')
+    if source_day is None and basis == 'historical_account_reference':
+        source_day = balance['balance_as_of']
     try:
-        synced_on = date.fromisoformat(str(cfg.get('historical_sync_as_of')))
+        synced_on = date.fromisoformat(str(source_day))
     except ValueError:
         synced_on = None
     reasons = [reason for reason in summary['review_reasons'] if reason['kind'] != 'no_sync']
@@ -264,9 +269,14 @@ def read_account_sync(cur, config):
         row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability',
                                           now=now, source_balance=source_balances.get(code))
         if row['active'] and row['summary']['balance_amount'] is None:
-            position = _position_balance_summary(cur, config, code, cfg, now.date())
-            if position:
-                _apply_position_balance(row['summary'], position, cfg, now.date())
+            balance = _position_balance_summary(cur, config, code, cfg, now.date())
+            reference = cfg.get('account_balance_reference') or {}
+            if balance is None and reference.get('source'):
+                balance = historical_balance(reference, now.date(), _owner_ratio(config, code),
+                                             base_currency=cfg.get('base_currency'),
+                                             basis='historical_account_reference')
+            if balance:
+                _apply_balance_summary(row['summary'], balance, cfg, now.date())
         group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}

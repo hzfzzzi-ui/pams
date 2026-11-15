@@ -1,8 +1,9 @@
 """Read dated position references without publishing a holding or changing valuation."""
-from datetime import date
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+
+from domain.accounts.balance_reference import historical_balance
 
 
 REFERENCE_CATEGORIES = {'fund': 'A股基金', 'precious_metal': '贵金属'}
@@ -16,24 +17,8 @@ def position_reference_config(cfg):
 
 
 def historical_position_reference(cfg, today, owner_ratio):
-    manual = cfg.get('manual_balance') or {}
-    currency = str(manual.get('currency') or cfg.get('base_currency') or 'CNY').upper()
-    if currency != 'CNY':
-        return None
-    try:
-        amount = Decimal(str(manual.get('amount')))
-        as_of = date.fromisoformat(str(manual.get('as_of')))
-    except (InvalidOperation, ValueError):
-        return None
-    if not amount.is_finite() or amount < 0 or as_of > today:
-        return None
-    return {
-        'balance_amount': str(amount * owner_ratio),
-        'balance_currency': currency,
-        'balance_label': '历史参考余额',
-        'balance_basis': 'manual_position_reference',
-        'balance_as_of': as_of,
-    }
+    return historical_balance(cfg.get('manual_balance') or {}, today, owner_ratio,
+                              base_currency=cfg.get('base_currency'), basis='manual_position_reference')
 
 
 def _reference_row(row, cfg, day, owner_ratio):
