@@ -166,6 +166,36 @@ for (const fallback of [false, true]) {
   assert.equal(test.requests.length, 2);
 }
 
+for (const fallback of [false, true]) {
+  const test = await fixture({ fallback });
+  const controller = test.create();
+  const loading = controller.loadReturnsOnce();
+  const dates = ['2026-01-02', '2026-11-02', '2026-11-03', '2026-11-04'];
+  test.resolve(test.requests, nav, {rows: dates.map(date => ({date, display_return_rate: '0.1'}))});
+  await loading;
+  const button = key => test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === key);
+  button('a_fund').fire('click');
+  test.requests.find(request => request.url.includes('section=a_fund')).resolve({
+    rows: [],
+    estimated_series: {
+      method: 'fund_verified_trade_nav_replay', instrument_count: 6, source_from: dates[1],
+      rows: dates.map((date, i) => ({date, display_return_rate: i % 2 ? '0.01' : null})),
+    },
+  });
+  await settle();
+  const chart = test.window.__investmentReturnChart;
+  assert.equal(chart.options.scales.x.min, undefined);
+  button('total').fire('click');
+  assert.equal(chart.options.scales.x.min, '2026-11-02');
+  assert.equal(chart.options.scales.x.max, '2026-11-04');
+  assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_fund').data[2], null);
+  assert.match(test.elements.investmentReturnSeriesStatus.textContent, /2026-11-02 至 2026-11-04/);
+  button('total').fire('click');
+  assert.equal(chart.options.scales.x.min, undefined);
+  assert.equal(chart.options.scales.x.max, undefined);
+  controller.dispose();
+}
+
 {
   const test = await fixture();
   const controller = test.create();
