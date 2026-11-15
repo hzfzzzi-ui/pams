@@ -60,8 +60,6 @@ def test_account_center_keeps_legacy_sync_date_separate_from_import_and_balance(
         def execute(self, query, params=None):
             self.rows = ([{"account_code": "recovered_fund", "synced_at": imported_at}]
                          if "FROM public.source_records" in query else [])
-            if params:
-                assert "closed_bridge" not in params[0]
 
         def fetchall(self):
             return self.rows
@@ -80,7 +78,6 @@ def test_account_center_keeps_legacy_sync_date_separate_from_import_and_balance(
     config = {"accounts": {
         "recovered_fund": fund,
         "reference_only": fund,
-        "closed_bridge": {"account_type": "bridge", "show_in_account_center": False},
         "inactive": {"active": False},
         "benefit": benefit,
         "future_reference": {**benefit, "account_balance_reference": {**account_reference, "as_of": date(2026, 11, 16)}},

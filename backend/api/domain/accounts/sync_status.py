@@ -209,8 +209,7 @@ def read_account_sync(cur, config):
     registered = {row['account_code']: row['active'] for row in cur.fetchall()}
     statement_accounts = statement_profiles()
     excluded = _excluded_accounts(config) | {'ibkr_in_transit_mxn'}
-    accounts = {code: cfg for code, cfg in config.get('accounts', {}).items()
-                if code not in excluded and cfg.get('show_in_account_center', True)}
+    accounts = {code: cfg for code, cfg in config.get('accounts', {}).items() if code not in excluded}
     active = [code for code, cfg in accounts.items() if cfg.get('active', True) and registered.get(code, True)]
     source_status = summaries(cur, active)
     cur.execute("""SELECT account_code, MAX(updated_at) AS synced_at FROM public.source_records

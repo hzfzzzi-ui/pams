@@ -195,24 +195,6 @@ accounts:
       source: user_confirmed_fund_subscription
       note: 建行流水核对：110020 易沪深300 自 2025-12-15 至 2026-05-25 共 21 笔定投，累计扣款 21,000.00，未见赎回；2026-06-02 用户确认新增定投 1,000.00，确认份额 506.22，确认净值 1.9520，手续费 11.86，成交后份额 11,520.56，持仓市值更新为 22,488.13。
 
-  ccb_fund_subscription_pending:
-    display_name: 建行基金申购在途
-    account_type: bridge
-    show_in_account_center: false
-    parent_account_code: ccb
-    institution: 建设银行
-    base_currency: CNY
-    include_in_nav: true
-    truth_source: manual
-    reconcile_method: in_transit
-    role: 建行7332基金申购待确认
-    manual_balance:
-      amount: 0.00
-      currency: CNY
-      as_of: 2026-06-02
-      source: user_confirmed_fund_subscription_closed
-      note: 2026-06-02 用户确认 110020 易沪深300 1,000.00 已确认份额 506.22，确认净值 1.9520，手续费 11.86；016440 华夏中证红利质量ETF发起式联接A 5,000.00 已确认份额 4,093.79，单位净值 1.2199，手续费 5.99；建行基金申购在途余额已清零。
-
   ccb_gold_accumulation:
     display_name: 建行黄金积存金
     account_type: fund_platform
