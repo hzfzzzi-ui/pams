@@ -191,13 +191,15 @@ def reconstruct_fund_series(*, assets, trades, snapshots, marks, start, end, int
     values = {}
     flows = {}
     price_gaps = defaultdict(set)
+    accounts = {account for account, _ in included}
+    owner_ratios = {account: owner_ratio(account) for account in sorted(accounts)}
     for index, day in enumerate(sessions):
         value = flow = Decimal(0)
         known = bool(included)
         previous_session = sessions[index-1] if index else opening
         for (account, asset_id), (units, movements) in included.items():
             code = assets[asset_id]["primary_symbol"]
-            ratio = owner_ratio(account)
+            ratio = owner_ratios[account]
             flow += sum(amount for flow_day, amount in movements.items()
                         if previous_session < flow_day <= day) * ratio
             if units[day] == 0:

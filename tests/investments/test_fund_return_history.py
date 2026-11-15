@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 import sys
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend" / "api"))
 
@@ -21,11 +22,11 @@ def trade(day, kind, quantity, cash, **fields):
     }
 
 
-def preview(trades, marks, snapshots=()):
+def preview(trades, marks, snapshots=(), *, owner_ratio=lambda _: Decimal(1)):
     return reconstruct_fund_series(
         assets=ASSET, trades=trades, snapshots=snapshots,
         marks={("123456", day): Decimal(price) for day, price in marks.items()},
-        start=MON, end=FRI, interval="daily", owner_ratio=lambda _: Decimal(1),
+        start=MON, end=FRI, interval="daily", owner_ratio=owner_ratio,
     )
 
 
@@ -35,7 +36,10 @@ def test_opening_and_closed_positions_are_replayed_without_counting_subscription
         trade(MON, "fund_subscription", 20, -22, fund_pricing_date=TUE.isoformat()),
         trade(THU, "fund_redemption", 120, 144),
     ]
-    rows, gaps, anchor, covered = preview(trades, {OPEN: "1", MON: "1", TUE: "1.1", WED: "1.2"})
+    owner_ratio = Mock(return_value=Decimal(1))
+    rows, gaps, anchor, covered = preview(trades, {OPEN: "1", MON: "1", TUE: "1.1", WED: "1.2"},
+                                          owner_ratio=owner_ratio)
+    owner_ratio.assert_called_once_with("synthetic")
     assert (anchor, covered, gaps) == (OPEN, 1, [])
     assert [Decimal(row["net_flow"]) for row in rows] == [0, 22, 0, -144, 0]
     assert [Decimal(row["market_value"]) for row in rows] == [100, 132, 144, 0, 0]
