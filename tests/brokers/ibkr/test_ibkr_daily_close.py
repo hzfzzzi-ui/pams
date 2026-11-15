@@ -106,7 +106,8 @@ def test_account_center_uses_archived_nav_with_negative_cash_and_accruals(monkey
         "period_end": DAY, "sha256": digest, "updated_at": updated_at,
     })
     monkeypatch.setattr(value, "historical_fx", lambda cur, **kwargs: {"status": "ok", "rate": D("7")})
-    inputs = {"as_of": DAY, "base_currency": "CNY", "owner_ratio": D("0.5")}
+    inputs = {"as_of": DAY, "base_currency": "CNY", "owner_ratio": D("0.5"),
+              "evidence_mode": "official_broker_close", "scope_complete": True}
     assert value.read_account_portfolio_value(Cursor(), {"account_code": "ibkr"}, **inputs) == {
         "amount_base": "276.50", "cash_base": "-70.00", "position_value_base": "350.00",
         "leverage_ratio": pytest.approx(100 / 79), "as_of": DAY.isoformat(),

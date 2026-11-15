@@ -24,7 +24,7 @@ from tests.database.test_isolated_source_bootstrap import empty_source_db  # noq
     ('POST', '/investment/return-series/snapshot?start=2026-01-01', True),
 ])
 def test_account_overview_and_asset_read_same_snapshot(empty_source_db, monkeypatch, method, path, conflict):
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
     from endpoints.compatibility_routes import create_compatibility_router
     from domain.brokers.ibkr import ibkr_daily_close_read
 

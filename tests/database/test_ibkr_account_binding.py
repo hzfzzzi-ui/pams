@@ -57,7 +57,8 @@ def test_account_mapping_requires_separate_review_and_published_evidence(empty_s
                 assert row['daily_close']['identity_evidence']['authentication'] == 'unknown'
                 assert daily_close_account_identity(cur, source_account_id='U_OTHER', as_of=DAY)['status']=='unconfirmed'
                 assert daily_close_account_identity(cur, source_account_id=ACCOUNT, as_of=date(2026,10,23))['status']=='unconfirmed'
-        from endpoints import accounts
+        from domain.accounts import account_overview as accounts
+        from endpoints import accounts as account_routes
         from fastapi import FastAPI
         monkeypatch.setattr(accounts, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
         monkeypatch.setattr(accounts, '_load_accounts_config', lambda: {'accounts': {'ibkr': {
@@ -66,7 +67,7 @@ def test_account_mapping_requires_separate_review_and_published_evidence(empty_s
         monkeypatch.setattr(accounts, '_load_bank_config', lambda: {})
         monkeypatch.setattr(accounts, '_view_as_of', lambda: DAY)
         monkeypatch.setattr(portfolio_state, '_view_as_of', lambda: DAY)
-        app=FastAPI(); app.include_router(accounts.router,prefix='/api')
+        app=FastAPI(); app.include_router(account_routes.router,prefix='/api')
         with TestClient(app) as web:
             response=web.get('/api/accounts/overview')
             assert response.status_code == 200, response.text

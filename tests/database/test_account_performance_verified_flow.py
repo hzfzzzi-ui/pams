@@ -120,7 +120,7 @@ def test_published_account_and_report_prove_period_flow_and_returns(empty_source
         assert result['daily_pnl_evidence']['start']==previous.isoformat()
         assert result['daily_pnl_evidence']['source_sha256']
         assert result['total_pnl_basis']=='verified_anchor_period_not_inception'
-        from endpoints import accounts
+        from domain.accounts import account_overview as accounts
         monkeypatch.setattr(main,'get_conn',lambda:psycopg2.connect(**empty_source_db))
         monkeypatch.setattr(main,'_account_owner_ratio',lambda account:Decimal(1))
         monkeypatch.setattr(main,'_account_initial_capital_cny',lambda account:Decimal(1491))

@@ -239,7 +239,7 @@ def test_new_bank_sources_and_two_sided_confirmation(empty_source_db, monkeypatc
         workbench = web.get('/api/ledger/workbench', params={'month':day[:7]})
         assert workbench.status_code == 200 and workbench.json()['pending_transfer_count'] == 0
         from domain.ledger.ledger_view import _load_transfer_matches, _load_pending_transfer_cases
-        from endpoints.accounts import _fetch_transfer_rollups
+        from domain.accounts.account_overview import _fetch_transfer_rollups
         day_value = date.fromisoformat(day)
         with psycopg2.connect(**empty_source_db) as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')

@@ -213,7 +213,7 @@ def test_daily_original_bridges_use_event_day_fx_or_remain_unknown(empty_source_
                     if variant in {'complete','separate','independent_match'}:
                         assert flow1+flow2==0 and flow_cny==-100 and expected==313
     if variant in {'complete','missing_fx','independent_match','independent_conflict','independent_corrupt','independent_duplicate','reverse_conflict','different_account'}:
-        from endpoints import accounts
+        from domain.accounts import account_overview as accounts
         monkeypatch.setattr(main,'get_conn',lambda:psycopg2.connect(**empty_source_db))
         monkeypatch.setattr(main,'_account_owner_ratio',lambda account:Decimal(1))
         monkeypatch.setattr(main,'_account_initial_capital_cny',lambda account:Decimal(1491))

@@ -11,7 +11,7 @@ import psycopg2.extras
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend/api"))
-from endpoints import accounts
+from domain.accounts import account_overview as accounts
 from domain.brokers.ibkr import ibkr_daily_close_read as reader
 from domain.investments import portfolio_state
 from tests.brokers.ibkr.test_ibkr_daily_close_consumers import ACCOUNT, DAY, publish

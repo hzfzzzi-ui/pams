@@ -69,3 +69,7 @@ IBKR 每日持仓使用 API 容器中的 `IBKR_FLEX_TOKEN`、`PAMS_IBKR_HOLDINGS
 | .github/workflows/quality.yml | 测试、静态检查和候选镜像验证 |
 
 仓库不使用 VERSION 文件判断发布版本。开发进度与 CI 查询 GitHub，部署记录查询对应功能 PR 评论；实际镜像、配置和能力必须重新观察。
+
+账户归属以 `config/accounts.yaml` 为准：账户显式配置优先，其次是 `defaults.historical_owner_ratios` 中的旧账户代码映射，最后使用 `defaults.owner_ratio`（未配置时为 1）。归属为 0 时仍保留该值。
+
+`latest_position_evidence` 控制允许补入最新已知净资产展示的证据类型，不参与正式净资产发布。`account_center_balance: portfolio` 表示账户中心复用包含现金的持仓估值接口，估值来源由 `portfolio_value_evidence` 指定。

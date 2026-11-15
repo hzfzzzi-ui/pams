@@ -118,7 +118,8 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
     assert bucket['net_worth']==Decimal('1050')
     import main
     from domain.brokers.ibkr import ibkr_daily_close_read
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
+    from endpoints import accounts as account_routes
     day=date.fromisoformat(DAY)
     monkeypatch.setattr(ibkr_daily_close_read,'configured',lambda:False)
     monkeypatch.setattr(main,'get_conn',lambda:psycopg2.connect(**empty_source_db))
@@ -137,7 +138,7 @@ def test_full_empty_database_complete_scope_enables_account_nav(empty_source_db,
     monkeypatch.setattr(accounts,'_load_bank_config',lambda:{})
     monkeypatch.setattr(accounts,'_view_as_of',lambda:day)
     account_app=FastAPI()
-    account_app.include_router(accounts.router,prefix='/api')
+    account_app.include_router(account_routes.router,prefix='/api')
     with TestClient(account_app) as account_web:
         response=account_web.get('/api/accounts/overview')
         assert response.status_code==200,response.text

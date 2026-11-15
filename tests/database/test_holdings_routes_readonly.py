@@ -130,7 +130,7 @@ def test_snapshot_post_conflict_rolls_back_and_returns_retryable_response(empty_
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
     monkeypatch.setattr(main,'get_conn',lambda:psycopg2.connect(**empty_source_db))
-    monkeypatch.setattr(main.accounts_endpoint,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[]})
+    monkeypatch.setattr(main.account_overview,'_overview_payload',lambda cur=None, **kwargs:{'accounts':[]})
     monkeypatch.setattr(main,'_investment_return_view_as_of',lambda cur:date(2026,10,22))
     payload={'rows':[],'as_of':'2026-10-22'}
     monkeypatch.setattr(main,'_build_investment_return_series_payload',lambda *args,**kwargs:payload)
@@ -156,7 +156,7 @@ def test_us_snapshot_requires_the_requested_verified_broker_day(empty_source_db,
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
     monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
-    monkeypatch.setattr(main.accounts_endpoint, '_overview_payload', lambda **_: {'accounts': []})
+    monkeypatch.setattr(main.account_overview, '_overview_payload', lambda **_: {'accounts': []})
     monkeypatch.setattr(main, '_investment_return_view_as_of', lambda _: target)
     monkeypatch.setattr(main, '_apply_section_holdings_pnl_overlay', lambda _, **kwargs: kwargs['payload'])
     row = dict.fromkeys(('market_value', 'net_flow', 'cumulative_capital', 'capital_return_rate',

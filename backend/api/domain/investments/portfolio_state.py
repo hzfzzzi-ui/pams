@@ -20,6 +20,7 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
+from domain.accounts.account_policy import excluded_accounts as _excluded_accounts, owner_ratio as _owner_ratio
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.accounts.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
@@ -239,20 +240,6 @@ def _fx_precision(rates: dict[str, Decimal], currency: str, base_currency: str, 
     if rate_day is None or valuation_day is None:
         return 'unknown', rate_day
     return ('daily_exact' if str(rate_day)[:10] == str(valuation_day)[:10] else 'estimated'), rate_day
-
-
-def _excluded_accounts(account_cfg: dict[str, Any]) -> set[str]:
-    defaults = account_cfg.get("defaults") or {}
-    values: list[Any] = []
-    values.extend(account_cfg.get("excluded_accounts") or [])
-    values.extend(defaults.get("excluded_accounts") or [])
-    return {str(v).strip() for v in values if str(v).strip()}
-
-
-def _owner_ratio(account_cfg: dict[str, Any], account_code: str) -> Decimal:
-    defaults = account_cfg.get("defaults") or {}
-    cfg = (account_cfg.get("accounts") or {}).get(account_code) or {}
-    return Decimal(str(cfg.get("owner_ratio", defaults.get("owner_ratio", 1))))
 
 
 def _account_initial_capital_cny(account_cfg: dict[str, Any], account_code: str) -> Decimal | None:

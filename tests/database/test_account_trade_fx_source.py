@@ -236,7 +236,7 @@ def test_confirmed_full_account_snapshots_do_not_double_count_cash_flows(client,
     # Exercise the actual compatibility HTTP route with a stale configured
     # report: it may be shown as context but must never replace proven values.
     import main
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
     from fastapi.testclient import TestClient
     monkeypatch.setattr(main,'get_conn',lambda:psycopg2.connect(**params))
     monkeypatch.setattr(main,'_account_owner_ratio',lambda account:Decimal(1))

@@ -1,24 +1,15 @@
 import { isReadCancelled, readFallback } from '../../shared/read_scope.js';
 import { renderAccountSync } from './account_sync_view.js';
 
-const portfolioAccounts = new Set(['tonghuashun', 'ibkr']);
-
-function withPortfolioAmounts(groups, holdings) {
-  const entries = holdings?.base_currency === 'CNY' && Array.isArray(holdings.by_account) ? holdings.by_account : [];
-  const values = new Map(entries.map(row => [row.account_code, row]));
-  return groups.map(group => ({...group, rows: group.rows.map(row => {
-    if (!row.active || !portfolioAccounts.has(row.account_code)) return row;
-    const value = values.get(row.account_code);
-    const portfolio = value?.portfolio_value;
-    const fullAmount = value?.total_value_base;
-    const amount = portfolio?.amount_base ?? fullAmount ?? value?.known_value_base ?? null;
-    const label = portfolio?.status === 'cash_carried_forward' ? '组合估值' :
-      portfolio || fullAmount != null ? '组合价值' : '已覆盖市值';
-    return {...row, summary: {...row.summary, balance_amount: amount,
-      balance_currency: holdings?.base_currency, balance_as_of: portfolio?.as_of ?? value?.holdings_as_of,
-      valuation_updated_at: amount == null ? null : portfolio ? portfolio.updated_at : value?.holdings_updated_at,
-      balance_label: amount == null ? null : label}};
-  })}));
+function withPortfolioBalances(groups, holdings) {
+  const entries = Array.isArray(holdings?.by_account) ? holdings.by_account : [];
+  const balances = new Map(entries
+    .filter(row => row.account_center_balance)
+    .map(row => [row.account_code, row.account_center_balance]));
+  return groups.map(group => ({ ...group, rows: group.rows.map(row => {
+    const balance = row.active && balances.get(row.account_code);
+    return balance ? { ...row, summary: { ...row.summary, ...balance } } : row;
+  }) }));
 }
 
 export function createAccountSyncLoader(root, { reads, isActive, compact = false, openReview, openAccount, targetAccount, targetInstitution, onRendered }) {
@@ -36,7 +27,7 @@ export function createAccountSyncLoader(root, { reads, isActive, compact = false
           .catch(error => readFallback(error, null)) : null,
       ]);
       if (!isActive()) return;
-      const groups = compact ? withPortfolioAmounts(data.groups, holdings) : data.groups;
+      const groups = compact ? withPortfolioBalances(data.groups, holdings) : data.groups;
       renderAccountSync(panel, groups, (code, offset) => reads.get('bank-source-anomalies:' + code,
         '/api/sync/accounts/' + encodeURIComponent(code) + '/source-anomalies?offset=' + offset, { cache: false }),
       { compact, openReview, openAccount, targetAccount, targetInstitution });

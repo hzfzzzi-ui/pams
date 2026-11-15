@@ -51,7 +51,7 @@ export function mount(root, context = {}) {
     const selected = account();
     if (!selected) return [];
     // Older servers do not expose the capability list.
-    const modes = selected.import_modes ?? (selected.account_code === 'tencent_licaitong' ? ['ocr'] : IMPORT_MODES);
+    const modes = selected.import_modes ?? [];
     return modes.filter(mode => mode !== 'ocr' || state.caps?.ocr_available === true);
   }
   function selectAvailableMode(preferred = state.mode) {

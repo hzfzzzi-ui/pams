@@ -9,7 +9,8 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-from domain.investments.account_portfolio_value import read_account_portfolio_value
+from domain.investments.account_portfolio_value import account_center_balance, read_account_portfolio_value
+from domain.investments.portfolio_state import _load_accounts_config
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.portfolio_valuation_state import (
     is_published_valuation_fresh_for_date,
@@ -318,6 +319,7 @@ def build_holdings_by_account_payload(
         verified_fund_cash = _latest_licaitong_cash(
             cur, as_of=cash_view_as_of or view_as_of, owner_ratio=portfolio_owner_ratio,
         )
+    accounts = (_load_accounts_config().get("accounts") or {}) if portfolio_owner_ratio else {}
     items = []
     for raw in rows:
         item = {key: _norm(value) for key, value in raw.items()
@@ -327,13 +329,13 @@ def build_holdings_by_account_payload(
                         total_value_base=None, snapshot_scope_status='incomplete')
         if item.get('fx_missing_count'):
             item['fx_status'] = 'incomplete'
-        if portfolio_owner_ratio is not None and (
-            item['account_code'] == 'ibkr' or
-            (item['account_code'] == 'tonghuashun' and item['account_code'] in incomplete)
-        ):
+        account = accounts.get(item["account_code"]) or {}
+        evidence_mode = account.get("portfolio_value_evidence")
+        if portfolio_owner_ratio is not None and evidence_mode:
             portfolio = read_account_portfolio_value(
-                cur, raw, as_of=view_as_of, base_currency=base_currency,
+                cur, raw, evidence_mode=evidence_mode, as_of=view_as_of, base_currency=base_currency,
                 owner_ratio=portfolio_owner_ratio(item['account_code']),
+                scope_complete=item["account_code"] not in incomplete,
             )
             if portfolio is not None:
                 item['portfolio_value'] = portfolio
@@ -348,6 +350,8 @@ def build_holdings_by_account_payload(
                 item['fund_card_valuation'] = fund_card
                 if fund_card['status'] == 'confirmed_fund_and_cash':
                     item['portfolio_value'] = fund_card
+        if account.get("account_center_balance") == "portfolio":
+            item["account_center_balance"] = account_center_balance(item, base_currency)
         items.append(item)
 
     return {
