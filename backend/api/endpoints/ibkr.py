@@ -281,19 +281,40 @@ def ibkr_daily_holdings_sync(req: IBKRFlexSyncRequest, request: Request) -> dict
 
 @router.get("/cash-events/status")
 def ibkr_cash_event_status() -> dict[str, Any]:
+    from domain.brokers.ibkr import ibkr_daily_holdings as holdings, ibkr_history_backfill
+
     with closing(get_conn()) as conn:
         conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
         with conn:
+            if holdings.archive_account():
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    return ibkr_history_backfill.archived_fact_status(cur)
             return ibkr_cash_event_sync.status(conn)
 
 
 @router.post("/cash-events/sync")
-def ibkr_cash_event_sync_run(req: IBKRFlexSyncRequest) -> dict[str, Any]:
+def ibkr_cash_event_sync_run(req: IBKRFlexSyncRequest, request: Request) -> dict[str, Any]:
+    from hmac import compare_digest
+
+    from domain.brokers.ibkr import ibkr_daily_holdings as holdings, ibkr_history_backfill
+    from domain.imports import isolation
+
     if req.as_of is not None or req.align_to_latest_snapshot or req.expected_statement_reference is not None:
         raise HTTPException(status_code=422, detail="Cash events use published evidence and the configured cutoff")
     try:
         with closing(get_conn()) as conn:
+            if holdings.archive_account():
+                config = holdings.credentials()
+                provided = request.headers.get('X-PAMS-Holdings-Token', '')
+                if not config or not compare_digest(provided.encode(), config[3].encode()):
+                    raise HTTPException(403, "Archived fact synchronization is unavailable")
+                with isolation.account_import_scope(), conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    if not isolation.source_enabled(cur):
+                        raise HTTPException(403, "Source publication is unavailable")
+                    return ibkr_history_backfill.retry_archived_facts(cur, account=config[2])
             return ibkr_cash_event_sync.sync(conn)
+    except HTTPException:
+        raise
     except Exception as exc:
         # Do not return source attributes, database credentials, or provider errors.
         raise HTTPException(status_code=503, detail="Cash event sync failed; previous facts retained") from exc

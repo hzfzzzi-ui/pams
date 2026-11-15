@@ -28,6 +28,11 @@ class ReportValidationError(ValueError):
         self.reason = reason
 
 
+def archive_account():
+    """Return the configured account binding independently of write permission."""
+    return os.environ.get('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', '').strip()
+
+
 def credentials():
     from domain.imports import isolation, native_source
 
@@ -35,7 +40,7 @@ def credentials():
         return None
     token = os.environ.get('IBKR_FLEX_TOKEN', '').strip()
     query = os.environ.get('PAMS_IBKR_HOLDINGS_QUERY_ID', '').strip()
-    account = os.environ.get('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', '').strip()
+    account = archive_account()
     secret = os.environ.get('PAMS_IBKR_HOLDINGS_SYNC_TOKEN', '').strip()
     if token and re.fullmatch(r'[0-9]+', query) and account and len(secret) >= 32:
         return token, query, account, secret

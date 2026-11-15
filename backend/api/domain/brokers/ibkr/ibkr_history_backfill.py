@@ -251,6 +251,51 @@ def daily_facts_through(cur):
     return cur.fetchone()['through']
 
 
+def archived_fact_status(cur):
+    """Compare the published archive with the shared daily fact checkpoint."""
+    from domain.brokers.ibkr.ibkr_daily_holdings import last_publication
+
+    return _archived_fact_status(last_publication(cur), daily_facts_through(cur))
+
+
+def _archived_fact_status(archive, through):
+    day = archive['period_end'] if archive else None
+    pending = day is not None and (through is None or through < day)
+    return {
+        'status': 'ready' if archive else 'unavailable',
+        'broker_source': DAILY_FACTS_SOURCE,
+        'confirmed_day': day.isoformat() if day else None,
+        'source_sha256': archive['sha256'] if archive else None,
+        'facts_as_of': through.isoformat() if through else None,
+        'queued_day_count': int(pending),
+        'retryable_pending_count': 0,
+        'pending': [],
+        'reasons': [] if archive else ['missing_published_archive'],
+    }
+
+
+def retry_archived_facts(cur, *, account):
+    """Retry the latest immutable report with the normal daily fact publisher."""
+    from domain.brokers.ibkr.ibkr_daily_holdings import last_publication
+
+    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended('account-import:ibkr',0))")
+    archive = last_publication(cur)
+    status = _archived_fact_status(archive, daily_facts_through(cur))
+    if not status['queued_day_count']:
+        return {**status, 'facts_written': 0}
+    digest = archive['sha256']
+    content, verified = SourceOriginals(cur).read({
+        'sha256': digest, 'inline_original': False, 'source_account': 'ibkr',
+        'original_source_id': archive['source_id'],
+    })
+    if not verified:
+        return {**status, 'status': 'blocked', 'reason': 'unverified_archive_original', 'facts_written': 0}
+    result = publish_daily_facts(cur, content=bytes(content), account=account, digest=digest,
+                                 as_of=archive['period_end'])
+    return {**archived_fact_status(cur), **result,
+            'facts_written': sum(result.get(kind, {}).get('published', 0) for kind in FACT_TABLES)}
+
+
 def publish_daily_facts(cur, *, content, account, digest, as_of):
     """Process the report under the same account lock as its securities snapshot."""
     cur.execute("""SELECT MIN(period_start) AS start, MAX(period_end) AS through FROM public.source_records

@@ -15,9 +15,12 @@ def payload(**changes):
             "queued_day_count": 0, "retryable_pending_count": 0, "pending": [], **changes}
 
 
-def test_missing_fx_retries_without_touching_official_report_or_close_jobs(tmp_path, monkeypatch):
+@pytest.mark.parametrize("archive_enabled", [False, True])
+def test_missing_fx_retries_without_touching_official_report_or_close_jobs(tmp_path, monkeypatch, archive_enabled):
     module = _load_scheduler(monkeypatch)
-    monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED", "true")
+    monkeypatch.setenv("PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED", str(not archive_enabled).lower())
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_ENABLED", str(archive_enabled).lower())
+    monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "synthetic-archive-sync-token")
     state_path = tmp_path / "refresh.json"
     monkeypatch.setattr(module, "STATE_PATH", state_path)
     official = {"status": "success", "last_success_date": "2026-10-23", "recent_runs": []}
@@ -32,6 +35,9 @@ def test_missing_fx_retries_without_touching_official_report_or_close_jobs(tmp_p
         calls.append(method)
         if method == "post":
             assert kwargs["json"] == {}
+            assert kwargs["headers"] == (
+                {"X-PAMS-Holdings-Token": "synthetic-archive-sync-token"} if archive_enabled else {}
+            )
             if available[0]:
                 data.update(queued_day_count=0, retryable_pending_count=0, pending=[])
             return {"status": "success", "facts_written": int(available[0])}

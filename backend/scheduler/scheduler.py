@@ -283,8 +283,10 @@ def _cash_event_info(payload):
 
 def run_cash_event_confirmation(now=None):
     """Cash facts retry independently from already confirmed official close evidence."""
-    if not _env_bool("PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED"):
+    archive_enabled = _env_bool("PAMS_IBKR_HOLDINGS_SYNC_ENABLED")
+    if not (archive_enabled or _env_bool("PAMS_IBKR_CASH_EVENTS_SYNC_ENABLED")):
         return {"status": "skipped", "reason": "cash_event_sync_disabled"}
+    token = os.environ.get("PAMS_IBKR_HOLDINGS_SYNC_TOKEN", "").strip()
     def probe():
         value = _request_json("get", f"{API_BASE}/ibkr/cash-events/status", "IBKR cash fact status",
                               failure_details=True, max_attempts=1)
@@ -293,7 +295,8 @@ def run_cash_event_confirmation(now=None):
         return value
     def sync(_target):
         return _request_json("post", f"{API_BASE}/ibkr/cash-events/sync", "IBKR cash facts",
-                             json={}, failure_details=True, max_attempts=1)
+                             json={}, headers={"X-PAMS-Holdings-Token": token} if archive_enabled and token else {},
+                             failure_details=True, max_attempts=1)
     try:
         return FlexConfirmationJournal(STATE_PATH, key="ibkr_cash_events", probe_info=_cash_event_info).run(
             probe, sync, now=now)

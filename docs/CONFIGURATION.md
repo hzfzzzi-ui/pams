@@ -41,6 +41,8 @@
 
 IBKR 每日持仓使用 API 容器中的 `IBKR_FLEX_TOKEN`、`PAMS_IBKR_HOLDINGS_QUERY_ID` 与 `PAMS_IBKR_HOLDINGS_ACCOUNT_ID`。Query 需提供逐日账户报表、未平仓仓位汇总和按报告日的基础币种权益汇总。API 和调度容器设置同一随机 `PAMS_IBKR_HOLDINGS_SYNC_TOKEN`（至少 32 字符）。调度启用开关 `PAMS_IBKR_HOLDINGS_SYNC_ENABLED` 默认关闭，发布使用现有新库目标与发布门禁。存量新库先验证并执行独立的 085 归档结构升级，再切换应用镜像。
 
+每日持仓归档启用时，调度用同一令牌重试归档中尚未发布的交易和现金事实，复用已发布原件和每日事实检查点。旧报表现金任务开关仍控制旧报表模式。
+
 `PAMS_SCHEDULER_SKIP_STARTUP_REFRESH` 默认关闭；设为 `true` 时，仅跳过该进程启动时的即时行情、IBKR 和收盘补跑，正常定时任务仍按原计划运行，可能在启动后不久到期。该环境值在容器每次重启时仍会生效；如仅用于一次发布，应在下一次计划重建时移除，不能把它当作暂停定时任务或阻止财务写入的开关。
 
 ## 部署与挂载来源
