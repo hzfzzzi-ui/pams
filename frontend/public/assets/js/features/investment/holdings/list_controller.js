@@ -28,7 +28,7 @@ export function mount(root, context) {
   const { withClosedParam } = closed;
   const details = createOwnedDetails(context.showDetails, context.closeDetails);
   const view = createListView({document, host: window, showDetails: details.show, scope});
-  const { renderRows } = view;
+  const { renderRows, renderReferences } = view;
   const memory = pageMemory(window);
   const variant = window.location.search;
   const isHoldings = () => ['', '#holdings-smart-table'].includes(window.location.hash);
@@ -44,15 +44,16 @@ export function mount(root, context) {
   const initialGroup = context.state?.group || savedView?.group || document.getElementById('holdingGroupFilter')?.value;
   let currentGroup = initialGroup || '全部';
   let releaseGroupFilter = () => {};
-function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
+function setupHoldingGroupFilter(allRows, { cashPending = false, references = [] } = {}) {
   releaseGroupFilter();
   const sel = document.getElementById('holdingGroupFilter');
   const chips = document.getElementById('mobileHoldingFilterChips');
   if (!sel) {
     renderRows(allRows, { totalRows: allRows, showGroupRows: true, cashPending });
+    renderReferences(references);
     return;
   }
-  const groups = Array.from(new Set(allRows.map(holdingGroupLabel)))
+  const groups = Array.from(new Set([...allRows.map(holdingGroupLabel), ...references.map(row => row.category)]))
     .sort((a, b) => holdingGroupRank(a) - holdingGroupRank(b) || a.localeCompare(b, 'zh-CN'));
   sel.innerHTML = '';
   const allLabel = '全部';
@@ -91,7 +92,9 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
     selectedGroup = selected || allLabel;
     currentGroup = selectedGroup;
     const rows = selectedGroup === allLabel ? allRows : allRows.filter((row) => holdingGroupLabel(row) === selectedGroup);
-    renderRows(rows, { totalRows: allRows, showGroupRows: false, cashPending });
+    const visibleReferences = selectedGroup === allLabel ? references : references.filter(row => row.category === selectedGroup);
+    renderRows(rows, { totalRows: allRows, showGroupRows: false, cashPending, hasReferences: visibleReferences.length > 0 });
+    renderReferences(visibleReferences);
     renderChips();
     window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: selectedGroup, sourceRoot: root } }));
   };
@@ -109,6 +112,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
   async function load() {
     try {
       let sourceRows = [];
+      let references = [];
       let supplementFailed = false;
       const [holdings, accountValues] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
@@ -120,8 +124,9 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
           if (!scope.active) return;
           if (!remembered) document.getElementById('asof').textContent = holdings.as_of || '--';
           sourceRows = (holdings.rows || []).filter(isInvestmentRow);
+          references = holdings.historical_references || [];
           if (!remembered && sourceRows.length && (currentGroup === '全部' || sourceRows.some(row => holdingGroupLabel(row) === currentGroup))) {
-            setupHoldingGroupFilter(sourceRows, {cashPending: true});
+            setupHoldingGroupFilter(sourceRows, {cashPending: true, references});
           }
         },
       });
@@ -133,10 +138,10 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
       }
       const cash = buildAccountCashRows(accountValues, sourceRows);
       const rows = [...sourceRows, ...cash.rows];
-      setupHoldingGroupFilter(rows, {cashPending: cash.missing.length > 0});
+      setupHoldingGroupFilter(rows, {cashPending: cash.missing.length > 0, references});
       showCashStatus(cash.missing);
       document.getElementById('asof').textContent = holdings.as_of || '--';
-      if (!supplementFailed) memory?.write('rows', variant, {rows, asOf: holdings.as_of, missingCash: cash.missing});
+      if (!supplementFailed) memory?.write('rows', variant, {rows, references, asOf: holdings.as_of, missingCash: cash.missing});
       showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;
@@ -162,7 +167,9 @@ function setupHoldingGroupFilter(allRows, { cashPending = false } = {}) {
   context.bootstrap?.();
   if (remembered) {
     showRememberedData(refreshNote, 'refreshing');
-    setupHoldingGroupFilter(remembered.rows, {cashPending: Boolean(remembered.missingCash?.length)});
+    setupHoldingGroupFilter(remembered.rows, {
+      cashPending: Boolean(remembered.missingCash?.length), references: remembered.references,
+    });
     showCashStatus(remembered.missingCash);
     document.getElementById('asof').textContent = remembered.asOf || '--';
     restorePageScroll(window, savedView?.scroll, () => scope.active);

@@ -3,13 +3,14 @@
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.accounts.account_identity import account_display
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net
+from domain.accounts.position_reference import historical_position_reference
 from domain.imports.account_import_statement import profiles as statement_profiles
 from domain.imports.account_import_store import supported_import_modes
 from domain.imports.source_original_read import SourceOriginals
@@ -131,27 +132,6 @@ def _manual_position_value(cur, account_code, day):
     }
 
 
-def _historical_position_reference(config, account_code, cfg, today):
-    manual = cfg.get('manual_balance') or {}
-    currency = str(manual.get('currency') or cfg.get('base_currency') or 'CNY').upper()
-    if currency != 'CNY':
-        return None
-    try:
-        amount = Decimal(str(manual.get('amount')))
-        as_of = date.fromisoformat(str(manual.get('as_of')))
-    except (InvalidOperation, ValueError):
-        return None
-    if not amount.is_finite() or amount < 0 or as_of > today:
-        return None
-    return {
-        'balance_amount': str(amount * _owner_ratio(config, account_code)),
-        'balance_currency': currency,
-        'balance_label': '历史参考余额',
-        'balance_basis': 'manual_position_reference',
-        'balance_as_of': as_of,
-    }
-
-
 def _position_balance_summary(cur, config, account_code, cfg, today):
     account_type = cfg.get('account_type')
     if (account_type not in {'brokerage', 'fund_platform'}
@@ -159,7 +139,7 @@ def _position_balance_summary(cur, config, account_code, cfg, today):
             or cfg.get('reconcile_method') != 'position_nav'
             or cfg.get('base_currency', 'CNY') != 'CNY'):
         return None
-    reference = (_historical_position_reference(config, account_code, cfg, today)
+    reference = (historical_position_reference(cfg, today, _owner_ratio(config, account_code))
                  if account_type == 'fund_platform' else None)
     position = _manual_position_value(cur, account_code, today)
     if position and (reference is None or position['position_as_of'] >= reference['balance_as_of']):
