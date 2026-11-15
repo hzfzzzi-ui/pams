@@ -274,7 +274,8 @@ def _flex_diagnostic(job: dict, current: datetime, *, key: str = "ibkr_flex",
     return {**job, "display_detail": detail}, issues
 
 
-def scheduler_health(path: Path, now: datetime | None = None, *, archive_ibkr: bool = False) -> dict:
+def scheduler_health(path: Path, now: datetime | None = None, *, archive_ibkr: bool = False,
+                     archive_facts_verified: bool = False) -> dict:
     current = now or datetime.now(timezone.utc)
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -305,6 +306,8 @@ def scheduler_health(path: Path, now: datetime | None = None, *, archive_ibkr: b
         if archive_ibkr:
             jobs.pop("ibkr_flex", None)
             jobs.pop("ibkr_daily_close", None)
+            if archive_facts_verified:
+                jobs.pop("ibkr_cash_events", None)
         for key, label in (("ibkr_flex", "Flex 官方报告"), ("ibkr_daily_close", "IBKR 日结发布"),
                            ("ibkr_cash_events", "IBKR 资金事实"), ("ibkr_daily_holdings", "IBKR 持仓归档")):
             if key in jobs:

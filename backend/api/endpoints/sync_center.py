@@ -428,7 +428,8 @@ def sync_center() -> dict[str, Any]:
     next(row for row in rows if row["id"] == "market-us-stock")["coverage"] = _norm(us_stock["coverage"])
 
     health = scheduler_health(Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/scheduler-state/refresh.json")),
-                              archive_ibkr=archive_mode)
+                              archive_ibkr=archive_mode,
+                              archive_facts_verified=bool(archive_status and archive_status["facts_verified_for_target"]))
     rows.append(_row(
         id="automatic-refresh", source="自动收益刷新", sync_type="同步健康",
         latest_date=None, latest_time=health.get("latest_time"), rows=len(health["jobs"]),

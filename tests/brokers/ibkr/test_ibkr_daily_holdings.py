@@ -251,10 +251,22 @@ def test_daily_holdings_http_publishes_once(empty_source_db, monkeypatch):
         assert first.status_code == 200
         assert first.json()['published'] == 1
         assert client.get(f'{path}/status').json()['publication_verified'] is True
+        cash = client.get('/api/ibkr/cash-events/status').json()
+        assert cash['confirmed_day'] == DAY.isoformat()
+        assert cash['queued_day_count'] == 1  # Report lacks transaction sections.
+        assert client.post('/api/ibkr/cash-events/sync', json={}).status_code == 403
+        retry = client.post('/api/ibkr/cash-events/sync', json={}, headers=headers).json()
+        assert retry['reason'] == 'flex_fact_scope_unverified'
+        assert retry['facts_written'] == 0
+        with monkeypatch.context() as disabled:
+            disabled.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'false')
+            assert client.get('/api/ibkr/cash-events/status').json() == cash
+            assert client.post('/api/ibkr/cash-events/sync', json={}, headers=headers).status_code == 403
         assert client.post(f'{path}/sync', json=body, headers=headers).json()['replayed'] is True
         assert requests == ['1234']
 
 def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(empty_source_db, monkeypatch):
+    from domain.brokers.ibkr import ibkr_history_backfill as facts
     from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
     from domain.investments.ibkr_us_returns import build_verified_us_return
     from domain.investments.trade_read_v2 import load_trade_rows
@@ -314,9 +326,16 @@ def test_daily_increment_reuses_prior_official_facts_and_advances_the_cny_curve(
             digest = sha256(xml(opening)).hexdigest()
 
             rolling = xml(opening, addition)
-            next_run = publish(rolling, second)
-            assert next_run['facts']['trade'] == {'published': 1, 'duplicate': 1}
-            assert next_run['facts']['cash'] == {'published': 1, 'duplicate': 0}
+            with monkeypatch.context() as blocked:
+                blocked.setattr(facts, 'publish_daily_facts', lambda *a, **kw: {'status': 'blocked'})
+                assert publish(rolling, second)['facts']['status'] == 'blocked'
+            assert facts.archived_fact_status(cur)['facts_as_of'] == DAY.isoformat()
+            assert facts.archived_fact_status(cur)['queued_day_count'] == 1
+            next_run = facts.retry_archived_facts(cur, account=ACCOUNT)
+            assert next_run['trade'] == {'published': 1, 'duplicate': 1}
+            assert next_run['cash'] == {'published': 1, 'duplicate': 0}
+            assert next_run['facts_written'] == 2
+            assert facts.retry_archived_facts(cur, account=ACCOUNT)['facts_written'] == 0
             assert publish(rolling, second)['replayed']
             cur.execute("""INSERT INTO pams_fx_rates_daily(as_of,base_currency,quote_currency,rate,source)
                 VALUES (%s,'CNY','USD',6.9,'exchangerate-api')""", (second,))
