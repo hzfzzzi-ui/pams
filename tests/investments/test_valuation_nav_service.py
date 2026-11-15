@@ -86,6 +86,12 @@ def test_tonghuashun_estimates_use_balanced_cash_and_do_not_fill_missing_trading
     ]
     dates = [friday, saturday, monday]
     prices = {"sh000001": {friday: Decimal("1"), monday: Decimal("1")}, "sz000001": {friday: Decimal("12")}}
+    # A terminal Saturday still has the exact Friday close even before Monday's
+    # benchmark bar exists.
+    terminal_prices = {**prices, "sh000001": {friday: Decimal("1")}}
+    assert daily_estimates(events, terminal_prices, dates, {"000001": "sz000001"}) == {
+        friday: Decimal("108.69"), saturday: Decimal("108.69"),
+    }
     ths = ValuationEvidenceSeries(unknown_dates=dates)
     ths.preview_by_date = daily_estimates(events, prices, dates, {"000001": "sz000001"})
     assert ths.preview_by_date == {friday: Decimal("108.69"), saturday: Decimal("108.69")}
