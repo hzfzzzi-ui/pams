@@ -6,8 +6,6 @@ import logging
 from typing import Optional
 from decimal import Decimal
 
-import psycopg2
-import psycopg2.extras
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 

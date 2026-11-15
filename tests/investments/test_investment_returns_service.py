@@ -725,21 +725,6 @@ def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest
     assert "ibkr_history_missing:2026-05-10" in warnings
 
 
-def test_overlay_exact_snapshot_values_replaces_only_confirmed_dates(monkeypatch: pytest.MonkeyPatch):
-    dates = [date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)]
-
-    values = investment_returns._overlay_exact_snapshot_values(
-        FakeCursor([[{"as_of": dates[1], "value_cny": Decimal("125"), "row_count": 2}]]),
-        {dates[0]: Decimal("100"), dates[1]: Decimal("110"), dates[2]: Decimal("120")},
-        dates=dates,
-        base_currency="CNY",
-        owner_ratio_case_sql=_owner_ratio_case_sql,
-        account_codes=["tonghuashun"],
-    )
-
-    assert values == {dates[0]: Decimal("100"), dates[1]: Decimal("125"), dates[2]: Decimal("120")}
-
-
 def test_gold_proxy_adjustment_preserves_non_gold_precious_residual():
     sample_date = date(2026, 5, 27)
     cur = FakeCursor(
@@ -835,7 +820,6 @@ def test_build_section_return_series_payload_ignores_a_stock_reported_anchor_by_
     def fail_sparse_snapshot_overlay(*args, **kwargs):
         raise AssertionError("a_stock return series must not use sparse Tonghuashun snapshots")
 
-    monkeypatch.setattr(investment_returns, "_overlay_exact_snapshot_values", fail_sparse_snapshot_overlay)
     monkeypatch.setattr(investment_returns, "_overlay_terminal_exact_section_value", fail_sparse_snapshot_overlay)
 
     payload = build_section_return_series_payload(
@@ -1109,7 +1093,6 @@ def _patch_total_return_extras(
     section_amounts: dict[date, Decimal] | None = None,
 ):
     monkeypatch.setattr(investment_returns, "load_fx_timelines", lambda cur, base_currency: {"CNY": [(date(2026, 1, 2), Decimal("1"))]})
-    monkeypatch.setattr(investment_returns, "_overlay_exact_snapshot_values", lambda cur, values, **kwargs: values)
     monkeypatch.setattr(investment_returns, "_overlay_terminal_exact_section_value", lambda cur, values, **kwargs: values)
     monkeypatch.setattr(
         investment_returns,
@@ -1193,7 +1176,6 @@ def test_build_investment_return_series_payload_keeps_a_stock_net_liquidation(mo
     ]
 
     monkeypatch.setattr(investment_returns, "load_fx_timelines", lambda cur, base_currency: {"CNY": [(dates[-1], Decimal("1"))]})
-    monkeypatch.setattr(investment_returns, "_overlay_exact_snapshot_values", lambda cur, values, **kwargs: values)
 
     def fail_a_stock_terminal_overlay(cur, values, **kwargs):
         if kwargs.get("section") == "a_stock":

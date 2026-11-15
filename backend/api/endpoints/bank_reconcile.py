@@ -16,8 +16,6 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
-from domain.imports.isolation import source_enabled
-from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
 from domain.ledger.bank_statement_rules import (
     _classify as _classify, _classify_by_amount as _classify_by_amount,
     _classify_statement_row,
@@ -72,123 +70,6 @@ def _net_asset_balance(value: Any, account_kind: str | None) -> Decimal | None:
     if account_kind in LIABILITY_ACCOUNT_KINDS:
         return -abs(amount)
     return amount
-
-
-def _statement_snapshot_payload(result: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
-    """Build the holdings snapshot row implied by the latest statement balance."""
-    target = profile.get("pams_target") or {}
-    snapshot = target.get("snapshot") or {}
-    latest_balance = result.get("latest_balance")
-    latest_balance_date = result.get("latest_balance_date") or result.get("statement_end")
-    if not snapshot or latest_balance in (None, "") or latest_balance_date is None:
-        return None
-
-    net_balance = _net_asset_balance(
-        latest_balance,
-        result.get("account_kind") or profile.get("account_kind"),
-    )
-    if net_balance is None:
-        return None
-
-    asset_liability = str(snapshot.get("asset_liability") or ("负债" if net_balance < 0 else "资产"))
-    market_value = abs(net_balance) if asset_liability == "负债" else net_balance
-    rows = result.get("rows") or []
-    row_currency = rows[-1].get("currency") if rows and isinstance(rows[-1], dict) else None
-    currency = str(row_currency or profile.get("currency") or result.get("currency") or "CNY").upper()
-
-    return {
-        "account_code": str(target.get("account_code") or result.get("account_code") or profile.get("account_code")),
-        "display_name": str(target.get("display_name") or result.get("account_code") or profile.get("account_code")),
-        "is_asset": bool(target.get("is_asset", asset_liability != "负债")),
-        "symbol": snapshot.get("symbol"),
-        "name": str(snapshot.get("name") or target.get("display_name") or result.get("account_code")),
-        "asset_liability": asset_liability,
-        "currency": currency,
-        "major_category": str(snapshot.get("major_category") or "现金"),
-        "minor_category": str(snapshot.get("minor_category") or "现金/活期"),
-        "market_value": market_value,
-        "cost": market_value,
-        "as_of": latest_balance_date,
-    }
-
-
-def _sync_holding_snapshot_from_statement(cur, result: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
-    """Upsert the account-level holdings snapshot selected by bank reconciliation."""
-    payload = _statement_snapshot_payload(result, profile)
-    if payload is None:
-        return None
-    lock_holding_accounts(cur, [payload['account_code']])
-    isolated = source_enabled(cur)
-
-    cur.execute(
-        """
-        INSERT INTO pams_accounts (account_code, display_name, base_currency, is_asset, active)
-        VALUES (%s, %s, %s, %s, true)
-        ON CONFLICT (account_code) DO UPDATE SET
-            display_name = EXCLUDED.display_name,
-            base_currency = EXCLUDED.base_currency,
-            is_asset = EXCLUDED.is_asset,
-            active = true
-        """,
-        (
-            payload["account_code"],
-            payload["display_name"],
-            payload["currency"],
-            payload["is_asset"],
-        ),
-    )
-    if _table_exists(cur, "pams_asset_categories"):
-        cur.execute(
-            """
-            INSERT INTO pams_asset_categories (major_category, minor_category)
-            VALUES (%s, %s)
-            ON CONFLICT (major_category, minor_category) DO NOTHING
-            """,
-            (payload["major_category"], payload["minor_category"]),
-        )
-    if isolated:
-        prepare_holding_change(cur, account_code=payload['account_code'], name=payload['name'],
-                               as_of=payload['as_of'], source_item_id=None)
-    cur.execute(
-        """
-        INSERT INTO pams_holdings_snapshot (
-            symbol, name, asset_liability, currency, account_code,
-            major_category, minor_category, market_value, cost, as_of
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (account_code, name, as_of) DO UPDATE SET
-            symbol = EXCLUDED.symbol,
-            asset_liability = EXCLUDED.asset_liability,
-            currency = EXCLUDED.currency,
-            major_category = EXCLUDED.major_category,
-            minor_category = EXCLUDED.minor_category,
-            market_value = EXCLUDED.market_value,
-            cost = EXCLUDED.cost,
-            updated_at = NOW()
-        """ + (""" WHERE (pams_holdings_snapshot.symbol,pams_holdings_snapshot.asset_liability,
-            pams_holdings_snapshot.currency,pams_holdings_snapshot.major_category,pams_holdings_snapshot.minor_category,
-            pams_holdings_snapshot.market_value,pams_holdings_snapshot.cost)
-            IS DISTINCT FROM (EXCLUDED.symbol,EXCLUDED.asset_liability,EXCLUDED.currency,EXCLUDED.major_category,
-            EXCLUDED.minor_category,EXCLUDED.market_value,EXCLUDED.cost) RETURNING id""" if isolated else ""),
-        (
-            payload["symbol"],
-            payload["name"],
-            payload["asset_liability"],
-            payload["currency"],
-            payload["account_code"],
-            payload["major_category"],
-            payload["minor_category"],
-            payload["market_value"],
-            payload["cost"],
-            payload["as_of"],
-        ),
-    )
-    if isolated:
-        row = cur.fetchone()
-        if row:
-            identifier = row['id'] if isinstance(row, dict) else row[0]
-            finish_holding_change(cur, holding_id=identifier, source_item_id=None,
-                                  input_refs=[{'kind':'source_item', 'key':None, 'role':'bank_statement'}])
-    return payload
 
 
 def _load_config() -> dict[str, Any]:

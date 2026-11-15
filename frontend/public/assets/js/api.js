@@ -393,38 +393,6 @@ export function currencySymbol(currency = "CNY") {
   }[code] || `${code} `;
 }
 
-export function fmtCompactNumber(value, digits = 0) {
-  if (value == null || value === "") return "—";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
-  if (abs >= 1_000_000) {
-    return `${sign}${(abs / 1_000_000).toLocaleString("zh-CN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}M`;
-  }
-  if (abs >= 10_000) {
-    return `${sign}${(abs / 1_000).toLocaleString("zh-CN", {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
-    })}K`;
-  }
-  return `${sign}${abs.toLocaleString("zh-CN", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}`;
-}
-
-export function fmtMoneyCompact(value, currency = "CNY", digits = 0) {
-  return fmtMoneyFixed2(value, currency);
-}
-
-export function fmtSignedMoneyCompact(value, currency = "CNY", digits = 0) {
-  return fmtSignedMoneyFixed2(value, currency);
-}
-
 export function fmtMoneyFixed2(value, currency = "CNY") {
   if (value == null || value === "") return "—";
   const n = Number(value);
@@ -443,14 +411,4 @@ export function fmtSignedMoneyFixed2(value, currency = "CNY") {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-}
-
-export function fmtPercentCompact(value, digits = 1) {
-  if (value == null || value === "") return "—";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  return `${(n * 100).toLocaleString("zh-CN", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}%`;
 }

@@ -240,66 +240,6 @@ def _compound_reported_summary(
     }
 
 
-def _overlay_exact_snapshot_values(
-    cur,
-    values: dict[Date, Decimal],
-    *,
-    dates: list[Date],
-    base_currency: str,
-    owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
-    account_codes: list[str],
-) -> dict[Date, Decimal]:
-    """Use exact same-day account snapshots when they exist, keeping reconstructed gaps."""
-    adjusted = dict(values)
-    if not dates or not account_codes:
-        return adjusted
-    owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("h")
-    cur.execute(
-        f"""
-        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
-        SELECT h.as_of, CASE WHEN COUNT(*) FILTER (WHERE COALESCE(fx_identity.rate, fx_hist.rate) IS NULL)>0 THEN NULL ELSE SUM(
-            h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql}
-        ) END AS value_cny,
-        COUNT(*) AS row_count
-        FROM pams_holdings_snapshot h
-        JOIN complete_account_snapshot cas
-          ON cas.account_code = h.account_code
-         AND cas.as_of = h.as_of
-        LEFT JOIN LATERAL (
-            SELECT rate
-            FROM pams_fx_rates_daily fx
-            WHERE fx.base_currency = %s
-              AND fx.quote_currency = h.currency
-              AND fx.as_of = h.as_of
-              AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
-                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
-            ORDER BY fx.as_of DESC
-            LIMIT 1
-        ) fx_hist ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT CASE WHEN h.currency=%s THEN 1::numeric END AS rate
-        ) fx_identity ON TRUE
-        WHERE h.as_of = ANY(%s::date[])
-          AND h.account_code = ANY(%s::text[])
-          AND h.asset_liability = %s
-        GROUP BY h.as_of
-        """,
-        (
-            dates[-1],
-            *owner_ratio_params,
-            base_currency,
-            base_currency,
-            [d.isoformat() for d in dates],
-            account_codes,
-            "\u8d44\u4ea7",
-        ),
-    )
-    for row in cur.fetchall():
-        if int(row.get("row_count") or 0) > 0:
-            adjusted[row["as_of"]] = dec(row["value_cny"]) if row.get("value_cny") is not None else None
-    return adjusted
-
-
 def _overlay_terminal_exact_section_value(
     cur,
     values: dict[Date, Decimal],

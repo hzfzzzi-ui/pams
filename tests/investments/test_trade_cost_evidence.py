@@ -57,6 +57,7 @@ def test_section_returns_unknown_if_required_trade_cost_is_missing(monkeypatch):
     from domain.investments import investment_returns as service
 
     day = date(2026, 1, 1)
+    monkeypatch.setattr(service, '_table_exists', lambda *args: False)
     monkeypatch.setattr(service, '_section_first_activity_date', lambda *args: day)
     monkeypatch.setattr(service, 'series_dates', lambda *args: [day])
     monkeypatch.setattr(service, 'load_fx_timelines', lambda *args: {})
@@ -125,7 +126,7 @@ def test_incomplete_scope_cannot_publish_a_partial_net_asset_value(monkeypatch):
     assert state['raw_json']['snapshot_scope_unavailable_accounts'] == ['broker']
     monkeypatch.setattr(service, '_table_exists', lambda *args: True)
     monkeypatch.setattr(service, '_build_current_state', lambda *args, **kwargs: state)
-    with pytest.raises(ValueError, match='scope is incomplete'):
+    with pytest.raises(service.ValuationPublicationBlocked, match='account_snapshot_scope_incomplete'):
         service.publish_current_portfolio_valuation_state(object())
 
 

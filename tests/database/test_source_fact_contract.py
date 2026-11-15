@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_existing_facts_allow_one_source_to_many_facts_and_reject_orphans(isolated_database):
     conn = isolated_database
     with conn.cursor() as cur:
-        for name in ('023_asset_master.sql', '024_cashflow_and_trade_fact.sql',
-                     '025a_asset_snapshots.sql', '075_source_fact_links.sql'):
-            cur.execute((ROOT / 'database/postgres/schema' / name).read_text(encoding='utf-8'))
+        for path in ('schema/023_asset_master.sql', 'legacy/024_cashflow_and_trade_fact.sql',
+                     'schema/025a_asset_snapshots.sql', 'schema/075_source_fact_links.sql'):
+            cur.execute((ROOT / 'database/postgres' / path).read_text(encoding='utf-8'))
         batch, item = str(uuid4()), str(uuid4())
         cur.execute("""INSERT INTO source_batches(batch_id, account_code, business_type, institution, acquisition_method)
                        VALUES (%s, 'synthetic-a', 'trade', 'synthetic', 'manual')""", (batch,))

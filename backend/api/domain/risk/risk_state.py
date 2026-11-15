@@ -965,17 +965,6 @@ def _short_recommendation_for_task(alert: dict[str, Any], group: str) -> str:
     return "建议：先观察，必要时再核准"
 
 
-def _limit_thresholds(limits: dict[str, Any], section: str, key: str | None = None, fallback: dict[str, float] | None = None) -> dict[str, float]:
-    cfg = ((limits.get("limits") or {}).get(section) or {})
-    if key is not None:
-        cfg = (cfg.get(key) or {})
-    fallback = fallback or {"yellow": 0.0, "red": 0.0}
-    return {
-        "yellow": _safe_float(cfg.get("yellow"), fallback["yellow"]),
-        "red": _safe_float(cfg.get("red"), fallback["red"]),
-    }
-
-
 def _position_thresholds(limits: dict[str, Any], asset_type: Any) -> dict[str, float]:
     cfg = ((limits.get("limits") or {}).get("position_weight") or {})
     default = cfg.get("default") or {"yellow": 0.10, "red": 0.15}

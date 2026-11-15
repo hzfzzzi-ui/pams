@@ -328,18 +328,6 @@ def _children_from_exposure(
     return _children_from_sources(sources, nav, limit=limit, total_cny=target_total)
 
 
-def _children_from_rows(rows: list[dict[str, Any]], nav: float, *, limit: int = 16) -> list[dict[str, Any]]:
-    sources = []
-    total = 0.0
-    for row in rows:
-        total += _value(row) or _source_value(row)
-        sources.append({
-            "name": _name(row) or _source_name(row),
-            "value_cny": _value(row) or _source_value(row),
-        })
-    return _children_from_sources(sources, nav, limit=limit, total_cny=total)
-
-
 def _holdings(payload: dict[str, Any]) -> list[dict[str, Any]]:
     rows = payload.get("normalized_holdings")
     return rows if isinstance(rows, list) else []
@@ -622,12 +610,6 @@ def _is_us_broad_fund(row: dict[str, Any]) -> bool:
     return bool(re.search(r"(S&P|Nasdaq|纳斯达克|标普|全市场|Total Market|QQQ|VOO|VTI|SPY|IVV)", name, re.I))
 
 
-def _broad_us_weight(payload: dict[str, Any], total: float) -> float:
-    if total <= 0:
-        return 0.0
-    return sum(_holding_value(row) for row in _holdings(payload) if _is_us_broad_fund(row)) / total
-
-
 def _broad_us_value(payload: dict[str, Any]) -> float:
     return sum(_holding_value(row) for row in _holdings(payload) if _is_us_broad_fund(row))
 
@@ -641,20 +623,6 @@ def _broad_us_children(payload: dict[str, Any], nav: float) -> list[dict[str, An
                 "value_cny": _holding_value(row),
             })
     return _children_from_sources(rows, nav)
-
-
-def _esop_weight(risk: dict[str, Any], lookthrough: dict[str, Any], total: float) -> float:
-    positions = risk.get("positions") or []
-    direct = sum(
-        _n(row.get("position_value_cny"))
-        for row in positions
-        if str(row.get("asset_id") or "").upper() == "HUAWEI_ESOP"
-        or "esop" in str(row.get("asset_type") or "").lower()
-        or "ESOP" in str(row.get("asset_name") or "").upper()
-    )
-    if direct > 0 and total > 0:
-        return direct / total
-    return _exposure_weight(lookthrough, "asset_type", "非上市股权", total)
 
 
 def _esop_value(risk: dict[str, Any], lookthrough: dict[str, Any]) -> float:
