@@ -14,6 +14,7 @@ from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from domain.accounts.balance_reference import historical_account_balance
+from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.portfolio_state import _owner_ratio
@@ -564,24 +565,18 @@ def latest_nav_display_values(
         if all(row.get(amount_key) is not None for row in rows):
             record(code, rows, value)
 
+    config = account_config or {}
+    configs = config.get("accounts", {})
     for code, rows in by_account.items():
         if code in values:
             continue
-        if code == "huawei_stock":
-            supported = all(row.get("asset_type") in {"esop", "liability"}
-                            and row.get("snapshot_scope_member") in {"recorded", "verified"} for row in rows)
-        elif code == "tencent_licaitong":
-            # Current-plus cash is already included under its own account code.
-            # Legacy fund snapshots can carry the generic A-share category.
-            supported = all(row.get("source_type") == "holdings_snapshot"
-                            and row.get("asset_type") in {"a_share_fund", "fund", "a_share_stock"} for row in rows)
-        else:
+        mode = (configs.get(code) or {}).get("latest_position_evidence")
+        if mode is None:
             continue
+        supported = all(supports_dated_position_reference(row, mode) for row in rows)
         if supported and all(row.get("currency") == "CNY" and row.get("market_value_cny") is not None for row in rows):
             record(code, rows, sum((_dec(row["market_value_cny"]) for row in rows), Decimal(0)))
 
-    config = account_config or {}
-    configs = config.get("accounts", {})
     for code, balance in balances.items():
         if code in values or not balance.get("include_in_nav", True):
             continue
@@ -1506,7 +1501,10 @@ def build_nav_weekly_payload(
                 row["liabilities"] = terminal_liabilities
                 row["net_worth"] = terminal_net
                 break
-    for row in rows:
+    # Snapshot coverage is evidence about the current day only. Each historical
+    # row already carries its own evidence gaps from build_weekly_nav_rows.
+    if rows and rows[-1]["date"] == terminal_date:
+        row = rows[-1]
         unresolved = set(snapshot_scope_incomplete_accounts or ())
         close = row.get("ibkr_daily_close") or {}
         if ((close.get("status") == "ok" and close.get("as_of") == row["date"].isoformat())

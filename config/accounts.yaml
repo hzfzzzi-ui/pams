@@ -307,6 +307,7 @@ accounts:
     base_currency: CNY
     truth_source: platform_snapshot
     reconcile_method: position_nav
+    latest_position_evidence: fund_snapshot_without_cash
     role: 基金、黄金、理财产品平台
 
   tencent_licaitong_current_plus:
@@ -327,6 +328,7 @@ accounts:
     base_currency: CNY
     truth_source: manual
     reconcile_method: position_nav
+    latest_position_evidence: recorded_equity_and_debt
     role: 员工持股账户
 
   hpf:

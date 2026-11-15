@@ -95,3 +95,15 @@ def read_historical_position_references(cur, *, account_config, as_of, excluded_
             duplicates.add(code)
         candidates[code] = row
     return [row for code, row in candidates.items() if code not in duplicates]
+
+
+def supports_dated_position_reference(row, mode):
+    """Qualify an observed position for a dated display estimate, not a formal NAV."""
+    if mode == "recorded_equity_and_debt":
+        return (row.get("asset_type") in {"esop", "liability"}
+                and row.get("snapshot_scope_member") in {"recorded", "verified"})
+    if mode == "fund_snapshot_without_cash":
+        # Older snapshots of the fund platform used the generic A-share category.
+        return (row.get("source_type") == "holdings_snapshot"
+                and row.get("asset_type") in {"a_share_fund", "fund", "a_share_stock"})
+    return False
