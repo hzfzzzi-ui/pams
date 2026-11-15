@@ -11,6 +11,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from domain.investments.valuation_nav import (  # noqa: E402
+    _add_terminal_display_values,
     _bank_backcast_series,
     _investment_snapshot_series,
     _statement_rows_by_account,
@@ -20,7 +21,53 @@ from domain.investments.valuation_nav import (  # noqa: E402
     build_nav_weekly_payload,
     current_nav_account_values_from_parts,
     current_nav_bucket_from_parts,
+    latest_nav_display_values,
+    normalize_nav_row,
 )
+
+
+def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
+    settled = date(2026, 11, 13)
+    earlier = date(2026, 11, 12)
+    terminal = date(2026, 11, 14)
+
+    def position(code, kind, amount, as_of=settled, **extra):
+        return dict(account_code=code, asset_type=kind, currency="CNY", as_of=as_of,
+                    market_value_cny=Decimal(amount), snapshot_scope_member="recorded",
+                    source_type="holdings_snapshot", **extra)
+
+    values = latest_nav_display_values(
+        terminal_date=terminal,
+        account_balances=[
+            dict(account_code="current_plus", amount_cny=Decimal("0.20"), as_of=settled),
+            dict(account_code="unknown", amount_cny=None, as_of=settled),
+        ],
+        investment_positions=[
+            position("huawei_stock", "esop", "700000", earlier),
+            position("huawei_stock", "liability", "-310000"),
+            position("tencent_licaitong", "a_share_stock", "49000", earlier),
+            position("tencent_licaitong", "a_share_fund", "3000"),
+            position("future", "fund", "100", date(2026, 11, 15)),
+            position("excluded", "fund", "100", include_in_nav=False),
+            position("blocked", "fund", "100"),
+        ],
+        confirmed_values={"current_plus": Decimal("0.20"), "unknown": Decimal(0),
+                          "future": Decimal(100), "blocked": Decimal(100)},
+    )
+    partial = {"date": terminal, "net_worth": None,
+               "available_net_worth": Decimal("500000.20"),
+               "available_accounts": ["ibkr", "current_plus"],
+               "source_evidence_unavailable_accounts": ["blocked"]}
+    _add_terminal_display_values(partial, values)
+    _add_terminal_display_values(partial, values)
+    row = normalize_nav_row(partial)
+    assert row["availableNetWorth"] == "942000.20"
+    assert row["netWorth"] is None
+    assert row["available_accounts"] == ["current_plus", "huawei_stock", "ibkr", "tencent_licaitong"]
+    assert row["latest_known_components"]["tencent_licaitong"] == {"from": "2026-11-12", "through": "2026-11-13"}
+    complete = {"date": terminal, "net_worth": Decimal(250)}
+    _add_terminal_display_values(complete, values)
+    assert complete == {"date": terminal, "net_worth": Decimal(250)}
 
 
 class FakeCursor:

@@ -274,6 +274,10 @@ function buildInvestmentNavChartData(windowRows, isMobile) {
     latest,
     latestDate: latestRow.date,
     availableAccountCount: latestRow.available_account_count,
+    hasLatestKnownComponents: Boolean(latestRow.latest_known_components),
+    missingAccountCount: latestRow.available_account_count
+      ? (latestRow.unavailable_accounts || []).filter(code => !latestRow.available_accounts.includes(code)).length
+      : 0,
     estimated: latestRow.valuation_quality === 'estimated',
     change,
     changeStart: comparable ? labels[startIndex] : null,
