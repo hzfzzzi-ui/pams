@@ -13,8 +13,10 @@ from datetime import date as Date, timedelta
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
+from domain.accounts.balance_reference import historical_account_balance
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.portfolio_state import _owner_ratio
 
 ANCHOR_NAV_DATE = Date(2026, 5, 31)
 STATEMENT_BACKCAST_TYPES = {"funding", "cash_management", "benefit", "liability"}
@@ -540,6 +542,7 @@ def latest_nav_display_values(
     investment_positions: list[dict[str, Any]],
     terminal_date: Date,
     confirmed_values: dict[str, Decimal],
+    account_config: dict[str, Any] | None = None,
 ) -> dict[str, tuple[Decimal, Date, Date]]:
     """Select dated components that can supplement an incomplete NAV terminal point."""
     balances = {row["account_code"]: row for row in account_balances if row.get("account_code")}
@@ -576,6 +579,17 @@ def latest_nav_display_values(
             continue
         if supported and all(row.get("currency") == "CNY" and row.get("market_value_cny") is not None for row in rows):
             record(code, rows, sum((_dec(row["market_value_cny"]) for row in rows), Decimal(0)))
+
+    config = account_config or {}
+    configs = config.get("accounts", {})
+    for code, balance in balances.items():
+        if code in values or not balance.get("include_in_nav", True):
+            continue
+        reference = historical_account_balance(configs.get(code, {}), terminal_date, _owner_ratio(config, code))
+        if reference:
+            value = Decimal(reference["balance_amount"])
+            day = reference["balance_as_of"]
+            values[code] = (-value if balance.get("account_type") == "liability" else value, day, day)
     return values
 
 
