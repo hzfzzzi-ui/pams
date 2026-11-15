@@ -46,10 +46,10 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
             dict(account_code="reference_excluded", amount_cny=None, include_in_nav=False),
         ],
         investment_positions=[
-            position("huawei_stock", "esop", "700000", earlier),
-            position("huawei_stock", "liability", "-310000"),
-            position("tencent_licaitong", "a_share_stock", "49000", earlier),
-            position("tencent_licaitong", "a_share_fund", "3000"),
+            position("employee_equity", "esop", "700000", earlier),
+            position("employee_equity", "liability", "-310000"),
+            position("fund_platform", "a_share_stock", "49000", earlier),
+            position("fund_platform", "a_share_fund", "3000"),
             position("future", "fund", "100", date(2026, 11, 15)),
             position("excluded", "fund", "100", include_in_nav=False),
             position("blocked", "fund", "100"),
@@ -57,6 +57,8 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
         confirmed_values={"current_plus": Decimal("0.20"), "unknown": Decimal(0),
                           "future": Decimal(100), "blocked": Decimal(100)},
         account_config={"accounts": {
+            "employee_equity": {"latest_position_evidence": "recorded_equity_and_debt"},
+            "fund_platform": {"latest_position_evidence": "fund_snapshot_without_cash"},
             "benefit": {"owner_ratio": "0.50", "account_balance_reference": {
                 "source": "archive", "amount": "250.00", "as_of": "2026-06-18"}},
             "current_plus": {"account_balance_reference": {
@@ -77,9 +79,9 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
     row = normalize_nav_row(partial)
     assert row["availableNetWorth"] == "942125.2000"
     assert row["netWorth"] is None
-    assert row["available_accounts"] == ["benefit", "current_plus", "huawei_stock", "ibkr", "tencent_licaitong"]
+    assert row["available_accounts"] == ["benefit", "current_plus", "employee_equity", "fund_platform", "ibkr"]
     assert row["latest_known_components"]["benefit"] == {"from": "2026-06-18", "through": "2026-06-18"}
-    assert row["latest_known_components"]["tencent_licaitong"] == {"from": "2026-11-12", "through": "2026-11-13"}
+    assert row["latest_known_components"]["fund_platform"] == {"from": "2026-11-12", "through": "2026-11-13"}
     complete = {"date": terminal, "net_worth": Decimal(250)}
     _add_terminal_display_values(complete, values)
     assert complete == {"date": terminal, "net_worth": Decimal(250)}
@@ -766,3 +768,26 @@ def test_weekly_nav_does_not_include_disabled_tonghuashun(monkeypatch):
         owner_ratio_case_sql=lambda alias:('1',[]),account_owner_ratio=lambda _:Decimal(1),
         include_ibkr=False,interval='daily')
     assert payload['rows'][0]['netWorth']=='0'
+
+
+def test_current_snapshot_gap_does_not_erase_past_nav(monkeypatch):
+    from domain.investments import valuation_nav as nav
+
+    prior, latest = date(2026, 11, 13), date(2026, 11, 14)
+    monkeypatch.setattr(nav, "load_fx_timelines", lambda *args: {})
+    monkeypatch.setattr(nav, "_statement_rows_by_account", lambda *args: {})
+    monkeypatch.setattr(nav, "_bank_backcast_series", lambda **kwargs: {
+        prior: {"assets": Decimal("100"), "net_worth": Decimal("100")},
+    })
+    monkeypatch.setattr(nav, "_investment_snapshot_series", lambda *args, **kwargs: {})
+
+    rows = nav.build_nav_weekly_payload(
+        None, start_date=prior, terminal_date=latest, interval="daily",
+        base_currency="CNY", overview_payload={"accounts": []},
+        owner_ratio_case_sql=_owner_ratio_case_sql, account_owner_ratio=_account_owner_ratio,
+        snapshot_scope_incomplete_accounts={"funding"}, include_ibkr=False,
+    )["rows"]
+
+    assert rows[0]["netWorth"] == "100"
+    assert rows[1]["netWorth"] is None
+    assert rows[1]["unavailable_accounts"] == ["funding"]
