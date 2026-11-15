@@ -21,7 +21,7 @@ function describe(label, data, balanceCurrency = null) {
   return parts.join(' · ');
 }
 
-const compactStatuses = { normal: '正常', review: '待核查', stale: '超月未同步', inactive: '已停用' };
+const compactStatuses = { normal: '正常', review: '待核查', stale: '待刷新', inactive: '已停用' };
 
 function element(doc, tag, text = '') {
   const node = doc.createElement(tag);
@@ -37,7 +37,7 @@ export function accountSyncMetadata(doc, data = {}) {
   const syncAt = data.last_synced_at ? new Date(data.last_synced_at) : null;
   const updatedAt = hasValuationTime ? valuationAt : syncAt;
   const updatedLabel = Number.isFinite(updatedAt?.valueOf())
-    ? localTime.format(updatedAt).replaceAll('/', '-') : '—';
+    ? localTime.format(updatedAt).replaceAll('/', '-') : data.last_synced_on || '—';
   if (Object.hasOwn(data, 'latest_source_on')) {
     metadata.append(element(doc, 'dt', '最近资料'), element(doc, 'dd', data.latest_source_on || '—'),
       element(doc, 'dt', '最近入账'), element(doc, 'dd', data.latest_cashflow_on || '—'));

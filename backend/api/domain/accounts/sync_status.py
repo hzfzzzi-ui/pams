@@ -155,6 +155,25 @@ def _position_balance_summary(cur, config, account_code, cfg, today):
     return reference
 
 
+def _apply_position_balance(summary, position, cfg, today):
+    summary.update(position)
+    if position.get('balance_basis') != 'manual_position_reference':
+        return
+
+    # Importing old transactions refreshes local records, not the source account.
+    try:
+        synced_on = date.fromisoformat(str(cfg.get('historical_sync_as_of')))
+    except ValueError:
+        synced_on = None
+    reasons = [reason for reason in summary['review_reasons'] if reason['kind'] != 'no_sync']
+    summary.update(
+        last_synced_at=None,
+        last_synced_on=synced_on if synced_on is not None and synced_on <= today else None,
+        status='review' if reasons else 'stale',
+        review_reasons=reasons,
+    )
+
+
 def review_records(cur, config, account_code, kind, offset):
     """List the records behind an evidence warning using the same scope as the summary."""
     account = config.get('accounts', {}).get(account_code)
@@ -185,9 +204,9 @@ def read_account_sync(cur, config):
     registered = {row['account_code']: row['active'] for row in cur.fetchall()}
     statement_accounts = statement_profiles()
     excluded = _excluded_accounts(config) | {'ibkr_in_transit_mxn'}
-    accounts = {code: cfg for code, cfg in config.get('accounts', {}).items() if code not in excluded}
-    active = [code for code, cfg in accounts.items() if code != 'ccb_fund_subscription_pending'
-              and cfg.get('active', True) and registered.get(code, True)]
+    accounts = {code: cfg for code, cfg in config.get('accounts', {}).items()
+                if code not in excluded and cfg.get('show_in_account_center', True)}
+    active = [code for code, cfg in accounts.items() if cfg.get('active', True) and registered.get(code, True)]
     source_status = summaries(cur, active)
     cur.execute("""SELECT account_code, MAX(updated_at) AS synced_at FROM public.source_records
         WHERE account_code=ANY(%s::text[]) AND status='published'
@@ -247,7 +266,7 @@ def read_account_sync(cur, config):
         if row['active'] and row['summary']['balance_amount'] is None:
             position = _position_balance_summary(cur, config, code, cfg, now.date())
             if position:
-                row['summary'].update(position)
+                _apply_position_balance(row['summary'], position, cfg, now.date())
         group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}
