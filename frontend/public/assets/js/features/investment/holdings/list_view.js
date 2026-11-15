@@ -3,7 +3,7 @@ import {
   formatCompactCurrency, formatSignedCurrency, signedMoneyClass, dailyFxText,
   dailyNativeText, holdingDailyPnlPending, hasDailyTotalPnl, datedReturnRow,
   displayDailyPnl, dailyPnlBreakdown, cumulativePnl, currentFloatPnl,
-  holdingCostValue, realizedPnl, hasRealizedPnl, realizedPnlNote,
+  holdingCostValue, realizedPnl, realizedPnlNote,
   dilutedAveragePriceText, holdingGroupLabel, holdingGroupRank, shortHoldingName,
   holdingPriceText, holdingQuantityText, holdingAveragePriceText, holdingPriceChangePct,
   signedPercentText, aggregateMobileHoldingRows
@@ -121,7 +121,7 @@ function renderRows(rows, options = {}){
       <td class="mono num">${r.current_price ? formatNumber(r.current_price, 3) : '价格缺失'}</td>
       <td class="mono num ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</td>
       <td class="mono num ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</td>
-      <td class="mono">${realizedPnlNote(r)}</td>
+      <td class="mono">${realizedPnlNote(realized) || '—'}</td>
       <td>${dataBadge(r)}</td>
     `;
     tbody.appendChild(tr);
@@ -206,7 +206,8 @@ function renderMobileHoldingRows(rows, { total }) {
   }
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
-    const { value, valueLabel, costValue, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
+    const { value, valueLabel, costValue, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
+    const realizedNote = realizedPnlNote(realized);
     const dailyBreakdown = dailyPnlBreakdown(r);
     const changePct = holdingPriceChangePct(r);
     const name = shortHoldingName(r);
@@ -245,7 +246,7 @@ function renderMobileHoldingRows(rows, { total }) {
           <span class="mobileHoldingMetric">
             <em>累计盈亏</em>
             <strong class="mono ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</strong>
-            ${hasRealizedPnl(r) ? `<small class="mobileHoldingFxImpact">${realizedPnlNote(r)}</small>` : ''}
+            ${realizedNote ? `<small class="mobileHoldingFxImpact">${realizedNote}</small>` : ''}
           </span>
           <span class="mobileHoldingMetric">
             <em${r.__dailyReturnNote ? ` title="${esc(r.__dailyReturnNote)}"` : ''}>${esc(r.__dailyReturnLabel || '今日盈亏')}</em>

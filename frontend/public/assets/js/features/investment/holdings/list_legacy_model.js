@@ -155,13 +155,12 @@ export function realizedPnl(row) {
   return cumulativePnl(row) - currentFloatPnl(row);
 }
 
-export function hasRealizedPnl(row) {
-  return Math.abs(realizedPnl(row)) >= 0.005;
+export function hasRealizedPnl(value) {
+  return Number.isFinite(value) && Math.abs(value) >= 0.005;
 }
 
-export function realizedPnlNote(row) {
-  if (!hasRealizedPnl(row)) return '—';
-  return `含已实现 ${formatSignedCurrency(realizedPnl(row))}`;
+export function realizedPnlNote(value) {
+  return hasRealizedPnl(value) ? `含已实现 ${formatSignedCurrency(value)}` : '';
 }
 
 export function dilutedAveragePrice(row) {
