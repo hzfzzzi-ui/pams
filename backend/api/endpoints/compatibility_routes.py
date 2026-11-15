@@ -15,6 +15,7 @@ from domain.investments.period_trade_returns import (
     attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
 )
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
+from domain.investments.valuation_nav import latest_nav_display_values
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
 
 
@@ -487,6 +488,7 @@ def create_compatibility_router(
         )
         terminal_nav_bucket = None
         terminal_account_values = None
+        terminal_display_values = None
         if published_state_fresh and published_state:
             terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
         elif latest:
@@ -505,6 +507,13 @@ def create_compatibility_router(
                 account_balances=account_balances,
                 investment_positions=investment_positions,
             )
+            if baseCurrency.upper() == "CNY":
+                terminal_display_values = latest_nav_display_values(
+                    account_balances=account_balances,
+                    investment_positions=investment_positions,
+                    terminal_date=terminal_date,
+                    confirmed_values=terminal_account_values,
+                )
         return _build_nav_weekly_payload(
                 cur,
                 start_date=start_date,
@@ -515,6 +524,7 @@ def create_compatibility_router(
                 terminal_date=terminal_date,
                 terminal_nav_bucket=terminal_nav_bucket,
                 terminal_account_values_cny=terminal_account_values,
+                terminal_display_values_cny=terminal_display_values,
                 snapshot_scope_incomplete_accounts=incomplete_snapshot_accounts,
                 include_ibkr=(account_cfg.get("accounts", {}).get("ibkr", {}).get("include_in_nav") is not False),
                 interval=interval,

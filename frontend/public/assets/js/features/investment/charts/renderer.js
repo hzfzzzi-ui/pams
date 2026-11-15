@@ -342,7 +342,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       return;
     }
     statsEl.innerHTML = `
-      <span class="returnNavCurrent"><em>${data.availableAccountCount ? '已覆盖净值' : '最近净值'}${data.estimated ? '（含估算）' : ''} · ${data.latestDate}</em><strong>${fmtCny(data.latest)}</strong></span>
+      <span class="returnNavCurrent"><em>${data.availableAccountCount ? '已知净资产' : '最近净值'}${data.estimated ? '（含估算）' : ''} · ${data.latestDate}</em><strong>${fmtCny(data.latest)}</strong>${data.hasLatestKnownComponents ? `<small>含各账户最近可用金额${data.missingAccountCount ? ` · ${data.missingAccountCount} 个账户缺余额或估值` : ''}</small>` : ''}</span>
       <span class="returnNavMetric ${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}">
         <em>区间变化</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong>
         <small>${data.changeStart ? `${data.changeStart.slice(5)} 至 ${data.latestDate.slice(5)}` : '可比区间不足'}</small>

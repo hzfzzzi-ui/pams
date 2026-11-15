@@ -8,6 +8,7 @@ response shape until the frontend has explicitly migrated.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections import defaultdict
 from datetime import date as Date, timedelta
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
@@ -533,6 +534,71 @@ def current_nav_account_values_from_parts(
     return values
 
 
+def latest_nav_display_values(
+    *,
+    account_balances: list[dict[str, Any]],
+    investment_positions: list[dict[str, Any]],
+    terminal_date: Date,
+    confirmed_values: dict[str, Decimal],
+) -> dict[str, tuple[Decimal, Date, Date]]:
+    """Select dated components that can supplement an incomplete NAV terminal point."""
+    balances = {row["account_code"]: row for row in account_balances if row.get("account_code")}
+    by_account = defaultdict(list)
+    for row in investment_positions:
+        code = row.get("account_code")
+        if code and row.get("include_in_nav", True) and balances.get(code, {}).get("include_in_nav", True):
+            by_account[code].append(row)
+    values = {}
+    def record(code, rows, value):
+        dates = [_row_date(row.get("as_of")) for row in rows]
+        if all(day is not None and day <= terminal_date for day in dates) and value.is_finite():
+            values[code] = (value, min(dates), max(dates))
+
+    for code, value in confirmed_values.items():
+        positions = by_account.get(code)
+        rows = positions or [balances.get(code, {})]
+        amount_key = "market_value_cny" if positions else "amount_cny"
+        if all(row.get(amount_key) is not None for row in rows):
+            record(code, rows, value)
+
+    for code, rows in by_account.items():
+        if code in values:
+            continue
+        if code == "huawei_stock":
+            supported = all(row.get("asset_type") in {"esop", "liability"}
+                            and row.get("snapshot_scope_member") in {"recorded", "verified"} for row in rows)
+        elif code == "tencent_licaitong":
+            # Current-plus cash is already included under its own account code.
+            # Legacy fund snapshots can carry the generic A-share category.
+            supported = all(row.get("source_type") == "holdings_snapshot"
+                            and row.get("asset_type") in {"a_share_fund", "fund", "a_share_stock"} for row in rows)
+        else:
+            continue
+        if supported and all(row.get("currency") == "CNY" and row.get("market_value_cny") is not None for row in rows):
+            record(code, rows, sum((_dec(row["market_value_cny"]) for row in rows), Decimal(0)))
+    return values
+
+
+def _add_terminal_display_values(row, values):
+    """Add missing contributions once to the partial display series."""
+    if row.get("net_worth") is not None:
+        return
+    available = set(row.get("available_accounts", ()))
+    additions = sorted(values.keys() - available - set(row.get("source_evidence_unavailable_accounts", ())))
+    if not additions:
+        return
+    row["available_net_worth"] = row.get("available_net_worth", Decimal(0)) + sum(
+        (values[code][0] for code in additions), Decimal(0),
+    )
+    row["available_accounts"] = sorted(available.union(additions))
+    row["estimated_accounts"] = sorted(set(row.get("estimated_accounts", ())).union(additions))
+    row["latest_known_components"] = {
+        code: {"from": values[code][1].isoformat(), "through": values[code][2].isoformat()}
+        for code in additions
+    }
+    row["valuation_quality"] = "estimated"
+
+
 def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize internal NAV keys without changing the legacy API field names."""
     result: dict[str, Any] = {
@@ -555,7 +621,7 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
         result["available_accounts"] = row["available_accounts"]
         if row.get("tonghuashun_source_through") is not None:
             result["tonghuashun_source_through"] = _norm(row["tonghuashun_source_through"])
-    for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts'):
+    for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts', 'latest_known_components'):
         if field in row:
             result[field] = row[field]
     return result
@@ -1290,6 +1356,7 @@ def build_nav_weekly_payload(
     terminal_date: Date | None = None,
     terminal_nav_bucket: dict[str, Any] | None = None,
     terminal_account_values_cny: dict[str, Any] | None = None,
+    terminal_display_values_cny: dict[str, tuple[Decimal, Date, Date]] | None = None,
     snapshot_scope_incomplete_accounts: set[str] | None = None,
     include_ibkr: bool = True,
     interval: str = "weekly",
@@ -1436,6 +1503,8 @@ def build_nav_weekly_payload(
         if unresolved:
             row.update(assets=None, liabilities=None, net_worth=None, scope_status="incomplete")
             row["unavailable_accounts"] = sorted(set(row.get("unavailable_accounts") or ()) | unresolved)
+    if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
+        _add_terminal_display_values(rows[-1], terminal_display_values_cny)
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,
