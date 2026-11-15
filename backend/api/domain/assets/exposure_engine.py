@@ -517,16 +517,6 @@ def _identity_keys(*values: Any) -> set[str]:
     return set(_ordered_identity_keys(*values))
 
 
-def _position_identity_keys(position: dict[str, Any]) -> set[str]:
-    return _identity_keys(
-        position.get("id"),
-        position.get("asset_id"),
-        position.get("symbol"),
-        position.get("asset_name"),
-        position.get("name"),
-    )
-
-
 def _unit_parent_identity_keys(unit: dict[str, Any]) -> set[str]:
     return _identity_keys(unit.get("holding_symbol"), unit.get("holding_name"))
 

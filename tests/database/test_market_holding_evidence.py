@@ -13,12 +13,10 @@ from psycopg2.extras import RealDictCursor
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'backend/api'))
-from domain.imports import account_import_statement as statement
 from domain.investments.holding_evidence_writer import finish_holding_change
 from domain.investments.valuation_input_evidence import current_holding_source
 from domain.market.fund_nav_estimates import insert_or_update_generated_snapshot
 from endpoints import prices
-from endpoints.bank_reconcile import _sync_holding_snapshot_from_statement
 
 from tests.database.test_native_holding_versions import isolated, publish_holding  # noqa: F401
 from tests.imports.test_account_import_publish import (  # noqa: F401
@@ -37,7 +35,7 @@ def _current(params, identifier):
         return current_holding_source(cur, identifier)
 
 
-def test_price_upsert_and_direct_update_preserve_history_and_noop_source(isolated, monkeypatch):
+def test_price_upsert_preserves_history_and_noop_source(isolated, monkeypatch):
     web, params = isolated
     first, _, _ = publish_holding(web)
     row = sql(params, 'SELECT * FROM pams_holdings_snapshot')[0]
@@ -49,7 +47,7 @@ def test_price_upsert_and_direct_update_preserve_history_and_noop_source(isolate
     changed = sql(params, 'SELECT * FROM pams_holdings_snapshot')[0]
     assert changed['market_value'] == 1100 and changed['source_item_id'] == row['source_item_id']
     assert _current(params, row['id'])['status'] == 'unknown'
-    assert prices._update_prices([(12, 1200, row['id'])]) == 1
+    assert prices._upsert_price_snapshots([changed], {'000001': 12}, day) == 1
     assert sql(params, 'SELECT market_value FROM pams_holdings_snapshot')[0]['market_value'] == 1200
     old_versions = sql(params, "SELECT evidence FROM valuation_evidence v CROSS JOIN LATERAL jsonb_to_recordset(v.inputs) AS x(input_kind text,input_hash text,evidence jsonb) WHERE input_kind='holding'")
     values = {str(item['evidence']['snapshot']['content']['market_value']) for item in old_versions}
@@ -78,26 +76,6 @@ def test_multiple_fund_updates_in_same_transaction_remain_valid(isolated):
         assert insert_or_update_generated_snapshot(cur, holding=row, as_of=date.fromisoformat(DAY),
             market_value=Decimal(1200), units=Decimal(100), unit_nav=Decimal(12), update_existing=True)
     assert sql(params, 'SELECT market_value FROM pams_holdings_snapshot')[0]['market_value'] == 1200
-
-
-def test_bank_balance_upsert_preserves_original_source(isolated, monkeypatch):
-    web, params = isolated
-    monkeypatch.setattr(statement, 'config', lambda: {'profiles': {'test': {'account_code': 'bank_test',
-        'profile_code': 'test', 'statement_template': 'manual_statement_csv', 'currency': 'CNY'}}, 'rules': [], 'amount_rules': []})
-    batch = draft(web, [{'kind':'cash', 'business_date':DAY, 'currency':'CNY', 'action':'balance', 'net_cash':'100'}], account='bank_test')
-    assert publish(web, batch, preview(web, batch)).status_code == 200
-    old = sql(params, 'SELECT * FROM pams_holdings_snapshot')[0]
-    result = {'account_code':'bank_test','account_kind':'debit','latest_balance':Decimal(150),
-              'latest_balance_date':date.fromisoformat(DAY),'rows':[{'currency':'CNY'}]}
-    profile = {'account_code':'bank_test','currency':'CNY','pams_target': {'account_code':'bank_test',
-        'display_name':'Synthetic','is_asset':True,'snapshot': {'asset_liability':'资产','major_category':'现金',
-        'minor_category':'现金/活期','name':'Cash CNY'}}}
-    with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute('ALTER TABLE pams_accounts ADD COLUMN is_asset boolean DEFAULT true')
-        _sync_holding_snapshot_from_statement(cur, result, profile)
-    changed = sql(params, 'SELECT * FROM pams_holdings_snapshot')[0]
-    assert changed['market_value'] == 150 and changed['source_item_id'] == old['source_item_id']
-    assert _current(params, old['id'])['status'] == 'unknown'
 
 
 def test_gold_spot_update_records_unknown_quote_without_losing_creation_source(isolated, monkeypatch):

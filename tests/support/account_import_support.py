@@ -48,7 +48,7 @@ def scratch_database(*, development=False):
                 UPDATE pams_asset_master SET exchange='SZSE' WHERE asset_id='TEST_STOCK';
                 CREATE TABLE pams_asset_alias(asset_id text,alias_value text,alias_type text NOT NULL DEFAULT 'alias');
             """)
-            cur.execute((ROOT / "database/postgres/schema/024_cashflow_and_trade_fact.sql").read_text(encoding="utf-8"))
+            cur.execute((ROOT / "database/postgres/legacy/024_cashflow_and_trade_fact.sql").read_text(encoding="utf-8"))
             cur.execute("""CREATE TABLE pams_holdings_snapshot(
                 id bigserial PRIMARY KEY,account_code varchar(50),symbol text,name text,currency text,
                 asset_liability text,major_category text,minor_category text,as_of date,

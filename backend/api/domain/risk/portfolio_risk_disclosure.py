@@ -682,7 +682,6 @@ def build_portfolio_risk_disclosure_payload_from_inputs(
             "categories": [], "highlights": [], "method": {},
         }
     nav = _n((risk.get("summary") or {}).get("total_net_worth_cny")) or _n(lookthrough.get("total_market_value_cny"))
-    asset_type = _rows(lookthrough, "asset_type")
     non_cny_currency = [
         row for row in _rows(lookthrough, "currency")
         if _label(row).upper() not in {"CNY", "人民币", "CNH"}

@@ -548,13 +548,6 @@ def parse_ccb_credit_pdf(path: Path, profile: dict[str, Any], since: date | None
     )
 
 
-def _parse_wechat_header_date(text: str) -> datetime | None:
-    match = re.search(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]", str(text or ""))
-    if not match:
-        return None
-    return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
-
-
 def parse_wechat_pay_xlsx(path: Path, profile: dict[str, Any], since: date | None = None) -> ParsedStatement:
     """Parse a WeChat Pay exported transaction workbook."""
     meta = pd.read_excel(path, sheet_name=0, header=None, nrows=20)

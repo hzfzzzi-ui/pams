@@ -800,7 +800,7 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "mobileHoldingQuoteLine" in holding_rows_js
     assert "join('<i aria-hidden=\"true\">·</i>')" in holding_rows_js
     assert "<em>份数</em>" in holding_rows_js
-    assert "<em>${isCash ? '本币' : '现价'}</em>" in holding_rows_js
+    assert "r.reference_as_of ? valueLabel : isCash ? '本币' : '现价'" in holding_rows_js
     assert "mobileHeroMetaTop" not in holdings_js
     assert "${holdingSyncTime(r)}" in holding_rows_js
     assert "returnChartHeader" in html
@@ -1427,11 +1427,9 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "advisory_checks" in nav_growth_js
     assert "总账闭合 · 归因口径差" in nav_growth_js
 
-    for href in [
-        "data_sources.html?view=issues#dataQuality",
-        "account_import.html",
-    ]:
-        assert html.count(f'href="{href}"') == 1
+    assert html.count('href="data_sources.html?view=issues#dataQuality"') == 1
+    assert 'href="account_import.html"' not in html
+    assert "createAccountSyncLoader" in more_js
     for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", ">同步中心<", "投资交易记录", "内部转账匹配"]:
         assert removed_text not in html
     assert "investments.html#investment-ledger" not in html
@@ -1625,13 +1623,13 @@ def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
     assert "daily_pnl_cny" not in pending
     assert "Date" not in pending
 
+    metrics = rows_js.split("function holdingMetrics(", 1)[1].split("function ", 1)[0]
+    assert "dailyPending: !historical && holdingDailyPnlPending(row)" in metrics
     for render_name, end_name in [("renderRows", "shortHoldingName"), ("renderMobileHoldingRows", "isInvestmentRow")]:
         renderer = rows_js.split(f"function {render_name}(", 1)[1].split(f"function {end_name}(", 1)[0]
-        assert "holdingDailyPnlPending" in renderer
-        assert "dailyPending ? '待更新' : formatSignedCurrency(dailyPnl)" in renderer
-        assert "dailyPending ? '' : signedMoneyClass(dailyPnl)" in renderer
-        assert "dailyPending ? ' style=\"color:var(--muted)\"' : ''" in renderer
-        assert "dailyPending ? 'muted'" not in renderer
+        assert "holdingMetrics(r, total)" in renderer
+        assert "dailyPending ? '待更新' : pnlText(dailyPnl)" in renderer
+        assert "dailyPending ? 'muted' : pnlTone(dailyPnl)" in renderer
         assert "dailyPending ? '待更新' : holdingDailyStatusBadge" in renderer
 
     profiles = hero_js.split("function makeMobileHeroProfiles(", 1)[1].split("function ", 1)[0]

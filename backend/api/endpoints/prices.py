@@ -318,47 +318,6 @@ def _normalize_overseas_market_filter(market: Optional[str]) -> Tuple[str, ...]:
     return (bucket,) if bucket else ()
 
 
-def _update_prices(updates: List[Tuple[float, float, int]]) -> int:
-    """批量更新 current_price 和 market_value
-    updates: [(current_price, market_value, id), ...]
-    """
-    if not updates:
-        return 0
-
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s)',
-                        ([row[2] for row in updates],))
-            rows = cur.fetchall()
-            holdings = {(row['id'] if isinstance(row, dict) else row[0]): row for row in rows}
-            lock_holding_accounts(cur, [(row['account_code'] if isinstance(row, dict) else row[1]) for row in rows])
-            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s) FOR UPDATE',
-                        (list(holdings),))
-            locked = {(row['id'] if isinstance(row, dict) else row[0]): row for row in cur.fetchall()}
-            if locked != holdings:
-                raise ValueError('holding identity changed while acquiring account locks')
-            isolated = source_enabled(cur)
-            if isolated:
-                for price, value, identifier in updates:
-                    holding = holdings.get(identifier)
-                    if not holding:
-                        continue
-                    account, name, as_of = ((holding['account_code'],holding['name'],holding['as_of'])
-                                            if isinstance(holding, dict) else (holding[1],holding[2],holding[3]))
-                    prepare_holding_change(cur, account_code=account, name=name, as_of=as_of, source_item_id=None)
-                    cur.execute("""UPDATE pams_holdings_snapshot SET current_price=%s,market_value=%s
-                        WHERE id=%s AND (current_price,market_value) IS DISTINCT FROM (%s,%s) RETURNING id""",
-                        (price, value, identifier, price, value))
-                    if cur.fetchone():
-                        finish_holding_change(cur, holding_id=identifier, source_item_id=None,
-                            input_refs=[{'kind':'quote', 'key':None, 'role':'valuation_quote'}])
-            else:
-                cur.executemany("""UPDATE pams_holdings_snapshot SET current_price=%s,market_value=%s WHERE id=%s""",
-                                [row for row in updates if row[2] in holdings])
-            conn.commit()
-            return len(updates)
-
-
 def _dec(value: Any) -> Decimal:
     if value is None or value == "":
         return Decimal("0")
