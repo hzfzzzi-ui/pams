@@ -189,13 +189,16 @@ def daily_estimates(events, prices, dates, symbols):
     """Validate end-of-day cash against the original; return only covered valuations."""
     if not events or not dates:
         return {}
+    import exchange_calendars
+
     events_by_day = defaultdict(list)
     for event in events:
         events_by_day[event['trade_date']].append(event)
     cash = events[0]['broker_cash'] - events[0]['net_cash']
     first_day, last_day = events[0]['trade_date'], events[-1]['trade_date']
-    calendar = prices.get(CALENDAR, {})
-    last_market_day = max(calendar, default=None)
+    calendar = exchange_calendars.get_calendar("XSHG")
+    first_session = calendar.first_session.date()
+    last_session = calendar.last_session.date()
     wanted = set(dates)
     quantities = defaultdict(Decimal)
     previous = {}
@@ -217,17 +220,13 @@ def daily_estimates(events, prices, dates, symbols):
                 quantities[event['symbol']] += event['quantity'] * direction
                 if quantities[event['symbol']] < 0:
                     return result
-        for provider_symbol in symbols.values():
-            current = prices.get(provider_symbol, {}).get(day)
-            if current is not None:
-                previous[provider_symbol] = current
+        closed = first_session <= day <= last_session and not calendar.is_session(day.isoformat())
+        if not closed:
+            previous = {symbol: prices.get(symbol, {}).get(day) for symbol in symbols.values()}
         if day in wanted:
             active = [symbol for symbol, qty in quantities.items() if qty]
-            marks = previous if last_market_day and day < last_market_day and day not in calendar else {
-                symbol: prices.get(symbol, {}).get(day) for symbol in symbols.values()
-            }
-            if all(marks.get(symbols[symbol]) is not None for symbol in active):
-                result[day] = cash + sum((quantities[s] * marks[symbols[s]] for s in active), Decimal(0))
+            if all(previous.get(symbols[symbol]) is not None for symbol in active):
+                result[day] = cash + sum((quantities[s] * previous[symbols[s]] for s in active), Decimal(0))
         day += timedelta(days=1)
     return result
 
@@ -264,7 +263,7 @@ def project(cur, *, dates, owner_ratio, series_type):
         WHERE observation_type='daily' AND source=%s AND market='CN_A' AND currency='CNY'
           AND symbol=ANY(%s) AND as_of BETWEEN %s AND %s
           AND close_price>0 AND close_price::text NOT IN ('NaN','Infinity','-Infinity')""",
-                (SOURCE, sorted(set(symbols.values()) | {CALENDAR}), events[0]['trade_date'], max(dates)))
+                (SOURCE, sorted(set(symbols.values())), events[0]['trade_date'], max(dates)))
     prices = defaultdict(dict)
     for row in cur.fetchall():
         prices[row['symbol']][row['as_of']] = row['close_price']
