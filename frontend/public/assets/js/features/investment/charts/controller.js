@@ -9,6 +9,7 @@ import { createInvestmentChartRenderer } from './renderer.js';
 const owners = new WeakMap();
 const MARKET_RETURN_COLORS = new Map([
   ['a_stock', '#ff6269'],
+  ['a_fund', '#54cdb2'],
   ['us_stock', '#69aaff'],
 ]);
 
