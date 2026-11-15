@@ -66,7 +66,7 @@ function renderRows(rows, options = {}){
       || groupA.localeCompare(groupB, 'zh-CN')
       || safeNum(cnyValue(b, 'market_value')) - safeNum(cnyValue(a, 'market_value'));
   });
-  renderMobileHoldingRows(displayRows, { total });
+  renderMobileHoldingRows(displayRows, { total, hasReferences: options.hasReferences });
   let lastGroup = '';
   for(const [index, r] of displayRows.entries()){
     const value = safeNum(cnyValue(r, 'market_value'));
@@ -167,13 +167,13 @@ function holdingSyncTime(row) {
   return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">${short}</time></span>`;
 }
 
-function renderMobileHoldingRows(rows, { total }) {
+function renderMobileHoldingRows(rows, { total, hasReferences = false }) {
   const el = document.getElementById('mobileHoldingList');
   if (!el) return;
 
   const displayRows = aggregateMobileHoldingRows(rows);
   if (!rows.length) {
-    el.innerHTML = '<div class="mobileEmpty">暂无持仓</div>';
+    el.innerHTML = hasReferences ? '' : '<div class="mobileEmpty">暂无持仓</div>';
     return;
   }
   el.innerHTML = displayRows.map((raw, index) => {
@@ -291,5 +291,20 @@ function renderMobileHoldingRows(rows, { total }) {
   });
 }
 
-return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
+function renderReferences(references) {
+  const section = document.getElementById('historicalHoldingReferences');
+  if (!section) return;
+  section.hidden = references.length === 0;
+  section.innerHTML = references.map(row => {
+    const value = new Intl.NumberFormat('zh-CN', {style: 'currency', currency: row.currency}).format(row.value);
+    return `<div class="historicalHoldingReference">
+      <strong>${esc(row.name)}</strong>
+      <strong class="mono">${esc(value)}</strong>
+      <small>${esc(row.account_name)} · ${esc(row.category)}</small>
+      <small>历史参考 · <time datetime="${esc(row.as_of)}">${esc(row.as_of)}</time></small>
+    </div>`;
+  }).join('');
+}
+
+return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, renderReferences, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
 }

@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
+from domain.accounts.position_reference import read_historical_position_references
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
@@ -125,6 +126,14 @@ def create_compatibility_router(
             load_date=lambda day: load(day, day),
         )
 
+    def holdings_for_list(cur, context, *, limit=500, include_closed=False):
+        holdings = read_holdings(cur, context, limit=limit, include_closed=include_closed)
+        holdings["historical_references"] = read_historical_position_references(
+            cur, account_config=_load_portfolio_accounts_config(), as_of=context[0],
+            excluded_accounts=context[2]["excluded_accounts"], owner_ratio=_account_owner_ratio,
+        )
+        return holdings
+
     @router.get("/holdings/latest")
     def holdings_latest_compat(
         limit: int = Query(500, ge=1, le=5000),
@@ -135,7 +144,7 @@ def create_compatibility_router(
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 with reuse_ibkr_holding_evidence(cur):
-                    return json(read_holdings(cur, holding_context(cur), limit=limit, include_closed=include_closed))
+                    return json(holdings_for_list(cur, holding_context(cur), limit=limit, include_closed=include_closed))
 
     @router.get("/holdings/by-category/{category}")
     def holdings_by_category(
@@ -196,7 +205,7 @@ def create_compatibility_router(
                         summary=summary,
                     )
                     return json({
-                        "holdings": read_holdings(cur, context),
+                        "holdings": holdings_for_list(cur, context),
                         "a_stock": stock,
                         "funds": funds_all if show_closed else category('A股', 'A股基金'),
                         "funds_all": funds_all,

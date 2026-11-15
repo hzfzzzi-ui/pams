@@ -9659,6 +9659,22 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   display: none;
 }
 
+.historicalHoldingReference {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--pams-line-subtle);
+}
+
+.historicalHoldingReference > :nth-child(even) {
+  text-align: right;
+}
+
+.historicalHoldingReference small {
+  color: var(--muted);
+}
+
 .sourceHealthList{
   display: none;
 }
