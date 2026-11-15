@@ -31,9 +31,9 @@ def test_review_fingerprint_revocation_and_concurrent_decisions(empty_source_db,
         account = {'account_code':'review_account', 'status':'ready_for_review', 'base_currency':'CNY',
                    'primary_balance':{'amount':value['amount'], 'currency':'CNY', 'as_of':date(2026, 10, 1),
                                       'source':'manual'}}
-        accounts._apply_review(account, accounts._fetch_latest_reviews(cur).get('review_account'))
+        accounts.account_overview._apply_review(account, accounts.account_overview._fetch_latest_reviews(cur).get('review_account'))
         return {'accounts':[account]}
-    monkeypatch.setattr(accounts, '_overview_payload', overview)
+    monkeypatch.setattr(accounts.account_overview, '_overview_payload', overview)
     app=FastAPI(); app.include_router(accounts.router, prefix='/api')
     with TestClient(app) as client:
         client.headers['Origin']='http://testserver'
@@ -124,7 +124,7 @@ def test_review_order_follows_account_lock_not_clock_or_transaction_start(empty_
             second_order = future.result(timeout=10)
         assert second_order > first_order
         with psycopg2.connect(**empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-            latest = accounts._fetch_latest_reviews(cur)
+            latest = accounts.account_overview._fetch_latest_reviews(cur)
             assert latest['a']['review_action'] == 'defer_missing'
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended('account-import:a',0))")
             insert(cur, 'a', 'approve', '2000-01-01 00:00:00+00')
@@ -133,7 +133,7 @@ def test_review_order_follows_account_lock_not_clock_or_transaction_start(empty_
             insert(cur, 'b', 'approve', '2000-01-01 00:00:00+00')
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended('account-import:a',0))")
             insert(cur, 'a', 'approve', '2000-01-01 00:00:00+00')
-            reviews = accounts._fetch_latest_reviews(cur)
+            reviews = accounts.account_overview._fetch_latest_reviews(cur)
             assert reviews['a']['review_action'] == 'approve'  # Same timestamp, later insertion.
             assert reviews['b']['review_action'] == 'approve'
     finally:

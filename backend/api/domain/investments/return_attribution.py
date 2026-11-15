@@ -18,6 +18,9 @@ from typing import Any, Callable
 
 import yaml
 
+from domain.accounts.account_policy import default_owner_ratio, owner_ratios
+from domain.accounts.account_policy import owner_ratio_case_sql as _owner_ratio_case_sql, owner_ratio_lookup as _account_owner_ratio_lookup
+from domain.assets.asset_names import _asset_name_lookup, _name_needs_enrichment, _symbol_name_keys
 from domain.assets.exposure_engine import (
     UNMAPPED_INDUSTRY,
     _identity_keys,
@@ -46,7 +49,6 @@ from domain.investments.portfolio_state import (
     _excluded_accounts,
     _load_accounts_config,
     _owner_ratio,
-    _table_exists,
     load_account_balances,
     load_investment_positions,
 )
@@ -213,97 +215,6 @@ def _is_return_attribution_row(row: dict[str, Any]) -> bool:
     return _asset_type(asset_row) in RETURN_ATTRIBUTION_ASSET_TYPES
 
 
-def _symbol_digits(value: Any) -> str:
-    return "".join(ch for ch in _text(value) if ch.isdigit())
-
-
-def _name_needs_enrichment(symbol: Any, name: Any) -> bool:
-    text = _text(name)
-    if not text:
-        return True
-    symbol_text = _text(symbol)
-    digits = _symbol_digits(symbol)
-    return text.casefold() == symbol_text.casefold() or bool(digits and text == digits)
-
-
-def _symbol_name_keys(symbol: Any) -> set[str]:
-    raw = _text(symbol)
-    if not raw:
-        return set()
-    keys = {raw, raw.upper(), raw.lower()}
-    digits = _symbol_digits(raw)
-    if len(digits) == 6:
-        exchange = "SH" if digits.startswith("6") else "SZ"
-        keys.update(
-            {
-                digits,
-                f"{digits}.{exchange}",
-                f"{digits}.{exchange.lower()}",
-                f"{exchange.lower()}{digits}",
-                f"{exchange}{digits}",
-                f"SSE:{digits}" if exchange == "SH" else f"SZSE:{digits}",
-            }
-        )
-    return {key.casefold() for key in keys if key}
-
-
-def _put_asset_name(lookup: dict[str, str], symbol: Any, name: Any) -> None:
-    label = _text(name)
-    if not label or _name_needs_enrichment(symbol, label):
-        return
-    for key in _symbol_name_keys(symbol):
-        lookup.setdefault(key, label)
-
-
-def _asset_name_lookup(cur, symbols: set[str]) -> dict[str, str]:
-    lookup: dict[str, str] = {}
-    query_symbols = sorted(set().union(*(_symbol_name_keys(symbol) for symbol in symbols)))
-    digits = sorted({_symbol_digits(symbol) for symbol in symbols if len(_symbol_digits(symbol)) == 6})
-    if not query_symbols and not digits:
-        return lookup
-
-    if _table_exists(cur, "pams_holdings_snapshot"):
-        cur.execute(
-            """
-            SELECT symbol, name
-            FROM pams_holdings_snapshot
-            WHERE COALESCE(name, '') <> ''
-              AND (
-                LOWER(symbol) = ANY(%s::text[])
-                OR regexp_replace(COALESCE(symbol, ''), '[^0-9]', '', 'g') = ANY(%s::text[])
-              )
-            ORDER BY as_of DESC
-            """,
-            (query_symbols, digits),
-        )
-        for row in cur.fetchall():
-            _put_asset_name(lookup, row.get("symbol"), row.get("name"))
-
-    if _table_exists(cur, "pit_security_master"):
-        cur.execute(
-            """
-            SELECT symbol, ts_code, name
-            FROM pit_security_master
-            WHERE COALESCE(name, '') <> ''
-              AND (
-                LOWER(symbol) = ANY(%s::text[])
-                OR LOWER(ts_code) = ANY(%s::text[])
-                OR regexp_replace(COALESCE(symbol, ''), '[^0-9]', '', 'g') = ANY(%s::text[])
-                OR regexp_replace(COALESCE(ts_code, ''), '[^0-9]', '', 'g') = ANY(%s::text[])
-              )
-            """,
-            (query_symbols, query_symbols, digits, digits),
-        )
-        for row in cur.fetchall():
-            _put_asset_name(lookup, row.get("symbol"), row.get("name"))
-            _put_asset_name(lookup, row.get("ts_code"), row.get("name"))
-
-    for symbol, name in A_SHARE_NAME_FALLBACK.items():
-        if not digits or symbol in digits:
-            _put_asset_name(lookup, symbol, name)
-    return lookup
-
-
 def _enrich_daily_position_names(cur, rows: list[dict[str, Any]]) -> None:
     missing_symbols = {
         _text(row.get("symbol"))
@@ -312,7 +223,7 @@ def _enrich_daily_position_names(cur, rows: list[dict[str, Any]]) -> None:
     }
     if not missing_symbols:
         return
-    lookup = _asset_name_lookup(cur, missing_symbols)
+    lookup = _asset_name_lookup(cur, missing_symbols, fallback=A_SHARE_NAME_FALLBACK)
     for row in rows:
         if not _name_needs_enrichment(row.get("symbol"), row.get("name")):
             continue
@@ -341,10 +252,7 @@ def _latest_snapshot_date(cur) -> Date:
 
 
 def _owner_ratios(account_cfg: dict[str, Any]) -> tuple[dict[str, Decimal], Decimal]:
-    accounts = account_cfg.get("accounts") or {}
-    defaults = account_cfg.get("defaults") or {}
-    default_owner_ratio = Decimal(str(defaults.get("owner_ratio", 1)))
-    return ({code: _owner_ratio(account_cfg, code) for code in accounts}, default_owner_ratio)
+    return owner_ratios(account_cfg), default_owner_ratio(account_cfg)
 
 
 def _load_reported_returns_config() -> dict[str, Any]:
@@ -353,32 +261,6 @@ def _load_reported_returns_config() -> dict[str, Any]:
         return {}
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
-
-
-def _account_owner_ratio_lookup(account_cfg: dict[str, Any]) -> Callable[[str], Decimal]:
-    def lookup(account_code: str) -> Decimal:
-        return _owner_ratio(account_cfg, str(account_code or ""))
-
-    return lookup
-
-
-def _owner_ratio_case_sql(account_cfg: dict[str, Any]) -> Callable[[str], tuple[str, list[Any]]]:
-    accounts = account_cfg.get("accounts") or {}
-    defaults = account_cfg.get("defaults") or {}
-    default_owner_ratio = Decimal(str(defaults.get("owner_ratio", 1)))
-
-    def build(alias: str = "h") -> tuple[str, list[Any]]:
-        clauses: list[str] = []
-        params: list[Any] = []
-        for account_code, cfg in accounts.items():
-            ratio = Decimal(str((cfg or {}).get("owner_ratio", default_owner_ratio)))
-            clauses.append(f"WHEN {alias}.account_code = %s THEN %s")
-            params.extend([str(account_code), float(ratio)])
-        if not clauses:
-            return "%s", [float(default_owner_ratio)]
-        return f"(CASE {' '.join(clauses)} ELSE %s END)", [*params, float(default_owner_ratio)]
-
-    return build
 
 
 def _account_initial_capital_cny(account_cfg: dict[str, Any]) -> Callable[[str], Decimal | None]:

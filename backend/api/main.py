@@ -6,19 +6,16 @@ PAMS API V2 - 基于重构后的数据库结构
 """
 import os
 from pathlib import Path
-from typing import Any, Dict, List
-from datetime import date as Date, datetime, timedelta
+from typing import Any
+from datetime import date as Date, datetime
 from decimal import Decimal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-import psycopg2
-import psycopg2.extras
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 # 导入端点路由
 from endpoints import prices
@@ -32,6 +29,7 @@ from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import sync_center
 from endpoints import analysis
 from endpoints import account_import
+from domain.accounts import account_overview, account_policy
 from domain.accounts.accounts_view import (
     build_account_detail_payload as _build_account_detail_payload,
     build_accounts_payload as _build_accounts_payload,
@@ -53,11 +51,9 @@ from domain.investments.holding_return_snapshot import (
     upsert_investment_return_series_snapshot as _upsert_investment_return_series_snapshot,
 )
 from domain.investments.investment_returns import (
-    apply_reported_display_anchor as _apply_reported_display_anchor,
     build_account_performance_payload as _build_account_performance_payload,
     build_investment_return_series_payload as _build_investment_return_series_payload,
     build_section_return_series_payload as _build_section_return_series_payload,
-    section_return_summary as _section_return_summary,
 )
 from domain.investments.investment_view_date import (
     clamp_to_latest_data_date as _clamp_to_latest_data_date,
@@ -90,22 +86,11 @@ from domain.assets.reference_data import build_categories_payload as _build_cate
 from domain.risk.risk_state import build_risk_latest_payload as _build_risk_latest_payload
 from domain.investments.valuation_nav import (
     ANCHOR_NAV_DATE,
-    account_anchor_amount as _account_anchor_amount,
-    account_anchor_value_cny as _account_anchor_value_cny,
-    add_nav_amount as _add_nav_amount,
     build_nav_drawdown_payload as _build_nav_drawdown_payload,
     build_nav_series_payload as _build_nav_series_payload,
     build_nav_weekly_payload as _build_nav_weekly_payload,
-    build_weekly_nav_rows as _build_weekly_nav_rows,
     current_nav_account_values_from_parts as _current_nav_account_values_from_parts,
     current_nav_bucket_from_parts as _current_nav_bucket_from_parts,
-    format_weekly_nav_payload as _format_weekly_nav_payload,
-    fx_rate_at as _fx_rate_at,
-    load_fx_timelines as _load_fx_timelines,
-    manual_effective_date as _manual_effective_date,
-    scale_series_to_terminal_anchor as _scale_series_to_terminal_anchor,
-    select_weekly_nav_accounts as _select_weekly_nav_accounts,
-    series_dates as _series_dates,
 )
 from domain.risk.core.config import load_risk_limits
 from domain.configuration import load_base_currency
@@ -312,32 +297,15 @@ def _reported_returns_cfg() -> dict[str, Any]:
 
 
 def _excluded_holding_accounts() -> set[str]:
-    cfg = _accounts_cfg()
-    values = cfg.get("excluded_accounts") or []
-    defaults = cfg.get("defaults") or {}
-    values.extend(defaults.get("excluded_accounts") or [])
-    return {str(v).strip() for v in values if str(v).strip()}
+    return account_policy.excluded_accounts(_accounts_cfg())
 
 
 def _account_owner_ratios() -> dict[str, Decimal]:
-    accounts_cfg = _accounts_cfg()
-    defaults = accounts_cfg.get("defaults") or {}
-    default_owner_ratio = Decimal(str(defaults.get("owner_ratio", _risk_data_cfg().get("default_owner_ratio", 1.0))))
-    ratios = {
-        str(code): Decimal(str((cfg or {}).get("owner_ratio", default_owner_ratio)))
-        for code, cfg in (accounts_cfg.get("accounts") or {}).items()
-        if (cfg or {}).get("owner_ratio") is not None
-    }
-    data_cfg = _risk_data_cfg()
-    for key, value in (data_cfg.get("account_owner_ratios", {}) or {}).items():
-        ratios.setdefault(str(key), Decimal(str(value)))
-    return ratios
+    return account_policy.owner_ratios(_accounts_cfg())
 
 
 def _default_owner_ratio() -> Decimal:
-    accounts_cfg = _accounts_cfg()
-    defaults = accounts_cfg.get("defaults") or {}
-    return Decimal(str(defaults.get("owner_ratio", _risk_data_cfg().get("default_owner_ratio", 1.0))))
+    return account_policy.default_owner_ratio(_accounts_cfg())
 
 
 def _account_owner_ratio(account_code: str) -> Decimal:
@@ -417,15 +385,7 @@ def _apply_section_holdings_pnl_overlay(
 
 
 def _owner_ratio_case_sql(alias: str = "h") -> tuple[str, list[Any]]:
-    clauses: list[str] = []
-    params: list[Any] = []
-    for account_code, ratio in _account_owner_ratios().items():
-        clauses.append(f"WHEN {alias}.account_code = %s THEN %s")
-        params.extend([account_code, float(ratio)])
-    if not clauses:
-        return "%s", [float(_default_owner_ratio())]
-    return f"(CASE {' '.join(clauses)} ELSE %s END)", [*params, float(_default_owner_ratio())]
-
+    return account_policy.ratio_case_sql(alias, _account_owner_ratios(), _default_owner_ratio())
 
 
 # ==================== 账户管理 ====================
@@ -451,7 +411,6 @@ _core_router, (
     _view_as_of=lambda: _view_as_of(),
 )
 app.include_router(_core_router)
-
 
 
 # ==================== 前端兼容端点 ====================
@@ -555,17 +514,12 @@ _compatibility_router, (
     _reported_returns_cfg=lambda *args, **kwargs: _reported_returns_cfg(*args, **kwargs),
     _upsert_investment_return_series_snapshot=lambda *args, **kwargs: _upsert_investment_return_series_snapshot(*args, **kwargs),
     _view_as_of=lambda *args, **kwargs: _view_as_of(*args, **kwargs),
-    accounts_endpoint=accounts_endpoint,
+    accounts_endpoint=account_overview,
     attach_recent_market_returns=lambda *args, **kwargs: attach_recent_market_returns(*args, **kwargs),
     get_conn=lambda *args, **kwargs: get_conn(*args, **kwargs),
     json=lambda *args, **kwargs: json(*args, **kwargs),
 )
 app.include_router(_compatibility_router)
-
-
-
-
-
 
 
 # ==================== 健康检查 ====================

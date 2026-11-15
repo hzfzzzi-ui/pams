@@ -12,7 +12,8 @@ from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 
 
 def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_source_db, monkeypatch):
-    from endpoints import account_import, ledger, accounts, sync_center
+    from domain.accounts import account_overview as accounts
+    from endpoints import account_import, accounts as account_routes, ledger, sync_center
     from domain.imports import account_import_statement as statement, account_import_store
     from domain.investments import portfolio_state
     from domain.brokers.ibkr import ibkr_daily_close_read, ibkr_performance
@@ -45,7 +46,7 @@ def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_
     app = FastAPI()
     app.include_router(account_import.router, prefix='/api')
     app.include_router(ledger.router, prefix='/api')
-    app.include_router(accounts.router, prefix='/api')
+    app.include_router(account_routes.router, prefix='/api')
     app.include_router(sync_center.router, prefix='/api')
     data = ('中国建设银行信用卡交易明细\n交易日,入账日,信用卡卡号,类型,入账币种,入账金额,交易描述\n'
             '20260101,20260102,****1234,消费,人民币,20.00,示例商户\n').encode('gb18030')

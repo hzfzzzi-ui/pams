@@ -111,7 +111,7 @@ def test_unknown_refresh_http_keeps_null_then_complete_zero_is_usable(empty_sour
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
     monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
-    monkeypatch.setattr(main.accounts_endpoint, '_overview_payload', lambda cur=None, **kwargs: {'accounts': []})
+    monkeypatch.setattr(main.account_overview, '_overview_payload', lambda cur=None, **kwargs: {'accounts': []})
     monkeypatch.setattr(main, '_investment_return_view_as_of', lambda _cur: day)
     monkeypatch.setattr(main, '_investment_today_label_date', lambda: day)
     monkeypatch.setattr(main, '_latest_published_portfolio_valuation_state', lambda *_a, **_k: None)
@@ -233,7 +233,7 @@ def test_real_unknown_cost_flows_through_snapshot_http(empty_source_db, monkeypa
                  market_value,cost,quantity,as_of)
                 VALUES ('unknown-cost','SYNTH','tonghuashun','资产','CNY','A股','A股',100,NULL,10,%s)""", (day,))
     monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
-    monkeypatch.setattr(main.accounts_endpoint, '_overview_payload', lambda cur=None, **kwargs: {'accounts': []})
+    monkeypatch.setattr(main.account_overview, '_overview_payload', lambda cur=None, **kwargs: {'accounts': []})
     monkeypatch.setattr(main, '_investment_return_view_as_of', lambda _cur: day)
     monkeypatch.setattr(main, '_investment_today_label_date', lambda: day)
     monkeypatch.setattr(main, '_reported_returns_cfg', lambda: {})

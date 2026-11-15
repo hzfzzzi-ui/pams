@@ -12,7 +12,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from domain.accounts.accounts_view import build_account_detail_payload, build_accounts_payload  # noqa: E402
-from endpoints.accounts import _pick_primary_balance, _primary_platform_balance, _reconcile_status  # noqa: E402
+from domain.accounts.account_overview import _pick_primary_balance, _primary_platform_balance, _reconcile_status  # noqa: E402
 
 
 class FakeCursor:
@@ -206,7 +206,7 @@ def test_primary_platform_balance_rejects_missing_values_and_mixed_dates():
 
 
 def test_owner_ratio_scales_proven_cny_and_native_amount_together():
-    from endpoints.accounts import _apply_owner_ratio_to_money
+    from domain.accounts.account_overview import _apply_owner_ratio_to_money
     balance={'currency':'USD','amount':Decimal('200'),'amount_cny':Decimal('1400')}
     adjusted=_apply_owner_ratio_to_money(balance,Decimal('0.5'))
     assert adjusted['amount']==100 and adjusted['amount_cny']==700

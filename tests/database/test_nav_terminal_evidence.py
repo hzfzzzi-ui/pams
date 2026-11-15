@@ -38,7 +38,7 @@ def test_actual_postgres_nav_terminal_evidence(empty_source_db,bucket,expected):
 
 def test_nav_http_does_not_display_zero_when_terminal_fx_unknown(empty_source_db,monkeypatch):
     import main
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
     day=date(2026,10,22)
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)

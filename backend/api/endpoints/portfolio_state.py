@@ -6,7 +6,7 @@ from datetime import date as Date
 
 from fastapi import APIRouter, Query
 
-from endpoints import accounts as accounts_endpoint
+from domain.accounts import account_overview
 from domain.risk.portfolio_config import build_portfolio_config_payload
 from domain.investments.portfolio_equity_bridge import build_equity_bridge_payload
 from domain.risk.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload
@@ -59,7 +59,7 @@ def portfolio_equity_bridge(
     return build_equity_bridge_payload(
         start_date=start,
         base_currency=baseCurrency,
-        overview_payload=accounts_endpoint._overview_payload(),
+        overview_payload=account_overview._overview_payload(),
     )
 
 

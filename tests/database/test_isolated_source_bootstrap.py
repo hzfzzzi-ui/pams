@@ -73,7 +73,8 @@ def test_full_bootstrap_native_bank_http_reaches_account_ledger_and_sync(empty_s
     from domain.imports import account_import_statement as statement, account_import_store as store
     from domain.investments import portfolio_state
     from domain.brokers.ibkr import ibkr_daily_close_read, ibkr_performance
-    from endpoints import account_import, accounts, ledger, sync_center
+    from domain.accounts import account_overview as accounts
+    from endpoints import account_import, accounts as account_routes, ledger, sync_center
 
     with psycopg2.connect(**empty_source_db) as conn:
         bootstrap.initialize_isolated_sources(conn)
@@ -98,7 +99,7 @@ def test_full_bootstrap_native_bank_http_reaches_account_ledger_and_sync(empty_s
     monkeypatch.setattr(sync_center, 'read_ibkr_reconciliation', lambda: {'status': 'missing', 'label': '缺数据', 'details': ''})
     monkeypatch.setattr(sync_center, 'scheduler_health', lambda path: {'status': 'missing', 'label': '缺数据', 'jobs': {}})
     app = FastAPI()
-    for router in (account_import.router, accounts.router, ledger.router, sync_center.router):
+    for router in (account_import.router, account_routes.router, ledger.router, sync_center.router):
         app.include_router(router, prefix='/api')
     day = (date.today() - timedelta(days=2)).isoformat()
     with TestClient(app) as web:

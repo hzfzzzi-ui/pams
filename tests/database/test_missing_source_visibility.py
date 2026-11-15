@@ -4,7 +4,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
 from domain.imports.source_row_read import source_row_relation
-from endpoints.accounts import _fetch_statement_balances
+from domain.accounts.account_overview import _fetch_statement_balances
 
 
 def test_missing_source_schema_is_explicitly_unknown(empty_source_db):

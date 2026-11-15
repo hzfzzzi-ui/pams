@@ -157,7 +157,7 @@ def test_partial_snapshot_visible_without_false_account_nav(empty_source_db, mon
     from domain.investments import portfolio_state
     from domain.investments.valuation_nav import current_nav_bucket_from_parts
     from domain.brokers.ibkr import ibkr_daily_close_read
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
 
     day = date(2026,10,22)
     with psycopg2.connect(**empty_source_db) as conn:

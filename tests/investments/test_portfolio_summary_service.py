@@ -140,6 +140,7 @@ def test_holdings_by_account_adds_reconciled_cash_once_and_preserves_coverage(mo
     assert "has_snapshot_cash" not in item
     assert account_portfolio_value.read_account_portfolio_value(
         None, {**row, "has_snapshot_cash": True}, as_of=holdings_day,
+        evidence_mode="reconciled_trade_cash", scope_complete=False,
         base_currency="CNY", owner_ratio=Decimal("0.5"),
     ) is None
     monkeypatch.setattr(nav_trade_source_v2, "_read_event_prefix", lambda cur: (events, holdings_day))
@@ -376,3 +377,17 @@ def test_licaitong_card_estimates_mixed_fund_dates_without_certifying_account_sc
     assert "fund_card_valuation" not in read(dict(cash, as_of=date(2026, 11, 12)), set())
     assert "fund_card_valuation" not in read(cash, set(), fund_positions_only=False)
     assert "fund_card_valuation" not in read(dict(cash, member_count=2), set())
+
+
+def test_account_center_uses_the_same_cash_inclusive_valuation_and_preserves_zero():
+    normal = {"total_value_base": "100", "known_value_base": "101", "holdings_as_of": "2026-11-13"}
+    assert account_portfolio_value.account_center_balance(normal, "CNY") == {
+        "balance_amount": "100", "balance_currency": "CNY", "balance_as_of": "2026-11-13",
+        "valuation_updated_at": None, "balance_label": "组合价值",
+    }
+    portfolio = {"amount_base": 0, "status": "cash_carried_forward", "as_of": "2026-11-14"}
+    projected = account_portfolio_value.account_center_balance(dict(normal, portfolio_value=portfolio), "CNY")
+    assert projected["balance_amount"] == 0
+    assert projected["balance_as_of"] == "2026-11-14"
+    assert projected["balance_label"] == "组合估值"
+    assert account_portfolio_value.account_center_balance({}, "CNY") is None

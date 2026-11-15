@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import psycopg2.extras
 
+from domain.accounts.account_policy import owner_ratio_case_sql as _owner_ratio_case_sql, owner_ratio_lookup as _account_owner_ratio_lookup
 from domain.investments.holdings_view import _table_exists
 from domain.investments.portfolio_state import _excluded_accounts, _load_accounts_config, _owner_ratio, get_conn
 from domain.investments.portfolio_valuation_state import _build_current_state
@@ -75,32 +76,6 @@ def _norm(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _norm(item) for key, item in value.items()}
     return value
-
-
-def _owner_ratio_case_sql(account_cfg: dict[str, Any]) -> Callable[[str], tuple[str, list[Any]]]:
-    accounts = account_cfg.get("accounts") or {}
-    defaults = account_cfg.get("defaults") or {}
-    default_owner_ratio = Decimal(str(defaults.get("owner_ratio", 1)))
-
-    def build(alias: str = "h") -> tuple[str, list[Any]]:
-        clauses: list[str] = []
-        params: list[Any] = []
-        for account_code, cfg in accounts.items():
-            ratio = Decimal(str((cfg or {}).get("owner_ratio", default_owner_ratio)))
-            clauses.append(f"WHEN {alias}.account_code = %s THEN %s")
-            params.extend([str(account_code), float(ratio)])
-        if not clauses:
-            return "%s", [float(default_owner_ratio)]
-        return f"(CASE {' '.join(clauses)} ELSE %s END)", [*params, float(default_owner_ratio)]
-
-    return build
-
-
-def _account_owner_ratio_lookup(account_cfg: dict[str, Any]) -> Callable[[str], Decimal]:
-    def lookup(account_code: str) -> Decimal:
-        return _owner_ratio(account_cfg, str(account_code or ""))
-
-    return lookup
 
 
 def _bridge_cashflow_excluded_accounts(account_cfg: dict[str, Any]) -> set[str]:

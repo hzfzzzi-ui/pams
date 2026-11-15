@@ -168,7 +168,8 @@ def test_published_account_scope_covers_each_security_and_cash_currency(empty_so
                     owner_ratio_case_sql=lambda alias:('1',[]))
                 assert history[DAY]==Decimal('233') and not history.unknown_accounts_by_date
         from domain.investments import portfolio_state
-        from endpoints import accounts
+        from domain.accounts import account_overview as accounts
+        from endpoints import accounts as account_routes
         from fastapi import FastAPI
         cfg={'accounts':{'ibkr':{'account_type':'brokerage','truth_source':'ibkr_flex','base_currency':'USD',
                                 'owner_ratio':'1','include_in_nav':True}}}
@@ -194,7 +195,7 @@ def test_published_account_scope_covers_each_security_and_cash_currency(empty_so
         monkeypatch.setattr(accounts,'_load_accounts_config',lambda:cfg)
         monkeypatch.setattr(accounts,'_load_bank_config',lambda:{})
         monkeypatch.setattr(accounts,'_view_as_of',lambda:DAY)
-        app=FastAPI(); app.include_router(accounts.router,prefix='/api')
+        app=FastAPI(); app.include_router(account_routes.router,prefix='/api')
         with TestClient(app) as web:
             response=web.get('/api/accounts/overview')
             assert response.status_code==200,response.text
@@ -309,7 +310,7 @@ def test_cash_scope_requires_explicit_section_values_and_exact_account_date():
 
 def test_account_balances_keep_liability_sign_in_real_pg(empty_source_db, monkeypatch):
     from datetime import date
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
     from domain.investments import snapshot_coverage
     from scripts.bootstrap_isolated_sources import initialize_isolated_sources
     import psycopg2

@@ -1,6 +1,8 @@
 defaults:
   base_currency: CNY
   owner_ratio: 1.0
+  historical_owner_ratios:
+    a_share_stock: 0.625
   include_in_nav: true
 
 excluded_accounts:
@@ -253,6 +255,8 @@ accounts:
     role: 美元信用卡
 
   ibkr:
+    account_center_balance: portfolio
+    portfolio_value_evidence: official_broker_close
     display_name: IBKR
     account_type: brokerage
     institution: Interactive Brokers
@@ -282,6 +286,8 @@ accounts:
       note: 2026-06-02 用户确认 80,000 MXN 已到账 IBKR，原 2026-05-30 Santander 转 IBKR 在途资金已核销；同日买入 4,626 USD，消除部分 USD 负现金。
 
   tonghuashun:
+    account_center_balance: portfolio
+    portfolio_value_evidence: reconciled_trade_cash
     display_name: 同花顺
     account_type: brokerage
     institution: 同花顺

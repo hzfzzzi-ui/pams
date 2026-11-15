@@ -10,7 +10,7 @@ if str(API_ROOT) not in sys.path:
 from domain.accounts import balance_snapshot
 from domain.investments import portfolio_state, valuation_nav
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
-from endpoints.accounts import _build_accounts_overview
+from domain.accounts.account_overview import _build_accounts_overview
 
 
 DAY = date(2026, 11, 1)

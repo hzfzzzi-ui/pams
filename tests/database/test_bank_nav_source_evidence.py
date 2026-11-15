@@ -75,7 +75,7 @@ def test_published_bank_source_proof_and_tamper_fail_closed(empty_source_db, mon
                 dates=[day], terminal_date=day, fx_timelines={'CNY':[(day,Decimal(1))]}, base_currency='CNY')
             assert values[day]['source_evidence_unavailable_accounts'] == ['bank_a']
     import main
-    from endpoints import accounts
+    from domain.accounts import account_overview as accounts
     monkeypatch.setattr(main, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
     monkeypatch.setattr(main, '_investment_return_view_as_of', lambda cur: day)
     monkeypatch.setattr(main, '_load_portfolio_accounts_config', lambda: {'accounts': {'ibkr': {'include_in_nav': False}}})

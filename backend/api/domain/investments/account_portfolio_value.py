@@ -14,7 +14,7 @@ def _money(value):
     return str(value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
-def _ibkr_value(cur, *, as_of, base_currency, owner_ratio):
+def _ibkr_close_value(cur, row, *, as_of, base_currency, owner_ratio, scope_complete):
     account = os.environ.get('PAMS_IBKR_HOLDINGS_ACCOUNT_ID', '').strip()
     report = last_publication(cur, through=as_of) if account else None
     if not report:
@@ -55,11 +55,8 @@ def _ibkr_value(cur, *, as_of, base_currency, owner_ratio):
             'updated_at': report['updated_at'].isoformat() if report['updated_at'] else None}
 
 
-def read_account_portfolio_value(cur, row, *, as_of, base_currency, owner_ratio):
-    code = row['account_code']
-    if code == 'ibkr':
-        return _ibkr_value(cur, as_of=as_of, base_currency=base_currency, owner_ratio=owner_ratio)
-    if (code != 'tonghuashun' or base_currency != 'CNY' or row['has_snapshot_cash']
+def _reconciled_trade_cash_value(cur, row, *, as_of, base_currency, owner_ratio, scope_complete):
+    if (scope_complete or base_currency != 'CNY' or row['has_snapshot_cash']
             or row['fx_missing_count'] or row['known_value_base'] is None or not row['single_snapshot_day']):
         return None
     day = row['holdings_as_of']
@@ -76,3 +73,42 @@ def read_account_portfolio_value(cur, row, *, as_of, base_currency, owner_ratio)
             'as_of': day.isoformat(), 'cash_as_of': cash_day.isoformat(),
             'updated_at': updated_at.isoformat() if updated_at else None,
             'status': 'cash_carried_forward' if cash_day < day else 'reconciled_cash'}
+
+
+_PORTFOLIO_VALUE_READERS = {
+    "official_broker_close": _ibkr_close_value,
+    "reconciled_trade_cash": _reconciled_trade_cash_value,
+}
+
+
+def read_account_portfolio_value(cur, row, *, evidence_mode, as_of, base_currency, owner_ratio, scope_complete):
+    reader = _PORTFOLIO_VALUE_READERS.get(evidence_mode)
+    if reader is None:
+        return None
+    return reader(cur, row, as_of=as_of, base_currency=base_currency, owner_ratio=owner_ratio,
+                  scope_complete=scope_complete)
+
+
+def account_center_balance(holdings, currency):
+    """Project the same valuation into the compact account list."""
+    portfolio = holdings.get("portfolio_value") or {}
+    total = holdings.get("total_value_base")
+    amount = portfolio.get("amount_base")
+    if amount is None:
+        amount = total if total is not None else holdings.get("known_value_base")
+    if amount is None:
+        return None
+    if portfolio.get("status") == "cash_carried_forward":
+        label = "组合估值"
+    elif portfolio or total is not None:
+        label = "组合价值"
+    else:
+        label = "已覆盖市值"
+    return {
+        "balance_amount": amount,
+        "balance_currency": currency,
+        "balance_as_of": portfolio.get("as_of") or holdings.get("holdings_as_of"),
+        "valuation_updated_at": (portfolio.get("updated_at") if portfolio
+                                 else holdings.get("holdings_updated_at")),
+        "balance_label": label,
+    }

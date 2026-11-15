@@ -22,9 +22,9 @@ const sync = {groups: [
       summary:{status:'stale',balance_amount:null,last_synced_on:'2026-10-30'}},
   ]},
   {code:'ibkr',label:'合成券商',rows:[
-    {account_code:'tonghuashun',active:true,label:'合成 A 股账户',currency:'CNY',summary:{status:'normal',
+    {account_code:'fixture_a_share',active:true,label:'合成 A 股账户',currency:'CNY',summary:{status:'normal',
       latest_trade_on:'2026-10-23',last_synced_at:'2026-11-04T06:51:00Z'}},
-    {account_code:'ibkr',active:true,label:'合成海外券商',currency:'USD',summary:{status:'normal'}},
+    {account_code:'fixture_foreign_broker',active:true,label:'合成海外券商',currency:'USD',summary:{status:'normal'}},
   ]},
 ]};
 page.on('pageerror',error=>errors.push(error.message));
@@ -39,12 +39,12 @@ await page.route('**/*',async route=>{
    assert.equal(url.searchParams.get('include_portfolio_cash'),'true');
    return route.fulfill({status:holdingsUnavailable?503:200,contentType:'application/json',
     body:JSON.stringify({base_currency:'CNY',as_of:'2026-11-06',by_account:[
-      {account_code:'tonghuashun',known_value_base:'1234.56',total_value_base:null,
-        portfolio_value:{amount_base:'1434.56',cash_base:'200.00',as_of:'2026-11-05',cash_as_of:'2026-10-23',
-          status:'cash_carried_forward',updated_at:'2026-11-05T13:26:00Z'}},
-      {account_code:'ibkr',known_value_base:'7890.12',total_value_base:null,holdings_updated_at:'2026-11-07T00:00:00Z',
-        portfolio_value:{amount_base:'6890.12',cash_base:'-1000.00',as_of:'2026-11-06',cash_as_of:'2026-11-06',
-          status:'official_close',updated_at:'2026-11-06T02:30:00Z'}},
+      {account_code:'fixture_a_share',known_value_base:'1234.56',
+        account_center_balance:{balance_amount:'1434.56',balance_currency:'CNY',
+          balance_label:'组合估值',balance_as_of:'2026-11-05',valuation_updated_at:'2026-11-05T13:26:00Z'}},
+      {account_code:'fixture_foreign_broker',known_value_base:'7890.12',
+        account_center_balance:{balance_amount:'6890.12',balance_currency:'CNY',
+          balance_label:'组合价值',balance_as_of:'2026-11-06',valuation_updated_at:'2026-11-06T02:30:00Z'}},
     ]})});
   }
   if(url.pathname==='/api/sync/accounts/fixture_card/source-anomalies'){
@@ -128,8 +128,8 @@ try{
   assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
   for (const [code, values] of [
     ['fixture_legacy', ['最近交易', '—', '上次同步', '2026-10-30']],
-    ['tonghuashun', ['最近交易', '2026-10-23', '估值更新', '2026-11-05 21:26']],
-    ['ibkr', ['最近交易', '—', '估值更新', '2026-11-06 10:30']],
+    ['fixture_a_share', ['最近交易', '2026-10-23', '估值更新', '2026-11-05 21:26']],
+    ['fixture_foreign_broker', ['最近交易', '—', '估值更新', '2026-11-06 10:30']],
   ]) {
     assert.deepEqual(await page.locator(`[data-account-code="${code}"] .accountSyncMetadata > *`).allTextContents(), values);
   }
@@ -187,7 +187,7 @@ try{
   holdingsUnavailable=true;await page.reload();await center.click();await account.waitFor();
   assert.equal(await page.locator('.accountSyncAmount').first().textContent(),'¥18,971.58');
   assert.equal(await page.locator('.accountSyncAmount').last().textContent(),'—');
-  assert.deepEqual(await page.locator('[data-account-code="tonghuashun"] .accountSyncMetadata > *').allTextContents(),
+  assert.deepEqual(await page.locator('[data-account-code="fixture_a_share"] .accountSyncMetadata > *').allTextContents(),
     ['最近交易', '2026-10-23', '上次同步', '2026-11-04 14:51']);
   holdingsUnavailable=false;
   reports.push({width,investment,more:{body,primary,wrap,children},states:['normal','advanced','audit-error','long-label','warning','unknown'],overflow:false});
