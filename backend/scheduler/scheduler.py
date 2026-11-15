@@ -484,6 +484,36 @@ def run_due_window(key, now=None):
         return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
+def run_portfolio_valuation_publication(now=None):
+    """Publish current verified inputs independently of market backfill jobs."""
+    current = now or datetime.now(timezone.utc)
+    target = max(
+        latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ, current),
+        latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ, current),
+    )
+
+    def publish(day):
+        result = _request_json(
+            "post",
+            f"{API_BASE}/portfolio/valuation-state/publish?cycle=scheduled_close&minimumAsOf={day.isoformat()}",
+            "portfolio valuation publication", failure_details=True, max_attempts=1,
+        )
+        if isinstance(result, dict) and result.get("status") == "published":
+            as_of = date.fromisoformat(str(result["valuation_date"])[:10])
+            if as_of >= day and result.get("net_liquidation_value") is not None:
+                return {"status": "ok", "steps": [{"name": "portfolio_valuation", "issues": []}]}
+        reason = result.get("reason") if isinstance(result, dict) else None
+        return {"status": "blocked", "steps": [{
+            "name": "portfolio_valuation", "issues": [reason or "valuation_not_published"],
+        }]}
+
+    try:
+        return RefreshJournal(STATE_PATH).run("portfolio_valuation", target, publish)
+    except (OSError, ValueError, KeyError):
+        logger.exception("Portfolio valuation publication could not be confirmed")
+        return {"status": "error", "reason": "valuation_publication_unconfirmed"}
+
+
 def run_calendar_fx(now=None):
     """Finalize each natural date and retry a missed date before advancing."""
     latest = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).date() - timedelta(days=1)
@@ -708,6 +738,7 @@ def main():
     schedule.every(30).minutes.do(poll_confirmed_fund_nav)
     schedule.every(30).minutes.do(run_daily_us_return_recovery)
     schedule.every(30).minutes.do(run_cash_event_confirmation)
+    schedule.every(30).minutes.do(run_portfolio_valuation_publication)
 
     while True:
         schedule.run_pending()

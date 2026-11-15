@@ -496,9 +496,7 @@ def build_portfolio_valuation_state_from_parts(
         for row in investment_positions
         if not row.get("as_of")
     ]
-    incomplete_scope = sorted({str(row.get('account_code')) for row in [*account_balances, *investment_positions]
-                               if row.get('account_code') and row.get('include_in_nav', True)
-                               and (row.get('snapshot_scope_status') in {'partial', 'unknown'} or row.get('fx_status') == 'unavailable')})
+    incomplete_scope = nav_bucket.get("unavailable_accounts", [])
     has_nav_members = any(row.get("include_in_nav", True) for row in [*account_balances, *investment_positions])
     data_completeness = "complete" if has_nav_members and not missing_accounts and not missing_positions and not missing_pnl_positions and not incomplete_scope else "partial"
     raw_json = {
@@ -738,11 +736,19 @@ def _exact_amount(value: Any) -> Decimal | None:
         return None
 
 
+class ValuationPublicationBlocked(ValueError):
+    def __init__(self, reason: str, state: dict[str, Any]):
+        super().__init__(reason)
+        self.reason = reason
+        self.state = state
+
+
 def publish_current_portfolio_valuation_state(
     cur,
     *,
     base_currency: str = "CNY",
     cycle: str = "manual_publish",
+    minimum_as_of: Date | None = None,
 ) -> dict[str, Any]:
     """Compute and upsert the current valuation state as a published row."""
     if not _table_exists(cur, STATE_TABLE):
@@ -754,8 +760,10 @@ def publish_current_portfolio_valuation_state(
         cycle=cycle,
         status="published",
     )
-    if state['net_liquidation_value'] is None:
-        raise ValueError('portfolio valuation cannot be published while account snapshot scope is incomplete')
+    if minimum_as_of and (_date_key(state.get("valuation_date")) or "") < minimum_as_of.isoformat():
+        raise ValuationPublicationBlocked("valuation_date_not_ready", state)
+    if state["net_liquidation_value"] is None:
+        raise ValuationPublicationBlocked("account_snapshot_scope_incomplete", state)
     cur.execute(
         f"""
         INSERT INTO {STATE_TABLE} (
@@ -866,6 +874,7 @@ def publish_portfolio_valuation_state_payload(
     *,
     base_currency: str = "CNY",
     cycle: str = "manual_publish",
+    minimum_as_of: Date | None = None,
     conn_factory: Callable[[], Any] = get_conn,
 ) -> dict[str, Any]:
     """Publish and return the current canonical valuation state."""
@@ -874,5 +883,19 @@ def publish_portfolio_valuation_state_payload(
         if hasattr(conn, "set_session"):
             conn.set_session(isolation_level="REPEATABLE READ")
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            row = publish_current_portfolio_valuation_state(cur, base_currency=base, cycle=cycle)
+            try:
+                row = publish_current_portfolio_valuation_state(
+                    cur, base_currency=base, cycle=cycle, minimum_as_of=minimum_as_of,
+                )
+            except ValuationPublicationBlocked as exc:
+                state = exc.state
+                evidence = state.get("raw_json") or {}
+                return _norm({
+                    "status": "blocked", "reason": exc.reason, "as_of": state.get("valuation_date"),
+                    "minimum_as_of": minimum_as_of,
+                    "missing_accounts": evidence.get("missing_accounts", []),
+                    "missing_positions": evidence.get("missing_positions", []),
+                    "missing_pnl_positions": evidence.get("missing_pnl_positions", []),
+                    "snapshot_scope_unavailable_accounts": evidence.get("snapshot_scope_unavailable_accounts", []),
+                })
             return {"table_ready": True, **(_normalize_db_row(row, source="published") or {})}

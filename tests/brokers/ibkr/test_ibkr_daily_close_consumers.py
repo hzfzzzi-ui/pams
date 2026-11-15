@@ -187,6 +187,13 @@ def test_account_nav_uses_internal_base_fx_owner_config_and_gross_proof(tmp_path
         "ibkr": D(553) * factor, "other": D(50)}
     assert positions == old and len(cur.calls) == 1
 
+    from domain.investments.portfolio_valuation_state import build_portfolio_valuation_state_from_parts
+
+    row["snapshot_scope_status"] = "partial"
+    state = build_portfolio_valuation_state_from_parts(account_balances=[row], investment_positions=positions)
+    assert state["net_liquidation_value"] == D(553) * factor + 50
+    assert state["raw_json"]["snapshot_scope_unavailable_accounts"] == []
+
 
 @pytest.mark.parametrize("kind", ["missing_file", "missing_fx", "future_fx", "gross", "date", "account"])
 def test_configured_unavailable_preserves_legacy_and_marks_unconfirmed(tmp_path, monkeypatch, kind):
