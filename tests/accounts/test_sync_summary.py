@@ -72,15 +72,20 @@ def test_account_center_keeps_legacy_sync_date_separate_from_import_and_balance(
     monkeypatch.setattr(sync_status, "_manual_position_value", lambda *args: None)
     fund = {"account_type": "fund_platform", "truth_source": "manual", "reconcile_method": "position_nav",
             "historical_sync_as_of": sync_day, "manual_balance": {"amount": "100", "as_of": reference_day}}
+    account_reference = {"amount": "250.00", "currency": "CNY", "as_of": reference_day, "source": "archive"}
+    benefit = {"account_type": "benefit", "truth_source": "official_statement", "reconcile_method": "balance",
+               "account_balance_reference": account_reference}
     config = {"accounts": {
         "recovered_fund": fund,
         "reference_only": fund,
         "inactive": {"active": False},
+        "benefit": benefit,
+        "future_reference": {**benefit, "account_balance_reference": {**account_reference, "as_of": date(2026, 11, 16)}},
     }}
 
     groups = sync_status.read_account_sync(Cursor(), config)["groups"]
     rows = {row["account_code"]: row["summary"] for group in groups for row in group["rows"]}
-    assert set(rows) == {"recovered_fund", "reference_only", "inactive"}
+    assert set(rows) == {"recovered_fund", "reference_only", "inactive", "benefit", "future_reference"}
     assert rows["inactive"]["status"] == "inactive"
     for code in ("recovered_fund", "reference_only"):
         assert rows[code]["status"] == "stale"
@@ -88,6 +93,27 @@ def test_account_center_keeps_legacy_sync_date_separate_from_import_and_balance(
         assert rows[code]["last_synced_on"] == sync_day
         assert rows[code]["balance_as_of"] == reference_day
         assert rows[code]["balance_amount"] == "100"
+    assert rows["benefit"] == {
+        "status": "stale", "balance_amount": "250.00", "latest_trade_on": None,
+        "last_synced_at": None, "last_synced_on": reference_day, "review_reasons": [],
+        "balance_as_of": reference_day, "balance_currency": "CNY",
+        "balance_basis": "historical_account_reference", "balance_label": "历史参考余额",
+    }
+    assert rows["future_reference"]["balance_amount"] is None
+    assert rows["future_reference"]["status"] == "review"
+
+    def recorded_balance(cur, candidates, cfg):
+        if cfg is benefit:
+            return {"status": "recorded", "amount": "300.00", "as_of": sync_day, "synced_at": imported_at}
+        return {"status": "uninitialized"}
+
+    monkeypatch.setattr(sync_status, "_balance", recorded_balance)
+    groups = sync_status.read_account_sync(Cursor(), config)["groups"]
+    summary = next(row["summary"] for group in groups for row in group["rows"] if row["account_code"] == "benefit")
+    assert (summary["balance_amount"], summary["balance_basis"], summary["status"]) == (
+        "300.00", "confirmed_snapshot", "normal",
+    )
+    assert summary["last_synced_at"] == imported_at
 
 
 def test_account_center_uses_the_same_amount_field_for_snapshot_and_statement():
