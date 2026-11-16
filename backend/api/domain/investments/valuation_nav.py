@@ -29,11 +29,12 @@ INVESTMENT_SNAPSHOT_EXCLUDE = {"tonghuashun", "ibkr", *STABLE_ANCHOR_ACCOUNTS}
 
 class ValuationEvidenceSeries(dict):
     """Values plus dates where an input is missing; consumers must honor the latter."""
-    def __init__(self, values=(), *, unknown_dates=(), estimated_dates=(), missing_price_dates=(), cash_scope_unverified=False):
+    def __init__(self, values=(), *, unknown_dates=(), estimated_dates=(), missing_price_dates=(), missing_fx_dates=None, cash_scope_unverified=False):
         super().__init__(values)
         self.unknown_dates = set(unknown_dates)
         self.estimated_dates = set(estimated_dates)
         self.missing_price_dates = set(missing_price_dates)
+        self.missing_fx_dates = None if missing_fx_dates is None else set(missing_fx_dates)
         self.cash_scope_unverified = cash_scope_unverified
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
         self.available_accounts_by_date: dict[Date, list[str]] = {}

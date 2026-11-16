@@ -78,6 +78,30 @@ def test_real_return_payloads_propagate_missing_fx_and_keep_known_values(empty_s
             assert Decimal(section['rows'][0]['market_value'])==Decimal('800')
 
 
+def test_yuan_gold_missing_close_is_not_reported_as_missing_fx(empty_source_db):
+    day = date(2026, 11, 16)
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""INSERT INTO pams_holdings_snapshot(account_code,name,symbol,currency,major_category,
+                minor_category,asset_liability,market_value,cost,quantity,current_price,as_of) VALUES
+                ('jianhang','Synthetic gold','CCB_GOLD_ACCUM','CNY','贵金属','黄金','资产',8262.40,11998.30,10,826.24,%s)""",
+                (day,))
+            args = dict(section="precious_metal", start_date=day, interval="daily", base_currency="CNY",
+                        view_as_of=day, reported_returns_cfg={}, overview_payload={"accounts": []},
+                        owner_ratio_case_sql=owner, account_owner_ratio=lambda account: Decimal(1),
+                        excluded_holding_accounts=set())
+            section = returns.build_section_return_series_payload(cur, **args)
+            assert section["status"] == "unavailable"
+            assert section["reason"] == "historical_price_missing"
+            assert section["rows"][0]["market_value"] is None
+            cur.execute("""INSERT INTO market_observations(observation_type,as_of,source,source_key,asset_id,close_price)
+                VALUES ('daily',%s,'akshare_sge_daily','synthetic','BENCH_GOLD_SPOT_AU9999',829.49)""", (day,))
+            section = returns.build_section_return_series_payload(cur, **args)
+            assert section.get("status") != "unavailable"
+            assert Decimal(section["rows"][0]["market_value"]) == Decimal("8294.90")
+
+
 @pytest.mark.parametrize("offset",[1,3])
 def test_ibkr_today_window_requires_exact_current_and_previous_fx(empty_source_db,offset):
     day=date(2026,10,22)

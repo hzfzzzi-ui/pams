@@ -1118,16 +1118,20 @@ def build_section_return_series_payload(
     if missing_valuation_base or any(value is None for value in values.values()) or any(
         amount is None for _, amount in events
     ):
-        fx_missing = any(value is None for value in values.values()) or getattr(events, "missing_fx", False)
+        missing_fx_dates = getattr(values, "missing_fx_dates", None)
+        fx_missing = (
+            bool(missing_fx_dates) if missing_fx_dates is not None
+            else any(value is None for value in values.values())
+        ) or getattr(events, "missing_fx", False)
         if missing_valuation_base:
             reason = "section_valuation_base_missing"
             coverage_note = "缺少可作为基准的持仓估值，暂无法计算区间收益。"
-        elif fx_missing:
-            reason = "fx_rate_unknown"
-            coverage_note = "缺少同日汇率，不能计算完整收益。"
         elif getattr(values, "missing_price_dates", set()):
             reason = "historical_price_missing"
             coverage_note = "缺少历史行情，不能计算期间收益。"
+        elif fx_missing:
+            reason = "fx_rate_unknown"
+            coverage_note = "缺少同日汇率，不能计算完整收益。"
         elif getattr(values, "cash_scope_unverified", False):
             reason = "account_cash_coverage_unverified"
             coverage_note = "证券账户现金及资金流水范围尚未核验，不能计算账户期间收益。"

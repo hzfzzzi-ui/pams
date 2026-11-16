@@ -320,7 +320,9 @@ def _snapshot_category_value_series(
     account_codes: list[str] | None = None,
 ) -> dict[Date, Decimal | None]:
     """Return observed holding values, leaving dates before coverage absent."""
-    values: dict[Date, Decimal | None] = {}
+    from domain.investments.valuation_nav import ValuationEvidenceSeries
+
+    values = ValuationEvidenceSeries(missing_fx_dates=())
     if not dates:
         return values
 
@@ -351,6 +353,10 @@ def _snapshot_category_value_series(
 
     gold_join = gold_close_join("h", "h.date") if major_category == "贵金属" else ""
     market_value = gold_market_value("h") if gold_join else "h.market_value"
+    missing_price = (
+        f"({uses_gold_close('h')} AND h.quantity <> 0 AND gold_close.price IS NULL)"
+        if gold_join else "FALSE"
+    )
     cur.execute(
         f"""
         WITH series_dates AS (
@@ -376,6 +382,8 @@ def _snapshot_category_value_series(
         ), marked AS (
             SELECT
                 h.date,
+                {missing_price} AS missing_price,
+                COALESCE(fx_identity.rate, fx_hist.rate) IS NULL AS missing_fx,
                 {market_value} * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql} AS value_cny
             FROM h
             {gold_join}
@@ -395,7 +403,8 @@ def _snapshot_category_value_series(
             ) fx_identity ON TRUE
             WHERE {' AND '.join(h_filters)}
         )
-        SELECT date, CASE WHEN COUNT(*) FILTER (WHERE value_cny IS NULL)>0 THEN NULL ELSE SUM(value_cny) END AS value_cny
+        SELECT date, CASE WHEN COUNT(*) FILTER (WHERE value_cny IS NULL)>0 THEN NULL ELSE SUM(value_cny) END AS value_cny,
+               BOOL_OR(missing_price) AS missing_price, BOOL_OR(missing_fx) AS missing_fx
         FROM marked
         GROUP BY date
         ORDER BY date
@@ -411,7 +420,12 @@ def _snapshot_category_value_series(
         ),
     )
     for row in cur.fetchall():
-        values[row["date"]] = dec(row["value_cny"]) if row["value_cny"] is not None else None
+        day = row["date"]
+        values[day] = dec(row["value_cny"]) if row["value_cny"] is not None else None
+        if row.get("missing_price"):
+            values.missing_price_dates.add(day)
+        if row.get("missing_fx"):
+            values.missing_fx_dates.add(day)
     return values
 
 
