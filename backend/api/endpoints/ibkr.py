@@ -281,13 +281,14 @@ def ibkr_daily_holdings_sync(req: IBKRFlexSyncRequest, request: Request) -> dict
 
 @router.get("/cash-events/status")
 def ibkr_cash_event_status() -> dict[str, Any]:
-    from domain.brokers.ibkr import ibkr_daily_holdings as holdings, ibkr_history_backfill
+    from domain.brokers.ibkr import ibkr_history_backfill
+    from domain.brokers.ibkr.ibkr_report_state import has_source_registry
 
     with closing(get_conn()) as conn:
         conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
         with conn:
-            if holdings.archive_account():
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if has_source_registry(cur):
                     return ibkr_history_backfill.archived_fact_status(cur)
             return ibkr_cash_event_sync.status(conn)
 

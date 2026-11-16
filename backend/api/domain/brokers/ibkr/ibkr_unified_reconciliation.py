@@ -26,6 +26,60 @@ def _decimal(value):
         return None
 
 
+def reconcile_archived_report(conn, report, quality):
+    """Compare the archive's official IDs with facts and their verified sources."""
+    from domain.brokers.ibkr.ibkr_history_backfill import read_verified_candidates, reconcile_candidates
+
+    source = _check('source', '报告依据')
+    trade = _check('trade_facts', '投资交易 fact')
+    cash = _check('cash_facts', '现金事件 fact')
+    current = _check('current_snapshot', '当前快照')
+    _issue(source, 'source_unverified', field='broker_and_account_authentication')
+    if quality['status'] != 'ok':
+        _issue(source, 'source_unverified', field='report_quality')
+    scope = {
+        'account_code': 'ibkr', 'source_account_id': report.source_account_id,
+        'statement_as_of': report.as_of.isoformat(), 'source_authentication': 'unknown',
+        'trade_scope': '仅核对归档原文中的稳定身份与已发布来源事实',
+        'snapshot_coverage': 'unknown', 'snapshot_cash_status': 'unknown',
+        'not_compared': '账户归属、券商认证、现金余额、NAV、FX、收益率',
+        'comparison_currency': '原币，不折算 CNY',
+    }
+    checks = {'trade': trade, 'cash': cash}
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        try:
+            candidates, pending, _ = read_verified_candidates(
+                report.path.read_bytes(), report.source_account_id, report.sha256, report.as_of)
+        except (ValueError, ArithmeticError, KeyError):
+            for check in checks.values():
+                _issue(check, 'scope_unavailable', field='archived_fact_sections')
+        else:
+            matched, conflicts = reconcile_candidates(
+                cur, candidates, report.source_account_id, current_digest=report.sha256)
+            conflicting = {(item['kind'], item['statement_day'], item['ordinal']) for item in conflicts}
+            for kind, check in checks.items():
+                check['compared'] = len(matched[kind])
+                for uid, (_, _, position) in candidates[kind].items():
+                    row = (kind, position['statement_day'], position['ordinal'])
+                    if row in conflicting:
+                        _issue(check, 'source_link_mismatch', key=uid)
+                    elif uid not in matched[kind]:
+                        _issue(check, 'missing_row', key=uid)
+            for item in pending:
+                _issue(checks[item['kind']], 'scope_unavailable', field='archived_fact_row',
+                       statement_day=item['statement_day'], ordinal=item['ordinal'])
+        cur.execute("SELECT MAX(as_of) AS as_of FROM public.pams_holdings_snapshot WHERE account_code='ibkr'")
+        latest_day = cur.fetchone()['as_of']
+        if latest_day != report.as_of:
+            _issue(current, 'snapshot_date_mismatch', expected=report.as_of.isoformat(),
+                   actual=latest_day.isoformat() if latest_day else None)
+        else:
+            coverage = load_account_snapshot_coverage(cur, {('ibkr', report.as_of)})[('ibkr', report.as_of)]
+            scope.update(snapshot_coverage=coverage['status'], snapshot_cash_status=coverage['cash_status'])
+            _issue(current, 'scope_unavailable', field='account_snapshot_comparison', actual=coverage['status'])
+    return _result([source, trade, cash, current], scope, report, quality)
+
+
 def reconcile_unified_report(conn, report, quality):
     content = report.path.read_bytes()
     if sha256(content).hexdigest() != report.sha256:
