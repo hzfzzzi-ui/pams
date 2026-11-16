@@ -38,6 +38,7 @@ from domain.investments.daily_return_state import quote_snapshot_from_market_dai
 from domain.market.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
 from domain.investments.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
 from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+from domain.market.quote_valuation import GOLD_BENCHMARK_ASSET, GOLD_CLOSE_SOURCE
 from domain.market.price_history import (
     build_price_series_payload,
     ensure_price_history,
@@ -2342,45 +2343,6 @@ def _parse_sge_date(value) -> date | None:
     return date(year, month, day)
 
 
-def _latest_gold_proxy_price(as_of=None, *, exact: bool = False) -> float | None:
-    """Return the latest stored SGE Au99.99 spot gold mark."""
-    with _get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            date_filter = ""
-            params: tuple[object, ...] = ()
-            if as_of is not None:
-                date_filter = "AND as_of = %s" if exact else "AND as_of <= %s"
-                params = (as_of,)
-            cur.execute(
-                f"""
-                SELECT COALESCE(close_price, unit_nav, estimated_unit_nav) AS close_price
-                FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') AS observation_rows
-                WHERE (
-                    asset_id = 'BENCH_GOLD_SPOT_AU9999'
-                    OR symbol IN ('Au99.99.SGE', 'Au99.99')
-                    OR source_key ILIKE '%%Au99.99%%'
-                  )
-                  AND COALESCE(close_price, unit_nav, estimated_unit_nav) IS NOT NULL
-                  {date_filter}
-                ORDER BY
-                    as_of DESC,
-                    CASE
-                        WHEN source = 'akshare_sge_daily' THEN 0
-                        WHEN source = 'akshare_sge_realtime' THEN 1
-                        ELSE 2
-                    END,
-                    updated_at DESC
-                LIMIT 1
-                """,
-                params,
-            )
-            row = cur.fetchone()
-    if not row or row.get("close_price") is None:
-        return None
-    price = float(row["close_price"])
-    return price if price > 0 else None
-
-
 def _fetch_sge_au9999_history(as_of) -> List[Tuple[date, float | None, float | None, float | None, float]]:
     from domain.imports.isolation import require_external_access
     require_external_access()
@@ -2413,35 +2375,8 @@ def _fetch_sge_au9999_history(as_of) -> List[Tuple[date, float | None, float | N
     return rows
 
 
-def _fetch_sge_au9999_realtime(as_of) -> Tuple[date, float] | None:
-    from domain.imports.isolation import require_external_access
-    require_external_access()
-    try:
-        import akshare as ak
-    except ImportError:
-        logger.warning("akshare is not installed; SGE gold realtime quote is unavailable")
-        return None
-
-    try:
-        frame = ak.spot_quotations_sge(symbol="Au99.99")
-    except Exception as exc:
-        logger.warning("Failed to fetch SGE Au99.99 realtime quote: %s", exc)
-        return None
-
-    latest: Tuple[date, float] | None = None
-    for _, record in frame.iterrows():
-        quote_date = _parse_sge_date(record.get("更新时间")) or as_of
-        price = _positive_float(record.get("现价"))
-        if quote_date is None or price is None or quote_date > as_of:
-            continue
-        latest = (quote_date, price)
-    return latest
-
-
 def _upsert_gold_spot_closes(
     rows: List[Tuple[date, float | None, float | None, float | None, float]],
-    *,
-    source: str = "akshare_sge_daily",
 ) -> int:
     if not rows:
         return 0
@@ -2451,15 +2386,15 @@ def _upsert_gold_spot_closes(
             continue
         payload.append((
             trade_date,
-            source,
-            f"{source}:Au99.99:{trade_date.isoformat()}",
+            GOLD_CLOSE_SOURCE,
+            f"{GOLD_CLOSE_SOURCE}:Au99.99:{trade_date.isoformat()}",
+            GOLD_BENCHMARK_ASSET,
             open_price,
             high_price,
             low_price,
             close_price,
             json_mod.dumps({
                 "role": "benchmark",
-                "proxy_for": ["CCB_GOLD_ACCUM", "ASSET_CCB_GOLD_ACCUM"],
                 "is_holding": False,
                 "symbol": "Au99.99",
             }),
@@ -2468,19 +2403,15 @@ def _upsert_gold_spot_closes(
         return 0
     with _get_conn() as conn:
         with conn.cursor() as cur:
-            cur.executemany(
+            psycopg2.extras.execute_values(
+                cur,
                 """
                 INSERT INTO market_observations (
-            observation_type,
+                    observation_type,
                     as_of, source, source_key, asset_id, symbol, name, market, currency,
                     open_price, high_price, low_price, close_price,
                     confidence, raw_json, updated_at
-                ) VALUES ('daily',
-                    %s, %s, %s,
-                    'BENCH_GOLD_SPOT_AU9999', 'Au99.99.SGE', '上海黄金Au99.99',
-                    'SGE', 'CNY', %s, %s, %s, %s,
-                    'high', %s::jsonb, now()
-                )
+                ) VALUES %s
                 ON CONFLICT (as_of, source, source_key) WHERE observation_type = 'daily'
                 DO UPDATE SET
                     asset_id = EXCLUDED.asset_id,
@@ -2495,124 +2426,23 @@ def _upsert_gold_spot_closes(
                     confidence = EXCLUDED.confidence,
                     raw_json = market_observations.raw_json || EXCLUDED.raw_json,
                     updated_at = now()
+                WHERE (market_observations.open_price, market_observations.high_price,
+                       market_observations.low_price, market_observations.close_price)
+                    IS DISTINCT FROM (EXCLUDED.open_price, EXCLUDED.high_price, EXCLUDED.low_price, EXCLUDED.close_price)
                 """,
                 payload,
+                template="""('daily', %s, %s, %s, %s, 'Au99.99.SGE', '上海黄金Au99.99',
+                    'SGE', 'CNY', %s, %s, %s, %s, 'high', %s::jsonb, now())""",
+                page_size=500,
             )
             conn.commit()
             return len(payload)
 
 
-def _sync_gold_accum_snapshots_from_spot(start: date, end: date) -> int:
-    with _get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""SELECT id,account_code,name,as_of FROM pams_holdings_snapshot
-                WHERE as_of BETWEEN %s AND %s AND major_category='贵金属' AND quantity IS NOT NULL
-                  AND (UPPER(COALESCE(symbol,'')) IN ('CCB_GOLD_ACCUM','GOLD','XAU')
-                       OR UPPER(COALESCE(symbol,'')) LIKE '%%GOLD%%')""", (start, end))
-            targets = cur.fetchall()
-            lock_holding_accounts(cur, [(row['account_code'] if isinstance(row, dict) else row[1]) for row in targets])
-            isolated = source_enabled(cur)
-            target_ids = [row['id'] if isinstance(row, dict) else row[0] for row in targets]
-            cur.execute('SELECT id,account_code,name,as_of FROM pams_holdings_snapshot WHERE id=ANY(%s) FOR UPDATE', (target_ids,))
-            locked = cur.fetchall()
-            keyed = lambda row: row['id'] if isinstance(row, dict) else row[0]
-            if {keyed(row): row for row in locked} != {keyed(row): row for row in targets}:
-                raise ValueError('gold holding identity changed while acquiring account locks')
-            if isolated:
-                for row in targets:
-                    account, name, as_of = ((row['account_code'],row['name'],row['as_of']) if isinstance(row, dict)
-                                            else (row[1],row[2],row[3]))
-                    prepare_holding_change(cur, account_code=account, name=name, as_of=as_of, source_item_id=None)
-            cur.execute(
-                """
-                WITH spot AS (
-                    SELECT DISTINCT ON (as_of) as_of, close_price
-                    FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') AS observation_rows
-                    WHERE as_of BETWEEN %s AND %s
-                      AND asset_id = 'BENCH_GOLD_SPOT_AU9999'
-                      AND close_price IS NOT NULL
-                    ORDER BY
-                        as_of,
-                        CASE
-                            WHEN source = 'akshare_sge_daily' THEN 0
-                            WHEN source = 'akshare_sge_realtime' THEN 1
-                            ELSE 2
-                        END,
-                        updated_at DESC
-                )
-                UPDATE pams_holdings_snapshot h
-                SET current_price = spot.close_price,
-                    market_value = ROUND((h.quantity * spot.close_price)::numeric, 2),
-                    updated_at = now()
-                FROM spot
-                WHERE h.as_of = spot.as_of
-                  AND h.major_category = '贵金属'
-                  AND h.quantity IS NOT NULL
-                  AND h.id=ANY(%s)
-                  AND (
-                      UPPER(COALESCE(h.symbol, '')) IN ('CCB_GOLD_ACCUM', 'GOLD', 'XAU')
-                      OR UPPER(COALESCE(h.symbol, '')) LIKE '%%GOLD%%'
-                  )
-                """ + (""" AND (h.current_price,h.market_value) IS DISTINCT FROM
-                    (spot.close_price,ROUND((h.quantity * spot.close_price)::numeric,2)) RETURNING h.id""" if isolated else ""),
-                (start, end, target_ids),
-            )
-            if isolated:
-                changed = cur.fetchall()
-                for row in changed:
-                    identifier = row['id'] if isinstance(row, dict) else row[0]
-                    finish_holding_change(cur, holding_id=identifier, source_item_id=None,
-                        input_refs=[{'kind':'quote', 'key':None, 'role':'gold_valuation_quote'}])
-                updated = len(changed)
-            else:
-                updated = cur.rowcount
-            conn.commit()
-            return updated
-
-
-def _gold_proxy_price_for_refresh(as_of) -> float | None:
-    """Return a fresh SGE Au99.99 mark for local gold accumulation holdings."""
-    history = _fetch_sge_au9999_history(as_of)
-    if history:
-        recent_history = history[-15:]
-        _upsert_gold_spot_closes(recent_history)
-        _sync_gold_accum_snapshots_from_spot(recent_history[0][0], recent_history[-1][0])
-
-    realtime = _fetch_sge_au9999_realtime(as_of)
-    if realtime:
-        quote_date, price = realtime
-        _upsert_gold_spot_closes(
-            [(quote_date, None, None, None, price)],
-            source="akshare_sge_realtime",
-        )
-        return price
-
-    stored = _latest_gold_proxy_price(as_of=as_of, exact=True)
-    if stored and stored > 0:
-        return stored
-    if history:
-        return history[-1][4]
-    return _latest_gold_proxy_price(as_of=as_of)
-
-
 def _fetch_precious_metal_prices(symbols: List[str]) -> Dict[str, float]:
-    """Fetch precious-metal valuation prices for local holdings.
-
-    CCB gold accumulation is valued with local SGE Au99.99 spot gold.
-    Six-digit fund-like symbols still use Eastmoney NAV.
-    """
-    prices: Dict[str, float] = {}
-    fund_codes = [s for s in symbols if _is_fund_code(s)]
-    if fund_codes:
-        prices.update(_fetch_fund_navs(fund_codes))
-
-    gold_proxy = _gold_proxy_price_for_refresh(_today_cst())
-    if gold_proxy:
-        for symbol in symbols:
-            raw = str(symbol or "").upper()
-            if raw in {"CCB_GOLD_ACCUM", "GOLD", "XAU"} or "GOLD" in raw:
-                prices[symbol] = gold_proxy
-    return prices
+    """Refresh unit NAV for fund positions classified under precious metals."""
+    fund_codes = [symbol for symbol in symbols if _is_fund_code(symbol)]
+    return _fetch_fund_navs(fund_codes) if fund_codes else {}
 
 
 # ---------- 通用刷新逻辑 ----------
@@ -2631,6 +2461,11 @@ def _refresh_category(
         exclude_minor_categories=exclude_minor_categories,
         market_buckets=market_buckets,
     )
+    if category == "贵金属":
+        close_rows = _upsert_gold_spot_closes(_fetch_sge_au9999_history(_today_cst()))
+        holdings = [holding for holding in holdings if _is_fund_code(holding["symbol"])]
+    else:
+        close_rows = 0
     if not holdings:
         return {
             "category": category,
@@ -2638,6 +2473,7 @@ def _refresh_category(
             "updated": 0,
             "market_buckets": list(market_buckets),
             "price_basis": price_basis,
+            "close_rows": close_rows,
             "errors": [],
         }
 
@@ -2647,7 +2483,6 @@ def _refresh_category(
     same_day_trade_adjusted = sum(1 for h in holdings if h.get("same_day_trade_adjusted"))
     symbols = [h["symbol"] for h in holdings]
     prices = fetch_fn(symbols)
-    close_rows = 0
     estimate_rows = 0
     quote_sources: dict[str, int] = {}
     skipped_estimates: list[dict[str, Any]] = []

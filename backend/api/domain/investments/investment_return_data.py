@@ -16,6 +16,9 @@ from domain.investments.investment_return_math import dec, ibkr_return_effective
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE, _table_exists
 
 
+from domain.market.quote_valuation import gold_close_join, gold_market_value, uses_gold_close
+
+
 FX_UNAVAILABLE = object()
 
 
@@ -68,11 +71,6 @@ SECTION_RETURN_CONFIG: dict[str, dict[str, Any]] = {
 
 INVESTMENT_RETURN_CATEGORIES = ("A股", "美股", "贵金属", "ESOP")
 INVESTMENT_RETURN_SNAPSHOT_EXCLUDE = {"tonghuashun", "huawei_stock", "ibkr", "ccb_cny"}
-GOLD_PROXY_ASSET_IDS = ("BENCH_GOLD_SPOT_AU9999", "BENCH_GOLD_ETF_518880")
-GOLD_PROXY_SYMBOLS = ("Au99.99.SGE", "Au99.99", "518880.SH", "sh518880")
-GOLD_PROXY_SOURCE_PATTERNS = ("%Au99.99%", "%518880%")
-GOLD_HOLDING_ASSET_IDS = ("ASSET_CCB_GOLD_ACCUM", "ASSET_CCB_GOLD_ACCUMULATION")
-GOLD_HOLDING_SYMBOLS = ("CCB_GOLD_ACCUM", "GOLD", "XAU")
 IBKR_EQUITY_MARKETS = (
     "STK",
     "\u7f8e\u80a1",
@@ -320,9 +318,11 @@ def _snapshot_category_value_series(
     excluded_holding_accounts: set[str],
     minor_category: str | None = None,
     account_codes: list[str] | None = None,
-) -> dict[Date, Decimal]:
-    """Return latest-known holding value for a category on each sample date."""
-    values = {d: Decimal("0") for d in dates}
+) -> dict[Date, Decimal | None]:
+    """Return observed holding values, leaving dates before coverage absent."""
+    from domain.investments.valuation_nav import ValuationEvidenceSeries
+
+    values = ValuationEvidenceSeries(missing_fx_dates=())
     if not dates:
         return values
 
@@ -351,6 +351,12 @@ def _snapshot_category_value_series(
         h_filters.append("h.account_code = ANY(%s::text[])")
         h_params.append(account_codes)
 
+    gold_join = gold_close_join("h", "h.date") if major_category == "贵金属" else ""
+    market_value = gold_market_value("h") if gold_join else "h.market_value"
+    missing_price = (
+        f"({uses_gold_close('h')} AND h.quantity <> 0 AND gold_close.price IS NULL)"
+        if gold_join else "FALSE"
+    )
     cur.execute(
         f"""
         WITH series_dates AS (
@@ -376,8 +382,11 @@ def _snapshot_category_value_series(
         ), marked AS (
             SELECT
                 h.date,
-                h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql} AS value_cny
+                {missing_price} AS missing_price,
+                COALESCE(fx_identity.rate, fx_hist.rate) IS NULL AS missing_fx,
+                {market_value} * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql} AS value_cny
             FROM h
+            {gold_join}
             LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily fx
@@ -394,7 +403,8 @@ def _snapshot_category_value_series(
             ) fx_identity ON TRUE
             WHERE {' AND '.join(h_filters)}
         )
-        SELECT date, CASE WHEN COUNT(*) FILTER (WHERE value_cny IS NULL)>0 THEN NULL ELSE SUM(value_cny) END AS value_cny
+        SELECT date, CASE WHEN COUNT(*) FILTER (WHERE value_cny IS NULL)>0 THEN NULL ELSE SUM(value_cny) END AS value_cny,
+               BOOL_OR(missing_price) AS missing_price, BOOL_OR(missing_fx) AS missing_fx
         FROM marked
         GROUP BY date
         ORDER BY date
@@ -410,165 +420,13 @@ def _snapshot_category_value_series(
         ),
     )
     for row in cur.fetchall():
-        values[row["date"]] = dec(row["value_cny"]) if row["value_cny"] is not None else None
+        day = row["date"]
+        values[day] = dec(row["value_cny"]) if row["value_cny"] is not None else None
+        if row.get("missing_price"):
+            values.missing_price_dates.add(day)
+        if row.get("missing_fx"):
+            values.missing_fx_dates.add(day)
     return values
-
-
-def _apply_gold_proxy_to_precious_values(
-    cur,
-    values: dict[Date, Decimal],
-    *,
-    dates: list[Date],
-    base_currency: str,
-    owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
-    excluded_holding_accounts: set[str],
-    account_codes: list[str] | None = None,
-) -> dict[Date, Decimal]:
-    """Revalue local gold holdings with stored SGE spot gold, with ETF as fallback."""
-    adjusted = dict(values)
-    if not dates:
-        return adjusted
-
-    owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("h")
-    latest_filters = [
-        "hs.asset_liability = %s",
-        "hs.major_category = %s",
-        "NOT (hs.account_code = ANY(%s::text[]))",
-        """
-        (
-            UPPER(COALESCE(hs.symbol, '')) = ANY(%s::text[])
-            OR UPPER(COALESCE(hs.symbol, '')) LIKE %s
-            OR hs.name ILIKE %s
-            OR hs.asset_id = ANY(%s::text[])
-        )
-        """,
-        "hs.quantity IS NOT NULL",
-        "hs.quantity <> 0",
-    ]
-    latest_params: list[Any] = [
-        "资产",
-        "贵金属",
-        sorted(excluded_holding_accounts),
-        list(GOLD_HOLDING_SYMBOLS),
-        "%GOLD%",
-        "%黄金%",
-        list(GOLD_HOLDING_ASSET_IDS),
-    ]
-    if account_codes:
-        latest_filters.append("hs.account_code = ANY(%s::text[])")
-        latest_params.append(account_codes)
-
-    cur.execute(
-        f"""
-        WITH series_dates AS (
-            SELECT unnest(%s::date[]) AS date
-        ), {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, complete_holding_snapshot AS (
-            SELECT hs.*
-            FROM pams_holdings_snapshot hs
-            JOIN complete_account_snapshot cas
-              ON cas.account_code = hs.account_code
-             AND cas.as_of = hs.as_of
-        ), gold_px AS (
-            SELECT d.date, px.close_price
-            FROM series_dates d
-            LEFT JOIN LATERAL (
-                SELECT COALESCE(close_price, unit_nav, estimated_unit_nav) AS close_price
-                FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') px
-                WHERE (
-                    px.asset_id = ANY(%s::text[])
-                    OR px.symbol = ANY(%s::text[])
-                    OR px.source_key ILIKE ANY(%s::text[])
-                )
-                  AND px.as_of <= d.date
-                  AND COALESCE(close_price, unit_nav, estimated_unit_nav) > 0
-                ORDER BY
-                    px.as_of DESC,
-                    CASE WHEN px.asset_id = 'BENCH_GOLD_SPOT_AU9999' THEN 0 ELSE 1 END
-                LIMIT 1
-            ) px ON TRUE
-        ), account_latest AS (
-            SELECT
-                d.date,
-                hs.account_code,
-                COALESCE(NULLIF(hs.symbol, ''), hs.name) AS holding_key,
-                MAX(hs.as_of) AS as_of
-            FROM series_dates d
-            JOIN complete_holding_snapshot hs ON hs.as_of <= d.date
-            WHERE {' AND '.join(latest_filters)}
-            GROUP BY d.date, hs.account_code, COALESCE(NULLIF(hs.symbol, ''), hs.name)
-        ), h AS (
-            SELECT al.date, hs.*
-            FROM account_latest al
-            JOIN complete_holding_snapshot hs
-              ON hs.account_code = al.account_code
-             AND hs.as_of = al.as_of
-             AND COALESCE(NULLIF(hs.symbol, ''), hs.name) = al.holding_key
-        ), owned AS (
-            SELECT
-                h.date,
-                h.currency,
-                h.market_value,
-                h.quantity,
-                gp.close_price,
-                {owner_ratio_sql} AS owner_ratio
-            FROM h
-            JOIN gold_px gp
-              ON gp.date = h.date
-             AND gp.close_price IS NOT NULL
-        ), marked AS (
-            SELECT
-                owned.date,
-                owned.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * owned.owner_ratio AS snapshot_value_cny,
-                owned.quantity * owned.close_price * COALESCE(fx_identity.rate, fx_hist.rate) * owned.owner_ratio AS proxy_value_cny
-            FROM owned
-            LEFT JOIN LATERAL (
-                SELECT rate
-                FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency = %s
-                  AND fx.quote_currency = owned.currency
-                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
-                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
-                  AND fx.as_of = owned.date
-                ORDER BY fx.as_of DESC
-                LIMIT 1
-            ) fx_hist ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT CASE WHEN owned.currency = %s THEN 1::numeric END AS rate
-            ) fx_identity ON TRUE
-        )
-        SELECT
-            date,
-            CASE WHEN COUNT(*) FILTER (WHERE snapshot_value_cny IS NULL)>0 THEN NULL ELSE SUM(snapshot_value_cny) END AS snapshot_value_cny,
-            CASE WHEN COUNT(*) FILTER (WHERE proxy_value_cny IS NULL)>0 THEN NULL ELSE SUM(proxy_value_cny) END AS proxy_value_cny,
-            COUNT(*) AS priced_count
-        FROM marked
-        GROUP BY date
-        ORDER BY date
-        """,
-        (
-            [d.isoformat() for d in dates],
-            dates[-1],
-            list(GOLD_PROXY_ASSET_IDS),
-            list(GOLD_PROXY_SYMBOLS),
-            list(GOLD_PROXY_SOURCE_PATTERNS),
-            *latest_params,
-            *owner_ratio_params,
-            base_currency,
-            base_currency,
-        ),
-    )
-    for row in cur.fetchall():
-        if int(row.get("priced_count") or 0) <= 0:
-            continue
-        sample_date = row["date"]
-        if (row.get("snapshot_value_cny") is None or row.get("proxy_value_cny") is None or
-            adjusted.get(sample_date) is None):
-            adjusted[sample_date] = None
-            continue
-        snapshot_value = dec(row["snapshot_value_cny"])
-        proxy_value = dec(row["proxy_value_cny"])
-        adjusted[sample_date] = dec(adjusted[sample_date]) - snapshot_value + proxy_value
-    return adjusted
 
 
 def _exact_snapshot_category_value(
@@ -644,8 +502,11 @@ def _source_record_section_flows(cur, start_date, end_date, major_category, mino
     """Match flows to evidenced section membership and attach source verification."""
     from domain.investments.trade_read_v2 import load_trade_rows
 
-    filters = ['h.major_category=%s', "h.asset_liability='资产'", 'h.market_value<>0',
-               "h.as_of BETWEEN f.trade_date - INTERVAL '10 days' AND f.trade_date"]
+    gold = uses_gold_close("h")
+    filters = ['h.major_category=%s', "h.asset_liability='资产'",
+               f"""((h.as_of BETWEEN f.trade_date - INTERVAL '10 days' AND f.trade_date AND h.market_value<>0)
+                    OR ({gold} AND h.as_of<=f.trade_date AND h.quantity IS NOT NULL
+                        AND f.trade_type IN ('buy','sell')))"""]
     params = [start_date, end_date, major_category]
     if minor_category:
         filters.append('h.minor_category=%s')

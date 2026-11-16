@@ -392,6 +392,7 @@ def apply_holdings_category_pnl_to_section_return_series_payload(
         latest["time_weighted_return_rate"] = None
         latest["capital_return_rate"] = None
     latest["return_pnl_source"] = source
+    latest["return_rate_basis"] = "current_holding_pnl_over_cost"
     rows[-1] = latest
 
     summary = dict(payload.get("summary") or {})

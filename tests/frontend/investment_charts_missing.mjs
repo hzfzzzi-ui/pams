@@ -29,6 +29,15 @@ const aligned = model.buildInvestmentReturnWindowData([], alignedSections,
 assert.deepEqual(Array.from(aligned.labels), alignedDates);
 assert.deepEqual(Array.from(aligned.sectionDataByKey.get('us_stock').data), [0, 0, 25, null]);
 
+const holdingReturn = new Map([['precious_metal', [
+  {date:'2026-11-16', display_return_rate:'-0.31135', return_rate_basis:'current_holding_pnl_over_cost'},
+]]]);
+const metalsSpec = [{key:'precious_metal', label:'贵金属'}];
+const metalsYtd = model.buildInvestmentReturnWindowData([], holdingReturn, metalsSpec, 'ytd', true);
+assert.ok(Math.abs(metalsYtd.sectionDataByKey.get('precious_metal').data.at(-1) - (-31.135)) < 1e-10);
+const metalsWeek = model.buildInvestmentReturnWindowData([], holdingReturn, metalsSpec, '1w', true);
+assert.equal(metalsWeek.sectionDataByKey.get('precious_metal').data.at(-1), null);
+
 const nav = model.normalizeInvestmentNavRows(dates.map(date => ({date, netWorth:null})));
 assert.equal(nav[0].market_value, null);
 assert.equal(model.buildInvestmentNavChartData(nav, true).values.length, 0);

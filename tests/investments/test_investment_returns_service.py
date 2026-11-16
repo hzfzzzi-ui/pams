@@ -568,7 +568,7 @@ def test_snapshot_category_value_series_uses_complete_account_snapshots():
         account_codes=["ibkr"],
     )
 
-    assert values == {dates[0]: Decimal("0"), dates[1]: Decimal("0")}
+    assert values == {}
     sql, params = cur.executed[0]
     assert "complete_account_snapshot" in sql
     assert "JOIN complete_holding_snapshot hs ON hs.as_of <= d.date" in sql
@@ -725,32 +725,20 @@ def test_ibkr_full_trade_return_series_includes_korea_market(monkeypatch: pytest
     assert "ibkr_history_missing:2026-05-10" in warnings
 
 
-def test_gold_proxy_adjustment_preserves_non_gold_precious_residual():
-    sample_date = date(2026, 5, 27)
-    cur = FakeCursor(
-        [
-            [
-                {
-                    "date": sample_date,
-                    "snapshot_value_cny": Decimal("9852.10"),
-                    "proxy_value_cny": Decimal("9738.51"),
-                    "priced_count": 1,
-                }
-            ]
-        ]
+def test_gold_returns_count_buy_and_sell_net_cash_once(monkeypatch):
+    day = date(2026, 5, 27)
+    monkeypatch.setattr(investment_return_data, "_table_exists", lambda *args: True)
+    monkeypatch.setattr(investment_return_data, "_source_record_section_flows", lambda *args: [
+        {"trade_date": day, "side": "buy", "net_cash": Decimal("-101"),
+         "gross_amount": Decimal("100"), "fee_amount": Decimal("1"), "currency": "CNY"},
+        {"trade_date": day, "side": "sell", "net_cash": Decimal("108"),
+         "gross_amount": Decimal("110"), "fee_amount": Decimal("2"), "currency": "CNY"},
+    ])
+    flows = investment_return_data._investment_transaction_flow_events(
+        FakeCursor([]), start_date=day, end_date=day, base_currency="CNY", fx_timelines={},
+        account_owner_ratio=_account_owner_ratio, major_category="贵金属",
     )
-
-    values = investment_return_data._apply_gold_proxy_to_precious_values(
-        cur,
-        {sample_date: Decimal("9902.10")},
-        dates=[sample_date],
-        base_currency="CNY",
-        owner_ratio_case_sql=_owner_ratio_case_sql,
-        excluded_holding_accounts=set(),
-    )
-
-    assert values[sample_date] == Decimal("9788.51")
-    assert any("Au99.99" in str(item) for item in cur.executed[0][1])
+    assert flows == [(day, Decimal("101")), (day, Decimal("-108"))]
 
 
 def test_investment_transaction_flow_events_require_snapshot_coverage():
@@ -861,6 +849,40 @@ def test_build_section_return_series_payload_ignores_a_stock_reported_anchor_by_
     assert payload["summary"]["total_return_rate"] == "0.1"
     assert payload["rows"][-1]["display_return_rate"] == "0.1"
     assert payload["rows"][-1]["display_return_rate_raw"] is None
+
+
+@pytest.mark.parametrize("section", ["a_fund", "precious_metal"])
+@pytest.mark.parametrize("marks, expected", [([], None), (["100", "100"], "0"), (["100", "110"], "0.1")])
+def test_snapshot_section_return_can_start_from_holdings_without_new_trades(monkeypatch, section, marks, expected):
+    start, first_mark, end = date(2026, 1, 1), date(2026, 1, 29), date(2026, 1, 30)
+    cur = FakeCursor([[{"date": day, "value_cny": Decimal(value)}
+                       for day, value in zip((first_mark, end), marks)]])
+    monkeypatch.setattr(investment_returns, "_table_exists", lambda *_: False)
+    monkeypatch.setattr(investment_returns, "load_fx_timelines", lambda *_: {})
+    flow_windows = []
+
+    def no_trades(cur, **kwargs):
+        flow_windows.append((kwargs["start_date"], kwargs["end_date"]))
+        return []
+
+    monkeypatch.setattr(investment_returns, "_investment_transaction_flow_events", no_trades)
+    payload = build_section_return_series_payload(
+        cur, section=section, start_date=start, interval="daily", base_currency="CNY", view_as_of=end,
+        reported_returns_cfg={}, overview_payload={}, owner_ratio_case_sql=_owner_ratio_case_sql,
+        account_owner_ratio=_account_owner_ratio, excluded_holding_accounts=set(),
+    )
+
+    rate = payload["rows"][-1]["display_return_rate"]
+    if expected is None:
+        assert payload["reason"] == "section_valuation_base_missing"
+        assert all(row["market_value"] is None for row in payload["rows"])
+        assert rate is None
+        assert payload["summary"]["total_return_rate"] is None
+        assert flow_windows == []
+    else:
+        assert payload["rows"][0]["date"] == first_mark.isoformat()
+        assert Decimal(rate) == Decimal(expected)
+        assert flow_windows == [(first_mark, end)]
 
 
 def test_build_section_return_series_payload_clamps_start_after_terminal(monkeypatch: pytest.MonkeyPatch):

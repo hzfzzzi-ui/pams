@@ -704,13 +704,17 @@ def load_investment_positions(
         return []
     excluded = _excluded_accounts(account_cfg)
     fx_rates = _latest_fx_rates(cur, base_currency)
-    quote_overlay = quote_valuation_cte(bool(tables.get("quote_available")))
+    quote_available = bool(tables.get("quote_available"))
+    quote_overlay = quote_valuation_cte(quote_available)
+    price_evidence_columns = ", qm.quote_date AS market_price_as_of, qm.valuation_price_source" if quote_available else ""
+    price_evidence_join = "LEFT JOIN quote_marks qm ON qm.id = h.id AND qm.valuation_price_source IS NOT NULL" if quote_available else ""
     cur.execute(
         f"""
         WITH {LATEST_KNOWN_HOLDINGS_CTE}, source_holdings AS (
             SELECT * FROM latest_known_holding
         ), {quote_overlay}
-        SELECT h.* FROM h
+        SELECT h.* {price_evidence_columns} FROM h
+        {price_evidence_join}
         WHERE NOT (h.account_code = ANY(%s::text[]))
         ORDER BY h.account_code, h.major_category, h.market_value DESC NULLS LAST
         """,
@@ -742,10 +746,11 @@ def load_investment_positions(
         currency = str(item.get("currency") or base_currency).upper()
         rate = _known_fx_rate(fx_rates, currency, base_currency)
         precision, rate_day = _fx_precision(fx_rates, currency, base_currency, item.get('as_of'))
-        market_value = _dec(item.get("market_value"))
-        if item.get("asset_liability") == "负债":
+        market_value = _dec(item["market_value"]) if item.get("market_value") is not None else None
+        if market_value is not None and item.get("asset_liability") == "负债":
             market_value = -abs(market_value)
-        market_value *= owner_ratio
+        if market_value is not None:
+            market_value *= owner_ratio
         cost = _dec(item['cost']) * owner_ratio if item.get('cost') is not None else None
         pnl = _dec(item['holding_pnl']) * owner_ratio if item.get('holding_pnl') is not None else None
         symbol = item.get("symbol")
@@ -762,10 +767,14 @@ def load_investment_positions(
                 "quantity": item.get("quantity"),
                 "market_value": market_value,
                 "currency": currency,
-                "market_value_cny": market_value * rate if rate is not None else (Decimal(0) if market_value == 0 else None),
+                "market_value_cny": (Decimal(0) if market_value == 0 else
+                                     market_value * rate if market_value is not None and rate is not None else None),
                 "cost_cny": cost * rate if cost is not None and rate is not None else None,
                 "holding_pnl_cny": pnl * rate if pnl is not None and rate is not None else None,
                 "fx_status": "available" if rate is not None else "not_required" if market_value == 0 else "unavailable",
+                "valuation_status": "unavailable" if market_value is None else "available",
+                "market_price_as_of": item.get("market_price_as_of"),
+                "valuation_price_source": item.get("valuation_price_source"),
                 "fx_precision": "not_required" if rate is None and market_value == 0 else precision,
                 "fx_rate_as_of": rate_day,
                 "as_of": item.get("as_of"),
@@ -779,7 +788,7 @@ def load_investment_positions(
                 "snapshot_market_evidence": item.get("snapshot_market_evidence", "unknown"),
             }
         )
-        if rate is None and market_value != 0:
+        if market_value is None or (rate is None and market_value != 0):
             unverified_snapshot_accounts.add(account_code)
         elif rate is not None:
             account_position_value_cny[account_code] = (

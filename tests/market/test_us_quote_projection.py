@@ -108,7 +108,7 @@ def pg_projection(monkeypatch):
                 CREATE TEMP TABLE market_observations (
                     quote_id BIGSERIAL PRIMARY KEY, observation_type TEXT NOT NULL,
                     as_of DATE NOT NULL, quote_date DATE GENERATED ALWAYS AS (as_of) STORED,
-                    asset_id VARCHAR(120), symbol TEXT, name TEXT, market TEXT,
+                    asset_id VARCHAR(120), symbol TEXT, name TEXT, market TEXT, close_price NUMERIC,
                     currency VARCHAR(10) NOT NULL DEFAULT 'CNY', provider TEXT NOT NULL,
                     source TEXT NOT NULL, source_key TEXT NOT NULL,
                     quote_session VARCHAR(40) NOT NULL DEFAULT 'close',

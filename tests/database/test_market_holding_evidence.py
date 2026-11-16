@@ -78,7 +78,7 @@ def test_multiple_fund_updates_in_same_transaction_remain_valid(isolated):
     assert sql(params, 'SELECT market_value FROM pams_holdings_snapshot')[0]['market_value'] == 1200
 
 
-def test_gold_spot_update_records_unknown_quote_without_losing_creation_source(isolated, monkeypatch):
+def test_gold_close_is_shared_and_preserves_bank_holding(isolated, monkeypatch):
     _, params = isolated
     batch, item = str(uuid4()), str(uuid4())
     with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -88,30 +88,69 @@ def test_gold_spot_update_records_unknown_quote_without_losing_creation_source(i
         from hashlib import sha256
         from domain.imports.unified_source import lock_source_review
         fields = {'fields': {'kind':'holding', 'business_date':DAY, 'asset_type':'gold',
-                  'symbol':'GOLD', 'currency':'CNY', 'quantity':'10', 'price':'10',
-                  'market_value':'100', 'cost':'90', 'cost_basis_type':'holding_cost'},
+                  'symbol':'GOLD', 'currency':'CNY', 'quantity':'10', 'price':'826.24',
+                  'market_value':'8262.40', 'cost':'11998.30', 'cost_basis_type':'holding_cost'},
                   'excluded':False, 'issues':[], 'acknowledged':False}
         cur.execute("""INSERT INTO source_items(source_item_id,batch_id,source_uid,parse_method,record_hash,review_status,parsed_fields)
             VALUES (%s,%s,%s,'manual',%s,'confirmed',%s)""", (item, batch, item, sha256(b'{}').hexdigest(), Json(fields)))
         cur.execute("""INSERT INTO pams_holdings_snapshot(name,symbol,asset_liability,currency,account_code,
             major_category,minor_category,market_value,cost,as_of,quantity,current_price,source_item_id)
-            VALUES ('Synthetic gold','GOLD','资产','CNY','tonghuashun','贵金属','黄金',100,90,%s,10,10,%s) RETURNING id""", (DAY,item))
+            VALUES ('Synthetic gold','GOLD','资产','CNY','tonghuashun','贵金属','黄金',8262.40,11998.30,%s,10,826.24,%s) RETURNING id""", (DAY,item))
         identifier = cur.fetchone()['id']
         cur.execute('SELECT revision FROM source_batches WHERE batch_id=%s', (batch,))
         reviewed = lock_source_review(cur,batch_id=batch,expected_revision=cur.fetchone()['revision'])
         after = {'account_code':'tonghuashun', 'name':'Synthetic gold', 'symbol':'GOLD', 'currency':'CNY',
-                 'as_of':DAY, 'quantity':'10', 'current_price':'10', 'cost':'90', 'market_value':'100'}
+                 'as_of':DAY, 'quantity':'10', 'current_price':'826.24', 'cost':'11998.30', 'market_value':'8262.40'}
         result = {'records':[{'table':'pams_holdings_snapshot','id':identifier,'row_id':item,'after':after}]}
         cur.execute("UPDATE source_batches SET status='published',published_source_hash=%s,published_result=%s WHERE batch_id=%s",
                     (reviewed['source_snapshot_sha256'],Json(result),batch))
         finish_holding_change(cur, holding_id=identifier, source_item_id=item)
-        cur.execute("""CREATE TABLE market_observations(observation_type text,as_of date,asset_id text,close_price numeric,source text,updated_at timestamptz DEFAULT now())""")
-        cur.execute("INSERT INTO market_observations(observation_type,as_of,asset_id,close_price,source) VALUES ('daily',%s,'BENCH_GOLD_SPOT_AU9999',11,'synthetic')", (DAY,))
+        cur.execute((ROOT / "database/postgres/schema/004_fx_rates.sql").read_text(encoding="utf-8"))
+        schema = (ROOT / "database/postgres/schema/025a_asset_snapshots.sql").read_text(encoding="utf-8")
+        cur.execute(schema[schema.index("CREATE TABLE IF NOT EXISTS public.market_observations"):])
+        cur.execute("""INSERT INTO pams_asset_master(asset_id,primary_symbol,canonical_name,asset_type,
+                    currency,source,confidence,raw_json)
+                    VALUES ('BENCH_GOLD_SPOT_AU9999','Au99.99.SGE','Benchmark','gold',
+                            'CNY','synthetic','high','{}')""")
     monkeypatch.setattr(prices, '_get_conn', lambda: psycopg2.connect(**params))
-    assert prices._sync_gold_accum_snapshots_from_spot(date.fromisoformat(DAY), date.fromisoformat(DAY)) == 1
+    day = date.fromisoformat(DAY)
+    from domain.investments.investment_return_data import _snapshot_category_value_series
+    from domain.investments.valuation_nav import _investment_snapshot_series, build_weekly_nav_rows
+    from domain.market.quote_valuation import quote_valuation_cte
+
+    history = [(day, None, None, None, 829.49)]
+    assert prices._upsert_gold_spot_closes(history) == 1
+    before = sql(params, "SELECT updated_at FROM market_observations")[0]
+    prices._upsert_gold_spot_closes(history)
+    assert sql(params, "SELECT updated_at FROM market_observations")[0] == before
+    with psycopg2.connect(**params) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""INSERT INTO market_observations(observation_type,as_of,asset_id,close_price,source,source_key)
+            VALUES ('daily',%s,'BENCH_GOLD_SPOT_AU9999',12,'akshare_sge_realtime','intraday')""", (day,))
+        cur.execute(f"""WITH snapshot_view_cutoff AS (SELECT %s::date AS as_of),
+            source_holdings AS (SELECT * FROM pams_holdings_snapshot WHERE id=%s),
+            {quote_valuation_cte(True)} SELECT market_value,holding_pnl FROM h""", (day, identifier))
+        assert cur.fetchone() == {"market_value": Decimal("8294.90"), "holding_pnl": Decimal("-3703.40")}
+        args = dict(dates=[day], base_currency="CNY", owner_ratio_case_sql=lambda _: ("1", []))
+        sections = _snapshot_category_value_series(
+            cur, **args, major_category="贵金属", excluded_holding_accounts=set())
+        assert sections[day] == Decimal("8294.90")
+        # Projection must not alter scope evidence. Exercise the historical NAV
+        # read with a complete scope, independently of manual import coverage.
+        monkeypatch.setattr("domain.investments.snapshot_coverage.load_account_snapshot_coverage",
+                            lambda cur, pairs: {pair: {"status": "complete"} for pair in pairs})
+        assert _investment_snapshot_series(cur, **args, account_codes=["tonghuashun"])[day] == Decimal("8294.90")
+        monkeypatch.setattr("domain.investments.snapshot_coverage.load_account_snapshot_coverage",
+                            lambda cur, pairs: {pair: {"status": "partial", "member_ids": {identifier}}
+                                                for pair in pairs})
+        snapshot_series = _investment_snapshot_series(cur, **args, account_codes=["tonghuashun"])
+        nav, = build_weekly_nav_rows(dates=[day], bank_series={}, snapshot_series=snapshot_series,
+                                     a_share_series={}, ibkr_values={})
+        assert nav["available_net_worth"] == Decimal("8294.90")
+        assert nav["net_worth"] is None
+        assert nav["estimated_accounts"] == ["tonghuashun"]
     row = sql(params, 'SELECT market_value,source_item_id FROM pams_holdings_snapshot')[0]
-    assert row['market_value'] == 110 and str(row['source_item_id']) == item
-    assert _current(params, identifier)['status'] == 'unknown'
+    assert row['market_value'] == Decimal('8262.40') and str(row['source_item_id']) == item
+    assert _current(params, identifier)['status'] == 'recorded'
 
 
 def test_price_refresh_and_manual_correction_do_not_overwrite_each_other(isolated, monkeypatch):

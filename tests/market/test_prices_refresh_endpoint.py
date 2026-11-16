@@ -911,80 +911,26 @@ def test_upsert_us_estimate_market_daily_writes_quote_source(monkeypatch):
     assert payload[8] == 1047.0
 
 
-def test_gold_proxy_refresh_uses_sge_realtime_and_repairs_history(monkeypatch):
-    stored: list[tuple[str, list[tuple]]] = []
-    repaired: list[tuple[date, date]] = []
+def test_gold_refresh_archives_close_without_rewriting_position(monkeypatch):
+    from unittest.mock import Mock
 
-    history = [
-        (date(2026, 6, 2), 982.0, 989.0, 970.1, 987.45),
-        (date(2026, 6, 3), 987.0, 987.0, 972.4, 972.8),
-    ]
-
-    monkeypatch.setattr(prices, "_fetch_sge_au9999_history", lambda as_of: history)
-    monkeypatch.setattr(prices, "_fetch_sge_au9999_realtime", lambda as_of: (date(2026, 6, 4), 975.2))
-    monkeypatch.setattr(
-        prices,
-        "_upsert_gold_spot_closes",
-        lambda rows, source="akshare_sge_daily": stored.append((source, list(rows))) or len(rows),
-    )
-    monkeypatch.setattr(
-        prices,
-        "_sync_gold_accum_snapshots_from_spot",
-        lambda start, end: repaired.append((start, end)) or 2,
-    )
-    monkeypatch.setattr(prices, "_latest_gold_proxy_price", lambda as_of=None, exact=False: None)
-
-    quote = prices._gold_proxy_price_for_refresh(date(2026, 6, 4))
-
-    assert quote == 975.2
-    assert stored == [
-        ("akshare_sge_daily", history),
-        ("akshare_sge_realtime", [(date(2026, 6, 4), None, None, None, 975.2)]),
-    ]
-    assert repaired == [(date(2026, 6, 2), date(2026, 6, 3))]
-
-
-def test_gold_proxy_refresh_falls_back_to_latest_sge_history(monkeypatch):
-    stored: list[tuple[str, list[tuple]]] = []
-    repaired: list[tuple[date, date]] = []
+    day = date(2026, 6, 4)
     history = [(date(2026, 6, 3), 987.0, 987.0, 972.4, 972.8)]
-
+    monkeypatch.setattr(prices, "_today_cst", lambda: day)
     monkeypatch.setattr(prices, "_fetch_sge_au9999_history", lambda as_of: history)
-    monkeypatch.setattr(prices, "_fetch_sge_au9999_realtime", lambda as_of: None)
-    monkeypatch.setattr(
-        prices,
-        "_upsert_gold_spot_closes",
-        lambda rows, source="akshare_sge_daily": stored.append((source, list(rows))) or len(rows),
-    )
-    monkeypatch.setattr(
-        prices,
-        "_sync_gold_accum_snapshots_from_spot",
-        lambda start, end: repaired.append((start, end)) or 1,
-    )
-    monkeypatch.setattr(prices, "_latest_gold_proxy_price", lambda as_of=None, exact=False: None)
+    monkeypatch.setattr(prices, "_get_holdings_with_symbol", lambda *a, **kw: [
+        {"symbol": "CCB_GOLD_ACCUM", "as_of": date(2026, 6, 3)},
+    ])
+    archive = Mock(return_value=len(history))
+    snapshot = Mock()
+    monkeypatch.setattr(prices, "_upsert_gold_spot_closes", archive)
+    monkeypatch.setattr(prices, "_upsert_price_snapshots", snapshot)
 
-    quote = prices._gold_proxy_price_for_refresh(date(2026, 6, 4))
+    result = prices._refresh_category("贵金属", prices._fetch_precious_metal_prices)
 
-    assert quote == 972.8
-    assert stored == [("akshare_sge_daily", history)]
-    assert repaired == [(date(2026, 6, 3), date(2026, 6, 3))]
-
-
-def test_gold_proxy_refresh_falls_back_to_stored_spot_when_sge_unavailable(monkeypatch):
-    calls: list[tuple[date | None, bool]] = []
-
-    monkeypatch.setattr(prices, "_fetch_sge_au9999_history", lambda as_of: [])
-    monkeypatch.setattr(prices, "_fetch_sge_au9999_realtime", lambda as_of: None)
-    monkeypatch.setattr(
-        prices,
-        "_latest_gold_proxy_price",
-        lambda as_of=None, exact=False: calls.append((as_of, exact)) or 974.41,
-    )
-
-    quote = prices._gold_proxy_price_for_refresh(date(2026, 6, 3))
-
-    assert quote == 974.41
-    assert calls == [(date(2026, 6, 3), True)]
+    archive.assert_called_once_with(history)
+    snapshot.assert_not_called()
+    assert result["close_rows"] == 1
 
 
 def test_ibkr_cross_or_unknown_fee_keeps_quantity_but_not_cost():
