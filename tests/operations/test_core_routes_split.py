@@ -141,6 +141,6 @@ def test_main_keeps_public_python_function_aliases(prepared):
              "summary2_latest", "holdings_latest_compat", "holdings_by_category",
              "holdings_history_by_category", "nav_series", "investment_section_return_series",
              "refresh_investment_section_return_series_snapshot", "nav_weekly", "investment_return_series",
-             "refresh_investment_return_series_snapshot", "nav_drawdown", "cashflow_series", "risk_latest")
+             "refresh_investment_return_series_snapshot", "nav_drawdown", "cashflow_series")
     endpoints = {route.endpoint for route in main.app.routes if hasattr(route, "endpoint")}
     assert all(getattr(main, name) in endpoints for name in names)

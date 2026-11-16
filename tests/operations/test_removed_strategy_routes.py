@@ -11,6 +11,9 @@ def test_removed_routes_and_retained_asset_routes():
         assert not any(p.startswith(("/api/strategy", "/api/backtest", "/api/live-signals", "/api/datahub")) for p in paths)
         assert "/policy/ips" not in paths
         assert "/watchlist" not in paths
+        assert "/risk/latest" not in paths
+        assert "/api/portfolio/risk-and-config" in paths
+        assert "/api/portfolio/risk-disclosure" in paths
         assert "/health" in paths
         assert "/api/accounts" in paths
     finally:

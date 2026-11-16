@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 
@@ -16,24 +16,8 @@ from domain.risk.risk_state import (  # noqa: E402
     _concentration_from_exposure_payload,
     _concentration_rules_payload,
     _split_style_exposure_groups,
-    build_risk_latest_payload,
 )
 import pandas as pd
-
-
-class FakeCursor:
-    def __init__(self, results):
-        self.results = list(results)
-        self.executed = []
-
-    def execute(self, sql, params=None):
-        self.executed.append((sql, params))
-
-    def fetchone(self):
-        return self.results.pop(0)
-
-    def fetchall(self):
-        return self.results.pop(0)
 
 
 def test_risk_does_not_aggregate_foreign_holding_without_fx(monkeypatch):
@@ -94,39 +78,6 @@ def test_risk_report_marks_unexplained_published_nav_without_creating_cash(monke
     assert result["metrics"]["gross_exposure_ratio"] == 100 / 150
     assert all(row.get("asset_id") != "VALUATION_STATE_ADJUSTMENT" for row in result["positions"])
     assert result["data_quality"]["status"] == "NEEDS_REVIEW"
-
-
-def test_build_risk_latest_payload_handles_empty_snapshot():
-    payload = build_risk_latest_payload(FakeCursor([{"as_of": None}]), limit=10)
-
-    assert payload == {"as_of": None, "events": [], "rows": []}
-
-
-def test_build_risk_latest_payload_preserves_legacy_shape_and_query_contract():
-    cur = FakeCursor(
-        [
-            {"as_of": date(2026, 5, 31)},
-            [
-                {
-                    "as_of": date(2026, 5, 31),
-                    "severity": "crit",
-                    "code": "CONCENTRATION",
-                    "title": "集中度过高",
-                    "details": {"weight": 0.5},
-                    "created_at": datetime(2026, 5, 31, 12, 0, 0),
-                }
-            ],
-        ]
-    )
-
-    payload = build_risk_latest_payload(cur, limit=10)
-
-    assert set(payload) == {"as_of", "events", "rows"}
-    assert payload["as_of"] == "2026-05-31"
-    assert payload["events"] == payload["rows"]
-    assert payload["events"][0]["created_at"] == "2026-05-31T12:00:00"
-    assert "CASE severity WHEN 'crit' THEN 3 WHEN 'warn' THEN 2 ELSE 1 END DESC" in cur.executed[1][0]
-    assert cur.executed[1][1] == (date(2026, 5, 31), 10)
 
 
 def test_split_style_exposure_groups_separates_exposure_dimensions():

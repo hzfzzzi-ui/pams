@@ -18,7 +18,6 @@ import psycopg2
 import psycopg2.extras
 
 from domain.investments.portfolio_state import build_portfolio_state  # noqa: E402
-from domain.investments.holdings_view import latest_complete_snapshot_date  # noqa: E402
 from domain.investments.portfolio_valuation_state import (  # noqa: E402
     is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state,
@@ -83,32 +82,6 @@ def _norm(v: Any) -> Any:
 
 def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
     return [{k: _norm(v) for k, v in row.items()} for row in df.to_dict("records")]
-
-
-def build_risk_latest_payload(cur, *, limit: int) -> dict[str, Any]:
-    """Return the legacy /risk/latest risk-event payload."""
-    as_of = latest_complete_snapshot_date(cur, view_as_of=_view_as_of())
-    if as_of is None:
-        return {"as_of": None, "events": [], "rows": []}
-
-    cur.execute(
-        """
-        SELECT as_of, severity, code, title, details, created_at
-        FROM pams_risk_events
-        WHERE as_of = %s
-        ORDER BY CASE severity WHEN 'crit' THEN 3 WHEN 'warn' THEN 2 ELSE 1 END DESC,
-                 created_at DESC
-        LIMIT %s
-        """,
-        (as_of, limit),
-    )
-    rows = cur.fetchall()
-    out = [{key: _norm(value) for key, value in dict(row).items()} for row in rows]
-    return {
-        "as_of": as_of.isoformat() if hasattr(as_of, "isoformat") else str(as_of),
-        "events": out,
-        "rows": out,
-    }
 
 
 def _view_as_of() -> str:

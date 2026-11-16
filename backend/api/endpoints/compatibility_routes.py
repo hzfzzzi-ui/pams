@@ -39,7 +39,6 @@ def create_compatibility_router(
     _build_nav_drawdown_payload,
     _build_nav_series_payload,
     _build_nav_weekly_payload,
-    _build_risk_latest_payload,
     _build_section_return_series_payload,
     _build_section_return_series_payload_from_snapshot,
     _build_summary2_latest_payload_for_request,
@@ -706,12 +705,4 @@ def create_compatibility_router(
         return json(_build_cashflow_series_payload(limit=limit, currency=currency))
 
 
-    @router.get("/risk/latest")
-    def risk_latest(limit: int = Query(100, ge=1, le=1000)):
-        """风险事件"""
-        with get_conn() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                return json(_build_risk_latest_payload(cur, limit=limit))
-
-
-    return router, (summary2_latest, holdings_latest_compat, holdings_by_category, holdings_history_by_category, nav_series, investment_section_return_series, refresh_investment_section_return_series_snapshot, nav_weekly, investment_return_series, refresh_investment_return_series_snapshot, nav_drawdown, cashflow_series, risk_latest)
+    return router, (summary2_latest, holdings_latest_compat, holdings_by_category, holdings_history_by_category, nav_series, investment_section_return_series, refresh_investment_section_return_series_snapshot, nav_weekly, investment_return_series, refresh_investment_return_series_snapshot, nav_drawdown, cashflow_series)

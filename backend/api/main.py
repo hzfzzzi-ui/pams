@@ -83,7 +83,6 @@ from domain.investments.portfolio_valuation_state import (
     published_daily_close_compatible as _published_daily_close_compatible,
 )
 from domain.assets.reference_data import build_categories_payload as _build_categories_payload
-from domain.risk.risk_state import build_risk_latest_payload as _build_risk_latest_payload
 from domain.investments.valuation_nav import (
     ANCHOR_NAV_DATE,
     build_nav_drawdown_payload as _build_nav_drawdown_payload,
@@ -471,7 +470,6 @@ _compatibility_router, (
     refresh_investment_return_series_snapshot,
     nav_drawdown,
     cashflow_series,
-    risk_latest,
 ) = create_compatibility_router(
     ANCHOR_NAV_DATE=ANCHOR_NAV_DATE,
     _account_initial_capital_cny=lambda *args, **kwargs: _account_initial_capital_cny(*args, **kwargs),
@@ -491,7 +489,6 @@ _compatibility_router, (
     _build_nav_drawdown_payload=lambda *args, **kwargs: _build_nav_drawdown_payload(*args, **kwargs),
     _build_nav_series_payload=lambda *args, **kwargs: _build_nav_series_payload(*args, **kwargs),
     _build_nav_weekly_payload=lambda *args, **kwargs: _build_nav_weekly_payload(*args, **kwargs),
-    _build_risk_latest_payload=lambda *args, **kwargs: _build_risk_latest_payload(*args, **kwargs),
     _build_section_return_series_payload=lambda *args, **kwargs: _build_section_return_series_payload(*args, **kwargs),
     _build_section_return_series_payload_from_snapshot=lambda *args, **kwargs: _build_section_return_series_payload_from_snapshot(*args, **kwargs),
     _build_summary2_latest_payload_for_request=lambda *args, **kwargs: _build_summary2_latest_payload_for_request(*args, **kwargs),
