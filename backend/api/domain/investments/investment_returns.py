@@ -37,7 +37,6 @@ from domain.investments.investment_return_data import (
     INVESTMENT_RETURN_CATEGORIES,
     INVESTMENT_RETURN_SNAPSHOT_EXCLUDE,
     SECTION_RETURN_CONFIG,
-    _apply_gold_proxy_to_precious_values,
     _exact_snapshot_category_value,
     _ibkr_trade_flow_events,
     _investment_transaction_flow_events,
@@ -1096,15 +1095,6 @@ def build_section_return_series_payload(
             owner_ratio_case_sql=owner_ratio_case_sql,
             excluded_holding_accounts=excluded_holding_accounts,
         )
-        if values and section == "precious_metal":
-            values = _apply_gold_proxy_to_precious_values(
-                cur,
-                values,
-                dates=dates,
-                base_currency=base_currency,
-                owner_ratio_case_sql=owner_ratio_case_sql,
-                excluded_holding_accounts=excluded_holding_accounts,
-            )
         # A prior position provides the opening basis even with no trades in the window.
         observed_start = next((
             day for day in dates if day in values and (values[day] is None or values[day] > 0)
@@ -1209,7 +1199,7 @@ def build_section_return_series_payload(
                 else []
             ),
             *(
-                ["黄金积存金缺失估值按 SGE Au99.99 现货金价补齐；缺失时回退 518880.SH 黄金 ETF。"]
+                ["以有记录的持仓克数乘以上金所 Au99.99 已发布收盘价计算黄金市值。"]
                 if section == "precious_metal"
                 else []
             ),

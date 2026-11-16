@@ -18,6 +18,7 @@ from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.portfolio_state import _owner_ratio
+from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value, uses_gold_close
 
 ANCHOR_NAV_DATE = Date(2026, 5, 31)
 STATEMENT_BACKCAST_TYPES = {"funding", "cash_management", "benefit", "liability"}
@@ -36,6 +37,8 @@ class ValuationEvidenceSeries(dict):
         self.cash_scope_unverified = cash_scope_unverified
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
         self.available_accounts_by_date: dict[Date, list[str]] = {}
+        self.estimated_accounts_by_date: dict[Date, list[str]] = {}
+        self.partial_market_values_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_by_date: dict[Date, Decimal] = {}
         self.preview_performance_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_source_through: Date | None = None
@@ -397,6 +400,9 @@ def build_weekly_nav_rows(
         if snapshot_accounts:
             available.update(snapshot_accounts)
             available_net += snapshot_series[sample_date]
+        partial_market_values = getattr(snapshot_series, "partial_market_values_by_date", {}).get(sample_date, {})
+        available.update(partial_market_values)
+        available_net += sum(partial_market_values.values(), Decimal(0))
         if sample_date in a_share_series and "tonghuashun" not in missing_accounts:
             available.add("tonghuashun")
             available_net += a_share_series[sample_date]
@@ -412,8 +418,11 @@ def build_weekly_nav_rows(
         if preview is not None and "tonghuashun" in missing_accounts:
             partial["tonghuashun_source_through"] = getattr(a_share_series, "preview_source_through", None)
         carried_ibkr = ("ibkr" in available and ibkr_bucket.get("daily_close", {}).get("status") == "last_valid")
+        estimated_snapshots = getattr(snapshot_series, "estimated_accounts_by_date", {}).get(sample_date, ())
         if missing_accounts:
             estimated_available = available.intersection(bank_bucket.get("estimated_accounts") or ())
+            estimated_available.update(estimated_snapshots)
+            estimated_available.update(partial_market_values)
             if carried_ibkr:
                 estimated_available.add("ibkr")
             if preview is not None and "tonghuashun" in missing_accounts:
@@ -432,6 +441,7 @@ def build_weekly_nav_rows(
         bucket["net_worth"] += ibkr_bucket.get("net_worth", Decimal("0"))
         row: dict[str, Any] = {"date": sample_date, **bucket, **partial}
         estimated = set(bank_bucket.get('estimated_accounts') or ())
+        estimated.update(estimated_snapshots)
         if carried_ibkr:
             estimated.add('ibkr')
         if sample_date in getattr(a_share_series, 'estimated_dates', set()):
@@ -464,7 +474,7 @@ def current_nav_bucket_from_parts(
     official = current_daily_close_accounts(account_balances, investment_positions)
     incomplete = sorted({str(row.get("account_code")) for row in [*account_balances, *investment_positions]
                          if row.get("account_code") and row.get("include_in_nav", True)
-                         and (row.get("snapshot_scope_status") in {"partial", "unknown"} or row.get("fx_status") == "unavailable")
+                         and (row.get("snapshot_scope_status") in {"partial", "unknown"} or row.get("fx_status") == "unavailable" or row.get("valuation_status") == "unavailable")
                          and str(row.get("account_code")) not in official})
     if incomplete:
         return {"assets": None, "liabilities": None, "net_worth": None,
@@ -508,7 +518,7 @@ def current_nav_account_values_from_parts(
     official = current_daily_close_accounts(account_balances, investment_positions)
     incomplete = {str(row.get("account_code")) for row in [*account_balances, *investment_positions]
                   if row.get("account_code") and row.get("include_in_nav", True)
-                  and (row.get("snapshot_scope_status") in {"partial", "unknown"} or row.get("fx_status") == "unavailable")
+                  and (row.get("snapshot_scope_status") in {"partial", "unknown"} or row.get("fx_status") == "unavailable" or row.get("valuation_status") == "unavailable")
                   and str(row.get("account_code")) not in official}
     for row in investment_positions:
         account_code = str(row.get("account_code") or "")
@@ -547,7 +557,7 @@ def latest_nav_display_values(
             by_account[code].append(row)
     values = {}
     def record(code, rows, value):
-        dates = [_row_date(row.get("as_of")) for row in rows]
+        dates = [_row_date(row.get("market_price_as_of") or row.get("as_of")) for row in rows]
         if all(day is not None and day <= terminal_date for day in dates) and value.is_finite():
             values[code] = (value, min(dates), max(dates))
 
@@ -564,9 +574,13 @@ def latest_nav_display_values(
         if code in values:
             continue
         mode = (configs.get(code) or {}).get("latest_position_evidence")
-        if mode is None:
-            continue
-        supported = all(supports_dated_position_reference(row, mode) for row in rows)
+        supported = all(
+            supports_dated_position_reference(row, mode) or (
+                row.get("valuation_price_source") == GOLD_CLOSE_SOURCE
+                and row.get("snapshot_scope_member") == "recorded"
+            )
+            for row in rows
+        )
         if supported and all(row.get("currency") == "CNY" and row.get("market_value_cny") is not None for row in rows):
             record(code, rows, sum((_dec(row["market_value_cny"]) for row in rows), Decimal(0)))
 
@@ -890,6 +904,7 @@ def _investment_snapshot_series(
     if not account_codes or not dates:
         return values
     owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("h")
+    market_value = gold_market_value("h")
     cur.execute(
         f"""
         WITH series_dates AS (SELECT unnest(%s::date[]) AS date),
@@ -902,15 +917,18 @@ def _investment_snapshot_series(
             SELECT al.date, hs.* FROM account_latest al
             JOIN pams_holdings_snapshot hs ON hs.account_code=al.account_code AND hs.as_of=al.as_of
         ), marked AS (
-            SELECT h.date, h.as_of, h.account_code,
-                CASE WHEN h.market_value = 0 THEN 0 ELSE
-                  (CASE WHEN h.asset_liability='负债' THEN -ABS(h.market_value) ELSE h.market_value END)
+            SELECT h.date, h.as_of, h.account_code, h.id,
+                {uses_gold_close("h")} AND (gold_close.price IS NOT NULL OR h.quantity = 0) AS dated_gold_mark,
+                gold_close.quote_date AS gold_quote_date,
+                CASE WHEN ({market_value}) = 0 THEN 0 ELSE
+                  (CASE WHEN h.asset_liability='负债' THEN -ABS(h.market_value) ELSE ({market_value}) END)
                   * (CASE WHEN h.currency=config.base_currency THEN 1
                           WHEN fx.rate IS NOT NULL THEN fx.rate
                           WHEN h.currency='CNY' THEN 1 / NULLIF(base_fx.rate,0)
                           WHEN config.base_currency='CNY' THEN source_fx.rate
                           ELSE source_fx.rate / NULLIF(base_fx.rate,0) END) * {owner_ratio_sql} END AS value_cny
             FROM h CROSS JOIN (SELECT %s::text AS base_currency) config
+            {gold_close_join("h", "h.date")}
             LEFT JOIN LATERAL (
                 SELECT rate FROM pams_fx_rates_daily fx
                 WHERE fx.base_currency=config.base_currency AND fx.quote_currency=h.currency AND fx.as_of=h.date
@@ -931,7 +949,10 @@ def _investment_snapshot_series(
             ) base_fx ON TRUE
         )
         SELECT date,as_of,account_code,SUM(value_cny) AS value_cny,
-               COUNT(*) FILTER (WHERE value_cny IS NULL) AS missing_values
+               COUNT(*) FILTER (WHERE value_cny IS NULL) AS missing_values,
+               BOOL_AND(dated_gold_mark) AS gold_only,
+               BOOL_OR(gold_quote_date < date) AS prior_gold_close,
+               ARRAY_AGG(id) AS holding_ids
         FROM marked GROUP BY date,as_of,account_code ORDER BY date,account_code
         """,
         ([d.isoformat() for d in dates], dates[-1], account_codes, *owner_ratio_params, base_currency),
@@ -943,12 +964,17 @@ def _investment_snapshot_series(
     proven: dict[Date, set[str]] = {day: set() for day in dates}
     for row in rows:
         day, code = row["date"], str(row["account_code"])
-        # A verified older account snapshot is not proof of today's complete portfolio.
-        if (row["as_of"] != day or row["missing_values"] or row["value_cny"] is None
-                or coverage.get((code, row["as_of"]), {}).get("status") != "complete"):
+        if ((row["as_of"] != day and not row.get("gold_only")) or row["missing_values"] or row["value_cny"] is None):
+            continue
+        proof = coverage.get((code, row["as_of"]), {})
+        if proof.get("status") != "complete":
+            if row.get("gold_only") and set(row["holding_ids"]) <= proof.get("member_ids", set()):
+                values.partial_market_values_by_date.setdefault(day, {})[code] = _dec(row["value_cny"])
             continue
         values[day] += _dec(row["value_cny"])
         proven[day].add(code)
+        if row["as_of"] != day or row.get("prior_gold_close"):
+            values.estimated_accounts_by_date.setdefault(day, []).append(code)
     for day in dates:
         missing = sorted(set(account_codes) - proven[day])
         if proven[day]:

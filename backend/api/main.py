@@ -365,6 +365,12 @@ def _apply_section_holdings_pnl_overlay(
     spec = SECTION_RETURN_HOLDINGS_OVERLAY.get(section)
     if not spec:
         return payload
+    if section == "precious_metal":
+        marked = [row for row in payload.get("rows", []) if row.get("market_value") is not None]
+        # Use the holding cost when there is only a single evidenced mark.
+        # Once the series has a basis, keep its cash-flow-adjusted returns.
+        if len(marked) != 1 or Decimal(str(marked[0].get("net_flow") or 0)) != 0:
+            return payload
     category, minor_category = spec
     holdings_payload = _build_holdings_by_category_payload(
         cur,
