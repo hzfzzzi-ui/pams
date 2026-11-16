@@ -155,31 +155,39 @@ def historical_us_position_values(content: bytes, source_account: str, digest: s
     return values
 
 
-def last_publication(cur, *, through=None):
+def published_archives(cur, *, through=None, limit=None):
     cutoff = " AND r.period_end <= %s" if through is not None else ""
     params = (ACCOUNT, SOURCE, through) if through is not None else (ACCOUNT, SOURCE)
-    cur.execute("""SELECT r.source_id, r.period_end, r.sha256, r.updated_at FROM public.source_records r
-        JOIN public.ibkr_source_originals o ON o.sha256=r.sha256
+    cur.execute("""SELECT r.source_id, r.period_end, r.sha256, r.updated_at,
+               r.account_code AS source_account, r.source_id AS original_source_id,
+               r.content IS NOT NULL AS inline_original
+        FROM public.source_records r
         WHERE r.account_code=%s AND r.source_name=%s AND r.document_type='holding'
           AND r.status='published' AND r.acquisition_method='api' AND r.period_start=r.period_end
-        """ + cutoff + " ORDER BY r.period_end DESC LIMIT 1", params)
-    return cur.fetchone()
+        """ + cutoff + " ORDER BY r.period_end DESC, r.updated_at DESC, r.source_id DESC LIMIT %s",
+                (*params, limit))
+    return cur.fetchall()
+
+
+def last_publication(cur, *, through=None):
+    archives = published_archives(cur, through=through, limit=1)
+    return archives[0] if archives else None
 
 
 def publication_status(cur):
     from domain.brokers.ibkr.ibkr_history_backfill import daily_facts_through
-    from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
+    from domain.brokers.ibkr.ibkr_report_state import expected_statement_date, select_archived_report
 
     target = expected_statement_date()
     cur.execute("SELECT to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready")
     ready = cur.fetchone()['ready']
-    latest = last_publication(cur) if ready else None
-    facts_through = daily_facts_through(cur) if ready else None
+    report, _ = select_archived_report(cur) if ready else (None, None)
+    facts_through = daily_facts_through(cur, through=report.as_of) if report else None
     return {
         'configured': bool(ready and credentials()),
         'expected_statement_as_of': target.isoformat(),
-        'statement_as_of': latest['period_end'].isoformat() if latest else None,
-        'publication_verified': bool(latest and latest['period_end'] == target),
+        'statement_as_of': report.as_of.isoformat() if report else None,
+        'publication_verified': bool(report and report.as_of == target),
         'facts_as_of': facts_through.isoformat() if facts_through else None,
         'facts_verified_for_target': bool(facts_through and facts_through >= target),
     }

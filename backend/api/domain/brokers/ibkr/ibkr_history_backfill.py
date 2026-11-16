@@ -155,7 +155,8 @@ def reconcile_candidates(cur, candidates, account, *, current_digest, originals=
             fields, origin, position = rows[uid]
             digest = row['sha256']
             previous = None
-            if row['source_account'] == 'ibkr' and _existing_matches(row, fields, kind):
+            if (row['source_account'] == 'ibkr' and _existing_matches(row, fields, kind)
+                    and originals.verify(row)):
                 if digest not in archives:
                     content, verified = originals.read(row)
                     try:
@@ -243,19 +244,27 @@ def backfill(cur, *, digest, account, as_of, apply=False, approved_counts=None):
     return result
 
 
-def daily_facts_through(cur):
+def daily_facts_through(cur, *, through=None):
+    upper_bound = " AND period_end <= %s" if through is not None else ""
+    params = (DAILY_FACTS_SOURCE, SOURCE, through) if through is not None else (DAILY_FACTS_SOURCE, SOURCE)
     cur.execute("""SELECT MAX(period_end) AS through FROM public.source_records
         WHERE account_code='ibkr' AND status='published'
           AND ((source_name=%s AND document_type='statement')
-            OR (source_name=%s AND document_type IN ('trade','cash')))""", (DAILY_FACTS_SOURCE, SOURCE))
+            OR (source_name=%s AND document_type IN ('trade','cash')))""" + upper_bound, params)
     return cur.fetchone()['through']
 
 
 def archived_fact_status(cur):
     """Compare the published archive with the shared daily fact checkpoint."""
-    from domain.brokers.ibkr.ibkr_daily_holdings import last_publication
+    from domain.brokers.ibkr.ibkr_report_state import select_archived_report
 
-    return _archived_fact_status(last_publication(cur), daily_facts_through(cur))
+    report, latest = select_archived_report(cur)
+    archive = {'period_end': report.as_of, 'sha256': report.sha256} if report else None
+    through = daily_facts_through(cur, through=report.as_of) if report else None
+    result = _archived_fact_status(archive, through)
+    if latest and (report is None or report.run_id != latest['id']):
+        result.update(status='unavailable', reasons=['unverified_latest_archive'])
+    return result
 
 
 def _archived_fact_status(archive, through):

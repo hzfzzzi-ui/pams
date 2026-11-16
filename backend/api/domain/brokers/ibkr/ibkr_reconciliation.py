@@ -10,7 +10,9 @@ from typing import Any
 
 from collectors.ibkr_flex import default_data_dir
 from domain.brokers.ibkr.ibkr_performance import get_conn
-from domain.brokers.ibkr.ibkr_report_state import PublishedReport, StoredReport, report_quality, select_report
+from domain.brokers.ibkr.ibkr_report_state import (
+    PublishedReport, StoredReport, has_source_registry, report_quality, select_report,
+)
 
 TOLERANCE = Decimal('0.00000001')  # NUMERIC(28,10) versus the existing float parser; no FX rounding.
 ISSUE_LIMIT = 30
@@ -96,9 +98,10 @@ def read_ibkr_reconciliation(*, connection_factory=None, raw_dir: Path | None = 
             with conn:
                 with conn.cursor() as cur:
                     cur.execute("SET LOCAL statement_timeout = '5000ms'")
-                    required = ('broker_processing_state', 'source_batches', 'source_files', 'source_items',
-                                'pams_cashflow_fact', 'pams_investment_trade_fact', 'pams_holdings_snapshot',
-                                'account_snapshot_version', 'account_snapshot_member')
+                    required = ('source_items', 'pams_cashflow_fact', 'pams_investment_trade_fact',
+                                'pams_holdings_snapshot', 'account_snapshot_version', 'account_snapshot_member')
+                    if not has_source_registry(cur):
+                        required += ('broker_processing_state', 'source_batches', 'source_files')
                     for table in required:
                         cur.execute('SELECT to_regclass(%s) IS NOT NULL AS present', ('public.' + table,))
                         row = cur.fetchone()
@@ -112,12 +115,16 @@ def read_ibkr_reconciliation(*, connection_factory=None, raw_dir: Path | None = 
                     item = _check('source','报告依据')
                     _issue(item, 'missing_report')
                     return _result([item], {})
+                quality = report_quality(report, latest)
+                if report.source_account_id is not None:
+                    from domain.brokers.ibkr.ibkr_unified_reconciliation import reconcile_archived_report
+                    return reconcile_archived_report(conn, report, quality)
                 if isinstance(report.path, StoredReport):
                     from domain.brokers.ibkr.ibkr_unified_reconciliation import reconcile_unified_report
-                    return reconcile_unified_report(conn, report, report_quality(report, latest))
+                    return reconcile_unified_report(conn, report, quality)
                 item = _check('source', '报告依据')
                 _issue(item, 'source_unverified')
-                return _result([item], {'source_status': 'unknown'}, report, report_quality(report, latest))
+                return _result([item], {'source_status': 'unknown'}, report, quality)
     except Exception as exc:
         item = _check('source','报告依据')
         _issue(item, 'read_failed', status='error', error_type=type(exc).__name__)

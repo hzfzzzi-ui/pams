@@ -166,11 +166,50 @@ class StoredReport:
 class PublishedReport:
     path: Path | StoredReport
     as_of: date
-    run_id: int
+    run_id: int | str
     sha256: str
     data_sha256: str | None
     legacy: bool = False
     row_count: int | None = None
+    source_account_id: str | None = None
+
+
+def has_source_registry(cur) -> bool:
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS present")
+    row = cur.fetchone()
+    return bool(row['present'] if isinstance(row, dict) else row[0])
+
+
+def select_archived_report(cur) -> tuple[PublishedReport | None, dict[str, Any] | None]:
+    """Read a published Flex archive through its source and verify its original."""
+    from domain.brokers.ibkr.ibkr_daily_holdings import archive_account, published_archives, read_report
+    from domain.imports.source_original_read import SourceOriginals
+
+    archives = published_archives(cur)
+    if not archives:
+        return None, None
+    latest = {'id': str(archives[0]['source_id']), 'status': 'success', 'last_attempt_unknown': True}
+    originals = SourceOriginals(cur)
+    configured_account = archive_account()
+    for archive in archives:
+        digest, day = archive['sha256'], archive['period_end']
+        if not digest:
+            continue
+        content, verified = originals.read(archive)
+        if not verified:
+            continue
+        content = bytes(content)
+        try:
+            account, _ = production_scope(content, day, strict_ancestors=True)
+            if configured_account and configured_account != account:
+                continue
+            _, positions, _ = read_report(content, account, day)
+        except (ValueError, ET.ParseError):
+            continue
+        original = StoredReport(content, f'ibkr-source-{digest}.xml')
+        return PublishedReport(original, day, str(archive['source_id']), digest, None,
+                               row_count=len(positions), source_account_id=account), latest
+    return None, latest
 
 
 def _records(conn) -> list[dict[str, Any]]:
@@ -297,6 +336,10 @@ def _published_source_report(conn, *, batch_id: str, observed: date, publication
 
 
 def select_report(conn, raw_dir: Path) -> tuple[PublishedReport | None, dict[str, Any] | None]:
+    if conn is not None:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if has_source_registry(cur):
+                return select_archived_report(cur)
     records = _records(conn)
     eligible = _eligible_records(records)
     # The publication with the highest business date is the quality reference;
