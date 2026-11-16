@@ -320,9 +320,9 @@ def _snapshot_category_value_series(
     excluded_holding_accounts: set[str],
     minor_category: str | None = None,
     account_codes: list[str] | None = None,
-) -> dict[Date, Decimal]:
-    """Return latest-known holding value for a category on each sample date."""
-    values = {d: Decimal("0") for d in dates}
+) -> dict[Date, Decimal | None]:
+    """Return observed holding values, leaving dates before coverage absent."""
+    values: dict[Date, Decimal | None] = {}
     if not dates:
         return values
 
@@ -416,14 +416,14 @@ def _snapshot_category_value_series(
 
 def _apply_gold_proxy_to_precious_values(
     cur,
-    values: dict[Date, Decimal],
+    values: dict[Date, Decimal | None],
     *,
     dates: list[Date],
     base_currency: str,
     owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
     excluded_holding_accounts: set[str],
     account_codes: list[str] | None = None,
-) -> dict[Date, Decimal]:
+) -> dict[Date, Decimal | None]:
     """Revalue local gold holdings with stored SGE spot gold, with ETF as fallback."""
     adjusted = dict(values)
     if not dates:

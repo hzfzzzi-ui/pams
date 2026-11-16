@@ -1002,7 +1002,8 @@ def build_section_return_series_payload(
     cfg = SECTION_RETURN_CONFIG[section]
 
     requested_start = start_date
-    first_activity = _section_first_activity_date(cur, section)
+    uses_trade_reconstruction = section in {"a_stock", "us_stock"}
+    first_activity = _section_first_activity_date(cur, section) if uses_trade_reconstruction else None
     if first_activity and section == "a_stock":
         start_date = first_activity
     elif first_activity and first_activity > start_date:
@@ -1012,6 +1013,7 @@ def build_section_return_series_payload(
     warnings: list[str] = []
     available_returns = {}
     preview_source_through = None
+    missing_valuation_base = False
 
     if section == "a_stock":
         values = tonghuashun_series(
@@ -1101,7 +1103,7 @@ def build_section_return_series_payload(
             owner_ratio_case_sql=owner_ratio_case_sql,
             excluded_holding_accounts=excluded_holding_accounts,
         )
-        if section == "precious_metal":
+        if values and section == "precious_metal":
             values = _apply_gold_proxy_to_precious_values(
                 cur,
                 values,
@@ -1110,30 +1112,50 @@ def build_section_return_series_payload(
                 owner_ratio_case_sql=owner_ratio_case_sql,
                 excluded_holding_accounts=excluded_holding_accounts,
             )
-        events = _investment_transaction_flow_events(
-            cur,
-            start_date=start_date,
-            end_date=terminal_date,
-            base_currency=base_currency,
-            fx_timelines=fx_timelines,
-            major_category=str(cfg["major_category"]),
-            minor_category=cfg.get("minor_category"),
-            account_owner_ratio=account_owner_ratio,
-        )
+        # A prior position provides the opening basis even with no trades in the window.
+        observed_start = next((
+            day for day in dates if day in values and (values[day] is None or values[day] > 0)
+        ), None)
+        missing_valuation_base = observed_start is None
+        events = []
+        if observed_start is not None:
+            start_date = observed_start
+            dates = [day for day in dates if day >= observed_start]
+            events = _investment_transaction_flow_events(
+                cur,
+                start_date=start_date,
+                end_date=terminal_date,
+                base_currency=base_currency,
+                fx_timelines=fx_timelines,
+                major_category=str(cfg["major_category"]),
+                minor_category=cfg.get("minor_category"),
+                account_owner_ratio=account_owner_ratio,
+            )
 
-    if any(value is None for value in values.values()) or any(amount is None for _, amount in events):
-        fx_missing = any(value is None for value in values.values()) or getattr(events, 'missing_fx', False)
+    if missing_valuation_base or any(value is None for value in values.values()) or any(
+        amount is None for _, amount in events
+    ):
+        fx_missing = any(value is None for value in values.values()) or getattr(events, "missing_fx", False)
+        if missing_valuation_base:
+            reason = "section_valuation_base_missing"
+            coverage_note = "缺少可作为基准的持仓估值，暂无法计算区间收益。"
+        elif fx_missing:
+            reason = "fx_rate_unknown"
+            coverage_note = "缺少同日汇率，不能计算完整收益。"
+        elif getattr(values, "missing_price_dates", set()):
+            reason = "historical_price_missing"
+            coverage_note = "缺少历史行情，不能计算期间收益。"
+        elif getattr(values, "cash_scope_unverified", False):
+            reason = "account_cash_coverage_unverified"
+            coverage_note = "证券账户现金及资金流水范围尚未核验，不能计算账户期间收益。"
+        else:
+            reason = "trade_cost_evidence_missing"
+            coverage_note = "交易来源或成本证据不完整，不能计算期间收益。"
         payload = {
             "section": section, "label": cfg["label"], "start": start_date.isoformat(),
             "end": terminal_date.isoformat(), "base_currency": base_currency,
             "interval": interval, "method": "cash_flow_adjusted_time_weighted_return",
-            "status": "unavailable", "reason": ("fx_rate_unknown" if fx_missing else
-                "historical_price_missing" if getattr(values, 'missing_price_dates', set()) else
-                "account_cash_coverage_unverified" if getattr(values, 'cash_scope_unverified', False) else "trade_cost_evidence_missing"),
-            "coverage_notes": ["缺少同日汇率，不能计算完整收益。" if fx_missing else
-                "缺少历史行情，不能计算期间收益。" if getattr(values, 'missing_price_dates', set()) else
-                "证券账户现金及资金流水范围尚未核验，不能计算账户期间收益。" if getattr(values, 'cash_scope_unverified', False) else
-                "交易来源或成本证据不完整，不能计算期间收益。"],
+            "status": "unavailable", "reason": reason, "coverage_notes": [coverage_note],
             "summary": {"total_return": None, "total_return_rate": None, "annualized_return_rate": None},
             "rows": [{"date": norm(day), "market_value": norm(values.get(day)), **{key: None for key in (
                 "net_flow", "cumulative_capital", "capital_return_rate", "daily_return_rate",
