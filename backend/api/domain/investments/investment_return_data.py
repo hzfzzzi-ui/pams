@@ -515,6 +515,7 @@ def _apply_gold_proxy_to_precious_values(
             JOIN gold_px gp
               ON gp.date = h.date
              AND gp.close_price IS NOT NULL
+            WHERE h.as_of < h.date OR h.source_item_id IS NULL
         ), marked AS (
             SELECT
                 owned.date,

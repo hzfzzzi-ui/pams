@@ -352,6 +352,7 @@ def _apply_reported_account_performance(payload: dict[str, Any], account_code: s
 
 SECTION_RETURN_HOLDINGS_OVERLAY = {
     "a_fund": ("\u0041\u80a1", "\u0041\u80a1\u57fa\u91d1"),
+    "precious_metal": ("贵金属", None),
 }
 
 

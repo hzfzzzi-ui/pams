@@ -172,13 +172,18 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
   const sectionDataByKey = new Map();
   for (const spec of sectionSpecs) {
     const estimate = sectionEstimates.get(spec.key);
-    const rateByDate = new Map((estimate?.rows || sectionRowsByKey.get(spec.key) || []).map(row => [row.date, returnRateForChart(row)]));
+    const sectionRows = estimate?.rows || sectionRowsByKey.get(spec.key) || [];
+    const rateByDate = new Map(sectionRows.map(row => [row.date, returnRateForChart(row)]));
+    const usable = sectionRows.filter(row => rateByDate.get(row.date) != null);
+    const loneHoldingReturn = usable.length === 1
+      && usable[0].return_rate_basis === 'current_holding_pnl_over_cost';
     let sectionBaseRate = null;
     const sectionData = labels.map(date => {
       if (!rateByDate.has(date)) return null;
       const rate = rateByDate.get(date);
       if (rate === null || !Number.isFinite(rate)) return null;
       if (estimate) return rate * 100;
+      if (loneHoldingReturn) return windowKey === 'ytd' ? rate * 100 : null;
       if (sectionBaseRate == null) sectionBaseRate = rate;
       return rebaseReturnRate(rate, sectionBaseRate) * 100;
     });

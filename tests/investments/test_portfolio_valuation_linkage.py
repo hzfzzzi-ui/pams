@@ -322,6 +322,7 @@ def test_apply_holdings_category_pnl_to_section_return_series_payload_uses_categ
     assert latest["realized_income"] == "5"
     assert latest["cost"] == "150"
     assert latest["return_rate"] == "0.1666666666666666666666666667"
+    assert latest["return_rate_basis"] == "current_holding_pnl_over_cost"
     assert latest["display_return_rate"] == "0.1666666666666666666666666667"
     assert latest["daily_return_rate"] is None
     assert latest["daily_return_amount"] == "2"

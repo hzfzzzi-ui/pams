@@ -87,13 +87,6 @@ def _reported_section_performance(section: str, reported_returns_cfg: dict[str, 
                 "total_return": total,
                 "basis": "建行基金收益中心 + 腾讯理财通官方收益口径",
             }
-    if section == "precious_metal":
-        metals = sections.get("precious_metals")
-        if isinstance(metals, dict) and metals.get("total_ytd_pnl") is not None:
-            return {
-                "total_return": Decimal(str(metals["total_ytd_pnl"])),
-                "basis": metals.get("summary_note") or "建行贵金属收益中心口径",
-            }
     return None
 
 
