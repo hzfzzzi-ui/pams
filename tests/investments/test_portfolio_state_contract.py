@@ -12,13 +12,11 @@ if str(API_ROOT) not in sys.path:
 from domain.investments.portfolio_state import (  # noqa: E402
     ACCOUNT_BALANCE_FIELDS,
     DATA_QUALITY_FIELDS,
-    DATA_QUALITY_PAYLOAD_KEYS,
     INVESTMENT_POSITION_FIELDS,
     INVESTMENT_TRANSACTION_FIELDS,
     PORTFOLIO_STATE_KEYS,
     RISK_SNAPSHOT_FIELDS,
     VALUATION_SERIES_FIELDS,
-    build_data_quality_payload_from_parts,
     build_portfolio_state_from_parts,
     load_account_balances,
     load_investment_transactions,
@@ -185,29 +183,6 @@ def test_portfolio_state_data_quality_flags_stale_valuation_and_missing_fx():
     assert checks["fx_rate_coverage"]["severity"] == "error"
     assert checks["fx_rate_coverage"]["details"]["missing_currencies"] == ["USD"]
     assert state["data_quality"]["summary"]["status"] == "error"
-
-
-def test_data_quality_payload_is_lightweight_and_contract_stable():
-    payload = build_data_quality_payload_from_parts(
-        as_of=date(2026, 5, 31),
-        base_currency="CNY",
-        account_balances=[
-            {
-                "account_code": "cash",
-                "amount_cny": Decimal("100"),
-                "as_of": date(2026, 5, 31),
-                "review_status": "reviewed",
-            }
-        ],
-        fx_rates=[{"quote_currency": "USD", "rate": Decimal("7.2"), "as_of": date(2026, 5, 31)}],
-    )
-
-    assert list(payload) == DATA_QUALITY_PAYLOAD_KEYS
-    assert payload["as_of"] == "2026-05-31"
-    assert payload["base_currency"] == "CNY"
-    assert set(DATA_QUALITY_FIELDS).issubset(payload["data_quality"])
-    assert "account_balances" not in payload
-    assert payload["data_quality"]["coverage"]["account_balances"] == {"rows": 1, "has_data": True}
 
 
 def test_load_investment_transactions_reads_trade_fact_table_first():

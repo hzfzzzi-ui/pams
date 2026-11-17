@@ -56,7 +56,7 @@ def test_phone_mode_is_limited_to_investment_and_approved_more_hub():
     assert "style-phone.css" in html
     more = (ROOT / "frontend/public/more.html").read_text(encoding="utf-8")
     assert "style-phone.css" in more
-    for name in ("ledger", "accounts", "data_sources"):
+    for name in ("ledger", "accounts"):
         assert "-phone.css" not in (ROOT / f"frontend/public/{name}.html").read_text(encoding="utf-8")
 
 

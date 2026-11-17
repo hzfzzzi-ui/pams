@@ -26,8 +26,6 @@ function warmupPaths(doc) {
   // This is the pre-existing read-only warmup scope; import/preflight data stays out.
   return [
     ...(new URL(doc.baseURI).pathname.endsWith('/investments.html') ? [] : ['/api/accounts/overview']),
-    '/api/sync/center',
-    '/api/portfolio/data-quality?baseCurrency=CNY',
   ];
 }
 

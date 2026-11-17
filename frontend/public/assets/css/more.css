@@ -3,12 +3,6 @@ body.page-more [hidden] { display: none !important; }
 body.page-more .wrap { width: 100%; max-width: 430px; margin: 0 auto; padding: 0 var(--pams-mobile-gutter) 24px!important; }
 body.page-more.app-shell .moreHub { display: block; }
 
-body.page-more .moreRow { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 60px !important; padding: 16px 2px !important; margin: 0; border: 0 !important; border-bottom: 1px solid var(--pams-line-subtle) !important; border-radius: 0 !important; background: transparent !important; color: var(--pams-text-primary); text-decoration: none; box-shadow: none; }
-body.page-more .moreRow strong { font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.28; white-space: normal; overflow-wrap: anywhere; }
-body.page-more .moreRow > span:first-child { min-width: 0; }
-body.page-more .moreRow small { display: block; max-width: none; margin-top: 5px; font-family: inherit; font-size: var(--pams-font-size-md); font-weight: 600; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
-body.page-more .moreRow > span[aria-hidden="true"] { width: 16px; flex: 0 0 16px; color: var(--pams-text-muted); font-size: 20px; font-weight: 400; line-height: 20px; text-align: center; }
-body.page-more .moreIssue small { color: var(--pams-warning); }
 body.page-more .accountInstitutionPicker { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(62px, calc((100% - 8px) / 5)), 1fr)); gap: 7px 2px; margin: 4px 0 14px; }
 body.page-more #accountSyncPanel .accountInstitutionButton { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; padding: 4px 1px 5px; border: 0; border-radius: 12px; background: transparent; color: var(--pams-text-muted); font: inherit; cursor: pointer; }
 body.page-more .accountInstitutionLogo { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--pams-bg-raised); color: var(--pams-text-primary); font-weight: 650; }
@@ -56,10 +50,9 @@ body.page-more summary::after { content: "›"; width: 16px; flex: 0 0 16px; col
 body.page-more details[open] > summary::after { color: var(--pams-info); transform: rotate(-90deg); }
 body.page-more :is(#account-center, #moreAdvanced) { border-bottom: 1px solid var(--pams-line-subtle); }
 body.page-more :is(#account-center, #moreAdvanced) > summary { min-height: 60px; font-size: 16px; }
-body.page-more .moreAdvanced > .moreRow { min-height: 52px !important; padding-block: 12px !important; }
-body.page-more .moreAdvanced > .moreRow strong { font-size: 14px; font-weight: 600; line-height: 1.4; }
+
 body.page-more .moreAdvanced > details { border-bottom: 1px solid var(--pams-line-subtle); }
-body.page-more .moreRow:hover, body.page-more summary:hover { background: var(--pams-bg-soft) !important; }
+body.page-more summary:hover { background: var(--pams-bg-soft) !important; }
 body.page-more .moreSystem dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 0 2px 14px; font-size: var(--pams-font-size-md); }
 body.page-more .moreSystem :is(dt,dd) { margin: 0; overflow-wrap: anywhere; }
 body.page-more .moreSystem dt { color: var(--pams-text-muted); }

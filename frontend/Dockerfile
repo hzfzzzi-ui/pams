@@ -80,7 +80,7 @@ RUN printf '%s\n' \
 '  location = /ledger.html { if ($arg_content != 1) { return 302 /app.html?view=ledger.html&$args; } add_header Cache-Control "no-store" always; }' \
 '  location = /more.html { if ($arg_content != 1) { return 302 /app.html?view=more.html&$args; } add_header Cache-Control "no-store" always; }' \
 '  location = /accounts.html { if ($arg_content != 1) { return 302 /app.html?view=accounts.html&$args; } add_header Cache-Control "no-store" always; }' \
-'  location = /data_sources.html { if ($arg_content != 1) { return 302 /app.html?view=data_sources.html&$args; } add_header Cache-Control "no-store" always; }' \
+'  location = /data_sources.html { return 404; }' \
 '  location = /account_import.html { if ($arg_content != 1) { return 302 /app.html?view=account_import.html&$args; } add_header Cache-Control "no-store" always; }' \
 '  location = /index.html { return 302 /investments.html; }' \
 '  location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }' \

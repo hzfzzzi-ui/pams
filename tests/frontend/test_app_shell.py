@@ -15,7 +15,7 @@ def test_single_navigation_and_removed_page_headers():
     host = (PUBLIC / "app.html").read_text(encoding="utf-8")
     assert host.count('aria-label="主导航"') == 1
     assert host.count('data-page=') == 3
-    for name in ("investments", "ledger", "more", "accounts", "data_sources", "account_import"):
+    for name in ("investments", "ledger", "more", "accounts", "account_import"):
         html = (PUBLIC / f"{name}.html").read_text(encoding="utf-8")
         assert "data-nav" not in html
         assert "page-shell.css" in html

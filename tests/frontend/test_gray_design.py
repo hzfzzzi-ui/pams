@@ -8,7 +8,7 @@ PUBLIC = ROOT / "frontend/public"
 
 
 def test_shared_tokens_and_page_styles_have_single_owners():
-    for name in ("app", "investments", "ledger", "more", "accounts", "data_sources", "account_import"):
+    for name in ("app", "investments", "ledger", "more", "accounts", "account_import"):
         html = (PUBLIC / f"{name}.html").read_text(encoding="utf-8")
         assert html.count('href="assets/css/tokens.css"') == 1
         assert html.index('href="assets/css/tokens.css"') < html.index('href="assets/css/' + ("app-shell" if name == "app" else "style"))

@@ -10,7 +10,7 @@ const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],ca
 await page.addInitScript(() => Object.defineProperty(navigator, 'connection', {
   configurable: true, value: {saveData: true},
 }));
-let status='ok', accountUnavailable=false, reviewUnavailable=false, holdingsUnavailable=false;
+let accountUnavailable=false, reviewUnavailable=false, holdingsUnavailable=false;
 const sync = {groups: [
   {code:'ccb',label:'合成银行',rows:[
     {account_code:'fixture_debit',label:'合成人民币',can_import:true,active:true,currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
@@ -56,9 +56,8 @@ await page.route('**/*',async route=>{
      summary:'合成摘要',source_id:'fixture-source',filename:'合成账单.xls',source_position:{row:offset+i+2}}));
    return route.fulfill({contentType:'application/json',body:JSON.stringify({rows})});
   }
-  assert.ok(['/api/portfolio/data-quality','/api/portfolio/equity-bridge'].includes(url.pathname),url.pathname);
-  if(status==='failed'||url.pathname.endsWith('/equity-bridge'))return route.fulfill({status:503,contentType:'application/json',body:'{}'});
-  return route.fulfill({contentType:'application/json',body:JSON.stringify({data_quality:{summary:{status,error_count:0,warning_count:status==='ok'?0:2}}})});
+  assert.equal(url.pathname, '/api/portfolio/equity-bridge');
+  return route.fulfill({status:503,contentType:'application/json',body:'{}'});
  }
  const file=path.resolve(root,'.'+decodeURIComponent(url.pathname));assert.ok(file.startsWith(root+path.sep));
  try{
@@ -85,8 +84,8 @@ try{
    const row=document.createElement('div');row.className='mobileHoldingText';const label=document.createElement('strong');label.textContent='标的名称';row.append(label);document.getElementById('holdings-smart-table').append(row);
   });
   const investment={body:await style('body'),name:await style('.mobileHoldingText strong'),wrap:await style('.wrap')};
-  status='ok';const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
-  await page.locator('#moreIssues').waitFor({state:'hidden'});assert.equal(await page.locator('#moreAdvanced').getAttribute('open'),null);
+  const before=calls.length;await page.goto('http://language.invalid/more.html');await page.waitForFunction(()=>document.getElementById('moreOrigin')?.textContent);
+  assert.equal(await page.locator('#moreAdvanced').getAttribute('open'),null);
   const center=page.locator('#account-center > summary');
   const account=page.locator('[data-institution="ccb"]'), child=page.getByRole('heading',{name:'合成人民币',exact:true});
   assert.equal(await page.locator('#account-center').getAttribute('open'),null);
@@ -110,7 +109,7 @@ try{
   const importOffsets = await page.locator('.accountInstitutionPanel:visible .accountSyncImport').evaluateAll(actions =>
     actions.map(action => action.parentElement.getBoundingClientRect().right - action.getBoundingClientRect().right));
   assert.deepEqual(importOffsets, [0, 0]);
-  assert.deepEqual(calls.slice(before).sort(),['/api/holdings/by-account','/api/portfolio/data-quality','/api/sync/accounts']);
+  assert.deepEqual(calls.slice(before).sort(),['/api/holdings/by-account','/api/sync/accounts']);
   await child.waitFor({state:'visible'});
   assert.equal(await page.locator('.accountInstitutionButton').count(),3);
   assert.equal(await page.locator('.accountInstitutionPanel:visible').count(),1);
@@ -165,9 +164,9 @@ try{
   await center.click();
   await child.waitFor({state:'visible'});
   await capture(width+'-home');
-  await page.locator('#moreAdvanced>summary').click();await page.getByText('数据诊断',{exact:true}).waitFor();await page.mouse.move(0,0);
-  const children=await page.locator('.moreAdvanced>.moreRow strong,.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));
-  assert.equal(children.length,3);for(const child of children){assert.equal(child.font,body.font);assert.equal(child.size,'14px');assert.equal(child.weight,'600');assert.equal(child.color,body.color);assert.equal(child.background,'rgba(0, 0, 0, 0)');}
+  await page.locator('#moreAdvanced>summary').click();assert.equal(await page.getByText('数据诊断',{exact:true}).count(),0);await page.mouse.move(0,0);
+  const children=await page.locator('.moreAdvanced>details>summary').evaluateAll(nodes=>nodes.map(node=>{const s=getComputedStyle(node);return {font:s.fontFamily,size:s.fontSize,weight:s.fontWeight,color:s.color,background:s.backgroundColor};}));
+  assert.equal(children.length,2);for(const child of children){assert.equal(child.font,body.font);assert.equal(child.size,'14px');assert.equal(child.weight,'600');assert.equal(child.color,body.color);assert.equal(child.background,'rgba(0, 0, 0, 0)');}
   assert.equal(await page.locator('#moreAdvanced>summary').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
   await capture(width+'-advanced');
   await page.locator('.moreSystem>summary').click();await page.locator('#moreOrigin').waitFor();assert.equal(await page.locator('#moreOrigin').textContent(),'http://language.invalid');
@@ -180,8 +179,6 @@ try{
   await page.locator('[data-institution="legacy"][aria-pressed="true"]').waitFor();
   assert.equal(await page.locator('[data-account-code="fixture_legacy"]').isVisible(),true);
   await page.goto('http://language.invalid/more.html');
-  status='warning';await page.reload();await page.getByText('错误 0 · 警告 2',{exact:true}).waitFor();await capture(width+'-issues');
-  status='failed';await page.reload();await page.getByText('数据状态暂不可用',{exact:true}).waitFor();await capture(width+'-unknown');
   accountUnavailable=true;await page.reload();await center.click();await page.getByText('暂时无法读取账户状态。',{exact:true}).waitFor();
   accountUnavailable=false;await page.getByRole('button',{name:'重新读取账户状态'}).click();await account.waitFor();
   holdingsUnavailable=true;await page.reload();await center.click();await account.waitFor();
@@ -190,7 +187,7 @@ try{
   assert.deepEqual(await page.locator('[data-account-code="fixture_a_share"] .accountSyncMetadata > *').allTextContents(),
     ['最近交易', '2026-10-23', '上次同步', '2026-11-04 14:51']);
   holdingsUnavailable=false;
-  reports.push({width,investment,more:{body,primary,wrap,children},states:['normal','advanced','audit-error','long-label','warning','unknown'],overflow:false});
+  reports.push({width,investment,more:{body,primary,wrap,children},states:['normal','advanced','audit-error','long-label','unknown'],overflow:false});
  }
  assert.deepEqual(errors,[]);const report={reports,errors,productionRequests:0,writes:0,fonts:'shared system fallbacks; no external font download'};
  if(output)await writeFile(path.join(output,'proof.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));

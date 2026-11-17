@@ -119,23 +119,6 @@ def test_archive_mode_reports_active_holdings_retry_without_legacy_alerts(tmp_pa
     assert json.loads(path.read_text())["jobs"] == jobs
 
 
-@pytest.mark.parametrize("holdings_ready,facts_ready,status", [
-    (False, False, "review"), (True, False, "review"), (True, True, "ok"),
-])
-def test_sync_center_reports_archive_coverage_separately_from_nav(holdings_ready, facts_ready, status):
-    from endpoints.sync_center import _ibkr_archive_row
-
-    row = _ibkr_archive_row({
-        "publication_verified": holdings_ready, "facts_verified_for_target": facts_ready,
-        "expected_statement_as_of": "2026-10-23",
-        "statement_as_of": "2026-10-23" if holdings_ready else "2026-10-22",
-        "facts_as_of": "2026-10-23" if facts_ready else "2026-10-22",
-    })
-    assert row["status"] == status
-    assert "组合净值" in row["details"]
-    assert row["latest_date"] == ("2026-10-23" if holdings_ready else "2026-10-22")
-
-
 def test_daily_holdings_scheduler_waits_for_publication(tmp_path, monkeypatch):
     module = _load_scheduler(monkeypatch)
     monkeypatch.setenv("PAMS_IBKR_HOLDINGS_SYNC_ENABLED", "true")

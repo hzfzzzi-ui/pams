@@ -144,7 +144,7 @@ try {
     await page.evaluate(() => allowStartup());
     await waitFor(() => records.length === index + 3, 'three warmup GETs');
     assert.deepEqual(records.slice(index).map(record => record.url).sort(), [
-      '/api/accounts/overview', '/api/sync/center', '/api/portfolio/data-quality?baseCurrency=CNY',
+      '/api/accounts/overview',
     ].sort());
     await page.evaluate(() => {window.foregroundOwner = new AbortController(); window.foreground = api.jget('/api/accounts/overview', {signal: foregroundOwner.signal});});
     await waitFor(() => records.length === index + 4, 'foreground reader overlapping warmup');
