@@ -263,8 +263,9 @@ def _section_first_activity_date(cur, section: str) -> Date | None:
                 AND (%s::text IS NULL OR minor_category=%s)
             UNION ALL
             SELECT MIN(trade_date) FROM pams_investment_trade_fact
-                WHERE market=ANY(%s::text[]) AND gross_amount IS NOT NULL
-        ) observed""", (cfg['major_category'], cfg.get('minor_category'), cfg.get('minor_category'), market_names))
+                WHERE market=ANY(%s::text[]) AND (gross_amount IS NOT NULL OR (%s AND net_cash IS NOT NULL))
+        ) observed""", (cfg['major_category'], cfg.get('minor_category'), cfg.get('minor_category'), market_names,
+                          section == "precious_metal"))
     elif section == "a_stock":
         cur.execute(
             """
@@ -427,6 +428,73 @@ def _snapshot_category_value_series(
         if row.get("missing_fx"):
             values.missing_fx_dates.add(day)
     return values
+
+
+def _restore_single_purchase_gold_history(
+    cur, *, dates, values, ownership_ratio, excluded_accounts,
+) -> tuple[Date, Decimal] | None:
+    """Recover the span before the first snapshot for an evidenced, unchanged position."""
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    cur.execute(f"""
+        SELECT h.id,h.as_of,h.account_code,h.asset_id,h.symbol,h.quantity,h.cost,
+               {uses_gold_close("h")} AS uses_gold
+        FROM pams_holdings_snapshot h
+        WHERE h.major_category=%s AND h.asset_liability=%s
+          AND NOT (h.account_code=ANY(%s::text[])) AND h.as_of<=%s
+        ORDER BY h.as_of,h.id
+    """, ("贵金属", "资产", sorted(excluded_accounts), dates[-1]))
+    holdings = cur.fetchall()
+    if not holdings:
+        return None
+    anchor = holdings[0]
+    if not anchor["uses_gold"] or anchor["as_of"] <= dates[0] or not anchor["quantity"] or not anchor["cost"]:
+        return None
+    identity = ("account_code", "asset_id", "symbol", "quantity", "cost")
+    if any(any(row[key] != anchor[key] for key in identity) for row in holdings):
+        return None
+    account, symbol, asset_id = anchor["account_code"], anchor["symbol"], anchor["asset_id"]
+    # Count all applicable facts, even if source verification later excludes them.
+    cur.execute("""
+        SELECT trade_id FROM pams_investment_trade_fact
+        WHERE account_code=%s AND (asset_id=%s OR symbol=%s)
+          AND trade_type=ANY(%s::text[]) AND trade_date<=%s
+        LIMIT 2
+    """, (account, asset_id, symbol, [
+        "buy", "sell", "fund_subscription", "fund_redemption", "split", "corporate_action",
+        "transfer_in_kind", "transfer_out_kind", "position_adjustment",
+    ], dates[-1]))
+    facts = cur.fetchall()
+    if len(facts) != 1:
+        return None
+    trades = load_trade_rows(
+        cur, account_code=account, start=Date.min, end=anchor["as_of"],
+        fact_id=facts[0]["trade_id"],
+    )
+    if len(trades) != 1:
+        return None
+    opening = trades[0]
+    if (opening["source_evidence_status"] != "verified" or opening["trade_type"] != "buy"
+            or opening["currency"] != "CNY" or opening["quantity"] != anchor["quantity"]
+            or opening["net_cash"] != -anchor["cost"] or opening["trade_date"] >= anchor["as_of"]):
+        return None
+    first_day = opening["trade_date"]
+    missing_dates = [day for day in dates if first_day <= day < anchor["as_of"]]
+    if not missing_dates:
+        return None
+    ratio = ownership_ratio(account)
+    cur.execute(f"""
+        SELECT d.day, {gold_market_value("h")} * %s AS value
+        FROM unnest(%s::date[]) AS d(day)
+        CROSS JOIN pams_holdings_snapshot h
+        {gold_close_join("h", "d.day")}
+        WHERE h.id=%s
+    """, (ratio, missing_dates, anchor["id"]))
+    for row in cur.fetchall():
+        values[row["day"]] = row["value"]
+        if row["value"] is None:
+            values.missing_price_dates.add(row["day"])
+    return first_day, anchor["cost"] * ratio
 
 
 def _exact_snapshot_category_value(
