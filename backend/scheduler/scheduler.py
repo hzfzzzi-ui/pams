@@ -374,6 +374,13 @@ def refresh_investment_return_snapshots(sections: tuple[str, ...]):
     return {"status": "blocked", "errors": errors} if errors else {"status": "ok"}
 
 
+def refresh_investment_page_projection():
+    return _request_json(
+        "post", f"{API_BASE}/investment/page-projection/refresh", "投资页面结果发布",
+        max_attempts=1,
+    )
+
+
 def refresh_post_close_investments(target_date=None):
     """Asia-Pacific post-close investment refresh at 15:05 Beijing time."""
     logger.info("=== Asia-Pacific post-close investment refresh started ===")
@@ -739,6 +746,7 @@ def main():
     schedule.every(30).minutes.do(run_daily_us_return_recovery)
     schedule.every(30).minutes.do(run_cash_event_confirmation)
     schedule.every(30).minutes.do(run_portfolio_valuation_publication)
+    schedule.every(30).seconds.do(refresh_investment_page_projection)
 
     while True:
         schedule.run_pending()

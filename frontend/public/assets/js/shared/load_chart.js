@@ -1,5 +1,5 @@
 const pending = new WeakMap();
-const source = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+const source = new URL('../../vendor/chartjs/chart.umd.js', import.meta.url).href;
 
 // A slow or unavailable chart library must not block the rest of the page.
 export function loadChart(host = window) {

@@ -21,14 +21,15 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
       holding('esop', withClosedParam('/holdings/by-category/ESOP?limit=500')),
       holding('holdings', '/holdings/latest?limit=500').catch(error => readFallback(error, null)),
       selectPart(account, 'overview', () => jgetFresh('/api/accounts/overview')).catch(error => readFallback(error, null)),
-      jgetFresh('/api/fx-rates/latest?base_currency=CNY'),
+      part('fx_rates', () => jgetFresh('/api/fx-rates/latest?base_currency=CNY')),
       account ? account.then(data => data?.tonghuashun ?? null).catch(error => readFallback(error, null)) : null,
       jgetFresh('/api/investment-returns/reported').catch(error => readFallback(error, null)),
       part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null)),
-      jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY').catch(error => readFallback(error, null)),
+      part('valuation_state', () => jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY')).catch(error => readFallback(error, null)),
       part('account_positions', () => loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
       view ? view.then(data => data?.closed_trade_returns ?? null).catch(error => readFallback(error, null)) : null,
       view ? view.then(data => data?.account_cards ?? {}).catch(error => readFallback(error, {})) : {},
+      view ? view.then(data => data?.projection ?? null).catch(error => readFallback(error, null)) : null,
   ]);
 }
 

@@ -841,34 +841,42 @@ def build_portfolio_valuation_state_payload(
                 row = publish_current_portfolio_valuation_state(cur, base_currency=base, cycle=cycle)
                 return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
 
-            state = _build_current_state(cur, base_currency=base, cycle=cycle, status="draft")
-            row = latest_published_portfolio_valuation_state(cur, base_currency=base)
-            if row:
-                state_date = _date_key(state.get("valuation_date"))
-                published_date = published_valuation_date_key(row)
-                published_hash = row.get("source_hash")
-                current_hash = state.get("source_hash")
-                if (
-                    published_date
-                    and state_date
-                    and published_date >= state_date
-                    and published_hash == current_hash
-                ):
-                    return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
-                stale_meta = published_valuation_stale_meta(
-                    row,
-                    target_as_of=state.get("valuation_date"),
-                    reason="stale_or_changed_valuation_state",
-                )
-                return {
-                    "table_ready": table_ready,
-                    "source": "computed_current",
-                    "published_state": stale_meta,
-                    **_norm(state),
-                    "as_of": state["valuation_date"],
-                }
+            return read_current_portfolio_valuation(cur, base_currency=base, cycle=cycle, table_ready=table_ready)
 
-            return {"table_ready": table_ready, "source": "computed_unpublished", **_norm(state), "as_of": state["valuation_date"]}
+
+def read_current_portfolio_valuation(cur, *, base_currency="CNY", cycle="manual_publish", table_ready=None):
+    """Read the current valuation with an existing consistent database snapshot."""
+    base = base_currency
+    if table_ready is None:
+        table_ready = _table_exists(cur, STATE_TABLE)
+    state = _build_current_state(cur, base_currency=base, cycle=cycle, status="draft")
+    row = latest_published_portfolio_valuation_state(cur, base_currency=base)
+    if row:
+        state_date = _date_key(state.get("valuation_date"))
+        published_date = published_valuation_date_key(row)
+        published_hash = row.get("source_hash")
+        current_hash = state.get("source_hash")
+        if (
+            published_date
+            and state_date
+            and published_date >= state_date
+            and published_hash == current_hash
+        ):
+            return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
+        stale_meta = published_valuation_stale_meta(
+            row,
+            target_as_of=state.get("valuation_date"),
+            reason="stale_or_changed_valuation_state",
+        )
+        return {
+            "table_ready": table_ready,
+            "source": "computed_current",
+            "published_state": stale_meta,
+            **_norm(state),
+            "as_of": state["valuation_date"],
+        }
+
+    return {"table_ready": table_ready, "source": "computed_unpublished", **_norm(state), "as_of": state["valuation_date"]}
 
 
 def publish_portfolio_valuation_state_payload(

@@ -3,7 +3,7 @@ import { SERIES_COLORS } from '../../../shared/chart_theme.js';
 import { trackInvestmentNav } from '../../../investment_startup.js';
 import { normalizeInvestmentNavRows, returnRateForChart } from './legacy_model.js';
 import { createInvestmentChartState } from './state.js';
-import { RETURN_SECTION_SPECS, readInvestmentNav, readInvestmentReturnSeries } from './requests.js';
+import { RETURN_SECTION_SPECS, readInvestmentAnalysisView, readInvestmentNav, readInvestmentReturnSeries } from './requests.js';
 import { createInvestmentChartRenderer } from './renderer.js';
 
 const owners = new WeakMap();
@@ -26,10 +26,24 @@ export function createInvestmentChartController({ root = document, host = window
   let disposed = false;
   let navPromise = null;
   let returnPromise = null;
+  let analysisPromise = null;
   let returnGeneration = 0;
   let contributionObserver = null;
   const sectionReads = new Map();
   const current = () => !disposed && owners.get(root) === controller;
+  const projectionStatus = root.getElementById?.('investmentAnalysisProjectionStatus')
+    ?? root.querySelector?.('#investmentAnalysisProjectionStatus');
+  function readAnalysis() {
+    if (!projectionStatus) return null;
+    analysisPromise ??= reads.run('analysis', signal => readInvestmentAnalysisView({signal})).then(response => {
+      if (current() && response?.projection) {
+        projectionStatus.hidden = !response.projection.stale;
+        projectionStatus.textContent = response.projection.stale ? '正在更新 · 显示上一批分析数据' : '';
+      }
+      return response?.data ?? null;
+    });
+    return analysisPromise;
+  }
   const publishCharts = () => {
     if (!current()) return;
     if (renderer.navChart) host.__investmentNavChart = renderer.navChart;
@@ -39,7 +53,8 @@ export function createInvestmentChartController({ root = document, host = window
   function loadNavOnce() {
     if (!current()) return Promise.resolve(null);
     if (!navPromise) {
-      const navRead = trackInvestmentNav(reads.run('nav', signal => readInvestmentNav({signal})));
+      const legacyNav = () => reads.run('nav', signal => readInvestmentNav({signal}));
+      const navRead = trackInvestmentNav(readAnalysis()?.then(analysis => analysis?.nav ?? legacyNav()) ?? legacyNav());
       navPromise = Promise.all([navRead, loadChartClass()])
         .then(([response, chartClass]) => {
           if (!current()) return null;
@@ -68,14 +83,17 @@ export function createInvestmentChartController({ root = document, host = window
     contributionObserver?.disconnect();
     for (const key of sectionReads.keys()) reads.cancel(key);
     try {
-      const [resp, chartClass] = await Promise.all([
-        reads.run('returns', signal => readInvestmentReturnSeries({signal})),
+      const view = readAnalysis();
+      const legacyReturns = () => reads.run('returns', signal => readInvestmentReturnSeries({signal}));
+      const [resp, analysis, chartClass] = await Promise.all([
+        view?.then(data => data?.total ?? legacyReturns()) ?? legacyReturns(),
+        view,
         loadChartClass(),
       ]);
       if (!current() || generation !== returnGeneration) return null;
       renderer.setChartClass(chartClass);
       sectionReads.clear();
-      const sectionResponses = [];
+      const sectionResponses = sectionSpecs.map(({key}) => analysis?.sections?.[key]);
       function loadSection(key) {
         const index = sectionSpecs.findIndex(spec => spec.key === key);
         if (index < 0) return Promise.resolve(false);
@@ -100,7 +118,8 @@ export function createInvestmentChartController({ root = document, host = window
         return sectionReads.get(key);
       }
       const contribution = root.getElementById?.('profitContributionPanel') || root.querySelector?.('#profitContributionPanel');
-      state.contributionPending = Boolean(contribution && typeof host.IntersectionObserver === 'function');
+      state.contributionPending = Boolean(contribution && sectionResponses.some(response => !response)
+        && typeof host.IntersectionObserver === 'function');
       const result = renderer.renderReturns({ resp, sectionResponses, sectionSpecs, loadSection });
       publishCharts();
       if (state.contributionPending) {

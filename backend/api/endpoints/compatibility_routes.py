@@ -9,16 +9,19 @@ from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.holdings_account_cards import build_holdings_account_cards
+from domain.investments import page_projection
 from domain.investments.portfolio_summary import build_holdings_by_account_payload
-from domain.investments.holding_return_snapshot import return_snapshot_revision
+from domain.investments.holding_return_snapshot import return_input_revisions, return_snapshot_revision
 from domain.investments.holding_return_display import attach_dated_holding_performance
 from domain.investments.period_trade_returns import (
     attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
 )
 from domain.investments.position_performance import METHOD as POSITION_RETURN_METHOD, latest_position_valuation_date
-from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
+from domain.investments.portfolio_valuation_state import (
+    published_bank_balances_compatible, read_current_portfolio_valuation,
+)
 from domain.investments.valuation_nav import latest_nav_display_values
-from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
+from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, build_latest_fx_rates_payload
 
 
 def create_compatibility_router(
@@ -70,7 +73,8 @@ def create_compatibility_router(
 ):
     router = APIRouter()
 
-    def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg, section=None):
+    def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg,
+                         section=None, revisions=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
             "version": {None: 3, "a_stock": 2, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
@@ -79,7 +83,7 @@ def create_compatibility_router(
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
             "portfolio_accounts": _load_portfolio_accounts_config(), "reported_returns": reported_returns_cfg,
             "broker_close": {key: broker_close.get(key) for key in ("status", "as_of", "sha256", "reasons")},
-        })
+        }, revisions=revisions)
 
     @router.get("/summary2/latest")
     def summary2_latest():
@@ -172,55 +176,62 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                with reuse_ibkr_holding_evidence(cur):
-                    context = holding_context(cur)
+                if not show_closed:
+                    published = page_projection.read_page(cur, "holdings", business_date=_investment_today_label_date())
+                    if published is not None:
+                        return json({**published["data"], "projection": published["projection"]})
+                return json(build_holdings_page(cur, show_closed=show_closed))
 
-                    def category(major, minor=None, *, closed=show_closed):
-                        return read_holdings(cur, context, include_closed=closed,
-                                             category=major, minor_category=minor)
+    def build_holdings_page(cur, *, show_closed):
+        with reuse_ibkr_holding_evidence(cur):
+            context = holding_context(cur)
 
-                    funds_all = category('A股', 'A股基金', closed=True)
-                    view_date = context[0]
-                    closed_returns = load_closed_trade_returns(
-                        cur, start=Date.min, end=view_date,
-                        owner_ratio=_account_owner_ratio, sections={'a_fund'},
-                        excluded_accounts=context[2]['excluded_accounts'],
-                    )
-                    if fund_returns := closed_returns.get('a_fund'):
-                        fund_returns['known_holding_and_closed_pnl'] = fund_holding_profit(funds_all, fund_returns)
-                        fund_returns['by_account'] = {
-                            code: fund_holding_profit(funds_all, fund_returns, account_code=code)
-                            for code in {item['account_code'] for item in fund_returns['items']}
-                        }
-                    stock = category('A股', 'A股', closed=True)
-                    overseas = category('美股')
-                    accounts = read_investment_accounts(cur)
-                    owner_sql, owner_params = _owner_ratio_case_sql("h")
-                    positions = build_holdings_by_account_payload(
-                        cur, base_currency="CNY", view_as_of=view_date,
-                        owner_ratio_sql=owner_sql, owner_ratio_params=owner_params,
-                        portfolio_owner_ratio=_account_owner_ratio, cash_view_as_of=_view_as_of(),
-                    )
-                    summary = _build_summary2_latest_payload_for_request(cur)
-                    cards = build_holdings_account_cards(
-                        positions=positions, overview=accounts["overview"], stock_performance=accounts["tonghuashun"],
-                        stock=stock, funds=funds_all, overseas=overseas, closed_returns=closed_returns,
-                        summary=summary,
-                    )
-                    return json({
-                        "holdings": holdings_for_list(cur, context),
-                        "a_stock": stock,
-                        "funds": funds_all if show_closed else category('A股', 'A股基金'),
-                        "funds_all": funds_all,
-                        "closed_trade_returns": closed_returns,
-                        "us_stock": overseas,
-                        "precious_metal": category('贵金属'),
-                        "esop": category('ESOP'),
-                        "summary": summary,
-                        "account_cards": cards,
-                        "account_positions": positions,
-                        "accounts": accounts,
-                    })
+            def category(major, minor=None, *, closed=show_closed):
+                return read_holdings(cur, context, include_closed=closed,
+                                     category=major, minor_category=minor)
+
+            funds_all = category('A股', 'A股基金', closed=True)
+            view_date = context[0]
+            closed_returns = load_closed_trade_returns(
+                cur, start=Date.min, end=view_date,
+                owner_ratio=_account_owner_ratio, sections={'a_fund'},
+                excluded_accounts=context[2]['excluded_accounts'],
+            )
+            if fund_returns := closed_returns.get('a_fund'):
+                fund_returns['known_holding_and_closed_pnl'] = fund_holding_profit(funds_all, fund_returns)
+                fund_returns['by_account'] = {
+                    code: fund_holding_profit(funds_all, fund_returns, account_code=code)
+                    for code in {item['account_code'] for item in fund_returns['items']}
+                }
+            stock = category('A股', 'A股', closed=True)
+            overseas = category('美股')
+            accounts = read_investment_accounts(cur)
+            owner_sql, owner_params = _owner_ratio_case_sql("h")
+            positions = build_holdings_by_account_payload(
+                cur, base_currency="CNY", view_as_of=view_date,
+                owner_ratio_sql=owner_sql, owner_ratio_params=owner_params,
+                portfolio_owner_ratio=_account_owner_ratio, cash_view_as_of=_view_as_of(),
+            )
+            summary = _build_summary2_latest_payload_for_request(cur)
+            cards = build_holdings_account_cards(
+                positions=positions, overview=accounts["overview"], stock_performance=accounts["tonghuashun"],
+                stock=stock, funds=funds_all, overseas=overseas, closed_returns=closed_returns,
+                summary=summary,
+            )
+            return {
+                "holdings": holdings_for_list(cur, context),
+                "a_stock": stock,
+                "funds": funds_all if show_closed else category('A股', 'A股基金'),
+                "funds_all": funds_all,
+                "closed_trade_returns": closed_returns,
+                "us_stock": overseas,
+                "precious_metal": category('贵金属'),
+                "esop": category('ESOP'),
+                "summary": summary,
+                "account_cards": cards,
+                "account_positions": positions,
+                "accounts": accounts,
+            }
 
 
     def read_account_performance(cur, account_code, overview_payload):
@@ -346,55 +357,58 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                view_as_of = _investment_return_view_as_of(cur)
-                today_label_date = _investment_today_label_date()
-                if section == "a_stock":
-                    view_as_of = latest_position_valuation_date(cur, holding_date=view_as_of, through=today_label_date)
-                reported_returns_cfg = _reported_returns_cfg()
-                snapshot_payload = _build_section_return_series_payload_from_snapshot(
-                    cur,
-                    section=section,
-                    start_date=start_date,
-                    interval=interval,
-                    base_currency=baseCurrency,
-                    view_as_of=view_as_of,
-                    today_label_date=today_label_date,
-                    require_data_completeness=True,
-                    current_revision=lambda: _return_revision(
-                        cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
-                        reported_returns_cfg=reported_returns_cfg, section=section,
-                    ),
-                )
-                payload = snapshot_payload
-                if payload is None:
-                    payload = _build_section_return_series_payload(
-                        cur,
-                        section=section,
-                        start_date=start_date,
-                        interval=interval,
-                        base_currency=baseCurrency,
-                        view_as_of=view_as_of,
-                        reported_returns_cfg=reported_returns_cfg,
-                        overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
-                        owner_ratio_case_sql=_owner_ratio_case_sql,
-                        account_owner_ratio=_account_owner_ratio,
-                        excluded_holding_accounts=_excluded_holding_accounts(),
-                        today_label_date=today_label_date,
-                        position_based=section == "a_stock",
-                    )
-                    if payload.get("method") not in {FUND_HISTORY_METHOD, POSITION_RETURN_METHOD}:
-                        payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
-                if section == 'us_stock' and payload.get('fx_source') == OPEN_EXCHANGE_RATES_SOURCE and (
-                    payload.get('status') == 'available'
-                ):
-                    return json(payload)
-                closed_returns = load_closed_trade_returns(
-                    cur,
-                    start=start_date, end=view_as_of, base_currency=baseCurrency.upper(),
-                    owner_ratio=_account_owner_ratio, sections={section},
-                    excluded_accounts=_excluded_holding_accounts(),
-                )
-                return json(attach_closed_trade_returns(payload, closed_returns.get(section)))
+                return json(build_section_curve(cur, section=section, start_date=start_date, interval=interval, baseCurrency=baseCurrency))
+
+    def build_section_curve(cur, *, section, start_date, interval, baseCurrency, read_revision=_return_revision):
+        view_as_of = _investment_return_view_as_of(cur)
+        today_label_date = _investment_today_label_date()
+        if section == "a_stock":
+            view_as_of = latest_position_valuation_date(cur, holding_date=view_as_of, through=today_label_date)
+        reported_returns_cfg = _reported_returns_cfg()
+        snapshot_payload = _build_section_return_series_payload_from_snapshot(
+            cur,
+            section=section,
+            start_date=start_date,
+            interval=interval,
+            base_currency=baseCurrency,
+            view_as_of=view_as_of,
+            today_label_date=today_label_date,
+            require_data_completeness=True,
+            current_revision=lambda: read_revision(
+                cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
+                reported_returns_cfg=reported_returns_cfg, section=section,
+            ),
+        )
+        payload = snapshot_payload
+        if payload is None:
+            payload = _build_section_return_series_payload(
+                cur,
+                section=section,
+                start_date=start_date,
+                interval=interval,
+                base_currency=baseCurrency,
+                view_as_of=view_as_of,
+                reported_returns_cfg=reported_returns_cfg,
+                overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+                owner_ratio_case_sql=_owner_ratio_case_sql,
+                account_owner_ratio=_account_owner_ratio,
+                excluded_holding_accounts=_excluded_holding_accounts(),
+                today_label_date=today_label_date,
+                position_based=section == "a_stock",
+            )
+            if payload.get("method") not in {FUND_HISTORY_METHOD, POSITION_RETURN_METHOD}:
+                payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
+        if section == 'us_stock' and payload.get('fx_source') == OPEN_EXCHANGE_RATES_SOURCE and (
+            payload.get('status') == 'available'
+        ):
+            return payload
+        closed_returns = load_closed_trade_returns(
+            cur,
+            start=start_date, end=view_as_of, base_currency=baseCurrency.upper(),
+            owner_ratio=_account_owner_ratio, sections={section},
+            excluded_accounts=_excluded_holding_accounts(),
+        )
+        return attach_closed_trade_returns(payload, closed_returns.get(section))
 
 
     @router.post("/investment/section-return-series/snapshot")
@@ -584,57 +598,105 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                today_label_date = _investment_today_label_date()
-                view_as_of = latest_position_valuation_date(
-                    cur, holding_date=_investment_return_view_as_of(cur), through=today_label_date,
-                )
-                if start_date > view_as_of:
-                    start_date = view_as_of
-                reported_returns_cfg = _reported_returns_cfg()
-                snapshot_payload = _build_investment_return_series_payload_from_snapshot(
-                    cur,
-                    start_date=start_date,
-                    interval=interval,
-                    base_currency=baseCurrency,
-                    view_as_of=view_as_of,
-                    today_label_date=today_label_date,
-                    require_data_completeness=True,
-                    current_revision=lambda: _return_revision(
-                        cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
-                        reported_returns_cfg=reported_returns_cfg,
-                    ),
-                )
-                if snapshot_payload is not None:
-                    return json(snapshot_payload)
-                payload = _build_investment_return_series_payload(
-                    cur,
-                    start_date=start_date,
-                    interval=interval,
-                    base_currency=baseCurrency,
-                    view_as_of=view_as_of,
-                    overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
-                    reported_returns_cfg=reported_returns_cfg,
-                    owner_ratio_case_sql=_owner_ratio_case_sql,
-                    account_owner_ratio=_account_owner_ratio,
-                    account_initial_capital_cny=_account_initial_capital_cny,
-                    excluded_holding_accounts=_excluded_holding_accounts(),
-                    today_label_date=today_label_date,
-                    position_based=True,
-                )
-                if payload.get("method") == POSITION_RETURN_METHOD:
-                    return json(payload)
-                valuation_state = _latest_published_portfolio_valuation_state(
-                    cur,
-                    base_currency=baseCurrency,
-                )
-                payload_with_valuation = (
-                    _apply_published_valuation_state_to_return_series_payload(
-                        payload,
-                        valuation_state,
-                    )
-                )
-                summary_payload = _build_summary2_latest_payload_for_request(cur)
-                return json(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
+                return json(build_total_curve(cur, start_date=start_date, interval=interval, baseCurrency=baseCurrency))
+
+    def build_total_curve(cur, *, start_date, interval, baseCurrency, read_revision=_return_revision):
+        today_label_date = _investment_today_label_date()
+        view_as_of = latest_position_valuation_date(
+            cur, holding_date=_investment_return_view_as_of(cur), through=today_label_date,
+        )
+        if start_date > view_as_of:
+            start_date = view_as_of
+        reported_returns_cfg = _reported_returns_cfg()
+        snapshot_payload = _build_investment_return_series_payload_from_snapshot(
+            cur,
+            start_date=start_date,
+            interval=interval,
+            base_currency=baseCurrency,
+            view_as_of=view_as_of,
+            today_label_date=today_label_date,
+            require_data_completeness=True,
+            current_revision=lambda: read_revision(
+                cur, start_date=start_date, interval=interval, view_as_of=view_as_of, today_label_date=today_label_date,
+                reported_returns_cfg=reported_returns_cfg,
+            ),
+        )
+        if snapshot_payload is not None:
+            return snapshot_payload
+        payload = _build_investment_return_series_payload(
+            cur,
+            start_date=start_date,
+            interval=interval,
+            base_currency=baseCurrency,
+            view_as_of=view_as_of,
+            overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+            reported_returns_cfg=reported_returns_cfg,
+            owner_ratio_case_sql=_owner_ratio_case_sql,
+            account_owner_ratio=_account_owner_ratio,
+            account_initial_capital_cny=_account_initial_capital_cny,
+            excluded_holding_accounts=_excluded_holding_accounts(),
+            today_label_date=today_label_date,
+            position_based=True,
+        )
+        if payload.get("method") == POSITION_RETURN_METHOD:
+            return payload
+        valuation_state = _latest_published_portfolio_valuation_state(
+            cur,
+            base_currency=baseCurrency,
+        )
+        payload_with_valuation = (
+            _apply_published_valuation_state_to_return_series_payload(
+                payload,
+                valuation_state,
+            )
+        )
+        summary_payload = _build_summary2_latest_payload_for_request(cur)
+        return _apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload)
+
+
+    @router.get("/api/investment/analysis-view")
+    def investment_analysis_view():
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                published = page_projection.read_page(cur, "analysis", business_date=_investment_today_label_date())
+                return json(published) if published is not None else json({}, status_code=404)
+
+    def build_investment_pages(cur):
+        start = Date.fromisoformat(page_projection.PAGE_START)
+        curve_args = dict(start_date=start, interval="daily", baseCurrency="CNY")
+        revisions = None
+
+        def read_revision(cur, **settings):
+            nonlocal revisions
+            if revisions is None:
+                revisions = return_input_revisions(cur)
+            return _return_revision(cur, **settings, revisions=revisions)
+
+        return {
+            "holdings": {
+                **build_holdings_page(cur, show_closed=False),
+                "fx_rates": build_latest_fx_rates_payload(cur, base_currency="CNY"),
+                "valuation_state": read_current_portfolio_valuation(cur),
+            },
+            "analysis": {
+                "nav": _verified_nav_weekly(cur, latest=True, **curve_args),
+                "total": build_total_curve(cur, **curve_args, read_revision=read_revision),
+                "sections": {
+                    section: build_section_curve(cur, section=section, **curve_args, read_revision=read_revision)
+                    for section in ("a_stock", "a_fund", "us_stock", "precious_metal")
+                },
+            },
+        }
+
+    @router.post("/api/investment/page-projection/refresh")
+    def refresh_investment_pages():
+        with get_conn() as conn:
+            conn.set_session(isolation_level="REPEATABLE READ")
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                return json(page_projection.refresh(
+                    cur, business_date=_investment_today_label_date(), build=build_investment_pages,
+                ))
 
 
     @router.post("/investment/return-series/snapshot")
