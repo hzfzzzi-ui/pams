@@ -15,6 +15,7 @@ from domain.investments.holding_return_display import attach_dated_holding_perfo
 from domain.investments.period_trade_returns import (
     attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
 )
+from domain.investments.position_performance import METHOD as POSITION_RETURN_METHOD, latest_position_valuation_date
 from domain.investments.portfolio_valuation_state import published_bank_balances_compatible
 from domain.investments.valuation_nav import latest_nav_display_values
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
@@ -72,7 +73,7 @@ def create_compatibility_router(
     def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg, section=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
-            "version": {"us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
+            "version": {None: 3, "a_stock": 2, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
             "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
             "today_label_date": today_label_date,
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
@@ -90,9 +91,11 @@ def create_compatibility_router(
 
 
     def holding_context(cur):
+        today = _daily_pnl_view_as_of()
+        valuation_date = latest_position_valuation_date(cur, holding_date=_holdings_market_view_as_of(cur), through=today)
         return (
-            _holdings_market_view_as_of(cur),
-            _daily_pnl_view_as_of(),
+            valuation_date,
+            today,
             {
                 "excluded_accounts": _excluded_holding_accounts(),
                 "owner_ratios": _account_owner_ratios(),
@@ -345,6 +348,8 @@ def create_compatibility_router(
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 view_as_of = _investment_return_view_as_of(cur)
                 today_label_date = _investment_today_label_date()
+                if section == "a_stock":
+                    view_as_of = latest_position_valuation_date(cur, holding_date=view_as_of, through=today_label_date)
                 reported_returns_cfg = _reported_returns_cfg()
                 snapshot_payload = _build_section_return_series_payload_from_snapshot(
                     cur,
@@ -370,13 +375,14 @@ def create_compatibility_router(
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
                         reported_returns_cfg=reported_returns_cfg,
-                        overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+                        overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
+                        position_based=section == "a_stock",
                     )
-                    if payload.get("method") != FUND_HISTORY_METHOD:
+                    if payload.get("method") not in {FUND_HISTORY_METHOD, POSITION_RETURN_METHOD}:
                         payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                 if section == 'us_stock' and payload.get('fx_source') == OPEN_EXCHANGE_RATES_SOURCE and (
                     payload.get('status') == 'available'
@@ -411,9 +417,10 @@ def create_compatibility_router(
             with get_conn() as conn:
                 conn.set_session(isolation_level='REPEATABLE READ')
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    overview_payload = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
                     view_as_of = _investment_return_view_as_of(cur)
                     today_label_date = _investment_today_label_date()
+                    if section == "a_stock":
+                        view_as_of = latest_position_valuation_date(cur, holding_date=view_as_of, through=today_label_date)
                     reported_returns_cfg = _reported_returns_cfg()
                     revision_args = dict(start_date=start_date, interval=interval, view_as_of=view_as_of,
                                          today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg,
@@ -427,13 +434,14 @@ def create_compatibility_router(
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
                         reported_returns_cfg=reported_returns_cfg,
-                        overview_payload=overview_payload,
+                        overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
+                        position_based=section == "a_stock",
                     )
-                    if payload.get("method") != FUND_HISTORY_METHOD:
+                    if payload.get("method") not in {FUND_HISTORY_METHOD, POSITION_RETURN_METHOD}:
                         payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                     if expected_through and (
                         payload.get("fx_source") != OPEN_EXCHANGE_RATES_SOURCE
@@ -576,10 +584,12 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                view_as_of = _investment_return_view_as_of(cur)
+                today_label_date = _investment_today_label_date()
+                view_as_of = latest_position_valuation_date(
+                    cur, holding_date=_investment_return_view_as_of(cur), through=today_label_date,
+                )
                 if start_date > view_as_of:
                     start_date = view_as_of
-                today_label_date = _investment_today_label_date()
                 reported_returns_cfg = _reported_returns_cfg()
                 snapshot_payload = _build_investment_return_series_payload_from_snapshot(
                     cur,
@@ -602,14 +612,17 @@ def create_compatibility_router(
                     interval=interval,
                     base_currency=baseCurrency,
                     view_as_of=view_as_of,
-                    overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+                    overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                     reported_returns_cfg=reported_returns_cfg,
                     owner_ratio_case_sql=_owner_ratio_case_sql,
                     account_owner_ratio=_account_owner_ratio,
                     account_initial_capital_cny=_account_initial_capital_cny,
                     excluded_holding_accounts=_excluded_holding_accounts(),
                     today_label_date=today_label_date,
+                    position_based=True,
                 )
+                if payload.get("method") == POSITION_RETURN_METHOD:
+                    return json(payload)
                 valuation_state = _latest_published_portfolio_valuation_state(
                     cur,
                     base_currency=baseCurrency,
@@ -640,11 +653,12 @@ def create_compatibility_router(
             with get_conn() as conn:
                 conn.set_session(isolation_level='REPEATABLE READ')
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    overview_payload = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
-                    view_as_of = _investment_return_view_as_of(cur)
+                    today_label_date = _investment_today_label_date()
+                    view_as_of = latest_position_valuation_date(
+                        cur, holding_date=_investment_return_view_as_of(cur), through=today_label_date,
+                    )
                     if start_date > view_as_of:
                         start_date = view_as_of
-                    today_label_date = _investment_today_label_date()
                     reported_returns_cfg = _reported_returns_cfg()
                     revision_args = dict(start_date=start_date, interval=interval, view_as_of=view_as_of,
                                          today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg)
@@ -655,17 +669,19 @@ def create_compatibility_router(
                         interval=interval,
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
-                        overview_payload=overview_payload,
+                        overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                         reported_returns_cfg=reported_returns_cfg,
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         account_initial_capital_cny=_account_initial_capital_cny,
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
+                        position_based=True,
                     )
-                    valuation_state = _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
-                    payload = _apply_published_valuation_state_to_return_series_payload(payload, valuation_state)
-                    payload = _apply_summary_pnl_to_return_series_payload(payload, _build_summary2_latest_payload_for_request(cur))
+                    if payload.get("method") != POSITION_RETURN_METHOD:
+                        valuation_state = _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
+                        payload = _apply_published_valuation_state_to_return_series_payload(payload, valuation_state)
+                        payload = _apply_summary_pnl_to_return_series_payload(payload, _build_summary2_latest_payload_for_request(cur))
                     if input_revision != _return_revision(cur, **revision_args):
                         raise HTTPException(status_code=409, detail="收益输入已更新，请重试")
                     written = _upsert_investment_return_series_snapshot(

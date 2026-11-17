@@ -26,6 +26,7 @@ _RETURN_INPUT_TABLES = (
     "pams_accounts", "pams_asset_master", "pams_holdings_snapshot", "pams_investment_trade_fact",
     "pams_cashflow_fact", "pams_fx_rates_daily", "market_observations", "source_records",
     "source_items", "evidence_confirmation", "broker_processing_state", "valuation_results",
+    "pams_ohlcv_daily", "valuation_evidence",
 )
 
 

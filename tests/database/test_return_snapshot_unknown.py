@@ -278,5 +278,118 @@ def test_real_unknown_cost_flows_through_snapshot_http(empty_source_db, monkeypa
             cur.execute("UPDATE pams_investment_trade_fact SET gross_amount=6 WHERE source_item_id=%s", (str(item_id),))
         assert web.post('/investment/return-series/snapshot?start=2026-10-30').status_code == 200
         result = web.get('/investment/return-series?start=2026-10-30')
-        assert result.json()['reason'] == 'income_evidence_unknown'
-        assert result.json()['rows'][0]['realized_income'] is None
+        assert result.json()['reason'] == 'position_valuation_unavailable'
+        assert result.json()['rows'][0]['total_pnl'] is None
+
+
+def test_total_return_uses_verified_net_income_without_market_or_gross(empty_source_db, monkeypatch):
+    from uuid import uuid4
+
+    from domain.imports import source_records_v2 as source
+    from domain.investments import investment_returns as returns
+
+    start, end = date(2026, 10, 29), date(2026, 10, 30)
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO pams_accounts (account_code,display_name,base_currency) VALUES ('synthetic_equity','Synthetic equity','CNY')")
+            def publish(account_code, **fields):
+                source_id, item_id = uuid4(), uuid4()
+                fields = {'business_date': end.isoformat(), 'currency': 'CNY', **fields}
+                source.create_source(cur, source_id=source_id, account_code=account_code,
+                                     source_name='synthetic', acquisition_method='manual', document_type='trade')
+                source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                                raw_fields={'entered_fields': fields}, parsed_fields=fields)
+                revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                              parsed_fields=fields, review_status='confirmed')
+                source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+
+            publish('tonghuashun', action='interest', net_cash='5', gross_amount='8', tax_amount='3')
+            publish('synthetic_equity', action='dividend', market='ESOP', net_cash='32')
+            publish('synthetic_equity', action='interest', net_cash='0')
+            publish('synthetic_equity', action='deposit', net_cash='50')
+
+    known_values = {start: Decimal(100), end: Decimal(100)}
+    for name in ('tonghuashun_series', '_tonghuashun_cost_series'):
+        monkeypatch.setattr(returns, name, lambda *_a, **_kw: known_values)
+    monkeypatch.setattr(returns, '_ibkr_full_trade_return_series', lambda *_a, **_kw: ({}, {}, []))
+    monkeypatch.setattr(returns, '_total_section_return_amounts', lambda *_a, **_kw: None)
+    monkeypatch.setattr(returns, '_account_net_liquidation_anchor_cny', lambda *_a, **_kw: None)
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            payload = returns.build_investment_return_series_payload(
+                cur, start_date=start, view_as_of=end, base_currency='CNY', interval='daily',
+                overview_payload={'accounts': []}, reported_returns_cfg={},
+                owner_ratio_case_sql=lambda _alias: ('1', []),
+                account_owner_ratio=lambda _account: Decimal(1),
+                account_initial_capital_cny=lambda _account: None,
+            )
+    opening, terminal = payload['rows']
+    assert Decimal(opening['realized_income']) == 0
+    assert Decimal(terminal['realized_income']) == 37
+    assert Decimal(terminal['total_pnl']) == 37
+    assert Decimal(terminal['return_rate']) == Decimal('0.37')
+
+
+def test_price_refresh_updates_position_return_without_touching_holdings(empty_source_db, monkeypatch):
+    import main
+    from endpoints import prices
+
+    opening, today = date(2026, 10, 29), date(2026, 10, 30)
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('''INSERT INTO pams_holdings_snapshot
+                (name,symbol,account_code,asset_liability,currency,major_category,minor_category,
+                 market_value,cost,quantity,current_price,as_of)
+                VALUES ('Synthetic','600001','tonghuashun','资产','CNY','A股','A股',100,100,10,10,%s)
+                RETURNING *''', (opening,))
+            holding = dict(cur.fetchone())
+
+    def physical_holdings():
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute('SELECT to_jsonb(h) FROM pams_holdings_snapshot h')
+            return cur.fetchall()
+
+    monkeypatch.setattr(main, 'get_conn', connect)
+    def unavailable_account_cash(**kwargs):
+        pytest.fail('Investment position return must not read account cash')
+    monkeypatch.setattr(main.account_overview, '_overview_payload', unavailable_account_cash)
+    monkeypatch.setattr(main, '_investment_return_view_as_of', lambda cur: opening)
+    monkeypatch.setattr(main, '_investment_today_label_date', lambda: today)
+    monkeypatch.setattr(main, '_reported_returns_cfg', lambda: {})
+    monkeypatch.setattr(main, '_excluded_holding_accounts', set)
+    monkeypatch.setattr(main, '_account_owner_ratio', lambda code: Decimal(1))
+    monkeypatch.setattr(prices, '_get_conn', connect)
+    monkeypatch.setattr(prices, '_get_holdings_with_symbol', lambda *args, **kwargs: [holding])
+    target = opening
+    monkeypatch.setattr(prices, '_price_refresh_as_of', lambda *args: target)
+    prices._refresh_category('A股', lambda symbols: {'600001': 10})
+    original = physical_holdings()
+
+    with TestClient(main.app) as web:
+        url = f'/investment/return-series?start={opening}'
+        response = web.get(url)
+        assert response.status_code == 200, response.text
+        assert Decimal(response.json()['rows'][-1]['market_value']) == 100
+        assert web.post(f'{url.split("?")[0]}/snapshot?start={opening}').status_code == 200
+        target = today
+        result = prices._refresh_category('A股', lambda symbols: {'600001': 12})
+        assert result['valuation_projection_only']
+        assert physical_holdings() == original
+        after = web.get(url).json()
+        row = after['rows'][-1]
+        assert row['date'] == today.isoformat()
+        assert Decimal(row['market_value']) == 120
+        assert Decimal(row['return_rate']) == Decimal('0.20')
+        assert row['holding_as_of'] == opening.isoformat()
+        assert row['market_price_as_of'] == today.isoformat()
+        section = web.get(f'/investment/section-return-series?section=a_stock&start={opening}')
+        assert section.status_code == 200, section.text
+        assert section.json()['rows'][-1] == row

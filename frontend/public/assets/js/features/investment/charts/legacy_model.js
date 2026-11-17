@@ -141,7 +141,7 @@ function pointRadiusForReturnSeries(pointCount, isMobile) {
 }
 
 function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile,
-  events = [], sectionEstimates = new Map(), sectionGapDates = new Map(), partialTotal = null,
+  events = [], sectionEstimates = new Map(), sectionGapDates = new Map(),
   sectionZeroBefore = new Map()) {
   const dateRows = [...rows, ...sectionSpecs.flatMap(spec => sectionEstimates.get(spec.key)?.rows || sectionRowsByKey.get(spec.key) || [])];
   for (const gaps of sectionGapDates.values()) {
@@ -164,17 +164,10 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
   const labels = [...dates].sort();
   const totalByDate = new Map(windowRows.map(row => [row.date, row]));
   const totalBaseRate = windowRows.map(returnRateForChart).find(value => value !== null) ?? null;
-  const completeData = labels.map(date => {
+  const totalData = labels.map(date => {
     const rate = returnRateForChart(totalByDate.get(date));
     return rate === null || totalBaseRate === null ? null : rebaseReturnRate(rate, totalBaseRate) * 100;
   });
-  const partialRates = new Map((partialTotal?.rows || []).map(row => [row.date, returnRateForChart(row)]));
-  const totalCoverage = !completeData.some(value => value != null) && labels.some(date => partialRates.get(date) != null)
-    ? partialTotal.label : null;
-  const totalData = totalCoverage ? labels.map(date => {
-    const rate = partialRates.get(date);
-    return rate == null ? null : rate * 100;
-  }) : completeData;
   const labelSet = new Set(labels);
   const visibleEvents = (events || [])
     .filter(event => labelSet.has(event.date))
@@ -231,14 +224,11 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
     labels,
     rows: windowRows,
     totalData,
-    totalCoverage,
     totalPointRadius: pointRadiusForReturnSeries(totalData.length, isMobile),
     sectionDataByKey,
     eventData,
     eventPointRadius: eventData.map(value => value == null ? 0 : 4.5),
     visibleEvents,
-    pnlMap: new Map(windowRows.map(row => [row.date, safeNum(row.total_pnl)])),
-    valueMap: new Map(windowRows.map(row => [row.date, safeNum(row.market_value)])),
     topContribution: buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey, rows, sectionEstimates, labels),
   };
 }

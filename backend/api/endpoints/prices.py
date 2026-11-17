@@ -2514,7 +2514,7 @@ def _refresh_category(
         updates.append((new_price, new_mv, h["id"]))
 
     # Quote-only jobs must not turn a market subset into a complete account snapshot.
-    updated = sum(row.get("symbol") in prices for row in holdings) if require_current_close else _upsert_price_snapshots(holdings, prices, target_as_of)
+    updated = len(updates)
     daily_quote_rows = 0
     if category == "A股":
         close_rows = _upsert_cn_a_closes(holdings, prices, target_as_of)
@@ -2525,7 +2525,7 @@ def _refresh_category(
             source="tencent_a_stock_close",
             market="CN_A",
         )
-    elif category == _OVERSEAS_MAJOR_CATEGORY and require_current_close:
+    elif category == _OVERSEAS_MAJOR_CATEGORY:
         daily_quote_rows = _upsert_scheduled_us_quotes(holdings, prices, target_as_of, price_basis)
         updated = daily_quote_rows
 
@@ -2543,7 +2543,7 @@ def _refresh_category(
         "market_buckets": list(market_buckets),
         "price_basis": price_basis,
         "daily_quote_rows": daily_quote_rows,
-        **({"valuation_projection_only": True} if require_current_close else {}),
+        "valuation_projection_only": True,
         "errors": errors,
     }
 
@@ -2916,8 +2916,11 @@ def refresh_investment_prices(body: InvestmentPriceRefreshRequest | None = None)
     for item in results:
         detail = item.get("detail") or {}
         total_updated += int(detail.get("updated") or 0)
-        total_updated += int(detail.get("inserted_estimate_snapshots") or 0)
-        total_updated += int(detail.get("corrected_confirmed_snapshots") or 0)
+        if "valuation_updates" in detail:
+            total_updated += int(detail["valuation_updates"])
+        else:
+            total_updated += int(detail.get("inserted_estimate_snapshots") or 0)
+            total_updated += int(detail.get("corrected_confirmed_snapshots") or 0)
     return _json(
         {
             "status": "ok" if all(r.get("success") for r in results) else "partial",

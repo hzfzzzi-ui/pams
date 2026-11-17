@@ -956,13 +956,25 @@ def build_section_return_series_payload(
     base_currency: str,
     view_as_of: Date,
     reported_returns_cfg: dict[str, Any],
-    overview_payload: dict[str, Any],
+    overview_payload: dict[str, Any] | Callable[[], dict[str, Any]],
     owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
     account_owner_ratio: Callable[[str], Decimal],
     excluded_holding_accounts: set[str],
     today_label_date: Date | None = None,
+    position_based: bool = False,
 ) -> dict[str, Any]:
     """Return section returns, preferring verified IBKR observations when available."""
+    if section == "a_stock" and position_based and _table_exists(cur, 'source_records'):
+        from domain.investments.position_performance import build_position_return_series
+
+        payload = build_position_return_series(
+            cur, start=start_date, end=view_as_of, interval=interval, base_currency=base_currency,
+            owner_ratio=account_owner_ratio, excluded_accounts=excluded_holding_accounts, position_kind="stock",
+        )
+        payload.update(section=section, label=SECTION_RETURN_CONFIG[section]["label"])
+        return payload
+    if callable(overview_payload):
+        overview_payload = overview_payload()
     if section == 'us_stock' and base_currency.upper() == 'CNY' and 'ibkr' not in excluded_holding_accounts:
         from domain.investments.ibkr_us_returns import build_verified_us_return
         verified = build_verified_us_return(
@@ -1332,15 +1344,25 @@ def build_investment_return_series_payload(
     interval: str,
     base_currency: str,
     view_as_of: Date,
-    overview_payload: dict[str, Any],
+    overview_payload: dict[str, Any] | Callable[[], dict[str, Any]],
     reported_returns_cfg: dict[str, Any],
     owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
     account_owner_ratio: Callable[[str], Decimal],
     account_initial_capital_cny: Callable[[str], Decimal | None],
     excluded_holding_accounts: set[str] | None = None,
     today_label_date: Date | None = None,
+    position_based: bool = False,
 ) -> dict[str, Any]:
-    """Return the legacy total investment return-rate payload."""
+    """Calculate the requested investment return series."""
+    if position_based and _table_exists(cur, 'source_records'):
+        from domain.investments.position_performance import build_position_return_series
+
+        return build_position_return_series(
+            cur, start=start_date, end=view_as_of, interval=interval, base_currency=base_currency,
+            owner_ratio=account_owner_ratio, excluded_accounts=excluded_holding_accounts or set(),
+        )
+    if callable(overview_payload):
+        overview_payload = overview_payload()
     if start_date > view_as_of:
         start_date = view_as_of
 
@@ -1351,6 +1373,7 @@ def build_investment_return_series_payload(
     snapshot_excluded_accounts = sorted(INVESTMENT_RETURN_SNAPSHOT_EXCLUDE)
     verified_income_ids = _source_record_income_ids(cur, view_as_of)
     if verified_income_ids is None:
+        income_amount = 'tx.gross_amount'
         income_known = 'TRUE'
         income_where = """COALESCE(NULLIF(tx.asset_major_category, ''),
             NULLIF(tx.raw_json #>> '{source_row,major_category}', ''), NULLIF(tx.market, ''), tx.trade_type)
@@ -1360,11 +1383,12 @@ def build_investment_return_series_payload(
             AND COALESCE(LOWER(tx.review_status), 'confirmed') NOT IN ('cancelled','canceled','void')"""
         income_value_params, income_where_params = [], [categories]
     else:
-        category_sql = """CASE tx.market WHEN 'CN_A' THEN 'A股' WHEN 'CN_FUND' THEN 'A股'
-            WHEN 'US' THEN '美股' ELSE tx.market END"""
-        income_known = f"(tx.trade_id=ANY(%s::bigint[]) AND COALESCE(({category_sql})=ANY(%s::text[]),false) AND tx.gross_amount IS NOT NULL)"
+        # These canonical investment facts already classify income. Portfolio
+        # aggregation does not need a security market for an account cash event.
+        income_amount = 'tx.net_cash'
+        income_known = '(tx.trade_id=ANY(%s::bigint[]) AND tx.net_cash IS NOT NULL)'
         income_where = "tx.trade_type IN ('dividend','interest','coupon')"
-        income_value_params, income_where_params = [verified_income_ids, categories], []
+        income_value_params, income_where_params = [verified_income_ids], []
 
 
     cur.execute(
@@ -1461,7 +1485,7 @@ def build_investment_return_series_payload(
             SELECT
                 d.date,
                 {income_known} AS income_known,
-                tx.gross_amount * COALESCE(fx_identity.rate, fx_hist.rate) * {tx_owner_sql} AS income_cny
+                {income_amount} * COALESCE(fx_identity.rate, fx_hist.rate) * {tx_owner_sql} AS income_cny
             FROM series_dates d
             JOIN pams_investment_trade_fact tx ON tx.trade_date <= d.date
             LEFT JOIN LATERAL (
@@ -1537,7 +1561,7 @@ def build_investment_return_series_payload(
             "start": start_date.isoformat(), "end": view_as_of.isoformat(),
             "base_currency": base_currency, "interval": interval,
             "method": "coverage_adjusted_daily_return", "status": "unavailable", "reason": "income_evidence_unknown" if unknown_income else "fx_rate_unknown",
-            "coverage_notes": [{"reason": "收益记录缺少来源或市场分类证据。" if unknown_income else "缺少同业务日汇率，不能计算完整收益。"}],
+            "coverage_notes": [{"reason": "收益记录缺少经核验的来源或实收金额。" if unknown_income else "缺少同业务日汇率，不能计算完整收益。"}],
             "rows": [{"date": norm(row['date']), "market_value": norm(row.get('market_value_cny')),
                       **{key: None for key in ("cost", "position_pnl", "realized_income", "total_pnl",
                           "return_rate", "reported_return_adjustment", "daily_return_rate", "time_weighted_return_rate")}}

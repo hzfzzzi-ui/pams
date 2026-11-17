@@ -153,6 +153,31 @@ FUND_NAV_STATUS_JOIN = """
             ) fund_nav_status ON TRUE
 """
 
+def _previous_domestic_price_join(price_as_of, *, canonical):
+    funds = f"""
+        UNION ALL
+        SELECT as_of, MIN(unit_nav) AS close
+        FROM market_observations
+        WHERE h.minor_category='A股基金' AND observation_type='daily' AND market='基金'
+          AND source IN ('tushare_fund_nav','eastmoney_f10') AND currency=h.currency
+          AND (symbol=h.symbol OR asset_id=h.asset_id) AND as_of < {price_as_of}
+          AND unit_nav>0 AND unit_nav::text NOT IN ('NaN','Infinity','-Infinity')
+        GROUP BY as_of HAVING COUNT(DISTINCT unit_nav)=1
+    """ if canonical else ""
+    return f"""
+        LEFT JOIN LATERAL (
+            SELECT price.close FROM (
+                SELECT o.trade_date AS as_of, o.close FROM pams_ohlcv_daily o
+                WHERE h.major_category='A股' AND o.market='CN_A'
+                  AND o.symbol=(CASE WHEN LEFT(h.symbol,1)='6' THEN 'sh' ELSE 'sz' END) || h.symbol
+                  AND o.trade_date < {price_as_of}
+                {funds}
+            ) price
+            ORDER BY price.as_of DESC LIMIT 1
+        ) prev_px ON TRUE
+    """
+
+
 MARKET_DAILY_STATUS_JOIN = """
             LEFT JOIN LATERAL (
                 SELECT
@@ -752,14 +777,17 @@ def build_holdings_by_category_payload(
     daily_pnl_start_as_of: Any | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /holdings/by-category/{category} payload."""
-    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('market_observations') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
+    cur.execute("""SELECT MAX(as_of) AS as_of, to_regclass('market_observations') IS NOT NULL AS quote_available,
+                        to_regclass('source_records') IS NOT NULL AS source_schema FROM pams_holdings_snapshot""")
     row = cur.fetchone()
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
 
-    quote_overlay = quote_valuation_cte(bool(row.get("quote_available")))
+    quote_overlay = quote_valuation_cte(bool(row.get("quote_available")), position_prices=bool(row and row.get("source_schema")))
     price_as_of = quote_price_as_of(bool(row.get("quote_available")))
+    fund_status_join = FUND_NAV_STATUS_JOIN.replace('e.as_of = h.as_of', f'e.as_of = {price_as_of}')
+    previous_domestic = _previous_domestic_price_join(price_as_of, canonical=bool(row and row.get("source_schema")))
     ibkr_history_available = False
     ibkr_price_history = _ibkr_price_history_relation()
     if category == "其他":
@@ -838,7 +866,7 @@ def build_holdings_by_category_payload(
             LEFT JOIN LATERAL (SELECT available.rate, available.as_of FROM fx available
                 WHERE available.quote_currency=h.currency AND available.as_of <= {price_as_of}::date
                 ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
-            {FUND_NAV_STATUS_JOIN}
+            {fund_status_join}
             {MARKET_DAILY_STATUS_JOIN}
             LEFT JOIN LATERAL (
                 SELECT hs.current_price, hs.as_of
@@ -975,7 +1003,7 @@ def build_holdings_by_category_payload(
             LEFT JOIN LATERAL (SELECT available.rate, available.as_of FROM fx available
                 WHERE available.quote_currency=h.currency AND available.as_of <= {price_as_of}::date
                 ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
-            {FUND_NAV_STATUS_JOIN}
+            {fund_status_join}
             {MARKET_DAILY_STATUS_JOIN}
             LEFT JOIN LATERAL (
                 SELECT hs.current_price, hs.as_of
@@ -1015,26 +1043,14 @@ def build_holdings_by_category_payload(
                 ORDER BY ph.as_of DESC
                 LIMIT 1
             ) prev_ibkr_snap ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT close
-                FROM pams_ohlcv_daily o
-                WHERE h.major_category = 'A股'
-                  AND o.market = 'CN_A'
-                  AND o.symbol = CASE
-                      WHEN LEFT(h.symbol, 1) = '6' THEN 'sh' || h.symbol
-                      ELSE 'sz' || h.symbol
-                  END
-                  AND o.trade_date < h.as_of
-                ORDER BY o.trade_date DESC
-                LIMIT 1
-            ) prev_px ON TRUE
+            {previous_domestic}
             LEFT JOIN LATERAL (
                 SELECT o.trade_date, o.close
                 FROM pams_ohlcv_daily o
                 WHERE h.major_category = '美股'
                   AND o.market = 'YF'
                   AND o.symbol = h.symbol
-                  AND o.trade_date <= h.as_of
+                  AND o.trade_date <= {price_as_of}
                 ORDER BY o.trade_date DESC
                 LIMIT 1
             ) curr_overseas_px ON TRUE
@@ -1535,10 +1551,13 @@ def build_holdings_latest_payload(
     daily_pnl_start_as_of: Any | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /holdings/latest payload for the investments page."""
-    cur.execute("SELECT MAX(as_of) AS as_of, to_regclass('market_observations') IS NOT NULL AS quote_available FROM pams_holdings_snapshot")
+    cur.execute("""SELECT MAX(as_of) AS as_of, to_regclass('market_observations') IS NOT NULL AS quote_available,
+                        to_regclass('source_records') IS NOT NULL AS source_schema FROM pams_holdings_snapshot""")
     row = cur.fetchone()
-    quote_overlay = quote_valuation_cte(bool(row and row.get("quote_available")))
+    quote_overlay = quote_valuation_cte(bool(row and row.get("quote_available")), position_prices=bool(row and row.get("source_schema")))
     price_as_of = quote_price_as_of(bool(row and row.get("quote_available")))
+    fund_status_join = FUND_NAV_STATUS_JOIN.replace('e.as_of = h.as_of', f'e.as_of = {price_as_of}')
+    previous_domestic = _previous_domestic_price_join(price_as_of, canonical=bool(row and row.get("source_schema")))
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
@@ -1647,7 +1666,7 @@ def build_holdings_latest_payload(
         LEFT JOIN LATERAL (SELECT available.rate, available.as_of FROM fx available
                 WHERE available.quote_currency=h.currency AND available.as_of <= {price_as_of}::date
                 ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
-        {FUND_NAV_STATUS_JOIN}
+        {fund_status_join}
         {MARKET_DAILY_STATUS_JOIN}
         LEFT JOIN LATERAL (
             SELECT hs.current_price, hs.as_of
@@ -1687,26 +1706,14 @@ def build_holdings_latest_payload(
             ORDER BY ph.as_of DESC
             LIMIT 1
         ) prev_ibkr_snap ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT close
-            FROM pams_ohlcv_daily o
-            WHERE h.major_category = 'A股'
-              AND o.market = 'CN_A'
-              AND o.symbol = CASE
-                  WHEN LEFT(h.symbol, 1) = '6' THEN 'sh' || h.symbol
-                  ELSE 'sz' || h.symbol
-              END
-              AND o.trade_date < h.as_of
-            ORDER BY o.trade_date DESC
-            LIMIT 1
-        ) prev_px ON TRUE
+        {previous_domestic}
         LEFT JOIN LATERAL (
             SELECT o.trade_date, o.close
             FROM pams_ohlcv_daily o
             WHERE h.major_category = '美股'
               AND o.market = 'YF'
               AND o.symbol = h.symbol
-              AND o.trade_date <= h.as_of
+              AND o.trade_date <= {price_as_of}
             ORDER BY o.trade_date DESC
             LIMIT 1
         ) curr_overseas_px ON TRUE

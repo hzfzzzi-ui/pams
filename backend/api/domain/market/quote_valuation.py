@@ -48,10 +48,39 @@ def quote_price_as_of(enabled: bool) -> str:
                LEFT JOIN quote_marks q ON q.id = s.id WHERE s.id = h.id)"""
 
 
-def quote_valuation_cte(enabled: bool) -> str:
+def quote_valuation_cte(enabled: bool, *, position_prices: bool = False) -> str:
     """Consume source_holdings plus the existing bounded account snapshot CTE."""
     if not enabled:
         return "h AS (SELECT * FROM source_holdings)"
+    domestic = """
+        UNION ALL
+        SELECT s.id, q.price, q.as_of, q.updated_at, q.source
+        FROM source_holdings s
+        JOIN LATERAL (
+            SELECT as_of, updated_at, source,
+                   CASE WHEN s.minor_category='A股基金' THEN
+                        COALESCE(estimated_unit_nav, confirmed_unit_nav, unit_nav) ELSE price END AS price
+            FROM market_observations
+            WHERE s.major_category='A股' AND s.asset_liability='资产' AND s.quantity>0
+              AND as_of BETWEEN s.as_of AND (SELECT as_of FROM snapshot_view_cutoff)
+              AND currency=s.currency
+              AND (symbol=s.symbol OR asset_id=s.asset_id)
+              AND (
+                (s.minor_category='A股基金' AND (
+                    (observation_type='fund' AND account_code=s.account_code
+                     AND status IN ('estimated','confirmed','confirmed_corrected')
+                     AND COALESCE(estimated_unit_nav,confirmed_unit_nav)>0)
+                    OR (observation_type='daily' AND market='基金'
+                        AND source IN ('tushare_fund_nav','eastmoney_f10') AND unit_nav>0)))
+                OR (s.minor_category='A股' AND observation_type='quote'
+                    AND market='CN_A' AND quote_session='close' AND return_status='confirmed' AND price>0)
+              )
+            ORDER BY as_of DESC, (estimated_unit_nav IS NULL) DESC, updated_at DESC, quote_id DESC LIMIT 1
+        ) q ON TRUE
+    """ if position_prices else ""
+    holding_date = "s.as_of" if position_prices else """
+        CASE WHEN {gold} THEN s.as_of ELSE GREATEST(s.as_of, d.as_of) END
+    """.format(gold=uses_gold_close("s"))
     return f"""
     quote_marks AS (
         SELECT s.id, q.price, q.quote_date, q.updated_at, NULL::text AS valuation_price_source
@@ -89,6 +118,7 @@ def quote_valuation_cte(enabled: bool) -> str:
         FROM source_holdings s
         {gold_close_join("s", "(SELECT as_of FROM snapshot_view_cutoff)")}
         WHERE gold_close.quote_date IS NOT NULL
+        {domestic}
     ), quote_account_dates AS (
         SELECT s.account_code, MAX(q.quote_date) AS as_of
         FROM source_holdings s JOIN quote_marks q ON q.id = s.id
@@ -98,8 +128,7 @@ def quote_valuation_cte(enabled: bool) -> str:
                CASE WHEN {uses_gold_close("s")} THEN {gold_market_value("s", "q")}
                     WHEN q.price IS NOT NULL THEN ROUND(s.quantity * q.price, 2)
                     ELSE s.market_value END AS marked_value,
-               CASE WHEN {uses_gold_close("s")} THEN s.as_of
-                    ELSE GREATEST(s.as_of, d.as_of) END AS valuation_as_of,
+               {holding_date} AS valuation_as_of,
                COALESCE(q.updated_at, s.updated_at) AS mark_updated_at
         FROM source_holdings s LEFT JOIN quote_marks q ON q.id = s.id
         LEFT JOIN quote_account_dates d ON d.account_code = s.account_code

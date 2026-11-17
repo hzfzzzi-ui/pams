@@ -43,6 +43,11 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     }
   }
 
+  function formatReturnMetric(value, formatter) {
+    if (value == null || value === '' || !Number.isFinite(Number(value))) return '—';
+    return formatter(Number(value));
+  }
+
   function renderInvestmentReturnChart({ resp, sectionResponses, sectionSpecs, loadSection }) {
     if (disposed) return null;
     const el = getElementById('investmentReturnChart');
@@ -167,9 +172,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                 const row = visibleRows.find(item => item.date === date) || {};
                 return [
                   `区间总收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
-                  `单日收益率：${safeNum(row.daily_return_rate) * 100 >= 0 ? '+' : ''}${(safeNum(row.daily_return_rate) * 100).toFixed(2)}%`,
-                  `累计投资收益：¥${fmt2(chartState.pnlMap.get(date) || 0)}`,
-                  `投资市值：¥${fmt2(chartState.valueMap.get(date) || 0)}`,
+                  `单日收益率：${formatReturnMetric(row.daily_return_rate, fmtSignedPctFromRate)}`,
+                  `累计投资收益：${formatReturnMetric(row.total_pnl, amount => `¥${fmt2(amount)}`)}`,
+                  `投资市值：${formatReturnMetric(row.market_value, amount => `¥${fmt2(amount)}`)}`,
                 ];
               },
             },
@@ -689,10 +694,6 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         dataset.pointHitRadius = context => sectionData.bridgeIndices.has(context.dataIndex) ? 0 : 4;
       }
     });
-    if (state.totalCoverage && !chart.data.datasets.some(row => row.returnSeriesKey !== 'events' && !row.hidden)) {
-      const source = chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock');
-      if (source) source.hidden = false;
-    }
     showAvailableReturnSeries(chart.data.datasets);
     renderInvestmentReturnToggle(chart, state.sectionSpecs, state);
     chart.update('none');
@@ -735,9 +736,15 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       status.hidden = !message;
       status.textContent = message;
     };
-    const totalStatus = () => state?.totalCoverage && chart.data.datasets.some(row => row.returnSeriesKey === 'total' && !row.hidden)
-      ? `部分覆盖：${state.totalCoverage}，按累计盈亏 / 净投入计算` : '';
-    showStatus(totalStatus());
+    const totalUnavailable = chart.data.datasets.find(row => row.returnSeriesKey === 'total')
+      ?.data.every(value => value == null);
+    const totalUnavailableMessage = {
+      income_evidence_unknown: '组合总收益率待核验，部分收益缺少有效来源或实收金额。',
+      account_cash_coverage_unverified: '组合总收益率待核验，部分证券账户的历史现金和出入金覆盖尚未核验。',
+    }[state?.totalReturnReason] ?? '组合总收益率在此区间暂无可用数据。';
+    const positionScopeStatus = state?.totalReturnScope === 'investment_positions'
+      ? '投资持仓收益 · 按可估值及可比较的标的计算' : '';
+    showStatus(totalUnavailable ? totalUnavailableMessage : positionScopeStatus);
     el.setAttribute('aria-multiselectable', 'true');
     const options = [
       { key: 'total', label: '总收益率', datasetLabel: '总收益率', color: CHART_THEME.line },
@@ -777,20 +784,19 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const closed = state?.activeWindow === 'ytd' && state.sectionClosedTradeReturns?.get(selected.key);
       const closedStatus = closed?.base_currency === 'CNY' && closed.amount != null
         ? `${selected.label}年内已核对清仓 ${fmtSignedCny(Number(closed.amount))}` : '';
-      if (mode === 'total' && !dataset?.data.some(value => value != null) && state?.loadSection && !state.loadedSections.has('a_stock')) {
-        showStatus('正在加载可用收益…');
-        if (!await state.loadSection('a_stock') || disposed || chart !== returnChart) return;
-        if (!dataset.hidden) return;
-      }
       if (!dataset?.data.some(value => value != null)) {
         const reason = state?.sectionReasons?.get(selected.key);
         if (closedStatus) {
           showStatus(`${closedStatus} · 完整收益率待核验`);
           return;
         }
-        showStatus(reason === 'ibkr_position_history_unavailable'
-          ? '美股缺少 IBKR 历史持仓，暂无法绘制收益曲线。'
-          : `${selected.label}在此区间暂无可用收益率。`);
+        if (mode === 'total') {
+          showStatus(totalUnavailableMessage);
+        } else {
+          showStatus(reason === 'ibkr_position_history_unavailable'
+            ? '美股缺少 IBKR 历史持仓，暂无法绘制收益曲线。'
+            : `${selected.label}在此区间暂无可用收益率。`);
+        }
         return;
       }
       const estimate = state?.sectionEstimates.get(selected.key);
@@ -806,11 +812,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;
-      if (state?.totalCoverage && mode === 'total' && !dataset.hidden) {
-        const source = chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock');
-        if (source) source.hidden = true;
-      }
-      if (mode === 'total') showStatus(totalStatus());
+      if (mode === 'total' && !dataset.hidden) showStatus(positionScopeStatus);
       syncButtons();
       chart.update('none');
       if (state) renderReturnEventHotspots(chart, state);

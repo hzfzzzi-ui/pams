@@ -120,7 +120,7 @@ export function createInvestmentChartController({ root = document, host = window
         contributionObserver = observer;
         observer.observe(contribution);
       }
-      // Preserve the established first available A-share curve for partial totals.
+      // Load the default section if the portfolio series is unavailable.
       if (!(resp.rows || []).some(row => returnRateForChart(row) != null)) {
         await loadSection('a_stock');
       }
