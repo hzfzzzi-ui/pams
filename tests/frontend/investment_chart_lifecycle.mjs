@@ -160,13 +160,17 @@ for (const fallback of [false, true]) {
   const series = key => returnChart.data.datasets.find(dataset => dataset.returnSeriesKey === key);
   assert.equal(series('a_stock').borderColor, '#ff6269');
   assert.equal(series('us_stock').borderColor, '#69aaff');
-  assert.notDeepEqual(series('a_stock').borderDash, series('us_stock').borderDash);
+  assert.equal(series('precious_metal').borderColor, '#f4c34f');
+  for (const key of ['a_stock', 'a_fund', 'us_stock', 'precious_metal']) {
+    assert.deepEqual(plain(series(key).borderDash), []);
+  }
   const buttons = [...test.elements.investmentReturnToggle.buttons, ...test.elements.investmentReturnWindowToggle.buttons];
   assert.equal(buttons.length, 8);
   assert.ok(buttons.every(button => button.count('click') === 1));
   const week = test.elements.investmentReturnWindowToggle.buttons.find(button => button.dataset.returnWindow === '1w');
   week.fire('click');
   assert.equal(controller.state.activeWindow, '1w');
+  assert.ok(returnChart.data.datasets.every(dataset => dataset.data.length === returnChart.data.labels.length));
   const chartBefore = plain(returnChart.data);
   test.window.fire('pagehide', { persisted: true });
   assert.equal(controller.disposed, false);
@@ -212,9 +216,11 @@ for (const fallback of [false, true]) {
   const chart = test.window.__investmentReturnChart;
   assert.equal(chart.options.scales.x.min, undefined);
   button('total').fire('click');
-  assert.equal(chart.options.scales.x.min, '2026-11-02');
-  assert.equal(chart.options.scales.x.max, '2026-11-04');
-  assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_fund').data[2], null);
+  assert.equal(chart.options.scales.x.min, undefined);
+  assert.equal(chart.options.scales.x.max, undefined);
+  assert.equal(chart.data.labels[0], '2026-01-01');
+  const missingDate = chart.data.labels.indexOf('2026-11-03');
+  assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_fund').data[missingDate], null);
   assert.match(test.elements.investmentReturnSeriesStatus.textContent, /2026-11-02 至 2026-11-04/);
   button('total').fire('click');
   assert.equal(chart.options.scales.x.min, undefined);
@@ -316,7 +322,7 @@ for (const oldFirst of [false, true]) {
   const chart = test.window.__investmentReturnChart;
   test.resolve(oldReturnRequests); assert.equal(await older, null);
   assert.equal(test.window.__investmentReturnChart, chart);
-  assert.deepEqual(plain(chart.data.labels), ['2026-10-30']);
+  assert.deepEqual(plain(chart.data.labels), ['2026-01-01', '2026-10-30']);
   controller.dispose();
 }
 

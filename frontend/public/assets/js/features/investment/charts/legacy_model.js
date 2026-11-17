@@ -40,8 +40,7 @@ function returnWindowStartDate(rows, windowKey) {
   return start;
 }
 
-function filterReturnWindowRows(rows, windowKey) {
-  const start = returnWindowStartDate(rows, windowKey);
+function filterReturnWindowRows(rows, windowKey, start = returnWindowStartDate(rows, windowKey)) {
   if (!start) return rows || [];
   return (rows || []).filter(row => {
     const date = parseReturnSeriesDate(row.date);
@@ -142,13 +141,27 @@ function pointRadiusForReturnSeries(pointCount, isMobile) {
 }
 
 function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, windowKey, isMobile,
-  events = [], sectionEstimates = new Map(), sectionGapDates = new Map(), partialTotal = null) {
-  const windowRows = filterReturnWindowRows(rows, windowKey);
+  events = [], sectionEstimates = new Map(), sectionGapDates = new Map(), partialTotal = null,
+  sectionZeroBefore = new Map()) {
   const dateRows = [...rows, ...sectionSpecs.flatMap(spec => sectionEstimates.get(spec.key)?.rows || sectionRowsByKey.get(spec.key) || [])];
   for (const gaps of sectionGapDates.values()) {
     if (gaps) dateRows.push(...Object.keys(gaps).map(date => ({ date })));
   }
-  const labels = [...new Set(filterReturnWindowRows(dateRows, windowKey).map(row => row.date))].sort();
+  const start = returnWindowStartDate(dateRows, windowKey);
+  const windowRows = filterReturnWindowRows(rows, windowKey, start);
+  const dates = new Set(filterReturnWindowRows(dateRows, windowKey, start).map(row => row.date));
+  if (start) {
+    const lastZeroEnd = [...sectionZeroBefore.values()].filter(Boolean).sort().at(-1);
+    const day = new Date(start);
+    let date = day.toISOString().slice(0, 10);
+    dates.add(date);
+    while (lastZeroEnd && date < lastZeroEnd) {
+      dates.add(date);
+      day.setUTCDate(day.getUTCDate() + 1);
+      date = day.toISOString().slice(0, 10);
+    }
+  }
+  const labels = [...dates].sort();
   const totalByDate = new Map(windowRows.map(row => [row.date, row]));
   const totalBaseRate = windowRows.map(returnRateForChart).find(value => value !== null) ?? null;
   const completeData = labels.map(date => {
@@ -178,8 +191,15 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
     const loneHoldingReturn = usable.length === 1
       && usable[0].return_rate_basis === 'current_holding_pnl_over_cost';
     let sectionBaseRate = null;
+    const zeroBefore = sectionZeroBefore.get(spec.key);
     const sectionData = labels.map(date => {
-      if (!rateByDate.has(date)) return null;
+      if (!rateByDate.has(date)) {
+        if (zeroBefore && date < zeroBefore) {
+          sectionBaseRate = 0;
+          return 0;
+        }
+        return null;
+      }
       const rate = rateByDate.get(date);
       if (rate === null || !Number.isFinite(rate)) return null;
       if (estimate) return rate * 100;

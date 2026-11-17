@@ -1010,6 +1010,7 @@ def build_section_return_series_payload(
     available_returns = {}
     preview_source_through = None
     missing_valuation_base = False
+    opening_flow = None
 
     if section == "a_stock":
         values = tonghuashun_series(
@@ -1099,7 +1100,6 @@ def build_section_return_series_payload(
             owner_ratio_case_sql=owner_ratio_case_sql,
             excluded_holding_accounts=excluded_holding_accounts,
         )
-        opening_flow = None
         if gold_history_enabled:
             opening_flow = _restore_single_purchase_gold_history(
                 cur, dates=dates, values=values, ownership_ratio=account_owner_ratio,
@@ -1245,6 +1245,9 @@ def build_section_return_series_payload(
             for r in rows
         ],
     }
+    if opening_flow is not None and requested_start < opening_flow[0] == rows[0]["date"]:
+        # Only a verified opening purchase proves the earlier dates are uninvested.
+        payload["chart_zero_before"] = norm(opening_flow[0])
     if today_label_date is not None:
         if section == "a_stock":
             payload["today_window"] = _a_stock_holdings_today_window_payload(

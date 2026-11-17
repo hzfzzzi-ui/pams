@@ -267,4 +267,10 @@ def build_fund_return_history(cur, *, start, end, interval, owner_ratio, exclude
             "label": "基金历史估值（部分）", "method": METHOD, "rows": rows,
             "source_from": norm(anchor), "source_through": usable[-1]["date"], "instrument_count": included,
         }
+        if interval == "daily" and anchor and anchor < start and rows[0] == usable[0]:
+            first_day = date.fromisoformat(rows[0]["date"])
+            calendar = exchange_calendars.get_calendar("XSHG")
+            if start < first_day and calendar.next_session(anchor.isoformat()).date() == first_day:
+                # Carry the verified opening return across the exchange holiday.
+                payload["estimated_series"]["chart_zero_before"] = rows[0]["date"]
     return payload

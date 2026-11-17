@@ -12,13 +12,13 @@ from tests.database.test_isolated_source_bootstrap import empty_source_db  # noq
 from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 
 
-def test_fund_curve_reads_verified_cn_market_trades_and_explicit_nav_archive(empty_source_db, monkeypatch):
+def test_fund_curve_reads_verified_cn_market_trades_and_explicit_nav_archive(empty_source_db, monkeypatch):  # noqa: F811
     import main
     from domain.imports import source_records_v2 as source
     from domain.market import fund_nav_archive as archive
     from domain.market.fund_nav_estimates import ConfirmedNav
 
-    opened, priced, exited = [date(2026, 11, number) for number in (9, 10, 11)]
+    opened, priced, exited = date(2025, 12, 31), date(2026, 1, 5), date(2026, 1, 6)
     account, symbol, asset_id = "tencent_licaitong", "123456", "synthetic_fund"
     source_id = uuid4()
     with psycopg2.connect(**empty_source_db) as conn:
@@ -71,6 +71,12 @@ def test_fund_curve_reads_verified_cn_market_trades_and_explicit_nav_archive(emp
         response = web.get("/investment/section-return-series", params={"section": "a_fund", "start": str(opened)})
         assert response.status_code == 200, response.text
         payload = response.json()
+        assert "chart_zero_before" not in payload["estimated_series"]
+        ytd = web.get("/investment/section-return-series", params={"section": "a_fund", "start": "2026-01-01"})
+        assert ytd.status_code == 200, ytd.text
+        estimate = ytd.json()["estimated_series"]
+        assert estimate["chart_zero_before"] == str(priced)
+        assert Decimal(estimate["rows"][0]["display_return_rate"]) == Decimal("0.2")
     assert payload["method"] == "fund_verified_trade_nav_replay"
     assert payload["summary"]["total_return_rate"] is None
     assert payload["history_issues"] == []
