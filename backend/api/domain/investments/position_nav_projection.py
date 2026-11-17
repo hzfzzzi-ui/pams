@@ -124,10 +124,11 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             amounts[day, code].append((row["amount"] * rate, source_day))
 
     for code, cfg in accounts.items():
-        for day in dates:
-            if (day, code) in observed:
-                continue
-            owner_ratio = account_owner_ratio(code)
+        missing_days = [day for day in dates if (day, code) not in observed]
+        if not missing_days:
+            continue
+        owner_ratio = account_owner_ratio(code)
+        for day in missing_days:
             reference = historical_account_balance(cfg, day, owner_ratio)
             if not reference and position_reference_config(cfg) and (cfg.get("manual_balance") or {}).get("source"):
                 reference = historical_position_reference(cfg, day, owner_ratio)
