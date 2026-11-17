@@ -30,8 +30,8 @@ _RETURN_INPUT_TABLES = (
 )
 
 
-def return_snapshot_revision(cur, *, settings: dict[str, Any]) -> str:
-    """Fingerprint the input rows visible in the same transaction as the curve."""
+def return_input_revisions(cur) -> list[tuple]:
+    """Read the input fingerprints shared by curves in one transaction."""
     cur.execute("""SELECT name FROM unnest(%s::text[]) AS inputs(name)
         JOIN pg_class ON pg_class.oid=to_regclass('public.' || name)
         WHERE relkind IN ('r','p','m')""",
@@ -49,6 +49,13 @@ def return_snapshot_revision(cur, *, settings: dict[str, Any]) -> str:
             FROM public.{table}{scope}""")
         row = cur.fetchone()
         revisions.append((table, row['row_count'], row['revision']))
+    return revisions
+
+
+def return_snapshot_revision(cur, *, settings: dict[str, Any], revisions=None) -> str:
+    """Fingerprint the input rows and settings visible to a return curve."""
+    if revisions is None:
+        revisions = return_input_revisions(cur)
     encoded = json.dumps([settings, revisions], sort_keys=True, default=str).encode()
     return hashlib.sha256(encoded).hexdigest()
 

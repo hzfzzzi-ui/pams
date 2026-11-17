@@ -266,8 +266,7 @@ function setupAnalysisHeavyLoaders() {
   const toggle = document.getElementById('investmentReturnToggle');
   if (chartWrap) chartWrap.hidden = false;
   if (toggle) toggle.hidden = false;
-  loadInvestmentNavChartOnce().catch(() => null);
-  afterInvestmentNav(() => loadInvestmentReturnChartOnce()).catch(() => null);
+  loadInvestmentReturnChartOnce().catch(() => null);
   afterInvestmentNav(() => queueVisibleCategoryReturnChart(900)).catch(() => null);
 }
 
@@ -337,6 +336,11 @@ function promoteHoldingsTable() {
       }), 'holdings'));
       if (!scope.active) return;
       applyLegacySummaryPayload(payloads, {document, Chart, showClosedPositions, view});
+      const projectionStatus = document.getElementById('holdingProjectionStatus');
+      if (projectionStatus) {
+        projectionStatus.hidden = !payloads.at(-1)?.stale;
+        projectionStatus.textContent = projectionStatus.hidden ? '' : '正在更新 · 显示上一批持仓数据';
+      }
       if (isInvestmentAnalysisHash(window.location.hash)) scope.timeout(() => setupAnalysisHeavyLoaders(), 500);
     } catch (error) {
       if (!scope.active) return;

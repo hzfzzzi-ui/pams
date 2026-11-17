@@ -15,6 +15,11 @@ export function readInvestmentNav({signal} = {}) {
     .catch(error => readFallback(error, { rows: [] }));
 }
 
+export function readInvestmentAnalysisView({signal} = {}) {
+  return jget('/api/investment/analysis-view', {signal, cache: false})
+    .catch(error => readFallback(error, null));
+}
+
 export function readInvestmentReturnSeries({signal, section} = {}) {
   return jget(section?.url || '/investment/return-series?start=2026-01-01&interval=daily&baseCurrency=CNY', {signal})
     .catch(error => readFallback(error, { rows: [] }));

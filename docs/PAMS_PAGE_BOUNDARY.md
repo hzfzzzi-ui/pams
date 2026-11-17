@@ -30,6 +30,7 @@
 | `GET /api/portfolio/valuation-state` | 查询当前已发布估值状态 |
 | `POST /api/portfolio/valuation-state/publish` | 发布或重算组合估值状态 |
 | `GET /api/investment/holdings-view` | 同一只读快照下的持仓明细和账户卡片，卡片按字段返回值、业务日、证据口径与状态 |
+| `GET /api/investment/analysis-view` | 同一发布版本的 NAV、总收益和四条分类收益曲线，可同时读取 |
 | `GET /holdings/latest` | 查询最新持仓快照 |
 | `GET /holdings/by-category/{category}` | 按分类查询持仓 |
 | `GET /investment/return-series` | 查询组合收益曲线 |
