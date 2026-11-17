@@ -956,13 +956,25 @@ def build_section_return_series_payload(
     base_currency: str,
     view_as_of: Date,
     reported_returns_cfg: dict[str, Any],
-    overview_payload: dict[str, Any],
+    overview_payload: dict[str, Any] | Callable[[], dict[str, Any]],
     owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
     account_owner_ratio: Callable[[str], Decimal],
     excluded_holding_accounts: set[str],
     today_label_date: Date | None = None,
+    position_based: bool = False,
 ) -> dict[str, Any]:
     """Return section returns, preferring verified IBKR observations when available."""
+    if section == "a_stock" and position_based and _table_exists(cur, 'source_records'):
+        from domain.investments.position_performance import build_position_return_series
+
+        payload = build_position_return_series(
+            cur, start=start_date, end=view_as_of, interval=interval, base_currency=base_currency,
+            owner_ratio=account_owner_ratio, excluded_accounts=excluded_holding_accounts, position_kind="stock",
+        )
+        payload.update(section=section, label=SECTION_RETURN_CONFIG[section]["label"])
+        return payload
+    if callable(overview_payload):
+        overview_payload = overview_payload()
     if section == 'us_stock' and base_currency.upper() == 'CNY' and 'ibkr' not in excluded_holding_accounts:
         from domain.investments.ibkr_us_returns import build_verified_us_return
         verified = build_verified_us_return(

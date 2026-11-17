@@ -250,13 +250,16 @@ def _position_days(dates, anchors, events, kind):
         yield day, quantity, confirmed_on, reference, flow
 
 
-def build_position_return_series(cur, *, start, end, interval, base_currency, owner_ratio, excluded_accounts):
+def build_position_return_series(cur, *, start, end, interval, base_currency, owner_ratio, excluded_accounts,
+                                 position_kind=None):
     """Compute a securities return from holdings and marks, with trade flows only."""
     start = min(start, end)
     dates = series_dates(start, end, 'daily')
     date_set = set(dates)
     positions, kinds, asset_keys = _load_positions(cur, end, excluded_accounts)
     events = _load_events(cur, end, excluded_accounts, asset_keys, kinds)
+    if position_kind is not None:
+        kinds = {key: kind for key, kind in kinds.items() if kind == position_kind}
     marks = _load_prices(cur, kinds, end)
     fx = load_fx_timelines(cur, base_currency)
     base = base_currency.upper()

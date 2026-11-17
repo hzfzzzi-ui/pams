@@ -73,7 +73,7 @@ def create_compatibility_router(
     def _return_revision(cur, *, start_date, interval, view_as_of, today_label_date, reported_returns_cfg, section=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
-            "version": {None: 3, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
+            "version": {None: 3, "a_stock": 2, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
             "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
             "today_label_date": today_label_date,
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
@@ -348,6 +348,8 @@ def create_compatibility_router(
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 view_as_of = _investment_return_view_as_of(cur)
                 today_label_date = _investment_today_label_date()
+                if section == "a_stock":
+                    view_as_of = latest_position_valuation_date(cur, holding_date=view_as_of, through=today_label_date)
                 reported_returns_cfg = _reported_returns_cfg()
                 snapshot_payload = _build_section_return_series_payload_from_snapshot(
                     cur,
@@ -373,13 +375,14 @@ def create_compatibility_router(
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
                         reported_returns_cfg=reported_returns_cfg,
-                        overview_payload=accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
+                        overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
+                        position_based=section == "a_stock",
                     )
-                    if payload.get("method") != FUND_HISTORY_METHOD:
+                    if payload.get("method") not in {FUND_HISTORY_METHOD, POSITION_RETURN_METHOD}:
                         payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                 if section == 'us_stock' and payload.get('fx_source') == OPEN_EXCHANGE_RATES_SOURCE and (
                     payload.get('status') == 'available'
@@ -414,9 +417,10 @@ def create_compatibility_router(
             with get_conn() as conn:
                 conn.set_session(isolation_level='REPEATABLE READ')
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    overview_payload = accounts_endpoint._overview_payload(cur=cur, include_transfers=False)
                     view_as_of = _investment_return_view_as_of(cur)
                     today_label_date = _investment_today_label_date()
+                    if section == "a_stock":
+                        view_as_of = latest_position_valuation_date(cur, holding_date=view_as_of, through=today_label_date)
                     reported_returns_cfg = _reported_returns_cfg()
                     revision_args = dict(start_date=start_date, interval=interval, view_as_of=view_as_of,
                                          today_label_date=today_label_date, reported_returns_cfg=reported_returns_cfg,
@@ -430,13 +434,14 @@ def create_compatibility_router(
                         base_currency=baseCurrency,
                         view_as_of=view_as_of,
                         reported_returns_cfg=reported_returns_cfg,
-                        overview_payload=overview_payload,
+                        overview_payload=lambda: accounts_endpoint._overview_payload(cur=cur, include_transfers=False),
                         owner_ratio_case_sql=_owner_ratio_case_sql,
                         account_owner_ratio=_account_owner_ratio,
                         excluded_holding_accounts=_excluded_holding_accounts(),
                         today_label_date=today_label_date,
+                        position_based=section == "a_stock",
                     )
-                    if payload.get("method") != FUND_HISTORY_METHOD:
+                    if payload.get("method") not in {FUND_HISTORY_METHOD, POSITION_RETURN_METHOD}:
                         payload = _apply_section_holdings_pnl_overlay(cur, section=section, payload=payload)
                     if expected_through and (
                         payload.get("fx_source") != OPEN_EXCHANGE_RATES_SOURCE

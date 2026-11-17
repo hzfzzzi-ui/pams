@@ -390,3 +390,6 @@ def test_price_refresh_updates_position_return_without_touching_holdings(empty_s
         assert Decimal(row['return_rate']) == Decimal('0.20')
         assert row['holding_as_of'] == opening.isoformat()
         assert row['market_price_as_of'] == today.isoformat()
+        section = web.get(f'/investment/section-return-series?section=a_stock&start={opening}')
+        assert section.status_code == 200, section.text
+        assert section.json()['rows'][-1] == row
