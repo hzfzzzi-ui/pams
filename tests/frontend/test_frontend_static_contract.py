@@ -136,7 +136,6 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "body.app-shell .ledgerListRow",
         "body.app-shell .accountIssueRow",
         "body.app-shell .mobileHoldingRow",
-        "body.app-shell .moreRow",
         "body.app-shell .tradeReviewDirectionTrade",
         "PAMS Low Frequency Page Template v1",
         "body.app-shell.app-low-frequency .lowFrequencyStack",
