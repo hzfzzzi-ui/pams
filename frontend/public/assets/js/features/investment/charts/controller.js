@@ -46,7 +46,6 @@ export function createInvestmentChartController({ root = document, host = window
           renderer.setChartClass(chartClass);
           state.navRows = normalizeInvestmentNavRows(response.rows || []);
           state.navChart = renderer.renderNav(state.navRows, state.activeWindow, state.isMobile);
-          if (!renderer.returnChart) renderer.renderWindowToggle(null, state);
           publishCharts();
           return state.navChart;
         })
@@ -171,6 +170,7 @@ export function createInvestmentChartController({ root = document, host = window
     },
   };
   owners.set(root, controller);
+  renderer.renderWindowToggles();
   host.addEventListener?.('pagehide', onPageHide);
   return controller;
 }

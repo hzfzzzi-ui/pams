@@ -150,7 +150,10 @@
             </div>
           </section>
           <section class="investmentAnalysisCard returnNavPanel" aria-labelledby="investmentNavHeading">
-            <h3 id="investmentNavHeading">NAV变化</h3>
+            <div class="returnChartHeader">
+              <h3 id="investmentNavHeading">NAV变化</h3>
+              <div id="investmentNavWindowToggle" class="returnWindowSegment" aria-label="NAV时间范围切换"></div>
+            </div>
             <div id="investmentNavStats" class="returnNavStats" aria-label="NAV变化摘要"></div>
             <div class="chartWrapSm returnNavChartWrap">
               <canvas id="investmentNavChart"></canvas>
