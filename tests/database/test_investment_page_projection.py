@@ -23,13 +23,17 @@ def test_projection_does_not_consume_a_concurrent_change(empty_source_db):
         assert page_projection.read_page(cur, "holdings", business_date=today) is None
 
         def build(snapshot):
+            snapshot.execute("SELECT current_setting('transaction_read_only') AS mode")
+            assert snapshot.fetchone()["mode"] == "on"
             snapshot.execute("SELECT count(*) AS n FROM pams_accounts WHERE account_code = 'late'")
             count = snapshot.fetchone()["n"]
             with connect(empty_source_db) as writer, writer.cursor() as write:
                 write.execute("INSERT INTO pams_accounts (account_code, display_name) VALUES ('late', 'Late')")
             return {"holdings": {"count": count}, "analysis": {"count": count}}
 
-        assert page_projection.refresh(cur, business_date=today, build=build)["status"] == "published"
+        assert page_projection.refresh(
+            cur, business_date=today, build=build, connect=lambda: connect(empty_source_db),
+        )["status"] == "published"
     with connect(empty_source_db, read_only=True) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         old = page_projection.read_page(cur, "holdings", business_date=today)
         assert old["projection"]["stale"]
@@ -40,12 +44,14 @@ def test_projection_does_not_consume_a_concurrent_change(empty_source_db):
             count = snapshot.fetchone()["n"]
             return {"holdings": {"count": count}, "analysis": {"count": count}}
 
-        assert page_projection.refresh(cur, business_date=today, build=rebuild)["revision"] == 2
+        assert page_projection.refresh(
+            cur, business_date=today, build=rebuild, connect=lambda: connect(empty_source_db),
+        )["revision"] == 2
     with connect(empty_source_db) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         current = page_projection.read_page(cur, "analysis", business_date=today)
         assert current["data"]["count"] == 1
         assert not current["projection"]["stale"]
-        assert page_projection.refresh(cur, business_date=today, build=None)["status"] == "current"
+        assert page_projection.refresh(cur, business_date=today, build=None, connect=None)["status"] == "current"
 
 
 def test_http_projection_matches_existing_calculations(empty_source_db, monkeypatch):

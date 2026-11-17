@@ -1,6 +1,8 @@
 """Publish and read derived investment page data from one input revision."""
 
-from psycopg2.extras import Json
+from contextlib import closing
+
+from psycopg2.extras import Json, RealDictCursor
 
 
 PAGE_START = "2026-01-01"
@@ -36,7 +38,7 @@ def read_page(cur, page, *, business_date):
     }
 
 
-def refresh(cur, *, business_date, build):
+def refresh(cur, *, business_date, build, connect):
     """Build under REPEATABLE READ and atomically replace the previous model."""
     if not schema_available(cur):
         return {"status": "unavailable"}
@@ -53,7 +55,15 @@ def refresh(cur, *, business_date, build):
     state = cur.fetchone()
     if state["recent"] and not state["dirty"]:
         return {"status": "current", "revision": state["published_revision"]}
-    payload = build(cur)
+    # Evidence readers require REPEATABLE READ READ ONLY. Import the writer's
+    # snapshot so the evidence and the markers being cleared are consistent.
+    cur.execute("SELECT pg_export_snapshot() AS snapshot")
+    snapshot = cur.fetchone()["snapshot"]
+    with closing(connect()) as reader, reader:
+        reader.set_session(isolation_level="REPEATABLE READ", readonly=True)
+        with reader.cursor(cursor_factory=RealDictCursor) as read:
+            read.execute("SET TRANSACTION SNAPSHOT %s", (snapshot,))
+            payload = build(read)
     revision = (state["published_revision"] or 0) + 1
     # Only markers visible to the computation are cleared. Concurrent commits
     # remain dirty, including writers that started before this transaction.
