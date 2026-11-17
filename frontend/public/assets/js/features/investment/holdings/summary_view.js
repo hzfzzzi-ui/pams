@@ -101,7 +101,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
     const { net_value, recent_daily_pnl, cumulative_pnl, market_value, cash: cashMetric, leverage: leverageMetric,
       portfolio_share } = profile.accountCard;
     const netValue = net_value?.value;
-    const estimatedNetValue = net_value?.status === 'estimated';
+    const netLabel = `${profile.valueLabel || '账户净值'}${net_value?.status === 'estimated' ? '（估算）' : ''}`;
     const daily = recent_daily_pnl?.value;
     const dailyAsOf = recent_daily_pnl?.as_of;
     const cumulative = cumulative_pnl?.value;
@@ -127,7 +127,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
       </div></div>
       <div class="mobileHeroPrimaryGrid">
-        <div class="mobileHeroPrimaryMetric main"><span>${estimatedNetValue ? '账户净值（估算）' : '账户净值'}</span><strong>${money(netValue)}</strong></div>
+        <div class="mobileHeroPrimaryMetric main"><span>${esc(netLabel)}</span><strong>${money(netValue)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(dailyLabel)}</span><strong class="${valueTone(daily)}">${dailyValue}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(cumulativeLabel || '累计盈亏')}</span><strong class="${valueTone(cumulative)}">${money(cumulative, true)}</strong></div>
       </div>
