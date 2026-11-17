@@ -31,7 +31,6 @@ pams/
 │  │  ├─ ledger.html             收支与资金流转
 │  │  ├─ more.html               账户、数据源和导入入口
 │  │  ├─ accounts.html           账户及银行对账
-│  │  ├─ data_sources.html       同步状态与数据质量
 │  │  ├─ account_import.html     资料导入及核对
 │  │  └─ assets/
 │  │     ├─ js/                  页面交互和 API 绑定

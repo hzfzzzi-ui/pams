@@ -1,7 +1,7 @@
 // Presentation routes only. These names never grant access to API operations.
 export const CONTENT_PAGES = Object.freeze([
   'investments.html', 'ledger.html', 'more.html',
-  'accounts.html', 'data_sources.html', 'account_import.html',
+  'accounts.html', 'account_import.html',
 ]);
 export const PRIMARY_PAGES = Object.freeze(CONTENT_PAGES.slice(0, 3));
 export const ACCOUNT_TASKS = Object.freeze({balance: '余额核准', transfers: '转账匹配', sources: '导入配置'});

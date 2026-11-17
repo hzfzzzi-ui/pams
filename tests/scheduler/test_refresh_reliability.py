@@ -162,14 +162,6 @@ def test_asia_flex_accepts_previous_trading_day(monkeypatch):
     assert result["status"] == "ok"
 
 
-def test_sync_center_flags_old_and_future_data(monkeypatch):
-    from endpoints import sync_center
-    monkeypatch.setattr(sync_center, "_now_local", lambda: datetime(2026, 10, 20, tzinfo=timezone.utc))
-    assert sync_center._fresh_status("2026-06-22")[0] == "stale"
-    assert sync_center._fresh_status("2026-10-21")[0] == "review"
-    assert sync_center._fresh_status("2026-10-19")[0] == "ok"
-
-
 @pytest.mark.parametrize("name", ["fx", "flex", "fund", "a_stock", "us"])
 def test_http_success_without_required_data_blocks_publication(monkeypatch, name):
     module = _load_scheduler(monkeypatch)

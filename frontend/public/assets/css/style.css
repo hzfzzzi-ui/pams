@@ -3,191 +3,6 @@
    ============================================================ */
 
 /* Unified sync center */
-.syncCenterPanel {
-  border-color: rgba(255,255,255,.18);
-}
-
-.syncSummaryStrip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.syncMetric {
-  min-width: 0;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 14px;
-  background: rgba(255,255,255,.025);
-  padding: 10px;
-}
-
-.syncMetric span {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.syncMetric strong {
-  display: block;
-  margin-top: 5px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.syncMetric.warn strong { color: var(--warn); }
-.syncMetric.risk strong { color: var(--bad); }
-
-.syncWorkflow {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-
-.syncWorkflow::-webkit-scrollbar { display: none; }
-
-.syncWorkflowPill {
-  flex: 0 0 auto;
-  max-width: 190px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 999px;
-  background: rgba(255,255,255,.025);
-  color: var(--text);
-  padding: 8px 11px;
-  text-align: left;
-}
-
-.syncWorkflowPill strong {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.syncWorkflowPill small {
-  display: block;
-  max-width: 160px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.syncCenterRows {
-  display: grid;
-  gap: 8px;
-}
-
-.syncCenterRow {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-height: 58px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-left: 3px solid var(--good);
-  border-radius: 16px;
-  background: var(--pams-bg-panel);
-  color: var(--text);
-  padding: 11px 12px;
-  text-align: left;
-}
-
-.syncCenterRow.warn { border-left-color: var(--warn); }
-.syncCenterRow.risk { border-left-color: var(--bad); }
-.syncCenterRow.data { border-left-color: var(--pams-line-subtle); }
-
-.syncCenterMain,
-.syncCenterMeta {
-  min-width: 0;
-}
-
-.syncCenterMain strong {
-  display: block;
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.syncCenterMain small {
-  display: block;
-  overflow: hidden;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.syncCenterMeta {
-  display: grid;
-  justify-items: end;
-  gap: 5px;
-}
-
-.syncCenterMeta b {
-  max-width: 140px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.syncSheetGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.syncSheetGrid > div,
-.syncSheetBlock {
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 14px;
-  background: rgba(255,255,255,.025);
-  padding: 10px;
-}
-
-.syncSheetGrid span,
-.syncSheetBlock span {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 5px;
-}
-
-.syncSheetGrid strong,
-.syncSheetBlock strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.syncSheetBlock {
-  margin-top: 8px;
-}
-
-.syncSheetBlock p {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.syncSheetActions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-}
 
 .miniBtn {
   border: 1px solid rgba(255,255,255,.45);
@@ -197,46 +12,6 @@
   font-size: 12px;
   font-weight: 600;
   padding: 5px 9px;
-}
-
-.page-data-sources .sourceMatrix th:nth-child(1),
-.page-data-sources .sourceMatrix td:nth-child(1) { width: 220px; }
-.page-data-sources .sourceMatrix th:nth-child(2),
-.page-data-sources .sourceMatrix td:nth-child(2) { width: 110px; }
-.page-data-sources .sourceMatrix th:nth-child(3),
-.page-data-sources .sourceMatrix td:nth-child(3) { width: 210px; }
-.page-data-sources .sourceMatrix th:nth-child(4),
-.page-data-sources .sourceMatrix td:nth-child(4) { width: 80px; text-align: right; }
-.page-data-sources .sourceMatrix th:nth-child(5),
-.page-data-sources .sourceMatrix td:nth-child(5) { width: 84px; }
-.page-data-sources .sourceMatrix th:nth-child(6),
-.page-data-sources .sourceMatrix td:nth-child(6) { width: 96px; }
-
-.page-data-sources .sourceActionCard {
-  display: block !important;
-}
-
-@media (max-width: 760px) {
-  .syncSummaryStrip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .syncMetric {
-    padding: 9px;
-  }
-
-  .syncMetric strong {
-    font-size: 16px;
-  }
-
-  .syncCenterMeta b {
-    max-width: 92px;
-  }
-
-  .syncSheetGrid,
-  .syncSheetActions {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ---- Reset ---- */
@@ -2543,25 +2318,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
   font-size: var(--fs-lg);
   line-height: 1.7;
 }
-.investmentDataBanner {
-  margin-top: var(--sp-3);
-  display: flex;
-  gap: var(--sp-2);
-  align-items: center;
-  flex-wrap: wrap;
-  padding: var(--sp-3);
-  border: 1px solid rgba(210,153,34,.36);
-  border-radius: var(--radius-md);
-  background: rgba(210,153,34,.07);
-  color: var(--text);
-}
-.investmentDataBanner span {
-  padding: 2px 7px;
-  border: 1px solid rgba(210,153,34,.35);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  font-size: var(--fs-md);
-}
+
 .statusBadge {
   display: inline-flex;
   align-items: center;
@@ -2580,7 +2337,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--sp-3) 0 
 .statusBadge-pending { border-color: rgba(255,255,255,.42); background: rgba(255,255,255,.12); color: var(--pams-text-primary);}
 .statusBadge-data { border-color: rgba(255,255,255,.38); background: rgba(255,255,255,.10); color: var(--pams-text-primary);}
 .statusBadge-action { border-color: rgba(255,255,255,.46); background: rgba(255,255,255,.14); color: var(--pams-text-primary); text-decoration: none ;}
-.investmentDataLink { text-decoration: none ;}
+
 .returnMethodBar {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -5641,12 +5398,7 @@ body.trade-review-asset-open {
   gap: var(--sp-3);
   flex-wrap: wrap;
 }
-.qualityGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sp-3);
-  margin-top: var(--sp-3);
-}
+
 .qualityCard {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -5666,14 +5418,20 @@ body.trade-review-asset-open {
   .investmentLedgerLayout { grid-template-columns: 1fr ;}
   .investmentFilterGrid { grid-template-columns: repeat(2, minmax(0,1fr)) ;}
   .investmentMetricRow { grid-template-columns: repeat(2, minmax(0,1fr)) ;}
-  .investmentHeroGrid, .transactionSummaryGrid, .profitContributionGrid, .returnMethodBar, .qualityGrid {
+  .investmentHeroGrid,
+.transactionSummaryGrid,
+.profitContributionGrid,
+.returnMethodBar {
     grid-template-columns: repeat(2, minmax(0,1fr));
   }
 }
 
 @media (max-width: 640px) {
   .investmentFilterGrid, .investmentFormGrid, .investmentMetricRow { grid-template-columns: 1fr ;}
-  .investmentHeroGrid, .transactionSummaryGrid, .profitContributionGrid, .returnMethodBar, .qualityGrid {
+  .investmentHeroGrid,
+.transactionSummaryGrid,
+.profitContributionGrid,
+.returnMethodBar {
     grid-template-columns: 1fr;
   }
   .recentTradeItem { grid-template-columns: 1fr; gap: var(--sp-1) ;}
@@ -6129,19 +5887,6 @@ input[type="number"].formInput {
   line-height: 1.45;
 }
 
-.page-investments .investmentDataBanner {
-  padding: 8px 10px;
-  background: var(--pams-bg-panel);
-}
-.page-investments .investmentDataBanner .investmentDataDetails {
-  width: 100%;
-}
-.page-investments .investmentDataBanner .dataIssueChips {
-  display: flex;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
 .page-investments .investmentMainGrid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
@@ -6542,16 +6287,13 @@ details[open].compactDetails > summary {
   font-family: var(--pams-font-sans);
 }
 
-.page-accounts .pageSubtitle,
-.page-data-sources .pageSubtitle {
+.page-accounts .pageSubtitle {
   display: none;
 }
-.page-accounts .card,
-.page-data-sources .card {
+.page-accounts .card {
   padding: 16px;
 }
-.page-accounts .card:hover,
-.page-data-sources .card:hover {
+.page-accounts .card:hover {
   transform: none;
 }
 
@@ -6722,53 +6464,6 @@ details[open].compactDetails > summary {
 
 .conclusionChip.neutral {
   color: var(--pams-text-secondary);
-}
-
-.page-investments .investmentDataBanner {
-  display: inline-flex !important;
-  width: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.page-investments .investmentDataBanner[style*="none"] {
-  display: none !important;
-}
-
-.page-investments .investmentDataBanner .investmentDataDetails {
-  position: relative;
-  width: auto;
-}
-
-.page-investments .investmentDataBanner .investmentDataDetails > summary {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid rgba(210,153,34,.35);
-  border-radius: 999px;
-  background: rgba(210,153,34,.06);
-  color: #f2cc60 !important;
-}
-
-.page-investments .investmentDataBanner .dataIssueChips {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 40;
-  display: grid;
-  width: min(420px, 78vw);
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 10px;
-  background: var(--pams-bg-panel);
-  box-shadow: 0 16px 36px rgba(0,0,0,.35);
-}
-
-.page-investments .investmentDataBanner span {
-  width: fit-content;
 }
 
 .page-investments .kpiGrid[hidden] {
@@ -6979,11 +6674,7 @@ details[open].compactDetails > summary {
    ============================================================ */
 .card,
 .investmentPanel,
-.qualityBox,
 .ledgerKpi,
-.sourceTodo,
-.sourceNote,
-.pipelineStep,
 .compactPanel {
   box-shadow: none !important;
 }
@@ -7029,8 +6720,7 @@ details[open].compactDetails > summary {
   font-size: 12px;
 }
 
-.page-accounts .pageSubtitle,
-.page-data-sources .pageSubtitle {
+.page-accounts .pageSubtitle {
   display: block;
 }
 
@@ -7086,8 +6776,7 @@ th.num,
   background: var(--pams-bg-panel);
 }
 
-.tableWide th,
-.sourceMatrix th {
+.tableWide th {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -7111,19 +6800,9 @@ th.num,
   gap: 10px;
 }
 
-
-
-
-
-
 .desktopOnlyCard {
   display: block;
 }
-
-
-
-
-
 
 .moreStatusGrid {
   display: grid;
@@ -7159,8 +6838,6 @@ th.num,
   display: grid;
   gap: 14px;
 }
-
-
 
 .manualSyncPanel {
   display: grid;
@@ -7210,35 +6887,6 @@ th.num,
   padding: 7px 12px;
 }
 
-.manualSyncStatus {
-  min-height: 34px;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255,255,255,.025);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.manualSyncStatus.ok {
-  color: var(--good);
-  border-color: rgba(255,255,255,.28);
-  background: rgba(255,255,255,.06);
-}
-
-.manualSyncStatus.warn,
-.manualSyncStatus.loading {
-  color: var(--warn);
-  border-color: rgba(245,165,36,.28);
-  background: rgba(245,165,36,.06);
-}
-
-.manualSyncStatus.error {
-  color: var(--bad);
-  border-color: rgba(255,91,91,.32);
-  background: rgba(255,91,91,.07);
-}
-
 .syncResultRows {
   display: flex;
   flex-wrap: wrap;
@@ -7268,55 +6916,6 @@ th.num,
   0%, 100% { opacity: .35; transform: scale(.85); }
   50% { opacity: 1; transform: scale(1); }
 }
-
-.moreRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  min-height: 64px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-left: 3px solid rgba(255,255,255,.55);
-  border-radius: 14px;
-  background: var(--card);
-  color: var(--text);
-}
-
-.moreRow:hover {
-  border-color: rgba(255,255,255,.18);
-  background: rgba(255,255,255,.035);
-}
-
-.moreRow span {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.moreRow strong {
-  font-size: 15px;
-}
-
-.moreRow small {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.moreRow em {
-  color: var(--muted);
-  font-style: normal;
-  font-size: 24px;
-  line-height: 1;
-}
-
-.moreRow.accent-risk { border-left-color: rgba(255,91,91,.7); }
-.moreRow.accent-data { border-left-color: rgba(255,255,255,.72); }
-.moreRow.accent-account { border-left-color: rgba(255,255,255,.72); }
-.moreRow.accent-invest { border-left-color: var(--pams-line-subtle); }
-
-.moreRow.accent-system { border-left-color: rgba(255,255,255,.72); }
 
 /* Investments: KPI once, holdings-first terminal layout */
 .page-investments .investmentHero {
@@ -7435,14 +7034,6 @@ th.num,
   min-height: 280px;
 }
 
-.page-data-sources .sourceHero {
-  align-items: start;
-}
-
-.page-data-sources .sourceNote {
-  align-self: start;
-}
-
 /* ============================================================
    Progressive disclosure pass: default terminal-dense surfaces
    ============================================================ */
@@ -7450,7 +7041,6 @@ th.num,
 .bridgeHint,
 .investmentHeroMetric .help,
 .page-accounts .metricPanel .muted,
-.page-data-sources .statusLine .delta,
 .page-ledger .ledgerKpi .hint {
   display: none !important;
 }
@@ -7492,14 +7082,12 @@ details > summary {
 }
 
 .compactDetails > summary,
-.rankedBarRow > summary,
-.sourceNoteInline > summary {
+.rankedBarRow > summary {
   list-style: none;
 }
 
 .compactDetails > summary::-webkit-details-marker,
-.rankedBarRow > summary::-webkit-details-marker,
-.sourceNoteInline > summary::-webkit-details-marker {
+.rankedBarRow > summary::-webkit-details-marker {
   display: none;
 }
 
@@ -7737,100 +7325,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   display: none;
 }
 
-.sourceNoteInline {
-  margin-left: auto;
-  align-self: center;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.sourceNoteInline > summary {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255,255,255,.03);
-}
-
-.sourceNoteInline[open] {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  z-index: 10;
-  width: min(420px, calc(100vw - 32px));
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--pams-bg-panel);
-  box-shadow: 0 12px 28px rgba(0,0,0,.3);
-}
-
-.page-data-sources .sourceHero > .sourceNote {
-  display: none !important;
-}
-
-.page-data-sources .sourceHero {
-  position: relative;
-}
-
-.page-data-sources .actionChecklist {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.page-data-sources .actionChecklist label {
-  min-height: 28px;
-  padding: 5px 9px;
-  border-radius: 999px;
-}
-
-.page-data-sources .pipeline {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.page-data-sources .pipelineStep {
-  flex: 0 1 auto;
-  min-width: 0;
-  padding: 6px 8px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.03);
-}
-
-.page-data-sources .pipelineStep + .pipelineStep::before {
-  content: "→";
-  margin-right: 6px;
-  color: var(--muted);
-}
-
-.qualityMatrixWrap {
-  overflow-x: auto;
-}
-
-.qualityMatrix {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.qualityMatrix th,
-.qualityMatrix td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-}
-
-.qualityMatrix th:nth-child(2),
-.qualityMatrix td:nth-child(2),
-.qualityMatrix th:nth-child(4),
-.qualityMatrix td:nth-child(4) {
-  text-align: right;
-}
-
 .inlineDetails {
   display: inline-flex;
   align-items: center;
@@ -7937,8 +7431,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     letter-spacing: 3px;
   }
 
-
-  .status-left,
+.status-left,
   .status-right {
     min-width: 0;
     gap: 7px;
@@ -7968,8 +7461,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none !important;
   }
 
-
-  .wrap,
+.wrap,
 .page-investments .wrap {
     width: 100%;
     max-width: none;
@@ -8031,9 +7523,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 .dashRow1,
 .dashboardUtilityRow,
 .relationshipGrid,
-.sourceHero,
-.statusLine,
-.qualityGrid,
 .cashflowBodyGrid,
 .page-investments .investmentMainGrid,
 .stressGrid,
@@ -8125,8 +7614,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     padding-bottom: 8px;
   }
 
-  .tableWrap,
-.qualityMatrixWrap {
+  .tableWrap {
     margin-left: -2px;
     margin-right: -2px;
     border-radius: 10px;
@@ -8135,12 +7623,11 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   table,
-  .tableWide,
-  .accountTable,
-  .balanceTable,
-  .sourceMatrix,
-  .decisionLog,
-  .alignTable {
+.tableWide,
+.accountTable,
+.balanceTable,
+.decisionLog,
+.alignTable {
     min-width: 620px !important;
     font-size: 12px;
   }
@@ -8249,57 +7736,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     font-size: 16px !important;
   }
 
-  .page-data-sources .pipeline {
-    display: flex;
-    flex-wrap: wrap;
-    overflow: visible;
-    padding-bottom: 0;
-  }
-
-  .page-data-sources .pageMeta {
-    justify-content: flex-start;
-  }
-
-  .page-data-sources .sourceNoteInline {
-    margin-left: 0;
-  }
-
-  .page-data-sources .statusLine {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 8px;
-  }
-
-  .page-data-sources .statusLine .card:first-child {
-    grid-column: 1 / -1;
-  }
-
-  .page-data-sources .statusLine .kpi {
-    min-height: 68px;
-    padding: 10px 12px;
-  }
-
-  .page-data-sources .statusLine .kpi .value {
-    font-size: 20px !important;
-  }
-
-  .page-data-sources .pipelineStep {
-    flex: 1 1 calc(33.333% - 6px);
-    min-width: 96px;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .page-data-sources .pipelineStep + .pipelineStep::before {
-    display: none;
-  }
-
-  .page-data-sources .sectionTitle .miniBadge.data {
-    display: none;
-  }
-
-
-
-  .page-more .moreStatusGrid {
+.page-more .moreStatusGrid {
     width: 100%;
     min-width: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -8317,9 +7754,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     grid-template-columns: 1fr 1fr;
   }
 
-
-
-  .page-more .manualSyncPanel {
+.page-more .manualSyncPanel {
     padding: 12px;
   }
 
@@ -8342,20 +7777,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     padding-inline: 6px;
   }
 
-  .page-more .moreRow {
-    min-height: 58px;
-    padding: 11px 12px;
-    border-radius: 13px;
-  }
-
-  .page-more .moreRow small {
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-  }
-
-  /* Mobile app lists: replace desktop tables with tappable rows on key screens */
+/* Mobile app lists: replace desktop tables with tappable rows on key screens */
   .page-investments #holdings-smart-table {
     border-left-width: 0;
   }
@@ -8915,145 +8337,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     max-width: none;
   }
 
-  .page-data-sources .tableWrap,
-  .page-data-sources .qualityMatrixWrap{
-    overflow: visible;
-    border-radius: 0;
-  }
-
-  .page-data-sources .sourceMatrix,
-  .page-data-sources .sourceMatrix tbody,
-  .page-data-sources .qualityMatrix,
-  .page-data-sources .qualityMatrix tbody{
-    display: block;
-    width: 100%;
-    min-width: 0 !important;
-  }
-
-  .page-data-sources .sourceMatrix thead,
-  .page-data-sources .qualityMatrix thead{
-    display: none;
-  }
-
-  .page-data-sources .sourceMatrix tbody tr,
-  .page-data-sources .qualityMatrix tbody tr{
-    display: grid;
-    width: 100%;
-    min-height: 0;
-    margin: 0 0 8px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--pams-bg-panel);
-    gap: 5px 10px;
-  }
-
-  .page-data-sources .sourceMatrix td,
-  .page-data-sources .qualityMatrix td{
-    display: block;
-    width: auto !important;
-    height: auto;
-    padding: 0 !important;
-    border: 0 !important;
-    white-space: normal;
-  }
-
-  .page-data-sources .sourceMatrix tbody tr {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "source status"
-      "date count"
-      "missing action";
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(1) {
-    grid-area: source;
-    min-width: 0;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(1) > div:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(2) {
-    grid-area: date;
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(3) {
-    grid-area: count;
-    color: var(--text);
-    font-weight: 600;
-    text-align: right;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(4) {
-    grid-area: missing;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(5) {
-    grid-area: status;
-    text-align: right;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(6) {
-    grid-area: action;
-    display: flex !important;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 8px;
-    text-align: right;
-  }
-
-  .page-data-sources .sourceMatrix td:nth-child(6) details {
-    display: none;
-  }
-
-  .page-data-sources .qualityMatrix tbody tr {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "dataset status"
-      "rows date"
-      "missing missing";
-  }
-
-  .page-data-sources .qualityMatrix td:nth-child(1) {
-    grid-area: dataset;
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .page-data-sources .qualityMatrix td:nth-child(2) {
-    grid-area: rows;
-    color: var(--text-secondary);
-    text-align: left !important;
-  }
-
-  .page-data-sources .qualityMatrix td:nth-child(2)::before {
-    content: "记录 ";
-    color: var(--muted);
-    font-family: var(--pams-font-sans);
-  }
-
-  .page-data-sources .qualityMatrix td:nth-child(3) {
-    grid-area: date;
-    color: var(--muted);
-    font-size: 12px;
-    text-align: right;
-  }
-
-  .page-data-sources .qualityMatrix td:nth-child(4) {
-    grid-area: missing;
-  }
-
-  .page-data-sources .qualityMatrix td:nth-child(5) {
-    grid-area: status;
-    text-align: right;
-  }
-
 }
 
 @media (max-width: 360px) {
@@ -9077,8 +8360,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 /* Final mobile shell correction: one bottom nav contract, no sticky top banner. */
 @media (max-width: 760px) {
 
-
-
 }
 
 .mobilePortfolioHero,
@@ -9100,10 +8381,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none;
   }
 
-
-
-
-  .page-investments .mobilePortfolioHero {
+.page-investments .mobilePortfolioHero {
     padding: 2px 0 0;
   }
 
@@ -9223,8 +8501,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     color: #f0b90b !important;
   }
 
-
-  .page-investments #holdings-smart-table > .sectionTitle {
+.page-investments #holdings-smart-table > .sectionTitle {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -9235,8 +8512,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     font-size: 16px!important;
   }
 
-
-  .mobileHoldingFilterChips {
+.mobileHoldingFilterChips {
     display: flex !important;
     gap: 8px;
     margin: 0 0 6px;
@@ -9468,8 +8744,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 
   .summaryCards,
 .ledgerKpiGrid,
-.page-investments .investmentHeroGrid,
-.statusLine {
+.page-investments .investmentHeroGrid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 8px !important;
@@ -9478,8 +8753,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   .metricCard,
 .summaryCard,
 .ledgerKpi,
-.investmentHeroMetric,
-.statusLine .card {
+.investmentHeroMetric {
     min-height: 72px !important;
     padding: 10px 12px !important;
     border-radius: 14px !important;
@@ -9487,9 +8761,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .metricCard:first-child,
-  .investmentHeroMetric:first-child,
-  .ledgerKpi:nth-child(3),
-  .statusLine .card:first-child {
+.investmentHeroMetric:first-child,
+.ledgerKpi:nth-child(3) {
     grid-column: 1 / -1;
   }
 
@@ -9515,9 +8788,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 .summaryCard .help,
 .ledgerKpi .help,
 .investmentConclusionText,
-.truthNote,
-.pipeline,
-.sourceNote:not(.sourceNoteInline) {
+.truthNote {
     display: none !important;
   }
 
@@ -9575,8 +8846,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     min-width: 118px;
   }
 
-
-  .page-investments #return-trend .chartWrap {
+.page-investments #return-trend .chartWrap {
     height: 220px !important;
   }
 
@@ -9617,34 +8887,15 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     gap: 12px;
   }
 
-
-  .moreRow,
-  .manualSyncPanel {
+.manualSyncPanel {
     border-radius: 16px;
   }
 
-  .manualSyncHead small,
-  .moreRow small {
+  .manualSyncHead small {
     max-width: 240px;
   }
 
-
-  .sourceActionCard {
-    margin-bottom: 10px;
-  }
-
-  .sourceTodo {
-    padding: 0;
-    border: 0;
-    background: transparent;
-  }
-
-  .sourceMatrix,
-  .qualityMatrix {
-    min-width: 0 !important;
-  }
-
-  .stressGrid,
+.stressGrid,
 .concentrationLayout {
     grid-template-columns: 1fr !important;
   }
@@ -9656,10 +8907,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
    ============================================================ */
 
 .mobileHoldingList {
-  display: none;
-}
-
-.sourceHealthList{
   display: none;
 }
 
@@ -9758,8 +9005,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: none !important;
   }
 
-
-  .pageHeader {
+.pageHeader {
     display: none !important;
   }
 
@@ -9774,8 +9020,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     border-radius: 20px !important;
   }
 
-  .appTaskRow,
-  .moreRow {
+  .appTaskRow {
     min-height: 58px;
     padding: 12px 14px;
     background: var(--pams-bg-panel);
@@ -9785,8 +9030,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
   }
 
   .appTaskRow small,
-  .moreRow small,
-  .manualSyncHead small {
+.manualSyncHead small {
     display: block;
     max-width: 250px;
     overflow: hidden;
@@ -9964,8 +9208,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     gap: 12px;
   }
 
-
-  .manualSyncPanel {
+.manualSyncPanel {
     display: grid;
     gap: 10px;
   }
@@ -9976,101 +9219,8 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     gap: 8px;
   }
 
-  .page-data-sources .statusLine {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 8px !important;
-  }
-
-  .page-data-sources .statusLine .delta {
+.desktopDecisionTable {
     display: none !important;
-  }
-
-  .page-data-sources .sourceActionCard {
-    display: none !important;
-  }
-
-  .page-data-sources .pipeline {
-    display: flex !important;
-    grid-template-columns: none !important;
-    gap: 6px !important;
-    overflow-x: auto;
-    margin: 10px 0 !important;
-    scrollbar-width: none;
-  }
-
-  .page-data-sources .pipeline::-webkit-scrollbar {
-    display: none;
-  }
-
-  .page-data-sources .pipelineStep {
-    flex: 0 0 auto;
-    padding: 8px 10px !important;
-    border-radius: 999px !important;
-    font-size: 12px;
-  }
-
-  .desktopSourceTable,
-  .desktopDecisionTable {
-    display: none !important;
-  }
-
-  .sourceHealthList{
-    display: grid;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .sourceHealthRow{
-    width: 100%;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: center;
-    min-height: 58px;
-    padding: 12px 14px;
-    color: var(--text);
-    text-align: left;
-    background: var(--pams-bg-panel);
-    border: 1px solid rgba(255,255,255,.08);
-    border-left: 3px solid rgba(255,255,255,.55);
-    border-radius: 16px;
-  }
-
-  .sourceHealthRow.warn,
-  .sourceHealthRow.risk {
-    border-left-color: var(--warn);
-  }
-
-  .sourceHealthRow.data {
-    border-left-color: var(--good);
-  }
-
-  .sourceHealthRow strong{
-    display: block;
-    overflow: hidden;
-    font-size: 14px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .sourceHealthRow small{
-    display: block;
-    max-width: 240px;
-    margin-top: 4px;
-    overflow: hidden;
-    color: var(--muted);
-    font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .sourceHealthRow em{
-    display: grid;
-    gap: 5px;
-    justify-items: end;
-    color: var(--muted);
-    font-style: normal;
-    white-space: nowrap;
   }
 
 }
@@ -10093,8 +9243,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-
-  .page-investments #investment-conclusion .sectionTitle {
+.page-investments #investment-conclusion .sectionTitle {
     display: grid !important;
     grid-template-columns: auto minmax(0, 1fr) !important;
     gap: 10px !important;
@@ -10224,10 +9373,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 /* Investment mobile holding rows: asset-terminal layout. */
 @media (max-width: 760px) {
 
-
-
-
-  .page-investments .mobileHoldingText {
+.page-investments .mobileHoldingText {
     min-width: 0 !important;
   }
 
@@ -10235,8 +9381,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     display: block !important;
   }
 
-
-  .page-investments .mobileHoldingText em {
+.page-investments .mobileHoldingText em {
     margin-left: 6px;
     padding: 1px 6px;
     border: 1px solid rgba(255,255,255,.12);
@@ -10275,9 +9420,7 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     line-height: 1.1;
   }
 
-
-
-  .page-investments .mobileHoldingMetric em {
+.page-investments .mobileHoldingMetric em {
     overflow: hidden;
     color: var(--muted);
     font-size: 12px;
@@ -11590,7 +10733,6 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
 @media (max-width: 760px) {
   body.page-accounts,
 body.page-ledger,
-body.page-data-sources,
 body.page-more {
     overflow-x: hidden;
     background: var(--pams-bg-panel);
@@ -11598,7 +10740,6 @@ body.page-more {
 
   body.page-accounts .wrap,
 body.page-ledger .wrap,
-body.page-data-sources .wrap,
 body.page-more .wrap {
     max-width: 100%;
     padding-inline: 16px;
@@ -11607,14 +10748,12 @@ body.page-more .wrap {
 
   body.page-accounts .pageHeader,
 body.page-ledger .pageHeader,
-body.page-data-sources .pageHeader,
 body.page-more .pageHeader {
     margin: 10px 0 12px;
   }
 
   body.page-accounts .card,
 body.page-ledger .card,
-body.page-data-sources .card,
 body.page-more .card {
     border-color: rgba(255,255,255,.08);
     border-radius: 18px;
@@ -11625,7 +10764,6 @@ body.page-more .card {
 
   body.page-accounts details.card,
 body.page-ledger details.card,
-body.page-data-sources details.card,
 body.page-more details.card {
     padding: 0;
     overflow: hidden;
@@ -11633,7 +10771,6 @@ body.page-more details.card {
 
   body.page-accounts details.card > summary,
 body.page-ledger details.card > summary,
-body.page-data-sources details.card > summary,
 body.page-more details.card > summary {
     display: flex;
     align-items: center;
@@ -11646,14 +10783,12 @@ body.page-more details.card > summary {
 
   body.page-accounts details.card > summary::-webkit-details-marker,
 body.page-ledger details.card > summary::-webkit-details-marker,
-body.page-data-sources details.card > summary::-webkit-details-marker,
 body.page-more details.card > summary::-webkit-details-marker {
     display: none;
   }
 
   body.page-accounts details.card > summary::after,
 body.page-ledger details.card > summary::after,
-body.page-data-sources details.card > summary::after,
 body.page-more details.card > summary::after {
     content: "›";
     color: var(--muted);
@@ -11664,23 +10799,19 @@ body.page-more details.card > summary::after {
 
   body.page-accounts details.card[open] > summary::after,
 body.page-ledger details.card[open] > summary::after,
-body.page-data-sources details.card[open] > summary::after,
 body.page-more details.card[open] > summary::after {
     transform: rotate(-90deg);
   }
 
   body.page-accounts details.card > :not(summary),
 body.page-ledger details.card > :not(summary),
-body.page-data-sources details.card > :not(summary),
 body.page-more details.card > :not(summary) {
     margin: 0 14px 14px;
   }
 
   .page-accounts .accountIssueRow,
 .page-ledger .mobileLedgerRow,
-.page-ledger .accountIssueRow,
-.page-data-sources .sourceHealthRow,
-.page-more .moreRow {
+.page-ledger .accountIssueRow {
     min-height: 58px;
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 16px;
@@ -11690,35 +10821,18 @@ body.page-more details.card > :not(summary) {
 
   .page-accounts .accountIssueRow small,
 .page-ledger .mobileLedgerRow small,
-.page-ledger .accountIssueRow small,
-.page-data-sources .sourceHealthRow small,
-.page-more .moreRow small {
+.page-ledger .accountIssueRow small {
     color: var(--muted);
     line-height: 1.25;
   }
 
-
-  .page-data-sources .sourceHealthList{
-    display: grid;
-    gap: 10px;
-  }
-
-  .page-data-sources .sourceHealthRow{
-    width: 100%;
-    text-align: left;
-  }
-
-  .page-accounts .tableWrap,
+.page-accounts .tableWrap,
 .page-ledger .tableWrap,
-.page-data-sources .tableWrap,
 .page-more .tableWrap {
     max-width: 100%;
     overflow-x: auto;
   }
 
-  .page-data-sources .desktopSourceTable{
-    display: none !important;
-  }
 }
 
 /* Mobile bottom nav final contract: PAMS has 3 primary tabs. */
@@ -13880,40 +12994,6 @@ body.page-more details.card > :not(summary) {
     gap: 14px !important;
   }
 
-
-
-  .page-more .moreRow {
-    min-height: 68px !important;
-    padding: 14px 0 !important;
-    border: 0 !important;
-    border-top: 1px solid rgba(255,255,255,.08) !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-  }
-
-
-  .page-more .moreRow strong {
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: 0;
-  }
-
-  .page-more .moreRow small {
-    max-width: none !important;
-    display: -webkit-box !important;
-    overflow: hidden;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.35;
-    white-space: normal !important;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .page-more .moreRow em {
-    color: var(--muted);
-    font-size: 24px;
-  }
 }
 
 /* PAMS Mobile Density v1: tighten formal app pages without changing structure. */
@@ -13977,11 +13057,10 @@ body.page-more details.card > :not(summary) {
   }
 
   body.app-shell .kpiGrid,
-  body.app-shell .syncSummaryStrip,
-  body.app-shell .portfolioConfigGrid,
-  body.app-shell .transactionSummaryGrid,
-  body.app-shell .returnAttributionCards,
-  body.app-shell .assetMasterCards {
+body.app-shell .portfolioConfigGrid,
+body.app-shell .transactionSummaryGrid,
+body.app-shell .returnAttributionCards,
+body.app-shell .assetMasterCards {
     gap: 8px !important;
   }
 

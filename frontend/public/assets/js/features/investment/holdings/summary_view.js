@@ -221,13 +221,6 @@ function bindMobileMethodology(summary, dataIssues, asOf) {
   });
 }
 
-function DataQualityBanner(issues) {
-  if (!issues.length) return '';
-  return `
-    <a class="investmentDataDetails investmentDataLink" href="data_sources.html#dataQuality">口径 ${issues.length} 项</a>
-  `;
-}
-
 function contributionItem(item, totalPnl, mode = 'total') {
   const value = mode === 'daily' ? item.totalDailyPnl : item.pnl;
   const rate = item.returnPct;
@@ -772,13 +765,6 @@ function renderInvestmentDashboard({
     conclusionEl.innerHTML = buildInvestmentConclusion(summary, categories, dataIssues);
   }
 
-  const bannerEl = document.getElementById('dataQualityBanner');
-  if (bannerEl) {
-    const banner = DataQualityBanner(dataIssues);
-    bannerEl.style.display = banner ? 'flex' : 'none';
-    bannerEl.innerHTML = banner;
-  }
-
   const freshnessEl = document.getElementById('investmentDataFreshness');
   if (freshnessEl) {
     freshnessEl.textContent = `更新 ${formatSyncTimestamp(syncAt, asOf)}`;
@@ -817,7 +803,7 @@ function AssetAllocationPanel(categories, totalValue) {
   }).join('') || '<div class="muted">暂无分布数据</div>';
 }
 
-return { statusBadge, ReturnMethodBadge, metricCard, InvestmentSummaryHeader, InvestmentSummaryHeaderCompact, DailyReturnBreakdown, currentMobileHeroGroup, mobileHeroMetaItem, MobilePortfolioHero, updateMobilePortfolioHero, bindMobileMethodology, DataQualityBanner, contributionItem, ContributionList, ProfitContributionPanel, topMoverRow, topMoverGroup, TopContributionPanel, setKpiLabel, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, closedBadge, renderSection, writeSectionFinancials, renderReturnNotes, setKpiFxNote, applySectionReturnMetrics, applyStaticReturnMetrics, renderReturnMethodBar, publishHoldingsKpiSummary, renderDataQualityPanel, renderInvestmentDashboard, AssetAllocationPanel,
+return { statusBadge, ReturnMethodBadge, metricCard, InvestmentSummaryHeader, InvestmentSummaryHeaderCompact, DailyReturnBreakdown, currentMobileHeroGroup, mobileHeroMetaItem, MobilePortfolioHero, updateMobilePortfolioHero, bindMobileMethodology, contributionItem, ContributionList, ProfitContributionPanel, topMoverRow, topMoverGroup, TopContributionPanel, setKpiLabel, renderAStockOwnerPerformance, renderRowStock, renderRowFundLike, closedBadge, renderSection, writeSectionFinancials, renderReturnNotes, setKpiFxNote, applySectionReturnMetrics, applyStaticReturnMetrics, renderReturnMethodBar, publishHoldingsKpiSummary, renderDataQualityPanel, renderInvestmentDashboard, AssetAllocationPanel,
   dispose() {
     if (window.__pamsHoldingsKpiSummary === publishedSummary) delete window.__pamsHoldingsKpiSummary;
     mobileHeroContext = null;

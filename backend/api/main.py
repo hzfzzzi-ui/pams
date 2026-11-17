@@ -26,7 +26,7 @@ from endpoints import ledger
 from endpoints import bank_reconcile
 from endpoints import accounts as accounts_endpoint
 from endpoints import portfolio_state as portfolio_state_endpoint
-from endpoints import sync_center
+from endpoints import account_sync
 from endpoints import analysis
 from endpoints import account_import
 from domain.accounts import account_overview, account_policy
@@ -106,7 +106,7 @@ app.include_router(ledger.router, prefix="/api")
 app.include_router(bank_reconcile.router, prefix="/api")
 app.include_router(accounts_endpoint.router, prefix="/api")
 app.include_router(portfolio_state_endpoint.router, prefix="/api")
-app.include_router(sync_center.router, prefix="/api")
+app.include_router(account_sync.router, prefix="/api")
 app.include_router(analysis.router, prefix="/api")
 app.include_router(account_import.router, prefix="/api")
 

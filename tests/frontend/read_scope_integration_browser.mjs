@@ -9,10 +9,9 @@ import * as transactions from './fixtures/transactions_lifecycle.mjs';
 const {chromium} = await import(pathToFileURL(process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE).href);
 const publicRoot = path.resolve(process.argv[2]);
 const markup = {};
-for (const name of ['more', 'data_sources', 'accounts', 'ledger', 'investments']) {
+for (const name of ['more', 'accounts', 'ledger', 'investments']) {
   markup[name] = (await readFile(path.join(publicRoot, `${name}.html`), 'utf8')).match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)[1];
 }
-const quality = {data_quality: {summary: {status: 'warning', error_count: 0, warning_count: 2}}};
 const records = [];
 const waitFor = async (predicate, label) => {
   const end = Date.now() + 8000;
@@ -68,13 +67,13 @@ try {
     await page.goto(base);
     await page.evaluate(async ({markup}) => {
       const load = name => import(`/assets/js/features/${name}/controller.js`);
-      const [api, readScope, more, dataSources, syncCenter, accounts, ledger, analysis, risk, config, transaction, ui] = await Promise.all([
+      const [api, readScope, more, accounts, ledger, analysis, risk, config, transaction, ui] = await Promise.all([
         import('/assets/js/api.js'), import('/assets/js/shared/read_scope.js'),
-        load('more'), load('data_sources'), load('sync_center'), load('accounts'), load('ledger'), load('analysis'),
+        load('more'), load('accounts'), load('ledger'), load('analysis'),
         import('/assets/js/features/portfolio/risk_controller.js'), import('/assets/js/features/portfolio/config_controller.js'),
         load('transactions'), import('/assets/js/ui.js'),
       ]);
-      window.mods = {api, readScope, more, dataSources, syncCenter, accounts, ledger, analysis, risk, config, transaction, ui};
+      window.mods = {api, readScope, more, accounts, ledger, analysis, risk, config, transaction, ui};
       Object.assign(window, {root: null, rootA: null, rootB: null, a: null, b: null, feature: null, child: null, first: null, second: null, third: null, reloading: null, triggered: null});
       window.makeRoot = name => {
         const root = document.createElement('section'); root.innerHTML = markup[name];
@@ -89,85 +88,26 @@ try {
     const requestAt = async (url, from, method = 'GET') => {await waitFor(() => latest(url, from, method), url); return latest(url, from, method);};
     const cancelled = async record => waitFor(() => record.cancelled, `native cancellation: ${record.url}`);
 
-    // Two real controllers reading the same cached route remain independent.
+    // Disposing one More page cancels its account and holdings reads without
+    // affecting another instance that is still open.
     let index = records.length;
-    await page.evaluate(() => {
-      rootA = makeRoot('more');
-      a = mods.more.mount(rootA, {...ctx, renderExplanation() {}});
-    });
-    await waitFor(() => records.length >= index + 1, 'first quality read');
-    await page.evaluate(() => {rootB = makeRoot('more'); b = mods.more.mount(rootB, {...ctx, renderExplanation() {}});});
-    await waitFor(() => records.length >= index + 2, 'two independent quality reads');
-    await page.evaluate(() => a.dispose()); await cancelled(records[index]);
-    assert.equal(records[index + 1].cancelled, false);
-    records[index + 1].respond(quality); await page.evaluate(() => b.ready);
-    assert.match(await page.evaluate(() => rootB.querySelector('#moreIssueText').textContent), /警告 2/);
+    await page.evaluate(() => {rootA = makeRoot('more'); a = mods.more.mount(rootA, {...ctx});});
+    await waitFor(() => records.length >= index + 2, 'first account center reads');
+    await page.evaluate(() => {rootB = makeRoot('more'); b = mods.more.mount(rootB, {...ctx});});
+    await waitFor(() => records.length >= index + 4, 'second account center reads');
+    await page.evaluate(() => a.dispose());
+    await Promise.all(records.slice(index, index + 2).map(cancelled));
+    assert.ok(records.slice(index + 2, index + 4).every(record => !record.cancelled));
+    latest('/api/sync/accounts', index + 2).respond({groups: []});
+    latest('/api/holdings/by-account', index + 2).respond({by_account: []});
+    await page.evaluate(() => b.ready);
+    assert.equal(await page.evaluate(() => rootB.querySelector('#accountSyncStatus').textContent), '');
     index = records.length;
     await page.evaluate(() => {rootB.querySelector('#moreNavGrowthDetails').open = true;});
     const explanation = await requestAt('/api/portfolio/equity-bridge', index);
-    await page.evaluate(() => b.dispose()); await cancelled(explanation);
+    await page.evaluate(() => b.dispose());
+    await cancelled(explanation);
     await page.evaluate(() => reset());
-
-    // Cancellation is not the optional endpoint's successful null fallback.
-    index = records.length;
-    await page.evaluate(() => {root = makeRoot('data_sources'); feature = mods.dataSources.mount(root, {...ctx, location: {search: '?view=issues'}});});
-    await waitFor(() => records.length >= index + 2, 'issue quality/overview reads');
-    await page.evaluate(() => feature.dispose());
-    await Promise.all(records.slice(index).map(cancelled));
-    await page.evaluate(() => feature.ready);
-    await page.evaluate(() => reset());
-    index = records.length;
-    await page.evaluate(() => {
-      root = makeRoot('data_sources');
-      feature = mods.dataSources.mount(root, {...ctx, location: {search: ''}, mountSyncCenter: (root, options) => mods.syncCenter.mount(root, {...ctx, ...options})});
-    });
-    await waitFor(() => records.length >= index + 2, 'source quality/sync reads');
-    await page.evaluate(() => feature.dispose()); await Promise.all(records.slice(index).map(cancelled));
-    await page.evaluate(() => feature.ready); await page.evaluate(() => reset());
-    // Independently replacing the child sync read must not discard a valid
-    // quality payload that the data-source page is still waiting to display.
-    index = records.length;
-    await page.evaluate(() => {
-      root = makeRoot('data_sources');
-      feature = mods.dataSources.mount(root, {...ctx, location: {search: ''}, mountSyncCenter: (root, options) => {
-        child = mods.syncCenter.mount(root, {...ctx, ...options}); return child;
-      }});
-    });
-    await waitFor(() => records.length >= index + 2, 'independent source quality/sync reads');
-    const childRead = latest('/api/sync/center', index);
-    await page.evaluate(() => {second = outcome(child.reload());}); await cancelled(childRead);
-    latest('/api/portfolio/data-quality', index).respond({...quality, as_of: '2026-10-31'});
-    (await requestAt('/api/sync/center', records.indexOf(childRead) + 1)).respond({rows: [], summary: {}, workflows: []});
-    await page.evaluate(() => Promise.all([feature.ready, second]));
-    assert.equal(await page.evaluate(() => root.querySelector('#asof').textContent), '2026-10-31');
-    await page.evaluate(() => {feature.dispose(); reset();});
-    index = records.length;
-    await page.evaluate(() => {
-      root = makeRoot('data_sources'); feature = mods.syncCenter.mount(root, {...ctx, targets: {statusEl: root.querySelector('#statusLine')}});
-      first = outcome(feature.reload());
-    });
-    const oldSync = await requestAt('/api/sync/center', index);
-    await page.evaluate(() => {second = outcome(feature.reload());}); await cancelled(oldSync);
-    const newSync = await requestAt('/api/sync/center', records.indexOf(oldSync) + 1);
-    newSync.respond({rows: [], summary: {}, workflows: []});
-    assert.equal(await page.evaluate(() => first), 'AbortError'); assert.equal(await page.evaluate(() => second), 'resolved');
-    index = records.length;
-    await page.evaluate(() => {
-      triggered = mods.syncCenter.triggerSync({source: '合成拒绝发布', trigger_endpoint: '/api/fixture/blocked', trigger_body: {fixture: true}}, {
-        statusEl: root.querySelector('#statusLine'), post: mods.api.jpost, after: feature.reload, isActive: () => !feature.disposed,
-      });
-    });
-    const blocked = await requestAt('/api/fixture/blocked', index, 'POST');
-    blocked.respond({status: 'blocked', reason: '固定服务端禁止发布'});
-    const afterBlocked = await requestAt('/api/sync/center', index);
-    await page.evaluate(() => {third = outcome(feature.reload());}); await cancelled(afterBlocked);
-    await page.evaluate(() => triggered);
-    assert.match(await page.evaluate(() => root.querySelector('#statusLine').textContent), /固定服务端禁止发布/);
-    (await requestAt('/api/sync/center', records.indexOf(afterBlocked) + 1)).respond({rows: [], summary: {}, workflows: []});
-    await page.evaluate(() => third);
-    assert.match(await page.evaluate(() => root.querySelector('#statusLine').textContent), /固定服务端禁止发布/);
-    assert.equal(blocked.cancelled, false);
-    await page.evaluate(() => {feature.dispose(); reset();});
 
     // All sequential account endpoints are real reads. A submitted review is
     // intentionally left pending while its page exits, then completes once.

@@ -6,9 +6,8 @@
 | --- | --- | --- |
 | investments.html | 默认首页；持仓、交易、分析、风险、目标配置 | holdings、holdings_categories、transactions、lookthrough、portfolio_risk、portfolio_config；由对应 API 服务给出业务结果 |
 | ledger.html | 收支、资金流转、待确认与异常摘要 | ledger_cashflow；cashflow fact 与 ledger 服务 |
-| more.html | 账户中心、待处理和高级工具；账户中心默认折叠，打开后各组默认显示子账户摘要，点击「待核查」查看原因及关联记录 | more、account_sync；sync/accounts、portfolio/data-quality |
+| more.html | 账户中心和高级工具；账户中心默认折叠，打开后各组默认显示子账户摘要，点击「待核查」查看原因及关联记录 | more、account_sync；sync/accounts |
 | accounts.html | 单项操作页，由账户中心打开余额核准、收支打开转账匹配、导入资料打开导入配置 | bank_reconcile；accounts、bank-reconcile 服务 |
-| data_sources.html | 同步状态、覆盖与数据质量 | data_sources；sync center |
 | account_import.html | 导入暂存、核对、预检和显式发布入口 | account_import；访问、schema、预检和发布开关分别生效 |
 
 页面存在不代表权限已开启、事实可写或业务已验收。开发阶段见 [GitHub PR](https://github.com/hzfzzzi-ui/pams/pulls)，实际能力核对对应发布记录/配置，导入细节见 [契约](IMPORT_AND_FACTS.md)。
@@ -16,7 +15,7 @@
 ## 导航和兼容
 
 - 底部主导航为投资、收支、更多，风险主入口在投资页内。
-- 旧账户总览链接定位到更多页账户中心。待处理的余额问题按账户定位，转账问题进入收支的资金流转。导入携带发起页，完成或退出时返回该位置。
+- 旧账户总览链接定位到更多页账户中心。账户核查按账户定位，转账问题进入收支的资金流转。导入携带发起页，完成或退出时返回该位置。
 - index.html 重定向 investments.html；risk.html 重定向投资风险子页。
 - 旧 holdings、transactions、cashflow、backtest、strategy、watchlist 独立 HTML 入口在构建 nginx 配置中返回 404；研究页面及相关 JS 已移除。
 - nginx 配置由 frontend/Dockerfile 生成，是构建配置的唯一来源。
@@ -53,7 +52,7 @@
 
 ## 统一外壳与内容页
 
-`app.html` 持有唯一的“投资、收支、更多”主导航和居中内容视口，上限 430px，小屏铺满。默认展示投资；六个业务 HTML 是内容文档，移除各自的主导航。为保留既有控制器、DOM ID、导入编辑及 API 行为，第一阶段在同源 iframe 内加载内容文档，不将不同业务脚本合并到同一个全局 document。此实现不是已完成的业务模块组件化。
+`app.html` 持有唯一的“投资、收支、更多”主导航和居中内容视口，上限 430px，小屏铺满。默认展示投资；五个业务 HTML 是内容文档，移除各自的主导航。为保留既有控制器、DOM ID、导入编辑及 API 行为，第一阶段在同源 iframe 内加载内容文档，不将不同业务脚本合并到同一个全局 document。此实现不是已完成的业务模块组件化。
 
 Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数和片段；外壳内部通过 `content=1` 加载内容页。该参数仅区分页面呈现，不是授权/权限开关。`app_shell.js` 负责主导航、历史和同源页面跳转，不读取或计算金融数据；旧式程序跳转进入内层外壳时通过校验来源窗口及 origin 的消息回到外层。
 
@@ -69,7 +68,7 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 
 ```text
 应用入口 / 路由
-  -> 业务模块（投资、收支、更多、账户、数据源、导入）
+  -> 业务模块（投资、收支、更多、账户、导入）
        -> 页面状态、展示适配、共享组件
        -> 领域 API 客户端 -> 公共 HTTP 传输
 共享组件 -> 展示工具、设计变量
@@ -83,7 +82,7 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 | 投资持仓/图表 | `holdings.js`、`holdings_categories.js` → `features/investment/holdings/`、`charts/` | 列表/摘要控制器拥有各自请求、视图及清理；原财务展示位于明确的历史模型/投影 |
 | 分析/风险/配置 | `lookthrough.js`、`portfolio_risk.js`、`portfolio_config.js` → `features/analysis/`、`portfolio/` | 维度、下钻和图形消费原 API 结果，保留 NAV 启动依赖与缺失状态 |
 | 交易/收支 | `transactions.js`、`ledger_cashflow.js` → `features/transactions/`、`ledger/` | 筛选/展开归所属模块；编辑和显式命令与查询分离，默认十单及折叠入口保留 |
-| 账户/导入/工具 | `bank_reconcile.js`、`account_import.js`、`more.js`、`data_sources.js`、`sync_center.js` → 对应 `features/` | 保留各自工作流、冲突和能力判断；不合并不同写入协议 |
+| 账户/导入/工具 | `bank_reconcile.js`、`account_import.js`、`more.js` → 对应 `features/` | 保留各自工作流、冲突和能力判断；不合并不同写入协议 |
 | 共享 UI | `ui.js` → `app/page_bootstrap.js`、`components/bottom_sheet.js`、`data_state.js` | 共享组件不自行请求金融数据；模板通过所属根节点和显式浮层作用域操作 |
 | 展示工具 | `utils.js`、`shared/chart_theme.js`、`shared/dom_view.js` | 格式化、图表颜色和根节点内显示；历史算法不复制到新共享库 |
 | HTTP 与领域请求 | `api.js`、`shared/read_scope.js`、各域 requests；导入独立 client | 传输负责缓存/超时/取消，领域负责范围与回退；已提交写入不因页面退出自动重试 |
@@ -98,9 +97,9 @@ Nginx 将直接访问业务 HTML 的旧路径转入外壳，保留查询参数�
 
 底部浮层负责焦点进入/返回、Tab 边界、Esc、背景 inert 及滚动锁；关闭时移除浮层 DOM 和监听，重开创建干净实例。状态组件保持既有空/错/加载语义，不请求或推导金融结果。`replaceContentAddress` 只替换同页地址并通知外壳；外壳只接收已加载内容文档的替换通知，初始化规范化交由首次 load 记录，避免覆盖来源页历史。导入自己的 push/pop、修订与离页协议继续保留。
 
-更多、数据源及同步中心以 `features/<业务域>/controller.js` 持有根节点、请求生命周期和事件；纯模板在对应 `view.js`。旧入口导出兼容方法，每个根节点只挂载一个实例；反复 reload 不叠加同步监听，dispose 后的读取/写入结果不再更新旧页面或启动后续读取。已经提交的同步命令不被取消或自动重试。`pagehide` 清理，浏览器恢复已缓存文档的 `pageshow.persisted` 显式重挂载；不依赖脚本再次执行，也不重放写操作。
+更多页由 `features/more/controller.js` 管理账户中心、审计入口和读取生命周期。页面退出时取消未完成读取，浏览器恢复缓存页面时重新挂载。
 
-外壳 URL 的 `view` 表示页面文件名，业务内容的同名参数转存为 `content_view`，加载时还原。例如数据源“待处理”保留 `view=issues`；直接旧链接、刷新和后退保持该模式。此转义只解决导航参数重名，不更改 API 查询或权限。
+外壳 URL 的 `view` 表示页面文件名。
 
 投资风险/配置面板由 `features/portfolio/` 下各自的 controller 与 view、共享的只读 requests/read_session 组成。每个根节点拥有展开状态；等待投资首屏结束后才读取，退出或后续 reload 会使旧响应失效。清理解除监听并发出调用方取消信号；默认公共客户端同时支持 fetch/XHR 中止，generation 校验仍隔离不支持信号的注入读取。缓存文档恢复时重新挂载并恢复展开快照，配置详情仅由拥有它的控制器关闭。视图保留历史统计和格式化语义，不建立新的风险阈值、分类或再平衡规则。
 

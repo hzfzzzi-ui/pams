@@ -13,10 +13,8 @@ from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 
 def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_source_db, monkeypatch):
     from domain.accounts import account_overview as accounts
-    from endpoints import account_import, accounts as account_routes, ledger, sync_center
+    from endpoints import account_import, accounts as account_routes, ledger, account_sync
     from domain.imports import account_import_statement as statement, account_import_store
-    from domain.investments import portfolio_state
-    from domain.brokers.ibkr import ibkr_daily_close_read, ibkr_performance
     with psycopg2.connect(**empty_source_db) as conn:
         initialize_isolated_sources(conn)
         with conn.cursor() as cur:
@@ -33,21 +31,16 @@ def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_
     monkeypatch.setattr(account_import_store, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
     monkeypatch.setattr(ledger, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
     monkeypatch.setattr(accounts, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
-    monkeypatch.setattr(sync_center, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
+    monkeypatch.setattr(account_sync, 'get_conn', lambda: psycopg2.connect(**empty_source_db))
     monkeypatch.setattr(statement, 'profiles', lambda *args: {'ccb_test_1234':[{'statement_template':'ccb_credit_pdf'}]})
     monkeypatch.setattr(accounts, '_load_accounts_config', lambda: {'accounts': {'ccb_test_1234': {'account_type': 'funding', 'truth_source': 'bank_statement'}}})
     monkeypatch.setattr(accounts, '_load_bank_config', lambda: {})
-    monkeypatch.setattr(portfolio_state, '_load_accounts_config', lambda: {})
-    monkeypatch.setattr(ibkr_daily_close_read, 'configured', lambda: False)
-    monkeypatch.setattr(ibkr_performance, 'published_report_status', lambda conn: {'status':'missing', 'label':'缺数据',
-        'statement_as_of':None, 'active_row_count':0, 'expected_statement_as_of':None, 'last_attempt_status':None})
-    monkeypatch.setattr(sync_center, 'read_ibkr_reconciliation', lambda: {'status':'missing','label':'缺数据','details':''})
-    monkeypatch.setattr(sync_center, 'scheduler_health', lambda path: {'status':'missing','label':'缺数据','jobs':{}})
+    monkeypatch.setattr(account_sync, '_load_accounts_config', accounts._load_accounts_config)
     app = FastAPI()
     app.include_router(account_import.router, prefix='/api')
     app.include_router(ledger.router, prefix='/api')
     app.include_router(account_routes.router, prefix='/api')
-    app.include_router(sync_center.router, prefix='/api')
+    app.include_router(account_sync.router, prefix='/api')
     data = ('中国建设银行信用卡交易明细\n交易日,入账日,信用卡卡号,类型,入账币种,入账金额,交易描述\n'
             '20260101,20260102,****1234,消费,人民币,20.00,示例商户\n').encode('gb18030')
     with TestClient(app) as client:
@@ -99,9 +92,9 @@ def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_
         account = next(item for item in response.json()['accounts'] if item['account_code'] == 'ccb_test_1234')
         assert sum(item['row_count'] for item in account['statement_profiles']) == 1
         assert account['statement_balance'] is None
-        response = client.get('/api/sync/center')
+        response = client.get('/api/sync/accounts')
         assert response.status_code == 200, response.text
-        assert next(row for row in response.json()['rows'] if row['id'] == 'account-reconcile')['rows'] == 1
+        assert any(row['account_code'] == 'ccb_test_1234' for group in response.json()['groups'] for row in group['rows'])
         cash_id = ledger_data['review_rows'][0]['id']
         response = client.post(f'/api/ledger/rows/{cash_id}/update', json={
             'cashflow_type': 'operating_expense', 'category': '购物消费', 'subcategory': '测试'})
@@ -130,8 +123,6 @@ def test_empty_database_initializes_new_sources_and_accepts_reviewed_cash(empty_
         account = next(item for item in response.json()['accounts'] if item['account_code'] == 'ccb_test_1234')
         assert account['statement_profiles'][0]['source_evidence_status'] == 'unknown'
         assert account['statement_profiles'][0]['row_count'] is None
-        response = client.get('/api/sync/center')
-        assert next(row for row in response.json()['rows'] if row['id'] == 'account-reconcile')['rows'] is None
         response = client.get('/api/ledger/workbench?month=2026-01')
         row = next(item for item in response.json()['recent_rows_month'] if item['account_code'] == 'ccb_test_1234')
         assert row['source_evidence_status'] == 'unknown' and row['amount_cny'] is None

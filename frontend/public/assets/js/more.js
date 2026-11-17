@@ -3,8 +3,6 @@ import { renderNavGrowthExplanationPanel } from './nav_growth_explanation.js';
 import { openBottomSheet, closeBottomSheet, setActiveNav } from './ui.js';
 import { mount as mountPage, dispose as disposePage } from './features/more/controller.js';
 
-export { issueSummary } from './features/more/controller.js';
-
 export function mount(root = document.body, context = {}) {
   return mountPage(root, {
     get: jget,

@@ -15,7 +15,7 @@ let releaseAccountLoad;
 let workflowFixtures = false;
 const server = createServer(async (req,res) => {
   const url = new URL(req.url,'http://localhost');
-  if (/\/(investments|ledger|more|accounts|data_sources|account_import)\.html$/.test(url.pathname) && url.searchParams.get('content') !== '1') {
+  if (/\/(investments|ledger|more|accounts|account_import)\.html$/.test(url.pathname) && url.searchParams.get('content') !== '1') {
     res.writeHead(302,{location:`/app.html?view=${url.pathname.slice(1)}&${url.searchParams}`});res.end();return;
   }
   const file=path.resolve(root,'.'+url.pathname);
@@ -50,8 +50,6 @@ await context.route('**/*', async route => {
     }));
     const fixtures = {
       '/api/sync/accounts': {groups:[{label:'示例银行', rows:[{...accounts[0], label:'示例储蓄卡', active:true, can_import:true, summary:{status:'normal'}}]}]},
-      '/api/portfolio/data-quality': {data_quality:{summary:{status:'warning',warning_count:1,error_count:0},checks:[
-        {id:'account_balance_coverage',status:'attention',details:{missing_accounts:['fixture']}}]}},
       '/api/accounts/overview': {accounts},
       '/api/ledger/workbench': url.searchParams.get('view') === 'stream'
         ? {rows:recentRows, next_offset:null}
@@ -467,18 +465,10 @@ try {
     await page.goBack();
     await page.frameLocator('#page-content').locator('body.page-more').waitFor();
     assert.equal(new URL(page.url()).searchParams.get('view'), 'more.html');
-    await page.frameLocator('#page-content').locator('#moreIssues').click();
-    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
-    await page.waitForFunction(() => new URL(location).searchParams.get('content_view') === 'issues');
-    await page.reload();
-    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
-    assert.equal(new URL(page.url()).searchParams.get('content_view'), 'issues');
-    await page.goto(`${base}/data_sources.html?view=issues#dataQuality`);
-    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
-    await page.waitForFunction(() => new URL(location).searchParams.get('content_view') === 'issues');
-    await page.reload();
-    await page.frameLocator('#page-content').locator('body.issues-only').waitFor();
-    for (const target of ['accounts.html#overview','data_sources.html','account_import.html']) {
+    assert.equal(await page.frameLocator('#page-content').getByText('数据诊断', {exact:true}).count(), 0);
+    await page.goto(`${base}/app.html?view=data_sources.html`);
+    await page.locator('[data-page="investments.html"][aria-current]').waitFor();
+    for (const target of ['accounts.html#overview','account_import.html']) {
       await page.frameLocator('#page-content').locator('body').evaluate((node,href) => location.assign(href),target);
       const expected = target.startsWith('accounts.html') ? 'more.html' : target.split('#')[0];
       await page.waitForFunction(name => document.querySelector('#page-content').contentWindow.location.pathname.endsWith(name),expected);
@@ -503,8 +493,7 @@ try {
   const workflow = page.frameLocator('#page-content');
   await workflow.getByRole('button',{name:'示例储蓄卡',exact:true}).waitFor();
   await page.waitForFunction(() => new URL(location).searchParams.get('view') === 'more.html' && location.hash === '#account-center');
-  await workflow.locator('#moreIssues').click();
-  await workflow.getByRole('link',{name:'核对 示例储蓄卡 ›'}).click();
+  await page.goto(`${base}/app.html?view=more.html&account=fixture&review=balance#account-center`);
   const review = workflow.getByRole('dialog');
   await review.getByText('示例储蓄卡 · 待核查').waitFor();
   await review.getByRole('link',{name:'余额核准'}).click();
@@ -588,7 +577,6 @@ try {
     ledger: '[data-ledger-tab="recent"]',
     more: '#moreAdvanced > summary',
     accounts: '#accountTaskBack',
-    data_sources: '.issueDiagnostics',
     account_import: '#flow-back',
   };
   for (const {width,height,top,bottom,left,right} of [
@@ -599,7 +587,7 @@ try {
     await session.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:true});
     await session.send('Emulation.setSafeAreaInsetsOverride', {insets:{top,bottom,left,right}});
     for (const [key,selector] of Object.entries(firstControls)) {
-      const contentView = key === "data_sources" ? "&content_view=issues" : key === "accounts" ? "&task=balance" : "";
+      const contentView = key === "accounts" ? "&task=balance" : "";
       await page.goto(`${base}/app.html?view=${key}.html${contentView}`);
       const frame = page.frameLocator('#page-content');
       await frame.locator('html.pams-content').waitFor({state:'attached'});
@@ -625,7 +613,7 @@ try {
   }
   assert.deepEqual(failures,[]);
   assert.deepEqual(missingAssets,[]);
-  console.log('Shell: four desktop widths, six pages at three touch sizes, safe areas, tabs and history passed with fixed API fixtures.');
+  console.log('Shell: four desktop widths, five pages at three touch sizes, safe areas, tabs and history passed with fixed API fixtures.');
 } catch (error) {
   console.error(JSON.stringify({url:page.url(),frames:page.frames().map(f=>f.url()),failures}));
   throw error;

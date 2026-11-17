@@ -4,15 +4,6 @@ import { accountSyncMetadata } from '../accounts/account_sync_view.js';
 import { showAccountReview } from '../accounts/account_review_sheet.js';
 import { accountCenterHref } from '../../app/routes.js';
 
-export function issueSummary(payload) {
-  const summary = payload?.data_quality?.summary;
-  if (!summary || !['ok', 'warning', 'error'].includes(summary.status) ||
-      !Number.isInteger(summary.error_count) || !Number.isInteger(summary.warning_count) ||
-      summary.error_count < 0 || summary.warning_count < 0) throw new Error('数据状态暂不可用');
-  return summary.status === 'ok' ? null : `错误 ${summary.error_count} · 警告 ${summary.warning_count}`;
-}
-
-
 const mounted = new WeakMap();
 
 // Each page instance owns its queries, listeners and pending response lifetime.
@@ -24,8 +15,6 @@ export function mount(root, context) {
   const {get, renderExplanation, openSheet, closeSheet, bootstrap = () => {}, win = root.ownerDocument?.defaultView} = context;
   const reads = createReadScope({get, signal: context.signal, AbortController: win?.AbortController});
   const find = id => root.querySelector(`#${id}`);
-  const row = find('moreIssues');
-  const label = find('moreIssueText');
   const panel = find('moreNavGrowthExplanationPanel');
   const details = find('moreNavGrowthDetails');
   const accountCenter = find('account-center');
@@ -84,24 +73,6 @@ export function mount(root, context) {
     if (accountCenter && (targetAccount || targetInstitution || location?.hash === '#account-center')) accountCenter.open = true;
   }
 
-  async function loadIssues() {
-    try {
-      const payload = await reads.get('issues', '/api/portfolio/data-quality?baseCurrency=CNY', {cache: false});
-      if (!alive) return;
-      const text = issueSummary(payload);
-      if (row) row.hidden = text === null;
-      const title = row?.querySelector('strong');
-      if (title) title.textContent = '待处理';
-      if (label && text !== null) label.textContent = text;
-    } catch (error) {
-      if (!alive || isReadCancelled(error)) return;
-      if (row) row.hidden = false;
-      const title = row?.querySelector('strong');
-      if (title) title.textContent = '数据状态暂不可用';
-      if (label) label.textContent = '';
-    }
-  }
-
   function loadNavGrowthExplanationOnce() {
     if (!alive || !panel || navGrowthLoaded) return Promise.resolve();
     if (navGrowthPending) return navGrowthPending;
@@ -150,7 +121,7 @@ export function mount(root, context) {
   win?.addEventListener('pagehide', dispose);
   openRequestedAccounts();
   if (details?.open) void loadNavGrowthExplanationOnce();
-  controller.ready = Promise.all([loadIssues(), loadAccountSync()]);
+  controller.ready = loadAccountSync();
   return controller;
 }
 

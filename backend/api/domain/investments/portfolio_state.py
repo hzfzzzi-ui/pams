@@ -47,12 +47,6 @@ PORTFOLIO_STATE_KEYS = [
     "data_quality",
 ]
 
-DATA_QUALITY_PAYLOAD_KEYS = [
-    "as_of",
-    "base_currency",
-    "data_quality",
-]
-
 ACCOUNT_BALANCE_FIELDS = [
     "account_code",
     "parent_account_code",
@@ -1401,36 +1395,6 @@ def build_portfolio_state_from_parts(
     return _norm(state)
 
 
-def build_data_quality_payload_from_parts(
-    *,
-    as_of: Date | str | None,
-    base_currency: str,
-    account_balances: list[dict[str, Any]] | None = None,
-    investment_positions: list[dict[str, Any]] | None = None,
-    investment_transactions: list[dict[str, Any]] | None = None,
-    cash_transactions: list[dict[str, Any]] | None = None,
-    transfer_matches: list[dict[str, Any]] | None = None,
-    fx_rates: list[dict[str, Any]] | None = None,
-    valuation_series: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """Assemble the lightweight read-only data-quality payload."""
-    return _norm(
-        {
-            "as_of": as_of or _view_as_of(),
-            "base_currency": str(base_currency or "CNY").upper(),
-            "data_quality": build_data_quality(
-                account_balances=account_balances or [],
-                investment_positions=investment_positions or [],
-                investment_transactions=investment_transactions or [],
-                cash_transactions=cash_transactions or [],
-                transfer_matches=transfer_matches or [],
-                fx_rates=fx_rates or [],
-                valuation_series=valuation_series or [],
-            ),
-        }
-    )
-
-
 def load_current_portfolio_inputs(cur, *, base_currency: str, lookthrough: bool = False):
     """Current balances and positions; no transaction or valuation history."""
     base = str(base_currency or 'CNY').upper()
@@ -1505,13 +1469,3 @@ def build_portfolio_state(
     return build_portfolio_state_from_parts(
         **parts,
     )
-
-
-def build_portfolio_data_quality(
-    *,
-    base_currency: str = "CNY",
-    conn_factory: Callable[[], Any] = get_conn,
-) -> dict[str, Any]:
-    """Read existing PAMS sources and return only PortfolioState data-quality metadata."""
-    parts = load_portfolio_state_parts(base_currency=base_currency, conn_factory=conn_factory)
-    return build_data_quality_payload_from_parts(**parts)

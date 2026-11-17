@@ -64,42 +64,12 @@ def _formal_html_pages() -> list[str]:
     return sorted(path.name for path in PUBLIC_ROOT.glob("*.html"))
 
 
-def test_data_sources_page_exposes_portfolio_data_quality_panel() -> None:
-    """Guard the data configuration page's unified data-quality summary."""
-
-    html = _read_public("data_sources.html")
-    js = (_read_public("assets/js/data_sources.js") +
-          _read_public("assets/js/features/data_sources/controller.js") +
-          _read_public("assets/js/features/data_sources/view.js"))
-
-    assert 'id="dataQuality"' in html
-    assert "/api/portfolio/data-quality?baseCurrency=CNY" in js
-    assert "/api/portfolio/state?baseCurrency=CNY" not in js
-    assert "data_quality" in js
-    assert "????" not in js
-
-    for label in [
-        "覆盖范围",
-        "最新日期",
-        "缺数据",
-        "行动提示",
-        "账户余额",
-        "投资持仓",
-        "汇率",
-        "核对账户余额",
-        "当前无阻塞动作",
-    ]:
-        assert label in js
-
-    for href in [
-        "accountCenterHref()",
-        "ledger.html#transfers",
-        "investments.html",
-        "investments.html#investment-ledger",
-        "ledger.html",
-        "data_sources.html#dataQuality",
-    ]:
-        assert href in js
+def test_data_diagnostics_page_and_navigation_are_retired() -> None:
+    for name in ("data_sources.html", "assets/js/data_sources.js", "assets/js/sync_center.js", "assets/css/pages/data-sources.css"):
+        assert not (PUBLIC_ROOT / name).exists()
+    for name in ("more.html", "accounts.html", "assets/js/app/routes.js", "assets/js/features/investment/holdings/summary_view.js"):
+        assert "data_sources.html" not in _read_public(name)
+    assert "location = /data_sources.html { return 404; }" in (REPO_ROOT / "frontend/Dockerfile").read_text(encoding="utf8")
 
 
 def test_frontend_shell_removed_components_stay_removed() -> None:
@@ -164,9 +134,7 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "PAMS Core List Template v1",
         "body.app-shell .pamsList",
         "body.app-shell .ledgerListRow",
-        "body.app-shell .syncCenterRow",
         "body.app-shell .accountIssueRow",
-        "body.app-shell .sourceHealthRow",
         "body.app-shell .mobileHoldingRow",
         "body.app-shell .moreRow",
         "body.app-shell .tradeReviewDirectionTrade",
@@ -191,8 +159,6 @@ def test_frontend_design_system_layer_is_loaded_after_legacy_styles() -> None:
         "PAMS Visual Cohesion v1",
         "body.app-shell .statusbar",
         "body.app-shell .appWorkHeader p",
-        "body.app-shell .moreRow.accent-data",
-        "body.app-shell .moreRow.accent-risk",
         "prefers-reduced-motion",
     ]:
         assert token in design_css
@@ -652,7 +618,6 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
         "InvestmentSummaryHeader",
         "ProfitContributionPanel",
         "ReturnMethodBadge",
-        "DataQualityBanner",
         "CategoryDetailTabs",
         "openCategoryDetailShell",
         "isCategoryDetailOpen",
@@ -1388,18 +1353,11 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
                _read_public("assets/js/features/more/controller.js"))
     nav_growth_js = _read_public("assets/js/nav_growth_explanation.js")
     accounts_html = _read_public("accounts.html")
-    data_sources_html = _read_public("data_sources.html")
-    data_sources_js = (_read_public("assets/js/data_sources.js") +
-          _read_public("assets/js/features/data_sources/controller.js") +
-          _read_public("assets/js/features/data_sources/view.js"))
-    sync_center_js = (_read_public("assets/js/sync_center.js") +
-                      _read_public("assets/js/features/sync_center/controller.js") +
-                      _read_public("assets/js/features/sync_center/view.js"))
     ui_js = _read_public("assets/js/ui.js")
     portfolio_config_js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/config_controller.js", "assets/js/features/portfolio/config_view.js", "assets/js/features/portfolio/requests.js")))
     portfolio_risk_js = ("\n".join(_read_public(path) for path in ("assets/js/features/portfolio/risk_controller.js", "assets/js/features/portfolio/risk_view.js", "assets/js/features/portfolio/requests.js")))
 
-    for low_frequency_html in [html, accounts_html, data_sources_html]:
+    for low_frequency_html in [html, accounts_html]:
         assert "app-low-frequency" in low_frequency_html
         assert 'data-page-role="low-frequency"' in low_frequency_html
 
@@ -1427,7 +1385,6 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert "advisory_checks" in nav_growth_js
     assert "总账闭合 · 归因口径差" in nav_growth_js
 
-    assert html.count('href="data_sources.html?view=issues#dataQuality"') == 1
     assert 'href="account_import.html"' not in html
     assert "createAccountSyncLoader" in more_js
     for removed_text in ["账户核准", "待确认流水", "投资同步", "资产结构", ">同步中心<", "投资交易记录", "内部转账匹配"]:
@@ -1443,15 +1400,10 @@ def test_more_page_consolidates_low_frequency_entries() -> None:
     assert 'href="investments.html#portfolio-risk-disclosure"' not in html
     assert "./nav_growth_explanation.js" in more_js
     assert "assets/js/bank_reconcile.js" in accounts_html
-    assert "assets/js/data_sources.js" in data_sources_html
-    assert "./sync_center.js" in data_sources_js
-    assert "./ui.js" in sync_center_js
     data_state_js = _read_public("assets/js/components/data_state.js")
     assert "function dataStateHtml" in data_state_js
     assert "function renderDataState" in data_state_js
     assert "export { dataStateHtml, renderDataState }" in ui_js
-    assert "renderDataState(el" in data_sources_js
-    assert "dataStateHtml({" in sync_center_js
     assert "dataStateHtml({" in portfolio_config_js
     assert "dataStateHtml({" in portfolio_risk_js
 
@@ -1508,9 +1460,7 @@ def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     # Preload uses the versions actually loaded by the page, not a stale duplicate manifest.
     assert "collectPrefetchResources(doc)" in bootstrap_js
     assert "script[type=\"module\"][src]" in bootstrap_js
-    for path in ["/api/accounts/overview", "/api/sync/center",
-                 "/api/portfolio/data-quality?baseCurrency=CNY"]:
-        assert path in preload_block
+    assert "/api/accounts/overview" in preload_block
     assert "/api/ledger/workbench" not in preload_block
     assert "/api/account-import" not in preload_block
     assert "risk_metrics.js" not in ui_js
@@ -1598,17 +1548,6 @@ def test_investment_holding_rows_escape_imported_fields() -> None:
     assert "${esc(holdingGroupLabel(r))}" in holdings_js
     assert "${esc(row.name || row.symbol || '缺数据')}" in holdings_js
     assert "${row.name || row.symbol || '缺数据'}" not in holdings_js
-
-
-def test_sync_center_does_not_report_blocked_http_200_as_success() -> None:
-    js = _read_public("assets/js/features/sync_center/controller.js")
-    assert "const result = await post(" in js
-    assert "post: jpost" in _read_public("assets/js/sync_center.js")
-    assert "result?.success === false" in js
-    assert "['blocked', 'failed', 'error'].includes(result?.status)" in js
-    assert "throw new Error(result.reason || result.error" in js
-    assert "sync_center.js" in _read_public("assets/js/data_sources.js")
-    assert "data_sources.js" in _read_public("data_sources.html")
 
 
 def test_daily_return_quality_is_separate_from_displayed_amounts() -> None:
