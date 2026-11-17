@@ -234,7 +234,7 @@ for (const fallback of [false, true]) {
   const loading = controller.loadReturnsOnce();
   const estimated = {rows: [], estimated_series: {label: '同花顺估算', source_through: '2026-09-30',
     rows: [{date: '2026-09-30', display_return_rate: '0.1'}, {date: '2026-10-26', display_return_rate: '0.2'}]}};
-  test.resolve(test.requests, nav, {rows: [], status: 'unavailable'});
+  test.resolve(test.requests, nav, {rows: [], status: 'unavailable', reason: 'income_evidence_unknown'});
   await settle();
   assert.equal(test.requests.length, 3);
   assert.match(test.requests[2].url, /section=a_stock/);
@@ -244,7 +244,11 @@ for (const fallback of [false, true]) {
   assert.equal(chart.data.datasets.find(row => row.returnSeriesKey === 'a_stock').hidden, false);
   const button = key => test.elements.investmentReturnToggle.buttons.find(item => item.dataset.returnSeries === key);
   const status = test.elements.investmentReturnSeriesStatus;
-  assert.equal(status.hidden, true);
+  assert.equal(status.hidden, false);
+  assert.match(status.textContent, /组合总收益率待核验/);
+  const total = chart.data.datasets.find(row => row.returnSeriesKey === 'total');
+  assert.equal(total.hidden, true);
+  assert.ok(total.data.every(value => value === null));
   assert.notEqual(button('us_stock').disabled, true);
   button('us_stock').fire('click');
   assert.match(test.requests[3].url, /section=us_stock/);
@@ -255,11 +259,11 @@ for (const fallback of [false, true]) {
   assert.equal(button('us_stock').attrs['aria-pressed'], 'false');
   assert.equal(button('a_stock').attrs['aria-pressed'], 'true');
   button('total').fire('click');
-  assert.match(status.textContent, /部分覆盖.*同花顺/);
-  assert.equal(button('total').attrs['aria-pressed'], 'true');
+  assert.match(status.textContent, /组合总收益率待核验/);
+  assert.equal(button('total').attrs['aria-pressed'], 'false');
   test.elements.investmentReturnWindowToggle.buttons.find(item => item.dataset.returnWindow === '1w').fire('click');
   assert.equal(status.hidden, false);
-  assert.equal(button('total').attrs['aria-pressed'], 'true');
+  assert.equal(button('total').attrs['aria-pressed'], 'false');
   controller.dispose();
 }
 
@@ -282,6 +286,24 @@ for (const fallback of [false, true]) {
   assert.equal(us.data[chart.data.labels.indexOf('2026-09-30')], 25);
   assert.equal(button().attrs['aria-pressed'], 'true');
   assert.match(test.elements.investmentReturnSeriesStatus.textContent, /未实现盈亏/);
+  controller.dispose();
+}
+
+{
+  const test = await fixture();
+  const controller = test.create();
+  const loading = controller.loadReturnsOnce();
+  test.resolve(test.requests, nav, {rows: [
+    {...returns.rows[0], daily_return_rate: 0, total_pnl: 0, market_value: 0},
+    {...returns.rows[1], daily_return_rate: null, total_pnl: null, market_value: null},
+  ]});
+  await loading;
+  const chart = test.window.__investmentReturnChart;
+  const tooltip = chart.options.plugins.tooltip.callbacks.label;
+  const dataset = chart.data.datasets.find(row => row.returnSeriesKey === 'total');
+  const metrics = index => plain(tooltip({label: chart.data.labels[index], raw: dataset.data[index], dataset})).slice(1);
+  assert.deepEqual(metrics(0), ['单日收益率：0', '累计投资收益：¥0', '投资市值：¥0']);
+  assert.deepEqual(metrics(1), ['单日收益率：—', '累计投资收益：—', '投资市值：—']);
   controller.dispose();
 }
 

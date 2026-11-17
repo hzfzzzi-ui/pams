@@ -46,7 +46,7 @@ const fundEstimate = new Map([['a_fund', {rows:[{date:'2026-01-05', display_retu
 const mixedSpecs = [...metalsSpec, {key:'a_stock'}, {key:'a_fund'}, {key:'us_stock'}];
 const zeroBefore = new Map([['precious_metal', '2026-01-03'], ['a_fund', '2026-01-05']]);
 const mixed = model.buildInvestmentReturnWindowData([], alignedWithGold, mixedSpecs, 'ytd', true,
-  [], fundEstimate, new Map(), null, zeroBefore);
+  [], fundEstimate, new Map(), zeroBefore);
 assert.deepEqual(Array.from(mixed.labels), [...alignedDates, '2026-01-05']);
 for (const {key} of mixedSpecs) assert.equal(mixed.sectionDataByKey.get(key).data[0], 0);
 const gold = mixed.sectionDataByKey.get('precious_metal').data;
@@ -55,7 +55,7 @@ assert.equal(gold[3], null);
 assert.ok(Math.abs(gold[2] - 3.6) < 1e-10);
 assert.ok(Math.abs(gold[4] - (-30.87)) < 1e-10);
 const goldOnly = model.buildInvestmentReturnWindowData([], verifiedGold, metalsSpec, 'ytd', true,
-  [], new Map(), new Map(), null, new Map([['precious_metal', '2026-01-03']]));
+  [], new Map(), new Map(), new Map([['precious_metal', '2026-01-03']]));
 assert.deepEqual(Array.from(goldOnly.labels), ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-05']);
 const metalsWeek = model.buildInvestmentReturnWindowData([], holdingReturn, metalsSpec, '1w', true);
 assert.equal(metalsWeek.sectionDataByKey.get('precious_metal').data.at(-1), null);

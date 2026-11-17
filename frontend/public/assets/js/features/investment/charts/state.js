@@ -41,9 +41,7 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
   });
   Object.assign(state, {
     rows,
-    // The verified Tonghuashun estimate is the only current partial series using
-    // cumulative profit / net invested capital. Other sections can use TWR.
-    partialTotal: sectionResponses[sectionSpecs.findIndex(spec => spec.key === 'a_stock')]?.estimated_series ?? null,
+    totalReturnReason: resp.reason,
     sectionRowsByKey,
     sectionEstimates,
     sectionZeroBefore: new Map(sectionSpecs.map((spec, index) =>
@@ -58,8 +56,6 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
     visibleRows: [],
     visibleEvents: [],
     topContribution: null,
-    pnlMap: new Map(),
-    valueMap: new Map(),
   });
   return updateVisibleReturnState(state);
 }
@@ -74,15 +70,11 @@ export function updateVisibleReturnState(state) {
     state.events,
     state.sectionEstimates,
     state.sectionGapDates,
-    state.partialTotal,
     state.sectionZeroBefore,
   );
-  state.totalCoverage = windowData.totalCoverage;
   state.visibleRows = windowData.rows;
   state.visibleEvents = windowData.visibleEvents;
   state.topContribution = windowData.topContribution;
-  state.pnlMap = windowData.pnlMap;
-  state.valueMap = windowData.valueMap;
   return windowData;
 }
 
