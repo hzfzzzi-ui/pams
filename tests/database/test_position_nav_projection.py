@@ -134,3 +134,25 @@ def test_position_nav_uses_market_close_and_reports_missing_fx(empty_source_db):
             assert rows[0]["latest_known_components"][code]["through"] == observed.isoformat()
             assert rows[1]["netWorth"] is None and rows[1].get("availableNetWorth") is None
             assert rows[1]["valuation_error"] == "market_value_unavailable"
+
+
+def test_projected_reference_reads_owner_ratio_once_per_account(empty_source_db):
+    first = date(2026, 11, 10)
+    dates = [first + timedelta(days=i) for i in range(30)]
+    ratio_reads = []
+
+    def owner_ratio(code):
+        ratio_reads.append(code)
+        return Decimal("0.5")
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            estimates = load_position_nav_estimates(
+                cur, accounts={"archived": {"account_balance_reference": {
+                    "as_of": first.isoformat(), "amount": "200", "currency": "CNY", "source": "test",
+                }}}, dates=dates, rate_at=lambda *_: Decimal(1),
+                owner_ratio_case_sql=lambda _: ("1", []), account_owner_ratio=owner_ratio,
+            )
+    assert ratio_reads == ["archived"]
+    assert [estimates[day]["archived"] for day in dates] == [(Decimal(100), first, first)] * len(dates)
