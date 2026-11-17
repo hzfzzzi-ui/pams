@@ -201,6 +201,7 @@ def cash_flow_adjusted_return_rows(
     dates: list[Date],
     values: dict[Date, Decimal],
     flows: dict[Date, Decimal],
+    use_opening_flow_basis: bool = False,
 ) -> list[dict[str, Decimal | Date]]:
     """Build a time-weighted return curve after excluding net capital flows."""
     rows: list[dict[str, Decimal | Date]] = []
@@ -220,6 +221,11 @@ def cash_flow_adjusted_return_rows(
 
         if prev_value is None or abs(prev_value) <= eps:
             daily_return = Decimal("0")
+            # With a known opening outlay, the first close already has a gain
+            # or loss relative to that outlay. A preexisting holding starts at zero.
+            if prev_value is None and use_opening_flow_basis and net_flow > eps:
+                daily_return = (value - net_flow) / net_flow
+                twr = daily_return
         else:
             daily_return = (value - prev_value - net_flow) / abs(prev_value)
             twr = (Decimal("1") + twr) * (Decimal("1") + daily_return) - Decimal("1")

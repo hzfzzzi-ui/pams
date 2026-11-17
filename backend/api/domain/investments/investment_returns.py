@@ -41,6 +41,7 @@ from domain.investments.investment_return_data import (
     _ibkr_trade_flow_events,
     _investment_transaction_flow_events,
     _reported_account_return_adjustments,
+    _restore_single_purchase_gold_history,
     _section_first_activity_date,
     _snapshot_category_value_series,
     _tonghuashun_cost_series,
@@ -994,11 +995,14 @@ def build_section_return_series_payload(
     cfg = SECTION_RETURN_CONFIG[section]
 
     requested_start = start_date
-    uses_trade_reconstruction = section in {"a_stock", "us_stock"}
-    first_activity = _section_first_activity_date(cur, section) if uses_trade_reconstruction else None
+    gold_history_enabled = (
+        section == "precious_metal" and base_currency == "CNY" and _table_exists(cur, "source_records")
+    )
+    uses_activity_start = section in {"a_stock", "us_stock"} or gold_history_enabled
+    first_activity = _section_first_activity_date(cur, section) if uses_activity_start else None
     if first_activity and section == "a_stock":
         start_date = first_activity
-    elif first_activity and first_activity > start_date:
+    elif first_activity and start_date < first_activity <= terminal_date:
         start_date = first_activity
     dates = series_dates(start_date, terminal_date, interval)
     fx_timelines = load_fx_timelines(cur, base_currency)
@@ -1095,6 +1099,12 @@ def build_section_return_series_payload(
             owner_ratio_case_sql=owner_ratio_case_sql,
             excluded_holding_accounts=excluded_holding_accounts,
         )
+        opening_flow = None
+        if gold_history_enabled:
+            opening_flow = _restore_single_purchase_gold_history(
+                cur, dates=dates, values=values, ownership_ratio=account_owner_ratio,
+                excluded_accounts=excluded_holding_accounts,
+            )
         # A prior position provides the opening basis even with no trades in the window.
         observed_start = next((
             day for day in dates if day in values and (values[day] is None or values[day] > 0)
@@ -1114,6 +1124,8 @@ def build_section_return_series_payload(
                 minor_category=cfg.get("minor_category"),
                 account_owner_ratio=account_owner_ratio,
             )
+            if opening_flow is not None and opening_flow[0] >= observed_start:
+                events.append(opening_flow)
 
     if missing_valuation_base or any(value is None for value in values.values()) or any(
         amount is None for _, amount in events
@@ -1161,7 +1173,10 @@ def build_section_return_series_payload(
             payload["today_window"] = None
         return payload
     flows = _bucket_flow_events(dates, events)
-    rows = _cash_flow_adjusted_return_rows(dates=dates, values=values, flows=flows)
+    rows = _cash_flow_adjusted_return_rows(
+        dates=dates, values=values, flows=flows,
+        use_opening_flow_basis=section == "precious_metal" and start_date == first_activity,
+    )
     for row in rows:
         row["display_return_rate"] = (
             row["capital_return_rate"]
