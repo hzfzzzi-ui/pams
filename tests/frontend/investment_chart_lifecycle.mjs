@@ -29,9 +29,10 @@ class Target {
 class Element extends Target {
   constructor(id) {
     super(); this.id = id; this.dataset = {}; this.style = {}; this.attrs = {};
-    this.buttons = []; this.children = []; this.draws = 0; this.classList = { toggle() {} };
+    this.buttons = []; this.children = []; this.draws = 0; this.lineCount = 0; this.classList = { toggle() {} };
     this.drawing = new Proxy({}, { get: (_, key) => (...args) => {
-      if (key === 'clearRect') this.draws += 1;
+      if (key === 'clearRect') { this.draws += 1; this.lineCount = 0; }
+      if (key === 'lineTo') this.lineCount += 1;
       return { addColorStop() {} };
     } });
   }
@@ -117,6 +118,31 @@ async function fixture({ fallback = false } = {}) {
   const create = () => module.namespace.createInvestmentChartController({ root: document, host: window, presenters, ChartClass: fallback ? undefined : Chart });
   const resolve = (list = requests, nextNav = nav, nextReturn = returns) => list.forEach(req => req.resolve(structuredClone(req.url.startsWith('/nav/') ? nextNav : nextReturn)));
   return { api: module.namespace, create, document, window, elements, requests, charts, storage, resolve };
+}
+
+for (const fallback of [false, true]) {
+  const test = await fixture({ fallback });
+  const loading = test.create().loadNavOnce();
+  test.resolve(test.requests, { rows: [
+    { date: '2026-10-20', netWorth: '1000' },
+    { date: '2026-10-21', availableNetWorth: '600', available_accounts: ['fund'] },
+    { date: '2026-10-22', availableNetWorth: '610', available_accounts: ['stock'] },
+    { date: '2026-10-23', netWorth: null, valuation_error: 'market_value_unavailable' },
+    { date: '2026-10-24', netWorth: '1030' },
+  ] });
+  await loading;
+  const chart = test.window.__investmentNavChart;
+  const [dataset] = chart.data.datasets;
+  assert.deepEqual(plain(dataset.data), [1000, 600, 610, null, 1030]);
+  if (fallback) {
+    // Four grid lines and two NAV segments. The unavailable day is not bridged.
+    assert.equal(test.elements.investmentNavChart.lineCount, 6);
+  } else {
+    assert.equal(dataset.spanGaps, false);
+    assert.equal(dataset.segment.borderColor, undefined);
+    assert.deepEqual(plain(dataset.segment.borderDash({ chart, datasetIndex: 0, p0DataIndex: 0, p1DataIndex: 1 })), [5, 4]);
+    assert.deepEqual(plain(dataset.segment.borderDash({ chart, datasetIndex: 0, p0DataIndex: 1, p1DataIndex: 2 })), [5, 4]);
+  }
 }
 
 for (const fallback of [false, true]) {

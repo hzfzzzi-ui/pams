@@ -106,6 +106,7 @@ def test_gold_close_is_shared_and_preserves_bank_holding(isolated, monkeypatch):
                     (reviewed['source_snapshot_sha256'],Json(result),batch))
         finish_holding_change(cur, holding_id=identifier, source_item_id=item)
         cur.execute((ROOT / "database/postgres/schema/004_fx_rates.sql").read_text(encoding="utf-8"))
+        cur.execute((ROOT / "database/postgres/schema/010_market_ohlcv.sql").read_text(encoding="utf-8"))
         schema = (ROOT / "database/postgres/schema/025a_asset_snapshots.sql").read_text(encoding="utf-8")
         cur.execute(schema[schema.index("CREATE TABLE IF NOT EXISTS public.market_observations"):])
         cur.execute("""INSERT INTO pams_asset_master(asset_id,primary_symbol,canonical_name,asset_type,
@@ -115,7 +116,8 @@ def test_gold_close_is_shared_and_preserves_bank_holding(isolated, monkeypatch):
     monkeypatch.setattr(prices, '_get_conn', lambda: psycopg2.connect(**params))
     day = date.fromisoformat(DAY)
     from domain.investments.investment_return_data import _snapshot_category_value_series
-    from domain.investments.valuation_nav import _investment_snapshot_series, build_weekly_nav_rows
+    from domain.investments.position_nav_projection import load_position_nav_estimates
+    from domain.investments.valuation_nav import _add_known_display_values, _investment_snapshot_series, build_weekly_nav_rows
     from domain.market.quote_valuation import quote_valuation_cte
 
     history = [(day, None, None, None, 829.49)]
@@ -145,6 +147,11 @@ def test_gold_close_is_shared_and_preserves_bank_holding(isolated, monkeypatch):
         snapshot_series = _investment_snapshot_series(cur, **args, account_codes=["tonghuashun"])
         nav, = build_weekly_nav_rows(dates=[day], bank_series={}, snapshot_series=snapshot_series,
                                      a_share_series={}, ibkr_values={})
+        estimates = load_position_nav_estimates(
+            cur, accounts={"tonghuashun": {}}, dates=[day], rate_at=lambda *_: Decimal(1),
+            owner_ratio_case_sql=lambda _: ("1", []), account_owner_ratio=lambda _: Decimal(1),
+        )
+        _add_known_display_values(nav, estimates[day])
         assert nav["available_net_worth"] == Decimal("8294.90")
         assert nav["net_worth"] is None
         assert nav["estimated_accounts"] == ["tonghuashun"]

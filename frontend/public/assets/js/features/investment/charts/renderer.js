@@ -399,8 +399,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const x = xAt(index);
       const y = yAt(value);
       ctx.beginPath();
-      if (index > 0 && values[index - 1] != null && data.scopes[index - 1] === scope) {
-        ctx.setLineDash?.(scope === 'complete' ? [] : [5, 4]);
+      if (index > 0 && values[index - 1] != null) {
+        ctx.setLineDash?.(scope === 'complete' && data.scopes[index - 1] === 'complete' ? [] : [5, 4]);
         ctx.moveTo(xAt(index - 1), yAt(values[index - 1]));
         ctx.lineTo(x, y);
         ctx.stroke();
@@ -469,15 +469,14 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
             const index = ctx.dataIndex;
             if (values[index] == null) return 0;
             if (scopes[index] === 'complete') return radius;
-            const connected = [index - 1, index + 1].some(i => values[i] != null && scopes[i] === scopes[index]);
+            const connected = [index - 1, index + 1].some(i => values[i] != null);
             return connected ? 0 : 2;
           },
           segment: {
-            borderColor: ctx => {
+            borderDash: ctx => {
               const scopes = ctx.chart.data.datasets[ctx.datasetIndex].navScopes;
-              return scopes[ctx.p0DataIndex] === scopes[ctx.p1DataIndex] ? CHART_THEME.line : 'transparent';
+              return scopes[ctx.p0DataIndex] === 'complete' && scopes[ctx.p1DataIndex] === 'complete' ? [] : [5, 4];
             },
-            borderDash: ctx => ctx.chart.data.datasets[ctx.datasetIndex].navScopes[ctx.p0DataIndex] === 'complete' ? [] : [5, 4],
           },
           borderWidth: 2,
         }],

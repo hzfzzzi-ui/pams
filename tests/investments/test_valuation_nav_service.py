@@ -11,7 +11,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from domain.investments.valuation_nav import (  # noqa: E402
-    _add_terminal_display_values,
+    _add_known_display_values,
     _bank_backcast_series,
     _investment_snapshot_series,
     _statement_rows_by_account,
@@ -74,8 +74,8 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
                "available_net_worth": Decimal("500000.20"),
                "available_accounts": ["ibkr", "current_plus"],
                "source_evidence_unavailable_accounts": ["blocked"]}
-    _add_terminal_display_values(partial, values)
-    _add_terminal_display_values(partial, values)
+    _add_known_display_values(partial, values)
+    _add_known_display_values(partial, values)
     row = normalize_nav_row(partial)
     assert row["availableNetWorth"] == "942125.2000"
     assert row["netWorth"] is None
@@ -83,7 +83,7 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
     assert row["latest_known_components"]["benefit"] == {"from": "2026-06-18", "through": "2026-06-18"}
     assert row["latest_known_components"]["fund_platform"] == {"from": "2026-11-12", "through": "2026-11-13"}
     complete = {"date": terminal, "net_worth": Decimal(250)}
-    _add_terminal_display_values(complete, values)
+    _add_known_display_values(complete, values)
     assert complete == {"date": terminal, "net_worth": Decimal(250)}
 
 
@@ -254,7 +254,8 @@ def test_tonghuashun_series_uses_trade_fact_before_legacy_tradingview() -> None:
     assert not any("pams_tradingview_transactions" in sql for sql, _ in cur.executed)
 
 
-def test_build_nav_weekly_payload_preserves_legacy_shape_and_row_fields():
+def test_build_nav_weekly_payload_preserves_legacy_shape_and_row_fields(monkeypatch):
+    monkeypatch.setattr("domain.investments.position_nav_projection.load_position_nav_estimates", lambda *a, **kw: {})
     cur = FakeCursor(
         [
             [],
@@ -294,7 +295,8 @@ def test_build_nav_weekly_payload_preserves_legacy_shape_and_row_fields():
     assert payload["rows"][-1]["netWorth"] == "100"
 
 
-def test_build_nav_weekly_payload_accepts_current_terminal_date():
+def test_build_nav_weekly_payload_accepts_current_terminal_date(monkeypatch):
+    monkeypatch.setattr("domain.investments.position_nav_projection.load_position_nav_estimates", lambda *a, **kw: {})
     cur = FakeCursor(
         [
             [],
@@ -331,7 +333,8 @@ def test_build_nav_weekly_payload_accepts_current_terminal_date():
     assert payload["rows"][-1]["asOfDate"] == "2026-06-16"
 
 
-def test_build_nav_weekly_payload_can_sample_daily_dates():
+def test_build_nav_weekly_payload_can_sample_daily_dates(monkeypatch):
+    monkeypatch.setattr("domain.investments.position_nav_projection.load_position_nav_estimates", lambda *a, **kw: {})
     cur = FakeCursor(
         [
             [],
@@ -370,7 +373,8 @@ def test_build_nav_weekly_payload_can_sample_daily_dates():
     ]
 
 
-def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state():
+def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state(monkeypatch):
+    monkeypatch.setattr("domain.investments.position_nav_projection.load_position_nav_estimates", lambda *a, **kw: {})
     cur = FakeCursor(
         [
             [],
@@ -408,7 +412,8 @@ def test_build_nav_weekly_payload_can_override_terminal_nav_from_portfolio_state
     assert payload["rows"][-1]["netWorth"] == "210"
 
 
-def test_build_nav_weekly_payload_does_not_scale_unproven_account_history():
+def test_build_nav_weekly_payload_does_not_scale_unproven_account_history(monkeypatch):
+    monkeypatch.setattr("domain.investments.position_nav_projection.load_position_nav_estimates", lambda *a, **kw: {})
     cur = FakeCursor(
         [
             [],
@@ -808,6 +813,7 @@ def test_current_plus_nav_is_independent_of_chart_start(monkeypatch):
         return [dict(fact) for fact in facts if start <= fact["transaction_date"] <= end]
 
     monkeypatch.setattr(cashflow_read_v2, "load_cash_rows", load_cash_rows)
+    monkeypatch.setattr("domain.investments.position_nav_projection.load_position_nav_estimates", lambda *a, **kw: {})
     accounts = [
         {"account_code": plus, "account_type": "cash_management", "include_in_nav": True,
          "primary_balance": {"amount": "0.20", "currency": "CNY", "as_of": latest,

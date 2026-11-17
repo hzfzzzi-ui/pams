@@ -18,7 +18,7 @@ from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.portfolio_state import _owner_ratio
-from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value, uses_gold_close
+from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value
 
 ANCHOR_NAV_DATE = Date(2026, 5, 31)
 STATEMENT_BACKCAST_TYPES = {"funding", "cash_management", "benefit", "liability"}
@@ -39,7 +39,6 @@ class ValuationEvidenceSeries(dict):
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
         self.available_accounts_by_date: dict[Date, list[str]] = {}
         self.estimated_accounts_by_date: dict[Date, list[str]] = {}
-        self.partial_market_values_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_by_date: dict[Date, Decimal] = {}
         self.preview_performance_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_source_through: Date | None = None
@@ -401,9 +400,6 @@ def build_weekly_nav_rows(
         if snapshot_accounts:
             available.update(snapshot_accounts)
             available_net += snapshot_series[sample_date]
-        partial_market_values = getattr(snapshot_series, "partial_market_values_by_date", {}).get(sample_date, {})
-        available.update(partial_market_values)
-        available_net += sum(partial_market_values.values(), Decimal(0))
         if sample_date in a_share_series and "tonghuashun" not in missing_accounts:
             available.add("tonghuashun")
             available_net += a_share_series[sample_date]
@@ -423,7 +419,6 @@ def build_weekly_nav_rows(
         if missing_accounts:
             estimated_available = available.intersection(bank_bucket.get("estimated_accounts") or ())
             estimated_available.update(estimated_snapshots)
-            estimated_available.update(partial_market_values)
             if carried_ibkr:
                 estimated_available.add("ibkr")
             if preview is not None and "tonghuashun" in missing_accounts:
@@ -596,7 +591,7 @@ def latest_nav_display_values(
     return values
 
 
-def _add_terminal_display_values(row, values):
+def _add_known_display_values(row, values):
     """Add missing contributions once to the partial display series."""
     if row.get("net_worth") is not None:
         return
@@ -609,10 +604,10 @@ def _add_terminal_display_values(row, values):
     )
     row["available_accounts"] = sorted(available.union(additions))
     row["estimated_accounts"] = sorted(set(row.get("estimated_accounts", ())).union(additions))
-    row["latest_known_components"] = {
+    row.setdefault("latest_known_components", {}).update({
         code: {"from": values[code][1].isoformat(), "through": values[code][2].isoformat()}
         for code in additions
-    }
+    })
     row["valuation_quality"] = "estimated"
 
 
@@ -638,6 +633,8 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
         result["available_accounts"] = row["available_accounts"]
         if row.get("tonghuashun_source_through") is not None:
             result["tonghuashun_source_through"] = _norm(row["tonghuashun_source_through"])
+    if row.get("net_worth") is None and row.get("available_net_worth") is None:
+        result["valuation_error"] = "market_value_unavailable"
     for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts', 'latest_known_components'):
         if field in row:
             result[field] = row[field]
@@ -918,8 +915,7 @@ def _investment_snapshot_series(
             SELECT al.date, hs.* FROM account_latest al
             JOIN pams_holdings_snapshot hs ON hs.account_code=al.account_code AND hs.as_of=al.as_of
         ), marked AS (
-            SELECT h.date, h.as_of, h.account_code, h.id,
-                {uses_gold_close("h")} AND (gold_close.price IS NOT NULL OR h.quantity = 0) AS dated_gold_mark,
+            SELECT h.date, h.as_of, h.account_code,
                 gold_close.quote_date AS gold_quote_date,
                 CASE WHEN ({market_value}) = 0 THEN 0 ELSE
                   (CASE WHEN h.asset_liability='负债' THEN -ABS(h.market_value) ELSE ({market_value}) END)
@@ -951,9 +947,7 @@ def _investment_snapshot_series(
         )
         SELECT date,as_of,account_code,SUM(value_cny) AS value_cny,
                COUNT(*) FILTER (WHERE value_cny IS NULL) AS missing_values,
-               BOOL_AND(dated_gold_mark) AS gold_only,
-               BOOL_OR(gold_quote_date < date) AS prior_gold_close,
-               ARRAY_AGG(id) AS holding_ids
+               BOOL_OR(gold_quote_date < date) AS prior_gold_close
         FROM marked GROUP BY date,as_of,account_code ORDER BY date,account_code
         """,
         ([d.isoformat() for d in dates], dates[-1], account_codes, *owner_ratio_params, base_currency),
@@ -965,16 +959,14 @@ def _investment_snapshot_series(
     proven: dict[Date, set[str]] = {day: set() for day in dates}
     for row in rows:
         day, code = row["date"], str(row["account_code"])
-        if ((row["as_of"] != day and not row.get("gold_only")) or row["missing_values"] or row["value_cny"] is None):
+        if row["as_of"] != day or row["missing_values"] or row["value_cny"] is None:
             continue
         proof = coverage.get((code, row["as_of"]), {})
         if proof.get("status") != "complete":
-            if row.get("gold_only") and set(row["holding_ids"]) <= proof.get("member_ids", set()):
-                values.partial_market_values_by_date.setdefault(day, {})[code] = _dec(row["value_cny"])
             continue
         values[day] += _dec(row["value_cny"])
         proven[day].add(code)
-        if row["as_of"] != day or row.get("prior_gold_close"):
+        if row.get("prior_gold_close"):
             values.estimated_accounts_by_date.setdefault(day, []).append(code)
     for day in dates:
         missing = sorted(set(account_codes) - proven[day])
@@ -1385,6 +1377,7 @@ def build_nav_weekly_payload(
     snapshot_scope_incomplete_accounts: set[str] | None = None,
     include_ibkr: bool = True,
     interval: str = "weekly",
+    account_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /nav/weekly payload."""
     terminal_date = terminal_date or ANCHOR_NAV_DATE
@@ -1396,6 +1389,7 @@ def build_nav_weekly_payload(
         for account in overview_payload.get("accounts", [])
         if account.get("include_in_nav")
     ]
+    nav_codes = {str(account["account_code"]) for account in overview_accounts if account.get("account_code")}
     bank_accounts, investment_snapshot_accounts = select_weekly_nav_accounts(overview_accounts)
     bank_accounts = [_cash_account_at_terminal(account, terminal_date) for account in bank_accounts]
 
@@ -1537,8 +1531,28 @@ def build_nav_weekly_payload(
         if unresolved:
             row.update(assets=None, liabilities=None, net_worth=None, scope_status="incomplete")
             row["unavailable_accounts"] = sorted(set(row.get("unavailable_accounts") or ()) | unresolved)
+    # A dated NAV or verified trade reconstruction takes precedence over holding estimates.
+    unresolved = {
+        code for row in rows if row.get("net_worth") is None
+        for code in set(row.get("unavailable_accounts", ())) - set(row.get("available_accounts", ()))
+    }
+    if unresolved & nav_codes:
+        from domain.investments.position_nav_projection import load_position_nav_estimates
+
+        config = (account_config or {}).get("accounts", {})
+        estimates = load_position_nav_estimates(
+            cur, accounts={code: config.get(code, {}) for code in unresolved & nav_codes},
+            dates=[row["date"] for row in rows if row.get("net_worth") is None],
+            owner_ratio_case_sql=owner_ratio_case_sql, account_owner_ratio=account_owner_ratio,
+            rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
+        )
+        for row in rows:
+            by_account = estimates.get(row["date"], {})
+            _add_known_display_values(row, {
+                code: by_account[code] for code in row.get("unavailable_accounts", ()) if code in by_account
+            })
     if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
-        _add_terminal_display_values(rows[-1], terminal_display_values_cny)
+        _add_known_display_values(rows[-1], terminal_display_values_cny)
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,
