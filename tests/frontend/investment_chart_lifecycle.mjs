@@ -69,7 +69,7 @@ const returns = { rows: nav.rows.map((row, index) => ({ date: row.date, market_v
 async function fixture({ fallback = false } = {}) {
   const requests = [], charts = [], storage = new Map();
   const ids = ['investmentReturnChart', 'investmentNavChart', 'investmentReturnToggle', 'investmentReturnWindowToggle',
-    'investmentReturnSeriesStatus', 'returnEventHotspots', 'returnEventPopover'];
+    'investmentNavWindowToggle', 'investmentNavStats', 'investmentReturnSeriesStatus', 'returnEventHotspots', 'returnEventPopover'];
   const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
   const document = { body: { dataset: {} }, getElementById: id => elements[id] || null };
   const window = Object.assign(new Target(), { matchMedia: () => ({ matches: true }), devicePixelRatio: 1 });
@@ -164,11 +164,22 @@ for (const fallback of [false, true]) {
   for (const key of ['a_stock', 'a_fund', 'us_stock', 'precious_metal']) {
     assert.deepEqual(plain(series(key).borderDash), []);
   }
-  const buttons = [...test.elements.investmentReturnToggle.buttons, ...test.elements.investmentReturnWindowToggle.buttons];
-  assert.equal(buttons.length, 8);
+  const returnWindows = test.elements.investmentReturnWindowToggle.buttons;
+  const navWindows = test.elements.investmentNavWindowToggle.buttons;
+  const buttons = [...test.elements.investmentReturnToggle.buttons, ...returnWindows, ...navWindows];
+  assert.equal(buttons.length, 11);
   assert.ok(buttons.every(button => button.count('click') === 1));
-  const week = test.elements.investmentReturnWindowToggle.buttons.find(button => button.dataset.returnWindow === '1w');
-  week.fire('click');
+  const pickWindow = (group, key) => group.find(button => button.dataset.returnWindow === key);
+  pickWindow(navWindows, '1m').fire('click');
+  assert.deepEqual(plain(navChart.data.labels), ['2026-09-30', '2026-10-26']);
+  assert.match(test.elements.investmentNavStats.innerHTML, /09-30 至 10-26/);
+  assert.equal(pickWindow(returnWindows, '1m').attrs['aria-pressed'], 'true');
+  assert.doesNotMatch(test.elements.investmentNavStats.innerHTML, /已知净资产|最近净值|含各账户最近可用金额/);
+  pickWindow(returnWindows, '1w').fire('click');
+  assert.equal(pickWindow(navWindows, '1w').attrs['aria-pressed'], 'true');
+  assert.equal(pickWindow(navWindows, '1m').attrs['aria-pressed'], 'false');
+  assert.deepEqual(plain(navChart.data.labels), ['2026-10-26']);
+  assert.match(test.elements.investmentNavStats.innerHTML, /可比区间不足/);
   assert.equal(controller.state.activeWindow, '1w');
   assert.ok(returnChart.data.datasets.every(dataset => dataset.data.length === returnChart.data.labels.length));
   const chartBefore = plain(returnChart.data);

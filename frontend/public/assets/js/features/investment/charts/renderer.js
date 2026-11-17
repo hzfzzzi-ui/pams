@@ -1,8 +1,10 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js';
 import { fmt2 } from '../../../api.js';
 import { safeNum } from '../../../utils.js';
-import { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js';
+import { RETURN_WINDOW_OPTIONS, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js';
 import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js';
+
+const WINDOW_TOGGLE_IDS = ['investmentReturnWindowToggle', 'investmentNavWindowToggle'];
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
 export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
@@ -99,7 +101,6 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       bindReturnEventPopover(returnChart, chartState);
       renderReturnEventHotspots(returnChart, chartState);
       renderInvestmentReturnToggle(returnChart, sectionSpecs, chartState);
-      renderInvestmentReturnWindowToggle(returnChart, chartState);
       renderReturnContributionPanel(chartState.topContribution);
       body.dataset.investmentReturnChartLoaded = 'fallback';
       return rows.length
@@ -218,7 +219,6 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     bindReturnEventPopover(returnChart, chartState);
     renderReturnEventHotspots(returnChart, chartState);
     renderInvestmentReturnToggle(returnChart, sectionSpecs, chartState);
-    renderInvestmentReturnWindowToggle(returnChart, chartState);
     renderReturnContributionPanel(chartState.topContribution);
     body.dataset.investmentReturnChartLoaded = 'chart';
     return rows.length
@@ -345,7 +345,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       return;
     }
     statsEl.innerHTML = `
-      <span class="returnNavCurrent"><em>${data.availableAccountCount ? '已知净资产' : '最近净值'}${data.estimated ? '（含估算）' : ''} · ${data.latestDate}</em><strong>${fmtCny(data.latest)}</strong>${data.hasLatestKnownComponents ? `<small>含各账户最近可用金额${data.missingAccountCount ? ` · ${data.missingAccountCount} 个账户缺余额或估值` : ''}</small>` : ''}</span>
+      <span class="returnNavCurrent"><strong>${fmtCny(data.latest)}</strong></span>
       <span class="returnNavMetric ${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}">
         <em>区间变化</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong>
         <small>${data.changeStart ? `${data.changeStart.slice(5)} 至 ${data.latestDate.slice(5)}` : '可比区间不足'}</small>
@@ -669,6 +669,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   function applyInvestmentReturnWindow(chart, state, nextWindowKey, persist = true) {
     if (disposed || !state) return;
     setReturnWindow(state, nextWindowKey, persist);
+    updateWindowToggleSelection(state.activeWindow);
     if (!chart) {
       updateInvestmentNavChart(state);
       return;
@@ -703,27 +704,34 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     renderReturnContributionPanel(windowData.topContribution);
   }
 
-  function renderInvestmentReturnWindowToggle(chart, state) {
+  function updateWindowToggleSelection(activeWindow) {
+    for (const id of WINDOW_TOGGLE_IDS) {
+      getElementById(id)?.querySelectorAll('[data-return-window]').forEach(button => {
+        const active = button.dataset.returnWindow === activeWindow;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+    }
+  }
+
+  function renderInvestmentWindowToggles() {
     clearBindings('window');
-    const el = getElementById('investmentReturnWindowToggle');
-    if (!el || !state) return;
-    const activeWindow = normalizeReturnWindowKey(state.activeWindow);
-    el.innerHTML = RETURN_WINDOW_OPTIONS.map(item => `
-      <button type="button" data-return-window="${esc(item.key)}" class="${item.key === activeWindow ? 'active' : ''}" aria-pressed="${item.key === activeWindow ? 'true' : 'false'}">
+    const markup = RETURN_WINDOW_OPTIONS.map(item => `
+      <button type="button" data-return-window="${esc(item.key)}">
         ${esc(item.label)}
       </button>
     `).join('');
-    el.querySelectorAll('[data-return-window]').forEach(btn => {
-      listen('window', btn, 'click', () => {
-        const key = normalizeReturnWindowKey(btn.dataset.returnWindow);
-        applyInvestmentReturnWindow(chart, state, key);
-        el.querySelectorAll('[data-return-window]').forEach(item => {
-          const active = item.dataset.returnWindow === key;
-          item.classList.toggle('active', active);
-          item.setAttribute('aria-pressed', active ? 'true' : 'false');
+    for (const id of WINDOW_TOGGLE_IDS) {
+      const el = getElementById(id);
+      if (!el) continue;
+      el.innerHTML = markup;
+      el.querySelectorAll('[data-return-window]').forEach(button => {
+        listen('window', button, 'click', () => {
+          applyInvestmentReturnWindow(returnChart, state, button.dataset.returnWindow);
         });
       });
-    });
+    }
+    updateWindowToggleSelection(state.activeWindow);
   }
 
   function renderInvestmentReturnToggle(chart, sectionSpecs, state = null) {
@@ -844,7 +852,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       applyInvestmentReturnWindow(returnChart, state, state.activeWindow, false);
     },
     renderNav: renderInvestmentNavChart,
-    renderWindowToggle: renderInvestmentReturnWindowToggle,
+    renderWindowToggles: renderInvestmentWindowToggles,
     renderContribution: renderReturnContributionPanel,
     applyWindow: applyInvestmentReturnWindow,
     get returnChart() { return returnChart; },
