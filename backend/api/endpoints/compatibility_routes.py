@@ -695,7 +695,8 @@ def create_compatibility_router(
             conn.set_session(isolation_level="REPEATABLE READ")
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 return json(page_projection.refresh(
-                    cur, business_date=_investment_today_label_date(), build=build_investment_pages,
+                    cur, business_date=_investment_today_label_date(),
+                    build=build_investment_pages, connect=get_conn,
                 ))
 
 
