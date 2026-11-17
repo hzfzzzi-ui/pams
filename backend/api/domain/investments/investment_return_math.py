@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date as Date, timedelta
 from decimal import Decimal
+from itertools import pairwise
 from typing import Any
 
 
@@ -29,6 +30,20 @@ def norm(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     return value
+
+
+def return_chart_gap_dates(
+    dates: Iterable[Date], *, is_session: Callable[[str], bool],
+) -> dict[str, str]:
+    """Classify gaps between observed return dates using the series calendar."""
+    gaps = {}
+    for previous, current in pairwise(dates):
+        day = previous + timedelta(days=1)
+        while day < current:
+            key = day.isoformat()
+            gaps[key] = "missing" if is_session(key) else "closed"
+            day += timedelta(days=1)
+    return gaps
 
 
 def annualized_rate(rate: Decimal, start_date: Date, end_date: Date) -> Decimal | None:
