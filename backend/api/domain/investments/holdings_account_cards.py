@@ -32,6 +32,31 @@ def _cny_balance(accounts, code):
     return balance
 
 
+def _fund_overview_card(funds, cash, closed_returns):
+    """Estimate the fund section's value from its active holdings and verified cash."""
+    rows = [row for row in funds.get("rows", []) if not row.get("is_closed")]
+    amounts = [_decimal(row.get("market_value_cny")) for row in rows]
+    market = sum(amounts, Decimal(0)) if amounts and None not in amounts else None
+    cash_amount = _decimal(cash["value"])
+    market_day = funds.get("as_of")
+    net = market + cash_amount if market is not None and cash_amount is not None else None
+    net_day = max((day for day in (str(market_day)[:10] if market_day else None, cash["as_of"]) if day), default=None)
+    performance = funds.get("holding_performance") or {}
+    return {
+        "base_currency": "CNY",
+        "net_value": _metric(net, net_day, status="estimated", basis="fund_holdings_and_known_cash"),
+        "market_value": _metric(market, market_day, status="partial", basis="holdings"),
+        "cash": cash,
+        "liabilities": _metric(None),
+        "leverage": _metric(None),
+        "portfolio_share": _metric(None),
+        "recent_daily_pnl": _metric(performance.get("recent_daily_pnl_cny"), performance.get("recent_daily_as_of"),
+                                    basis="holding_daily"),
+        "cumulative_pnl": _metric(closed_returns.get("known_holding_and_closed_pnl"), market_day,
+                                  status="partial", basis="holding_and_closed"),
+    }
+
+
 def build_holdings_account_cards(*, positions, overview, stock_performance, stock, funds, overseas,
                                  closed_returns, summary):
     accounts = {row["account_code"]: row for row in overview.get("accounts", [])}
@@ -137,4 +162,5 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
                  and summary.get("snapshot_scope_status") != "incomplete" else None)
         card.update(account_code=code, base_currency="CNY",
                     portfolio_share=_metric(share, summary.get("as_of"), basis="portfolio_value"))
+    cards["fund_overview"] = _fund_overview_card(funds, fund_cash_metric, closed_returns.get("a_fund") or {})
     return cards

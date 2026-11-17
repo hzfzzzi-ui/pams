@@ -114,9 +114,13 @@ def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=Fa
         ]},
         overview={}, stock_performance=None,
         stock={"as_of": day, "holding_performance": stock_performance, "rows": [{"market_value_cny": "800"}]},
-        funds={"holding_performance": {"recent_daily_pnl_cny": "-9.75"}},
+        funds={"as_of": day, "holding_performance": {"recent_daily_pnl_cny": "-9.75"},
+               "rows": [{"account": "tencent_licaitong", "market_value_cny": "500"},
+                        {"account": "ccb_yhs300_fund", "market_value_cny": "300"},
+                        {"account": "tencent_licaitong", "market_value_cny": "250", "is_closed": True}]},
         overseas={"recent_confirmed_returns": {"by_account": {"ibkr": recent}}},
-        closed_returns={"a_fund": {"by_account": {"tencent_licaitong": "25"}}},
+        closed_returns={"a_fund": {"by_account": {"tencent_licaitong": "25"},
+                                   "known_holding_and_closed_pnl": "45.99"}},
         summary={"as_of": day, "snapshot_scope_status": "incomplete" if scope_incomplete else "complete",
                  "totals": {"market_value": "900"}},
     )
@@ -158,8 +162,8 @@ def test_account_cards_share_fields_and_show_only_supported_values():
     assert '-¥70.00' in output['html'] and '年内盈亏（折合）' in output['html']
     assert '-¥9.75' in output['fundHtml'] and '已核对盈亏' in output['fundHtml']
     assert '1.11×' in output['html']
-    assert '<span>账户净值</span><strong>—</strong>' in output['fundHtml']
-    assert '¥500.00' in output['fundHtml'] and '+¥25.00' in output['fundHtml']
+    assert '<span>基金净值</span><strong>—</strong>' in output['fundHtml']
+    assert '¥800.00' in output['fundHtml'] and '+¥45.99' in output['fundHtml']
 
     fallback = render([], scope_incomplete=True, stock_position=position, stock_positions_as_of="2026-10-26")
     assert '<span>账户净值</span><strong>—</strong>' in fallback['stockHtml']
@@ -354,15 +358,18 @@ def test_pending_keeps_native_and_fx_placeholders_only_where_lines_already_exist
 
 
 
-def test_fund_card_displays_cash_and_estimate_without_portfolio_share():
+def test_fund_overview_combines_active_holdings_and_last_verified_cash():
     output = render([], fund_valuation={
         "status": "estimated_fund_and_cash",
         "amount_base": "500.20",
         "cash_base": "0.20",
+        "cash_as_of": "2026-10-25",
         "leverage_ratio": 0.9996,
     })
     html = output["fundHtml"]
-    assert "<span>账户净值（估算）</span><strong>¥500.20</strong>" in html
+    assert "基金总览" in html
+    assert "<span>基金净值（估算）</span><strong>¥800.20</strong>" in html
+    assert "<strong>¥800.00</strong>" in html
     assert "<strong>¥0.20</strong>" in html
-    assert "1.00×" in html
-    assert "55.58%" not in html
+    assert "+¥45.99" in html
+    assert "500.20" not in html and "%" not in html

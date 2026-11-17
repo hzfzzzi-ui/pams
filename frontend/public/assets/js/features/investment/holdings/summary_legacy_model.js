@@ -407,9 +407,10 @@ export function makeMobileHeroProfiles({
     'A股基金': {
       key: 'A股基金',
       icon: '🇨🇳',
-      identity: '腾讯理财通',
-      accountSubtitle: '基金与活期+ · 人民币账户',
-      accountCard: accountCards.tencent_licaitong ?? {},
+      identity: '基金总览',
+      accountSubtitle: '基金持仓与活期+ · 人民币',
+      valueLabel: '基金净值',
+      accountCard: accountCards.fund_overview ?? {},
     },
     '美股/海外': {
       key: '美股/海外',
