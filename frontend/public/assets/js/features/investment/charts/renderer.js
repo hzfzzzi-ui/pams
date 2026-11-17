@@ -738,9 +738,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     };
     const totalUnavailable = chart.data.datasets.find(row => row.returnSeriesKey === 'total')
       ?.data.every(value => value == null);
-    const totalUnavailableMessage = state?.totalReturnReason === 'income_evidence_unknown'
-      ? '组合总收益率待核验，部分收益记录的分类或金额暂无法用于汇总。'
-      : '组合总收益率在此区间暂无可用数据。';
+    const totalUnavailableMessage = {
+      income_evidence_unknown: '组合总收益率待核验，部分收益缺少有效来源或实收金额。',
+      account_cash_coverage_unverified: '组合总收益率待核验，部分证券账户的历史现金和出入金覆盖尚未核验。',
+    }[state?.totalReturnReason] ?? '组合总收益率在此区间暂无可用数据。';
     showStatus(totalUnavailable ? totalUnavailableMessage : '');
     el.setAttribute('aria-multiselectable', 'true');
     const options = [

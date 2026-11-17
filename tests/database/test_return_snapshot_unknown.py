@@ -280,3 +280,54 @@ def test_real_unknown_cost_flows_through_snapshot_http(empty_source_db, monkeypa
         result = web.get('/investment/return-series?start=2026-10-30')
         assert result.json()['reason'] == 'income_evidence_unknown'
         assert result.json()['rows'][0]['realized_income'] is None
+
+
+def test_total_return_uses_verified_net_income_without_market_or_gross(empty_source_db, monkeypatch):
+    from uuid import uuid4
+
+    from domain.imports import source_records_v2 as source
+    from domain.investments import investment_returns as returns
+
+    start, end = date(2026, 10, 29), date(2026, 10, 30)
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO pams_accounts (account_code,display_name,base_currency) VALUES ('synthetic_equity','Synthetic equity','CNY')")
+            def publish(account_code, **fields):
+                source_id, item_id = uuid4(), uuid4()
+                fields = {'business_date': end.isoformat(), 'currency': 'CNY', **fields}
+                source.create_source(cur, source_id=source_id, account_code=account_code,
+                                     source_name='synthetic', acquisition_method='manual', document_type='trade')
+                source.add_item(cur, source_id=source_id, item_id=item_id, parse_method='manual',
+                                raw_fields={'entered_fields': fields}, parsed_fields=fields)
+                revision = source.review_item(cur, source_id=source_id, item_id=item_id, expected_revision=2,
+                                              parsed_fields=fields, review_status='confirmed')
+                source.publish_trade_source(cur, source_id=source_id, expected_revision=revision)
+
+            publish('tonghuashun', action='interest', net_cash='5', gross_amount='8', tax_amount='3')
+            publish('synthetic_equity', action='dividend', market='ESOP', net_cash='32')
+            publish('synthetic_equity', action='interest', net_cash='0')
+            publish('synthetic_equity', action='deposit', net_cash='50')
+
+    known_values = {start: Decimal(100), end: Decimal(100)}
+    for name in ('tonghuashun_series', '_tonghuashun_cost_series'):
+        monkeypatch.setattr(returns, name, lambda *_a, **_kw: known_values)
+    monkeypatch.setattr(returns, '_ibkr_full_trade_return_series', lambda *_a, **_kw: ({}, {}, []))
+    monkeypatch.setattr(returns, '_total_section_return_amounts', lambda *_a, **_kw: None)
+    monkeypatch.setattr(returns, '_account_net_liquidation_anchor_cny', lambda *_a, **_kw: None)
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            payload = returns.build_investment_return_series_payload(
+                cur, start_date=start, view_as_of=end, base_currency='CNY', interval='daily',
+                overview_payload={'accounts': []}, reported_returns_cfg={},
+                owner_ratio_case_sql=lambda _alias: ('1', []),
+                account_owner_ratio=lambda _account: Decimal(1),
+                account_initial_capital_cny=lambda _account: None,
+            )
+    opening, terminal = payload['rows']
+    assert Decimal(opening['realized_income']) == 0
+    assert Decimal(terminal['realized_income']) == 37
+    assert Decimal(terminal['total_pnl']) == 37
+    assert Decimal(terminal['return_rate']) == Decimal('0.37')
