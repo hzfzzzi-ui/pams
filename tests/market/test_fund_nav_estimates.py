@@ -5,6 +5,7 @@ from pathlib import Path
 from decimal import Decimal
 
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 API_ROOT = ROOT / "backend" / "api"
@@ -216,7 +217,7 @@ def test_intraday_estimates_are_opt_in(monkeypatch) -> None:
     assert intraday_estimates_enabled() is True
 
 
-def test_late_confirmed_nav_advances_snapshot_on_the_nav_date(monkeypatch):
+def test_late_confirmed_nav_updates_the_mark_on_its_date(monkeypatch):
     from contextlib import nullcontext
     from datetime import date
     from types import SimpleNamespace
@@ -240,15 +241,13 @@ def test_late_confirmed_nav_advances_snapshot_on_the_nav_date(monkeypatch):
         growth_pct=None, source="synthetic")])
     monkeypatch.setattr(nav, "existing_estimate", lambda *args, **kwargs: None)
     monkeypatch.setattr(nav, "upsert_estimate_row", lambda *args, **kwargs: None)
-    monkeypatch.setattr(nav, "upsert_asset_market_daily_nav", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nav, "upsert_asset_market_daily_nav", lambda *args, **kwargs: writes.append(kwargs))
     monkeypatch.setattr(nav, "insert_or_update_generated_snapshot",
-                        lambda cur, **kwargs: writes.append(kwargs) or True)
+                        lambda *args, **kwargs: pytest.fail("NAV refresh must only write price observations"))
 
     nav.refresh_fund_nav_estimates(conn, use_intraday_estimates=False)
 
-    assert [(row["as_of"], row["market_value"], row["update_existing"]) for row in writes] == [
-        (confirmed, Decimal("120.00"), False),
-    ]
+    assert [(row["as_of"], row["unit_nav"]) for row in writes] == [(confirmed, Decimal("1.20"))]
 
 
 def test_fund_history_checks_eastmoney_when_tushare_lags(monkeypatch):

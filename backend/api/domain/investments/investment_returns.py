@@ -1332,15 +1332,25 @@ def build_investment_return_series_payload(
     interval: str,
     base_currency: str,
     view_as_of: Date,
-    overview_payload: dict[str, Any],
+    overview_payload: dict[str, Any] | Callable[[], dict[str, Any]],
     reported_returns_cfg: dict[str, Any],
     owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
     account_owner_ratio: Callable[[str], Decimal],
     account_initial_capital_cny: Callable[[str], Decimal | None],
     excluded_holding_accounts: set[str] | None = None,
     today_label_date: Date | None = None,
+    position_based: bool = False,
 ) -> dict[str, Any]:
-    """Return the legacy total investment return-rate payload."""
+    """Calculate the requested investment return series."""
+    if position_based and _table_exists(cur, 'source_records'):
+        from domain.investments.position_performance import build_position_return_series
+
+        return build_position_return_series(
+            cur, start=start_date, end=view_as_of, interval=interval, base_currency=base_currency,
+            owner_ratio=account_owner_ratio, excluded_accounts=excluded_holding_accounts or set(),
+        )
+    if callable(overview_payload):
+        overview_payload = overview_payload()
     if start_date > view_as_of:
         start_date = view_as_of
 

@@ -856,14 +856,11 @@ def test_confirmed_fund_poll_picks_up_new_import_on_the_next_pass(empty_source_d
         VALUES ('tencent_licaitong', '011613', 'Synthetic fund', 'CNY', 'A股', 'A股基金', '资产',
                 100, 100, 100, 1, %s)""", (anchor_day,))
     before = sql("SELECT as_of, quantity, cost, current_price FROM pams_holdings_snapshot")
-    assert poll()["inserted_estimate_snapshots"] == 1
-    rows = sql("SELECT as_of, quantity, cost, current_price FROM pams_holdings_snapshot ORDER BY as_of")
-    assert rows == [before[0], {**before[0], "as_of": nav_day, "current_price": Decimal("1.20")}]
-    stored = sql("""SELECT as_of, market_value FROM pams_holdings_snapshot
-        WHERE as_of = %s""", (nav_day,))
-    assert stored[0]["market_value"] == before[0]["quantity"] * Decimal("1.20")
+    assert poll()["inserted_estimate_snapshots"] == 0
+    assert sql("SELECT as_of, quantity, cost, current_price FROM pams_holdings_snapshot ORDER BY as_of") == before
     first = sql("SELECT * FROM market_observations WHERE observation_type = 'fund'")
     assert len(first) == 1 and first[0]["confirmed_nav_date"] == nav_day
+    assert first[0]["estimated_market_value"] == before[0]["quantity"] * Decimal("1.20")
     assert poll()["rows"][0]["status"] == "confirmed_unchanged"
     assert sql("SELECT * FROM market_observations WHERE observation_type = 'fund'") == first
 
@@ -975,4 +972,7 @@ def test_confirmed_fund_history_fills_published_gap_with_dated_share_evidence(em
     with psycopg2.connect(**empty_source_db) as conn, conn.cursor() as cur:
         cur.execute("""SELECT as_of, quantity, cost, current_price, market_value
             FROM pams_holdings_snapshot WHERE account_code=%s ORDER BY as_of""", (account,))
-        assert cur.fetchall() == [(row.nav_date, 100, 100, row.unit_nav, row.unit_nav * 100) for row in rows]
+        assert cur.fetchall() == [(latest, 100, 100, Decimal('1.20'), Decimal('120'))]
+        cur.execute("""SELECT as_of, estimated_market_value FROM market_observations
+            WHERE observation_type='fund' AND account_code=%s ORDER BY as_of""", (account,))
+        assert cur.fetchall() == [(row.nav_date, row.unit_nav * 100) for row in rows]

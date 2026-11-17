@@ -799,7 +799,7 @@ def _historical_holding_basis(cur, holding, snapshots, day):
 
 
 def _backfill_fund_nav(cur, holding, history, known_prices, start):
-    """Add confirmed observations and historical positions supported by account evidence."""
+    """Add confirmed market observations and account valuation projections."""
     if not history:
         return 0, 0, [], []
     snapshots = _fund_history_holdings(cur, holding, start)
@@ -824,23 +824,15 @@ def _backfill_fund_nav(cur, holding, history, known_prices, start):
         if existing:
             if (existing['status'] not in {'confirmed', 'confirmed_corrected'}
                     or existing['confirmed_unit_nav'] != nav.unit_nav
-                    or existing['confirmed_nav_date'] != day or day not in snapshots
-                    or len(snapshots[day]) != 1 or snapshots[day][0]['current_price'] != nav.unit_nav):
+                    or existing['confirmed_nav_date'] != day):
                 pending_days.append(day.isoformat())
             continue
         basis = _historical_holding_basis(cur, holding, snapshots, day)
-        if (not basis or not basis['quantity'] or basis['quantity'] <= 0 or basis['cost'] is None
-                or (day in snapshots and basis['current_price'] != nav.unit_nav)):
+        if not basis or not basis['quantity'] or basis['quantity'] <= 0:
             pending_days.append(day.isoformat())
             continue
         value = estimate_value(basis['quantity'], nav.unit_nav)
-        if day not in snapshots:
-            if not insert_or_update_generated_snapshot(cur, holding=basis, as_of=day, market_value=value,
-                                                        units=basis['quantity'], unit_nav=nav.unit_nav,
-                                                        update_existing=False):
-                pending_days.append(day.isoformat())
-                continue
-            valuations += 1
+        valuations += 1
         upsert_estimate_row(cur, {
             "as_of": day, "account_code": holding['account_code'], "symbol": holding['symbol'],
             "name": holding['name'], "confirmed_nav_date": day, "confirmed_unit_nav": nav.unit_nav,
@@ -859,15 +851,14 @@ def refresh_fund_nav_estimates(
     *,
     use_intraday_estimates: bool | None = None,
 ) -> dict[str, Any]:
-    """Fetch fund NAVs, correct confirmed estimates, and write current snapshots."""
+    """Fetch fund NAVs and update market observations and fund valuations."""
     from domain.imports.isolation import require_external_access
     require_external_access()
     pct_threshold, amount_threshold = review_thresholds()
     session = requests.Session()
     processed: list[dict[str, Any]] = []
     errors: list[str] = []
-    inserted_snapshots = 0
-    corrected_snapshots = 0
+    valuation_updates = 0
     review_items = 0
     if use_intraday_estimates is None:
         use_intraday_estimates = intraday_estimates_enabled()
@@ -962,11 +953,10 @@ def refresh_fund_nav_estimates(
                     symbol=symbol,
                     name=holding["name"],
                 )
-                if (not intraday and existing and holding["as_of"] >= confirmed.nav_date
-                        and existing.get("status") in {"confirmed", "confirmed_corrected"}
+                if (not intraday and existing and existing.get("status") in {"confirmed", "confirmed_corrected"}
                         and existing.get("confirmed_unit_nav") == confirmed.unit_nav
-                        and confirmed.unit_nav in prices.get(confirmed.nav_date, ())
-                        and (holding["as_of"] > confirmed.nav_date or stored_price == confirmed.unit_nav)):
+                        and existing.get("estimated_market_value") == precise_value
+                        and confirmed.unit_nav in prices.get(confirmed.nav_date, ())):
                     item.update(confirmed_date=confirmed.nav_date.isoformat(),
                                 confirmed_unit_nav=str(confirmed.unit_nav),
                                 confirmed_source=confirmed.source, status="confirmed_unchanged")
@@ -998,17 +988,8 @@ def refresh_fund_nav_estimates(
                         review_items += 1
                     else:
                         note = "prior estimate corrected with confirmed NAV"
-                        if insert_or_update_generated_snapshot(
-                            cur,
-                            holding=holding,
-                            as_of=confirmed.nav_date,
-                            market_value=precise_value,
-                            units=units,
-                            unit_nav=confirmed.unit_nav,
-                            update_existing=True,
-                        ):
-                            corrected_snapshots += 1
-                            status = "confirmed_corrected"
+                        status = "confirmed_corrected"
+                valuation_updates += 1
                 upsert_estimate_row(
                     cur,
                     {
@@ -1068,17 +1049,7 @@ def refresh_fund_nav_estimates(
                 estimate_date = intraday.estimate_time.date()
                 estimate_mv = estimate_value(units, intraday.estimated_unit_nav)
                 delta = estimate_mv - market_value
-                wrote = insert_or_update_generated_snapshot(
-                    cur,
-                    holding=holding,
-                    as_of=estimate_date,
-                    market_value=estimate_mv,
-                    units=units,
-                    unit_nav=intraday.estimated_unit_nav,
-                    update_existing=True,
-                )
-                if wrote:
-                    inserted_snapshots += 1
+                valuation_updates += 1
                 upsert_estimate_row(
                     cur,
                     {
@@ -1098,7 +1069,7 @@ def refresh_fund_nav_estimates(
                         "estimated_market_value": estimate_mv,
                         "estimated_delta": delta,
                         "estimated_delta_pct": estimate_delta_pct(delta, market_value),
-                        "status": "estimated" if wrote else "estimated_existing_snapshot_kept",
+                        "status": "estimated",
                         "note": "intraday estimate; will be corrected by confirmed NAV later",
                         "raw_json": psycopg2.extras.Json({"source": "fundgz_tiantian"}),
                     },
@@ -1132,25 +1103,12 @@ def refresh_fund_nav_estimates(
                         "estimated_unit_nav": str(intraday.estimated_unit_nav),
                         "estimated_market_value": str(estimate_mv),
                         "estimated_delta": str(delta),
-                        "status": "estimated" if wrote else "estimated_existing_snapshot_kept",
+                        "status": "estimated",
                     }
                 )
-            if confirmed and status != "needs_review":
-                wrote = False
-                if holding['as_of'] < confirmed.nav_date <= current_date:
-                    wrote = insert_or_update_generated_snapshot(
-                        cur,
-                        holding=holding,
-                        as_of=confirmed.nav_date,
-                        market_value=precise_value,
-                        units=units,
-                        unit_nav=confirmed.unit_nav,
-                        update_existing=False,
-                    )
-                    inserted_snapshots += int(wrote)
-                if not intraday:
-                    item["status"] = ("confirmed_no_intraday_estimate" if wrote or confirmed.nav_date == current_date
-                                      else "confirmed_stale_no_intraday_estimate")
+            if confirmed and not intraday and status != "needs_review":
+                item["status"] = ("confirmed_no_intraday_estimate" if confirmed.nav_date == current_date
+                                  else "confirmed_stale_no_intraday_estimate")
 
             processed.append(item)
         conn.commit()
@@ -1158,8 +1116,9 @@ def refresh_fund_nav_estimates(
     return {
         "status": "ok",
         "processed": len(processed),
-        "inserted_estimate_snapshots": inserted_snapshots,
-        "corrected_confirmed_snapshots": corrected_snapshots,
+        "valuation_updates": valuation_updates + history_valuations,
+        "inserted_estimate_snapshots": 0,
+        "corrected_confirmed_snapshots": 0,
         "historical_nav_observations": history_observations,
         "historical_valuation_snapshots": history_valuations,
         "manual_review_items": review_items,

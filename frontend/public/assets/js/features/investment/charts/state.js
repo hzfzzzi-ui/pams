@@ -42,6 +42,7 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
   Object.assign(state, {
     rows,
     totalReturnReason: resp.reason,
+    totalReturnScope: resp.return_scope,
     sectionRowsByKey,
     sectionEstimates,
     sectionZeroBefore: new Map(sectionSpecs.map((spec, index) =>

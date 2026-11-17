@@ -742,7 +742,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       income_evidence_unknown: '组合总收益率待核验，部分收益缺少有效来源或实收金额。',
       account_cash_coverage_unverified: '组合总收益率待核验，部分证券账户的历史现金和出入金覆盖尚未核验。',
     }[state?.totalReturnReason] ?? '组合总收益率在此区间暂无可用数据。';
-    showStatus(totalUnavailable ? totalUnavailableMessage : '');
+    const positionScopeStatus = state?.totalReturnScope === 'investment_positions'
+      ? '投资持仓收益 · 按可估值及可比较的标的计算' : '';
+    showStatus(totalUnavailable ? totalUnavailableMessage : positionScopeStatus);
     el.setAttribute('aria-multiselectable', 'true');
     const options = [
       { key: 'total', label: '总收益率', datasetLabel: '总收益率', color: CHART_THEME.line },
@@ -810,6 +812,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const visibleCount = chart.data.datasets.filter(row => row.returnSeriesKey !== 'events' && !row.hidden).length;
       if (!dataset.hidden && visibleCount <= 1) return;
       dataset.hidden = !dataset.hidden;
+      if (mode === 'total' && !dataset.hidden) showStatus(positionScopeStatus);
       syncButtons();
       chart.update('none');
       if (state) renderReturnEventHotspots(chart, state);

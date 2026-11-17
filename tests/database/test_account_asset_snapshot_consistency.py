@@ -68,6 +68,8 @@ def test_account_overview_and_asset_read_same_snapshot(empty_source_db, monkeypa
         cur.execute('SELECT amount FROM snapshot_probe WHERE id=1')
         fact = cur.fetchone()['amount']
         overview = kwargs.get('overview_payload')
+        if callable(overview):
+            overview = overview()
         anchor = (overview['accounts'][0]['primary_balance']['amount'] if overview is not None
                   else kwargs.get('net_liquidation'))
         return {'overview':str(anchor), 'current_fact':str(fact), 'rows':[]}
