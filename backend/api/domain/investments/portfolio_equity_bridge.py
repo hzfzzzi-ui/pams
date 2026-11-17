@@ -880,6 +880,7 @@ def build_equity_bridge_payload(
                 terminal_nav_bucket=terminal_nav_bucket,
                 terminal_account_values_cny=terminal_account_values,
                 interval="daily",
+                account_config=account_cfg,
             )
             rows = nav_payload.get("rows") or []
             beginning_nav = _dec(rows[0].get("netWorth")) if rows else Decimal("0")

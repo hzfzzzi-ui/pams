@@ -11,7 +11,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from domain.investments.valuation_nav import (  # noqa: E402
-    _add_terminal_display_values,
+    _add_known_display_values,
     _bank_backcast_series,
     _investment_snapshot_series,
     _statement_rows_by_account,
@@ -74,8 +74,8 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
                "available_net_worth": Decimal("500000.20"),
                "available_accounts": ["ibkr", "current_plus"],
                "source_evidence_unavailable_accounts": ["blocked"]}
-    _add_terminal_display_values(partial, values)
-    _add_terminal_display_values(partial, values)
+    _add_known_display_values(partial, values)
+    _add_known_display_values(partial, values)
     row = normalize_nav_row(partial)
     assert row["availableNetWorth"] == "942125.2000"
     assert row["netWorth"] is None
@@ -83,7 +83,7 @@ def test_latest_nav_adds_dated_assets_and_debt_without_duplicate_cash():
     assert row["latest_known_components"]["benefit"] == {"from": "2026-06-18", "through": "2026-06-18"}
     assert row["latest_known_components"]["fund_platform"] == {"from": "2026-11-12", "through": "2026-11-13"}
     complete = {"date": terminal, "net_worth": Decimal(250)}
-    _add_terminal_display_values(complete, values)
+    _add_known_display_values(complete, values)
     assert complete == {"date": terminal, "net_worth": Decimal(250)}
 
 

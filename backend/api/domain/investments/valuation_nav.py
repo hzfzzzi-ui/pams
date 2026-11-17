@@ -596,7 +596,7 @@ def latest_nav_display_values(
     return values
 
 
-def _add_terminal_display_values(row, values):
+def _add_known_display_values(row, values):
     """Add missing contributions once to the partial display series."""
     if row.get("net_worth") is not None:
         return
@@ -609,10 +609,10 @@ def _add_terminal_display_values(row, values):
     )
     row["available_accounts"] = sorted(available.union(additions))
     row["estimated_accounts"] = sorted(set(row.get("estimated_accounts", ())).union(additions))
-    row["latest_known_components"] = {
+    row.setdefault("latest_known_components", {}).update({
         code: {"from": values[code][1].isoformat(), "through": values[code][2].isoformat()}
         for code in additions
-    }
+    })
     row["valuation_quality"] = "estimated"
 
 
@@ -899,6 +899,7 @@ def _investment_snapshot_series(
     dates: list[Date],
     base_currency: str,
     owner_ratio_case_sql,
+    manual_preview_accounts: set[str] | None = None,
 ) -> dict[Date, Decimal]:
     """Value each account day only after checking immutable complete scope and dated FX."""
     values = ValuationEvidenceSeries({d: Decimal("0") for d in dates})
@@ -969,7 +970,8 @@ def _investment_snapshot_series(
             continue
         proof = coverage.get((code, row["as_of"]), {})
         if proof.get("status") != "complete":
-            if row.get("gold_only") and set(row["holding_ids"]) <= proof.get("member_ids", set()):
+            if (code not in (manual_preview_accounts or ()) and row.get("gold_only")
+                    and set(row["holding_ids"]) <= proof.get("member_ids", set())):
                 values.partial_market_values_by_date.setdefault(day, {})[code] = _dec(row["value_cny"])
             continue
         values[day] += _dec(row["value_cny"])
@@ -1385,6 +1387,7 @@ def build_nav_weekly_payload(
     snapshot_scope_incomplete_accounts: set[str] | None = None,
     include_ibkr: bool = True,
     interval: str = "weekly",
+    account_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /nav/weekly payload."""
     terminal_date = terminal_date or ANCHOR_NAV_DATE
@@ -1396,6 +1399,11 @@ def build_nav_weekly_payload(
         for account in overview_payload.get("accounts", [])
         if account.get("include_in_nav")
     ]
+    from domain.investments.manual_nav_projection import load_manual_nav_estimates, manual_nav_accounts
+
+    nav_codes = {account.get("account_code") for account in overview_accounts}
+    manual_accounts = {code: cfg for code, cfg in manual_nav_accounts(account_config).items()
+                       if code in nav_codes and base_currency.upper() == "CNY"}
     bank_accounts, investment_snapshot_accounts = select_weekly_nav_accounts(overview_accounts)
     bank_accounts = [_cash_account_at_terminal(account, terminal_date) for account in bank_accounts]
 
@@ -1427,6 +1435,7 @@ def build_nav_weekly_payload(
         dates=dates,
         base_currency=base_currency,
         owner_ratio_case_sql=owner_ratio_case_sql,
+        manual_preview_accounts=set(manual_accounts),
     )
     a_share_series = (_tonghuashun_series(
         cur,
@@ -1537,8 +1546,15 @@ def build_nav_weekly_payload(
         if unresolved:
             row.update(assets=None, liabilities=None, net_worth=None, scope_status="incomplete")
             row["unavailable_accounts"] = sorted(set(row.get("unavailable_accounts") or ()) | unresolved)
+    if manual_accounts:
+        estimates = load_manual_nav_estimates(
+            cur, accounts=manual_accounts, dates=dates,
+            owner_ratio_case_sql=owner_ratio_case_sql, account_owner_ratio=account_owner_ratio,
+        )
+        for row in rows:
+            _add_known_display_values(row, estimates.get(row["date"], {}))
     if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
-        _add_terminal_display_values(rows[-1], terminal_display_values_cny)
+        _add_known_display_values(rows[-1], terminal_display_values_cny)
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,

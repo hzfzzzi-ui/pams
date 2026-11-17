@@ -178,6 +178,7 @@ accounts:
     role: 人民币信用卡
 
   ccb_yhs300_fund:
+    nav_position_policy: carry_last_observed
     display_name: 建行理财
     account_type: fund_platform
     parent_account_code: ccb
@@ -198,6 +199,7 @@ accounts:
       note: 建行流水核对：110020 易沪深300 自 2025-12-15 至 2026-05-25 共 21 笔定投，累计扣款 21,000.00，未见赎回；2026-06-02 用户确认新增定投 1,000.00，确认份额 506.22，确认净值 1.9520，手续费 11.86，成交后份额 11,520.56，持仓市值更新为 22,488.13。
 
   ccb_gold_accumulation:
+    nav_position_policy: carry_last_observed
     display_name: 建行黄金积存金
     account_type: fund_platform
     parent_account_code: ccb
@@ -286,6 +288,7 @@ accounts:
       note: 2026-06-02 用户确认 80,000 MXN 已到账 IBKR，原 2026-05-30 Santander 转 IBKR 在途资金已核销；同日买入 4,626 USD，消除部分 USD 负现金。
 
   tonghuashun:
+    nav_position_policy: carry_last_observed
     account_center_balance: portfolio
     portfolio_value_evidence: reconciled_trade_cash
     display_name: 同花顺
@@ -307,6 +310,7 @@ accounts:
       note: 用户 2026-06-21 同花顺截图确认总资产 396,031.36、总市值 387,560.00，推得现金 8,471.36。当时个人口径按 0.625 乘数计算，账户绩效应以净清算价值而不是仅持仓市值计算。
 
   tencent_licaitong:
+    nav_position_policy: carry_last_observed
     display_name: 腾讯理财通
     account_type: fund_platform
     institution: 腾讯理财通
