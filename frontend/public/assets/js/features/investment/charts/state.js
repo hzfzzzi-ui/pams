@@ -46,6 +46,8 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
     partialTotal: sectionResponses[sectionSpecs.findIndex(spec => spec.key === 'a_stock')]?.estimated_series ?? null,
     sectionRowsByKey,
     sectionEstimates,
+    sectionZeroBefore: new Map(sectionSpecs.map((spec, index) =>
+      [spec.key, sectionEstimates.get(spec.key)?.chart_zero_before ?? sectionResponses[index]?.chart_zero_before])),
     sectionGapDates: new Map(sectionSpecs.map((spec, index) =>
       [spec.key, sectionResponses[index]?.chart_gap_dates])),
     sectionReasons: new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.reason])),
@@ -73,6 +75,7 @@ export function updateVisibleReturnState(state) {
     state.sectionEstimates,
     state.sectionGapDates,
     state.partialTotal,
+    state.sectionZeroBefore,
   );
   state.totalCoverage = windowData.totalCoverage;
   state.visibleRows = windowData.rows;

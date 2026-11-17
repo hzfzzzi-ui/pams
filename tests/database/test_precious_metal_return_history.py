@@ -35,7 +35,9 @@ def test_gold_purchase_reconstructs_holding_history_without_earlier_snapshot(emp
                     excluded_holding_accounts=set(),
                 )
 
-            assert [w["date"] for w in chart()["rows"]] == [snapshot_day.isoformat()]
+            snapshot_only = chart()
+            assert [w["date"] for w in snapshot_only["rows"]] == [snapshot_day.isoformat()]
+            assert "chart_zero_before" not in snapshot_only
             transaction = {
                 "business_date": buy_day.isoformat(), "trade_type": "buy", "symbol": "XAU",
                 "market": "贵金属", "quantity": "10", "net_cash": "-200", "currency": "CNY",
@@ -49,7 +51,9 @@ def test_gold_purchase_reconstructs_holding_history_without_earlier_snapshot(emp
                                parsed_fields=transaction, review_status="confirmed")
             assert source.publish_trade_source(cur, source_id=sid, expected_revision=3, preview_only=True)["can_publish"]
             source.publish_trade_source(cur, source_id=sid, expected_revision=3)
-            rows = chart()["rows"]
+            history = chart()
+            assert history["chart_zero_before"] == buy_day.isoformat()
+            rows = history["rows"]
             by_date = {w["date"]: w for w in rows}
             assert rows[0]["date"] == buy_day.isoformat()
             assert Decimal(rows[0]["display_return_rate"]) == Decimal("0.10")
@@ -57,8 +61,10 @@ def test_gold_purchase_reconstructs_holding_history_without_earlier_snapshot(emp
             assert Decimal(rows[-1]["market_value"]) == Decimal("150")
             assert Decimal(rows[-1]["display_return_rate"]).quantize(Decimal("0.0001")) == Decimal("-0.2500")
             assert [Decimal(w["net_flow"]) for w in rows] == [Decimal("200")] + [Decimal("0")] * (len(rows)-1)
-            assert chart(start=next_day)["rows"][0]["date"] == next_day.isoformat()
-            assert Decimal(chart(start=next_day)["rows"][0]["display_return_rate"]) == 0
+            later_window = chart(start=next_day)
+            assert "chart_zero_before" not in later_window
+            assert later_window["rows"][0]["date"] == next_day.isoformat()
+            assert Decimal(later_window["rows"][0]["display_return_rate"]) == 0
             assert chart(interval="weekly")["rows"][0]["date"] == buy_day.isoformat()
 
             # If the amount no longer agrees with the verified source, the earlier

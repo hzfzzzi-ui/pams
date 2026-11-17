@@ -11,6 +11,7 @@ const MARKET_RETURN_COLORS = new Map([
   ['a_stock', '#ff6269'],
   ['a_fund', '#54cdb2'],
   ['us_stock', '#69aaff'],
+  ['precious_metal', '#f4c34f'],
 ]);
 
 export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart, loadChartClass = () => ChartClass }) {
