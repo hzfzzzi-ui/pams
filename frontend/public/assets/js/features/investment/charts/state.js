@@ -49,7 +49,7 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
     sectionZeroBefore: new Map(sectionSpecs.map((spec, index) =>
       [spec.key, sectionEstimates.get(spec.key)?.chart_zero_before ?? sectionResponses[index]?.chart_zero_before])),
     sectionGapDates: new Map(sectionSpecs.map((spec, index) =>
-      [spec.key, sectionResponses[index]?.chart_gap_dates])),
+      [spec.key, (sectionEstimates.get(spec.key) ?? sectionResponses[index])?.chart_gap_dates])),
     sectionReasons: new Map(sectionSpecs.map((spec, index) => [spec.key, sectionResponses[index]?.reason])),
     sectionClosedTradeReturns: new Map(sectionSpecs.map((spec, index) =>
       [spec.key, sectionResponses[index]?.closed_trade_returns])),

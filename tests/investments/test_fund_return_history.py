@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend" / "api"))
 
-from domain.investments.fund_return_history import reconstruct_fund_series  # noqa: E402
+from domain.investments.fund_return_history import build_fund_return_history, reconstruct_fund_series  # noqa: E402
 
 MON, TUE, WED, THU, FRI = (date(2026, 11, day) for day in range(9, 14))
 OPEN = date(2026, 11, 6)
@@ -63,3 +63,22 @@ def test_evidence_or_snapshot_mismatch_excludes_entire_position_from_the_preview
     assert not covered and anchor is None
     assert all(row["display_return_rate"] is None for row in rows)
     assert gaps[0]["reason"] == "snapshot_quantity_mismatch"
+
+
+def test_fund_chart_classifies_weekend_and_missing_valuation_by_calendar(monkeypatch):
+    trades = [trade(OPEN, "fund_subscription", 100, -100)]
+    snapshots = [{"account_code": "synthetic", "asset_id": "asset", "symbol": "123456", "as_of": WED, "quantity": 100}]
+    marks = {("123456", day): Decimal(price) for day, price in [(OPEN, "1"), (MON, "1.1"), (WED, "1.2")]}
+    monkeypatch.setattr("domain.investments.fund_return_history.load_fund_history_inputs",
+                        lambda *_args, **_kwargs: (ASSET, trades, snapshots))
+    monkeypatch.setattr("domain.investments.fund_return_history.load_fund_nav_marks",
+                        lambda *_args, **_kwargs: marks)
+    estimate = build_fund_return_history(
+        None, start=OPEN, end=WED, interval="daily", owner_ratio=lambda _: Decimal(1), excluded_accounts=set(),
+    )["estimated_series"]
+    assert estimate["chart_gap_dates"] == {
+        "2026-11-07": "closed", "2026-11-08": "closed", TUE.isoformat(): "missing",
+    }
+    assert [row["date"] for row in estimate["rows"]] == list(map(str, (OPEN, MON, TUE, WED)))
+    assert estimate["rows"][2]["display_return_rate"] is None
+    assert Decimal(estimate["rows"][-1]["display_return_rate"]) == Decimal("0.2")

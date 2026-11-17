@@ -210,7 +210,7 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
     const pointRadius = pointRadiusForReturnSeries(sectionData.filter(value => value != null).length, isMobile);
     const gaps = sectionGapDates.get(spec.key);
     const bridgeIndices = new Set();
-    if (gaps && !estimate) {
+    if (gaps) {
       let previous = -1;
       sectionData.forEach((value, index) => {
         if (value === null) return;

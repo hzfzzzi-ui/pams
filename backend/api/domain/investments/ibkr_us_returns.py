@@ -14,7 +14,7 @@ from domain.brokers.ibkr.ibkr_history_backfill import (
 from domain.brokers.ibkr.ibkr_report_state import _calendar
 from domain.investments.holdings_view import _table_exists
 from domain.investments.investment_return_math import (
-    bucket_flow_events, cash_flow_adjusted_return_rows, norm, section_return_summary,
+    bucket_flow_events, cash_flow_adjusted_return_rows, norm, return_chart_gap_dates, section_return_summary,
 )
 from domain.investments.valuation_nav import series_dates
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE
@@ -134,14 +134,7 @@ def _payload(values, native_flows, rates, *, start, through, interval, owner_rat
                    'daily_return_rate', 'time_weighted_return_rate', 'display_return_rate')
     pre_trade_rows = [dict.fromkeys(zero_fields, Decimal(0)) | {'date': day} for day in pre_trade_dates]
     rows = pre_trade_rows + rows
-    chart_gap_dates = {}
-    if interval == 'daily' and len(dates) > 1:
-        calendar = _calendar()
-        for previous, current in zip(dates, dates[1:]):
-            day = previous + timedelta(days=1)
-            while day < current:
-                chart_gap_dates[day.isoformat()] = 'missing' if calendar.is_session(day.isoformat()) else 'closed'
-                day += timedelta(days=1)
+    chart_gap_dates = return_chart_gap_dates(dates, is_session=_calendar().is_session) if interval == 'daily' else {}
     return {
         'section': 'us_stock', 'label': '美股', 'status': 'available',
         'base_currency': 'CNY', 'interval': interval, 'method': 'cash_flow_adjusted_time_weighted_return',

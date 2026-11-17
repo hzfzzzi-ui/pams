@@ -9,7 +9,7 @@ import exchange_calendars
 
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.holdings_positions import _trade_order_ambiguous
-from domain.investments.investment_return_math import cash_flow_adjusted_return_rows, norm
+from domain.investments.investment_return_math import cash_flow_adjusted_return_rows, norm, return_chart_gap_dates
 from domain.investments.trade_read_v2 import load_trade_rows
 
 
@@ -263,14 +263,16 @@ def build_fund_return_history(cur, *, start, end, interval, owner_ratio, exclude
                  for row in rows],
     }
     if usable:
-        payload["estimated_series"] = {
+        estimate = payload["estimated_series"] = {
             "label": "基金历史估值（部分）", "method": METHOD, "rows": rows,
             "source_from": norm(anchor), "source_through": usable[-1]["date"], "instrument_count": included,
         }
-        if interval == "daily" and anchor and anchor < start and rows[0] == usable[0]:
-            first_day = date.fromisoformat(rows[0]["date"])
+        if interval == "daily":
             calendar = exchange_calendars.get_calendar("XSHG")
-            if start < first_day and calendar.next_session(anchor.isoformat()).date() == first_day:
+            observed_dates = [date.fromisoformat(row["date"]) for row in usable]
+            estimate["chart_gap_dates"] = return_chart_gap_dates(observed_dates, is_session=calendar.is_session)
+            first_day = observed_dates[0]
+            if anchor and anchor < start < first_day and calendar.next_session(anchor.isoformat()).date() == first_day:
                 # Carry the verified opening return across the exchange holiday.
-                payload["estimated_series"]["chart_zero_before"] = rows[0]["date"]
+                estimate["chart_zero_before"] = first_day.isoformat()
     return payload
