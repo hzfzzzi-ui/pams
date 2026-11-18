@@ -8,13 +8,13 @@ from psycopg2.extras import Json
 
 from domain.ledger import confirmed_transfers_v2 as transfers
 from domain.ledger.cash_transfer_pairs import CARD_PAYMENT, FX_REVIEW_TOLERANCE, _cash_text
-from domain.ledger.cashflow_classification import personal_loan_principal
+from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 
 
 def _eligible(row):
     return (row['source_evidence_status'] == 'verified' and row.get('amount_cny') is not None
-            and not personal_loan_principal(row))
+            and not personal_loan_principal(row) and not loan_repayment_needs_split(row))
 
 
 def _issuer(row, profiles):

@@ -390,7 +390,7 @@ def classify_ledger_row(
 
 
 def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int]) -> dict[str, Any]:
-    from domain.ledger.cashflow_classification import personal_loan_principal
+    from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
 
     amount = row["amount"]
     if amount == 0:
@@ -412,6 +412,8 @@ def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int])
     result = {"account_flow_type": direction, "flow_type": direction, "coarse_category": subcategory or category or "子类待补",
               "subcategory_pending": not subcategory, "needs_review": not subcategory,
               "is_operating": True, "is_internal_transfer": False}
+    if loan_repayment_needs_split(row):
+        result.update(loan_review_required=True, needs_review=True, coarse_category='借款还款待核对')
     if direction == "expense" and (
         category == "金融费用"
         or (category in {None, "", "其他", "其他支出", "费用"} and subcategory in FINANCIAL_EXPENSE_SUBCATEGORIES)
@@ -1401,6 +1403,7 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None,
     """Expose known open bank facts and invalidated decisions without confirming them."""
     if _table_exists(cur, 'source_records'):
         from domain.ledger.cash_transfer_pairs import has_transfer_hint, suggest
+        from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
         from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
 
         if decisions is None:
@@ -1414,7 +1417,9 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None,
             by_leg[left].append((right, match['ambiguity_status']))
             by_leg[right].append((left, match['ambiguity_status']))
         cases = []
-        eligible = [row for row in rows if row['id'] not in linked and (row['id'] in by_leg or has_transfer_hint(row))]
+        eligible = [row for row in rows if row['id'] not in linked
+                    and not personal_loan_principal(row) and not loan_repayment_needs_split(row)
+                    and (row['id'] in by_leg or has_transfer_hint(row))]
         for row in eligible:
             verified = (row.get('source_evidence_status') == 'verified' and row.get('amount') is not None
                         and row.get('currency') and row.get('transaction_date'))
@@ -1545,7 +1550,7 @@ def _serialize_row(row: Mapping[str, Any], *, base_currency: str = 'CNY') -> dic
         "classification_source",
     ]
     out = {key: row.get(key) for key in keys}
-    for key in ('classification_status', 'classification_hint', 'account_flow_type', 'subcategory_pending'):
+    for key in ('classification_status', 'classification_hint', 'account_flow_type', 'subcategory_pending', 'loan_review_required'):
         if key in row:
             out[key] = row[key]
     transaction_date = out.get("transaction_date")
@@ -1638,7 +1643,9 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
             continue
         if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
-        if flow in _INCOME_EXPENSE_FLOWS | {'personal_loan'} and row_flow != flow:
+        if flow in _INCOME_EXPENSE_FLOWS | {'personal_loan'} and row_flow != flow and not (
+            flow == 'personal_loan' and row.get('loan_review_required')
+        ):
             continue
         if search and code not in (matching_accounts or ()):
             values = [row.get(key) for key in ('summary', 'description', 'counterparty', 'counter_account_code',

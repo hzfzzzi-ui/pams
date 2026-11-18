@@ -30,6 +30,16 @@ def personal_loan_principal(row):
     return None
 
 
+def loan_repayment_needs_split(row):
+    """A confirmed repayment whose principal and charges have not been separated."""
+    return (row.get('classification_status') == 'confirmed'
+            and row.get('classification_source') == 'manual'
+            and row.get('source_evidence_status') == 'verified'
+            and row.get('cashflow_type') == 'debt_repayment'
+            and row.get('subcategory') == '借款还款'
+            and row.get('amount') is not None and row['amount'] < 0)
+
+
 def _normalize(text):
     return ' '.join(str(text or '').casefold().split())
 

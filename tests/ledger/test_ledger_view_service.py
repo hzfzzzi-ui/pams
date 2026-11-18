@@ -75,6 +75,29 @@ def test_personal_loan_principal_changes_monthly_cash_without_affecting_spending
     assert ledger_view._classify_cash_direction(dict(received, classification_status="suggested"), set())["flow_type"] == "income"
 
 
+def test_unsplit_loan_repayment_stays_reviewable_and_out_of_transfer_matching():
+    from domain.ledger.manual_transfer_pairs import is_manual_anchor
+    from domain.ledger.combined_card_repayment import _eligible
+
+    row = dict(id=22, account_code='account', amount=-100, amount_cny=-100,
+               transaction_date=date(2026, 8, 20), transaction_date_obj=date(2026, 8, 20),
+               classification_status='confirmed', classification_source='manual',
+               source_evidence_status='verified', cashflow_type='debt_repayment',
+               category='内部划转', subcategory='借款还款')
+    assert not is_manual_anchor(row)
+    assert not _eligible(row)
+    classified = {**row, **ledger_view._classify_cash_direction(row, set())}
+    assert (classified['flow_type'], classified['loan_review_required'], classified['needs_review']) == ('expense', True, True)
+    totals = summarize_period([classified], [], date(2026, 8, 1), date(2026, 8, 31))
+    assert totals['expense'] == 100 and totals['personal_loan']['repaid'] == 0
+    page = ledger_view._ledger_stream_page([classified], account_config={'accounts': {}}, base_currency='CNY',
+        account='', flow='personal_loan', search='', sort='', offset=0, limit=20)
+    assert len(page['rows']) == 1 and page['rows'][0]['loan_review_required']
+    card = {**row, 'subcategory': '信用卡还款'}
+    assert is_manual_anchor(card) and _eligible(card)
+    assert not ledger_view._classify_cash_direction(card, set()).get('loan_review_required', False)
+
+
 def test_category_insights_roll_up_children_and_months_without_moving_cashflows():
     def row(flow, category, child, amount, month, status="confirmed"):
         return dict(flow_type=flow, category=category, subcategory=child, amount_cny=amount,

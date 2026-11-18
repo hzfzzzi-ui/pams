@@ -260,10 +260,10 @@ function renderRows(id, rows) {
     const dateText = rowDateText(row);
     const account = ledgerAccountIdentity(row.account_code);
     const accountName = [account.institution, account.name].filter(Boolean).join(' ');
-    const pending = row.subcategory_pending || row.flow_type === 'unclassified';
+    const pending = row.subcategory_pending || row.flow_type === 'unclassified' || row.loan_review_required;
     const primaryCategory = String(row.category || '').trim();
     const transfer = isInternalTransferRow(row);
-    const category = transfer ? '内部划转' : pending ? '待补分类' : row.flow_type === 'personal_loan'
+    const category = transfer ? '内部划转' : row.loan_review_required ? '借款还款待核对' : pending ? '待补分类' : row.flow_type === 'personal_loan'
       || ['收入', '消费', '内部划转', ''].includes(primaryCategory)
       ? rowCategoryText(row) : primaryCategory;
     const icon = transfer || row.flow_type === 'personal_loan' ? categoryIconPath('借还款/往来') : pending ? categoryIconPath('其他支出')
