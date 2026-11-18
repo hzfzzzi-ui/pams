@@ -1,7 +1,56 @@
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from domain.accounts import sync_status
 from domain.accounts.sync_status import _compact_summary
+
+
+def test_manual_cash_balance_uses_shared_account_value_and_rejects_invalid_evidence():
+    day = date(2026, 11, 19)
+    cfg = {'truth_source': 'manual', 'reconcile_method': 'balance', 'base_currency': 'CNY',
+           'owner_ratio': '0.5', 'manual_balance': {'amount': '232', 'currency': 'CNY', 'as_of': day}}
+    config = {'accounts': {'wallet': cfg}}
+    value = sync_status._manual_cash_balance_summary(config, 'wallet', cfg, day)
+    assert value == {'balance_amount': '116.0', 'balance_currency': 'CNY', 'balance_as_of': day,
+                     'balance_basis': 'manual_balance', 'balance_label': '手动确认余额'}
+    cfg['manual_balance']['amount'] = '0'
+    assert Decimal(sync_status._manual_cash_balance_summary(config, 'wallet', cfg, day)['balance_amount']) == 0
+    for change in ({'amount': 'NaN'}, {'amount': 'bad'}, {'as_of': '2026-11-20'}, {'currency': 'USD'}):
+        cfg['manual_balance'] = {'amount': '232', 'currency': 'CNY', 'as_of': day, **change}
+        assert sync_status._manual_cash_balance_summary(config, 'wallet', cfg, day) is None
+    cfg['reconcile_method'] = 'position_nav'
+    assert sync_status._manual_cash_balance_summary(config, 'wallet', cfg, day) is None
+
+
+def test_account_center_shows_manual_wallet_and_import_capability(monkeypatch):
+    now = datetime.fromisoformat('2026-11-19T09:00:00+08:00')
+    class Clock:
+        @staticmethod
+        def now(zone):
+            return now.astimezone(zone)
+    class Cursor:
+        def execute(self, query, params=None):
+            if 'SELECT account_code, active FROM public.pams_accounts' in query:
+                self.rows = [{'account_code': 'wallet', 'active': True}]
+            elif 'FROM public.source_records' in query:
+                self.rows = [{'account_code': 'wallet', 'synced_at': now}]
+            else:
+                self.rows = []
+        def fetchall(self):
+            return self.rows
+    monkeypatch.setattr(sync_status, 'datetime', Clock)
+    monkeypatch.setattr(sync_status, 'statement_profiles', lambda: {'wallet': [{}]})
+    monkeypatch.setattr(sync_status, 'summaries', lambda *args: {})
+    monkeypatch.setattr(sync_status, 'SourceOriginals', lambda *args: None)
+    monkeypatch.setattr(sync_status, 'load_cash_rows', lambda *args, **kwargs: [])
+    monkeypatch.setattr(sync_status, 'statement_balances', lambda *args, **kwargs: {})
+    cfg = {'truth_source': 'manual', 'reconcile_method': 'balance', 'base_currency': 'CNY',
+           'manual_balance': {'amount': '232', 'as_of': '2026-11-19'}}
+    row = sync_status.read_account_sync(Cursor(), {'accounts': {'wallet': cfg}})['groups'][0]['rows'][0]
+    assert row['can_import'] is True
+    assert row['summary']['balance_amount'] == '232'
+    assert row['summary']['balance_basis'] == 'manual_balance'
+    assert row['summary']['balance_as_of'] == date(2026, 11, 19)
 
 
 def test_summary_uses_confirmed_sources_and_preserves_unknown_balance():
