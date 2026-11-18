@@ -64,7 +64,7 @@ const heroContext = load('holdings_categories.js', {
   accountCashBreakdown: () => ({netCash: 0, cashAssets: 0, cashLiabilities: 0}),
 });
 const profileInput = {
-  summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1, scopeIncomplete: input.scopeIncomplete === true, knownInvestmentValue: input.knownInvestmentValue},
+  summary: {marketValue: 900, dailyPnl: input.daily, totalPnl: -70, twr: -0.1, scopeIncomplete: input.scopeIncomplete === true, knownInvestmentValue: input.knownInvestmentValue, investmentMetricsState: input.investmentMetricsState},
   categories: [{label: '\u7f8e\u80a1/\u6d77\u5916', dailyPnl: input.daily, totalPnl: -70}],
   usRows: input.rows, usSummary: {totalValue: 1000},
   accountCards: input.accountCards,
@@ -98,7 +98,7 @@ def holding(**fields):
     }
 
 
-def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False, known_investment_value=None,
+def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=False, known_investment_value=None, investment_metrics_state=None,
            stock_position=None, stock_positions_as_of="2026-10-27", stock_performance=None, fund_valuation=None):
     node = shutil.which("node")
     assert node, "Node is required for frontend behavior verification"
@@ -130,7 +130,8 @@ def render(rows, *, daily=0, aggregate_rows=(), recent=None, scope_incomplete=Fa
         [node, "-e", SCRIPT], cwd=ROOT,
         input=json.dumps({"rows": rows, "daily": daily, "aggregateRows": aggregate_rows,
                           "scopeIncomplete": scope_incomplete, "accountCards": cards,
-                          "knownInvestmentValue": known_investment_value}),
+                          "knownInvestmentValue": known_investment_value,
+                          "investmentMetricsState": investment_metrics_state}),
         text=True, encoding="utf-8", capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
@@ -151,6 +152,16 @@ def test_incomplete_scope_displays_known_investment_subtotal_separately():
     assert '已知投资持仓净值' in output['allHtml']
     assert '123.45' in output['allHtml']
     assert '部分账户资料待核验' in output['allHtml']
+
+
+def test_portfolio_card_reuses_account_layout_and_preserves_unknown_metrics():
+    output = render([], scope_incomplete=True, known_investment_value=123.45,
+                    investment_metrics_state={'investment_value_cny': '200', 'total_pnl_cny': '-15',
+                                              'daily_pnl_cny': None, 'as_of': '2026-11-17'})
+    html = output['allHtml']
+    assert all(label in html for label in ('最近一日盈亏', '已知持仓盈亏', '已知持仓市值', '现金余额', '组合占比', '杠杆倍数'))
+    assert '123.45' in html and '200.00' in html and '15.00' in html
+    assert html.count('—') >= 4
 
 
 def test_account_cards_share_fields_and_show_only_supported_values():

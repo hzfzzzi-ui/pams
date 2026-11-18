@@ -107,6 +107,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
     const cumulative = cumulative_pnl?.value;
     const cumulativeLabel = {
       holding_cumulative: '持仓累计盈亏',
+      holding_cumulative_partial: '已知持仓盈亏',
       holding_and_closed: '已核对盈亏',
       official_year_to_date: '年内盈亏（折合）',
     }[cumulative_pnl?.basis];
@@ -122,21 +123,22 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
     const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}` : '最近一日盈亏';
     const dailyValue = daily == null && profile.key === 'A股基金' ? '同日数据待齐' : money(daily, true);
     return `
-      <div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
+      ${profile.hideHeader ? '' : `<div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
         <span class="mobileAccountIcon">${esc(profile.icon)}</span>
         <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
-      </div></div>
+      </div></div>`}
       <div class="mobileHeroPrimaryGrid">
         <div class="mobileHeroPrimaryMetric main"><span>${esc(netLabel)}</span><strong>${money(netValue)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(dailyLabel)}</span><strong class="${valueTone(daily)}">${dailyValue}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(cumulativeLabel || '累计盈亏')}</span><strong class="${valueTone(cumulative)}">${money(cumulative, true)}</strong></div>
       </div>
       <div class="mobileHeroMiniGrid">
-        ${mobileHeroMetaItem('持仓市值', money(market))}
+        ${mobileHeroMetaItem(profile.marketLabel || '持仓市值', money(market))}
         ${mobileHeroMetaItem('现金余额', money(cash), Number(cash) < 0 ? 'down' : '')}
         ${mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
         ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
       </div>
+      ${profile.scopeIncomplete ? `<p>${profile.knownInvestmentAsOf ? '估值截至 ' + esc(profile.knownInvestmentAsOf) + ' · ' : ''}部分账户资料待核验</p>` : ''}
     `;
   }
   if (profile.scopeIncomplete) return `
