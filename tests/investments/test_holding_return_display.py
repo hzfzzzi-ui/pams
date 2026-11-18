@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/api"))
-from domain.investments.holding_return_display import attach_dated_holding_performance, attach_recent_us_returns
+from domain.investments.holding_return_display import (
+    attach_dated_holding_performance, attach_recent_us_returns, attach_recent_nav_returns,
+)
 from domain.investments.investment_view_date import daily_pnl_window_date, market_data_candidate_date
 
 
@@ -205,3 +207,76 @@ def test_fund_daily_card_uses_one_common_confirmed_nav_date():
     assert calls == [DAY]
     assert result["recent_daily_pnl_cny"] == "-6"
     assert result["recent_daily_as_of"] == str(DAY)
+
+
+def nav_holding(account="first", symbol="000001", **changes):
+    return holding(**dict({"account": account, "symbol": symbol, "major_category": "A股", "currency": "CNY",
+                           "fund_nav_raw_status": "confirmed", "fund_nav_confirmed_date": str(DAY)}, **changes))
+
+
+def nav_close(account="first", symbol="000001", **changes):
+    return confirmed(account=account, symbol=symbol, currency="CNY", major_category="A股",
+                     fund_nav_raw_status="confirmed", fund_nav_confirmed_date=str(DAY),
+                     fund_nav_confirmed_unit_nav="10.6", current_price="10.6", **changes)
+
+
+def test_nav_recent_return_uses_existing_dated_reader_for_every_account():
+    rows = [nav_holding(), nav_holding("second", "000002")]
+    original = deepcopy(rows)
+    calls = []
+    def load(day):
+        calls.append(day)
+        return {"rows": [nav_close(), nav_close("second", "000002")]}
+    result = attach_recent_nav_returns({"rows": rows}, active_date=ACTIVE, load_date=load)
+    assert calls == [DAY]
+    assert rows == original
+    for row in result["rows"]:
+        assert row["daily_return_status"] == "pending" and row["daily_pnl_cny"] == "0"
+        recent = row["recent_confirmed_return"]
+        assert recent["as_of"] == str(DAY) and recent["current_as_of"] == str(ACTIVE)
+        assert recent["fields"]["daily_total_pnl_cny"] == "41"
+        assert recent["label"] == "10/27收益"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("previous_price", None), ("previous_price", "0"), ("daily_pnl_cny", "NaN"),
+    ("daily_pnl_stale", True), ("fund_nav_raw_status", "estimated"),
+    ("daily_return_status", "pending"), ("daily_return_status_source", None),
+    ("fund_nav_confirmed_date", str(ACTIVE)), ("daily_return_status_as_of", str(ACTIVE)),
+    ("snapshot_as_of", str(ACTIVE)), ("fund_nav_confirmed_unit_nav", "99"),
+])
+def test_incomplete_nav_close_stays_unavailable(field, value):
+    close = nav_close()
+    close[field] = value
+    result = attach_recent_nav_returns({"rows": [nav_holding()]}, active_date=ACTIVE,
+                                       load_date=lambda _: {"rows": [close]})
+    assert "recent_confirmed_return" not in result["rows"][0]
+
+
+@pytest.mark.parametrize("changes", [
+    {"fund_nav_raw_status": "estimated"}, {"fund_nav_confirmed_date": "invalid"},
+    {"fund_nav_confirmed_date": str(ACTIVE)}, {"is_closed": True}, {"quantity": "0"},
+    {"daily_pnl_stale": False, "daily_return_status": "confirmed"},
+])
+def test_nav_does_not_replay_ineligible_positions(changes):
+    row = nav_holding()
+    row.update(changes)
+    def forbidden(_):
+        raise AssertionError("No historical read expected")
+    result = attach_recent_nav_returns({"rows": [row]}, active_date=ACTIVE, load_date=forbidden)
+    assert "recent_confirmed_return" not in result["rows"][0]
+
+
+def test_nav_dates_stay_separate_and_missing_evidence_is_not_guessed():
+    earlier = date(2026, 10, 26)
+    rows = [nav_holding(), nav_holding("second", "000002", fund_nav_confirmed_date=str(earlier))]
+    calls = []
+    def load(day):
+        calls.append(day)
+        if day == earlier:
+            raise ValueError("historical source unavailable")
+        return {"rows": [nav_close()]}
+    result = attach_recent_nav_returns({"rows": rows}, active_date=ACTIVE, load_date=load)
+    assert calls == [DAY, earlier]
+    assert result["rows"][0]["recent_confirmed_return"]["as_of"] == str(DAY)
+    assert "recent_confirmed_return" not in result["rows"][1]
