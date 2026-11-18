@@ -67,3 +67,19 @@ def test_holding_chart_supports_full_leap_year_and_rejects_larger_or_reversed_ra
     assert valid_holding_history_window(start, end)
     assert not valid_holding_history_window(start, date(2025, 1, 1))
     assert not valid_holding_history_window(end, start)
+
+
+def test_price_comparison_uses_common_date_and_is_independent_of_quantity(monkeypatch):
+    first, second, third = date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)
+    key = ('account', 'CNY', 'TEST')
+    monkeypatch.setattr(history, '_load_positions', lambda *args: (
+        {key: {}}, {key: 'stock'}, {('account', 'CNY', 'asset'): key}))
+    monkeypatch.setattr(history, '_load_prices', lambda *args: {
+        ('stock', 'TEST', None): ([first, second, third], [D(10), D(12), D(11)])})
+    result = history.holding_price_comparison(
+        None, [('account', 'asset')], first, third,
+        {second.isoformat(): D(3000), third.isoformat(): D(3300)})
+    assert result['base_date'] == second.isoformat()
+    assert D(result['rows'][0]['asset_return_pct']) == 0
+    assert D(result['rows'][1]['asset_return_pct']).quantize(D('.01')) == D('-8.33')
+    assert D(result['rows'][1]['benchmark_return_pct']) == D(10)

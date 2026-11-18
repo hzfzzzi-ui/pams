@@ -9,7 +9,7 @@ from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.holdings_account_cards import build_holdings_account_cards
-from domain.investments.holding_market_history import holding_history
+from domain.investments.holding_market_history import holding_history, holding_price_comparison
 from domain.investments import page_projection
 from domain.investments.portfolio_summary import build_holdings_by_account_payload
 from domain.investments.holding_return_snapshot import return_input_revisions, return_snapshot_revision
@@ -319,6 +319,25 @@ def create_compatibility_router(
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 return json(holding_history(cur, sorted(set(zip(account, asset))), start, end,
                                             _account_owner_ratio, all_trades=all_trades))
+
+    @router.get("/api/holdings/price-comparison")
+    def holding_comparison(start: Date, end: Date, account: list[str] = Query(...),
+                           asset: list[str] = Query(...)):
+        if (not valid_holding_history_window(start, end) or len(account) != len(asset)
+                or len(asset) > 24 or any(a in _excluded_holding_accounts() for a in account)):
+            raise HTTPException(status_code=400, detail="无效的账户或查询范围")
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from decimal import Decimal
+        from domain.market.benchmark_history import benchmark_history, local_benchmark
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                closes = benchmark_history(local_benchmark(cur, start, end), start, end,
+                                           datetime.now(ZoneInfo('Asia/Shanghai')).date())
+                return json(holding_price_comparison(
+                    cur, sorted(set(zip(account, asset))), start, end,
+                    {row['date']: Decimal(row['close']) for row in closes['rows']}))
 
     @router.get("/holdings/history/{category}")
     def holdings_history_by_category(
