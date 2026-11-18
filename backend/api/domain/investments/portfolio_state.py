@@ -560,6 +560,13 @@ def load_account_balances(cur, base_currency: str, account_cfg: dict[str, Any]) 
     return rows
 
 
+def signed_position_value(value: Decimal | None, asset_liability: str | None) -> Decimal | None:
+    """Use the same signed value for a position in every portfolio projection."""
+    if value is None:
+        return None
+    return -abs(value) if asset_liability == "负债" else value
+
+
 def _asset_type(row: dict[str, Any]) -> str:
     if str(row.get("asset_liability") or "") == "负债":
         return "liability"
@@ -741,8 +748,7 @@ def load_investment_positions(
         rate = _known_fx_rate(fx_rates, currency, base_currency)
         precision, rate_day = _fx_precision(fx_rates, currency, base_currency, item.get('as_of'))
         market_value = _dec(item["market_value"]) if item.get("market_value") is not None else None
-        if market_value is not None and item.get("asset_liability") == "负债":
-            market_value = -abs(market_value)
+        market_value = signed_position_value(market_value, item.get("asset_liability"))
         if market_value is not None:
             market_value *= owner_ratio
         cost = _dec(item['cost']) * owner_ratio if item.get('cost') is not None else None
