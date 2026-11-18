@@ -121,17 +121,24 @@ def create_compatibility_router(
                            daily_pnl_start_as_of=daily, **config, **scope)
 
         payload = load(view_date, active_date)
+        recent_reads = {}
+
+        def load_recent(day):
+            if day not in recent_reads:
+                recent_reads[day] = load(day, day)
+            return recent_reads[day]
+
+        payload = attach_recent_market_returns(
+            cur, payload, active_date=active_date, load_date=load_recent,
+        )
         holding_account = {'A股': 'tonghuashun', 'A股基金': 'tencent_licaitong'}.get(minor_category) if category == 'A股' else None
         if holding_account and (holding_account == 'tonghuashun' or include_closed):
             return attach_dated_holding_performance(
                 payload, account_code=holding_account, active_date=active_date, limit=limit,
-                load_date=lambda day: load(day, day),
+                load_date=load_recent,
                 allow_mixed_snapshot_days=holding_account == 'tencent_licaitong',
             )
-        return attach_recent_market_returns(
-            cur, payload, active_date=active_date,
-            load_date=lambda day: load(day, day),
-        )
+        return payload
 
     def holdings_for_list(cur, context, *, limit=500, include_closed=False):
         holdings = read_holdings(cur, context, limit=limit, include_closed=include_closed)

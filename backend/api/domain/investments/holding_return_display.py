@@ -146,7 +146,8 @@ def attach_recent_market_returns(
                 raise
         return history[day]
 
-    output = attach_recent_us_returns(cur, payload, active_date=active_date, load_date=load)
+    output = attach_recent_nav_returns(payload, active_date=active_date, load_date=load)
+    output = attach_recent_us_returns(cur, output, active_date=active_date, load_date=load)
     if unavailable:
         return output
     rows = output.get("rows") or []
@@ -260,6 +261,62 @@ def attach_recent_market_returns(
             "title": f"{day} 各市场已确认收益；仅汇总同一日期，未计入今日汇总",
         }
     return result
+
+
+def attach_recent_nav_returns(
+    payload: dict[str, Any], *, active_date: date,
+    load_date: Callable[[date], dict[str, Any]],
+) -> dict[str, Any]:
+    """Display the latest confirmed unit-NAV return without changing today's bucket.
+
+    Replay the shared holding reader once per NAV business date. Do not derive
+    an amount from current quantities, promote estimates, or combine dates.
+    """
+    by_date: dict[date, list[dict]] = defaultdict(list)
+    for row in payload.get("rows") or []:
+        if (row.get("is_closed") or not all(_key(row))
+                or (_decimal(row.get("quantity")) or Decimal(0)) <= 0
+                or row.get("fund_nav_raw_status") not in {"confirmed", "confirmed_corrected"}
+                or not (row.get("daily_pnl_stale") or row.get("daily_return_status") == "pending")):
+            continue
+        try:
+            day = date.fromisoformat(str(row.get("fund_nav_confirmed_date"))[:10])
+        except ValueError:
+            continue
+        if day < active_date:
+            by_date[day].append(row)
+    attached = {}
+    for day, current_rows in by_date.items():
+        try:
+            historical = {_key(row): row for row in load_date(day).get("rows", [])}
+        except Exception as exc:
+            logger.warning("Recent confirmed NAV replay unavailable (%s)", type(exc).__name__)
+            continue
+        for current in current_rows:
+            row = historical.get(_key(current))
+            if (not row or row.get("daily_pnl_stale")
+                    or row.get("fund_nav_raw_status") not in {"confirmed", "confirmed_corrected"}
+                    or row.get("daily_return_status") != "confirmed"
+                    or not row.get("daily_return_status_source")
+                    or str(row.get("fund_nav_confirmed_date"))[:10] != str(day)
+                    or str(row.get("daily_return_status_as_of"))[:10] != str(day)
+                    or str(row.get("snapshot_as_of"))[:10] != str(day)
+                    or (_decimal(row.get("previous_price")) or Decimal(0)) <= 0
+                    or (_decimal(row.get("current_price")) or Decimal(0)) <= 0
+                    or _decimal(row.get("current_price")) != _decimal(row.get("fund_nav_confirmed_unit_nav"))
+                    or any(_decimal(row.get(field)) is None for field in RETURN_FIELDS)):
+                continue
+            attached[_key(current)] = {
+                "as_of": str(day), "status": "confirmed", "label": f"{day:%m/%d}收益",
+                "status_label": f"{day:%m/%d}已确认", "source": row["daily_return_status_source"],
+                "current_as_of": str(active_date), "current_status": "pending",
+                "current_label": f"{active_date:%m/%d}净值待披露",
+                "fields": {field: row[field] for field in RETURN_FIELDS},
+            }
+    if not attached:
+        return payload
+    return {**payload, "rows": [dict(row, recent_confirmed_return=attached[_key(row)])
+                               if _key(row) in attached else row for row in payload["rows"]]}
 
 
 def attach_dated_holding_performance(
