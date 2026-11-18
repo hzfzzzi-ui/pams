@@ -42,7 +42,7 @@ function metricCard(label, value, help, kind = '', extra = '') {
 }
 
 function InvestmentSummaryHeader(summary) {
-  if (summary.scopeIncomplete) return metricCard('投资组合价值', '待核验', '账户资产资料未完整，已知持仓见下方', 'info');
+  if (summary.scopeIncomplete) return metricCard('已知投资持仓净值', summary.knownInvestmentValue == null ? '待核验' : formatCompactCurrency(summary.knownInvestmentValue), '部分账户资料待核验', 'info');
   return `
     ${metricCard('市值', formatCompactCurrency(summary.marketValue), '含持仓与现金/活期', 'info')}
     ${metricCard('累计收益', formatCompactCurrency(summary.totalPnl, 'CNY', { signed: true }), '综合口径', summary.totalPnl >= 0 ? 'good' : 'bad')}
@@ -52,7 +52,7 @@ function InvestmentSummaryHeader(summary) {
 }
 
 function InvestmentSummaryHeaderCompact(summary) {
-  if (summary.scopeIncomplete) return metricCard('投资组合价值', '待核验', '账户资产资料未完整，已知持仓见下方', 'info');
+  if (summary.scopeIncomplete) return metricCard('已知投资持仓净值', summary.knownInvestmentValue == null ? '待核验' : formatCompactCurrency(summary.knownInvestmentValue), '部分账户资料待核验', 'info');
   const hasReturnRate = Number.isFinite(Number(summary.twr));
   const returnRate = hasReturnRate ? Number(summary.twr) : null;
   const dailyPnl = Number.isFinite(Number(summary.dailyPnl)) ? Number(summary.dailyPnl) : null;
@@ -141,8 +141,8 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   }
   if (profile.scopeIncomplete) return `
     <div class="mobileHeroPrimaryMetric main">
-      <span>投资组合价值</span><strong class="mobileHeroValue">待核验</strong>
-      <p>账户资产资料未完整，已知持仓见下方</p>
+      <span>已知投资持仓净值</span><strong class="mobileHeroValue">${profile.knownInvestmentValue == null ? '待核验' : formatCompactCurrency(profile.knownInvestmentValue)}</strong>
+      <p>${profile.knownInvestmentAsOf ? '估值截至 ' + esc(profile.knownInvestmentAsOf) + ' · ' : ''}部分账户资料待核验</p>
     </div>`;
   const value = safeNum(profile.value);
   const dailyPending = profile.dailyStatus === 'pending';

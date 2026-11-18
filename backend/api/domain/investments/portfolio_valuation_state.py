@@ -452,6 +452,27 @@ def build_portfolio_valuation_state_from_parts(
         investment_positions=investment_positions,
     )
 
+    # A display subtotal may be available even when the full account snapshot
+    # is incomplete. Keep it separate from the publishable portfolio NAV.
+    from domain.investments.valuation_nav import current_daily_close_accounts
+    official_accounts = current_daily_close_accounts(account_balances, investment_positions)
+    excluded = {str(row.get("account_code")) for row in account_balances
+                if row.get("account_code") and not row.get("include_in_nav", True)}
+    known_by_account = {}
+    for position in investment_positions:
+        code = str(position.get("account_code") or "")
+        value = position.get("market_value_cny")
+        if not code or code in excluded or not position.get("include_in_nav", True) or value in (None, ""):
+            continue
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            continue
+        known_by_account[code] = known_by_account.get(code, Decimal("0")) + amount
+    for code, account in official_accounts.items():
+        if code in known_by_account and account.get("amount_cny") is not None:
+            known_by_account[code] = Decimal(str(account["amount_cny"]))
+    known_investment_value = sum(known_by_account.values(), Decimal("0")) if known_by_account else None
+
     gross_exposure = Decimal("0")
     investment_value = Decimal("0")
     cash_value = Decimal("0")
@@ -536,6 +557,7 @@ def build_portfolio_valuation_state_from_parts(
         "status": status_value,
         "data_completeness": data_completeness,
         "net_liquidation_value": nav_bucket["net_worth"] if has_nav_members and not incomplete_scope else None,
+        "known_investment_value_cny": known_investment_value,
         "assets_cny": nav_bucket["assets"] if has_nav_members and not incomplete_scope else None,
         "liabilities_cny": nav_bucket["liabilities"] if has_nav_members and not incomplete_scope else None,
         "gross_exposure_cny": gross_exposure,
@@ -862,7 +884,8 @@ def read_current_portfolio_valuation(cur, *, base_currency="CNY", cycle="manual_
             and published_date >= state_date
             and published_hash == current_hash
         ):
-            return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {})}
+            return {"table_ready": table_ready, **(_normalize_db_row(row, source="published") or {}),
+                    "known_investment_value_cny": _norm(state.get("known_investment_value_cny"))}
         stale_meta = published_valuation_stale_meta(
             row,
             target_as_of=state.get("valuation_date"),

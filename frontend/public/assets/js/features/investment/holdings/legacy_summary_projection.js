@@ -266,6 +266,8 @@ export function applyLegacySummaryPayload(payloads, context) {
 
     const dashboardSummary = {
       scopeIncomplete: canonicalSummary.scopeIncomplete,
+      knownInvestmentValue: canonicalSummary.knownInvestmentValue,
+      knownInvestmentAsOf: canonicalSummary.knownInvestmentAsOf,
       marketValue: grandValue,
       totalPnl: grandPnl,
       currentFloatPnl,

@@ -11,9 +11,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend/api'))
 
 from domain.investments.holding_return_display import attach_recent_nav_returns
 from domain.investments.holdings_view import build_holdings_latest_payload
+from domain.investments.portfolio_valuation_state import build_portfolio_valuation_state_from_parts
 from domain.market.fund_nav_estimates import upsert_asset_market_daily_nav
 from scripts import bootstrap_isolated_sources as bootstrap
 from tests.database.test_isolated_source_bootstrap import empty_source_db  # noqa: F401
+
+
+def test_known_investment_subtotal_remains_separate_from_incomplete_nav(empty_source_db):
+    with psycopg2.connect(**empty_source_db) as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('synthetic','Synthetic')")
+            for name, kind, value in [('position', '资产', Decimal('200')),
+                                      ('loan', '负债', Decimal('70'))]:
+                cur.execute("""INSERT INTO pams_holdings_snapshot
+                    (account_code,name,symbol,asset_liability,currency,major_category,minor_category,
+                     as_of,market_value,cost,quantity,current_price)
+                    VALUES ('synthetic',%s,%s,%s,'CNY','ESOP','ESOP',%s,%s,%s,1,%s)""",
+                    (name, name, kind, date(2026, 1, 1), value, value, value))
+    with psycopg2.connect(**empty_source_db) as conn:
+        conn.set_session(readonly=True)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT account_code, asset_liability, market_value, as_of FROM pams_holdings_snapshot")
+            positions = [{'account_code': row['account_code'],
+                          'asset_type': 'liability' if row['asset_liability'] == '负债' else 'esop',
+                          'market_value_cny': -row['market_value'] if row['asset_liability'] == '负债' else row['market_value'],
+                          'as_of': row['as_of'], 'snapshot_scope_status': 'partial'} for row in cur.fetchall()]
+            result = build_portfolio_valuation_state_from_parts(account_balances=[], investment_positions=positions)
+            assert result['net_liquidation_value'] is None
+            assert result['known_investment_value_cny'] == Decimal('130')
 
 
 def test_confirmed_nav_return_survives_rollover_without_fact_changes(empty_source_db):

@@ -100,6 +100,27 @@ def test_build_portfolio_valuation_state_from_parts_uses_net_liquidation_formula
     assert state["source_hash"]
 
 
+def test_known_investment_subtotal_preserves_liability_and_official_account_value(monkeypatch):
+    from domain.investments import valuation_nav
+    monkeypatch.setattr(valuation_nav, 'current_daily_close_accounts', lambda balances, positions: {
+        'broker': {'amount_cny': Decimal('60')}})
+    monkeypatch.setattr('domain.brokers.ibkr.ibkr_daily_close_read.configured', lambda: False)
+    state = build_portfolio_valuation_state_from_parts(
+        account_balances=[{'account_code': 'excluded', 'include_in_nav': False}],
+        investment_positions=[
+            {'account_code': 'broker', 'asset_type': 'us_stock', 'market_value_cny': Decimal('100'),
+             'as_of': date(2026, 1, 1)},
+            {'account_code': 'share', 'asset_type': 'esop', 'market_value_cny': Decimal('200'),
+             'snapshot_scope_status': 'partial', 'as_of': date(2026, 1, 1)},
+            {'account_code': 'share', 'asset_type': 'liability', 'market_value_cny': Decimal('-70'),
+             'snapshot_scope_status': 'partial', 'as_of': date(2026, 1, 1)},
+            {'account_code': 'excluded', 'asset_type': 'stock', 'market_value_cny': Decimal('500'),
+             'as_of': date(2026, 1, 1)},
+        ])
+    assert state['net_liquidation_value'] is None
+    assert state['known_investment_value_cny'] == Decimal('190')
+
+
 def test_build_portfolio_valuation_state_marks_missing_sources_partial():
     state = build_portfolio_valuation_state_from_parts(
         account_balances=[
