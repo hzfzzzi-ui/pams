@@ -48,15 +48,12 @@ for (const status of [
   const inputBefore = JSON.stringify(holding);
   table.children = [];
   module.namespace.renderRows([holding]);
-  const detail = table.children[1];
-  assert.equal(detail.hidden, true);
   table.children[0].listeners.click();
-  assert.equal(detail.hidden, false);
-  table.children[0].listeners.click();
-  assert.equal(detail.hidden, true);
+  const desktopHtml = sheetHtml;
   button.listeners.click();
   const expected = `<strong>收益状态</strong><span>${badge(holding) || '<span class="muted">—</span>'}</span>`;
-  for (const html of [detail.innerHTML, sheetHtml]) {
+  for (const html of [desktopHtml, sheetHtml]) {
+    assert.ok(html.includes('市值与大盘'));
     assert.equal(html.split('<strong>收益状态</strong>').length - 1, 1);
     assert.ok(html.includes(expected));
     assert.ok(html.indexOf('<strong>今日盈亏</strong>') < html.indexOf('<strong>收益状态</strong>'));

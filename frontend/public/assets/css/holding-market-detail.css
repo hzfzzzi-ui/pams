@@ -1,0 +1,27 @@
+.holdingMarketDetail{font-variant-numeric:tabular-nums;min-width:0}
+.holdingMarketDetail .hmSubtitle,.holdingMarketDetail small,.holdingMarketDetail .hmLegend{color:var(--muted)}
+.holdingMarketDetail .hmHero,.holdingMarketDetail .hmBar,.holdingMarketDetail .hmLegend{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.holdingMarketDetail .hmHero{align-items:flex-end;margin:19px 0;padding-bottom:16px;border-bottom:1px solid var(--line,#39393c)}
+.holdingMarketDetail small{display:block;margin-bottom:3px;font-size:12px}
+.holdingMarketDetail .hmHero strong{display:block;font-size:clamp(25px,6vw,34px);letter-spacing:-.04em;line-height:1.16}
+.holdingMarketDetail .hmHero div+div{text-align:right}
+.holdingMarketDetail .hmBar button,.holdingMarketDetail .hmTrades button{border:0;background:transparent;color:var(--muted);min-height:36px;padding:5px 9px}
+.holdingMarketDetail .hmBar button[aria-pressed=true]{background:#35353a;color:white;border-radius:9px}
+.holdingMarketDetail .hmLegend{justify-content:flex-start;gap:18px;font-size:12px;margin:9px 0}
+.holdingMarketDetail .hmLegend span:before{content:"";display:inline-block;width:15px;margin-right:5px;vertical-align:middle;border-top:3px solid #80baff}
+.holdingMarketDetail .hmLegend span+span:before{border-top:2px dashed #e5b974}
+.holdingMarketDetail .hmPlot{width:100%;touch-action:pan-y}
+.holdingMarketDetail svg{width:100%;height:auto;display:block}
+.holdingMarketDetail svg text{font:11px system-ui;fill:#b8b8be}
+.holdingMarketDetail .hmGrid{stroke:#424248;stroke-width:.7}
+.holdingMarketDetail .hmIndex{stroke:#e5b974;stroke-dasharray:4 4;stroke-width:1.8}
+.holdingMarketDetail .hmValue{stroke:#80baff;stroke-width:2.6;stroke-linejoin:round}
+.holdingMarketDetail .hmCursor{stroke:#919199;stroke-dasharray:2 3}
+.holdingMarketDetail .hmTag{fill:#18181a;font-weight:bold}
+.holdingMarketDetail .hmBreakdown{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.holdingMarketDetail .hmReadout{font-size:13px;padding:10px 12px;background:#242428;border-radius:10px;margin:8px 0 14px}
+.holdingMarketDetail details{border-top:1px solid var(--line,#39393c);padding:12px 0}
+.holdingMarketDetail summary{font-weight:600}
+.holdingMarketDetail .hmTrades button{display:block;width:100%;text-align:left}
+.holdingMarketDetail .rowDetailGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.holdingMarketDetail .rowDetailGrid>div{min-width:0;overflow-wrap:anywhere}

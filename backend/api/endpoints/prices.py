@@ -2571,6 +2571,16 @@ def _price_request_instruments(
     return instruments
 
 
+@router.get("/prices/holding-benchmark")
+def get_holding_benchmark(start: date, end: date):
+    from domain.market.benchmark_history import benchmark_history, local_benchmark
+    if start > end or (end-start).days > 93:
+        return _json({"error": "无效的日期范围"}, status_code=400)
+    with _get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            closes = local_benchmark(cur, start, end)
+    return _json(benchmark_history(closes, start, end, _today_cst()))
+
 @router.get("/prices/series")
 def get_price_series(
     symbols: str = "",
