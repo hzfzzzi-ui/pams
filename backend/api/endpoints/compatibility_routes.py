@@ -342,6 +342,21 @@ def create_compatibility_router(
                     cur, sorted(set(zip(account, asset))), start, end,
                     load_benchmark))
 
+    @router.get("/api/holdings/position-return")
+    def holding_position_return(start: Date, end: Date, account: list[str] = Query(...),
+                                asset: list[str] = Query(...)):
+        if (not valid_holding_history_window(start, end) or len(account) != len(asset)
+                or len(asset) > 24 or any(a in _excluded_holding_accounts() for a in account)):
+            raise HTTPException(status_code=400, detail="无效的账户或查询范围")
+        from domain.investments.position_performance import build_position_return_series
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                return json(build_position_return_series(
+                    cur, start=start, end=end, interval='daily', base_currency='CNY',
+                    owner_ratio=_account_owner_ratio, excluded_accounts=_excluded_holding_accounts(),
+                    selection=sorted(set(zip(account, asset)))))
+
     @router.get("/holdings/history/{category}")
     def holdings_history_by_category(
         category: str,

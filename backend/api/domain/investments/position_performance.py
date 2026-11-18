@@ -129,7 +129,7 @@ def _load_positions(cur, end, excluded, selection=None):
     return positions, kinds, asset_keys
 
 
-def _load_events(cur, end, excluded, asset_keys, kinds):
+def _load_events(cur, end, excluded, asset_keys, kinds, selected_keys=None):
     cur.execute("""SELECT DISTINCT account_code FROM pams_investment_trade_fact
         WHERE trade_date<=%s AND trade_type=ANY(%s) AND NOT (account_code=ANY(%s::text[]))
         ORDER BY account_code""", (end, sorted(CHANGES | INCOME), sorted(excluded)))
@@ -140,6 +140,8 @@ def _load_events(cur, end, excluded, asset_keys, kinds):
         for row in load_trade_rows(cur, account_code=account, start=date.min, end=end, originals=originals,
                                    include_fund_execution=True, trade_types=tuple(sorted(CHANGES | INCOME))):
             key = asset_keys.get((account, row['currency'], row['asset_id']), _identity(row))
+            if selected_keys is not None and key not in selected_keys:
+                continue
             kind = kinds.get(key) or _kind(row)
             if not kind or not key[2]:
                 # Account-level interest and fees belong to the separate cash calculation.
@@ -256,13 +258,17 @@ def _position_days(dates, anchors, events, kind):
 
 
 def build_position_return_series(cur, *, start, end, interval, base_currency, owner_ratio, excluded_accounts,
-                                 position_kind=None):
+                                 position_kind=None, selection=None):
     """Compute a securities return from holdings and marks, with trade flows only."""
     start = min(start, end)
     dates = series_dates(start, end, 'daily')
     date_set = set(dates)
-    positions, kinds, asset_keys = _load_positions(cur, end, excluded_accounts)
-    events = _load_events(cur, end, excluded_accounts, asset_keys, kinds)
+    if selection is None:
+        positions, kinds, asset_keys = _load_positions(cur, end, excluded_accounts)
+        events = _load_events(cur, end, excluded_accounts, asset_keys, kinds)
+    else:
+        positions, kinds, asset_keys = _load_positions(cur, end, excluded_accounts, selection)
+        events = _load_events(cur, end, excluded_accounts, asset_keys, kinds, set(kinds))
     if position_kind is not None:
         kinds = {key: kind for key, kind in kinds.items() if kind == position_kind}
     marks = _load_prices(cur, kinds, end)

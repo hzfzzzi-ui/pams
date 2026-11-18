@@ -106,3 +106,31 @@ def test_fund_compares_confirmed_nav_against_shanghai_index(monkeypatch):
     assert D(result['rows'][1]['benchmark_index']) == D('1.05')
     assert D(result['rows'][1]['asset_return_pct']) == D(10)
     assert D(result['rows'][1]['benchmark_return_pct']) == D(5)
+
+
+def test_selected_holding_return_adjusts_purchase_and_filters_scope(monkeypatch):
+    from datetime import timedelta
+    from domain.investments import position_performance as performance
+
+    first = date(2026, 1, 5)
+    days = [first + timedelta(days=i) for i in range(3)]
+    key = ('account', 'CNY', 'TEST')
+    selection = [('account', 'asset')]
+    monkeypatch.setattr(performance, '_load_positions', lambda cur, end, excluded, requested: (
+        {key: {}}, {key: 'stock'}, {('account', 'CNY', 'asset'): key}))
+    seen = []
+    monkeypatch.setattr(performance, '_load_events', lambda cur, end, excluded, asset_keys, kinds, selected: (
+        seen.append(selected) or {}))
+    monkeypatch.setattr(performance, '_load_prices', lambda *args: {})
+    monkeypatch.setattr(performance, 'load_fx_timelines', lambda *args: {})
+    monkeypatch.setattr(performance, '_market_price', lambda marks, key, kind, day: (day, D(1)))
+    monkeypatch.setattr(performance, '_position_days', lambda *args: iter([
+        (days[0], D(100), days[0], None, D(0)),
+        (days[1], D(150), days[0], None, D(50)),
+        (days[2], D(165), days[0], None, D(0)),
+    ]))
+    result = performance.build_position_return_series(
+        None, start=days[0], end=days[-1], interval='daily', base_currency='CNY',
+        owner_ratio=lambda account: D(1), excluded_accounts=(), selection=selection)
+    assert seen == [{key}]
+    assert [D(row['return_rate']) for row in result['rows']] == [D(0), D(0), D('.1')]

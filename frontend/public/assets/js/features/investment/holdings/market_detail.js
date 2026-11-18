@@ -13,9 +13,9 @@ export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown
     <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
       <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
     <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
-    <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div>
-    <div class="hmPlot" aria-label="持仓市值历史走势"></div>
-    <div class="hmReadout" aria-live="polite">正在读取走势…</div></div><div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
+    <div class="hmPanel"><strong>我的持仓收益率</strong><div class="hmReturnPlot"></div><div class="hmReturnReadout" aria-live="polite">正在读取走势…</div></div>
+    <div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
+    <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div><div class="hmPlot" aria-label="持仓市值历史走势"></div><div class="hmReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone}">${esc(item.amount)}</b></div>`).join('')}</div>
     <details><summary>账户成交记录</summary><div class="hmTrades"></div></details>
     <details><summary>持仓与盈亏明细</summary>${fields}</details>
@@ -95,6 +95,34 @@ function comparisonMarkup(rows, dates) {
   return `<svg viewBox="0 0 365 175" role="img" aria-label="标的与大盘归一化走势，起点为1">${shapes.join('')}</svg>`;
 }
 
+
+function returnMarkup(rows) {
+  const values = rows.filter(row => row.return_rate != null).map(row => Number(row.return_rate) * 100);
+  if (!values.length) return '';
+  const minValue = Math.min(0, ...values), maxValue = Math.max(0, ...values);
+  const pad = Math.max((maxValue - minValue) * 0.12, 0.5);
+  const low = minValue - pad, high = maxValue + pad;
+  const start = Date.parse(rows[0].date), end = Date.parse(rows[rows.length - 1].date);
+  const x = row => 41 + (Date.parse(row.date) - start) * 269 / Math.max(end - start, 1);
+  const y = value => 143 - (value - low) * 126 / (high - low);
+  const shapes = [];
+  for (const fraction of [0, 0.5, 1]) {
+    const value = low + (high - low) * fraction, yy = y(value);
+    shapes.push(`<line x1="41" x2="310" y1="${yy}" y2="${yy}" class="hmGrid"/><text x="36" y="${yy + 4}" text-anchor="end">${number(value, 1)}%</text>`);
+  }
+  let path = '', gap = true;
+  for (const row of rows) {
+    if (row.return_rate == null) { gap = true; continue; }
+    path += (gap ? 'M' : 'L') + x(row) + ' ' + y(Number(row.return_rate) * 100) + ' ';
+    gap = false;
+  }
+  shapes.push(`<path d="${path}" class="hmValue" fill="none"/>`);
+  for (const i of [0, Math.floor(rows.length / 2), rows.length - 1]) {
+    shapes.push(`<text x="${x(rows[i])}" y="166" text-anchor="${i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle'}">${esc(rows[i].date.slice(5))}</text>`);
+  }
+  return `<svg viewBox="0 0 365 175" role="img" aria-label="我的持仓区间收益率">${shapes.join('')}</svg>`;
+}
+
 export function bindMarketDetail(sheet, holding) {
   if (!sheet) return;
   const accounts = holding.__accountRows || [holding];
@@ -121,6 +149,8 @@ export function bindMarketDetail(sheet, holding) {
       data.history = history;
       records = history.trades.slice().reverse();
     }).catch(() => { data.historyError = true; }).finally(() => { renderTrades(); render(); });
+    jget('/api/holdings/position-return?' + params).then(result => { data.returns = result; })
+      .catch(() => { data.returnError = true; }).finally(render);
     jget('/api/holdings/price-comparison?' + params, {ttlMs:60000}).then(index => {
       data.index = index;
     }).catch(() => { data.indexError = true; }).finally(render);
@@ -162,7 +192,19 @@ export function bindMarketDetail(sheet, holding) {
   function render() {
     if (!sheet.isConnected) return;
     const first = starts[period];
-    const {history, index, historyError, indexError} = activeWindow();
+    const {history, index, returns, returnError, historyError, indexError} = activeWindow();
+    const returnPlot = sheet.querySelector('.hmReturnPlot');
+    const returnReadout = sheet.querySelector('.hmReturnReadout');
+    if (returns?.status === 'available') {
+      returnPlot.innerHTML = returnMarkup(returns.rows);
+      const last = returns.rows[returns.rows.length - 1];
+      returnReadout.textContent = last.return_rate == null ? '当日收益率待核对'
+        : last.date + '　' + number(Number(last.return_rate) * 100) + '%'
+          + (last.return_scope === 'partial_positions' ? '　部分持仓' : '');
+    } else {
+      returnPlot.replaceChildren();
+      returnReadout.textContent = returnError ? '收益率读取失败' : returns ? '暂无可核对收益率' : '正在读取走势…';
+    }
     const points=new Map(), days=new Set();
     function put(rows,key){for(const row of rows||[]){if(row.date<first)continue;days.add(row.date);const p=points.get(row.date)||{};
       p[key]=row[key]==null?null:Number(row[key]);points.set(row.date,p);}}
