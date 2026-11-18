@@ -6,6 +6,24 @@ from domain.ledger import manual_transfer_pairs
 from domain.ledger.cash_transfer_pairs import suggest
 
 
+def test_fund_subscription_requires_code_verified_anchor_and_bounded_date():
+    from domain.ledger.confirmed_transfers_v2 import is_manual_funding_pair, SUBSCRIPTION_PURPOSE
+    anchor = {'classification_status': 'confirmed', 'classification_source': 'manual',
+              'cashflow_type': 'internal_transfer', 'source_evidence_status': 'verified',
+              'amount': Decimal('-1000'), 'summary': '基金申购 123456'}
+    assert manual_transfer_pairs._subscription_symbols(anchor) == {'123456'}
+    assert not manual_transfer_pairs._subscription_symbols({**anchor, 'source_evidence_status': 'unknown'})
+    assert not manual_transfer_pairs._subscription_symbols({**anchor, 'summary': '无代码 1234567'})
+    left = {'kind': 'cashflow', 'account_code': 'bank', 'source_item_id': 'a', 'source_id': 'a',
+            'source_hash': 'a', 'currency': 'CNY', 'amount': '-1000', 'day': '2026-10-26'}
+    right = {'kind': 'trade', 'account_code': 'fund', 'source_item_id': 'b', 'source_id': 'b',
+             'source_hash': 'b', 'currency': 'CNY', 'amount': '1000', 'day': '2026-10-27',
+             'purpose': SUBSCRIPTION_PURPOSE}
+    assert is_manual_funding_pair(left, right)
+    assert not is_manual_funding_pair(left, {**right, 'day': '2026-11-04'})
+    assert not is_manual_funding_pair(left, {**right, 'amount': '999'})
+
+
 def cash_row(ident, account, amount, *, currency='CNY', day_offset=0, hint='internal_transfer', source=None):
     evidence = {'account_code': account, 'currency': currency, 'amount': Decimal(amount),
                 'source_item_id': ident, 'source_id': source or ident, 'source_hash': None}

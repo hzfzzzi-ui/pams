@@ -50,6 +50,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
   let pendingLimit = FIRST_PAGE;
   let manualLimit = FIRST_PAGE;
   const manualOptions = new WeakMap();
+  const selectedFunds = new Map();
 
   function accountName(code) {
     const account = model.ledgerAccountIdentity(code);
@@ -103,7 +104,8 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     const host = $('transferManualPending');
     if (!data || review !== 'pending') return;
     const rows = visibleRows(data.manual_pending || []);
-    host.innerHTML = rows.length ? `<h4>单边待配对 <small>${rows.length} 笔</small></h4>` +
+    host.innerHTML = rows.length ? `<h4>单边待配对 <small>${rows.length} 笔</small></h4>
+      <button class="btn" type="button" data-confirm-selected-funds ${selectedFunds.size ? '' : 'hidden'}>确认已选基金配对（${selectedFunds.size}）</button>` +
       rows.slice(0, manualLimit).map(row => `<details class="ledgerPair" data-manual-anchor="${row.id}">
         <summary class="ledgerManualPairSummary">${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
@@ -153,6 +155,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
           ${manualLegDescription(row)}
           <p class="muted">${row.match_type === 'fx_conversion' ? '换汇 · ' : row.match_type === 'credit_card_payment'
             ? '信用卡还款 · ' : ''}请核对两笔流水是否为同一笔资金。</p>
+          ${row.candidate_type === 'fund_subscription' ? `<label><input type="checkbox" data-select-fund="${escape(manualOptionKey(row))}" ${selectedFunds.get(anchorId)?.target_row_id === row.id ? 'checked' : ''}> 加入批量确认</label>` : ''}
           <button class="btn" type="button" data-confirm-manual="${escape(manualOptionKey(row))}">确认这两笔配对</button>
           <p class="muted" data-pair-status role="status"></p>
         </div>
@@ -369,6 +372,22 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
   function bind() {
     const panel = $('transferReviewPanel');
     if (!panel) return;
+    events.listen('page', panel, 'change', event => {
+      const box = event.target.closest('[data-select-fund]');
+      if (!box) return;
+      const card = box.closest('[data-manual-anchor]');
+      const anchor = Number(card.dataset.manualAnchor);
+      const pair = manualOptions.get(card)?.get(box.dataset.selectFund);
+      if (!pair) return;
+      if (box.checked) {
+        const duplicate = [...selectedFunds].some(([other, item]) => other !== anchor && item.target_row_id === pair.target_row_id);
+        if (duplicate) { box.checked = false; message('transferPairNotice', '同一笔基金交易不能重复选择。'); return; }
+        card.querySelectorAll('[data-select-fund]').forEach(other => { if (other !== box) other.checked = false; });
+        selectedFunds.set(anchor, pair);
+      } else if (selectedFunds.get(anchor)?.target_row_id === pair.target_row_id) selectedFunds.delete(anchor);
+      const batch = panel.querySelector('[data-confirm-selected-funds]');
+      if (batch) { batch.hidden = !selectedFunds.size; batch.textContent = `确认已选基金配对（${selectedFunds.size}）`; }
+    });
     events.listen('page', $('transferReviewActions'), 'click', event => {
       const choice = event.target.closest('[data-transfer-review]')?.dataset.transferReview;
       if (!choice) return;
@@ -379,7 +398,31 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
     events.listen('page', panel, 'click', async event => {
       const button = event.target.closest('button');
       if (!button) return;
-      if (button.hasAttribute('data-retry-transfers')) {
+      if (button.hasAttribute('data-confirm-selected-funds') && !submitting) {
+        const pairs = [...selectedFunds.values()];
+        if (!pairs.length) return;
+        submitting = true;
+        button.disabled = true;
+        let completed = 0;
+        let failure = null;
+        for (const pair of pairs) {
+          try { await confirmTransferPair(pair); completed++; }
+          catch (error) { failure = error; break; }
+        }
+        selectedFunds.clear();
+        candidates = null;
+        try {
+          if (current()) {
+            await Promise.all([load(), reloadWorkbench().catch(() => {})]);
+            const reason = failure && (typeof failure.detail === 'string' ? failure.detail : failure.detail?.message);
+            message('transferPairNotice', failure
+              ? `已确认 ${completed} 笔，后续已停止。${reason || '请刷新核对该笔状态后再操作。'}`
+              : `已确认 ${completed} 笔基金配对。`);
+          }
+        } finally {
+          submitting = false;
+        }
+      } else if (button.hasAttribute('data-retry-transfers')) {
         load();
       } else if (button.hasAttribute('data-retry-candidates')) {
         loadCandidates();
@@ -406,6 +449,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         message('transferPairNotice', '');
         try {
           await confirmTransferPair(pair);
+          if (pair.manual_anchor_id) selectedFunds.delete(pair.manual_anchor_id);
           if (!current()) return;
           message('transferPairNotice', '配对已确认，正在更新划转和收支总览。');
           candidates = null;
