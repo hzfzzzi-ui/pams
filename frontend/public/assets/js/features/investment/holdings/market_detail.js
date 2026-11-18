@@ -12,7 +12,7 @@ export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown
     <div class="hmSubtitle">${esc(subtitle)}</div>
     <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
       <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
-    <div class="hmBar"><strong>市值与大盘</strong><div><button data-days="30">近1月</button><button data-days="90" aria-pressed="true">近3月</button></div></div>
+    <div class="hmBar"><strong>市值与大盘</strong><div><button data-period="ytd">年初至今</button><button data-period="month">近1月</button><button data-period="quarter" aria-pressed="true">近3月</button></div></div>
     <div class="hmLegend"><span>持仓市值 · 万元</span><span>沪深300 · 点</span></div>
     <div class="hmPlot" aria-label="持仓市值与沪深300历史走势"></div>
     <div class="hmReadout" aria-live="polite">正在读取走势…</div>
@@ -79,23 +79,46 @@ export function bindMarketDetail(sheet, holding) {
   if (!end || accounts.some(row=>!row.asset_id || !(row.account_code || row.account))) {
     readout.textContent='缺少持仓历史标识'; list.textContent='暂无可核对成交'; return;
   }
-  const params = new URLSearchParams({start:before(end,89),end});
-  const indexParams = params.toString();
-  params.set('all_trades', 'true');
-  for (const row of accounts) {params.append('asset',row.asset_id);params.append('account',row.account_code || row.account);}
-  let period=90, selected=end, history=null, index=null, historyError=false, indexError=false;
+  const starts = {ytd: end.slice(0, 4) + '-01-01', month: before(end, 29), quarter: before(end, 89)};
+  const windows = new Map();
+  let period = 'quarter', selected = end, records = null;
+  function requestWindow(start) {
+    if (windows.has(start)) return windows.get(start);
+    const data = {};
+    windows.set(start, data);
+    const dates = new URLSearchParams({start, end});
+    const params = new URLSearchParams(dates);
+    params.set('all_trades', 'true');
+    for (const row of accounts) {
+      params.append('asset', row.asset_id);
+      params.append('account', row.account_code || row.account);
+    }
+    jget('/api/holdings/market-history?' + params).then(history => {
+      data.history = history;
+      records = history.trades.slice().reverse();
+    }).catch(() => { data.historyError = true; }).finally(() => { renderTrades(); render(); });
+    jget('/api/prices/holding-benchmark?' + dates, {ttlMs:60000}).then(index => {
+      data.index = index;
+    }).catch(() => { data.indexError = true; }).finally(render);
+    return data;
+  }
+  // The initial quarter already covers the month and, early in the year, YTD.
+  function activeWindow() {
+    const first = starts[period];
+    return requestWindow(first < starts.quarter ? first : starts.quarter);
+  }
   const tradeLabel=t=>(t.side==='buy'?'买入':'卖出')+(t.quantity==null?'':' '+Number(t.quantity).toLocaleString('zh-CN',{maximumFractionDigits:6}))+
     (t.price==null?'':' · 成交价 '+Number(t.price).toLocaleString('zh-CN',{maximumFractionDigits:4})+' '+t.currency);
   let expanded = false;
   function renderTrades() {
     if (!sheet.isConnected) return;
-    const records = (history?.trades || []).slice().reverse();
+    const {history, historyError} = activeWindow();
     list.replaceChildren();
-    if (!records.length) {
+    if (!records?.length) {
       list.textContent = historyError ? '成交记录读取失败' : history ? '暂无已核对成交' : '正在读取…';
       return;
     }
-    const first = before(end, period - 1);
+    const first = starts[period];
     for (const t of expanded ? records : records.slice(0, 10)) {
       const inChart = first <= t.date && t.date <= end;
       const row = list.ownerDocument.createElement(inChart ? 'button' : 'div');
@@ -114,7 +137,8 @@ export function bindMarketDetail(sheet, holding) {
   }
   function render() {
     if (!sheet.isConnected) return;
-    const first=before(end,period-1);
+    const first = starts[period];
+    const {history, index, historyError, indexError} = activeWindow();
     const points=new Map(), days=new Set();
     function put(rows,key){for(const row of rows||[]){if(row.date<first)continue;days.add(row.date);const p=points.get(row.date)||{};
       p[key]=row[key]==null?null:Number(row[key]);points.set(row.date,p);}}
@@ -123,9 +147,11 @@ export function bindMarketDetail(sheet, holding) {
     const sides=new Map();
     for(const trade of trades){days.add(trade.date);if(!sides.has(trade.date))sides.set(trade.date,new Set());sides.get(trade.date).add(trade.side);}
     const dates=[...days].sort(),rows=dates.map(d=>points.get(d)||{});
-    const buttons=sheet.querySelectorAll('[data-days]');
-    for(const button of buttons){button.setAttribute('aria-pressed',String(+button.dataset.days===period));button.onclick=()=>{period=+button.dataset.days;renderTrades();render()};}
-    if(!dates.length){readout.textContent=historyError?'持仓历史读取失败':'暂无区间数据';return;}
+    if (!dates.length) {
+      plot.replaceChildren();
+      readout.textContent = historyError ? '持仓历史读取失败' : history ? '暂无区间数据' : '正在读取走势…';
+      return;
+    }
     const active=dates.includes(selected)?dates.indexOf(selected):dates.length-1;
     const day=dates[active], current=rows[active];plot.innerHTML=chartMarkup(rows,dates,active,sides);
     const tradeInfo=trades.filter(t=>t.date===day).map(tradeLabel).join(' / ');
@@ -138,7 +164,15 @@ export function bindMarketDetail(sheet, holding) {
     plot.onpointermove=e=>{if(e.buttons)pick(e)};
     plot.onkeydown=e=>{if(!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();selected=dates[Math.max(0,Math.min(dates.length-1,active+(e.key==='ArrowLeft'?-1:1)))];render();};plot.tabIndex=0;
   }
+  const buttons = sheet.querySelectorAll('[data-period]');
+  for (const button of buttons) {
+    button.onclick = () => {
+      period = button.dataset.period;
+      for (const item of buttons) item.setAttribute('aria-pressed', String(item === button));
+      renderTrades();
+      render();
+    };
+  }
   renderTrades();
-  jget('/api/holdings/market-history?'+params).then(data=>{history=data;renderTrades();render()}).catch(()=>{historyError=true;renderTrades();render()});
-  jget('/api/prices/holding-benchmark?'+indexParams,{ttlMs:60000}).then(data=>{index=data;render()}).catch(()=>{indexError=true;render()});
+  render();
 }

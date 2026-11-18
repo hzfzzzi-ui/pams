@@ -13,6 +13,11 @@ from decimal import Decimal
 from typing import Any
 
 
+def valid_holding_history_window(start: Date, end: Date) -> bool:
+    """Allow up to one leap year of daily points, including both endpoints."""
+    return 0 <= (end - start).days < 366
+
+
 CN_INDEX_SYMBOLS = {
     "000001.SH",
     "000300.SH",

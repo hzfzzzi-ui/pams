@@ -56,3 +56,14 @@ def test_complete_trade_list_keeps_chart_window_and_source_verification(monkeypa
     assert [t['id'] for t in chart['trades']] == [2]
     assert [t['id'] for t in complete['trades']] == [0, 2, 3]
     assert complete['rows'] == chart['rows']
+
+
+def test_holding_chart_supports_full_leap_year_and_rejects_larger_or_reversed_ranges():
+    from domain.market.price_history import valid_holding_history_window
+
+    start = date(2024, 1, 1)
+    end = date(2024, 12, 31)
+    assert valid_holding_history_window(start, start)
+    assert valid_holding_history_window(start, end)
+    assert not valid_holding_history_window(start, date(2025, 1, 1))
+    assert not valid_holding_history_window(end, start)
