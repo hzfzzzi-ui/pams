@@ -23,5 +23,6 @@
 .holdingMarketDetail details{border-top:1px solid var(--line,#39393c);padding:12px 0}
 .holdingMarketDetail summary{font-weight:600}
 .holdingMarketDetail .hmTrades button{display:block;width:100%;text-align:left}
+.holdingMarketDetail .hmTradeRow{box-sizing:border-box;min-height:36px;padding:5px 9px;display:flex;align-items:center;color:var(--muted);font:inherit}
 .holdingMarketDetail .rowDetailGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
 .holdingMarketDetail .rowDetailGrid>div{min-width:0;overflow-wrap:anywhere}

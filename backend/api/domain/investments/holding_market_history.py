@@ -10,7 +10,7 @@ from domain.investments.trade_read_v2 import load_trade_rows
 from domain.investments.valuation_nav import load_fx_timelines, series_dates
 
 
-def holding_history(cur, selection, start, end, owner_ratio):
+def holding_history(cur, selection, start, end, owner_ratio, *, all_trades=False):
     dates = series_dates(start, end, 'daily')
     positions, kinds, keys = _load_positions(cur, end, (), selection)
     prices = _load_prices(cur, kinds, end)
@@ -21,13 +21,14 @@ def holding_history(cur, selection, start, end, owner_ratio):
         kind = kinds[key]
         ownership = owner_ratio(account)
         events = {}
-        for trade in load_trade_rows(cur, account_code=account, start=date.min, end=end,
+        for trade in load_trade_rows(cur, account_code=account, start=date.min, end=date.max if all_trades else end,
                                      include_fund_execution=True, trade_types=tuple(sorted(CHANGES)),
                                      instrument=(asset_id, key[2])):
             day = _trade_day(trade) if kind == 'fund' else trade['trade_date']
-            events.setdefault(day, []).append(trade)
+            if day <= end:
+                events.setdefault(day, []).append(trade)
             action = trade['trade_type']
-            if (start <= day <= end and action in BUYS | SELLS and trade['source_evidence_status'] == 'verified'
+            if ((all_trades or start <= day <= end) and action in BUYS | SELLS and trade['source_evidence_status'] == 'verified'
                     and (kind != 'fund' or trade['fund_execution_confirmed'])):
                 trades.append({'date': day, 'side': 'buy' if action in BUYS else 'sell',
                                'quantity': trade['quantity'], 'price': trade['price'], 'currency': currency,
