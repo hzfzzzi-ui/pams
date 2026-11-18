@@ -1385,7 +1385,7 @@ def _transfer_pair_details(cur, matches):
     trade_details = {}
     if trade_ids:
         cur.execute("""SELECT trade_id, concat_ws(' · ', NULLIF(name, ''),
-                                  CASE trade_type WHEN 'deposit' THEN '券商入金' ELSE '基金赎回' END) AS summary,
+                                  CASE trade_type WHEN 'deposit' THEN '券商入金' WHEN 'fund_subscription' THEN '基金申购' ELSE '基金赎回' END) AS summary,
                               source_item_id::text AS source_item_id
                        FROM public.pams_investment_trade_fact WHERE trade_id = ANY(%s)""", (trade_ids,))
         trade_details = {row['trade_id']: dict(row) for row in cur.fetchall()}

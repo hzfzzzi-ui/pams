@@ -199,3 +199,69 @@ def test_manual_bank_outflow_pairs_with_verified_broker_deposit(empty_source_db,
         assert cur.fetchone()[0] == 50000
         cur.execute('SELECT COUNT(*) FROM pams_cashflow_fact')
         assert cur.fetchone()[0] == 1
+
+
+def test_manual_fund_subscription_links_existing_trade_without_duplicate_cash(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from endpoints import bank_reconcile, ledger
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_cashflow, _publish_synthetic_trades
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('test_bank','Bank'),('test_fund','Fund')")
+        _publish_synthetic_cashflow(conn, account='test_bank', fields={
+            'business_date': '2026-10-26', 'net_cash': '-1000', 'currency': 'CNY',
+            'summary': '基金申购 123456',
+        }, classification='internal_transfer')
+        _publish_synthetic_trades(conn, [
+            {'business_date': '2026-10-27', 'settle_date': '2026-10-28', 'trade_type': 'fund_subscription',
+             'action': 'subscribe', 'symbol': symbol, 'name': 'Synthetic fund', 'currency': 'CNY',
+             'quantity': '581.84', 'price': '1.6983', 'gross_amount': '988.14',
+             'fee_amount': '11.86', 'fee_currency': 'CNY', 'net_cash': '-1000'}
+            for symbol in ('123456', '654321')
+        ], account_code='test_fund')
+        with conn.cursor() as cur:
+            cur.execute("SELECT cashflow_id FROM pams_cashflow_fact WHERE account_code='test_bank'")
+            anchor = cur.fetchone()[0]
+            cur.execute("SELECT trade_id FROM pams_investment_trade_fact WHERE symbol='654321'")
+            wrong_trade = cur.fetchone()[0]
+
+    monkeypatch.setattr(bank_reconcile, 'get_conn', connect)
+    monkeypatch.setattr(ledger, 'get_conn', connect)
+    app = FastAPI()
+    app.include_router(bank_reconcile.router, prefix='/api')
+    app.include_router(ledger.router, prefix='/api')
+    with TestClient(app) as client:
+        options_url = f'/api/bank-reconcile/transfers/manual-pending/{anchor}/options'
+        overview_url = '/api/ledger/workbench?view=overview&month=2026-10'
+        before = client.get(overview_url).raise_for_status().json()['periods']['month']
+        candidate, = client.get(options_url).raise_for_status().json()['rows']
+        assert candidate['kind'] == 'trade' and Decimal(str(candidate['amount'])) == 1000
+        assert '123456' in candidate['summary']
+        payload = dict(from_kind='cashflow', from_id=anchor, to_kind='trade', to_id=candidate['id'],
+                       manual_anchor_id=anchor, note='Synthetic fund confirmation', confirmed=True)
+        url = '/api/bank-reconcile/transfers/confirm'
+        assert client.post(url, json={**payload, 'to_id': wrong_trade}).status_code == 409
+        saved = client.post(url, json=payload).raise_for_status().json()
+        assert client.post(url, json=payload).raise_for_status().json()['replayed']
+        after = client.get(overview_url).raise_for_status().json()['periods']['month']
+        assert before['expense'] - after['expense'] == 1000
+        assert after['investment_funding'] - before['investment_funding'] == 1000
+        assert before['income'] == after['income'] and before['cash_net'] == after['cash_net']
+        transfers = client.get('/api/ledger/workbench?view=transfers&month=2026-10&manualPending=true').raise_for_status().json()
+        assert transfers['manual_pending'] == []
+        pair, = transfers['transfer_pairs']
+        assert pair['id'] == saved['transfer_id'] and pair['target_trade_id'] == candidate['id']
+        assert pair['match_type'] == 'investment_funding' and '基金申购' in pair['target']['summary']
+        assert pair['match_date'] == '2026-10-26' and pair['target_date'] == '2026-10-27'
+        assert client.get(options_url).status_code == 409
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute('SELECT net_cash,fee_amount,quantity FROM pams_investment_trade_fact WHERE trade_id=%s', (candidate['id'],))
+        assert cur.fetchone() == (Decimal('-1000'), Decimal('11.86'), Decimal('581.84'))
+        cur.execute('SELECT COUNT(*) FROM pams_cashflow_fact')
+        assert cur.fetchone()[0] == 1

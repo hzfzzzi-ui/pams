@@ -7,7 +7,8 @@ import { pathToFileURL } from 'node:url';
 const publicRoot = path.resolve(process.argv[2] || 'frontend/public');
 const transfersOnly = process.argv[3] === '--transfers-only';
 const streamOnly = process.argv[3] === '--stream-only';
-const baselineEntry = !transfersOnly && !streamOnly && process.argv[3] ? path.resolve(process.argv[3]) : null;
+const fundBatchOnly = process.argv[3] === '--fund-batch-only';
+const baselineEntry = !transfersOnly && !streamOnly && !fundBatchOnly && process.argv[3] ? path.resolve(process.argv[3]) : null;
 const runtime = process.env.PAMS_FRONTEND_PLAYWRIGHT_MODULE;
 const { chromium } = runtime ? await import(pathToFileURL(runtime).href) : await import('playwright');
 const chartScript = process.env.PAMS_FRONTEND_CHART_SCRIPT;
@@ -106,7 +107,10 @@ async function makePage(legacy = false, fixtureData = fixture) {
         return Promise.resolve(select(structuredClone(test.fixture)));
       }
       if (url === '/api/accounts/overview') return Promise.resolve(structuredClone(test.accounts));
-      if (url.includes('/manual-pending/')) return Promise.resolve(structuredClone(test.fixture.manual_options));
+      if (url.includes('/manual-pending/')) {
+        const anchor = url.match(/manual-pending\/(\d+)/)?.[1];
+        return Promise.resolve(structuredClone(test.fixture.manual_options_by_anchor?.[anchor] || test.fixture.manual_options));
+      }
       return Promise.resolve({});
     };
     window.__ledgerWrite = (url, body) => {
@@ -139,7 +143,8 @@ async function makePage(legacy = false, fixtureData = fixture) {
       }
       if (url.pathname.endsWith('/ledger_cashflow.js')) {
         const entry = legacy ? await readFile(baselineEntry, 'utf8') : body.toString('utf8');
-        body = Buffer.from(entry + (legacy ? '\nwindow.__legacyLedger={state, loadWorkbench};\n' : '\nwindow.__ledgerPage=ledger;\n'));
+        body = Buffer.from(legacy ? entry + '\nwindow.__legacyLedger={state, loadWorkbench};\n'
+          : entry.replace('mountLedgerPage();', 'window.__ledgerPage=mountLedgerPage();'));
       }
       const contentType = ({ '.js': 'application/javascript', '.html': 'text/html', '.css': 'text/css' })[path.extname(target)] || 'application/octet-stream';
       return route.fulfill({ contentType, body });
@@ -733,18 +738,80 @@ async function checkCombinedCardRepayment() {
   await context.close();
 }
 
+async function checkFundBatch() {
+  const data = structuredClone(fixture);
+  data.month = '2026-10';
+  data.transfer_pairs = [];
+  data.manual_pending = [31, 32].map(id => ({id, account_code:'ccb_7332', transaction_date:'2026-10-26',
+    amount:-1000, currency:'CNY', subcategory:'基金申购', source_evidence_status:'verified'}));
+  data.manual_options_by_anchor = Object.fromEntries([31, 32].map(id => [id, {rows:[{
+    id:id + 100, kind:'trade', account_code:'test_fund', transaction_date:'2026-10-26', amount:1000,
+    currency:'CNY', summary:`基金申购 ${id}`, match_type:'investment_funding', candidate_type:'fund_subscription',
+  }]}]));
+  const {page, context} = await makePage(false, data);
+  await page.locator('[data-ledger-tab="recent"]').click();
+  await page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
+  await page.locator('[data-transfer-review="pending"]').click();
+  await page.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+  await page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({matches:[]}));
+  for (const id of [31, 32]) {
+    const anchor = page.locator(`[data-manual-anchor="${id}"]`);
+    await anchor.locator(':scope > summary').click();
+    await anchor.getByRole('button', {name:'查找另一笔'}).click();
+    await anchor.locator('[data-manual-options] summary').click();
+    await anchor.getByLabel('加入批量确认').check();
+  }
+  await page.getByRole('button', {name:'确认已选基金配对（2）'}).click();
+  for (const id of [31, 32]) {
+    await page.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+    assert.equal(await page.evaluate(() => __ledgerTest.writes.at(-1).body.manual_anchor_id), id);
+    await page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ok:true}));
+  }
+  await page.getByText('已确认 2 笔基金配对。').waitFor();
+  await context.close();
+
+  const failed = await makePage(false, data);
+  await failed.page.locator('[data-ledger-tab="recent"]').click();
+  await failed.page.locator('[data-ledger-flow-filter="internal_transfer"]').click();
+  await failed.page.locator('[data-transfer-review="pending"]').click();
+  await failed.page.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+  await failed.page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({matches:[]}));
+  for (const id of [31, 32]) {
+    const anchor = failed.page.locator(`[data-manual-anchor="${id}"]`);
+    await anchor.locator(':scope > summary').click();
+    await anchor.getByRole('button', {name:'查找另一笔'}).click();
+    await anchor.locator('[data-manual-options] summary').click();
+    await anchor.getByLabel('加入批量确认').check();
+  }
+  await failed.page.getByRole('button', {name:'确认已选基金配对（2）'}).click();
+  await failed.page.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+  await failed.page.evaluate(() => __ledgerTest.pendingPosts.shift().resolve({ok:true}));
+  await failed.page.waitForFunction(() => __ledgerTest.pendingPosts.length === 1);
+  await failed.page.evaluate(() => __ledgerTest.pendingPosts.shift().reject(new Error('network')));
+  await failed.page.getByText(/已确认 1 笔，后续已停止/).waitFor();
+  assert.equal(await failed.page.evaluate(() => __ledgerTest.writes.filter(w => w.url.endsWith('/transfers/confirm')).length), 2);
+  await failed.context.close();
+}
+
 try {
+  if (fundBatchOnly) {
+    await checkFundBatch();
+    assert.deepEqual(errors, []);
+    console.log('Fund batch selection and confirmation passed');
+  } else {
   if (!streamOnly) await checkTransferLayout();
   if (!transfersOnly) {
     await checkStreamLayout();
     await checkPersonalLoanNavigation();
     await checkSaveKeepsStreamPosition();
     await checkCombinedCardRepayment();
+    await checkFundBatch();
   }
   if (transfersOnly || streamOnly) {
     assert.deepEqual(errors, []);
     console.log(transfersOnly ? 'Transfer layout and details passed' : 'Stream day groups, pagination, icons, amounts and edit access passed');
   } else await checkLedgerLifecycle();
+  }
 } finally { await browser.close(); }
 
 async function checkLedgerLifecycle() {

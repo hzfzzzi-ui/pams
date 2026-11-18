@@ -14,6 +14,7 @@ REDEMPTION_ACCOUNT = 'tencent_licaitong'
 REDEMPTION_PURPOSE = 'fund_redemption_receipt'
 FX_PAIR = 'fx_conversion'
 MANUAL_FUNDING_PAIR = 'investment_funding'
+SUBSCRIPTION_PURPOSE = 'fund_subscription_funding'
 
 
 def _reported_fields(raw):
@@ -39,6 +40,8 @@ def transfer_accounting_identity(left, right):
         return FX_PAIR, left['day']
     if left.get('purpose') == REDEMPTION_PURPOSE:
         return 'internal_transfer', left['receipt_day']
+    if right.get('purpose') == SUBSCRIPTION_PURPOSE:
+        return 'investment_funding', left['day']
     kind = ('investment_funding' if right['kind'] == 'trade' else
             'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
     return kind, left['day'] if left['day'] == right['day'] else None
@@ -70,9 +73,11 @@ def _leg_rows(cur, kind, ids, *, lock):
     if kind=='cashflow':
         table,pk,amount,day,kind_clause='pams_cashflow_fact','cashflow_id','amount','event_date','TRUE'
     else:
-        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw','fund_redemption')"
+        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw','fund_redemption','fund_subscription')"
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
+    symbol_column="f.symbol" if kind=='trade' else "NULL::text"
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
+        {symbol_column} AS symbol,
         i.source_item_id,i.source_uid,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,
         r.source_id AS original_source_id,r.status,r.account_code AS source_account,
         r.content IS NOT NULL AS inline_original,r.sha256,r.acquisition_method
@@ -88,6 +93,7 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
     try:
         fields=data['parsed_fields'];parsed_amount=Decimal(str(fields['net_cash']))
         redemption = kind == 'trade' and data['fact_type'] == 'fund_redemption'
+        subscription = kind == 'trade' and data['fact_type'] == 'fund_subscription'
         arrival = None
         if redemption:
             if data['account_code'] != REDEMPTION_ACCOUNT or data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
@@ -97,7 +103,7 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         valid=(data['status']=='published' and data['review_status']=='confirmed' and data['account_code']==data['source_account']
             and data['currency']==fields['currency'] and str(data['day'])==fields['business_date'] and data['amount']==parsed_amount
             and (kind!='trade' or redemption or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
-            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0))
+            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0) or (subscription and parsed_amount<0 and data['symbol'] and data['symbol']==fields.get('symbol')))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
             and (originals.verify(data) if hash_only else originals.read(data)[1]))
     except (KeyError,TypeError,ValueError,InvalidOperation): valid=False
@@ -109,6 +115,9 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         arrival_day, arrival_time = arrival
         leg.update(amount=str(-parsed_amount), purpose=REDEMPTION_PURPOSE,
                    receipt_day=str(arrival_day), receipt_time=arrival_time, target_account=LICAITONG_CURRENT_PLUS)
+    if subscription:
+        leg.update(amount=str(-parsed_amount), purpose=SUBSCRIPTION_PURPOSE,
+                   trade_net_cash=str(parsed_amount), symbol=data['symbol'])
     return leg
 
 
@@ -138,8 +147,11 @@ def is_independent_equal_pair(left, right):
 
 
 def is_manual_funding_pair(left, right):
-    return (left['kind'] == 'cashflow' and right['kind'] == 'trade'
-            and left['day'] == right['day'] and is_independent_equal_pair(left, right))
+    if left['kind'] != 'cashflow' or right['kind'] != 'trade' or not is_independent_equal_pair(left, right):
+        return False
+    if right.get('purpose') == SUBSCRIPTION_PURPOSE:
+        return abs((date.fromisoformat(left['day']) - date.fromisoformat(right['day'])).days) <= 7
+    return left['day'] == right['day']
 
 
 def _validate_cross_currency_pair(cur, left, right):
