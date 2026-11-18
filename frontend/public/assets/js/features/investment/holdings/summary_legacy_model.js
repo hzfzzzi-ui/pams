@@ -278,6 +278,8 @@ export function canonicalPortfolioDashboardSummary({
   );
   return {
     scopeIncomplete: portfolioSummary?.snapshot_scope_status === 'incomplete',
+    knownInvestmentValue: (portfolioValuationState || portfolioSummary?.valuation_state)?.known_investment_value_cny ?? null,
+    knownInvestmentAsOf: (portfolioValuationState || portfolioSummary?.valuation_state)?.as_of ?? null,
     marketValue,
     totalPnl,
     currentFloatPnl,
@@ -377,6 +379,8 @@ export function makeMobileHeroProfiles({
     key: '全部',
     hideHeader: true,
     scopeIncomplete: summary.scopeIncomplete,
+    knownInvestmentValue: summary.knownInvestmentValue,
+    knownInvestmentAsOf: summary.knownInvestmentAsOf,
     valueLabel: '投资组合价值',
     value: summary.marketValue,
     dailyLabel: '今日盈亏',

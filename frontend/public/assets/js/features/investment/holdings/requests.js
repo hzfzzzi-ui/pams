@@ -25,7 +25,10 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
       account ? account.then(data => data?.tonghuashun ?? null).catch(error => readFallback(error, null)) : null,
       jgetFresh('/api/investment-returns/reported').catch(error => readFallback(error, null)),
       part('summary', loadInvestmentSummaryFresh).catch(error => readFallback(error, null)),
-      part('valuation_state', () => jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY')).catch(error => readFallback(error, null)),
+      part('valuation_state', () => jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY'))
+        .then(state => state && state.net_liquidation_value == null && !('known_investment_value_cny' in state)
+          ? jgetFresh('/api/portfolio/valuation-state?baseCurrency=CNY') : state)
+        .catch(error => readFallback(error, null)),
       part('account_positions', () => loadAccountPositions ? loadAccountPositions() : jgetFresh(accountPositionsPath)).catch(error => readFallback(error, null)),
       view ? view.then(data => data?.closed_trade_returns ?? null).catch(error => readFallback(error, null)) : null,
       view ? view.then(data => data?.account_cards ?? {}).catch(error => readFallback(error, {})) : {},
