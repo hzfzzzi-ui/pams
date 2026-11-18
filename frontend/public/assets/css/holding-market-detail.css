@@ -7,7 +7,11 @@
 .holdingMarketDetail .hmHero div+div{text-align:right}
 .holdingMarketDetail .hmBar button,.holdingMarketDetail .hmTrades button{border:0;background:transparent;color:var(--muted);min-height:36px;padding:5px 9px}
 .holdingMarketDetail .hmBar button[aria-pressed=true]{background:#35353a;color:white;border-radius:9px}
+.holdingMarketDetail .hmPanel{background:#19191d;border-radius:16px;padding:16px;margin:12px 0}
+.holdingMarketDetail .hmComparisonPlot{width:100%}
+.holdingMarketDetail .hmComparisonReadout{font-size:13px;color:var(--muted);padding:8px 0}
 .holdingMarketDetail .hmLegend{justify-content:flex-start;gap:18px;font-size:12px;margin:9px 0}
+.holdingMarketDetail .hmLegend[hidden]{display:none}
 .holdingMarketDetail .hmLegend span:before{content:"";display:inline-block;width:15px;margin-right:5px;vertical-align:middle;border-top:3px solid #80baff}
 .holdingMarketDetail .hmLegend span+span:before{border-top:2px dashed #e5b974}
 .holdingMarketDetail .hmPlot{width:100%;touch-action:pan-y}

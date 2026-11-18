@@ -12,10 +12,10 @@ export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown
     <div class="hmSubtitle">${esc(subtitle)}</div>
     <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
       <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
-    <div class="hmBar"><strong>市值与大盘</strong><div><button data-period="ytd">年初至今</button><button data-period="month">近1月</button><button data-period="quarter" aria-pressed="true">近3月</button></div></div>
-    <div class="hmLegend"><span>持仓市值 · 万元</span><span>沪深300 · 点</span></div>
-    <div class="hmPlot" aria-label="持仓市值与沪深300历史走势"></div>
-    <div class="hmReadout" aria-live="polite">正在读取走势…</div>
+    <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
+    <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div>
+    <div class="hmPlot" aria-label="持仓市值历史走势"></div>
+    <div class="hmReadout" aria-live="polite">正在读取走势…</div></div><div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span>沪深300</span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone}">${esc(item.amount)}</b></div>`).join('')}</div>
     <details><summary>账户成交记录</summary><div class="hmTrades"></div></details>
     <details><summary>持仓与盈亏明细</summary>${fields}</details>
@@ -68,7 +68,31 @@ function chartMarkup(rows, dates, active, trades) {
   for (const i of [0,Math.floor(dates.length/2),dates.length-1]) {
     shapes.push(`<text x="${x(i)}" y="166" text-anchor="${i===0?'start':i===dates.length-1?'end':'middle'}">${esc(dates[i].slice(5))}</text>`);
   }
-  return `<svg viewBox="0 0 365 175" role="img" aria-label="左轴个人持仓市值，右轴沪深300点位">${shapes.join('')}</svg>`;
+  return `<svg viewBox="0 0 365 175" role="img" aria-label="个人持仓市值">${shapes.join('')}</svg>`;
+}
+
+
+function comparisonMarkup(rows, dates) {
+  const values = rows.flatMap(row => [row.value, row.close]);
+  const low = Math.min(0, ...values), high = Math.max(0, ...values);
+  const pad = Math.max((high - low) * 0.12, 0.5);
+  const min = low - pad, max = high + pad;
+  const startTime = Date.parse(dates[0]), endTime = Date.parse(dates[dates.length - 1]);
+  const x = i => 41 + (Date.parse(dates[i]) - startTime) * 269 / Math.max(endTime - startTime, 1);
+  const y = value => 143 - (value - min) * 126 / (max - min);
+  const shapes = [];
+  for (const fraction of [0, 0.5, 1]) {
+    const value = min + (max - min) * fraction, yy = y(value);
+    shapes.push(`<line x1="41" x2="310" y1="${yy}" y2="${yy}" class="hmGrid"/><text x="36" y="${yy+4}" text-anchor="end">${number(value,1)}%</text>`);
+  }
+  for (const [key, cls] of [['value', 'hmValue'], ['close', 'hmIndex']]) {
+    const path = rows.map((row, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(row[key])).join(' ');
+    shapes.push(`<path d="${path}" class="${cls}" fill="none"/>`);
+  }
+  for (const i of [0, Math.floor(dates.length / 2), dates.length - 1]) {
+    shapes.push(`<text x="${x(i)}" y="166" text-anchor="${i === 0 ? 'start' : i === dates.length - 1 ? 'end' : 'middle'}">${esc(dates[i].slice(5))}</text>`);
+  }
+  return `<svg viewBox="0 0 365 175" role="img" aria-label="标的与沪深300区间涨跌幅">${shapes.join('')}</svg>`;
 }
 
 export function bindMarketDetail(sheet, holding) {
@@ -81,7 +105,7 @@ export function bindMarketDetail(sheet, holding) {
   }
   const starts = {ytd: end.slice(0, 4) + '-01-01', month: before(end, 29), quarter: before(end, 89)};
   const windows = new Map();
-  let period = 'quarter', selected = end, records = null;
+  let period = 'ytd', selected = end, records = null;
   function requestWindow(start) {
     if (windows.has(start)) return windows.get(start);
     const data = {};
@@ -97,15 +121,15 @@ export function bindMarketDetail(sheet, holding) {
       data.history = history;
       records = history.trades.slice().reverse();
     }).catch(() => { data.historyError = true; }).finally(() => { renderTrades(); render(); });
-    jget('/api/prices/holding-benchmark?' + dates, {ttlMs:60000}).then(index => {
+    jget('/api/holdings/price-comparison?' + params, {ttlMs:60000}).then(index => {
       data.index = index;
     }).catch(() => { data.indexError = true; }).finally(render);
     return data;
   }
-  // The initial quarter already covers the month and, early in the year, YTD.
+  // Each period has its own common comparison baseline.
   function activeWindow() {
     const first = starts[period];
-    return requestWindow(first < starts.quarter ? first : starts.quarter);
+    return requestWindow(first);
   }
   const tradeLabel=t=>(t.side==='buy'?'买入':'卖出')+(t.quantity==null?'':' '+Number(t.quantity).toLocaleString('zh-CN',{maximumFractionDigits:6}))+
     (t.price==null?'':' · 成交价 '+Number(t.price).toLocaleString('zh-CN',{maximumFractionDigits:4})+' '+t.currency);
@@ -142,7 +166,7 @@ export function bindMarketDetail(sheet, holding) {
     const points=new Map(), days=new Set();
     function put(rows,key){for(const row of rows||[]){if(row.date<first)continue;days.add(row.date);const p=points.get(row.date)||{};
       p[key]=row[key]==null?null:Number(row[key]);points.set(row.date,p);}}
-    put(history?.rows,'value');put(index?.rows,'close');
+    put(history?.rows,'value');
     const trades=(history?.trades||[]).filter(t=>t.date>=first && t.date<=end);
     const sides=new Map();
     for(const trade of trades){days.add(trade.date);if(!sides.has(trade.date))sides.set(trade.date,new Set());sides.get(trade.date).add(trade.side);}
@@ -155,8 +179,20 @@ export function bindMarketDetail(sheet, holding) {
     const active=dates.includes(selected)?dates.indexOf(selected):dates.length-1;
     const day=dates[active], current=rows[active];plot.innerHTML=chartMarkup(rows,dates,active,sides);
     const tradeInfo=trades.filter(t=>t.date===day).map(tradeLabel).join(' / ');
-    const indexText=current.close!=null?number(current.close)+' 点':indexError?'读取失败':index?'暂无点位':'读取中';
-    readout.textContent=day+'　持仓 '+(historyError?'读取失败':amount(current.value))+'　沪深300 '+indexText+(tradeInfo?'　'+tradeInfo:'');
+    const comparisonPlot = sheet.querySelector('.hmComparisonPlot');
+    const comparisonReadout = sheet.querySelector('.hmComparisonReadout');
+    sheet.querySelector('.hmComparisonLegend').hidden = index?.status !== 'ok';
+    if (index?.status === 'ok') {
+      const series = index.rows.map(row => ({value:Number(row.asset_return_pct), close:Number(row.benchmark_return_pct)}));
+      const compareDates = index.rows.map(row => row.date);
+      comparisonPlot.innerHTML = comparisonMarkup(series, compareDates);
+      const last = series[series.length - 1];
+      comparisonReadout.textContent = '起点 ' + index.base_date + '　标的 ' + number(last.value) + '%　' + index.benchmark + ' ' + number(last.close) + '%';
+    } else {
+      comparisonPlot.replaceChildren();
+      comparisonReadout.textContent = indexError ? '对比数据读取失败' : index ? '暂无可用的市场对比数据' : '正在读取走势…';
+    }
+    readout.textContent=day+'　持仓 '+(historyError?'读取失败':amount(current.value))+(tradeInfo?'　'+tradeInfo:'');
     function pick(event){const bounds=plot.getBoundingClientRect();const px=(event.clientX-bounds.left)/bounds.width*365;
       const i=Math.max(0,Math.min(dates.length-1,Math.round((px-41)/269*(dates.length-1))));
       if(selected!==dates[i]){selected=dates[i];render();}}
