@@ -13,6 +13,43 @@ from scripts import bootstrap_isolated_sources as bootstrap
 from domain.ledger.ledger_view import _load_pending_transfer_cases
 
 
+def test_unsplit_repayment_requires_review_without_transfer_pairing(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from endpoints import ledger
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_cashflow
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('loan_test','Loan'),('card_test','Card')")
+        for account in ('loan_test', 'card_test'):
+            _publish_synthetic_cashflow(conn, account=account, fields={
+                'business_date': '2026-08-20', 'net_cash': '-100', 'currency': 'CNY',
+            }, classification='debt_repayment')
+        with conn.cursor() as cur:
+            cur.execute("SELECT account_code,cashflow_id FROM pams_cashflow_fact")
+            ids = dict(cur.fetchall())
+            cur.execute("UPDATE cashflow_classification SET category='内部划转',subcategory='借款还款',classification_source='manual',status='confirmed' WHERE cashflow_id=%s", (ids['loan_test'],))
+            cur.execute("UPDATE cashflow_classification SET category='内部划转',subcategory='信用卡还款',classification_source='manual',status='confirmed' WHERE cashflow_id=%s", (ids['card_test'],))
+    monkeypatch.setattr(ledger, 'get_conn', connect)
+    app = FastAPI(); app.include_router(ledger.router, prefix='/api')
+    with TestClient(app) as client:
+        params = {'month': '2026-08', 'period': 'month'}
+        pending = client.get('/api/ledger/workbench', params={**params, 'view': 'transfers', 'manualPending': 'true'}).raise_for_status().json()
+        assert {row['id'] for row in pending['manual_pending']} == {ids['card_test']}
+        assert all(case['case_id'] != f"cashflow:{ids['loan_test']}" for case in pending.get('pending_transfer_cases', []))
+        loans = client.get('/api/ledger/workbench', params={**params, 'view': 'stream', 'flow': 'personal_loan'}).raise_for_status().json()
+        assert [row['id'] for row in loans['rows']] == [ids['loan_test']]
+        assert loans['rows'][0]['loan_review_required'] and loans['rows'][0]['needs_review']
+        overview = client.get('/api/ledger/workbench', params={**params, 'view': 'overview'}).raise_for_status().json()
+        assert overview['periods']['month']['expense'] == 200
+        assert overview['periods']['month']['personal_loan']['repaid'] == 0
+
+
 def test_new_source_candidates_require_consistent_evidence(empty_source_db):
     day = date(2026, 10, 22)
     with psycopg2.connect(**empty_source_db) as conn:

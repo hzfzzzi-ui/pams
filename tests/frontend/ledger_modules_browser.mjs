@@ -81,7 +81,8 @@ async function makePage(legacy = false, fixtureData = fixture) {
             if (['internal_transfer', 'cash_transfer'].includes(flow) && !transfer) return false;
             if (flow === 'cashflow' && !transfer && !['income','expense','personal_loan'].includes(row.flow_type)) return false;
             if (flow === 'income_expense' && !['income','expense'].includes(row.flow_type)) return false;
-            if (['income','expense','personal_loan'].includes(flow) && row.flow_type !== flow) return false;
+            if (['income','expense','personal_loan'].includes(flow) && row.flow_type !== flow &&
+              !(flow === 'personal_loan' && row.loan_review_required)) return false;
             if (query.get('account') && row.account_code !== query.get('account')) return false;
             if (group && !groupAccounts.some(account => account.code === row.account_code)) return false;
             return Object.values(row).join(' ').toLowerCase().includes(search);
@@ -613,6 +614,11 @@ async function checkPersonalLoanNavigation() {
   };
   loans.recent_rows_ytd.push(row);
   loans.recent_rows_month.push(row);
+  const unsplit = {id:'12', transaction_date:'2026-10-03', account_code:'ccb_7332', currency:'CNY',
+    flow_type:'expense', amount:-100, amount_cny:-100, category:'内部划转', subcategory:'借款还款',
+    coarse_category:'借款还款待核对', loan_review_required:true, needs_review:true, summary:'未拆分还款'};
+  loans.recent_rows_ytd.push(unsplit);
+  loans.recent_rows_month.push(unsplit);
   loans.personal_loan_recent = { month:[row], ytd:[row] };
   for (const period of ['month','ytd']) {
     loans.periods[period].personal_loan = { borrowed:0, repaid:500, net:-500, count:1 };
@@ -630,6 +636,7 @@ async function checkPersonalLoanNavigation() {
   assert.equal(await page.locator('#recentPeriodLabel').textContent(),'本月至今');
   const list = page.locator('#recentRows');
   await list.getByRole('button',{name:/归还借款本金/}).waitFor();
+  await list.getByRole('button',{name:/借款还款待核对/}).waitFor();
   const controls = ['#recentPeriodToggle','#recentSearchToggle','#recentSortToggle','#recentAccountToggle'];
   for (const id of controls) {
     const box = await page.locator(id).boundingBox();

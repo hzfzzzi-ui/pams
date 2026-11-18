@@ -867,7 +867,8 @@ function filteredRecentRows() {
     if (state.recentAccountGroup && !groupAccounts.has(row.account_code)) return false;
     if (state.recentAccountFilter && row.account_code !== state.recentAccountFilter) return false;
     const kind = isInternalTransferRow(row) ? 'internal_transfer' : row.flow_type;
-    if (!['income', 'expense', 'internal_transfer', 'personal_loan'].includes(kind) || (flow && kind !== flow)) return false;
+    if (!['income', 'expense', 'internal_transfer', 'personal_loan'].includes(kind) ||
+      (flow && kind !== flow && !(flow === 'personal_loan' && row.loan_review_required))) return false;
     if (search && !rowSearchText(row).includes(search)) {
       return false;
     }
