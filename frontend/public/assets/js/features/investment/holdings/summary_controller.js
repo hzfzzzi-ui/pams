@@ -370,6 +370,8 @@ function promoteHoldingsTable() {
   if (document.body.dataset.investTab === 'analysis') loadInvestmentNavChartOnce().catch(() => null);
   runWhenInvestmentAnalysisVisible(() => setupAnalysisHeavyLoaders());
   instance.ready = load();
+  watchPageRead(scope, window, load);
   return instance;
 }
 export function dispose(root) { return mounted.get(root)?.dispose(); }
+import { watchPageRead } from '../../../shared/page_read.js';
