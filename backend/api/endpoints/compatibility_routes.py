@@ -22,6 +22,7 @@ from domain.investments.portfolio_valuation_state import (
     published_bank_balances_compatible, read_current_portfolio_valuation,
 )
 from domain.investments.valuation_nav import latest_nav_display_values
+from domain.market.price_history import valid_holding_history_window
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, build_latest_fx_rates_payload
 
 
@@ -310,7 +311,7 @@ def create_compatibility_router(
     @router.get("/api/holdings/market-history")
     def holding_market_history(start: Date, end: Date, account: list[str] = Query(...),
                                asset: list[str] = Query(...), all_trades: bool = False):
-        if (start > end or (end-start).days > 93 or len(account) != len(asset)
+        if (not valid_holding_history_window(start, end) or len(account) != len(asset)
                 or len(asset) > 24 or any(a in _excluded_holding_accounts() for a in account)):
             raise HTTPException(status_code=400, detail="无效的账户或查询范围")
         with get_conn() as conn:

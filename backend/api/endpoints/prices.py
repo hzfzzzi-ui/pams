@@ -40,6 +40,7 @@ from domain.investments.investment_view_date import daily_pnl_window_date as _da
 from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
 from domain.market.quote_valuation import GOLD_BENCHMARK_ASSET, GOLD_CLOSE_SOURCE
 from domain.market.price_history import (
+    valid_holding_history_window,
     build_price_series_payload,
     ensure_price_history,
     normalize_price_instrument,
@@ -2574,7 +2575,7 @@ def _price_request_instruments(
 @router.get("/prices/holding-benchmark")
 def get_holding_benchmark(start: date, end: date):
     from domain.market.benchmark_history import benchmark_history, local_benchmark
-    if start > end or (end-start).days > 93:
+    if not valid_holding_history_window(start, end):
         return _json({"error": "无效的日期范围"}, status_code=400)
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
