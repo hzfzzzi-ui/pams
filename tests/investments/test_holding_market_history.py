@@ -32,3 +32,27 @@ def test_benchmark_fills_missing_session_and_preserves_local_close(monkeypatch):
         {'date': first, 'close': D(3001)}, {'date': second, 'close': D(3010)}])
     result = benchmark.benchmark_history({first.isoformat(): '3000'}, first, second, date(2026, 1, 7))
     assert [row['close'] for row in result['rows']] == ['3000', '3010']
+
+
+def test_complete_trade_list_keeps_chart_window_and_source_verification(monkeypatch):
+    from datetime import timedelta
+
+    day = date(2026, 8, 5)
+    key = ('account', 'CNY', 'TEST')
+    anchor = {'quantity': D(10), 'source_item_id': 1, 'current_price': D(12)}
+    monkeypatch.setattr(history, '_load_positions', lambda *args: (
+        {key: {day: anchor}}, {key: 'stock'}, {('account', 'CNY', 'asset'): key}))
+    monkeypatch.setattr(history, '_load_prices', lambda *args: {})
+    facts = [dict(trade_date=day + timedelta(days=offset), trade_type='buy',
+                  source_evidence_status=status, quantity=D(2), price=D(12),
+                  trade_id=i, net_cash=D(-24))
+             for i, (offset, status) in enumerate([
+                 (-100, 'verified'), (-2, 'unknown'), (0, 'verified'), (1, 'verified')])]
+    monkeypatch.setattr(history, 'load_trade_rows', lambda cur, **query: [
+        row for row in facts if query['start'] <= row['trade_date'] <= query['end']])
+    args = (None, [('account', 'asset')], day, day, lambda _: D(1))
+    chart = history.holding_history(*args)
+    complete = history.holding_history(*args, all_trades=True)
+    assert [t['id'] for t in chart['trades']] == [2]
+    assert [t['id'] for t in complete['trades']] == [0, 2, 3]
+    assert complete['rows'] == chart['rows']

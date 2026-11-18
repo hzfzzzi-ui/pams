@@ -308,14 +308,16 @@ def create_compatibility_router(
 
 
     @router.get("/api/holdings/market-history")
-    def holding_market_history(start: Date, end: Date, account: list[str] = Query(...), asset: list[str] = Query(...)):
+    def holding_market_history(start: Date, end: Date, account: list[str] = Query(...),
+                               asset: list[str] = Query(...), all_trades: bool = False):
         if (start > end or (end-start).days > 93 or len(account) != len(asset)
                 or len(asset) > 24 or any(a in _excluded_holding_accounts() for a in account)):
             raise HTTPException(status_code=400, detail="无效的账户或查询范围")
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                return json(holding_history(cur, sorted(set(zip(account, asset))), start, end, _account_owner_ratio))
+                return json(holding_history(cur, sorted(set(zip(account, asset))), start, end,
+                                            _account_owner_ratio, all_trades=all_trades))
 
     @router.get("/holdings/history/{category}")
     def holdings_history_by_category(

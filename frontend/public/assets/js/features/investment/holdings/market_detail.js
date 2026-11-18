@@ -81,10 +81,37 @@ export function bindMarketDetail(sheet, holding) {
   }
   const params = new URLSearchParams({start:before(end,89),end});
   const indexParams = params.toString();
+  params.set('all_trades', 'true');
   for (const row of accounts) {params.append('asset',row.asset_id);params.append('account',row.account_code || row.account);}
   let period=90, selected=end, history=null, index=null, historyError=false, indexError=false;
   const tradeLabel=t=>(t.side==='buy'?'买入':'卖出')+(t.quantity==null?'':' '+Number(t.quantity).toLocaleString('zh-CN',{maximumFractionDigits:6}))+
     (t.price==null?'':' · 成交价 '+Number(t.price).toLocaleString('zh-CN',{maximumFractionDigits:4})+' '+t.currency);
+  let expanded = false;
+  function renderTrades() {
+    if (!sheet.isConnected) return;
+    const records = (history?.trades || []).slice().reverse();
+    list.replaceChildren();
+    if (!records.length) {
+      list.textContent = historyError ? '成交记录读取失败' : history ? '暂无已核对成交' : '正在读取…';
+      return;
+    }
+    const first = before(end, period - 1);
+    for (const t of expanded ? records : records.slice(0, 10)) {
+      const inChart = first <= t.date && t.date <= end;
+      const row = list.ownerDocument.createElement(inChart ? 'button' : 'div');
+      row.className = 'hmTradeRow';
+      row.textContent = t.date + '　' + tradeLabel(t);
+      if (inChart) row.onclick = () => { selected = t.date; render(); };
+      list.append(row);
+    }
+    if (records.length > 10) {
+      const toggle = list.ownerDocument.createElement('button');
+      toggle.textContent = expanded ? '收起' : '展开更多（共 ' + records.length + ' 笔）';
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.onclick = () => { expanded = !expanded; renderTrades(); };
+      list.append(toggle);
+    }
+  }
   function render() {
     if (!sheet.isConnected) return;
     const first=before(end,period-1);
@@ -92,18 +119,12 @@ export function bindMarketDetail(sheet, holding) {
     function put(rows,key){for(const row of rows||[]){if(row.date<first)continue;days.add(row.date);const p=points.get(row.date)||{};
       p[key]=row[key]==null?null:Number(row[key]);points.set(row.date,p);}}
     put(history?.rows,'value');put(index?.rows,'close');
-    const trades=(history?.trades||[]).filter(t=>t.date>=first);
+    const trades=(history?.trades||[]).filter(t=>t.date>=first && t.date<=end);
     const sides=new Map();
     for(const trade of trades){days.add(trade.date);if(!sides.has(trade.date))sides.set(trade.date,new Set());sides.get(trade.date).add(trade.side);}
     const dates=[...days].sort(),rows=dates.map(d=>points.get(d)||{});
-    list.replaceChildren();
-    for(const t of [...trades].reverse()){
-      const button=list.ownerDocument.createElement('button');button.textContent=t.date+'　'+tradeLabel(t);
-      button.onclick=()=>{selected=t.date;render()};list.append(button);
-    }
-    if(!trades.length)list.textContent=historyError?'成交记录读取失败':history?'本区间暂无已核对成交':'正在读取…';
     const buttons=sheet.querySelectorAll('[data-days]');
-    for(const button of buttons){button.setAttribute('aria-pressed',String(+button.dataset.days===period));button.onclick=()=>{period=+button.dataset.days;render()};}
+    for(const button of buttons){button.setAttribute('aria-pressed',String(+button.dataset.days===period));button.onclick=()=>{period=+button.dataset.days;renderTrades();render()};}
     if(!dates.length){readout.textContent=historyError?'持仓历史读取失败':'暂无区间数据';return;}
     const active=dates.includes(selected)?dates.indexOf(selected):dates.length-1;
     const day=dates[active], current=rows[active];plot.innerHTML=chartMarkup(rows,dates,active,sides);
@@ -117,6 +138,7 @@ export function bindMarketDetail(sheet, holding) {
     plot.onpointermove=e=>{if(e.buttons)pick(e)};
     plot.onkeydown=e=>{if(!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();selected=dates[Math.max(0,Math.min(dates.length-1,active+(e.key==='ArrowLeft'?-1:1)))];render();};plot.tabIndex=0;
   }
-  jget('/api/holdings/market-history?'+params).then(data=>{history=data;render()}).catch(()=>{historyError=true;render()});
+  renderTrades();
+  jget('/api/holdings/market-history?'+params).then(data=>{history=data;renderTrades();render()}).catch(()=>{historyError=true;renderTrades();render()});
   jget('/api/prices/holding-benchmark?'+indexParams,{ttlMs:60000}).then(data=>{index=data;render()}).catch(()=>{indexError=true;render()});
 }
