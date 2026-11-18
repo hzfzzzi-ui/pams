@@ -201,6 +201,23 @@ def test_build_summary2_from_holdings_latest_payload_nets_liabilities():
     }
 
 
+def test_summary_normalizes_positive_and_negative_liability_before_account_residual():
+    for liability in ("310.00", "-310.00"):
+        payload = build_summary2_from_holdings_latest_payload(
+            {"as_of": "2026-07-31", "rows": [
+                {"account": "investment", "asset_liability": "资产", "major_category": "股权",
+                 "market_value_cny": "706.50", "holding_pnl_cny": "0", "daily_pnl_cny": "0"},
+                {"account": "investment", "asset_liability": "负债", "major_category": "融资",
+                 "market_value_cny": liability, "holding_pnl_cny": "0", "daily_pnl_cny": "0"},
+            ]}, base_currency="CNY", account_balances=[
+                {"account_code": "investment", "account_type": "brokerage", "currency": "CNY",
+                 "amount_cny": "396.50", "include_in_nav": True},
+            ])
+        assert payload["totals"]["market_value"] == "396.50"
+        assert next(row for row in payload["by_asset_class"] if row["asset_class"] == "LIABILITY")["market_value"] == "-310.00"
+        assert len(payload["children"]) == 2
+
+
 def test_build_summary2_from_holdings_latest_payload_adds_represented_account_residual():
     payload = build_summary2_from_holdings_latest_payload(
         {

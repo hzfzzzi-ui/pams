@@ -10,7 +10,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from domain.investments.account_portfolio_value import account_center_balance, read_account_portfolio_value
-from domain.investments.portfolio_state import _load_accounts_config
+from domain.investments.portfolio_state import _load_accounts_config, signed_position_value
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.portfolio_valuation_state import (
     is_published_valuation_fresh_for_date,
@@ -404,7 +404,7 @@ def build_summary2_from_holdings_latest_payload(
         elif row.get('fx_precision') == 'unknown':
             unknown_fx_classes.add(str(asset_class))
         raw_market_value = row.get("market_value_cny", row.get("market_value"))
-        parsed_market_value = _known_decimal(raw_market_value)
+        parsed_market_value = signed_position_value(_known_decimal(raw_market_value), asset_liability)
         missing_value = parsed_market_value is None
         if not missing_value:
             known_value_components += 1
