@@ -333,11 +333,14 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                closes = benchmark_history(local_benchmark(cur, start, end), start, end,
-                                           datetime.now(ZoneInfo('Asia/Shanghai')).date())
+                def load_benchmark(symbol, provider_symbol, name):
+                    closes = benchmark_history(
+                        local_benchmark(cur, start, end, symbol), start, end,
+                        datetime.now(ZoneInfo('Asia/Shanghai')).date(), provider_symbol, name)
+                    return {row['date']: Decimal(row['close']) for row in closes['rows']}
                 return json(holding_price_comparison(
                     cur, sorted(set(zip(account, asset))), start, end,
-                    {row['date']: Decimal(row['close']) for row in closes['rows']}))
+                    load_benchmark))
 
     @router.get("/holdings/history/{category}")
     def holdings_history_by_category(

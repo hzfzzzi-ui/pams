@@ -11,13 +11,13 @@ def _completed_history(symbol, start, end):
     return fetch_history(symbol, start=start, end=end)
 
 
-def local_benchmark(cur, start, end):
-    index = normalize_price_instrument('000300.SH', benchmark=True)
+def local_benchmark(cur, start, end, symbol='000300.SH'):
+    index = normalize_price_instrument(symbol, benchmark=True)
     series = build_price_series_payload(cur, instruments=[index], start=start, end=end, normalize=False)
     return {row['date']: row['close'] for row in series['series'][0]['rows']}
 
 
-def benchmark_history(local, start, end, today):
+def benchmark_history(local, start, end, today, symbol='sh000300', name='沪深300'):
     closes = dict(local)
     # Only completed sessions qualify. A partial current-day bar is not a close.
     through = min(end, today - timedelta(days=1))
@@ -26,8 +26,8 @@ def benchmark_history(local, start, end, today):
         for day in (start + timedelta(days=i) for i in range((through - start).days + 1))
     ):
         try:
-            for item in _completed_history('sh000300', start, through):
+            for item in _completed_history(symbol, start, through):
                 closes.setdefault(item['date'].isoformat(), item['close'])
         except (OSError, ValueError):
             pass
-    return {'name': '沪深300', 'rows': [{'date': day, 'close': str(closes[day])} for day in sorted(closes)]}
+    return {'name': name, 'rows': [{'date': day, 'close': str(closes[day])} for day in sorted(closes)]}

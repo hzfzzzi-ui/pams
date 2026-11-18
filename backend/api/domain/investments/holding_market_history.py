@@ -53,7 +53,7 @@ def holding_history(cur, selection, start, end, owner_ratio, *, all_trades=False
                        for trade in sorted(trades, key=lambda t: (t['date'], t['id']))]}
 
 
-def holding_price_comparison(cur, selection, start, end, benchmark_closes):
+def holding_price_comparison(cur, selection, start, end, benchmark_loader):
     """Compare a single instrument and its benchmark on their common observed dates."""
     _, kinds, keys = _load_positions(cur, end, (), selection)
     identities = {(key[1], key[2], kinds[key]) for key in keys.values()}
@@ -61,8 +61,12 @@ def holding_price_comparison(cur, selection, start, end, benchmark_closes):
         return {'status': 'unsupported', 'rows': []}
     key = next(iter(keys.values()))
     kind = kinds[key]
-    if kind != 'stock':
+    benchmarks = {'stock': ('沪深300', '000300.SH', 'sh000300'),
+                  'fund': ('上证指数', '000001.SH', 'sh000001')}
+    if kind not in benchmarks:
         return {'status': 'benchmark_unavailable', 'rows': []}
+    name, symbol, provider_symbol = benchmarks[kind]
+    benchmark_closes = benchmark_loader(symbol, provider_symbol, name)
     prices = _load_prices(cur, kinds, end)
     observations = []
     for day in series_dates(start, end, 'daily'):
@@ -74,9 +78,11 @@ def holding_price_comparison(cur, selection, start, end, benchmark_closes):
         return {'status': 'missing', 'rows': []}
     base_price, base_benchmark = observations[0][1:]
     return {
-        'status': 'ok', 'benchmark': '沪深300',
+        'status': 'ok', 'benchmark': name,
         'base_date': observations[0][0].isoformat(),
         'rows': [{'date': day.isoformat(),
+                  'asset_index': norm(price / base_price),
+                  'benchmark_index': norm(benchmark / base_benchmark),
                   'asset_return_pct': norm((price / base_price - 1) * 100),
                   'benchmark_return_pct': norm((benchmark / base_benchmark - 1) * 100)}
                  for day, price, benchmark in observations],
