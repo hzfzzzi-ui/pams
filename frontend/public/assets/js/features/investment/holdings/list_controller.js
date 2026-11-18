@@ -16,6 +16,7 @@ import {
 } from './closed_positions.js';
 
 import { pageMemory, pageScroller, restorePageScroll, showRememberedData } from '../../../app/page_memory.js';
+import { watchPageRead } from '../../../shared/page_read.js';
 
 const mounted = new WeakMap();
 export function mount(root, context) {
@@ -173,6 +174,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false, references = []
     restorePageScroll(window, savedView?.scroll, () => scope.active);
   }
   instance.ready = load();
+  watchPageRead(scope, window, load);
   return instance;
 }
 export function dispose(root) { return mounted.get(root)?.dispose(); }
