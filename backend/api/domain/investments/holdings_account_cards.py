@@ -86,15 +86,25 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
     if stock_net["value"] is None:
         stock_net = _metric(stock_account.get("net_liquidation_cny"), stock_account.get("as_of"),
                             basis=stock_account.get("net_liquidation_source"))
-    stock_market = stock_position.get("known_value_base") if positions.get("as_of") == stock_day else None
-    if stock_market is None:
-        stock_market = stock_account.get("position_market_value_cny")
-    if stock_market is None:
-        stock_rows = [row for row in stock.get("rows", []) if not row.get("is_closed")]
+    stock_rows = [row for row in stock.get("rows", []) if not row.get("is_closed")
+                  and (row.get("account") or row.get("account_code")) == "tonghuashun"]
+    stock_market = None
+    if stock_rows:
         amounts = [_decimal(row.get("market_value_cny", row.get("market_value") if row.get("currency") == "CNY" else None))
                    for row in stock_rows]
         if amounts and None not in amounts:
             stock_market = sum(amounts)
+    else:
+        stock_market = stock_position.get("known_value_base") if positions.get("as_of") == stock_day else None
+        if stock_market is None:
+            stock_market = stock_account.get("position_market_value_cny")
+        if stock_market is None:
+            unscoped = [row for row in stock.get("rows", []) if not row.get("is_closed")]
+            if unscoped and all(not (row.get("account") or row.get("account_code")) for row in unscoped):
+                amounts = [_decimal(row.get("market_value_cny", row.get("market_value") if row.get("currency") == "CNY" else None))
+                           for row in unscoped]
+                if None not in amounts:
+                    stock_market = sum(amounts)
     stock_daily = _metric(stock_account.get("daily_pnl_cny") if stock_account.get("daily_pnl_effective") is not False else None,
                           stock_account.get("as_of"), basis="account_daily")
     if stock_daily["value"] is None:
