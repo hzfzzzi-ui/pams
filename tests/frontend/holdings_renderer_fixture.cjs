@@ -12,7 +12,8 @@ function sourceFor(file) {
   const binding = kind === 'summary' ? fs.readFileSync(base + 'summary_controller.js', 'utf8').split("  scope.listen(window, 'pams:holding-group-change'", 2)[1].split('  async function load()', 1)[0] : '';
   return `const scope = {listen(target, type, callback) {target.addEventListener(type, callback);return () => {};}}; const root = undefined;\n`
     + (kind === 'summary' ? strip(fs.readFileSync(base + 'constants.js', 'utf8')) : '')
-    + strip(fs.readFileSync(base + kind + '_legacy_model.js', 'utf8')) + '\n' + body
+    + strip(fs.readFileSync(base + kind + '_legacy_model.js', 'utf8')) + '\n'
+    + (kind === 'list' ? strip(fs.readFileSync(base + 'market_detail.js', 'utf8')) : '') + '\n' + body
     + (binding ? "\nscope.listen(window, 'pams:holding-group-change'" + binding : '');
 }
 module.exports = {sourceFor};

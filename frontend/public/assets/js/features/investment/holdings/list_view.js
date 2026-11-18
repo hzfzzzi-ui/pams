@@ -9,6 +9,7 @@ import {
   signedPercentText, aggregateMobileHoldingRows
 } from './list_legacy_model.js';
 import { typeLabel, accountLabel } from '../../../api.js';
+import { bindMarketDetail, marketDetailHtml } from './market_detail.js';
 
 export function createListView({ document, host: window, showDetails: openBottomSheet, scope }) {
   const rowListeners = new Set();
@@ -81,6 +82,24 @@ function holdingAccountName(row) {
   return row.account_name || accountLabel(row.account || row.account_code || '');
 }
 
+function openHoldingDetail(row, total, fields) {
+  const title = shortHoldingName(row);
+  if (row.reference_as_of || holdingGroupLabel(row) === '现金/活期') {
+    openBottomSheet(title, fields);
+    return;
+  }
+  const metrics = holdingMetrics(row, total);
+  const accounts = [...new Set((row.__accountRows || [row]).map(holdingAccountName))];
+  const body = openBottomSheet(title, marketDetailHtml({
+    subtitle: [row.symbol, holdingGroupLabel(row), accounts.join(' / ')].filter(Boolean).join(' · '),
+    value: formatCompactCurrency(metrics.value), totalPnl: pnlText(metrics.totalPnl),
+    pnlClass: pnlTone(metrics.totalPnl),
+    breakdown: [['当前浮盈',metrics.floatPnl],['已实现盈亏',metrics.realized]].map(([label, n]) =>
+      ({label, amount:pnlText(n), tone:pnlTone(n)})), fields,
+  }));
+  bindMarketDetail(body?.querySelector('.holdingMarketDetail'), row);
+}
+
 function renderRows(rows, options = {}){
   clearRows();
   const tbody = document.getElementById('rows');
@@ -97,7 +116,7 @@ function renderRows(rows, options = {}){
   });
   renderMobileHoldingRows(displayRows, { total });
   let lastGroup = '';
-  for(const [index, r] of displayRows.entries()){
+  for(const r of displayRows){
     const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
     const groupLabel = holdingGroupLabel(r);
     if (showGroupRows && groupLabel !== lastGroup) {
@@ -109,7 +128,6 @@ function renderRows(rows, options = {}){
     }
     const tr=document.createElement('tr');
     tr.className = 'holdingMainRow';
-    tr.dataset.detailTarget = `holding-detail-${index}`;
     tr.title = '点击查看完整字段';
     tr.innerHTML = `
       <td class="nowrap">${esc(r.symbol || '—')}</td>
@@ -125,12 +143,7 @@ function renderRows(rows, options = {}){
       <td>${dataBadge(r)}</td>
     `;
     tbody.appendChild(tr);
-    const detail = document.createElement('tr');
-    detail.id = `holding-detail-${index}`;
-    detail.className = 'rowDetail holdingDetailRow';
-    detail.hidden = true;
-    detail.innerHTML = `
-      <td colspan="11">
+    const fields = `
         <div class="rowDetailGrid">
           <div><strong>类别</strong><span>${esc(typeLabel(r.minor_category || r.type || r.major_category) || '其他')}</span></div>
           <div><strong>账户</strong><span>${esc(holdingAccountName(r))}</span></div>
@@ -151,17 +164,8 @@ function renderRows(rows, options = {}){
           ${snapshotQuoteDate(r) ? `<div><strong>行情日期</strong><span>${esc(snapshotQuoteDate(r))}</span></div>` : ''}
           ${totalPnl == null ? '' : `<div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(r, floatPnl, realized, totalPnl)}</span></div>`}
         </div>
-      </td>
     `;
-    tbody.appendChild(detail);
-    bindRow(tr, 'click', () => {
-      if (window.matchMedia('(max-width: 760px)').matches) {
-        openBottomSheet(r.name || r.symbol || '持仓详情', detail.querySelector('td')?.innerHTML || detail.innerHTML);
-        return;
-      }
-      detail.hidden = !detail.hidden;
-      tr.classList.toggle('open', !detail.hidden);
-    });
+    bindRow(tr, 'click', () => openHoldingDetail(r, total, fields));
   }
 }
 
@@ -304,7 +308,7 @@ function renderMobileHoldingRows(rows, { total }) {
           ${accountBreakdown}
         </div>
       `;
-      openBottomSheet(shortHoldingName(row), html);
+      openHoldingDetail(row, total, html);
     });
   });
 }

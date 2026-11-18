@@ -52,7 +52,8 @@ def _matches(row: dict) -> bool:
 def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: int | None = None,
                     source_id=None, originals: SourceOriginals | None = None,
                     include_instrument_identity: bool = False, candidate_sale_start: date | None = None,
-                    include_fund_execution: bool = False, trade_types: tuple[str, ...] = ()) -> list[dict]:
+                    include_fund_execution: bool = False, trade_types: tuple[str, ...] = (),
+                    instrument: tuple[str, str] | None = None) -> list[dict]:
     """Return source status per fact; caller must not calculate from unverified facts."""
     fact_filter = ' AND f.trade_id=%s' if fact_id is not None else ''
     params = (account_code, start, end) if fact_id is None else (account_code, start, end, fact_id)
@@ -62,6 +63,9 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
     if trade_types:
         fact_filter += ' AND f.trade_type=ANY(%s::text[])'
         params += (list(trade_types),)
+    if instrument:
+        fact_filter += ' AND (f.asset_id=%s OR (f.asset_id IS NULL AND f.symbol=%s))'
+        params += instrument
     if candidate_sale_start is not None:
         # Select sale candidates on the fact index before reading their source
         # originals. Their whole history is still needed to establish cost.

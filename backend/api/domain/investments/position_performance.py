@@ -92,7 +92,12 @@ def _price_symbol(key, kind):
     return symbol
 
 
-def _load_positions(cur, end, excluded):
+def _load_positions(cur, end, excluded, selection=None):
+    restriction = ''
+    params = [end, list(CATEGORIES), sorted(excluded)]
+    if selection:
+        restriction = ' AND (h.account_code,h.asset_id) IN (SELECT * FROM unnest(%s::text[],%s::text[]))'
+        params.extend(([account for account, _ in selection], [asset for _, asset in selection]))
     cur.execute("""SELECT h.id,h.account_code,h.currency,h.asset_id,h.symbol,h.quantity,h.current_price,
         h.major_category,h.minor_category,h.as_of,h.source_item_id,m.primary_symbol AS asset_symbol
         FROM pams_holdings_snapshot h
@@ -108,7 +113,7 @@ def _load_positions(cur, end, excluded):
                   'kind','holding','source_ref',jsonb_build_object('key',jsonb_build_object('id',h.id))))
               )
           ))
-        ORDER BY h.as_of,h.id""", (end, list(CATEGORIES), sorted(excluded)))
+        """ + restriction + " ORDER BY h.as_of,h.id", params)
     positions = defaultdict(dict)
     kinds = {}
     asset_keys = {}

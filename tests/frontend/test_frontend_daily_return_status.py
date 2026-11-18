@@ -47,9 +47,11 @@ const renders = input.rows.map(row => {
   buttons = [button];
   table.children = [];
   rowContext.renderRows([row]);
+  table.children[0].listeners.click();
+  const detail = sheet;
   button.listeners.click();
   return {mobile: mobile.innerHTML, table: table.children[0].innerHTML,
-    detail: table.children[1].innerHTML, sheet,
+    detail, sheet,
     native: rowContext.dailyNativeText(row), fx: rowContext.dailyFxText(row),
     badge: rowContext.holdingDailyStatusBadge(row),
     pending: rowContext.holdingDailyPnlPending(row)};
