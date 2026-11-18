@@ -3,10 +3,11 @@
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from domain.accounts.account_identity import account_display
+from domain.accounts.account_overview import _apply_owner_ratio_to_money, _manual_balance
 from domain.accounts.balance_reference import historical_account_balance
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
@@ -156,6 +157,24 @@ def _position_balance_summary(cur, config, account_code, cfg, today):
     return reference
 
 
+def _manual_cash_balance_summary(config, account_code, cfg, today):
+    """Use the same manually confirmed cash balance as the account overview."""
+    if cfg.get('truth_source') != 'manual' or cfg.get('reconcile_method') != 'balance':
+        return None
+    try:
+        balance = _manual_balance(cfg, cfg.get('base_currency', 'CNY'))
+        if not balance or not balance['amount'].is_finite():
+            return None
+        as_of = date.fromisoformat(str(balance['as_of']))
+        if as_of > today or balance['currency'] != cfg.get('base_currency', 'CNY'):
+            return None
+        balance = _apply_owner_ratio_to_money(balance, _owner_ratio(config, account_code))
+    except (InvalidOperation, ValueError, TypeError, KeyError):
+        return None
+    return {'balance_amount': str(balance['amount']), 'balance_currency': balance['currency'],
+            'balance_as_of': as_of, 'balance_basis': 'manual_balance', 'balance_label': '手动确认余额'}
+
+
 def _apply_balance_summary(summary, balance, cfg, today):
     summary.update(balance)
     basis = balance.get('balance_basis')
@@ -207,7 +226,7 @@ def review_records(cur, config, account_code, kind, offset):
 def read_account_sync(cur, config):
     cur.execute('SELECT account_code, active FROM public.pams_accounts')
     registered = {row['account_code']: row['active'] for row in cur.fetchall()}
-    statement_accounts = statement_profiles()
+    import_statement_accounts = statement_profiles()
     excluded = _excluded_accounts(config) | {'ibkr_in_transit_mxn'}
     accounts = {code: cfg for code, cfg in config.get('accounts', {}).items() if code not in excluded}
     active = [code for code, cfg in accounts.items() if cfg.get('active', True) and registered.get(code, True)]
@@ -258,7 +277,7 @@ def read_account_sync(cur, config):
         row = {
             'account_code': code, 'label': label,
             'currency': cfg.get('base_currency', 'CNY'), 'active': code in active,
-            'can_import': bool(code in active and registered.get(code) and supported_import_modes(code, statement_accounts)),
+            'can_import': bool(code in active and registered.get(code) and supported_import_modes(code, import_statement_accounts)),
             'show_investment': cfg.get('account_type') in {'brokerage', 'fund_platform', 'cash_management'} or bool(trades.get(code)),
             'cashflow': _activity(flows[code], 'transaction_date'),
             'source_data': source_status.get(code),
@@ -271,8 +290,13 @@ def read_account_sync(cur, config):
             balance = _position_balance_summary(cur, config, code, cfg, now.date())
             if balance is None:
                 balance = historical_account_balance(cfg, now.date(), _owner_ratio(config, code))
+            if balance is None:
+                balance = _manual_cash_balance_summary(config, code, cfg, now.date())
             if balance:
                 _apply_balance_summary(row['summary'], balance, cfg, now.date())
+                if balance.get('balance_basis') == 'manual_balance' and row['balance']['status'] == 'uninitialized':
+                    row['balance'].update(status='recorded', amount=balance['balance_amount'],
+                                          as_of=balance['balance_as_of'])
         group['rows'].append(row)
     return {'groups': sorted(groups.values(), key=lambda group: (
         40 if group['code'] == 'tencent' else roots.get(group['code'], {}).get('sort_order', 999), group['code']))}
