@@ -15,7 +15,7 @@ export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown
     <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
     <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div>
     <div class="hmPlot" aria-label="持仓市值历史走势"></div>
-    <div class="hmReadout" aria-live="polite">正在读取走势…</div></div><div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span>沪深300</span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
+    <div class="hmReadout" aria-live="polite">正在读取走势…</div></div><div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone}">${esc(item.amount)}</b></div>`).join('')}</div>
     <details><summary>账户成交记录</summary><div class="hmTrades"></div></details>
     <details><summary>持仓与盈亏明细</summary>${fields}</details>
@@ -74,8 +74,8 @@ function chartMarkup(rows, dates, active, trades) {
 
 function comparisonMarkup(rows, dates) {
   const values = rows.flatMap(row => [row.value, row.close]);
-  const low = Math.min(0, ...values), high = Math.max(0, ...values);
-  const pad = Math.max((high - low) * 0.12, 0.5);
+  const low = Math.min(1, ...values), high = Math.max(1, ...values);
+  const pad = Math.max((high - low) * 0.12, 0.005);
   const min = low - pad, max = high + pad;
   const startTime = Date.parse(dates[0]), endTime = Date.parse(dates[dates.length - 1]);
   const x = i => 41 + (Date.parse(dates[i]) - startTime) * 269 / Math.max(endTime - startTime, 1);
@@ -83,7 +83,7 @@ function comparisonMarkup(rows, dates) {
   const shapes = [];
   for (const fraction of [0, 0.5, 1]) {
     const value = min + (max - min) * fraction, yy = y(value);
-    shapes.push(`<line x1="41" x2="310" y1="${yy}" y2="${yy}" class="hmGrid"/><text x="36" y="${yy+4}" text-anchor="end">${number(value,1)}%</text>`);
+    shapes.push(`<line x1="41" x2="310" y1="${yy}" y2="${yy}" class="hmGrid"/><text x="36" y="${yy+4}" text-anchor="end">${number(value,2)}</text>`);
   }
   for (const [key, cls] of [['value', 'hmValue'], ['close', 'hmIndex']]) {
     const path = rows.map((row, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(row[key])).join(' ');
@@ -92,7 +92,7 @@ function comparisonMarkup(rows, dates) {
   for (const i of [0, Math.floor(dates.length / 2), dates.length - 1]) {
     shapes.push(`<text x="${x(i)}" y="166" text-anchor="${i === 0 ? 'start' : i === dates.length - 1 ? 'end' : 'middle'}">${esc(dates[i].slice(5))}</text>`);
   }
-  return `<svg viewBox="0 0 365 175" role="img" aria-label="标的与沪深300区间涨跌幅">${shapes.join('')}</svg>`;
+  return `<svg viewBox="0 0 365 175" role="img" aria-label="标的与大盘归一化走势，起点为1">${shapes.join('')}</svg>`;
 }
 
 export function bindMarketDetail(sheet, holding) {
@@ -183,11 +183,12 @@ export function bindMarketDetail(sheet, holding) {
     const comparisonReadout = sheet.querySelector('.hmComparisonReadout');
     sheet.querySelector('.hmComparisonLegend').hidden = index?.status !== 'ok';
     if (index?.status === 'ok') {
-      const series = index.rows.map(row => ({value:Number(row.asset_return_pct), close:Number(row.benchmark_return_pct)}));
+      sheet.querySelector('.hmBenchmarkName').textContent = index.benchmark;
+      const series = index.rows.map(row => ({value:Number(row.asset_index), close:Number(row.benchmark_index)}));
       const compareDates = index.rows.map(row => row.date);
       comparisonPlot.innerHTML = comparisonMarkup(series, compareDates);
       const last = series[series.length - 1];
-      comparisonReadout.textContent = '起点 ' + index.base_date + '　标的 ' + number(last.value) + '%　' + index.benchmark + ' ' + number(last.close) + '%';
+      comparisonReadout.textContent = '起点 ' + index.base_date + ' = 1　标的 ' + number(last.value) + '　' + index.benchmark + ' ' + number(last.close);
     } else {
       comparisonPlot.replaceChildren();
       comparisonReadout.textContent = indexError ? '对比数据读取失败' : index ? '暂无可用的市场对比数据' : '正在读取走势…';

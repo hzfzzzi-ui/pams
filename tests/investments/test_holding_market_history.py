@@ -78,8 +78,31 @@ def test_price_comparison_uses_common_date_and_is_independent_of_quantity(monkey
         ('stock', 'TEST', None): ([first, second, third], [D(10), D(12), D(11)])})
     result = history.holding_price_comparison(
         None, [('account', 'asset')], first, third,
-        {second.isoformat(): D(3000), third.isoformat(): D(3300)})
+        lambda *args: {second.isoformat(): D(3000), third.isoformat(): D(3300)})
     assert result['base_date'] == second.isoformat()
+    assert D(result['rows'][0]['asset_index']) == 1
+    assert D(result['rows'][0]['benchmark_index']) == 1
     assert D(result['rows'][0]['asset_return_pct']) == 0
     assert D(result['rows'][1]['asset_return_pct']).quantize(D('.01')) == D('-8.33')
     assert D(result['rows'][1]['benchmark_return_pct']) == D(10)
+
+
+def test_fund_compares_confirmed_nav_against_shanghai_index(monkeypatch):
+    first, second = date(2026, 1, 5), date(2026, 1, 6)
+    key = ('account', 'CNY', 'FUND')
+    monkeypatch.setattr(history, '_load_positions', lambda *args: (
+        {key: {}}, {key: 'fund'}, {('account', 'CNY', 'asset'): key}))
+    monkeypatch.setattr(history, '_load_prices', lambda *args: {
+        ('fund', 'FUND', None): ([first, second], [D(2), D('2.2')])})
+    calls = []
+    def load_benchmark(symbol, provider, name):
+        calls.append((symbol, provider, name))
+        return {first.isoformat(): D(3000), second.isoformat(): D(3150)}
+    result = history.holding_price_comparison(
+        None, [('account', 'asset')], first, second, load_benchmark)
+    assert calls == [('000001.SH', 'sh000001', '上证指数')]
+    assert result['benchmark'] == '上证指数'
+    assert D(result['rows'][1]['asset_index']) == D('1.1')
+    assert D(result['rows'][1]['benchmark_index']) == D('1.05')
+    assert D(result['rows'][1]['asset_return_pct']) == D(10)
+    assert D(result['rows'][1]['benchmark_return_pct']) == D(5)
