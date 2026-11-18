@@ -13,7 +13,7 @@ await page.addInitScript(() => Object.defineProperty(navigator, 'connection', {
 let accountUnavailable=false, reviewUnavailable=false, holdingsUnavailable=false;
 const sync = {groups: [
   {code:'ccb',label:'合成银行',rows:[
-    {account_code:'fixture_debit',label:'合成人民币',can_import:true,active:true,currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
+    {account_code:'fixture_debit',label:'合成人民币',can_import:true,active:true,currency:'CNY',summary:{status:'normal',balance_amount:'18971.58',latest_trade_on:'2026-11-01',latest_source_on:'2026-11-02',latest_cashflow_on:'2026-11-01',last_synced_at:'2026-11-07T09:33:00Z'}},
     {account_code:'fixture_card',label:'合成信用卡',currency:'CNY',summary:{status:'review',balance_amount:'-1286.40',
       review_reasons:[{kind:'duplicates',count:101}]}},
   ]},
@@ -124,11 +124,11 @@ try{
   assert.match(await page.locator('.accountSyncAmount').nth(1).textContent(), /^-.*1,286\.40$/);
   assert.equal(await page.locator('.accountSyncAmount').nth(2).textContent(),'—');
   assert.deepEqual(await page.locator('.accountSyncAmount').allTextContents().then(values=>values.slice(3)),['¥1,434.56','¥6,890.12']);
-  assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
+  assert.deepEqual(await page.locator('.accountSyncAmountWithLabel small').allTextContents(),['余额','余额','组合估值 · 2026-11-05','组合价值 · 2026-11-06']);
   for (const [code, values] of [
     ['fixture_legacy', ['最近交易', '—', '上次同步', '2026-10-30']],
-    ['fixture_a_share', ['最近交易', '2026-10-23', '估值更新', '2026-11-05 21:26']],
-    ['fixture_foreign_broker', ['最近交易', '—', '估值更新', '2026-11-06 10:30']],
+    ['fixture_a_share', ['最近交易', '2026-10-23', '上次同步', '2026-11-04 14:51']],
+    ['fixture_foreign_broker', ['最近交易', '—', '上次同步', '—']],
   ]) {
     assert.deepEqual(await page.locator(`[data-account-code="${code}"] .accountSyncMetadata > *`).allTextContents(), values);
   }
@@ -136,7 +136,7 @@ try{
   const review=page.getByRole('button',{name:'合成信用卡：待核查'});
   const sheet=page.getByRole('dialog');
   await page.getByRole('button',{name:'合成人民币',exact:true}).click();
-  assert.deepEqual(await sheet.locator('.accountSyncMetadata dd').allTextContents(),['2026-11-01','2026-11-07 17:33']);
+  assert.deepEqual(await sheet.locator('.accountSyncMetadata dd').allTextContents(),['2026-11-02','2026-11-01','2026-11-07 17:33']);
   await page.keyboard.press('Escape');await sheet.waitFor({state:'hidden'});
   reviewUnavailable=true;
   await review.focus();await page.keyboard.press('Enter');

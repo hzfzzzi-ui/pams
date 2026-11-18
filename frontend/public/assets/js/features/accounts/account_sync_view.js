@@ -29,7 +29,7 @@ function element(doc, tag, text = '') {
   return node;
 }
 
-export function accountSyncMetadata(doc, data = {}) {
+export function accountSyncMetadata(doc, data = {}, { compact = false } = {}) {
   const metadata = element(doc, 'dl');
   metadata.className = 'accountSyncMetadata';
   const valuationAt = data.valuation_updated_at ? new Date(data.valuation_updated_at) : null;
@@ -38,6 +38,13 @@ export function accountSyncMetadata(doc, data = {}) {
   const updatedAt = hasValuationTime ? valuationAt : syncAt;
   const updatedLabel = Number.isFinite(updatedAt?.valueOf())
     ? localTime.format(updatedAt).replaceAll('/', '-') : data.last_synced_on || '—';
+  if (compact) {
+    const syncLabel = Number.isFinite(syncAt?.valueOf())
+      ? localTime.format(syncAt).replaceAll('/', '-') : data.last_synced_on || '—';
+    metadata.append(element(doc, 'dt', '最近交易'), element(doc, 'dd', data.latest_trade_on || '—'),
+      element(doc, 'dt', '上次同步'), element(doc, 'dd', syncLabel));
+    return metadata;
+  }
   if (Object.hasOwn(data, 'latest_source_on')) {
     metadata.append(element(doc, 'dt', '最近资料'), element(doc, 'dd', data.latest_source_on || '—'),
       element(doc, 'dt', '最近入账'), element(doc, 'dd', data.latest_cashflow_on || '—'));
@@ -176,7 +183,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     balance.dataset.sign = Number(amount) > 0 ? 'positive' : Number(amount) < 0 ? 'negative' : 'neutral';
     const amountLabel = data.balance_label || '余额';
     balance.setAttribute('aria-label', amountLabel + ' ' + balance.textContent);
-    if (data.balance_label) {
+    if (amount != null) {
       const value = make('div');
       value.className = 'accountSyncAmountWithLabel';
       const label = make('small', [amountLabel, data.balance_as_of].filter(Boolean).join(' · '));
@@ -188,7 +195,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     item.classList.add('accountSyncCompact');
     item.append(heading);
     if (status !== 'inactive') {
-      item.append(accountSyncMetadata(doc, data));
+      item.append(accountSyncMetadata(doc, data, { compact: true }));
       const action = make(row.can_import ? 'a' : 'button', '导入资料');
       action.className = 'accountSyncImport';
       if (row.can_import) {
