@@ -7,7 +7,7 @@ from domain.imports.source_original_read import SourceOriginals
 from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 from domain.ledger.confirmed_transfers_v2 import (
-    BANK_REDEMPTION_PURPOSE, FX_PAIR, MANUAL_FUNDING_PAIR, MANUAL_WITHDRAWAL_PAIR, SUBSCRIPTION_PURPOSE,
+    BANK_REDEMPTION_PURPOSE, FX_PAIR, MANUAL_FUNDING_PAIR, MANUAL_WITHDRAWAL_PAIR, SUBSCRIPTION_PURPOSE, PURCHASE_PURPOSE,
     _leg_rows, _verified_leg, is_independent_equal_pair, is_independent_opposite_pair,
     is_manual_funding_pair, is_manual_withdrawal_pair, occupied_cashflow_ids,
 )
@@ -134,6 +134,22 @@ def _redemption_ids(cur, anchor, *, trade_id=None):
     return [row['trade_id'] for row in cur.fetchall()]
 
 
+def _purchase_ids(cur, anchor, *, trade_id=None):
+    if not anchor or not is_manual_anchor(anchor) or anchor.get('source_evidence_status') != 'verified' or anchor.get('amount', 0) >= 0:
+        return []
+    cur.execute("""SELECT f.trade_id FROM public.pams_investment_trade_fact f
+        JOIN public.source_items i ON i.source_item_id=f.source_item_id
+        WHERE f.trade_type='buy' AND f.trade_date=%s AND f.net_cash=%s AND f.currency=%s
+          AND f.account_code<>%s AND i.raw_fields->'bank_cashflow_evidence'->>'cashflow_id'=%s
+          AND (%s::bigint IS NULL OR f.trade_id=%s)
+          AND NOT EXISTS (SELECT 1 FROM public.evidence_confirmation e
+              WHERE e.confirmation_type IN ('transfer','payment_proxy') AND e.revoked_at IS NULL
+                AND (e.from_trade_id=f.trade_id OR e.to_trade_id=f.trade_id))""",
+        (anchor['transaction_date'], anchor['amount'], anchor['currency'], anchor['account_code'],
+         str(anchor['id']), trade_id, trade_id))
+    return [row['trade_id'] for row in cur.fetchall()]
+
+
 def validate_manual_pair(cur, left, right, anchor_id):
     if not is_independent_opposite_pair(left, right):
         return None
@@ -147,6 +163,8 @@ def validate_manual_pair(cur, left, right, anchor_id):
         if left['kind'] == 'cashflow' and left['id'] == anchor_id and is_manual_funding_pair(left, right):
             anchor = load_leg(cur, anchor_id, date.fromisoformat(left['day']))
             if right.get('purpose') == SUBSCRIPTION_PURPOSE and _subscription_ids(cur, anchor, trade_id=right['id']):
+                return MANUAL_FUNDING_PAIR
+            if right.get('purpose') == PURCHASE_PURPOSE and _purchase_ids(cur, anchor, trade_id=right['id']):
                 return MANUAL_FUNDING_PAIR
             if _is_funding_anchor(anchor) and _broker_funding_ids(cur, anchor, trade_id=right['id']):
                 return MANUAL_FUNDING_PAIR
@@ -256,6 +274,24 @@ def pairing_options(cur, anchor_id, *, month=None, offset=0, limit=10):
         options.extend(_broker_funding_options(cur, anchor))
     options.extend(row for row in _subscription_options(cur, anchor) if start <= row['transaction_date'] <= end)
     options.extend(row for row in _redemption_options(cur, anchor) if start <= row['transaction_date'] <= end)
+    purchase_ids = _purchase_ids(cur, anchor) if start <= day <= end else []
+    if purchase_ids:
+        originals = SourceOriginals(cur)
+        facts = _leg_rows(cur, 'trade', purchase_ids, lock=False)
+        originals.verify_many(facts)
+        bank_leg = {**anchor['pair_evidence'], 'id': anchor['id'], 'kind': 'cashflow', 'day': day.isoformat()}
+        for fact in facts:
+            try:
+                leg = _verified_leg(fact, 'trade', originals, hash_only=True)
+            except ValueError:
+                continue
+            if is_manual_funding_pair(bank_leg, leg):
+                options.append({'id': fact['id'], 'kind': 'trade', 'account_code': fact['account_code'],
+                    'transaction_date': fact['day'], 'amount': -fact['amount'], 'currency': fact['currency'],
+                    'amount_cny': -fact['amount'] if fact['currency'] == 'CNY' else None,
+                    'summary': f"投资买入 · {fact['parsed_fields'].get('name') or leg['symbol']}",
+                    'source_evidence_status': 'verified', 'match_type': MANUAL_FUNDING_PAIR,
+                    'candidate_type': 'investment_purchase'})
 
     def sort_key(row):
         if row['currency'] == anchor['currency']:

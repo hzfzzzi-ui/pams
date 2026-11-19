@@ -15,6 +15,7 @@ REDEMPTION_PURPOSE = 'fund_redemption_receipt'
 FX_PAIR = 'fx_conversion'
 MANUAL_FUNDING_PAIR = 'investment_funding'
 SUBSCRIPTION_PURPOSE = 'fund_subscription_funding'
+PURCHASE_PURPOSE = 'investment_purchase_funding'
 BANK_REDEMPTION_PURPOSE = 'fund_redemption_withdrawal'
 MANUAL_WITHDRAWAL_PAIR = 'investment_withdrawal'
 
@@ -42,7 +43,7 @@ def transfer_accounting_identity(left, right):
         return FX_PAIR, left['day']
     if left.get('purpose') == REDEMPTION_PURPOSE:
         return 'internal_transfer', left['receipt_day']
-    if right.get('purpose') == SUBSCRIPTION_PURPOSE:
+    if right.get('purpose') in {SUBSCRIPTION_PURPOSE, PURCHASE_PURPOSE}:
         return 'investment_funding', left['day']
     if left.get('purpose') == BANK_REDEMPTION_PURPOSE:
         return MANUAL_WITHDRAWAL_PAIR, right['day']
@@ -77,7 +78,7 @@ def _leg_rows(cur, kind, ids, *, lock):
     if kind=='cashflow':
         table,pk,amount,day,kind_clause='pams_cashflow_fact','cashflow_id','amount','event_date','TRUE'
     else:
-        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw','fund_redemption','fund_subscription')"
+        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw','fund_redemption','fund_subscription','buy')"
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
     symbol_column="f.symbol" if kind=='trade' else "NULL::text"
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
@@ -98,6 +99,7 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         fields=data['parsed_fields'];parsed_amount=Decimal(str(fields['net_cash']))
         redemption = kind == 'trade' and data['fact_type'] == 'fund_redemption'
         subscription = kind == 'trade' and data['fact_type'] == 'fund_subscription'
+        purchase = kind == 'trade' and data['fact_type'] == 'buy'
         arrival = None
         if redemption and data['account_code'] == REDEMPTION_ACCOUNT:
             if data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
@@ -113,7 +115,7 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         valid=(data['status']=='published' and data['review_status']=='confirmed' and data['account_code']==data['source_account']
             and data['currency']==fields['currency'] and str(data['day'])==fields['business_date'] and data['amount']==parsed_amount
             and (kind!='trade' or redemption or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
-            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0) or (subscription and parsed_amount<0 and data['symbol'] and data['symbol']==fields.get('symbol')))
+            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0) or ((subscription or purchase) and parsed_amount<0 and data['symbol'] and data['symbol']==fields.get('symbol')))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
             and (originals.verify(data) if hash_only else originals.read(data)[1]))
     except (KeyError,TypeError,ValueError,InvalidOperation): valid=False
@@ -131,6 +133,13 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
     if subscription:
         leg.update(amount=str(-parsed_amount), purpose=SUBSCRIPTION_PURPOSE,
                    trade_net_cash=str(parsed_amount), symbol=data['symbol'])
+    if purchase:
+        proof = data['raw_fields'].get('bank_cashflow_evidence') or {}
+        if not proof.get('cashflow_id') or not proof.get('source_item_id') or not proof.get('source_id') or not proof.get('source_hash'):
+            raise ValueError('Investment purchase has no linked bank evidence')
+        leg.update(amount=str(-parsed_amount), purpose=PURCHASE_PURPOSE,
+                   bank_cashflow_id=proof['cashflow_id'], bank_source_item_id=proof['source_item_id'],
+                   bank_source_id=proof['source_id'], bank_source_hash=proof['source_hash'], symbol=data['symbol'])
     return leg
 
 
@@ -164,6 +173,11 @@ def is_manual_funding_pair(left, right):
         return False
     if right.get('purpose') == SUBSCRIPTION_PURPOSE:
         return abs((date.fromisoformat(left['day']) - date.fromisoformat(right['day'])).days) <= 7
+    if right.get('purpose') == PURCHASE_PURPOSE:
+        return (left['day'] == right['day'] and right.get('bank_cashflow_id') == left['id']
+                and right.get('bank_source_item_id') == left['source_item_id']
+                and right.get('bank_source_id') == left['source_id']
+                and right.get('bank_source_hash') == left['source_hash'])
     return left['day'] == right['day']
 
 
@@ -254,7 +268,7 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
             raise ValueError('两笔流水已变更或不符合配对条件，请重新选择。')
         if pair_type in {FX_PAIR, MANUAL_FUNDING_PAIR, MANUAL_WITHDRAWAL_PAIR}:
             a = {**a, 'pair_type': pair_type}
-    elif not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b):
+    elif (b.get('purpose') == PURCHASE_PURPOSE and not is_manual_funding_pair(a, b)) or (not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b)):
         raise ValueError('两笔流水的来源、币种或金额不符合配对条件')
     if a.get('purpose') == REDEMPTION_PURPOSE:
         receipt = _leg_rows(cur, 'cashflow', [to_id], lock=False)[0]
