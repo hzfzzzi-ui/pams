@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  checks:
     if: ${{ vars.PAMS_CI_PAUSED != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -43,12 +43,6 @@ jobs:
         run: |
           python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; c.cursor().execute(\"COMMENT ON DATABASE pams IS 'pams-disposable-schema-test'\"); c.close()"
           python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; q=c.cursor(); q.execute('CREATE DATABASE pams_asset_test_ci'); q.execute(\"COMMENT ON DATABASE pams_asset_test_ci IS 'pams-isolated-asset-identity'\"); c.close()"
-      - name: 测试
-        env:
-          PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
-          PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
-          PAMS_ASSET_CI_TEST_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams_asset_test_ci
-        run: python -m pytest tests -q
       - name: Python与前端语法
         run: |
           python -m compileall -q backend/api backend/scheduler
@@ -88,3 +82,54 @@ jobs:
         run: |
           docker build -t pams-scheduler-ci backend/scheduler
           docker run --rm --entrypoint python pams-scheduler-ci -c "import scheduler; scheduler.schedule.every().day.at('16:30', 'America/New_York').do(lambda: None); print('Scheduler timezone smoke OK')"
+  tests:
+    if: ${{ vars.PAMS_CI_PAUSED != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pams
+          POSTGRES_PASSWORD: pams_ci
+          POSTGRES_DB: pams
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U pams" --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/api/requirements.txt
+            backend/scheduler/requirements.txt
+            frontend/tools/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装测试依赖
+        run: pip install -r backend/api/requirements.txt -r backend/scheduler/requirements.txt -r frontend/tools/requirements.txt pytest httpx
+      - name: 标记独立测试数据库
+        run: |
+          python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; q=c.cursor(); q.execute(\"COMMENT ON DATABASE pams IS 'pams-disposable-schema-test'\"); q.execute('CREATE DATABASE pams_asset_test_ci'); q.execute(\"COMMENT ON DATABASE pams_asset_test_ci IS 'pams-isolated-asset-identity'\"); c.close()"
+      - name: 运行完整测试分片
+        env:
+          PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
+          PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
+          PAMS_ASSET_CI_TEST_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams_asset_test_ci
+        run: python -m pytest tests -q -p tests.support.ci_shard --pams-shard=${{ matrix.shard }}/4
+  verify:
+    if: ${{ always() && vars.PAMS_CI_PAUSED != 'true' }}
+    needs: [checks, tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总完整验证结果
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+        run: test "$CHECKS_RESULT" = success && test "$TESTS_RESULT" = success
