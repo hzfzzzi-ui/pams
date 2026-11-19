@@ -83,7 +83,8 @@ function DailyReturnBreakdown(items = []) {
 }
 
 function currentMobileHeroGroup() {
-  return document.getElementById('holdingGroupFilter')?.value || '全部';
+  const filter = document.getElementById('holdingGroupFilter');
+  return filter?.dataset.heroGroup || filter?.value || '全部';
 }
 
 function mobileHeroMetaItem(label, value, tone = '') {

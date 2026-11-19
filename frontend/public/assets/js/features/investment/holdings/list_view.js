@@ -2,7 +2,7 @@ import {
   esc, cnyValue, safeNum, formatNumber,
   formatCompactCurrency, formatSignedCurrency, signedMoneyClass, dailyFxText,
   dailyNativeText, holdingDailyPnlPending, hasDailyTotalPnl, datedReturnRow,
-  displayDailyPnl, dailyPnlBreakdown, cumulativePnl, currentFloatPnl,
+  displayDailyPnl, cumulativePnl, currentFloatPnl,
   holdingCostValue, realizedPnl, realizedPnlNote,
   dilutedAveragePriceText, holdingGroupLabel, holdingGroupRank, shortHoldingName,
   holdingPriceText, holdingQuantityText, holdingAveragePriceText, holdingPriceChangePct,
@@ -54,23 +54,21 @@ function snapshotQuoteDate(row) {
     ? String(row.snapshot_as_of).slice(0, 10) : '';
 }
 
-function holdingMetrics(row, total) {
+function holdingMetrics(row, summary) {
   const components = row.__accountRows || [row];
-  const valued = components.every(item => item.market_value_cny != null ||
-    (item.currency === 'CNY' && item.market_value != null && Number(item.owner_ratio ?? 1) === 1));
-  const value = valued ? safeNum(cnyValue(row, 'market_value')) : null;
+  const value = row.market_value_cny == null ? null : Number(row.market_value_cny);
   const shared = components.some(item => Number(item.owner_ratio) > 0 && Number(item.owner_ratio) < 1);
   const historical = Boolean(row.reference_as_of);
   return {
     value,
-    weight: historical || total == null || value == null ? '—' : `${(total > 0 ? value / total * 100 : 0).toFixed(1)}%`,
+    weight: row.portfolio_weight == null ? '—' : `${summary?.missing_values ? '≈' : ''}${(Number(row.portfolio_weight) * 100).toFixed(2)}%`,
     valueLabel: historical ? '参考市值' : shared ? '个人市值' : '市值',
     quantityLabel: shared ? '账户份数' : '份数',
-    costValue: historical ? null : holdingCostValue(row),
-    floatPnl: historical ? null : currentFloatPnl(row),
-    realized: historical ? null : realizedPnl(row),
-    totalPnl: historical ? null : cumulativePnl(row),
-    dailyPnl: historical ? null : displayDailyPnl(row),
+    costValue: historical || row.cost_cny == null ? null : holdingCostValue(row),
+    floatPnl: historical || value == null || row.cost_cny == null ? null : currentFloatPnl(row),
+    realized: historical || row.realized_trade_pnl_cny == null ? null : realizedPnl(row),
+    totalPnl: historical || row.holding_pnl_cny == null ? null : cumulativePnl(row),
+    dailyPnl: historical || (row.daily_pnl_cny == null && row.daily_total_pnl_cny == null) ? null : displayDailyPnl(row),
     dailyPending: !historical && holdingDailyPnlPending(row),
   };
 }
@@ -87,13 +85,13 @@ function holdingAccountName(row) {
   return row.account_name || accountLabel(row.account || row.account_code || '');
 }
 
-function openHoldingDetail(row, total, fields) {
+function openHoldingDetail(row, summary, fields) {
   const title = shortHoldingName(row);
   if (row.reference_as_of || holdingGroupLabel(row) === '现金/活期') {
     openBottomSheet(title, fields);
     return;
   }
-  const metrics = holdingMetrics(row, total);
+  const metrics = holdingMetrics(row, summary);
   const accounts = [...new Set((row.__accountRows || [row]).map(holdingAccountName))];
   const body = openBottomSheet(title, marketDetailHtml({
     subtitle: [row.symbol, holdingGroupLabel(row), accounts.join(' / ')].filter(Boolean).join(' · '),
@@ -109,8 +107,7 @@ function renderRows(rows, options = {}){
   clearRows();
   const tbody = document.getElementById('rows');
   tbody.innerHTML='';
-  const totalRows = options.totalRows || rows;
-  const total = options.cashPending ? null : totalRows.reduce((sum, row) => sum + safeNum(cnyValue(row, 'market_value')), 0);
+  const summary = options.summary;
   const showGroupRows = Boolean(options.showGroupRows);
   const displayRows = [...rows].sort((a, b) => {
     const groupA = holdingGroupLabel(a);
@@ -119,10 +116,10 @@ function renderRows(rows, options = {}){
       || groupA.localeCompare(groupB, 'zh-CN')
       || safeNum(cnyValue(b, 'market_value')) - safeNum(cnyValue(a, 'market_value'));
   });
-  renderMobileHoldingRows(displayRows, { total });
+  renderMobileHoldingRows(displayRows, { summary });
   let lastGroup = '';
   for(const r of displayRows){
-    const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
+    const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, summary);
     const groupLabel = holdingGroupLabel(r);
     if (showGroupRows && groupLabel !== lastGroup) {
       const group = document.createElement('tr');
@@ -170,7 +167,7 @@ function renderRows(rows, options = {}){
           ${totalPnl == null ? '' : `<div class="rowDetailFull"><strong>累计公式</strong><span class="mono">${cumulativeFormula(r, floatPnl, realized, totalPnl)}</span></div>`}
         </div>
     `;
-    bindRow(tr, 'click', () => openHoldingDetail(r, total, fields));
+    bindRow(tr, 'click', () => openHoldingDetail(r, summary, fields));
   }
 }
 
@@ -204,7 +201,7 @@ function holdingSyncTime(row) {
   return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">${short}</time></span>`;
 }
 
-function renderMobileHoldingRows(rows, { total }) {
+function renderMobileHoldingRows(rows, { summary }) {
   const el = document.getElementById('mobileHoldingList');
   if (!el) return;
 
@@ -215,65 +212,22 @@ function renderMobileHoldingRows(rows, { total }) {
   }
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
-    const { value, valueLabel, quantityLabel, costValue, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
-    const realizedNote = realizedPnlNote(realized);
-    const dailyBreakdown = dailyPnlBreakdown(r);
-    const changePct = holdingPriceChangePct(r);
+    const {value, weight, totalPnl, dailyPnl, dailyPending} = holdingMetrics(r, summary);
     const name = shortHoldingName(r);
-    const isCash = holdingGroupLabel(r) === '现金/活期';
-    const cashNative = safeNum(r.market_value_native ?? r.market_value);
-    const quoteSub = r.reference_as_of ? (value == null ? '—' : formatCompactCurrency(value)) : isCash
-      ? (String(r.currency || 'CNY').toUpperCase() === 'CNY' ? '' : formatNumber(cashNative, 2))
-      : holdingPriceText(r);
-    const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
-    const quantityText = holdingQuantityText(r);
-    const quoteItems = [
-      r.reference_as_of ? '' : `<span><em>${valueLabel}</em><strong class="mono">${value == null ? '—' : formatCompactCurrency(value)}</strong></span>`,
-      quantityText === '--' ? '' : `<span><em>${quantityLabel}</em><strong class="mono">${esc(quantityText)}</strong></span>`,
-      quoteSub ? `<span><em>${r.reference_as_of ? valueLabel : isCash ? '本币' : '现价'}</em><strong class="mono">${esc(quoteSub)}</strong></span>` : '',
-    ].filter(Boolean).join('<i aria-hidden="true">·</i>');
-    const quoteLine = quoteItems ? `<span class="mobileHoldingQuoteLine">${quoteItems}</span>` : '';
-    const dailyChange = isCash || dailyPnl == null ? '' : `<small class="mobileHoldingChangePct mono ${dailyPending ? '' : quoteTone}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : signedPercentText(changePct)}</small>`;
-    return `
-      <button class="mobileHoldingRow" type="button" data-mobile-holding-index="${index}" title="${esc(r.name || name)}">
-        <span class="mobileHoldingMain">
-          <span class="mobileHoldingText">
-            <strong><span class="mobileHoldingNameInline">${esc(name)}</span>${r.is_closed ? '<em>已平仓</em>' : ''}</strong>
-            <small>${esc(holdingGroupLabel(r))}</small>
-          </span>
-        </span>
-        <span class="mobileHoldingMeta">
-          ${holdingDailyStatusBadge(r)}
-          <span class="mobileHoldingQuote">${quoteLine}</span>
-          ${holdingSyncTime(r)}
-          ${snapshotQuoteDate(r) ? `<span class="mobileHoldingSync">行情 ${esc(snapshotQuoteDate(r))}</span>` : ''}
-        </span>
-        <span class="mobileHoldingMetrics">
-          <span class="mobileHoldingMetric">
-            <em>持仓成本</em>
-            <strong class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</strong>
-          </span>
-          <span class="mobileHoldingMetric">
-            <em>累计盈亏</em>
-            <strong class="mono ${pnlTone(totalPnl)}">${pnlText(totalPnl)}</strong>
-            ${realizedNote ? `<small class="mobileHoldingFxImpact">${realizedNote}</small>` : ''}
-          </span>
-          <span class="mobileHoldingMetric">
-            <em${r.__dailyReturnNote ? ` title="${esc(r.__dailyReturnNote)}"` : ''}>${esc(r.__dailyReturnLabel || '今日盈亏')}</em>
-            <span class="mobileHoldingDailyLine">
-              <strong class="mono ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</strong>
-              ${dailyChange}
-            </span>
-            ${dailyBreakdown ? `<small class="mobileHoldingFxImpact">${esc(dailyBreakdown)}</small>` : ''}
-          </span>
-        </span>
-      </button>
-    `;
+    const status = r.reference_as_of ? '历史参考' : r.is_closed ? '已平仓' : '';
+    return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
+      <span class="personalPositionTitle"><strong>${esc(name)}</strong><b>${weight}</b></span>
+      <span class="personalPositionValues">
+        <span><small>${status || '市值'}</small><b>${value == null ? '—' : formatCompactCurrency(value)}</b></span>
+        <span><small>累计盈亏</small><b class="${pnlTone(totalPnl)}">${pnlText(totalPnl)}</b></span>
+        <span><small>最近一日</small><b class="${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</b></span>
+      </span>
+    </button>`;
   }).join('');
   el.querySelectorAll('[data-mobile-holding-index]').forEach((node) => {
     bindRow(node, 'click', () => {
       const row = datedReturnRow(displayRows[Number(node.dataset.mobileHoldingIndex)]);
-      const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(row, total);
+      const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(row, summary);
       const changePct = holdingPriceChangePct(row);
       const priceDailyPnl = safeNum(cnyValue(row, 'daily_pnl'));
       const detailNativeDaily = dailyNativeText(row);
@@ -303,7 +257,8 @@ function renderMobileHoldingRows(rows, { total }) {
           ${hasDailyTotalPnl(row) ? `<div><strong>价格影响</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(priceDailyPnl)}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${dailyPending ? '--' : formatSignedCurrency(priceDailyPnl)}</span></div>` : ''}
           ${detailNativeDaily ? `<div><strong>${row.__dailyReturnDate ? `本币${esc(row.__dailyReturnDate.slice(5).replace('-', '/'))}` : '本币今日'}</strong><span class="mono">${esc(detailNativeDaily)}</span></div>` : ''}
           ${detailFxDaily ? `<div><strong>证券汇兑估算</strong><span class="mono ${dailyPending ? '' : signedMoneyClass(cnyValue(row, 'daily_fx_pnl'))}"${dailyPending ? ' style="color:var(--muted)"' : ''}>${esc(detailFxDaily.replace(/^证券汇兑\s*/, ''))}</span></div>` : ''}
-          <div><strong>份数</strong><span class="mono">${esc(holdingQuantityText(row))}</span></div>
+          <div><strong>估值时间</strong>${holdingSyncTime(row)}</div>
+          <div><strong>${holdingMetrics(row, summary).quantityLabel}</strong><span class="mono">${esc(holdingQuantityText(row))}</span></div>
           <div><strong>剩余成本均价</strong><span class="mono">${esc(holdingAveragePriceText(row))}</span></div>
           <div><strong>${dilutedCostLabel(row)}</strong><span class="mono">${esc(dilutedAveragePriceText(row))}</span></div>
           <div><strong>现价</strong><span class="mono">${esc(holdingPriceText(row))}</span></div>
@@ -314,7 +269,7 @@ function renderMobileHoldingRows(rows, { total }) {
           ${accountBreakdown}
         </div>
       `;
-      openHoldingDetail(row, total, html);
+      openHoldingDetail(row, summary, html);
     });
   });
 }

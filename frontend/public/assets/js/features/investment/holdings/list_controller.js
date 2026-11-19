@@ -1,5 +1,5 @@
 import {
-  esc, holdingGroupLabel, holdingGroupRank, buildAccountCashRows,
+  esc, buildAccountCashRows,
   isInvestmentRow, historicalReferenceRow
 } from './list_legacy_model.js';
 import {
@@ -45,68 +45,65 @@ export function mount(root, context) {
   const initialGroup = context.state?.group || savedView?.group || document.getElementById('holdingGroupFilter')?.value;
   let currentGroup = initialGroup || '全部';
   let releaseGroupFilter = () => {};
-function setupHoldingGroupFilter(allRows, { cashPending = false, references = [] } = {}) {
-  releaseGroupFilter();
-  const displayRows = [...allRows, ...references.map(historicalReferenceRow)];
-  const sel = document.getElementById('holdingGroupFilter');
-  const chips = document.getElementById('mobileHoldingFilterChips');
-  if (!sel) {
-    renderRows(displayRows, { totalRows: allRows, showGroupRows: true, cashPending });
-    return;
-  }
-  const groups = Array.from(new Set(displayRows.map(holdingGroupLabel)))
-    .sort((a, b) => holdingGroupRank(a) - holdingGroupRank(b) || a.localeCompare(b, 'zh-CN'));
-  sel.innerHTML = '';
-  const allLabel = '全部';
-  let selectedGroup = currentGroup;
-  const allOpt = document.createElement('option');
-  allOpt.value = allLabel;
-  allOpt.textContent = allLabel;
-  sel.appendChild(allOpt);
-  for (const group of groups) {
-    const opt = document.createElement('option');
-    opt.value = group;
-    opt.textContent = group;
-    sel.appendChild(opt);
-  }
-  if (selectedGroup !== allLabel && !groups.includes(selectedGroup)) selectedGroup = allLabel;
-  sel.value = selectedGroup;
-  let chipListeners = [];
-  const renderChips = () => {
-    for (const remove of chipListeners) remove();
-    chipListeners = [];
-    if (!chips) return;
-    chips.innerHTML = [allLabel, ...groups].map((label) => `
-      <button class="mobileFilterChip ${label === selectedGroup ? 'active' : ''}" type="button" data-group="${esc(label)}">${esc(label)}</button>
-    `).join('');
-    chips.querySelectorAll('[data-group]').forEach((btn) => {
-      chipListeners.push(scope.listen(btn, 'click', () => {
-        selectedGroup = btn.dataset.group || allLabel;
-        if (selectedGroup !== allLabel && !groups.includes(selectedGroup)) selectedGroup = allLabel;
-        sel.value = selectedGroup;
-        apply();
-      }));
-    });
-  };
-  const apply = () => {
-    const selected = selectedGroup === allLabel ? allLabel : sel.value;
-    selectedGroup = selected || allLabel;
-    currentGroup = selectedGroup;
-    const rows = selectedGroup === allLabel ? displayRows : displayRows.filter((row) => holdingGroupLabel(row) === selectedGroup);
-    renderRows(rows, { totalRows: allRows, showGroupRows: false, cashPending });
-    renderChips();
-    window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: selectedGroup, sourceRoot: root } }));
-  };
-  const removeSelect = scope.listen(sel, 'change', () => {
-    selectedGroup = sel.value || allLabel;
+  let currentSegment = context.state?.segment || savedView?.segment || '';
+  let summary = remembered?.summary;
+  const primaryOrder = ['全部', '股票', '基金', '银行理财', '贵金属', '员工持股'];
+  const marketOrder = ['A股', '港股', '美股', '韩股'];
+  const category = row => row.position_group || row.minor_category || row.major_category || '其他';
+
+  function setupHoldingGroupFilter(allRows, {references = []} = {}) {
+    releaseGroupFilter();
+    const rows = [...allRows, ...references.map(historicalReferenceRow)];
+    const select = document.getElementById('holdingGroupFilter');
+    const primary = document.getElementById('mobileHoldingFilterChips');
+    const secondary = document.getElementById('holdingSegmentFilter');
+    const groups = [...new Set([...primaryOrder, ...rows.map(category)])];
+    if (!groups.includes(currentGroup)) currentGroup = '全部';
+    const button = (label, key, selected) =>
+      `<button type="button" data-filter="${esc(key)}" aria-pressed="${selected}" class="mobileFilterChip ${selected ? 'active' : ''}">${esc(label)}</button>`;
+    function apply() {
+      const matches = currentGroup === '全部' ? rows.filter(r => !['负债','现金/活期'].includes(category(r))) :
+        rows.filter(r => category(r) === currentGroup);
+      const segments = [...new Set(matches.map(r => r.position_segment).filter(Boolean))];
+      const order = currentGroup === '基金' ? ['场内','场外'] : marketOrder;
+      segments.sort((a,b) => (order.includes(a) ? order.indexOf(a) : order.length) -
+        (order.includes(b) ? order.indexOf(b) : order.length) || a.localeCompare(b, 'zh-CN'));
+      if (!['股票','基金'].includes(currentGroup) || !segments.includes(currentSegment)) currentSegment = '';
+      const heroGroup = currentGroup === '股票' ? (currentSegment || '全部') : currentGroup;
+      // The summary can finish loading after a market filter has been selected.
+      if (select) {
+        select.value = currentGroup;
+        select.dataset.heroGroup = heroGroup;
+      }
+      if (primary) primary.innerHTML = groups.map(g => button(g,g,g === currentGroup)).join('');
+      if (secondary) {
+        secondary.hidden = !segments.length || !['股票','基金'].includes(currentGroup);
+        secondary.innerHTML = secondary.hidden ? '' : button(currentGroup === '股票' ? '全部市场' : '全部基金','',!currentSegment)
+          + segments.map(g => button(g,g,g === currentSegment)).join('');
+      }
+      renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary});
+      window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: heroGroup, sourceRoot: root } }));
+    }
+    if (select) select.innerHTML = groups.map(g => `<option>${esc(g)}</option>`).join('');
+    function chooseGroup(group) {
+      currentGroup = group;
+      currentSegment = '';
+      apply();
+    }
+    const removers = [
+      scope.listen(select,'change',() => chooseGroup(select.value)),
+      scope.listen(primary,'click',event => {
+        const btn = event.target.closest('[data-filter]');
+        if (btn) chooseGroup(btn.dataset.filter);
+      }),
+      scope.listen(secondary,'click',event => {
+        const btn = event.target.closest('[data-filter]');
+        if (btn) { currentSegment = btn.dataset.filter; apply(); }
+      }),
+    ];
+    releaseGroupFilter = () => removers.forEach(remove => remove());
     apply();
-  });
-  releaseGroupFilter = () => {
-    removeSelect();
-    for (const remove of chipListeners) remove();
-  };
-  apply();
-}
+  }
 
   async function load() {
     try {
@@ -123,24 +120,21 @@ function setupHoldingGroupFilter(allRows, { cashPending = false, references = []
           if (!scope.active) return;
           if (!remembered) document.getElementById('asof').textContent = holdings.as_of || '--';
           sourceRows = (holdings.rows || []).filter(isInvestmentRow);
+          summary = holdings.personal_summary;
           references = holdings.historical_references || [];
-          if (!remembered && sourceRows.length && (currentGroup === '全部' || sourceRows.some(row => holdingGroupLabel(row) === currentGroup))) {
-            setupHoldingGroupFilter(sourceRows, {cashPending: true, references});
+          if (!remembered && !['现金/活期','负债'].includes(currentGroup)) {
+            setupHoldingGroupFilter(sourceRows, {references});
           }
         },
       });
       if (!scope.active) return;
 
-      if (remembered && supplementFailed) {
-        showRememberedData(refreshNote, 'failed');
-        return;
-      }
       const cash = buildAccountCashRows(accountValues, sourceRows);
       const rows = [...sourceRows, ...cash.rows];
-      setupHoldingGroupFilter(rows, {cashPending: cash.missing.length > 0, references});
+      setupHoldingGroupFilter(rows, {references});
       showCashStatus(cash.missing);
       document.getElementById('asof').textContent = holdings.as_of || '--';
-      if (!supplementFailed) memory?.write('rows', variant, {rows, references, asOf: holdings.as_of, missingCash: cash.missing});
+      if (!supplementFailed) memory?.write('rows', variant, {rows, references, summary, asOf: holdings.as_of, missingCash: cash.missing});
       showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;
@@ -150,7 +144,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false, references = []
   }
   const instance = {
     ready: null,
-    snapshot: () => ({ group: currentGroup }),
+    snapshot: () => ({ group: currentGroup, segment: currentSegment }),
     dispose() {
       if (!scope.active) return savedOnExit;
       savedOnExit = instance.snapshot();
@@ -167,7 +161,7 @@ function setupHoldingGroupFilter(allRows, { cashPending = false, references = []
   if (remembered) {
     showRememberedData(refreshNote, 'refreshing');
     setupHoldingGroupFilter(remembered.rows, {
-      cashPending: Boolean(remembered.missingCash?.length), references: remembered.references,
+      references: remembered.references,
     });
     showCashStatus(remembered.missingCash);
     document.getElementById('asof').textContent = remembered.asOf || '--';

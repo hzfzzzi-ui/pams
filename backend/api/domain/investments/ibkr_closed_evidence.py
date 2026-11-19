@@ -58,6 +58,6 @@ def verified_ibkr_closed_positions(cur, *, current_keys=None, limit=500):
             'minor_category':row['minor_category'],'as_of':row['as_of'],'snapshot_as_of':row['as_of'],
             'quantity':row['quantity'],'buy_price':None,'current_price':None,'is_closed':True,
             'closed_date':row['as_of'],'closed_evidence':'confirmed_zero_and_immutable_identity'})
-        if len(output)>=limit:
+        if limit is not None and len(output) >= limit:
             break
     return output
