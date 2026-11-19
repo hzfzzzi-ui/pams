@@ -680,6 +680,9 @@ def create_compatibility_router(
             summary = closed_return_summary(lifetime, start=start_date, period_closed=period)
             if summary and any((row.get('estimated_positions') or 0) > 0 for row in payload.get('rows', [])):
                 summary['curve_has_estimated_positions'] = True
+                # Some estimated positions are present; aggregate coverage of
+                # every closed cycle is not established by this flag.
+                summary['included_in_return_curve'] = None
             return {**payload, 'closed_wealth_returns': summary} if summary else payload
         reported_returns_cfg = _reported_returns_cfg()
         snapshot_payload = _build_investment_return_series_payload_from_snapshot(
