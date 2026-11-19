@@ -213,7 +213,7 @@ def _validate_cross_currency_pair(cur, left, right):
 def occupied_cashflow_ids(cur):
     """Use the same active-confirmation scope as the write path."""
     cur.execute('''SELECT from_cashflow_id, to_cashflow_id, to_evidence FROM public.evidence_confirmation
-        WHERE confirmation_type IN ('transfer','payment_proxy') AND revoked_at IS NULL''')
+        WHERE confirmation_type IN ('transfer','payment_proxy','cash_reversal') AND revoked_at IS NULL''')
     rows = cur.fetchall()
     return ({row[key] for row in rows for key in ('from_cashflow_id', 'to_cashflow_id') if row[key] is not None}
             | {leg['id'] for row in rows for leg in (row.get('to_evidence') or {}).get('additional_targets', [])})

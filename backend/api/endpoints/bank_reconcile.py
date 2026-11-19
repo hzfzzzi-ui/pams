@@ -301,6 +301,37 @@ class ConfirmPaymentProxyRequest(BaseModel):
     confirmed: bool = False
 
 
+class ConfirmCashReversalRequest(BaseModel):
+    debit_id: int
+    credit_id: int
+    note: str
+    confirmed: bool = False
+
+
+@router.post('/bank-reconcile/cash-reversals/confirm')
+def confirm_cash_reversal(req: ConfirmCashReversalRequest):
+    from domain.ledger import cash_reversals
+    from domain.imports.isolation import account_import_scope, source_enabled
+    try:
+        with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            with account_import_scope():
+                if not source_enabled(cur):
+                    raise ValueError('来源核验未启用')
+                return _norm(cash_reversals.confirm(cur, **req.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post('/bank-reconcile/cash-reversals/{confirmation_id}/revoke')
+def revoke_cash_reversal(confirmation_id: UUID, req: RevokeTransferRequest):
+    from domain.ledger import cash_reversals
+    try:
+        with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            return _norm(cash_reversals.revoke(cur, confirmation_id=confirmation_id, **req.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/bank-reconcile/payment-proxy/confirm")
 def confirm_payment_proxy(req: ConfirmPaymentProxyRequest):
     from domain.ledger import payment_proxy_confirmation

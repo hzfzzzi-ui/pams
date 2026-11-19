@@ -389,7 +389,7 @@ def classify_ledger_row(
     }
 
 
-def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int]) -> dict[str, Any]:
+def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int], reversal_ids: set[int] | None = None) -> dict[str, Any]:
     from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
 
     amount = row["amount"]
@@ -397,6 +397,9 @@ def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int])
         return {"flow_type": "other", "coarse_category": "零金额", "needs_review": False, "is_operating": False}
 
     direction = "income" if amount > 0 else "expense"
+    if row['id'] in (reversal_ids or set()):
+        return {'account_flow_type': direction, 'flow_type': 'cash_reversal', 'coarse_category': '撤单往返',
+                'needs_review': False, 'is_operating': False, 'is_internal_transfer': False}
     if row["id"] in matched_cash_ids:
         return {"account_flow_type": direction, "flow_type": "transfer", "coarse_category": "内部划转",
                 "needs_review": False, "is_operating": False, "is_internal_transfer": True}
@@ -473,7 +476,8 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     borrowed = sum(r["amount_cny"] for r in borrowed_rows if r["amount_cny"] is not None)
     repaid = -sum(r["amount_cny"] for r in repaid_rows if r["amount_cny"] is not None)
     principal_net = borrowed - repaid
-    cash_net = disposable_net + one_sided_investment_net + principal_net
+    reversal_net = sum(r['amount_cny'] for r in known_rows if r.get('flow_type') == 'cash_reversal')
+    cash_net = disposable_net + one_sided_investment_net + principal_net + reversal_net
     other_transfer = max(transfer - investment_transfer, 0.0)
     result = {
         "income": round(income, 2),
@@ -1640,7 +1644,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
         internal = row_flow == 'transfer' or row.get('is_internal_transfer') is True
         if flow in {'internal_transfer', 'cash_transfer'} and not internal:
             continue
-        if flow == 'cashflow' and not internal and row_flow not in _INCOME_EXPENSE_FLOWS | {'personal_loan'}:
+        if flow == 'cashflow' and not internal and row_flow not in _INCOME_EXPENSE_FLOWS | {'personal_loan', 'cash_reversal'}:
             continue
         if flow == 'income_expense' and row_flow not in _INCOME_EXPENSE_FLOWS:
             continue
@@ -1736,6 +1740,11 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         for row_id in _match_cash_ids(match)
         if isinstance(row_id, int)
     }
+    if redesigned:
+        from domain.ledger.cash_reversals import confirmed_cashflow_ids
+        reversal_ids = confirmed_cashflow_ids(cur)
+    else:
+        reversal_ids = set()
 
     confirmed_proxy_roles = {}
     if not redesigned and _table_exists(cur, 'evidence_confirmation'):
@@ -1755,7 +1764,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if row["amount_cny"] is None and not row.get('source_issue'):
             row["fx_status"] = "unavailable"
         if redesigned:
-            row.update(_classify_cash_direction(row, transfer_row_ids))
+            row.update(_classify_cash_direction(row, transfer_row_ids, reversal_ids))
         else:
             row.update(classify_ledger_row(row, transfer_row_ids, payment_proxy_source_row_ids))
         if row.get("fx_status") == "unavailable":
