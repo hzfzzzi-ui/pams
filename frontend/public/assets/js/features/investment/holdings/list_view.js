@@ -55,12 +55,17 @@ function snapshotQuoteDate(row) {
 }
 
 function holdingMetrics(row, total) {
-  const value = safeNum(cnyValue(row, 'market_value'));
+  const components = row.__accountRows || [row];
+  const valued = components.every(item => item.market_value_cny != null ||
+    (item.currency === 'CNY' && item.market_value != null && Number(item.owner_ratio ?? 1) === 1));
+  const value = valued ? safeNum(cnyValue(row, 'market_value')) : null;
+  const shared = components.some(item => Number(item.owner_ratio) > 0 && Number(item.owner_ratio) < 1);
   const historical = Boolean(row.reference_as_of);
   return {
     value,
-    weight: historical || total == null ? '—' : `${(total > 0 ? value / total * 100 : 0).toFixed(1)}%`,
-    valueLabel: historical ? '参考市值' : '市值',
+    weight: historical || total == null || value == null ? '—' : `${(total > 0 ? value / total * 100 : 0).toFixed(1)}%`,
+    valueLabel: historical ? '参考市值' : shared ? '个人市值' : '市值',
+    quantityLabel: shared ? '账户份数' : '份数',
     costValue: historical ? null : holdingCostValue(row),
     floatPnl: historical ? null : currentFloatPnl(row),
     realized: historical ? null : realizedPnl(row),
@@ -92,7 +97,7 @@ function openHoldingDetail(row, total, fields) {
   const accounts = [...new Set((row.__accountRows || [row]).map(holdingAccountName))];
   const body = openBottomSheet(title, marketDetailHtml({
     subtitle: [row.symbol, holdingGroupLabel(row), accounts.join(' / ')].filter(Boolean).join(' · '),
-    value: formatCompactCurrency(metrics.value), totalPnl: pnlText(metrics.totalPnl),
+    value: metrics.value == null ? '—' : formatCompactCurrency(metrics.value), totalPnl: pnlText(metrics.totalPnl),
     pnlClass: pnlTone(metrics.totalPnl),
     breakdown: [['当前浮盈',metrics.floatPnl],['已实现盈亏',metrics.realized]].map(([label, n]) =>
       ({label, amount:pnlText(n), tone:pnlTone(n)})), fields,
@@ -134,7 +139,7 @@ function renderRows(rows, options = {}){
       <td class="name" title="${esc(r.name || '')}">${esc(r.name || '')}${closedBadge(r)}${holdingDailyStatusBadge(r)}</td>
       <td>${esc(groupLabel)}</td>
       <td>${esc(holdingAccountName(r))}</td>
-      <td class="mono num">${formatCompactCurrency(value)}</td>
+      <td class="mono num">${value == null ? '—' : formatCompactCurrency(value)}</td>
       <td class="mono num">${holdingQuantityText(r)}</td>
       <td class="mono num">${r.current_price ? formatNumber(r.current_price, 3) : '价格缺失'}</td>
       <td class="mono num ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</td>
@@ -149,7 +154,7 @@ function renderRows(rows, options = {}){
           <div><strong>账户</strong><span>${esc(holdingAccountName(r))}</span></div>
           <div><strong>币种</strong><span>${esc(r.currency || 'CNY')}</span></div>
           <div><strong>持仓占比</strong><span class="mono">${weight}</span></div>
-          <div><strong>${valueLabel}</strong><span class="mono">${formatCompactCurrency(value)}</span></div>
+          <div><strong>${valueLabel}</strong><span class="mono">${value == null ? '—' : formatCompactCurrency(value)}</span></div>
           <div><strong>剩余成本</strong><span class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</span></div>
           <div><strong>当前浮盈</strong><span class="mono ${pnlTone(floatPnl)}">${pnlText(floatPnl)}</span></div>
           <div><strong>已实现</strong><span class="mono ${pnlTone(realized)}">${pnlText(realized)}</span></div>
@@ -210,20 +215,21 @@ function renderMobileHoldingRows(rows, { total }) {
   }
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
-    const { value, valueLabel, costValue, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
+    const { value, valueLabel, quantityLabel, costValue, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, total);
     const realizedNote = realizedPnlNote(realized);
     const dailyBreakdown = dailyPnlBreakdown(r);
     const changePct = holdingPriceChangePct(r);
     const name = shortHoldingName(r);
     const isCash = holdingGroupLabel(r) === '现金/活期';
     const cashNative = safeNum(r.market_value_native ?? r.market_value);
-    const quoteSub = r.reference_as_of ? formatCompactCurrency(value) : isCash
+    const quoteSub = r.reference_as_of ? (value == null ? '—' : formatCompactCurrency(value)) : isCash
       ? (String(r.currency || 'CNY').toUpperCase() === 'CNY' ? '' : formatNumber(cashNative, 2))
       : holdingPriceText(r);
     const quoteTone = isCash ? (value < 0 ? 'down' : '') : (Number(changePct) >= 0 ? 'up' : 'down');
     const quantityText = holdingQuantityText(r);
     const quoteItems = [
-      quantityText === '--' ? '' : `<span><em>份数</em><strong class="mono">${esc(quantityText)}</strong></span>`,
+      r.reference_as_of ? '' : `<span><em>${valueLabel}</em><strong class="mono">${value == null ? '—' : formatCompactCurrency(value)}</strong></span>`,
+      quantityText === '--' ? '' : `<span><em>${quantityLabel}</em><strong class="mono">${esc(quantityText)}</strong></span>`,
       quoteSub ? `<span><em>${r.reference_as_of ? valueLabel : isCash ? '本币' : '现价'}</em><strong class="mono">${esc(quoteSub)}</strong></span>` : '',
     ].filter(Boolean).join('<i aria-hidden="true">·</i>');
     const quoteLine = quoteItems ? `<span class="mobileHoldingQuoteLine">${quoteItems}</span>` : '';
@@ -287,7 +293,7 @@ function renderMobileHoldingRows(rows, { total }) {
           <div><strong>持仓占比</strong><span class="mono">${weight}</span></div>
           <div><strong>账户</strong><span>${esc(holdingAccountName(row) || '缺数据')}</span></div>
           <div><strong>币种</strong><span>${esc(row.currency || 'CNY')}</span></div>
-          <div><strong>${valueLabel}</strong><span class="mono">${formatCompactCurrency(value)}</span></div>
+          <div><strong>${valueLabel}</strong><span class="mono">${value == null ? '—' : formatCompactCurrency(value)}</span></div>
           <div><strong>剩余成本</strong><span class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</span></div>
           <div><strong>当前浮盈</strong><span class="mono ${pnlTone(floatPnl)}">${pnlText(floatPnl)}</span></div>
           <div><strong>已实现</strong><span class="mono ${pnlTone(realized)}">${pnlText(realized)}</span></div>
