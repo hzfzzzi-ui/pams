@@ -739,6 +739,19 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const el = getElementById('investmentReturnToggle');
     if (!el || !chart) return;
     const status = getElementById('investmentReturnSeriesStatus');
+    const closedWealthStatus = getElementById('investmentClosedWealthStatus');
+    const wealth = state?.closedWealthReturns;
+    if (closedWealthStatus) {
+      const amount = wealth?.lifetime_amount;
+      const show = wealth?.base_currency === 'CNY' && amount != null && Number.isFinite(Number(amount));
+      const period = wealth?.period_amount;
+      const periodText = period != null && Number.isFinite(Number(period))
+        ? ` · ${wealth.period_start} 起 ${fmtSignedCny(Number(period))}` : '';
+      closedWealthStatus.hidden = !show;
+      closedWealthStatus.textContent = show
+        ? `理财已实现累计收益 ${fmtSignedCny(Number(amount))}${periodText} · 未计入收益率曲线`
+        : '';
+    }
     const showStatus = (message = '') => {
       if (!status) return;
       status.hidden = !message;

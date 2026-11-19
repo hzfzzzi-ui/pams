@@ -659,12 +659,25 @@ def create_compatibility_router(
                 return json(build_total_curve(cur, start_date=start_date, interval=interval, baseCurrency=baseCurrency))
 
     def build_total_curve(cur, *, start_date, interval, baseCurrency, read_revision=_return_revision):
+        from domain.investments.closed_return_display import closed_return_summary
         today_label_date = _investment_today_label_date()
         view_as_of = latest_position_valuation_date(
             cur, holding_date=_investment_return_view_as_of(cur), through=today_label_date,
         )
         if start_date > view_as_of:
             start_date = view_as_of
+        def with_closed_wealth(payload):
+            lifetime = load_closed_trade_returns(
+                cur, start=Date.min, end=view_as_of, base_currency=baseCurrency.upper(),
+                owner_ratio=_account_owner_ratio, sections={'wealth_management'},
+                excluded_accounts=_excluded_holding_accounts(),
+            ).get('wealth_management')
+            period = load_closed_trade_returns(
+                cur, start=start_date, end=view_as_of, base_currency=baseCurrency.upper(),
+                owner_ratio=_account_owner_ratio, sections={'wealth_management'},
+                excluded_accounts=_excluded_holding_accounts(),
+            ).get('wealth_management') if lifetime else None
+            return {**payload, 'closed_wealth_returns': closed_return_summary(lifetime, start=start_date, period_closed=period)}
         reported_returns_cfg = _reported_returns_cfg()
         snapshot_payload = _build_investment_return_series_payload_from_snapshot(
             cur,
@@ -680,7 +693,7 @@ def create_compatibility_router(
             ),
         )
         if snapshot_payload is not None:
-            return snapshot_payload
+            return with_closed_wealth(snapshot_payload)
         payload = _build_investment_return_series_payload(
             cur,
             start_date=start_date,
@@ -697,7 +710,7 @@ def create_compatibility_router(
             position_based=True,
         )
         if payload.get("method") == POSITION_RETURN_METHOD:
-            return payload
+            return with_closed_wealth(payload)
         valuation_state = _latest_published_portfolio_valuation_state(
             cur,
             base_currency=baseCurrency,
@@ -709,7 +722,7 @@ def create_compatibility_router(
             )
         )
         summary_payload = _build_summary2_latest_payload_for_request(cur)
-        return _apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload)
+        return with_closed_wealth(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
 
 
     @router.get("/api/investment/analysis-view")

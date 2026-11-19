@@ -69,7 +69,7 @@ const returns = { rows: nav.rows.map((row, index) => ({ date: row.date, market_v
 async function fixture({ fallback = false } = {}) {
   const requests = [], charts = [], storage = new Map();
   const ids = ['investmentReturnChart', 'investmentNavChart', 'investmentReturnToggle', 'investmentReturnWindowToggle',
-    'investmentNavWindowToggle', 'investmentNavStats', 'investmentReturnSeriesStatus', 'returnEventHotspots', 'returnEventPopover'];
+    'investmentNavWindowToggle', 'investmentNavStats', 'investmentReturnSeriesStatus', 'investmentClosedWealthStatus', 'returnEventHotspots', 'returnEventPopover'];
   const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
   const document = { body: { dataset: {} }, getElementById: id => elements[id] || null };
   const window = Object.assign(new Target(), { matchMedia: () => ({ matches: true }), devicePixelRatio: 1 });
@@ -152,7 +152,10 @@ for (const fallback of [false, true]) {
   assert.equal(loading, controller.loadReturnsOnce());
   const navLoading = controller.loadNavOnce();
   assert.equal(navLoading, controller.loadNavOnce());
-  test.resolve(); await loading; await navLoading;
+  test.resolve(test.requests, nav, {...returns, closed_wealth_returns: {
+    base_currency: 'CNY', lifetime_amount: '322.39', period_amount: null, included_in_return_curve: false,
+  }}); await loading; await navLoading;
+  assert.match(test.elements.investmentClosedWealthStatus.textContent, /322\.39.*未计入收益率曲线/);
   assert.equal(test.window.count('resize'), 1);
   assert.equal(test.window.count('pagehide'), 1);
   const returnChart = test.window.__investmentReturnChart;

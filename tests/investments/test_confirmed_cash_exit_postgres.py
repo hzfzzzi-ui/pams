@@ -60,6 +60,26 @@ def test_complete_exit_flows_from_review_to_returns_and_revocation(empty_source_
                                     expected_revision=revision, note='Confirmed complete exit', confirmed=True)
             assert Decimal(read()['wealth_management']['amount']) == Decimal('322.39')
             assert read(date(2026, 1, 1)) == {}
+            buy_id = next(row['trade_id'] for row in ids if row['trade_type'] == 'buy')
+            buy_sources = [
+                {**buy, 'quantity': '48118.56'},
+                {**buy, 'valuation_date': '2025-12-31', 'valuation_unit_price': '1.040500'},
+            ]
+            confirmations = []
+            for fields in buy_sources:
+                proof_source, proof_item = uuid4(), uuid4()
+                sources.create_source(cur, source_id=proof_source, account_code='test_asset', source_name='test',
+                                      acquisition_method='screenshot', document_type='trade', filename='proof.jpg',
+                                      file_format='jpg', content_type='image/jpeg', content=str(proof_item).encode())
+                sources.add_item(cur, source_id=proof_source, item_id=proof_item, parse_method='manual',
+                                 raw_fields={'synthetic': str(proof_item)}, parsed_fields=fields)
+                proof_rev = sources.review_item(cur, source_id=proof_source, item_id=proof_item, expected_revision=2,
+                                                parsed_fields=fields, review_status='confirmed')
+                confirmations.append(evidence.attach(cur, source_id=proof_source, item_id=proof_item, trade_id=buy_id,
+                    expected_revision=proof_rev, note='Owner reviewed screenshot', confirmed=True))
+            assert Decimal(read(date(2026, 1, 1))['wealth_management']['amount']) == Decimal('255.02832')
+            evidence.revoke(cur, confirmation_id=confirmations[-1]['confirmation_id'], note='Undo mark', confirmed=True)
+            assert read(date(2026, 1, 1)) == {}
             cur.execute('SELECT count(*) AS n FROM pams_investment_trade_fact')
             assert cur.fetchone()['n'] == 2
             cur.execute('UPDATE pams_investment_trade_fact SET net_cash=50320 WHERE trade_id=%s', (trade_id,))
