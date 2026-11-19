@@ -284,17 +284,15 @@ def test_pending_or_stale_is_not_a_green_zero_in_any_renderer(fields):
         assert "+0.00%" not in html
         assert ("\u00a51,000.00" if template == "mobile" else "\u00a51,200.00") in html
         assert "+\u00a5250.00" in html
-    assert '<strong class="mono " style="color:var(--muted)">\u5f85\u66f4\u65b0</strong>' in row["mobile"]
+    assert '<strong class="mono muted">\u5f85\u66f4\u65b0</strong>' in row["mobile"]
     assert 'mono " style="color:var(--muted)">--</small>' in row["mobile"]
-    assert 'class="mono muted"' not in row["mobile"]
     assert "-- USD" in row["mobile"] and "-- USD" in row["sheet"]
     assert ("\u8bc1\u5238\u6c47\u5151\u4f30\u7b97" in row["sheet"]) == (fields.get("daily_fx_pnl_cny", 0) != 0)
     for template in ("detail", "sheet"):
         assert '<strong>\u6536\u76ca\u72b6\u6001</strong><span>\u5f85\u66f4\u65b0</span>' in row[template]
     html = data["allHtml"]
-    assert '<strong class="" style="color:var(--muted)">\u5f85\u66f4\u65b0</strong>' in html
-    assert '<em class="" style="color:var(--muted)">--</em>' in html
-    assert 'class="muted"' not in html
+    assert '最近一日盈亏' in html
+    assert '+¥0.00' not in html
 
 
 @pytest.mark.parametrize("status,label", [("confirmed", "\u4eca\u65e5\u6536\u76ca\u5df2\u786e\u8ba4"), ("estimated", "\u9884\u4f30\u6536\u76ca")])

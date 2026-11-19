@@ -27,6 +27,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/api/requirements.txt
+            backend/scheduler/requirements.txt
+            frontend/tools/requirements.txt
       - name: 检查项目架构边界
         run: python scripts/check_architecture.py
       - uses: actions/setup-node@v4
@@ -40,7 +45,6 @@ jobs:
           python -c "import psycopg2; c=psycopg2.connect('postgresql://pams:pams_ci@127.0.0.1:5432/pams'); c.autocommit=True; q=c.cursor(); q.execute('CREATE DATABASE pams_asset_test_ci'); q.execute(\"COMMENT ON DATABASE pams_asset_test_ci IS 'pams-isolated-asset-identity'\"); c.close()"
       - name: 测试
         env:
-          PAMS_CI_SKIP_PR_201: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 202 && 'true' || 'false' }}
           PAMS_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_SCHEMA_TEST_POSTGRES_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams
           PAMS_ASSET_CI_TEST_DSN: postgresql://pams:pams_ci@127.0.0.1:5432/pams_asset_test_ci
@@ -49,30 +53,27 @@ jobs:
         run: |
           python -m compileall -q backend/api backend/scheduler
           for file in frontend/public/assets/js/*.js; do node --check "$file"; done
-      - name: 同步模块静态检查
+      - name: 关键模块静态检查
         run: |
-          if test -f backend/scheduler/refresh_state.py; then
-            ruff check --select E9,F backend/scheduler/refresh_state.py backend/scheduler/scheduler.py backend/scheduler/flex_confirmation.py backend/api/domain/operations/sync_health.py tests/scheduler/test_refresh_reliability.py tests/scheduler/test_flex_confirmation.py backend/api/domain/investments/holdings_view.py tests/investments/test_holdings_view_service.py backend/api/domain/brokers/ibkr/ibkr_reconciliation.py tests/brokers/ibkr/test_ibkr_reconciliation.py backend/api/domain/brokers/ibkr/ibkr_unified_fee_review.py tests/brokers/ibkr/test_ibkr_fee_currency.py
-            mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/scheduler/flex_confirmation.py backend/api/domain/operations/sync_health.py backend/api/domain/investments/holdings_view.py backend/api/domain/brokers/ibkr/ibkr_reconciliation.py backend/api/domain/brokers/ibkr/ibkr_unified_fee_review.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_fee_currency.py backend/api/domain/investments/investment_trade_fact.py tests/brokers/ibkr/test_ibkr_fee_currency.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_fee_currency.py backend/api/domain/investments/investment_trade_fact.py
-            ruff check --select E9,F scripts/verify_release.py tests/operations/test_verify_release.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs scripts/verify_release.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py tests/brokers/ibkr/test_ibkr_fee_settlement.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_account_audit.py backend/api/domain/brokers/ibkr/ibkr_account_audit_read.py tests/brokers/ibkr/test_ibkr_account_audit.py tests/brokers/ibkr/test_ibkr_account_audit_read.py tests/brokers/ibkr/test_ibkr_performance_service.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_account_audit.py backend/api/domain/brokers/ibkr/ibkr_account_audit_read.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_daily_close_read.py scripts/ibkr_daily_close.py tests/brokers/ibkr/test_ibkr_daily_close.py tests/brokers/ibkr/test_ibkr_daily_close_read.py tests/brokers/ibkr/test_ibkr_daily_close_consumers.py tests/brokers/ibkr/test_ibkr_daily_close_projection.py backend/api/domain/brokers/ibkr/ibkr_performance.py backend/api/domain/investments/portfolio_summary.py backend/api/domain/investments/portfolio_valuation_state.py backend/api/domain/investments/portfolio_state.py backend/api/domain/investments/valuation_nav.py tests/brokers/ibkr/test_ibkr_account_audit_daily_period.py tests/frontend/test_ibkr_daily_close_frontend.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_daily_close_read.py scripts/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_performance.py backend/api/domain/investments/portfolio_summary.py backend/api/domain/investments/portfolio_valuation_state.py backend/api/domain/investments/portfolio_state.py backend/api/domain/investments/valuation_nav.py
-            ruff check --select E9,F backend/api/endpoints/accounts.py tests/brokers/ibkr/test_ibkr_daily_close_accounts.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/endpoints/accounts.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py tests/brokers/ibkr/test_ibkr_portfolio_binding.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py tests/brokers/ibkr/test_ibkr_daily_close_sync.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py
-            ruff check --select E9,F backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py tests/brokers/ibkr/test_ibkr_cash_events.py tests/scheduler/test_ibkr_automation_scheduler.py
-            mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py backend/api/domain/brokers/ibkr/ibkr_report_state.py
-          fi
+          ruff check --select E9,F backend/scheduler/refresh_state.py \
+            backend/scheduler/scheduler.py backend/scheduler/flex_confirmation.py backend/api/domain/operations/sync_health.py tests/scheduler/test_refresh_reliability.py tests/scheduler/test_flex_confirmation.py \
+            backend/api/domain/investments/holdings_view.py tests/investments/test_holdings_view_service.py backend/api/domain/brokers/ibkr/ibkr_reconciliation.py tests/brokers/ibkr/test_ibkr_reconciliation.py backend/api/domain/brokers/ibkr/ibkr_unified_fee_review.py \
+            tests/brokers/ibkr/test_ibkr_fee_currency.py backend/api/domain/brokers/ibkr/ibkr_fee_currency.py backend/api/domain/investments/investment_trade_fact.py scripts/verify_release.py tests/operations/test_verify_release.py \
+            backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py tests/brokers/ibkr/test_ibkr_fee_settlement.py backend/api/domain/brokers/ibkr/ibkr_account_audit.py backend/api/domain/brokers/ibkr/ibkr_account_audit_read.py tests/brokers/ibkr/test_ibkr_account_audit.py \
+            tests/brokers/ibkr/test_ibkr_account_audit_read.py tests/brokers/ibkr/test_ibkr_performance_service.py backend/api/domain/brokers/ibkr/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_daily_close_read.py scripts/ibkr_daily_close.py \
+            tests/brokers/ibkr/test_ibkr_daily_close.py tests/brokers/ibkr/test_ibkr_daily_close_read.py tests/brokers/ibkr/test_ibkr_daily_close_consumers.py tests/brokers/ibkr/test_ibkr_daily_close_projection.py backend/api/domain/brokers/ibkr/ibkr_performance.py \
+            backend/api/domain/investments/portfolio_summary.py backend/api/domain/investments/portfolio_valuation_state.py backend/api/domain/investments/portfolio_state.py backend/api/domain/investments/valuation_nav.py tests/brokers/ibkr/test_ibkr_account_audit_daily_period.py \
+            tests/frontend/test_ibkr_daily_close_frontend.py backend/api/endpoints/accounts.py tests/brokers/ibkr/test_ibkr_daily_close_accounts.py backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py tests/brokers/ibkr/test_ibkr_portfolio_binding.py \
+            backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py tests/brokers/ibkr/test_ibkr_daily_close_sync.py backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py \
+            backend/api/endpoints/ibkr.py tests/brokers/ibkr/test_ibkr_cash_events.py tests/scheduler/test_ibkr_automation_scheduler.py
+          mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/scheduler/flex_confirmation.py \
+            backend/api/domain/operations/sync_health.py backend/api/domain/investments/holdings_view.py backend/api/domain/brokers/ibkr/ibkr_reconciliation.py backend/api/domain/brokers/ibkr/ibkr_unified_fee_review.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_fee_currency.py \
+            backend/api/domain/investments/investment_trade_fact.py scripts/verify_release.py backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py backend/api/domain/brokers/ibkr/ibkr_account_audit.py backend/api/domain/brokers/ibkr/ibkr_account_audit_read.py \
+            backend/api/domain/brokers/ibkr/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_daily_close_read.py scripts/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_performance.py backend/api/domain/investments/portfolio_summary.py \
+            backend/api/domain/investments/portfolio_valuation_state.py backend/api/domain/investments/portfolio_state.py backend/api/domain/investments/valuation_nav.py backend/api/endpoints/accounts.py backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py \
+            backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py \
+            backend/api/domain/brokers/ibkr/ibkr_report_state.py
       - name: 构建API镜像并验证导入
         run: |
           docker build -f backend/api/Dockerfile -t pams-api-ci .
