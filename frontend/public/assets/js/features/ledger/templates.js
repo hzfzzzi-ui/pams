@@ -59,7 +59,7 @@ function rowDetailHtml(row) {
       <div><strong>原始类型</strong><span>${escapeHtml(row.flow_type || '-')}</span></div>
       ${originalAmount ? `<div><strong>原币金额</strong><span>${escapeHtml(originalAmount)}</span></div>` : ''}
       <div><strong>粗分类</strong><span>${escapeHtml(row.coarse_category || '-')}</span></div>
-      <div><strong>摘要</strong><span>${escapeHtml(row.summary || '-')}</span></div>
+      <div><strong>摘要</strong><span>${escapeHtml(row.summary || row.source_summary || '-')}</span></div>
       <div><strong>说明</strong><span>${escapeHtml(row.description || '不适用')}</span></div>
       <div><strong>状态</strong><span>${row.needs_review ? '待确认' : '已归类'}</span></div>
     </div>
@@ -128,7 +128,7 @@ function ledgerEditSheetHtml(row) {
           </div>
           <div>
             <span>说明</span>
-            <strong>${escapeHtml(row.description || row.summary || '无')}</strong>
+            <strong>${escapeHtml(row.description || row.summary || row.source_summary || '无')}</strong>
           </div>
         </div>
       </div>
