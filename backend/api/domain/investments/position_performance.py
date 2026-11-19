@@ -71,7 +71,7 @@ def _kind(row):
         return 'reference'
     if major == 'A股':
         return 'stock'
-    if major == '美股':
+    if major in ('美股', '港股', '韩股'):
         return 'overseas'
     if row.get('trade_type') in ('fund_subscription', 'fund_redemption'):
         return 'fund'
@@ -96,9 +96,10 @@ def _price_symbol(key, kind):
 
 def _load_positions(cur, end, excluded, selection=None):
     restriction = ''
-    params = [end, list(CATEGORIES), sorted(excluded)]
+    params = [end, list(CATEGORIES) + (['港股', '韩股'] if selection else []), sorted(excluded)]
     if selection:
-        restriction = ' AND (h.account_code,h.asset_id) IN (SELECT * FROM unnest(%s::text[],%s::text[]))'
+        restriction = """ AND (h.account_code,COALESCE(NULLIF(h.asset_id,''),
+            'symbol:' || h.currency || ':' || h.symbol)) IN (SELECT * FROM unnest(%s::text[],%s::text[]))"""
         params.extend(([account for account, _ in selection], [asset for _, asset in selection]))
     cur.execute("""SELECT h.id,h.account_code,h.currency,h.asset_id,h.symbol,h.quantity,h.current_price,
         h.major_category,h.minor_category,h.as_of,h.source_item_id,m.primary_symbol AS asset_symbol
@@ -125,8 +126,8 @@ def _load_positions(cur, end, excluded, selection=None):
         if not key[2] or not kind or row['quantity'] is None:
             continue
         kinds[key] = kind
-        if row['asset_id']:
-            asset_keys[key[0], key[1], row['asset_id']] = key
+        identity = row['asset_id'] or f"symbol:{row['currency']}:{row['symbol']}"
+        asset_keys[key[0], key[1], identity] = key
         positions[key][row['as_of']] = row
     return positions, kinds, asset_keys
 
@@ -234,6 +235,32 @@ def _market_price(marks, key, kind, day):
     return latest
 
 
+def _supplement_selected_overseas_prices(marks, kinds, start, end):
+    """Fill a selected security's missing historical closes for display only."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from domain.market.benchmark_history import overseas_history
+    through = min(end, datetime.now(ZoneInfo('Asia/Shanghai')).date() - timedelta(days=1))
+    if start > through:
+        return marks
+    marks = dict(marks)
+    for key, kind in kinds.items():
+        if kind != 'overseas':
+            continue
+        symbol = _price_symbol(key, kind).upper()
+        price_key = ('overseas', symbol, None)
+        days, values = marks.get(price_key, ([], []))
+        combined = dict(zip(days, values))
+        try:
+            for day, price in overseas_history(symbol, start, through):
+                combined.setdefault(day, price)
+        except (OSError, ValueError):
+            continue
+        ordered = sorted(combined.items())
+        marks[price_key] = ([day for day, _ in ordered], [price for _, price in ordered])
+    return marks
+
+
 def _movement(row, kind):
     if row['source_evidence_status'] != 'verified' or (
         kind == 'fund' and row['trade_type'] in BUYS | SELLS and not row['fund_execution_confirmed']
@@ -298,6 +325,8 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
     for key, replay in supplemental_prices.items():
         ordered = sorted((day, price) for day, price in replay['prices'].items() if day <= end)
         marks['wealth', key[2], key[0]] = ([day for day, _ in ordered], [price for _, price in ordered])
+    if selection:
+        marks = _supplement_selected_overseas_prices(marks, kinds, start, end)
     fx = load_fx_timelines(cur, base_currency)
     base = base_currency.upper()
     valuation_fx = {}

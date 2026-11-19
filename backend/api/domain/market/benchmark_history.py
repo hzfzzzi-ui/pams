@@ -2,13 +2,23 @@
 from datetime import timedelta
 from functools import lru_cache
 
-from domain.market.price_history import build_price_series_payload, normalize_price_instrument
+from domain.market.price_history import build_price_series_payload, normalize_price_instrument, fetch_yfinance_history
 from domain.market.tencent_stock_history import fetch_history
 
 
 @lru_cache(maxsize=32)
 def _completed_history(symbol, start, end):
+    if symbol.startswith('^'):
+        closes, _ = fetch_yfinance_history([symbol], start=start, end=end)
+        return [{'date': day, 'close': price} for day, price in closes.get(symbol, {}).items()]
     return fetch_history(symbol, start=start, end=end)
+
+
+@lru_cache(maxsize=64)
+def overseas_history(symbol, start, end):
+    """Read completed overseas closes without mutating market facts."""
+    closes, _ = fetch_yfinance_history([symbol], start=start, end=end)
+    return tuple(sorted(closes.get(symbol, {}).items()))
 
 
 def local_benchmark(cur, start, end, symbol='000300.SH'):

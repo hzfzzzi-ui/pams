@@ -196,7 +196,7 @@ export function holdingGroupLabel(row) {
 }
 
 export function holdingGroupRank(label) {
-  const order = ['A股个股', 'A股基金', '基金', '美股', '美股/海外', '贵金属', '内部股份', 'ESOP', '现金/活期', '现金'];
+  const order = ['A股个股', 'A股基金', '基金', '美股', '港股', '韩股', '美股/海外', '贵金属', '内部股份', 'ESOP', '现金/活期', '现金'];
   const index = order.findIndex((item) => label.includes(item));
   return index >= 0 ? index : order.length;
 }

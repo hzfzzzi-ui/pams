@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal as D
 from pathlib import Path
 import sys
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'backend' / 'api'))
 
@@ -106,6 +107,41 @@ def test_fund_compares_confirmed_nav_against_shanghai_index(monkeypatch):
     assert D(result['rows'][1]['benchmark_index']) == D('1.05')
     assert D(result['rows'][1]['asset_return_pct']) == D(10)
     assert D(result['rows'][1]['benchmark_return_pct']) == D(5)
+
+
+@pytest.mark.parametrize('market,currency,expected', [
+    ('美股', 'USD', ('^GSPC', '^GSPC', '标普500')),
+    ('港股', 'HKD', ('^HSI', '^HSI', '恒生指数')),
+    ('韩股', 'KRW', ('^KS11', '^KS11', 'KOSPI')),
+])
+def test_overseas_comparison_uses_market_benchmark_and_common_baseline(monkeypatch, market, currency, expected):
+    first, second = date(2026, 1, 5), date(2026, 1, 6)
+    key = ('account', currency, 'TEST')
+    monkeypatch.setattr(history, '_load_positions', lambda *args: (
+        {key: {first: {'major_category': market}}}, {key: 'overseas'}, {('account', currency, 'asset'): key}))
+    monkeypatch.setattr(history, '_load_prices', lambda *args: {
+        ('overseas', 'TEST', None): ([first, second], [D(10), D(11)])})
+    monkeypatch.setattr(history, '_supplement_selected_overseas_prices', lambda marks, *args: marks)
+    calls = []
+    def load_benchmark(*args):
+        calls.append(args)
+        return {first.isoformat(): D(100), second.isoformat(): D(105)}
+    result = history.holding_price_comparison(None, [('account', 'asset')], first, second, load_benchmark)
+    assert calls == [expected]
+    assert D(result['rows'][0]['asset_index']) == D(result['rows'][0]['benchmark_index']) == 1
+    assert D(result['rows'][1]['asset_index']) == D('1.1')
+    assert D(result['rows'][1]['benchmark_index']) == D('1.05')
+
+
+def test_overseas_closes_supplement_history_without_overwriting_local(monkeypatch):
+    from domain.investments import position_performance as performance
+    first, second = date(2026, 1, 5), date(2026, 1, 6)
+    key = ('account', 'USD', 'TEST')
+    monkeypatch.setattr(benchmark, 'overseas_history', lambda *args: ((first, D(99)), (second, D(11))))
+    existing = {('overseas', 'TEST', None): ([first], [D(10)])}
+    result = performance._supplement_selected_overseas_prices(existing, {key: 'overseas'}, first, second)
+    assert result[('overseas', 'TEST', None)] == ([first, second], [D(10), D(11)])
+    assert existing[('overseas', 'TEST', None)] == ([first], [D(10)])
 
 
 def test_selected_holding_return_adjusts_purchase_and_filters_scope(monkeypatch):

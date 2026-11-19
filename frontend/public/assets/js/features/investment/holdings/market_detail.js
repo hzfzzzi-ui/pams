@@ -128,8 +128,12 @@ export function bindMarketDetail(sheet, holding) {
   const accounts = holding.__accountRows || [holding];
   const end = accounts.map(row=>String(row.as_of || row.snapshot_as_of || '').slice(0,10)).filter(day=>/^\d{4}-\d\d-\d\d$/.test(day)).sort().pop();
   const readout = sheet.querySelector('.hmReadout'), plot = sheet.querySelector('.hmPlot'), list = sheet.querySelector('.hmTrades');
-  if (!end || accounts.some(row=>!row.asset_id || !(row.account_code || row.account))) {
-    readout.textContent='缺少持仓历史标识'; list.textContent='暂无可核对成交'; return;
+  const identity = row => row.asset_id || (row.symbol && row.currency ? `symbol:${row.currency}:${row.symbol}` : '');
+  if (!end || accounts.some(row=>!identity(row) || !(row.account_code || row.account))) {
+    readout.textContent='缺少持仓历史标识'; list.textContent='暂无可核对成交';
+    sheet.querySelector('.hmReturnReadout').textContent = '缺少持仓历史标识';
+    sheet.querySelector('.hmComparisonReadout').textContent = '缺少持仓历史标识';
+    return;
   }
   const starts = {ytd: end.slice(0, 4) + '-01-01', month: before(end, 29), quarter: before(end, 89)};
   const windows = new Map();
@@ -142,7 +146,7 @@ export function bindMarketDetail(sheet, holding) {
     const params = new URLSearchParams(dates);
     params.set('all_trades', 'true');
     for (const row of accounts) {
-      params.append('asset', row.asset_id);
+      params.append('asset', identity(row));
       params.append('account', row.account_code || row.account);
     }
     jget('/api/holdings/market-history?' + params).then(history => {

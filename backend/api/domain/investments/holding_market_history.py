@@ -5,6 +5,7 @@ from domain.investments.fund_return_history import _trade_day
 from domain.investments.investment_return_math import norm
 from domain.investments.position_performance import (
     BUYS, SELLS, CHANGES, ZERO, _load_positions, _load_prices, _market_price, _position_days,
+    _supplement_selected_overseas_prices,
 )
 from domain.investments.trade_read_v2 import load_trade_rows
 from domain.investments.valuation_nav import load_fx_timelines, series_dates
@@ -14,6 +15,7 @@ def holding_history(cur, selection, start, end, owner_ratio, *, all_trades=False
     dates = series_dates(start, end, 'daily')
     positions, kinds, keys = _load_positions(cur, end, (), selection)
     prices = _load_prices(cur, kinds, end)
+    prices = _supplement_selected_overseas_prices(prices, kinds, start, end)
     fx = load_fx_timelines(cur, 'CNY') if any(key[1] != 'CNY' for key in kinds) else {}
     values = {day: [] for day in dates}
     trades = []
@@ -55,7 +57,7 @@ def holding_history(cur, selection, start, end, owner_ratio, *, all_trades=False
 
 def holding_price_comparison(cur, selection, start, end, benchmark_loader):
     """Compare a single instrument and its benchmark on their common observed dates."""
-    _, kinds, keys = _load_positions(cur, end, (), selection)
+    positions, kinds, keys = _load_positions(cur, end, (), selection)
     identities = {(key[1], key[2], kinds[key]) for key in keys.values()}
     if len(identities) != 1:
         return {'status': 'unsupported', 'rows': []}
@@ -63,11 +65,20 @@ def holding_price_comparison(cur, selection, start, end, benchmark_loader):
     kind = kinds[key]
     benchmarks = {'stock': ('沪深300', '000300.SH', 'sh000300'),
                   'fund': ('上证指数', '000001.SH', 'sh000001')}
+    if kind == 'overseas':
+        markets = {row.get('major_category') for row in positions[key].values()}
+        overseas = {'美股': ('标普500', '^GSPC', '^GSPC'),
+                    '港股': ('恒生指数', '^HSI', '^HSI'),
+                    '韩股': ('KOSPI', '^KS11', '^KS11')}
+        if len(markets) != 1 or next(iter(markets)) not in overseas:
+            return {'status': 'benchmark_unavailable', 'rows': []}
+        benchmarks['overseas'] = overseas[next(iter(markets))]
     if kind not in benchmarks:
         return {'status': 'benchmark_unavailable', 'rows': []}
     name, symbol, provider_symbol = benchmarks[kind]
     benchmark_closes = benchmark_loader(symbol, provider_symbol, name)
     prices = _load_prices(cur, kinds, end)
+    prices = _supplement_selected_overseas_prices(prices, kinds, start, end)
     observations = []
     for day in series_dates(start, end, 'daily'):
         mark = _market_price(prices, key, kind, day)
