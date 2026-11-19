@@ -200,11 +200,11 @@ export function formatSyncTimestamp(value, fallbackDate) {
 export function normalizeMobileHeroGroup(group) {
   const text = String(group || '全部');
   if (text === '全部') return '全部';
-  if (text.includes('A股个股')) return 'A股个股';
+  if (text === 'A股' || text.includes('A股个股')) return 'A股个股';
   if (text.includes('A股基金') || text === '基金') return 'A股基金';
-  if (['美股', '港股', '韩股', '海外'].some(market => text.includes(market))) return '美股/海外';
+  if (['美股', '港股', '韩股', '瑞典', '日股', '英股', '海外'].some(market => text.includes(market))) return '美股/海外';
   if (text.includes('贵金属') || text.includes('黄金')) return '贵金属';
-  if (text.includes('内部') || text.includes('ESOP')) return '内部股份/分红';
+  if (text === '员工持股' || text.includes('内部') || text.includes('ESOP')) return '内部股份/分红';
   if (text.includes('现金') || text.includes('活期')) return '现金/活期';
   return text;
 }

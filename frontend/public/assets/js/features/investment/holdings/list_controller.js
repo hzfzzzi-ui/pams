@@ -1,5 +1,5 @@
 import {
-  esc, formatCompactCurrency, buildAccountCashRows,
+  esc, buildAccountCashRows,
   isInvestmentRow, historicalReferenceRow
 } from './list_legacy_model.js';
 import {
@@ -57,9 +57,6 @@ export function mount(root, context) {
     const select = document.getElementById('holdingGroupFilter');
     const primary = document.getElementById('mobileHoldingFilterChips');
     const secondary = document.getElementById('holdingSegmentFilter');
-    const value = document.getElementById('personalHoldingValue');
-    if (value) value.textContent = summary?.market_value_cny == null ? '—' :
-      (summary.missing_values ? '≈' : '') + formatCompactCurrency(summary.market_value_cny);
     const groups = [...new Set([...primaryOrder, ...rows.map(category)])];
     if (!groups.includes(currentGroup)) currentGroup = '全部';
     const button = (label, key, selected) =>
@@ -72,7 +69,12 @@ export function mount(root, context) {
       segments.sort((a,b) => (order.includes(a) ? order.indexOf(a) : order.length) -
         (order.includes(b) ? order.indexOf(b) : order.length) || a.localeCompare(b, 'zh-CN'));
       if (!['股票','基金'].includes(currentGroup) || !segments.includes(currentSegment)) currentSegment = '';
-      if (select) select.value = currentGroup;
+      const heroGroup = currentGroup === '股票' ? (currentSegment || '全部') : currentGroup;
+      // The summary can finish loading after a market filter has been selected.
+      if (select) {
+        select.value = currentGroup;
+        select.dataset.heroGroup = heroGroup;
+      }
       if (primary) primary.innerHTML = groups.map(g => button(g,g,g === currentGroup)).join('');
       if (secondary) {
         secondary.hidden = !segments.length || !['股票','基金'].includes(currentGroup);
@@ -80,9 +82,7 @@ export function mount(root, context) {
           + segments.map(g => button(g,g,g === currentSegment)).join('');
       }
       renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary});
-      const heroGroup = currentGroup === '基金' ? 'A股基金' : currentGroup === '股票' ?
-        (currentSegment === 'A股' ? 'A股个股' : currentSegment || '全部') : currentGroup;
-      window.dispatchEvent(new CustomEvent('pams:holding-group-change', {detail:{group:heroGroup,sourceRoot:root}}));
+      window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: heroGroup, sourceRoot: root } }));
     }
     if (select) select.innerHTML = groups.map(g => `<option>${esc(g)}</option>`).join('');
     function chooseGroup(group) {
