@@ -41,8 +41,8 @@ def test_complete_exit_flows_from_review_to_returns_and_revocation(empty_source_
                     VALUES ('test_asset',%s,%s,%s,%s,'TEST_WEALTH','TEST','Synthetic','CNY',%s,%s,0,0,'investment_trade')''',
                     (str(item_id), fields['business_date'], fields['trade_type'], fields['side'], fields['net_cash'], fields['gross_amount']))
             cur.execute("UPDATE source_records SET status='published' WHERE source_id=%s", (str(origin),))
-            def read(start=date.min):
-                return load_closed_trade_returns(cur, start=start, end=date(2026, 11, 19),
+            def read(start=date.min, end=date(2026, 11, 19)):
+                return load_closed_trade_returns(cur, start=start, end=end,
                     owner_ratio=lambda _: Decimal(1), sections={'wealth_management'})
             assert read() == {}
             cur.execute("SELECT trade_id,trade_type FROM pams_investment_trade_fact ORDER BY trade_id")
@@ -94,6 +94,8 @@ def test_complete_exit_flows_from_review_to_returns_and_revocation(empty_source_
                                            parsed_fields=exit_fields, review_status='confirmed')
             evidence.attach(cur, source_id=exit_source, item_id=exit_item, trade_id=trade_id,
                             expected_revision=exit_rev, note='Owner reviewed redemption', confirmed=True)
+            assert Decimal(read(date(2026, 1, 1), date(2026, 3, 20))['wealth_management']['amount']) == Decimal('255.02832')
+            assert read(date(2026, 1, 1), date(2026, 3, 19)) == {}
             from domain.investments.position_performance import build_position_return_series
             chart = build_position_return_series(cur, start=date(2026, 3, 19), end=date(2026, 3, 20),
                 interval='daily', base_currency='CNY', owner_ratio=lambda _: Decimal(1), excluded_accounts=set())
