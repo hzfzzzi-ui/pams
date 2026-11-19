@@ -58,6 +58,16 @@ def _decimal(value):
         return None
 
 
+def _source_intact(row):
+    """An explicit manual statement is evidence, not an external document."""
+    if row['acquisition_method'] == 'manual':
+        return (row['content'] is None and row['sha256'] is None
+                and row['raw_fields'].get('entered_fields') == row['parsed_fields'])
+    return (row['acquisition_method'] in {'screenshot', 'file'}
+            and row['content'] is not None
+            and sha256(bytes(row['content'])).hexdigest() == row['sha256'])
+
+
 def attach(cur, *, source_id, item_id, trade_id, expected_revision, note, confirmed):
     if (cur.connection.autocommit or confirmed is not True or type(trade_id) is not int or trade_id <= 0
             or type(expected_revision) is not int or expected_revision < 1
@@ -70,7 +80,7 @@ def attach(cur, *, source_id, item_id, trade_id, expected_revision, note, confir
     cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('account-import:' + fact['account_code'],))
     if verify_native_fact(cur, table='pams_investment_trade_fact', fact_id=trade_id)['status'] != 'verified':
         raise ValueError('investment fact source is not verified')
-    cur.execute("""SELECT f.trade_id,f.account_code,f.trade_date,f.symbol,f.trade_type,f.currency,f.net_cash,
+    cur.execute("""SELECT f.trade_id,f.account_code,f.trade_date,f.asset_id,f.symbol,f.trade_type,f.currency,f.net_cash,
         i.source_item_id,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,
         r.source_id,r.account_code AS source_account,r.status,r.revision,r.document_type,r.acquisition_method,
         r.content,r.sha256 FROM pams_investment_trade_fact f
@@ -88,9 +98,9 @@ def attach(cur, *, source_id, item_id, trade_id, expected_revision, note, confir
         return {'confirmation_id': str(previous['confirmation_id']), 'replayed': True}
     cur.execute('SELECT count(*) AS n FROM source_items WHERE source_id=%s', (str(source_id),))
     if (row['status'] not in {'draft', 'published'} or row['revision'] != expected_revision or row['review_status'] != 'confirmed'
-            or row['document_type'] != 'trade' or row['acquisition_method'] not in {'screenshot', 'file'}
+            or row['document_type'] != 'trade' or not _source_intact(row)
             or row['source_account'] != row['account_code'] or cur.fetchone()['n'] != 1
-            or row['content'] is None or sha256(bytes(row['content'])).hexdigest() != row['sha256']):
+            ):
         raise ValueError('reviewed original source is unavailable or changed')
     raw = json.dumps(row['raw_fields'], ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
     fields = row['parsed_fields']
@@ -101,6 +111,13 @@ def attach(cur, *, source_id, item_id, trade_id, expected_revision, note, confir
             or fields.get('currency') != row['currency'] or _decimal(fields.get('net_cash')) != row['net_cash']
             or classify_trade_type({'side': raw_type, 'symbol': row['symbol']}) != row['trade_type']):
         raise ValueError('supplementary source differs from existing trade identity or amount')
+    if fields.get('complete_exit') is True:
+        ids = fields.get('complete_trade_ids')
+        if (row['trade_type'] not in {'sell', 'fund_redemption'} or fields.get('complete_history') is not True
+                or not row['asset_id'] or fields.get('asset_id') != row['asset_id']
+                or not isinstance(ids, list) or not ids or any(type(i) is not int or i <= 0 for i in ids)
+                or len(ids) != len(set(ids)) or trade_id not in ids):
+            raise ValueError('complete exit requires an explicit complete trade identity list')
     cur.execute('SELECT 1 FROM pams_investment_trade_fact WHERE source_item_id=%s LIMIT 1', (str(item_id),))
     if cur.fetchone():
         raise ValueError('supplementary source already generated a trade')
@@ -119,8 +136,10 @@ def read(cur, *, trade_id):
     if type(trade_id) is not int or trade_id <= 0:
         raise ValueError('invalid trade identity')
     status = verify_native_fact(cur, table='pams_investment_trade_fact', fact_id=trade_id)['status']
+    cur.execute('SELECT account_code,trade_date,asset_id,symbol,trade_type,currency,net_cash FROM pams_investment_trade_fact WHERE trade_id=%s', (trade_id,))
+    fact = cur.fetchone()
     cur.execute("""SELECT e.confirmation_id,e.evidence,e.note,i.source_item_id,i.raw_fields,i.parsed_fields,i.record_hash,
-        i.review_status,r.source_id,r.account_code,r.status,r.sha256,r.content
+        i.review_status,r.source_id,r.account_code,r.status,r.sha256,r.content,r.acquisition_method
         FROM evidence_confirmation e JOIN source_items i ON i.source_item_id=e.source_item_id
         JOIN source_records r ON r.source_id=i.source_id
         WHERE e.confirmation_type='trade_source' AND e.from_trade_id=%s AND e.revoked_at IS NULL
@@ -130,8 +149,16 @@ def read(cur, *, trade_id):
     for row in rows:
         proof = row['evidence']
         raw = json.dumps(row['raw_fields'], ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
-        verified = (status == 'verified' and row['status'] == 'published' and row['review_status'] == 'confirmed'
-                    and row['content'] is not None and sha256(bytes(row['content'])).hexdigest() == row['sha256']
+        fields = row['parsed_fields']
+        verified = (status == 'verified' and fact is not None and row['account_code'] == fact['account_code']
+                    and fields.get('business_date') == fact['trade_date'].isoformat()
+                    and fields.get('symbol') == fact['symbol'] and fields.get('currency') == fact['currency']
+                    and (fields.get('complete_exit') is not True or
+                         (fact['asset_id'] is not None and fields.get('asset_id') == fact['asset_id']))
+                    and _decimal(fields.get('net_cash')) == fact['net_cash']
+                    and classify_trade_type({'side': fields.get('trade_type') or fields.get('action'), 'symbol': fact['symbol']}) == fact['trade_type']
+                    and row['status'] == 'published' and row['review_status'] == 'confirmed'
+                    and _source_intact(row)
                     and sha256(raw).hexdigest() == row['record_hash']
                     and proof.get('trade_id') == trade_id and proof.get('item_id') == str(row['source_item_id'])
                     and proof.get('source_id') == str(row['source_id']) and proof.get('sha256') == row['sha256']

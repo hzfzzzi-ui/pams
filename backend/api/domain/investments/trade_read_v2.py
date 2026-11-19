@@ -111,6 +111,7 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
             from domain.brokers.ibkr.ibkr_source_verify_v2 import verify_trade_original
             verified = verify_trade_original(cur, row, ibkr_cache)
         row['source_evidence_status'] = 'verified' if verified else 'unknown'
+        row['asset_type'] = (row.get('asset_identity') or {}).get('asset_type')
         row['fee_scope'] = (row['parsed_fields'] or {}).get('fee_scope')
         origin = row['raw_fields'].get('source') if isinstance(row['raw_fields'], dict) else None
         row['source_market'] = origin.get('market') if isinstance(origin, dict) else None

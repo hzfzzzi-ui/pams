@@ -111,6 +111,36 @@ def test_lifetime_returns_include_closed_cycles_from_prior_years():
     assert [cycle['trade_pnl'] for cycle in cycles] == [Decimal('5'), Decimal('3')]
 
 
+def test_confirmed_cash_only_complete_exit_uses_existing_net_cash_once():
+    rows = [trade(1, '2025-12-12', 'buy', None, '-50000', asset_type='wealth_management'),
+            trade(2, '2026-03-24', 'sell', None, '50322.39', asset_type='wealth_management',
+                  complete_exit_evidence=True, complete_trade_ids={1, 2})]
+    cycle = summarize(rows, start=date.min)['wealth_management'][0]['cycles'][0]
+    assert cycle['trade_pnl'] == Decimal('322.39')
+    assert cycle['cost'] == Decimal('50000')
+    assert summarize(rows) == {}  # Prior-year opening needs a separate mark.
+
+
+@pytest.mark.parametrize('case', ['unconfirmed', 'unverified', 'intermediate_exit', 'missing_fx', 'open_snapshot', 'later_evidence'])
+def test_cash_only_exit_does_not_invent_missing_evidence(case):
+    buy = trade(1, '2026-01-01', 'buy', None, '-100', asset_type='wealth_management')
+    sell = trade(2, '2026-02-01', 'sell', None, '105', asset_type='wealth_management', complete_exit_evidence=True, complete_trade_ids={1, 2})
+    rows, kwargs = [buy, sell], {}
+    if case == 'unconfirmed':
+        sell['complete_exit_evidence'] = False
+    if case == 'unverified':
+        sell['source_evidence_status'] = 'unknown'
+    if case == 'intermediate_exit':
+        rows.insert(1, trade(3, '2026-01-20', 'sell', None, '20', asset_type='wealth_management'))
+    if case == 'missing_fx':
+        kwargs['fx_rate'] = lambda _: None
+    if case == 'open_snapshot':
+        kwargs['final_positions'] = {('tencent_licaitong', IDENTITY, 'CNY'): (END, Decimal('1'))}
+    if case == 'later_evidence':
+        rows.insert(1, trade(3, '2026-01-20', 'buy', None, '-10', asset_type='wealth_management'))
+    assert summarize(rows, **kwargs) == {}
+
+
 def test_keep_verified_ibkr_returns_and_withhold_unverified_fund_rate():
     closed = {'amount': '12641.96', 'status': 'partial'}
     ibkr = {'section': 'us_stock', 'status': 'available',

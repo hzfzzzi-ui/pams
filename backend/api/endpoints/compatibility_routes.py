@@ -203,7 +203,7 @@ def create_compatibility_router(
             view_date = context[0]
             closed_returns = load_closed_trade_returns(
                 cur, start=Date.min, end=view_date,
-                owner_ratio=_account_owner_ratio, sections={'a_fund'},
+                owner_ratio=_account_owner_ratio, sections={'a_fund', 'wealth_management'},
                 excluded_accounts=context[2]['excluded_accounts'],
             )
             if fund_returns := closed_returns.get('a_fund'):
