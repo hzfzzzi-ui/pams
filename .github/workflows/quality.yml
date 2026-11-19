@@ -66,14 +66,16 @@ jobs:
             tests/frontend/test_ibkr_daily_close_frontend.py backend/api/endpoints/accounts.py tests/brokers/ibkr/test_ibkr_daily_close_accounts.py backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py tests/brokers/ibkr/test_ibkr_portfolio_binding.py \
             backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py tests/brokers/ibkr/test_ibkr_daily_close_sync.py backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py \
             backend/api/endpoints/ibkr.py tests/brokers/ibkr/test_ibkr_cash_events.py tests/scheduler/test_ibkr_automation_scheduler.py
-          mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/scheduler/flex_confirmation.py \
-            backend/api/domain/operations/sync_health.py backend/api/domain/investments/holdings_view.py backend/api/domain/brokers/ibkr/ibkr_reconciliation.py backend/api/domain/brokers/ibkr/ibkr_unified_fee_review.py
-          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_fee_currency.py \
-            backend/api/domain/investments/investment_trade_fact.py scripts/verify_release.py backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py backend/api/domain/brokers/ibkr/ibkr_account_audit.py backend/api/domain/brokers/ibkr/ibkr_account_audit_read.py \
-            backend/api/domain/brokers/ibkr/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_daily_close_read.py scripts/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_performance.py backend/api/domain/investments/portfolio_summary.py \
-            backend/api/domain/investments/portfolio_valuation_state.py backend/api/domain/investments/portfolio_state.py backend/api/domain/investments/valuation_nav.py backend/api/endpoints/accounts.py backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py \
-            backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py \
-            backend/api/domain/brokers/ibkr/ibkr_report_state.py
+          mypy --ignore-missing-imports --follow-imports=skip backend/scheduler/refresh_state.py backend/scheduler/flex_confirmation.py backend/api/domain/operations/sync_health.py backend/api/domain/investments/holdings_view.py backend/api/domain/brokers/ibkr/ibkr_reconciliation.py backend/api/domain/brokers/ibkr/ibkr_unified_fee_review.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_fee_currency.py backend/api/domain/investments/investment_trade_fact.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs scripts/verify_release.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_fee_settlement.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_account_audit.py backend/api/domain/brokers/ibkr/ibkr_account_audit_read.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_daily_close_read.py scripts/ibkr_daily_close.py backend/api/domain/brokers/ibkr/ibkr_performance.py backend/api/domain/investments/portfolio_summary.py backend/api/domain/investments/portfolio_valuation_state.py backend/api/domain/investments/portfolio_state.py backend/api/domain/investments/valuation_nav.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/endpoints/accounts.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_portfolio_binding.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_daily_close_publish.py backend/api/domain/brokers/ibkr/ibkr_daily_close_sync.py
+          mypy --ignore-missing-imports --follow-imports=skip --check-untyped-defs backend/api/domain/brokers/ibkr/ibkr_cash_events.py backend/api/domain/brokers/ibkr/ibkr_cash_event_sync.py backend/api/endpoints/ibkr.py backend/api/domain/brokers/ibkr/ibkr_report_state.py
       - name: 构建API镜像并验证导入
         run: |
           docker build -f backend/api/Dockerfile -t pams-api-ci .
