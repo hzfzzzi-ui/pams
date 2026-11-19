@@ -10,6 +10,7 @@ from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.holdings_account_cards import account_center_balances, build_holdings_account_cards
 from domain.investments.holding_market_history import holding_history, holding_price_comparison
+from domain.investments.personal_holdings import personal_holdings
 from domain.investments import page_projection
 from domain.investments.portfolio_summary import build_holdings_by_account_payload
 from domain.investments.holding_return_snapshot import return_input_revisions, return_snapshot_revision
@@ -143,11 +144,13 @@ def create_compatibility_router(
         return payload
 
     def holdings_for_list(cur, context, *, limit=500, include_closed=False):
-        holdings = read_holdings(cur, context, limit=limit, include_closed=include_closed)
+        holdings = read_holdings(cur, context, limit=None, include_closed=include_closed)
         holdings["historical_references"] = read_historical_position_references(
             cur, account_config=_load_portfolio_accounts_config(), as_of=context[0],
             excluded_accounts=context[2]["excluded_accounts"], owner_ratio=_account_owner_ratio,
         )
+        holdings = personal_holdings(holdings)
+        holdings["rows"] = holdings["rows"][:limit]
         return holdings
 
     @router.get("/holdings/latest")
@@ -188,7 +191,12 @@ def create_compatibility_router(
                 if not show_closed:
                     published = page_projection.read_page(cur, "holdings", business_date=_investment_today_label_date())
                     if published is not None:
-                        return json({**published["data"], "projection": published["projection"]})
+                        data = published["data"]
+                        if "personal_summary" not in data["holdings"]:
+                            if len(data["holdings"]["rows"]) >= 500:
+                                return json(build_holdings_page(cur, show_closed=False))
+                            data = {**data, "holdings": personal_holdings(data["holdings"])}
+                        return json({**data, "projection": published["projection"]})
                 return json(build_holdings_page(cur, show_closed=show_closed))
 
     @router.get("/api/investment/account-center-balances")
@@ -239,7 +247,7 @@ def create_compatibility_router(
                 summary=summary,
             )
             return {
-                "holdings": holdings_for_list(cur, context),
+                "holdings": holdings_for_list(cur, context, limit=None, include_closed=show_closed),
                 "a_stock": stock,
                 "funds": funds_all if show_closed else category('A股', 'A股基金'),
                 "funds_all": funds_all,

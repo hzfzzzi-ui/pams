@@ -116,14 +116,6 @@ export function dailyPnlBreakdown(row) {
   return parts.length ? parts.join(' · ') : '';
 }
 
-export function mergedDailyPnlStatus(rows) {
-  if (rows.some(holdingDailyPnlPending)) return { status: 'pending', label: '' };
-  const statuses = rows.map((row) => String(row?.daily_return_status || row?.daily_pnl_status || '').toLowerCase()).filter(Boolean);
-  if (statuses.includes('estimated')) return { status: 'estimated', label: '预估收益' };
-  if (statuses.includes('confirmed')) return { status: 'confirmed', label: '今日收益已确认' };
-  return { status: '', label: '' };
-}
-
 export function displayPnlPct(r) {
   if (!r.is_closed) return pnlPct(r);
   const cost = Number(cnyValue(r, 'cost') || 0);
@@ -337,92 +329,29 @@ export function historicalReferenceRow(reference) {
     minor_category: reference.category,
     market_value_cny: reference.value,
     reference_as_of: reference.as_of,
+    position_group: reference.position_group,
+    position_segment: reference.position_segment,
   };
 }
 
-export function shouldAggregateForMobile(row) {
-  return !row.reference_as_of && holdingGroupLabel(row) === 'A股基金';
-}
-
 export function aggregateMobileHoldingRows(rows) {
-  const buckets = new Map();
-  const singles = [];
+  const groups = new Map();
+  const display = [];
   for (const row of rows) {
-    if (!shouldAggregateForMobile(row)) {
-      singles.push(row);
+    if (!row.combined_key) {
+      display.push(row);
       continue;
     }
-    const key = `${holdingGroupLabel(row)}|${row.symbol || ''}|${row.name || ''}`;
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(row);
+    if (!groups.has(row.combined_key)) groups.set(row.combined_key, []);
+    groups.get(row.combined_key).push(row);
   }
-
-  const grouped = [];
-  for (const groupRows of buckets.values()) {
-    if (groupRows.length === 1) {
-      grouped.push(groupRows[0]);
-      continue;
-    }
-    const first = groupRows[0];
-    const sum = (key) => groupRows.reduce((total, row) => total + safeNum(cnyValue(row, key)), 0);
-    const sumRaw = (key) => groupRows.reduce((total, row) => total + safeNum(row[key]), 0);
-    const quantity = groupRows.reduce((total, row) => total + safeNum(row.quantity), 0);
-    const marketValue = sum('market_value');
-    const cost = sum('cost');
-    const holdingPnl = sum('holding_pnl');
-    const dailyPnl = sum('daily_pnl');
-    const dailyFxPnl = sum('daily_fx_pnl');
-    const dailyTotalPnl = sum('daily_total_pnl') || dailyPnl + dailyFxPnl;
-    const currentPrice = quantity > 0 ? marketValue / quantity : safeNum(first.current_price);
-    const previousPrice = quantity > 0 ? (marketValue - dailyPnl) / quantity : safeNum(first.previous_price);
-    const buyPrice = quantity > 0 ? cost / quantity : safeNum(first.buy_price);
-    const dailyStatus = mergedDailyPnlStatus(groupRows);
-    grouped.push({
-      ...first,
-      account: 'mixed',
-      account_code: 'mixed',
-      market_value: marketValue,
-      market_value_cny: marketValue,
-      market_value_native: sumRaw('market_value_native') || marketValue,
-      market_value_gross_cny: sumRaw('market_value_gross_cny') || marketValue,
-      cost,
-      cost_cny: cost,
-      cost_native: sumRaw('cost_native') || cost,
-      cost_gross_cny: sumRaw('cost_gross_cny') || cost,
-      holding_pnl: holdingPnl,
-      holding_pnl_cny: holdingPnl,
-      holding_pnl_native: sumRaw('holding_pnl_native') || holdingPnl,
-      holding_pnl_gross_cny: sumRaw('holding_pnl_gross_cny') || holdingPnl,
-      daily_pnl: dailyPnl,
-      daily_pnl_cny: dailyPnl,
-      daily_pnl_native: sumRaw('daily_pnl_native') || dailyPnl,
-      daily_pnl_gross_cny: sumRaw('daily_pnl_gross_cny') || dailyPnl,
-      daily_fx_pnl: dailyFxPnl,
-      daily_fx_pnl_cny: dailyFxPnl,
-      daily_total_pnl: dailyTotalPnl,
-      daily_total_pnl_cny: dailyTotalPnl,
-      quantity,
-      buy_price: Number.isFinite(buyPrice) && buyPrice > 0 ? buyPrice : null,
-      current_price: currentPrice,
-      previous_price: Number.isFinite(previousPrice) ? previousPrice : null,
-      price_change_pct: previousPrice ? (currentPrice - previousPrice) / previousPrice : null,
-      price_change_amount: previousPrice ? currentPrice - previousPrice : null,
-      daily_pnl_status: dailyStatus.status || first.daily_pnl_status || first.daily_return_status,
-      daily_pnl_status_label: dailyStatus.label || first.daily_pnl_status_label,
-      daily_return_status: dailyStatus.status || first.daily_return_status,
-      daily_return_status_label: dailyStatus.label || first.daily_return_status_label,
-      __isAggregated: true,
-      __accountRows: groupRows,
-    });
+  for (const members of groups.values()) {
+    const first = members.find(row => row.combined_position);
+    if (!first || members.length !== first.combined_count) display.push(...members);
+    else display.push({...first, ...first.combined_position, account: 'mixed', account_code: 'mixed',
+      account_name: '', __isAggregated: true, __accountRows: members});
   }
-
-  return [...singles, ...grouped].sort((a, b) => {
-    const groupA = holdingGroupLabel(a);
-    const groupB = holdingGroupLabel(b);
-    return holdingGroupRank(groupA) - holdingGroupRank(groupB)
-      || groupA.localeCompare(groupB, 'zh-CN')
-      || safeNum(cnyValue(b, 'market_value')) - safeNum(cnyValue(a, 'market_value'));
-  });
+  return display.sort((a, b) => Number(b.market_value_cny ?? -Infinity) - Number(a.market_value_cny ?? -Infinity));
 }
 
 export function isInvestmentRow(row) {

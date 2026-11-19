@@ -52,6 +52,8 @@
     <div id="err" class="card" style="display:none;border-color:rgba(248,81,73,.4)"></div>
 
     <section id="investment-conclusion" class="card investmentHero">
+      <details class="personalHoldingHero">
+        <summary><span>个人总持仓市值</span><strong id="personalHoldingValue">—</strong></summary>
       <div id="mobilePortfolioHero" class="mobilePortfolioHero" aria-live="polite">
         <div class="mobileHeroLabel">投资组合价值</div>
         <div class="mobileHeroValue skeletonLine"></div>
@@ -78,6 +80,7 @@
         </div>
         <div id="investmentConclusionText" class="investmentConclusionText skeletonLine"></div>
       </div>
+      </details>
     </section>
 
 
@@ -89,6 +92,8 @@
         <select id="holdingGroupFilter" class="holdingGroupSelect" aria-label="持仓分类"></select>
       </div>
       <div id="mobileHoldingFilterChips" class="mobileHoldingFilterChips" aria-label="持仓分类"></div>
+      <div id="holdingSegmentFilter" aria-label="持仓细分" hidden></div>
+      <div class="personalHoldingHeading"><span>标的</span><span>占总持仓</span></div>
       <p id="holdingProjectionStatus" class="muted" role="status" hidden></p>
       <div class="tableWrap" style="margin-top:10px">
         <table class="tableWide" style="min-width:1120px">
