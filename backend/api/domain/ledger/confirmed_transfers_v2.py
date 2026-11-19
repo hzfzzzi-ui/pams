@@ -75,10 +75,15 @@ def _valid_id(ident):
 
 
 def _leg_rows(cur, kind, ids, *, lock):
+    linked_sale = """(f.trade_type='sell' AND EXISTS (
+        SELECT 1 FROM public.pams_cashflow_fact b JOIN public.source_items bi ON bi.source_item_id=b.source_item_id
+        WHERE b.cashflow_id::text=i.raw_fields->>'cashflow_id' AND bi.source_item_id::text=i.raw_fields->>'bank_source_item_id'
+          AND bi.record_hash=i.raw_fields->>'bank_record_hash' AND b.account_code=i.raw_fields->>'bank_account_code'
+          AND b.event_date::text=i.raw_fields->>'bank_date' AND b.currency=f.currency AND b.amount=f.net_cash))"""
     if kind=='cashflow':
         table,pk,amount,day,kind_clause='pams_cashflow_fact','cashflow_id','amount','event_date','TRUE'
     else:
-        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',"f.trade_type IN ('deposit','withdraw','fund_redemption','fund_subscription','buy')"
+        table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',f"(f.trade_type IN ('deposit','withdraw','fund_redemption','fund_subscription','buy') OR {linked_sale})"
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
     symbol_column="f.symbol" if kind=='trade' else "NULL::text"
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
@@ -89,7 +94,15 @@ def _leg_rows(cur, kind, ids, *, lock):
         FROM public.{table} f JOIN public.source_items i ON i.source_item_id=f.source_item_id
         JOIN public.source_records r ON r.source_id=i.source_id WHERE f.{pk}=ANY(%s) AND {kind_clause}
         {"FOR UPDATE OF f FOR SHARE OF i,r" if lock else ""}''',(ids,))
-    return cur.fetchall()
+    rows = cur.fetchall()
+    for row in rows:
+        if row['fact_type'] == 'sell':
+            from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+            proofs = read_trade_evidence(cur, trade_id=row['id'])
+            days = {p['fields']['execution_date'] for p in proofs if p['status'] == 'verified'
+                    and (p['fields'] or {}).get('execution_date')}
+            row['execution_day'] = days.pop() if len(days) == 1 else None
+    return rows
 
 
 def _verified_leg(row, kind, originals, *, hash_only=False):
@@ -101,11 +114,19 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         redemption = kind == 'trade' and data['fact_type'] == 'fund_redemption'
         subscription = kind == 'trade' and data['fact_type'] == 'fund_subscription'
         purchase = kind == 'trade' and data['fact_type'] == 'buy'
+        sale = kind == 'trade' and data['fact_type'] == 'sell'
         arrival = None
         if redemption and data['account_code'] == REDEMPTION_ACCOUNT:
             if data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
                 raise ValueError('Unsupported redemption receipt')
             arrival = _redemption_arrival(fields, data['raw_fields'], data['day'])
+        elif sale:
+            proof = data['raw_fields']
+            execution_day = date.fromisoformat(data.get('execution_day') or '')
+            bank_day = date.fromisoformat(proof['bank_date'])
+            if (execution_day > bank_day or not _valid_id(proof['cashflow_id'])
+                    or Decimal(str(proof['bank_amount'])) != parsed_amount):
+                raise ValueError('Sale settlement evidence is inconsistent')
         elif redemption:
             confirmed_date = date.fromisoformat(fields.get('confirmed_date') or '')
             if (data['acquisition_method'] != 'screenshot' or not data['sha256']
@@ -117,7 +138,7 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
             and data['currency']==fields['currency'] and str(data['day'])==fields['business_date'] and data['amount']==parsed_amount
             and (kind!='trade' or redemption or data['fact_type']==classify_trade_type(
                 {'side': fields.get('trade_type') or fields.get('action'), 'symbol': data['symbol']}))
-            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0) or ((subscription or purchase) and parsed_amount<0 and data['symbol'] and data['symbol']==fields.get('symbol')))
+            and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (sale and parsed_amount>0 and data['symbol'] and fields.get('symbol')==data['symbol']) or (redemption and parsed_amount>0) or ((subscription or purchase) and parsed_amount<0 and data['symbol'] and data['symbol']==fields.get('symbol')))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
             and (originals.verify(data) if hash_only else originals.read(data)[1]))
     except (KeyError,TypeError,ValueError,InvalidOperation): valid=False
@@ -132,6 +153,10 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
     elif redemption:
         leg.update(amount=str(-parsed_amount), purpose=BANK_REDEMPTION_PURPOSE,
                    confirmed_day=str(confirmed_date), symbol=data['symbol'])
+    elif sale:
+        leg.update(amount=str(-parsed_amount), purpose=BANK_REDEMPTION_PURPOSE, symbol=data['symbol'],
+                   execution_day=str(execution_day), receipt_day=str(bank_day), bank_cashflow_id=proof['cashflow_id'],
+                   bank_source_item_id=proof['bank_source_item_id'], target_account=proof['bank_account_code'])
     if subscription:
         leg.update(amount=str(-parsed_amount), purpose=SUBSCRIPTION_PURPOSE,
                    trade_net_cash=str(parsed_amount), symbol=data['symbol'])
@@ -160,6 +185,11 @@ def is_independent_opposite_pair(left, right):
 
 
 def is_independent_equal_pair(left, right):
+    if left.get('purpose') == BANK_REDEMPTION_PURPOSE and 'bank_cashflow_id' in left:
+        if (right['kind'] != 'cashflow' or left['bank_cashflow_id'] != right.get('id')
+                or left['bank_source_item_id'] != str(right['source_item_id'])
+                or left['target_account'] != right['account_code'] or left['receipt_day'] != right['day']):
+            return False
     if left.get('purpose') == REDEMPTION_PURPOSE and (
         right['kind'] != 'cashflow' or right['account_code'] != left['target_account']
         or right['day'] != left['receipt_day']
@@ -188,6 +218,8 @@ def is_manual_withdrawal_pair(left, right):
             or left.get('purpose') != BANK_REDEMPTION_PURPOSE
             or not is_independent_equal_pair(left, right)):
         return False
+    if 'bank_cashflow_id' in left:
+        return True  # The exact receipt was checked by is_independent_equal_pair.
     trade_day, confirmed_day, bank_day = (date.fromisoformat(left['day']),
         date.fromisoformat(left['confirmed_day']), date.fromisoformat(right['day']))
     return trade_day <= confirmed_day <= bank_day and (bank_day - trade_day).days <= 7
