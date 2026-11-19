@@ -43,6 +43,7 @@ export function initializeReturnState(state, resp, sectionResponses, sectionSpec
     rows,
     totalReturnReason: resp.reason,
     totalReturnScope: resp.return_scope,
+    closedWealthReturns: resp.closed_wealth_returns,
     sectionRowsByKey,
     sectionEstimates,
     sectionZeroBefore: new Map(sectionSpecs.map((spec, index) =>

@@ -53,6 +53,12 @@ export function readTransferCandidates() {
 }
 
 export function confirmTransferPair(pair) {
+  if (pair.match_type === 'cash_reversal') {
+    return updateLedger('/api/bank-reconcile/cash-reversals/confirm', {
+      debit_id: pair.source_row_id, credit_id: pair.target_row_id,
+      note: '在收支页人工核对同账户撤单往返', confirmed: true,
+    }, {includeErrorDetail: true});
+  }
   if (pair.targets?.length) {
     return updateLedger('/api/bank-reconcile/transfers/confirm-combined-repayment', {
       source_id: pair.source_row_id, target_ids: pair.targets.map(leg => leg.id),

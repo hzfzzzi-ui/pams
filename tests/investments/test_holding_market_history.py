@@ -156,7 +156,7 @@ def test_selected_holding_return_adjusts_purchase_and_filters_scope(monkeypatch)
         {key: {}}, {key: 'stock'}, {('account', 'CNY', 'asset'): key}))
     seen = []
     monkeypatch.setattr(performance, '_load_events', lambda cur, end, excluded, asset_keys, kinds, selected: (
-        seen.append(selected) or {}))
+        seen.append(selected) or ({}, {})))
     monkeypatch.setattr(performance, '_load_prices', lambda *args: {})
     monkeypatch.setattr(performance, 'load_fx_timelines', lambda *args: {})
     monkeypatch.setattr(performance, '_market_price', lambda marks, key, kind, day: (day, D(1)))

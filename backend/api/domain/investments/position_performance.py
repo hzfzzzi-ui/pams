@@ -60,6 +60,8 @@ def _identity(row):
 
 
 def _kind(row):
+    if row.get('asset_type') == 'wealth_management':
+        return 'wealth'
     if row.get('minor_category') == 'A股基金' or row.get('asset_type') in ('fund', 'fund_cn', '基金', 'ETF / 基金'):
         return 'fund'
     major = row.get('major_category')
@@ -137,8 +139,10 @@ def _load_events(cur, end, excluded, asset_keys, kinds, selected_keys=None):
     accounts = [row['account_code'] for row in cur.fetchall()]
     originals = SourceOriginals(cur)
     events = defaultdict(lambda: defaultdict(list))
+    wealth_rows = defaultdict(list)
+    supplemental_prices = defaultdict(dict)
     for account in accounts:
-        for row in load_trade_rows(cur, account_code=account, start=date.min, end=end, originals=originals,
+        for row in load_trade_rows(cur, account_code=account, start=date.min, end=date.max, originals=originals,
                                    include_fund_execution=True, trade_types=tuple(sorted(CHANGES | INCOME))):
             key = asset_keys.get((account, row['currency'], row['asset_id']), _identity(row))
             if selected_keys is not None and key not in selected_keys:
@@ -148,10 +152,28 @@ def _load_events(cur, end, excluded, asset_keys, kinds, selected_keys=None):
                 # Account-level interest and fees belong to the separate cash calculation.
                 continue
             kinds[key] = kind
+            if kind == 'wealth':
+                wealth_rows[key].append(row)
+                continue
+            if row['trade_date'] > end:
+                continue
             day = _trade_day(row) if kind == 'fund' else row['trade_date']
             if day <= end:
                 events[key][day].append(row)
-    return events
+    from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+    from domain.investments.position_evidence_replay import replay_reviewed_cycle
+    for key, rows in wealth_rows.items():
+        proof = {row['trade_id']: read_trade_evidence(cur, trade_id=row['trade_id']) for row in rows}
+        replay = replay_reviewed_cycle(rows, proof)
+        if not replay:
+            continue
+        for original in rows:
+            row = {**original, 'quantity': replay['buy_quantity']}
+            day = replay['exit_date'] if row['trade_type'] in SELLS else row['trade_date']
+            if day <= end:
+                events[key][day].append(row)
+        supplemental_prices[key] = replay
+    return events, supplemental_prices
 
 
 def _load_prices(cur, kinds, end):
@@ -201,8 +223,9 @@ def _load_prices(cur, kinds, end):
 
 def _market_price(marks, key, kind, day):
     symbol = key[2] if kind != 'gold' else GOLD_BENCHMARK_ASSET
-    candidates = [(kind, symbol, key[1]), (kind, symbol, None),
-                  (kind, _price_symbol(key, kind).upper(), None)]
+    candidates = ([(kind, symbol, key[0])] if kind == 'wealth' else
+                  [(kind, symbol, key[1]), (kind, symbol, None),
+                   (kind, _price_symbol(key, kind).upper(), None)])
     latest = None
     for key in dict.fromkeys(candidates):
         days, prices = marks.get(key, ([], []))
@@ -292,13 +315,16 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
     date_set = set(dates)
     if selection is None:
         positions, kinds, asset_keys = _load_positions(cur, end, excluded_accounts)
-        events = _load_events(cur, end, excluded_accounts, asset_keys, kinds)
+        events, supplemental_prices = _load_events(cur, end, excluded_accounts, asset_keys, kinds)
     else:
         positions, kinds, asset_keys = _load_positions(cur, end, excluded_accounts, selection)
-        events = _load_events(cur, end, excluded_accounts, asset_keys, kinds, set(kinds))
+        events, supplemental_prices = _load_events(cur, end, excluded_accounts, asset_keys, kinds, set(kinds))
     if position_kind is not None:
         kinds = {key: kind for key, kind in kinds.items() if kind == position_kind}
     marks = _load_prices(cur, kinds, end)
+    for key, replay in supplemental_prices.items():
+        ordered = sorted((day, price) for day, price in replay['prices'].items() if day <= end)
+        marks['wealth', key[2], key[0]] = ([day for day, _ in ordered], [price for _, price in ordered])
     if selection:
         marks = _supplement_selected_overseas_prices(marks, kinds, start, end)
     fx = load_fx_timelines(cur, base_currency)
@@ -333,6 +359,10 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
             mark = ((confirmed_on, reference) if reference is not None else None) if kind == 'reference' else (
                 _market_price(marks, key, kind, day) if quantity else None
             )
+            # Only an evidenced market closure permits carrying a prior mark.
+            if (kind == 'wealth' and mark is not None and mark[0] < day
+                    and day not in supplemental_prices.get(key, {}).get('closed_days', set())):
+                mark = None
             valuation_rate = valuation_fx[currency].get(day)
             if quantity == 0:
                 values[day][key] = ZERO
@@ -372,6 +402,7 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
             'missing_positions': len(kinds) - len(current),
             'return_scope': 'covered_positions' if full_scope else 'partial_positions',
             'comparable_positions': len(comparable),
+            'estimated_positions': sum(key in supplemental_prices and value != 0 for key, value in current.items()),
             'carried_price_positions': sum(price_day < day for price_day in price_days[day].values()),
             'holding_as_of': max((date_ for date_ in quantity_days[day].values() if date_ is not None), default=None),
             'market_price_as_of': max((date_ for date_ in price_days[day].values() if date_ is not None), default=None),
@@ -388,7 +419,8 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
         **({} if available else {'reason': 'position_valuation_unavailable'}),
         'data_completeness': 'partial', 'return_scope': 'investment_positions',
         'coverage_notes': ['投资持仓按最近确认数量和截至估值日的行情计算，收益扣除证券成交资金。'
-                           '现金余额和账户出入金独立核算。缺少价格或成交净额的标的仅影响相关区间。'],
+                           '现金余额和账户出入金独立核算。缺少价格或成交净额的标的仅影响相关区间。']
+                          + (['累计净值推算的历史价格为估算。'] if supplemental_prices else []),
         'rows': rows,
     }
 

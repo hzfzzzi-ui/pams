@@ -90,6 +90,18 @@ class TradeSourcePublish(Publish):
     mode: Literal['all', 'ready'] = 'all'
 
 
+class AttachTradeEvidence(Revision):
+    item_id: UUID
+    trade_id: int = Field(strict=True, gt=0)
+    note: str = Field(min_length=1, max_length=1000)
+    confirmed: bool = False
+
+
+class RevokeTradeEvidence(StrictRequest):
+    note: str = Field(min_length=1, max_length=1000)
+    confirmed: bool = False
+
+
 class ConfirmFlowCoverage(Revision):
     mappings: dict[str, int] = Field(max_length=store.MAX_ROWS)
     note: str = Field(min_length=1, max_length=500)
@@ -274,6 +286,19 @@ async def stage_source_record(request: Request, account_code: str = Query(..., m
                                    filename=filename, content=bytes(content), document_type=document_type), write=True)
 
 
+@router.post('/trade-evidence/{trade_id}/stage')
+async def stage_trade_evidence(trade_id: int, request: Request, filename: str = Query(..., min_length=1, max_length=180)):
+    access.same_origin(request)
+    content = bytearray()
+    async for part in request.stream():
+        content.extend(part)
+        if len(content) > store.MAX_FILE_BYTES:
+            raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
+    from domain.imports.trade_supplemental_evidence import stage
+    return await run_in_threadpool(execute_source_record, request,
+        lambda cur: stage(cur, trade_id=trade_id, filename=filename, content=bytes(content)), write=True)
+
+
 @router.post('/source-records/ibkr-report')
 async def stage_ibkr_source_record(request: Request):
     access.same_origin(request)
@@ -448,6 +473,26 @@ def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request
 def confirm_bank_source_record(source_id: UUID, body: Revision, request: Request):
     from domain.imports.bank_source_confirmation import confirm
     return execute_source_record(request, lambda cur: confirm(cur, source_id, body.revision), write=True)
+
+
+@router.post('/source-records/{source_id}/attach-trade-evidence')
+def attach_trade_evidence(source_id: UUID, body: AttachTradeEvidence, request: Request):
+    from domain.imports.trade_supplemental_evidence import attach
+    return execute_source_record(request, lambda cur: attach(cur, source_id=source_id, item_id=body.item_id,
+        trade_id=body.trade_id, expected_revision=body.revision, note=body.note, confirmed=body.confirmed), write=True)
+
+
+@router.get('/trade-evidence/{trade_id}')
+def read_trade_evidence(trade_id: int, request: Request):
+    from domain.imports.trade_supplemental_evidence import read
+    return execute_source_record(request, lambda cur: {'sources': read(cur, trade_id=trade_id)})
+
+
+@router.post('/trade-evidence/{confirmation_id}/revoke')
+def revoke_trade_evidence(confirmation_id: UUID, body: RevokeTradeEvidence, request: Request):
+    from domain.imports.trade_supplemental_evidence import revoke
+    return execute_source_record(request, lambda cur: revoke(cur, confirmation_id=confirmation_id,
+        note=body.note, confirmed=body.confirmed), write=True)
 
 
 @router.post('/source-records/{source_id}/holding-preview')

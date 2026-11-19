@@ -33,6 +33,16 @@ def manual_pair_type(anchor, other):
         return None
     outgoing, incoming = sorted((anchor, other), key=lambda row: row['amount'])
     left, right = outgoing['pair_evidence'], incoming['pair_evidence']
+    if (outgoing['id'] != incoming['id'] and outgoing['account_code'] == incoming['account_code']
+            and outgoing['amount'] < 0 < incoming['amount'] and outgoing['currency'] == incoming['currency']
+            and -outgoing['amount'] == incoming['amount']
+            and outgoing['transaction_date'] <= incoming['transaction_date']
+            and re.search(r'撤单|撤销|取消|冲正|reversal|cancel',
+                          ' '.join(str(incoming.get(k) or '') for k in ('summary', 'description', 'subcategory')), re.I)):
+        source_codes = set(re.findall(r'(?<!\d)\d{6}(?!\d)', str(outgoing.get('summary') or '')))
+        target_codes = set(re.findall(r'(?<!\d)\d{6}(?!\d)', str(incoming.get('summary') or '')))
+        if not (source_codes and target_codes) or source_codes & target_codes:
+            return 'cash_reversal'
     if is_independent_equal_pair(left, right):
         return 'internal_transfer'
     from domain.ledger.cash_transfer_pairs import is_cross_currency_card_repayment
