@@ -49,7 +49,6 @@ pams/
 ├─ gateway/                      Caddy 网关配置
 ├─ scripts/                      日结、来源核验与发布身份工具
 ├─ docs/                         当前业务契约和开发规则
-├─ .github/workflows/            CI：测试、静态检查和候选镜像
 ├─ compose.yaml                  默认服务与挂载声明
 └─ AGENTS.md                     Agent 工作入口
 ```
@@ -62,6 +61,6 @@ pams/
 - [配置来源](docs/CONFIGURATION.md)：YAML、环境、Compose、挂载与依赖。
 - [空库初始化与清理候选 PR #90](https://github.com/hzfzzzi-ui/pams/pull/90)：合并及执行状态分别核对；生产迁移、删表仍需独立授权。
 - [Agent 规则](AGENTS.md)：范围、验证、提交和部署边界。
-- [GitHub PR](https://github.com/hzfzzzi-ui/pams/pulls) 与 [CI](https://github.com/hzfzzzi-ui/pams/actions)：开发进度和验证；部署记录归对应功能 PR 评论。
+- [GitHub PR](https://github.com/hzfzzzi-ui/pams/pulls)：开发进度和本地验证结果；部署记录归对应功能 PR 评论。
 
 主入口为 http://pams.local，底部导航为投资、收支、更多。web 使用构建镜像，本地改文件不会直接更新生产。候选验证、生产部署和数据库操作分别遵守用户授权。
