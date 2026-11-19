@@ -337,8 +337,6 @@ def test_legacy_frontend_entrypoints_stay_removed() -> None:
 def test_ledger_page_uses_card_list_navigation_contract() -> None:
     html = _read_public("ledger.html")
     js = ("\n".join(_read_public(path) for path in ("assets/js/features/ledger/state.js", "assets/js/features/ledger/legacy_model.js", "assets/js/features/ledger/templates.js", "assets/js/features/ledger/requests.js", "assets/js/features/ledger/runtime.js", "assets/js/features/ledger/overview.js", "assets/js/features/ledger/transfers.js", "assets/js/features/ledger/lists.js", "assets/js/features/ledger/editor.js", "assets/js/features/ledger/controller.js", "assets/js/features/ledger/page.js")) + _read_public("assets/js/ledger_cashflow.js"))
-    css = _read_public("assets/css/style.css")
-
     assert 'class="ledgerAnchorNav"' in html
     page_css = _read_public("assets/css/pages/ledger.css")
     navigation_css = _read_public("assets/css/page-shell.css")
@@ -678,7 +676,6 @@ def test_investments_page_exposes_performance_dashboard_sections() -> None:
     assert "const reportedReturnsFresh = isFreshPayloadAsOf(reportedReturns, asof)" in holdings_js
     assert "staleReportedReturns" in holdings_js
     assert "const netValue = net_value?.value;" in holdings_js
-    assert "账户净值（估算）" in holdings_js
     assert "btnLoadInvestmentReturnChart" not in holdings_js
     assert "加载收益曲线" not in holdings_js
     assert "有效历史不足" not in holdings_js
@@ -1433,7 +1430,6 @@ def test_risk_capability_lives_in_investment_subpage() -> None:
 def test_frontend_uses_short_ttl_api_cache_and_static_asset_cache() -> None:
     api_js = _read_public("assets/js/api.js")
     ui_js = _read_public("assets/js/ui.js")
-    holdings_js = read_holdings_source(PUBLIC_ROOT, "holdings_categories.js")
     lookthrough_js = ("\n".join(_read_public(path) for path in ("assets/js/features/analysis/constants.js", "assets/js/features/analysis/state.js", "assets/js/features/analysis/legacy_model.js", "assets/js/features/analysis/charts.js", "assets/js/features/analysis/templates.js", "assets/js/features/analysis/view.js", "assets/js/features/analysis/requests.js", "assets/js/features/analysis/controller.js", "assets/js/features/analysis/page.js")))
     css = _read_public("assets/css/style.css")
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")

@@ -28,7 +28,8 @@ for (const kind of ['summary', 'list']) {
 
   reads.length = 0;
   const ordinary = await run(path => path === finalPath ? Promise.reject(new Error('ordinary unavailable')) : Promise.resolve({synthetic: path}));
-  assert.equal(ordinary.at(summary ? -2 : -1), null, 'ordinary optional failures retain the old null fallback');
+  const accountPositions = ordinary[summary ? 13 : 1];
+  assert.equal(accountPositions, null, 'ordinary optional account-position failures retain the null fallback');
   assert.match(ordinary[0].synthetic, /^\/holdings\//);
   await assert.rejects(run(path => path.startsWith('/holdings/') ? Promise.reject(new Error('required unavailable')) : Promise.resolve({})), /required unavailable/);
 }

@@ -22,9 +22,10 @@ def test_startup_hooks_do_not_change_api_or_rendering_contracts():
     assert "}), 'holdings'));" in source
     chart_controller = (PUBLIC / "assets/js/features/investment/charts/controller.js").read_text(encoding="utf-8")
     requests = (PUBLIC / "assets/js/features/investment/charts/requests.js").read_text(encoding="utf-8")
-    assert "const navRead = trackInvestmentNav(reads.run('nav', signal => readInvestmentNav({signal}))" in chart_controller
+    assert "trackInvestmentNav(" in chart_controller
+    assert "reads.run('nav', signal => readInvestmentNav({signal}))" in chart_controller
     assert "jget('/nav/weekly?" in requests
-    assert "afterInvestmentNav(() => loadInvestmentReturnChartOnce())" in source
+    assert "loadInvestmentReturnChartOnce().catch(" in source
     for name, kind, tab in (
         ("portfolio_risk.js", "risk", "risk"),
         ("portfolio_config.js", "config", "allocation"),

@@ -108,7 +108,10 @@ for (const fallback of [false, true]) {
     if (!fallback) assert.equal(test.charts.filter(chart => chart.canvas.id === 'investmentNavChart').length, 1);
     api.applyInvestmentReturnWindow(window.__investmentReturnChart, state, '1w');
     assert.deepEqual(plain(window.__investmentNavChart.data.labels), ['2026-10-26']);
-    assert.deepEqual(plain(window.__investmentReturnChart.data.labels), ['2026-10-26']);
+    // The return chart includes the interval start as an axis label even without a return observation.
+    assert.deepEqual(plain(window.__investmentReturnChart.data.labels), ['2026-10-19', '2026-10-26']);
+    const total = window.__investmentReturnChart.data.datasets.find(dataset => dataset.returnSeriesKey === 'total');
+    assert.equal(total.data[0], null);
     assert.equal(JSON.stringify([nav, returns]), inputBefore);
   }
 }

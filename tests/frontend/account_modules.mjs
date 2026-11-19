@@ -108,9 +108,13 @@ const {createActions} = await load('features/accounts/actions.js');
   const defer = actions.reviewAccount('fixture/hkd', 'defer_missing');
   assert.equal(writes[1].body.note, '账户核准中心暂缓当前缺数据项'); writes[1].resolve(overview); await defer;
   const matching = actions.runTransferMatching(); assert.equal(writes[2].url, '/api/bank-reconcile/transfer-matches/run');
-  assert.equal(Object.keys(writes[2].body).length, 0); writes[2].resolve(matches); await matching;
+  assert.equal(Object.keys(writes[2].body).length, 0);
+  writes[2].resolve({matches: [
+    {status: 'review_required', match_key: 'candidate:synthetic'},
+    {status: 'confirmed', match_key: 'candidate:already-confirmed'},
+  ]}); await matching;
   assert.deepEqual(events.slice(-4, -1), ['unmatched', 'imports', 'overview']);
-  assert.equal(events.at(-1), '匹配完成：1 条关系。内部划转不会作为生活消费统计；支付通道映射用于去重。');
+  assert.equal(events.at(-1), '找到 1 对流水候选，确认配对后才会扣减两边的收支。');
   const late = actions.runTransferMatching(); const length = events.length; alive = false;
   writes[3].resolve(matches); await late; assert.equal(events.length, length);
   await actions.runTransferMatching(); assert.equal(writes.length, 4);

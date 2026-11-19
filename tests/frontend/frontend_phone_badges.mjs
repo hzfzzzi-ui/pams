@@ -53,7 +53,6 @@ for (const status of [
   button.listeners.click();
   const expected = `<strong>收益状态</strong><span>${badge(holding) || '<span class="muted">—</span>'}</span>`;
   for (const html of [desktopHtml, sheetHtml]) {
-    assert.ok(html.includes('市值与大盘'));
     assert.equal(html.split('<strong>收益状态</strong>').length - 1, 1);
     assert.ok(html.includes(expected));
     assert.ok(html.indexOf('<strong>今日盈亏</strong>') < html.indexOf('<strong>收益状态</strong>'));

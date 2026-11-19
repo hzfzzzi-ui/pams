@@ -15,23 +15,26 @@ class Target {
 class Form extends Target {
   constructor() {
     super(); this.submit = new Target(); this.cancel = new Target();
-    this.fields = Object.fromEntries(Object.entries({ cashflow_type: 'operating_expense', category: '餐饮', subcategory: '工作餐', counter_account_code: '', counterparty: '  测试  ' }).map(([key, value]) => [key, Object.assign(new Target(), { value })]));
+    this.groups = Object.fromEntries(['income-category', 'standard-classification', 'transfer-type'].map(name => [name, new Target()]));
+    this.fields = Object.fromEntries(Object.entries({ flow_group: 'operating_expense', transfer_type: 'internal_transfer', category: '餐饮', subcategory: '工作餐', counter_account_code: '', counterparty: '  测试  ' }).map(([key, value]) => [key, Object.assign(new Target(), { value, closest: () => new Target() })]));
   }
   querySelector(selector) {
     if (selector === 'button[type="submit"]') return this.submit;
     if (selector === '[data-sheet-close]') return this.cancel;
+    const group = selector.match(/^\[data-ledger-(income-category|standard-classification|transfer-type)\]$/)?.[1];
+    if (group) return this.groups[group];
     return this.fields[selector.match(/data-edit-field="([^"]+)"/)?.[1]] || null;
   }
 }
 
 async function fixture() {
   const reads = [], writes = [], charts = [], errors = [], cache = new Map();
-  const elements = Object.fromEntries(['err', 'overviewCategoryPieChart', 'cashflowTrendChart', 'cashflowNetTrendChart'].map(id => [id, Object.assign(new Target(), { id, parentElement: { querySelector() { return null; } } })]));
+  const elements = Object.fromEntries(['err', 'overviewCategoryPieChart', 'cashflowTrendChart', 'cashflowNetTrendChart', 'transferReviewActions', 'overviewTransferSection'].map(id => [id, Object.assign(new Target(), { id, parentElement: { querySelector() { return null; } } })]));
   const document = Object.assign(new Target(), { body: { dataset: {} }, getElementById: id => elements[id] || null, querySelectorAll: () => [] });
   const window = Object.assign(new Target(), { location: { hash: '', pathname: '/ledger.html', search: '' }, scrollTo() {} });
   class Chart { constructor(canvas, config) { this.canvas = canvas; this.data = config.data; this.config = config; this.destroyCount = 0; charts.push(this); } destroy() { this.destroyCount += 1; } }
   window.Chart = Chart;
-  const context = vm.createContext({ document, window, AbortController, URLSearchParams, console });
+  const context = vm.createContext({ document, window, AbortController, URL, URLSearchParams, console });
   function moduleFor(url) {
     url = new URL(url); url.search = '';
     if (cache.has(url.href)) return cache.get(url.href);
@@ -44,7 +47,9 @@ async function fixture() {
     if (name === 'bottom_sheet.js') values = { createBottomSheet: () => ({ opened: false, close() { this.opened = false; }, dispose() { this.close(); } }) };
     let module;
     if (values) module = new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value); }, { context, identifier: url.href });
-    else module = new vm.SourceTextModule(readFileSync(url, 'utf8'), { context, identifier: url.href });
+    else module = new vm.SourceTextModule(readFileSync(url, 'utf8'), {
+      context, identifier: url.href, initializeImportMeta(meta) { meta.url = url.href; },
+    });
     cache.set(url.href, module); return module;
   }
   async function api(file) {
@@ -65,6 +70,7 @@ const data = income => ({ periods: { ytd: { income } }, income_categories_ytd: [
   test.resolveRead(0, data(10)); await ready;
   const bars = test.charts.find(chart => chart.canvas.id === 'cashflowTrendChart');
   const net = test.charts.find(chart => chart.canvas.id === 'cashflowNetTrendChart');
+  assert.ok(bars && net, test.elements.err.textContent || 'Trend charts were not rendered');
   assert.equal(JSON.stringify(bars.data.labels), JSON.stringify(net.data.labels));
   assert.equal(JSON.stringify(bars.data.datasets.map(dataset => dataset.data)), '[[10],[1]]');
   assert.equal(JSON.stringify(net.data.datasets.map(dataset => dataset.data)), '[[9]]');
