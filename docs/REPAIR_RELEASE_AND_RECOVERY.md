@@ -53,13 +53,19 @@ main 是集成代码，各组件可有不同来源 commit。核准清单描述�
 
 读取间容器更换/重启为 unknown，跨组件不是原子事务；镜像/权限/挂载未匹配不运行容器内命令，通过后按 inspect 的容器 ID 操作。失败生成新 unknown，不沿用旧绿灯，旧观察不能覆盖新记录。
 
+部署完成后，在宿主机的仓库根目录执行一次以下命令。先将 `$releaseManifest`、`$releaseReportDir` 和 `$featurePr` 分别设为本次私有核准清单的路径、私有报告目录和原功能 PR 编号。
+
 ```powershell
-python scripts/verify_release.py --manifest <私有核准清单.json> --output-dir <私有记录目录>
-python scripts/verify_release.py --manifest <私有核准清单.json> --check-report <私有记录目录>/latest.json
-python scripts/verify_release.py --manifest <私有核准清单.json> --output-dir <私有记录目录> --record-pr <原功能PR号>
+python scripts/verify_release.py --manifest "$releaseManifest" --output-dir "$releaseReportDir" --record-pr $featurePr
 ```
 
-默认不写记录、不访问 GitHub；--output-dir 写历史并原子替换 latest。--check-report 检查清单指纹/结构，超过十分钟、未来时间、归档失败、非 matched 或不完整返回非零。--record-pr 只按同一批次标记更新当前用户中文评论，不覆盖他人或其他批次；GitHub 失败记 failed，复用同一批次核对归档，不重复部署。
+这一次调用采集现场，用同一份观察结果更新原功能 PR 的部署评论，并在私有目录保存历史报告、更新 `latest.json`。退出码为 0 且报告显示 `identity_status=matched`、`record_status=synced`，即发布身份已核对、评论已同步。如果只有评论写入失败，修复 GitHub 访问后，用同一发布批次重试上述命令。
+
+仅需本地留档时，省略 `--record-pr`。需要复核已有报告时，才单独执行下面的命令。它只读取清单和报告，检查两者是否匹配、报告是否完整且在十分钟有效期内，通过时返回 0。
+
+```powershell
+python scripts/verify_release.py --manifest "$releaseManifest" --check-report (Join-Path $releaseReportDir 'latest.json')
+```
 
 同主机同批次 OS 互斥锁，退出自动释放，残留锁文件不等于锁仍存活；不抢存活锁，不支持跨主机分布式归档。报告不输出完整环境、密码或原始命令错误。获准的五分钟定时任务仅写本地报告，不每次发评论，工具不自行安装定时任务或常驻容器。
 

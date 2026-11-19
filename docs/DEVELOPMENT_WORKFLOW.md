@@ -116,12 +116,7 @@ GitHub 同步规则：
 - 若只是查数据库或改数据，不要无意义重建容器。
 - Web 构建在生成手机样式后按静态资源内容生成版本目录，并更新发布产物的 HTML 引用。源码使用相对路径。
 
-常用验证：
-
-```powershell
-node --check frontend\public\assets\js\transactions.js
-docker ps --filter "name=pams-web" --filter "name=pams-api"
-```
+本地语法检查和容器状态命令见[提交前最小验收](#11-提交前最小验收)。部署后按[发布身份](REPAIR_RELEASE_AND_RECOVERY.md#发布身份)核验并记录到原功能 PR。
 
 ## 9. 后端改动原则
 
