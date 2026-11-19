@@ -336,8 +336,8 @@ function rowTitle(row) {
     if (category.includes('公积金')) return '公积金汇缴';
   }
 
-  const summary = stripLongDetail(row.summary);
-  const fallback = category || row.counterparty || flowLabel(row.flow_type);
+  const summary = stripLongDetail(row.summary || row.source_summary || row.description);
+  const fallback = row.counterparty || category || flowLabel(row.flow_type);
   return compactText(summary || fallback || '未命名流水', 24);
 }
 
@@ -359,6 +359,7 @@ function rowDateText(row) {
 function rowSearchText(row) {
   return [
     row.summary,
+    row.source_summary,
     row.description,
     row.counterparty,
     row.counter_account_code,

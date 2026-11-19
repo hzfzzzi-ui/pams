@@ -1543,6 +1543,7 @@ def _serialize_row(row: Mapping[str, Any], *, base_currency: str = 'CNY') -> dic
         "category",
         "subcategory",
         "summary",
+        "source_summary",
         "description",
         "counterparty",
         "flow_type",
@@ -1653,7 +1654,7 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
         ):
             continue
         if search and code not in (matching_accounts or ()):
-            values = [row.get(key) for key in ('summary', 'description', 'counterparty', 'counter_account_code',
+            values = [row.get(key) for key in ('summary', 'source_summary', 'description', 'counterparty', 'counter_account_code',
                                               'category', 'subcategory', 'coarse_category', 'account_code')]
             values += [labels.get(row_flow, row_flow or '未知'), (profiles.get(code) or {}).get('display_name')]
             if search not in ' '.join(str(value) for value in values if value).lower():

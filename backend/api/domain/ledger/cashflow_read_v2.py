@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 import json
 from typing import Any
 
+from domain.imports.source_display import statement_display_summary
 from domain.imports.source_original_read import SourceOriginals
 
 
@@ -69,6 +70,10 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
         row['amount_cny']=row['amount']*rate if verified and rate is not None else None
         row['fx_basis']='native_base' if row['currency']==base_currency else ('daily_market_projection' if rate is not None else 'unavailable')
         row['source_evidence_status']='verified' if verified else 'unknown'
+        if verified and not row['summary']:
+            source = row['raw_fields']
+            original = source.get('initial_fields', source) if isinstance(source, dict) else {}
+            row['source_summary'] = statement_display_summary(original) if isinstance(original, dict) else None
         if not verified: row['source_issue']='source_evidence_unknown'
         row['classification_status']=row['classification_status'] or 'pending'
         row['transaction_date_obj']=row['transaction_date']
