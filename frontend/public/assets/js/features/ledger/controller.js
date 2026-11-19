@@ -135,6 +135,7 @@ async function loadStream(offset = 0, {replay = false, restore = false, keepPosi
   const generation = ++streamGeneration;
   const query = variant + '|' + ledgerStreamQuery(state);
   const remembered = offset === 0 && replay && memory?.read('stream', query);
+  state.streamStatus = 'loading';
   const loadedCount = keepPosition ? state.streamRows?.length ?? 0 : 0;
   if (offset === 0 && !keepPosition) {
     showRefresh(remembered ? 'refreshing' : '');
@@ -175,6 +176,7 @@ async function loadStream(offset = 0, {replay = false, restore = false, keepPosi
     }
     const existing = new Set(state.streamRows.map(row => String(row.id)));
     state.streamRows.push(...result.rows.filter(row => !existing.has(String(row.id))));
+    state.streamStatus = 'ready';
     state.streamNext = result.next_offset;
     renderRecentRows();
     if (scroller) {
@@ -189,9 +191,13 @@ async function loadStream(offset = 0, {replay = false, restore = false, keepPosi
     }
     return result;
   } catch (error) {
-    if (!isReadCancelled(error) && current() && generation === streamGeneration && remembered) {
-      showRefresh('failed');
-      return null;
+    if (!isReadCancelled(error) && current() && generation === streamGeneration && state.activePanel === 'recent') {
+      state.streamStatus = 'error';
+      renderRecentRows();
+      if (remembered) {
+        showRefresh('failed');
+        return null;
+      }
     }
     throw error;
   } finally {
