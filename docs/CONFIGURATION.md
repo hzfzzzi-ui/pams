@@ -66,9 +66,8 @@ IBKR 每日持仓使用 API 容器中的 `IBKR_FLEX_TOKEN`、`PAMS_IBKR_HOLDINGS
 | backend/scheduler/requirements.txt、Dockerfile | 独立调度运行环境 |
 | frontend/tools/requirements.txt | 手机 CSS 构建工具 |
 | frontend/Dockerfile | 前端构建及 nginx 运行环境 |
-| .github/workflows/quality.yml | 测试、静态检查和候选镜像验证 |
 
-仓库不使用 VERSION 文件判断发布版本。开发进度与 CI 查询 GitHub，部署记录查询对应功能 PR 评论；实际镜像、配置和能力必须重新观察。
+仓库不使用 VERSION 文件判断发布版本。开发进度与验证结果查询对应 PR，部署记录查询对应功能 PR 评论；实际镜像、配置和能力必须重新观察。
 
 账户归属以 `config/accounts.yaml` 为准：账户显式配置优先，其次是 `defaults.historical_owner_ratios` 中的旧账户代码映射，最后使用 `defaults.owner_ratio`（未配置时为 1）。归属为 0 时仍保留该值。
 
