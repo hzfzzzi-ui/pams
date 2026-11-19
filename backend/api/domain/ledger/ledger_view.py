@@ -1315,7 +1315,8 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
         if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
             continue
         redemption = cash_pairs_only and left.get('purpose') in {REDEMPTION_PURPOSE, BANK_REDEMPTION_PURPOSE}
-        funding = cash_pairs_only and left.get('pair_type') == MANUAL_FUNDING_PAIR
+        funding = (cash_pairs_only and kind == MANUAL_FUNDING_PAIR
+                   and left['kind'] == 'cashflow' and right['kind'] == 'trade')
         both_cash = left['kind'] == right['kind'] == 'cashflow'
         if cash_pairs_only and not (both_cash or redemption or funding):
             continue
