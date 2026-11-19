@@ -57,6 +57,37 @@ def _fund_overview_card(funds, cash, closed_returns):
     }
 
 
+def account_center_balances(positions, funds, cards):
+    """Account-scoped values. The cross-account fund overview is not an account balance."""
+    balances = {row["account_code"]: row["account_center_balance"] for row in positions.get("by_account", [])
+                if row.get("account_center_balance")}
+    fund_rows = {}
+    for row in funds.get("rows", []):
+        code = row.get("account_code") or row.get("account")
+        if code and not row.get("is_closed") and not row.get("reference_as_of"):
+            fund_rows.setdefault(code, []).append(row)
+    for code, rows in fund_rows.items():
+        amounts = [_decimal(row.get("market_value_cny")) for row in rows]
+        dates = [row.get("snapshot_as_of") or row.get("as_of") for row in rows]
+        if None in amounts or not all(dates):
+            continue
+        day = max(str(value)[:10] for value in dates)
+        existing = balances.get(code) or {}
+        if existing.get("balance_amount") is None or str(existing.get("balance_as_of") or "")[:10] < day:
+            balances[code] = {"balance_amount": str(sum(amounts)), "balance_currency": "CNY",
+                              "balance_as_of": day, "balance_label": "持仓市值"}
+    for card in cards.values():
+        code = card.get("account_code")
+        net = card["net_value"]
+        if code and net["value"] is not None and net["basis"] in {"cash_carried_forward", "reconciled_cash", "official_close"}:
+            if str((balances.get(code) or {}).get("balance_as_of") or "")[:10] > str(net["as_of"] or ""):
+                continue
+            balances[code] = {"balance_amount": net["value"],
+                              "balance_currency": card["base_currency"], "balance_as_of": net["as_of"],
+                              "balance_label": "组合估值" if net["status"] == "estimated" else "组合价值"}
+    return balances
+
+
 def build_holdings_account_cards(*, positions, overview, stock_performance, stock, funds, overseas,
                                  closed_returns, summary):
     accounts = {row["account_code"]: row for row in overview.get("accounts", [])}
@@ -65,8 +96,6 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
     fund_position = by_account.get("tencent_licaitong", {})
     stock_day = stock.get("as_of")
     stock_value = stock_position.get("portfolio_value") or {}
-    if positions.get("as_of") != stock_day or stock_value.get("as_of") != stock_day:
-        stock_value = {}
     stock_account = stock_performance if (stock_performance or {}).get("status") == "ok" else {}
     stock_holding = stock.get("holding_performance") or {}
     fund_holding = funds.get("holding_performance") or {}
@@ -86,11 +115,12 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
     if stock_net["value"] is None:
         stock_net = _metric(stock_account.get("net_liquidation_cny"), stock_account.get("as_of"),
                             basis=stock_account.get("net_liquidation_source"))
-    stock_rows = [row for row in stock.get("rows", []) if not row.get("is_closed")
+    stock_rows = [row for row in stock.get("rows", []) if not row.get("is_closed") and not row.get("reference_as_of")
                   and (row.get("account") or row.get("account_code")) == "tonghuashun"]
     stock_market = None
     if stock_rows:
-        amounts = [_decimal(row.get("market_value_cny", row.get("market_value") if row.get("currency") == "CNY" else None))
+        amounts = [_decimal(row.get("market_value_cny", row.get("market_value")
+                           if row.get("currency") == "CNY" and _decimal(row.get("owner_ratio", 1)) == 1 else None))
                    for row in stock_rows]
         if amounts and None not in amounts:
             stock_market = sum(amounts)
@@ -105,6 +135,24 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
                            for row in unscoped]
                 if None not in amounts:
                     stock_market = sum(amounts)
+    # Revalue holdings independently of the last reconciled cash date.
+    cash_day = stock_value.get("cash_as_of")
+    valuation_day = str(stock_day)[:10] if stock_day else None
+    carried = cash_day and valuation_day and str(cash_day)[:10] < valuation_day
+    stock_cash = _metric(stock_value.get("cash_base"), cash_day,
+                         status="carried_forward" if carried else "confirmed", basis="reconciled_cash")
+    stock_leverage = _metric(stock_value.get("leverage_ratio"), stock_value.get("as_of"),
+                             status=stock_net["status"], basis=stock_net["basis"])
+    if (stock_rows and len(stock_rows) == stock_position.get("holdings_count")
+            and stock_market is not None and valuation_day and stock_cash["as_of"]
+            and stock_value.get("status") in {"cash_carried_forward", "reconciled_cash"}
+            and stock_cash["as_of"] <= valuation_day and stock_net["as_of"]
+            and stock_net["as_of"] < valuation_day):
+        net = stock_market + Decimal(stock_cash["value"])
+        stock_net = _metric(net, stock_day, status="estimated", basis="cash_carried_forward")
+        gross = sum(abs(amount) for amount in amounts)
+        stock_leverage = _metric(gross / net if net > 0 else None, stock_day,
+                                 status="estimated", basis="cash_carried_forward")
     stock_daily = _metric(stock_account.get("daily_pnl_cny") if stock_account.get("daily_pnl_effective") is not False else None,
                           stock_account.get("as_of"), basis="account_daily")
     if stock_daily["value"] is None:
@@ -128,12 +176,9 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
         "tonghuashun": {
             "net_value": stock_net,
             "market_value": _metric(stock_market, stock_day, basis="holdings"),
-            "cash": _metric(stock_value.get("cash_base"), stock_value.get("cash_as_of"),
-                            status="carried_forward" if stock_value.get("status") == "cash_carried_forward" else "confirmed",
-                            basis="reconciled_cash"),
+            "cash": stock_cash,
             "liabilities": _metric(stock_account.get("other_liabilities_cny"), stock_account.get("as_of")),
-            "leverage": _metric(stock_value.get("leverage_ratio"), stock_value.get("as_of"),
-                                status=stock_net["status"], basis=stock_net["basis"]),
+            "leverage": stock_leverage,
             "recent_daily_pnl": stock_daily,
             "cumulative_pnl": stock_cumulative,
         },

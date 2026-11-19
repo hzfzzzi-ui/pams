@@ -8,7 +8,7 @@ from domain.accounts.position_reference import read_historical_position_referenc
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
-from domain.investments.holdings_account_cards import build_holdings_account_cards
+from domain.investments.holdings_account_cards import account_center_balances, build_holdings_account_cards
 from domain.investments.holding_market_history import holding_history, holding_price_comparison
 from domain.investments import page_projection
 from domain.investments.portfolio_summary import build_holdings_by_account_payload
@@ -190,6 +190,17 @@ def create_compatibility_router(
                     if published is not None:
                         return json({**published["data"], "projection": published["projection"]})
                 return json(build_holdings_page(cur, show_closed=show_closed))
+
+    @router.get("/api/investment/account-center-balances")
+    def investment_account_center_balances():
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                published = page_projection.read_page(cur, "account_balances", business_date=_investment_today_label_date())
+                if published is not None:
+                    return json(published["data"])
+                page = build_holdings_page(cur, show_closed=False)
+                return json(account_center_balances(page["account_positions"], page["funds"], page["account_cards"]))
 
     def build_holdings_page(cur, *, show_closed):
         with reuse_ibkr_holding_evidence(cur):
@@ -750,9 +761,11 @@ def create_compatibility_router(
                 revisions = return_input_revisions(cur)
             return _return_revision(cur, **settings, revisions=revisions)
 
+        holdings = build_holdings_page(cur, show_closed=False)
         return {
+            "account_balances": account_center_balances(holdings["account_positions"], holdings["funds"], holdings["account_cards"]),
             "holdings": {
-                **build_holdings_page(cur, show_closed=False),
+                **holdings,
                 "fx_rates": build_latest_fx_rates_payload(cur, base_currency="CNY"),
                 "valuation_state": read_current_portfolio_valuation(cur),
             },
