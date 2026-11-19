@@ -143,6 +143,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         selection.set(manualOptionKey(row), {
           source_row_id: source.id, source_kind: source.kind || 'cashflow',
           target_row_id: target.id, target_kind: target.kind || 'cashflow', manual_anchor_id: anchorId,
+          match_type: row.match_type,
         });
       }
       manualOptions.set(card, selection);
@@ -153,7 +154,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         <summary class="ledgerManualPairSummary">${manualLeg(row)}</summary>
         <div class="ledgerPairDetails">
           ${manualLegDescription(row)}
-          <p class="muted">${row.match_type === 'fx_conversion' ? '换汇 · ' : row.match_type === 'credit_card_payment'
+          <p class="muted">${row.match_type === 'cash_reversal' ? '撤单往返 · ' : row.match_type === 'fx_conversion' ? '换汇 · ' : row.match_type === 'credit_card_payment'
             ? '信用卡还款 · ' : ''}请核对两笔流水是否为同一笔资金。</p>
           ${row.candidate_type === 'fund_subscription' ? `<label><input type="checkbox" data-select-fund="${escape(manualOptionKey(row))}" ${selectedFunds.get(anchorId)?.target_row_id === row.id ? 'checked' : ''}> 加入批量确认</label>` : ''}
           <button class="btn" type="button" data-confirm-manual="${escape(manualOptionKey(row))}">确认这两笔配对</button>
