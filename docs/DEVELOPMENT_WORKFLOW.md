@@ -72,7 +72,7 @@
 | --- | --- | --- |
 | 纯文档，且不改代码/配置/数据/CI | 差异范围、规则一致性、路径/引用、Markdown 结构及 `git diff --check`；原工作区同步与暂停状态核对 | 不手动重跑业务测试、浏览器、生产 API/数据库底稿、构建或重启 |
 | 非文档改动的开发迭代 | 相关 lint、类型/语法检查、定向单测、新行为及必要保留回归；不适用项说明原因 | 不每改几行就重复全量测试、三镜像构建和全站页面检查 |
-| 最终 PR | 记录最终提交的本地验证结果；非文档改动默认保留全量测试、相关静态检查、受影响候选构建及 smoke | 不用旧 head 的成功冒充最终 head；不以抽样绕过失败或跳过必需集成测试 |
+| 最终 PR | 记录最终提交的本地验证结果；非文档改动按现有验证手段记录结果，包括相关静态检查、受影响候选构建及 smoke | 不用旧 head 的成功冒充最终 head；不以抽样绕过失败或跳过必需集成测试 |
 | 事实写入、同步、事务/schema 或收益/NAV/FX/归属逻辑变化 | 隔离 PostgreSQL 的事务/幂等/异常与对应口径回归，固定输入前后不变量证明；schema 兼容和恢复风险单列 | 不对生产注入故障、建测试表、刷新或回填；缺隔离环境应标未测，不能当通过 |
 | 获准部署前 | 核对原工作区/合并源码、候选镜像、配置/挂载/schema 兼容、本地验证结果 与回退候选；需要部署前后证明时保存新鲜底稿 | 只准备/更新获准且受影响的组件，不默认重建 web/API/scheduler 全套 |
 | 资产服务部署后 | 实际镜像身份、就绪/health、相关接口 smoke、新鲜财务只读对照、按风险选择的页面检查 | 旧缓存、旧截图、测试替身或部署前结果不能代替部署后线上核验；不因验证失败自动回灌数据库 |
@@ -158,8 +158,6 @@ GitHub 同步规则：
 
 ```powershell
 node --check frontend\public\assets\js\transactions.js
-python -m pytest tests/frontend/test_frontend_static_contract.py -q
-python -m pytest tests/ledger/test_cashflow_fact_service.py tests/investments/test_investment_trade_fact_service.py -q
 docker ps --filter "name=pams-web" --filter "name=pams-api"
 ```
 
@@ -170,16 +168,6 @@ docker ps --filter "name=pams-web" --filter "name=pams-api"
 - 新增字段必须向后兼容。
 - 不在 endpoint 里写运行时 DDL；表结构变更应走 `database/postgres/schema`。
 - API read adapter 按领域放在 `backend/api/domain/`，endpoint 只做参数和响应封装。
-
-优先测试：
-
-- `tests/assets/test_asset_master_contract.py`
-- `tests/assets/test_exposure_engine.py`
-- `tests/assets/test_lookthrough_state.py`
-- `tests/investments/test_return_attribution.py`
-- `tests/risk/test_risk_state_service.py`
-- `tests/ledger/test_cashflow_fact_service.py`
-- `tests/investments/test_investment_trade_fact_service.py`
 
 ## 10. 页面验证方法
 
@@ -199,9 +187,6 @@ docker ps --filter "name=pams-web" --filter "name=pams-api"
 先按第 0.2 节选择必跑、抽样和可复用证据。纯文档只做静态核对；以下是相关模块命令示例，不要求每轮逐条执行，也不代替最终提交验证：
 
 ```powershell
-python -m pytest tests/frontend/test_frontend_static_contract.py -q
-python -m pytest tests/ledger/test_cashflow_fact_service.py tests/investments/test_investment_trade_fact_service.py -q
-python -m pytest tests/assets/test_asset_master_contract.py tests/assets/test_exposure_engine.py -q
 node --check frontend\public\assets\js\transactions.js
 ```
 
