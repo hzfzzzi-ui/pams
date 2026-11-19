@@ -9,6 +9,41 @@ from tests.database.test_transaction_fx_evidence import _publish_synthetic_trade
 from scripts.bootstrap_isolated_sources import initialize_isolated_sources
 
 
+def test_manual_complete_exit_confirmation_is_revocable_without_creating_trade(empty_source_db):
+    from domain.imports import source_records_v2 as sources
+    from domain.imports import trade_supplemental_evidence as evidence
+
+    with psycopg2.connect(**empty_source_db) as conn:
+        initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('test_asset','Synthetic')")
+            cur.execute("INSERT INTO pams_asset_master(asset_id,canonical_name,primary_symbol,asset_type,currency) VALUES ('TEST_ASSET','Synthetic','TEST','wealth_management','CNY')")
+        fields = {'business_date': '2026-01-22', 'trade_type': 'sell', 'symbol': 'TEST', 'name': 'Synthetic',
+                  'asset_id': 'TEST_ASSET', 'currency': 'CNY', 'net_cash': '105', 'quantity': '10', 'price': '10.5',
+                  'gross_amount': '105', 'fee_amount': '0'}
+        _publish_synthetic_trades(conn, [fields], account_code='test_asset')
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('SELECT trade_id FROM pams_investment_trade_fact')
+            trade = cur.fetchone()['trade_id']
+            source, item = uuid4(), uuid4()
+            statement = {**fields, 'complete_exit': True, 'complete_history': True, 'complete_trade_ids': [trade]}
+            sources.create_source(cur, source_id=source, account_code='test_asset', source_name='manual',
+                                  acquisition_method='manual', document_type='trade')
+            revision = sources.add_manual_item(cur, source_id=source, item_id=item,
+                                               expected_revision=1, parsed_fields=statement)
+            revision = sources.review_item(cur, source_id=source, item_id=item, expected_revision=revision,
+                                           parsed_fields=statement, review_status='confirmed')
+            args = dict(source_id=source, item_id=item, trade_id=trade, expected_revision=revision,
+                        note='Owner confirmed complete exit and trade history', confirmed=True)
+            saved = evidence.attach(cur, **args)
+            assert evidence.attach(cur, **args)['replayed']
+            assert evidence.read(cur, trade_id=trade)[0]['fields']['complete_exit'] is True
+            cur.execute('SELECT count(*) AS n FROM pams_investment_trade_fact')
+            assert cur.fetchone()['n'] == 1
+            evidence.revoke(cur, confirmation_id=saved['confirmation_id'], note='Undo', confirmed=True)
+            assert evidence.read(cur, trade_id=trade) == []
+
+
 def test_supplemental_source_links_existing_trade_without_new_fact(empty_source_db):
     from domain.imports import source_records_v2 as sources
     from domain.imports import trade_supplemental_evidence as evidence

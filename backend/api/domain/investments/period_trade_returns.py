@@ -16,7 +16,7 @@ from domain.investments.valuation_nav import load_fx_timelines
 
 BUYS = {'buy', 'fund_subscription'}
 SELLS = {'sell', 'fund_redemption'}
-INCOME = {'dividend', 'tax', 'fee'}
+INCOME = {'dividend', 'interest', 'coupon', 'tax', 'fee'}
 SCOPE_ACCOUNTS = {
     'a_fund': ('ccb_yhs300_fund', 'tencent_licaitong'),
     'a_stock': ('tonghuashun',),
@@ -43,6 +43,8 @@ def _closed_trade_cycles(trades, *, start, end, fx_rate, owner_ratio):
     executions = [row for row in trades if row['trade_type'] in BUYS | SELLS]
     if not executions or _trade_order_ambiguous(executions):
         return [], None
+    if any(_number(row.get('quantity')) is None for row in executions):
+        return _confirmed_cash_cycle(trades, start=start, fx_rate=fx_rate, owner_ratio=owner_ratio)
     quantity = cost = cash = distributions = Decimal(0)
     opened = None
     closed = []
@@ -54,7 +56,7 @@ def _closed_trade_cycles(trades, *, start, end, fx_rate, owner_ratio):
         if kind not in BUYS | SELLS | INCOME or net is None:
             return [], None
         if kind in INCOME:
-            if (net > 0) != (kind == 'dividend') or net == 0:
+            if (net > 0) != (kind in {'dividend', 'interest', 'coupon'}) or net == 0:
                 return [], None
             # A distribution after an exit may belong to a different period.
             # Leave it out of the matched-cycle subtotal without a linked lot.
@@ -89,8 +91,44 @@ def _closed_trade_cycles(trades, *, start, end, fx_rate, owner_ratio):
     return closed, quantity
 
 
+def _confirmed_cash_cycle(trades, *, start, fx_rate, owner_ratio):
+    """One explicitly confirmed complete lifecycle when units are unavailable.
+
+    Multiple exits cannot be allocated without units; never infer them from a
+    final zero or fabricate a position quantity. Net cash already includes fees.
+    """
+    rows = sorted(trades, key=lambda r: (r['trade_date'], str(r['trade_time'] or ''), r['trade_id']))
+    executions = [row for row in rows if row['trade_type'] in BUYS | SELLS]
+    if (len(executions) < 2 or executions[0]['trade_type'] not in BUYS
+            or executions[-1]['trade_type'] not in SELLS
+            or any(row['trade_type'] not in BUYS for row in executions[:-1])
+            or executions[-1].get('complete_exit_evidence') is not True
+            or executions[-1].get('complete_trade_ids') != {row['trade_id'] for row in rows}
+            or executions[0]['trade_date'] < start):
+        return [], None
+    cash = cost = distributions = Decimal(0)
+    for row in rows:
+        kind, net, rate = row['trade_type'], _number(row.get('net_cash')), fx_rate(row)
+        if (row.get('source_evidence_status') != 'verified' or kind not in BUYS | SELLS | INCOME
+                or net is None or rate is None or not executions[0]['trade_date'] <= row['trade_date'] <= executions[-1]['trade_date']
+                or (kind in BUYS | {'tax', 'fee'} and net >= 0)
+                or (kind in SELLS | {'dividend', 'interest', 'coupon'} and net <= 0)):
+            return [], None
+        if kind in INCOME:
+            distributions += net * rate
+        else:
+            cash += net * rate
+            if kind in BUYS:
+                cost -= net * rate
+    return [{'open_date': executions[0]['trade_date'], 'exit_date': executions[-1]['trade_date'],
+             'trade_pnl': cash * owner_ratio, 'cost': cost * owner_ratio,
+             'distributions': distributions * owner_ratio}], Decimal(0)
+
+
 def _section(account, rows):
     kinds = {row['trade_type'] for row in rows}
+    if all(row.get('asset_type') == 'wealth_management' for row in rows):
+        return 'wealth_management'
     if account in SCOPE_ACCOUNTS['a_fund'] and kinds & {'fund_subscription', 'fund_redemption'}:
         return 'a_fund' if not kinds & {'buy', 'sell'} else None
     if account in SCOPE_ACCOUNTS['a_stock'] and all(
@@ -110,7 +148,7 @@ def summarize_closed_trades(trades, *, start, end, fx_rate, owner_ratio, opening
     groups = defaultdict(list)
     unresolved_symbols = set()
     for row in trades:
-        if row['trade_date'] > end or row['trade_type'] in {'deposit', 'withdraw', 'fx_conversion', 'interest'}:
+        if row['trade_date'] > end or row['trade_type'] in {'deposit', 'withdraw', 'fx_conversion'}:
             continue
         identity = row.get('instrument_identity') if row['account_code'] == 'ibkr' else row.get('asset_id')
         if identity and row.get('symbol'):
@@ -152,6 +190,12 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
     accounts = sorted({account for section, members in SCOPE_ACCOUNTS.items()
                        if sections is None or section in sections for account in members
                        if account not in excluded_accounts})
+    if sections is None or 'wealth_management' in sections:
+        cur.execute("""SELECT DISTINCT f.account_code FROM pams_investment_trade_fact f
+            JOIN pams_asset_master a ON a.asset_id=f.asset_id
+            WHERE a.asset_type='wealth_management' AND f.trade_date<=%s""", (end,))
+        accounts = sorted(set(accounts) | {row['account_code'] for row in cur.fetchall()
+                                           if row['account_code'] not in excluded_accounts})
     if not accounts or start > end:
         return {}
     originals = SourceOriginals(cur)
@@ -161,6 +205,18 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
                                          include_instrument_identity=True, candidate_sale_start=start)]
     if not trades:
         return {}
+    from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+    for row in trades:
+        if row['trade_type'] in SELLS and row.get('quantity') is None:
+            evidence = read_trade_evidence(cur, trade_id=row['trade_id'])
+            statements = [item['fields'] for item in evidence if item['status'] == 'verified'
+                          and (item.get('fields') or {}).get('complete_exit') is True
+                          and (item.get('fields') or {}).get('complete_history') is True
+                          and isinstance(item['fields'].get('complete_trade_ids'), list)
+                          and all(type(value) is int and value > 0 for value in item['fields']['complete_trade_ids'])]
+            distinct = {tuple(sorted(item.get('complete_trade_ids') or [])) for item in statements}
+            row['complete_exit_evidence'] = len(distinct) == 1
+            row['complete_trade_ids'] = set(next(iter(distinct))) if len(distinct) == 1 else set()
     cur.execute("""SELECT DISTINCT ON (boundary, h.account_code, h.symbol, h.currency)
             boundary,h.account_code,h.asset_id,h.symbol,h.currency,h.quantity,h.as_of
         FROM (VALUES (%s::date), (%s::date)) AS dates(boundary)
@@ -180,6 +236,8 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
         final_positions=final,
         fx_rate=lambda row: exact_fx_rate_at(timelines, row['currency'], row['trade_date'], base_currency),
     )
+    if sections is not None:
+        groups = {section: rows for section, rows in groups.items() if section in sections}
     return {section: {
         'start': start.isoformat(), 'end': end.isoformat(),
         'status': 'partial', 'basis': 'verified_matched_trades', 'base_currency': base_currency,
