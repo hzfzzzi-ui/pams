@@ -79,7 +79,7 @@ def create_compatibility_router(
                          section=None, revisions=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
-            "version": {None: 3, "a_stock": 2, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
+            "version": {None: 4, "a_stock": 2, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
             "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
             "today_label_date": today_label_date,
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),
@@ -677,7 +677,13 @@ def create_compatibility_router(
                 owner_ratio=_account_owner_ratio, sections={'wealth_management'},
                 excluded_accounts=_excluded_holding_accounts(),
             ).get('wealth_management') if lifetime else None
-            return {**payload, 'closed_wealth_returns': closed_return_summary(lifetime, start=start_date, period_closed=period)}
+            summary = closed_return_summary(lifetime, start=start_date, period_closed=period)
+            if summary and any((row.get('estimated_positions') or 0) > 0 for row in payload.get('rows', [])):
+                summary['curve_has_estimated_positions'] = True
+                # Some estimated positions are present; aggregate coverage of
+                # every closed cycle is not established by this flag.
+                summary['included_in_return_curve'] = None
+            return {**payload, 'closed_wealth_returns': summary} if summary else payload
         reported_returns_cfg = _reported_returns_cfg()
         snapshot_payload = _build_investment_return_series_payload_from_snapshot(
             cur,

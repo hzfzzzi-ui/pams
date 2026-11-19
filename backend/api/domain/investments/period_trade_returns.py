@@ -214,12 +214,14 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
     accounts = sorted({account for section, members in SCOPE_ACCOUNTS.items()
                        if sections is None or section in sections for account in members
                        if account not in excluded_accounts})
+    wealth_accounts = set()
     if sections is None or 'wealth_management' in sections:
         cur.execute("""SELECT DISTINCT f.account_code FROM pams_investment_trade_fact f
             JOIN pams_asset_master a ON a.asset_id=f.asset_id
             WHERE a.asset_type='wealth_management' AND f.trade_date<=%s""", (end,))
-        accounts = sorted(set(accounts) | {row['account_code'] for row in cur.fetchall()
-                                           if row['account_code'] not in excluded_accounts})
+        wealth_accounts = {row['account_code'] for row in cur.fetchall()
+                           if row['account_code'] not in excluded_accounts}
+        accounts = sorted(set(accounts) | wealth_accounts)
     if not accounts or start > end:
         return {}
     originals = SourceOriginals(cur)
@@ -227,9 +229,27 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
               for row in load_trade_rows(cur, account_code=account, start=date.min, end=end,
                                          originals=originals,
                                          include_instrument_identity=True, candidate_sale_start=start)]
+    # A confirmed execution can precede the bank settlement recorded on the
+    # original fact. Read complete wealth lifecycles before applying the
+    # requested window; other categories keep their indexed query above.
+    wealth_trades = [row for account in wealth_accounts for row in load_trade_rows(
+        cur, account_code=account, start=date.min, end=date.max, originals=originals,
+        include_instrument_identity=True) if row.get('asset_type') == 'wealth_management']
+    trades = list({row['trade_id']: row for row in trades + wealth_trades}.values())
     if not trades:
         return {}
     from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+    from domain.investments.position_evidence_replay import replay_reviewed_cycle
+    wealth_groups = defaultdict(list)
+    for row in wealth_trades:
+        wealth_groups[(row['account_code'], row.get('asset_id'), row['currency'])].append(row)
+    for rows in wealth_groups.values():
+        evidence = {row['trade_id']: read_trade_evidence(cur, trade_id=row['trade_id']) for row in rows}
+        cycle = replay_reviewed_cycle(rows, evidence)
+        if cycle:
+            for row in rows:
+                if row['trade_type'] in SELLS:
+                    row['trade_date'] = cycle['exit_date']
     for row in trades:
         if row['trade_type'] in BUYS | SELLS and row.get('quantity') is None:
             evidence = read_trade_evidence(cur, trade_id=row['trade_id'])
