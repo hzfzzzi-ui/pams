@@ -24,6 +24,19 @@ def test_fund_subscription_requires_code_verified_anchor_and_bounded_date():
     assert not is_manual_funding_pair(left, {**right, 'amount': '999'})
 
 
+def test_fund_redemption_requires_independent_equal_confirmed_receipt():
+    from domain.ledger.confirmed_transfers_v2 import is_manual_withdrawal_pair, BANK_REDEMPTION_PURPOSE
+    left = {'kind': 'trade', 'account_code': 'fund', 'source_item_id': 'a', 'source_id': 'a',
+            'source_hash': 'a', 'currency': 'CNY', 'amount': '-1000', 'day': '2026-03-20',
+            'confirmed_day': '2026-03-23', 'purpose': BANK_REDEMPTION_PURPOSE}
+    right = {'kind': 'cashflow', 'account_code': 'bank', 'source_item_id': 'b', 'source_id': 'b',
+             'source_hash': 'b', 'currency': 'CNY', 'amount': '1000', 'day': '2026-03-25'}
+    assert is_manual_withdrawal_pair(left, right)
+    for changes in ({'day':'2026-03-22'}, {'day':'2026-03-28'}, {'amount':'999'},
+                    {'source_id':'a'}, {'source_hash':'a'}, {'currency':'USD'}, {'account_code':'fund'}):
+        assert not is_manual_withdrawal_pair(left, {**right, **changes})
+
+
 def cash_row(ident, account, amount, *, currency='CNY', day_offset=0, hint='internal_transfer', source=None):
     evidence = {'account_code': account, 'currency': currency, 'amount': Decimal(amount),
                 'source_item_id': ident, 'source_id': source or ident, 'source_hash': None}

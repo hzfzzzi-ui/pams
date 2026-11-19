@@ -1305,7 +1305,7 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
                            account_profiles=None, decisions=None) -> list[dict[str, Any]]:
     from domain.ledger.cash_transfer_pairs import cash_pair_type
     from domain.ledger.confirmed_transfers_v2 import (
-        FX_PAIR, MANUAL_FUNDING_PAIR, REDEMPTION_PURPOSE, transfer_accounting_identity,
+        BANK_REDEMPTION_PURPOSE, FX_PAIR, MANUAL_FUNDING_PAIR, REDEMPTION_PURPOSE, transfer_accounting_identity,
     )
 
     result = []
@@ -1314,7 +1314,7 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
     for item, left, right, left_day, right_day, kind in decisions:
         if item['evidence_status'] != 'confirmed' or not left_day or not right_day:
             continue
-        redemption = cash_pairs_only and left.get('purpose') == REDEMPTION_PURPOSE
+        redemption = cash_pairs_only and left.get('purpose') in {REDEMPTION_PURPOSE, BANK_REDEMPTION_PURPOSE}
         funding = cash_pairs_only and left.get('pair_type') == MANUAL_FUNDING_PAIR
         both_cash = left['kind'] == right['kind'] == 'cashflow'
         if cash_pairs_only and not (both_cash or redemption or funding):

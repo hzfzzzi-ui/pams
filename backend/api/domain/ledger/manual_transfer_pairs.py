@@ -7,8 +7,9 @@ from domain.imports.source_original_read import SourceOriginals
 from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 from domain.ledger.confirmed_transfers_v2 import (
-    FX_PAIR, MANUAL_FUNDING_PAIR, SUBSCRIPTION_PURPOSE, _leg_rows, _verified_leg, is_independent_equal_pair,
-    is_independent_opposite_pair, is_manual_funding_pair, occupied_cashflow_ids,
+    BANK_REDEMPTION_PURPOSE, FX_PAIR, MANUAL_FUNDING_PAIR, MANUAL_WITHDRAWAL_PAIR, SUBSCRIPTION_PURPOSE,
+    _leg_rows, _verified_leg, is_independent_equal_pair, is_independent_opposite_pair,
+    is_manual_funding_pair, is_manual_withdrawal_pair, occupied_cashflow_ids,
 )
 
 
@@ -111,8 +112,36 @@ def _subscription_ids(cur, anchor, *, trade_id=None):
     return [row['trade_id'] for row in cur.fetchall()]
 
 
+def _redemption_ids(cur, anchor, *, trade_id=None):
+    if (not anchor or not is_manual_anchor(anchor) or anchor.get('source_evidence_status') != 'verified'
+            or anchor.get('cashflow_type') not in {'internal_transfer', MANUAL_WITHDRAWAL_PAIR}
+            or anchor.get('amount') is None or anchor['amount'] <= 0):
+        return []
+    text = ' '.join(str(anchor.get(key) or '') for key in ('summary', 'description'))
+    symbols = set(re.findall(r'(?<!\d)\d{6}(?!\d)', text))
+    if not symbols:
+        return []
+    cur.execute("""SELECT f.trade_id FROM public.pams_investment_trade_fact f
+        WHERE f.trade_date BETWEEN %s AND %s AND f.trade_type='fund_redemption'
+          AND f.net_cash=%s AND f.currency=%s AND f.account_code<>%s AND f.symbol=ANY(%s)
+          AND (%s::bigint IS NULL OR f.trade_id=%s)
+          AND NOT EXISTS (SELECT 1 FROM public.evidence_confirmation e
+              WHERE e.confirmation_type IN ('transfer','payment_proxy') AND e.revoked_at IS NULL
+                AND (e.from_trade_id=f.trade_id OR e.to_trade_id=f.trade_id))
+        ORDER BY f.trade_date,f.trade_id""",
+        (anchor['transaction_date'] - timedelta(days=7), anchor['transaction_date'], anchor['amount'],
+         anchor['currency'], anchor['account_code'], sorted(symbols), trade_id, trade_id))
+    return [row['trade_id'] for row in cur.fetchall()]
+
+
 def validate_manual_pair(cur, left, right, anchor_id):
     if not is_independent_opposite_pair(left, right):
+        return None
+    if left['kind'] == 'trade' and right['kind'] == 'cashflow' and right['id'] == anchor_id:
+        anchor = load_leg(cur, anchor_id, date.fromisoformat(right['day']))
+        if (left.get('purpose') == BANK_REDEMPTION_PURPOSE and is_manual_withdrawal_pair(left, right)
+                and _redemption_ids(cur, anchor, trade_id=left['id'])):
+            return MANUAL_WITHDRAWAL_PAIR
         return None
     if right['kind'] == 'trade':
         if left['kind'] == 'cashflow' and left['id'] == anchor_id and is_manual_funding_pair(left, right):
@@ -180,6 +209,31 @@ def _subscription_options(cur, anchor):
     return options
 
 
+def _redemption_options(cur, anchor):
+    ids = _redemption_ids(cur, anchor)
+    if not ids:
+        return []
+    originals = SourceOriginals(cur)
+    facts = _leg_rows(cur, 'trade', ids, lock=False)
+    originals.verify_many(facts)
+    bank_leg = {**anchor['pair_evidence'], 'kind': 'cashflow', 'day': anchor['transaction_date'].isoformat()}
+    options = []
+    for fact in facts:
+        try:
+            leg = _verified_leg(fact, 'trade', originals, hash_only=True)
+        except ValueError:
+            continue
+        if is_manual_withdrawal_pair(leg, bank_leg):
+            fields = fact['parsed_fields']
+            options.append({'id': fact['id'], 'kind': 'trade', 'account_code': fact['account_code'],
+                'transaction_date': fact['day'], 'amount': -fact['amount'], 'currency': fact['currency'],
+                'amount_cny': -fact['amount'] if fact['currency'] == 'CNY' else None,
+                'summary': f"基金赎回 · {fields.get('name') or leg['symbol']} ({leg['symbol']})",
+                'source_evidence_status': 'verified', 'match_type': MANUAL_WITHDRAWAL_PAIR,
+                'candidate_type': 'fund_redemption'})
+    return options
+
+
 def pairing_options(cur, anchor_id, *, month=None, offset=0, limit=10):
     cur.execute('SELECT event_date FROM public.pams_cashflow_fact WHERE cashflow_id=%s', (anchor_id,))
     fact = cur.fetchone()
@@ -201,6 +255,7 @@ def pairing_options(cur, anchor_id, *, month=None, offset=0, limit=10):
     if start <= day <= end and _is_funding_anchor(anchor):
         options.extend(_broker_funding_options(cur, anchor))
     options.extend(row for row in _subscription_options(cur, anchor) if start <= row['transaction_date'] <= end)
+    options.extend(row for row in _redemption_options(cur, anchor) if start <= row['transaction_date'] <= end)
 
     def sort_key(row):
         if row['currency'] == anchor['currency']:

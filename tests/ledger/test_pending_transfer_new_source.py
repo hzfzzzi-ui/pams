@@ -238,6 +238,58 @@ def test_manual_bank_outflow_pairs_with_verified_broker_deposit(empty_source_db,
         assert cur.fetchone()[0] == 1
 
 
+def test_manual_fund_redemption_links_independent_confirmation(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from endpoints import bank_reconcile, ledger
+    from domain.imports import source_records_v2 as source
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_cashflow
+
+    def connect(): return psycopg2.connect(**empty_source_db)
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('test_bank','Bank'),('test_fund','Fund')")
+            _publish_synthetic_cashflow(conn, account='test_bank', fields={
+                'business_date':'2026-03-25','net_cash':'15933.96','currency':'CNY',
+                'summary':'基金赎回 123456'}, classification='investment_withdrawal')
+            sid, iid = uuid4(), uuid4()
+            fields = {'business_date':'2026-03-20','confirmed_date':'2026-03-23',
+                'trade_type':'fund_redemption','action':'redeem','symbol':'123456','name':'Synthetic fund',
+                'currency':'CNY','quantity':'6485.13','price':'2.4570','gross_amount':'15933.96',
+                'fee_amount':'0','net_cash':'15933.96'}
+            source.create_source(cur,source_id=sid,account_code='test_fund',source_name='Synthetic screenshot',
+                acquisition_method='screenshot',document_type='trade',filename='synthetic.png',file_format='png',content=b'synthetic receipt')
+            source.add_item(cur,source_id=sid,item_id=iid,parse_method='ocr',raw_fields={'screenshot':'synthetic'},parsed_fields=fields)
+            source.review_item(cur,source_id=sid,item_id=iid,expected_revision=2,parsed_fields=fields,review_status='confirmed')
+            source.publish_trade_source(cur,source_id=sid,expected_revision=3)
+            cur.execute("SELECT cashflow_id FROM pams_cashflow_fact WHERE account_code='test_bank'")
+            anchor = cur.fetchone()['cashflow_id']
+    monkeypatch.setattr(bank_reconcile,'get_conn',connect);monkeypatch.setattr(ledger,'get_conn',connect)
+    app=FastAPI();app.include_router(bank_reconcile.router,prefix='/api');app.include_router(ledger.router,prefix='/api')
+    with TestClient(app) as client:
+        url=f'/api/bank-reconcile/transfers/manual-pending/{anchor}/options'
+        overview='/api/ledger/workbench?view=overview&month=2026-03'
+        before=client.get(overview).raise_for_status().json()['periods']['month']
+        candidate,=client.get(url).raise_for_status().json()['rows']
+        assert candidate['kind']=='trade' and candidate['candidate_type']=='fund_redemption'
+        assert Decimal(str(candidate['amount']))==Decimal('-15933.96')
+        payload=dict(from_kind='trade',from_id=candidate['id'],to_kind='cashflow',to_id=anchor,
+                     manual_anchor_id=anchor,note='Synthetic independent redemption',confirmed=True)
+        saved=client.post('/api/bank-reconcile/transfers/confirm',json=payload).raise_for_status().json()
+        assert client.post('/api/bank-reconcile/transfers/confirm',json=payload).raise_for_status().json()['replayed']
+        after=client.get(overview).raise_for_status().json()['periods']['month']
+        assert before['income']-after['income']==15933.96 and before['cash_net']==after['cash_net']
+        transfers=client.get('/api/ledger/workbench?view=transfers&month=2026-03&manualPending=true').raise_for_status().json()
+        assert transfers['manual_pending']==[]
+        pair,=transfers['transfer_pairs']
+        assert pair['id']==saved['transfer_id'] and pair['source_trade_id']==candidate['id']
+        assert pair['match_type']=='investment_withdrawal' and pair['match_date']=='2026-03-25'
+    with connect() as conn,conn.cursor() as cur:
+        cur.execute('SELECT count(*) FROM pams_cashflow_fact');assert cur.fetchone()[0]==1
+        cur.execute('SELECT count(*) FROM pams_investment_trade_fact');assert cur.fetchone()[0]==1
+
+
 def test_manual_fund_subscription_links_existing_trade_without_duplicate_cash(empty_source_db, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
