@@ -354,3 +354,48 @@ def test_manual_fund_subscription_links_existing_trade_without_duplicate_cash(em
         assert cur.fetchone() == (Decimal('-1000'), Decimal('11.86'), Decimal('581.84'))
         cur.execute('SELECT COUNT(*) FROM pams_cashflow_fact')
         assert cur.fetchone()[0] == 1
+
+
+def test_directly_confirmed_subscription_is_in_overview_and_transfer_list(empty_source_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from endpoints import bank_reconcile, ledger
+    from tests.database.test_transaction_fx_evidence import _publish_synthetic_cashflow, _publish_synthetic_trades
+
+    def connect():
+        return psycopg2.connect(**empty_source_db)
+
+    with connect() as conn:
+        bootstrap.initialize_isolated_sources(conn)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO pams_accounts(account_code,display_name) VALUES ('test_bank','Bank'),('test_fund','Fund')")
+        _publish_synthetic_cashflow(conn, account='test_bank', fields={
+            'business_date': '2026-10-26', 'net_cash': '-1000', 'currency': 'CNY', 'summary': 'fund payment',
+        }, classification='internal_transfer')
+        _publish_synthetic_trades(conn, [{'business_date': '2026-10-26', 'trade_type': 'fund_subscription',
+            'action': 'subscribe', 'symbol': '123456', 'name': 'Synthetic fund', 'currency': 'CNY',
+            'quantity': '10', 'price': '100', 'gross_amount': '1000', 'fee_amount': '0', 'net_cash': '-1000'}],
+            account_code='test_fund')
+        with conn.cursor() as cur:
+            cur.execute("SELECT cashflow_id FROM pams_cashflow_fact WHERE account_code='test_bank'")
+            anchor = cur.fetchone()[0]
+            cur.execute("SELECT trade_id FROM pams_investment_trade_fact WHERE account_code='test_fund'")
+            trade = cur.fetchone()[0]
+
+    monkeypatch.setattr(bank_reconcile, 'get_conn', connect)
+    monkeypatch.setattr(ledger, 'get_conn', connect)
+    app = FastAPI(); app.include_router(bank_reconcile.router, prefix='/api'); app.include_router(ledger.router, prefix='/api')
+    with TestClient(app) as client:
+        overview = '/api/ledger/workbench?view=overview&month=2026-10'
+        before = client.get(overview).raise_for_status().json()['periods']['month']
+        payload = dict(from_kind='cashflow', from_id=anchor, to_kind='trade', to_id=trade,
+                       note='User confirmed synthetic subscription', confirmed=True)
+        result = client.post('/api/bank-reconcile/transfers/confirm', json=payload).raise_for_status().json()
+        after = client.get(overview).raise_for_status().json()['periods']['month']
+        assert before['expense'] - after['expense'] == 1000
+        assert after['investment_funding'] - before['investment_funding'] == 1000
+        assert before['cash_net'] == after['cash_net'] and before['income'] == after['income']
+        data = client.get('/api/ledger/workbench?view=transfers&month=2026-10&manualPending=true').raise_for_status().json()
+        assert not data['manual_pending']
+        pair, = data['transfer_pairs']
+        assert pair['id'] == result['transfer_id'] and pair['target_trade_id'] == trade
