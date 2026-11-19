@@ -94,6 +94,7 @@ def _leg_rows(cur, kind, ids, *, lock):
 
 def _verified_leg(row, kind, originals, *, hash_only=False):
     if not row: raise ValueError('transfer fact not found')
+    from domain.investments.investment_trade_fact import classify_trade_type
     data=dict(row)
     try:
         fields=data['parsed_fields'];parsed_amount=Decimal(str(fields['net_cash']))
@@ -114,7 +115,8 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         raw=json.dumps(data['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')
         valid=(data['status']=='published' and data['review_status']=='confirmed' and data['account_code']==data['source_account']
             and data['currency']==fields['currency'] and str(data['day'])==fields['business_date'] and data['amount']==parsed_amount
-            and (kind!='trade' or redemption or data['fact_type']==(fields.get('trade_type') or fields.get('action')))
+            and (kind!='trade' or redemption or data['fact_type']==classify_trade_type(
+                {'side': fields.get('trade_type') or fields.get('action'), 'symbol': data['symbol']}))
             and (kind!='trade' or (data['fact_type']=='deposit' and parsed_amount>0) or (data['fact_type']=='withdraw' and parsed_amount<0) or (redemption and parsed_amount>0) or ((subscription or purchase) and parsed_amount<0 and data['symbol'] and data['symbol']==fields.get('symbol')))
             and parsed_amount.is_finite() and parsed_amount!=0 and sha256(raw).hexdigest()==data['record_hash']
             and (originals.verify(data) if hash_only else originals.read(data)[1]))
