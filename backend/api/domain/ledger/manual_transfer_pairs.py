@@ -129,18 +129,18 @@ def _redemption_ids(cur, anchor, *, trade_id=None):
         return []
     text = ' '.join(str(anchor.get(key) or '') for key in ('summary', 'description'))
     symbols = set(re.findall(r'(?<!\d)\d{6}(?!\d)', text))
-    if not symbols:
-        return []
     cur.execute("""SELECT f.trade_id FROM public.pams_investment_trade_fact f
-        WHERE f.trade_date BETWEEN %s AND %s AND f.trade_type='fund_redemption'
-          AND f.net_cash=%s AND f.currency=%s AND f.account_code<>%s AND f.symbol=ANY(%s)
+        JOIN public.source_items i ON i.source_item_id=f.source_item_id
+        WHERE ((f.trade_type='fund_redemption' AND f.trade_date BETWEEN %s AND %s AND f.symbol=ANY(%s))
+            OR (f.trade_type='sell' AND i.raw_fields->>'cashflow_id'=%s))
+          AND f.net_cash=%s AND f.currency=%s AND f.account_code<>%s
           AND (%s::bigint IS NULL OR f.trade_id=%s)
           AND NOT EXISTS (SELECT 1 FROM public.evidence_confirmation e
               WHERE e.confirmation_type IN ('transfer','payment_proxy') AND e.revoked_at IS NULL
                 AND (e.from_trade_id=f.trade_id OR e.to_trade_id=f.trade_id))
         ORDER BY f.trade_date,f.trade_id""",
-        (anchor['transaction_date'] - timedelta(days=7), anchor['transaction_date'], anchor['amount'],
-         anchor['currency'], anchor['account_code'], sorted(symbols), trade_id, trade_id))
+        (anchor['transaction_date'] - timedelta(days=7), anchor['transaction_date'], sorted(symbols), str(anchor['id']),
+         anchor['amount'], anchor['currency'], anchor['account_code'], trade_id, trade_id))
     return [row['trade_id'] for row in cur.fetchall()]
 
 
@@ -244,7 +244,7 @@ def _redemption_options(cur, anchor):
     originals = SourceOriginals(cur)
     facts = _leg_rows(cur, 'trade', ids, lock=False)
     originals.verify_many(facts)
-    bank_leg = {**anchor['pair_evidence'], 'kind': 'cashflow', 'day': anchor['transaction_date'].isoformat()}
+    bank_leg = {**anchor['pair_evidence'], 'id': anchor['id'], 'kind': 'cashflow', 'day': anchor['transaction_date'].isoformat()}
     options = []
     for fact in facts:
         try:
@@ -253,12 +253,15 @@ def _redemption_options(cur, anchor):
             continue
         if is_manual_withdrawal_pair(leg, bank_leg):
             fields = fact['parsed_fields']
+            label = '基金赎回'
+            if fact['fact_type'] == 'sell':
+                label = '理财赎回' if fields.get('asset_type') == 'wealth_management' else '投资卖出'
             options.append({'id': fact['id'], 'kind': 'trade', 'account_code': fact['account_code'],
                 'transaction_date': fact['day'], 'amount': -fact['amount'], 'currency': fact['currency'],
                 'amount_cny': -fact['amount'] if fact['currency'] == 'CNY' else None,
-                'summary': f"基金赎回 · {fields.get('name') or leg['symbol']} ({leg['symbol']})",
+                'summary': f"{label} · {fields.get('name') or leg['symbol']} ({leg['symbol']})",
                 'source_evidence_status': 'verified', 'match_type': MANUAL_WITHDRAWAL_PAIR,
-                'candidate_type': 'fund_redemption'})
+                'candidate_type': fact['fact_type']})
     return options
 
 
