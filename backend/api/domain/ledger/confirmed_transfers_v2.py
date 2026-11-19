@@ -15,6 +15,8 @@ REDEMPTION_PURPOSE = 'fund_redemption_receipt'
 FX_PAIR = 'fx_conversion'
 MANUAL_FUNDING_PAIR = 'investment_funding'
 SUBSCRIPTION_PURPOSE = 'fund_subscription_funding'
+BANK_REDEMPTION_PURPOSE = 'fund_redemption_withdrawal'
+MANUAL_WITHDRAWAL_PAIR = 'investment_withdrawal'
 
 
 def _reported_fields(raw):
@@ -42,6 +44,8 @@ def transfer_accounting_identity(left, right):
         return 'internal_transfer', left['receipt_day']
     if right.get('purpose') == SUBSCRIPTION_PURPOSE:
         return 'investment_funding', left['day']
+    if left.get('purpose') == BANK_REDEMPTION_PURPOSE:
+        return MANUAL_WITHDRAWAL_PAIR, right['day']
     kind = ('investment_funding' if right['kind'] == 'trade' else
             'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
     return kind, left['day'] if left['day'] == right['day'] else None
@@ -95,10 +99,16 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         redemption = kind == 'trade' and data['fact_type'] == 'fund_redemption'
         subscription = kind == 'trade' and data['fact_type'] == 'fund_subscription'
         arrival = None
-        if redemption:
-            if data['account_code'] != REDEMPTION_ACCOUNT or data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
+        if redemption and data['account_code'] == REDEMPTION_ACCOUNT:
+            if data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
                 raise ValueError('Unsupported redemption receipt')
             arrival = _redemption_arrival(fields, data['raw_fields'], data['day'])
+        elif redemption:
+            confirmed_date = date.fromisoformat(fields.get('confirmed_date') or '')
+            if (data['acquisition_method'] != 'screenshot' or not data['sha256']
+                    or fields.get('action') != 'redeem' or not data['symbol']
+                    or fields.get('symbol') != data['symbol'] or confirmed_date < data['day']):
+                raise ValueError('Fund redemption confirmation is unverified')
         raw=json.dumps(data['raw_fields'],ensure_ascii=False,sort_keys=True,separators=(',', ':'),allow_nan=False).encode('utf-8')
         valid=(data['status']=='published' and data['review_status']=='confirmed' and data['account_code']==data['source_account']
             and data['currency']==fields['currency'] and str(data['day'])==fields['business_date'] and data['amount']==parsed_amount
@@ -115,6 +125,9 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         arrival_day, arrival_time = arrival
         leg.update(amount=str(-parsed_amount), purpose=REDEMPTION_PURPOSE,
                    receipt_day=str(arrival_day), receipt_time=arrival_time, target_account=LICAITONG_CURRENT_PLUS)
+    elif redemption:
+        leg.update(amount=str(-parsed_amount), purpose=BANK_REDEMPTION_PURPOSE,
+                   confirmed_day=str(confirmed_date), symbol=data['symbol'])
     if subscription:
         leg.update(amount=str(-parsed_amount), purpose=SUBSCRIPTION_PURPOSE,
                    trade_net_cash=str(parsed_amount), symbol=data['symbol'])
@@ -152,6 +165,16 @@ def is_manual_funding_pair(left, right):
     if right.get('purpose') == SUBSCRIPTION_PURPOSE:
         return abs((date.fromisoformat(left['day']) - date.fromisoformat(right['day'])).days) <= 7
     return left['day'] == right['day']
+
+
+def is_manual_withdrawal_pair(left, right):
+    if (left['kind'] != 'trade' or right['kind'] != 'cashflow'
+            or left.get('purpose') != BANK_REDEMPTION_PURPOSE
+            or not is_independent_equal_pair(left, right)):
+        return False
+    trade_day, confirmed_day, bank_day = (date.fromisoformat(left['day']),
+        date.fromisoformat(left['confirmed_day']), date.fromisoformat(right['day']))
+    return trade_day <= confirmed_day <= bank_day and (bank_day - trade_day).days <= 7
 
 
 def _validate_cross_currency_pair(cur, left, right):
@@ -229,7 +252,7 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
         pair_type = validate_manual_pair(cur, a, b, manual_anchor_id)
         if not pair_type:
             raise ValueError('两笔流水已变更或不符合配对条件，请重新选择。')
-        if pair_type in {FX_PAIR, MANUAL_FUNDING_PAIR}:
+        if pair_type in {FX_PAIR, MANUAL_FUNDING_PAIR, MANUAL_WITHDRAWAL_PAIR}:
             a = {**a, 'pair_type': pair_type}
     elif not is_independent_equal_pair(a, b) and not _validate_cross_currency_pair(cur, a, b):
         raise ValueError('两笔流水的来源、币种或金额不符合配对条件')
@@ -293,6 +316,7 @@ def read(cur, *, limit=200, originals=None):
                              for leg in additional)
                      and (pair_type is None
                           or (pair_type == MANUAL_FUNDING_PAIR and is_manual_funding_pair(left, right))
+                          or (pair_type == MANUAL_WITHDRAWAL_PAIR and is_manual_withdrawal_pair(left, right))
                           or (pair_type == FX_PAIR and left['kind'] == right['kind'] == 'cashflow'
                          and left['currency'] != right['currency'] and is_independent_opposite_pair(left, right)
                      )))
