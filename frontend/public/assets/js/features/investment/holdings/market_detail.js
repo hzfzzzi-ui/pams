@@ -126,7 +126,9 @@ function returnMarkup(rows) {
 export function bindMarketDetail(sheet, holding) {
   if (!sheet) return;
   const accounts = holding.__accountRows || [holding];
-  const end = accounts.map(row=>String(row.as_of || row.snapshot_as_of || '').slice(0,10)).filter(day=>/^\d{4}-\d\d-\d\d$/.test(day)).sort().pop();
+  const end = accounts.flatMap(row => [row.as_of, row.snapshot_as_of])
+    .map(value => String(value || '').slice(0, 10))
+    .filter(day => /^\d{4}-\d\d-\d\d$/.test(day)).sort().pop();
   const readout = sheet.querySelector('.hmReadout'), plot = sheet.querySelector('.hmPlot'), list = sheet.querySelector('.hmTrades');
   const identity = row => row.asset_id || (row.symbol && row.currency ? `symbol:${row.currency}:${row.symbol}` : '');
   if (!end || accounts.some(row=>!identity(row) || !(row.account_code || row.account))) {
