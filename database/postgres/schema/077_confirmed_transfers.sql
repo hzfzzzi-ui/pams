@@ -2,7 +2,7 @@
 CREATE TABLE public.evidence_confirmation (
     confirmation_id uuid PRIMARY KEY,
     confirmation_order bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
-    confirmation_type text NOT NULL CHECK (confirmation_type IN ('transfer', 'bank_source', 'payment_proxy', 'account_review', 'cash_reversal')),
+    confirmation_type text NOT NULL CHECK (confirmation_type IN ('transfer', 'bank_source', 'payment_proxy', 'account_review', 'cash_reversal', 'trade_source')),
     from_cashflow_id bigint REFERENCES public.pams_cashflow_fact(cashflow_id),
     from_trade_id bigint REFERENCES public.pams_investment_trade_fact(trade_id),
     to_cashflow_id bigint REFERENCES public.pams_cashflow_fact(cashflow_id),
@@ -37,6 +37,12 @@ CREATE TABLE public.evidence_confirmation (
        AND jsonb_typeof(from_evidence)='object' AND jsonb_typeof(to_evidence)='object'
        AND from_evidence IS NOT NULL AND to_evidence IS NOT NULL
        AND cashflow_id IS NULL AND source_item_id IS NULL AND evidence IS NULL)
+      OR
+      (confirmation_type = 'trade_source' AND from_trade_id IS NOT NULL AND source_item_id IS NOT NULL
+       AND evidence IS NOT NULL AND jsonb_typeof(evidence)='object'
+       AND from_cashflow_id IS NULL AND to_cashflow_id IS NULL AND to_trade_id IS NULL
+       AND from_account_code IS NULL AND to_account_code IS NULL AND amount IS NULL AND currency IS NULL
+       AND from_evidence IS NULL AND to_evidence IS NULL AND cashflow_id IS NULL)
       OR
       (confirmation_type = 'bank_source' AND cashflow_id IS NOT NULL AND source_item_id IS NOT NULL
        AND evidence IS NOT NULL AND jsonb_typeof(evidence)='object' AND from_cashflow_id IS NULL AND from_trade_id IS NULL
