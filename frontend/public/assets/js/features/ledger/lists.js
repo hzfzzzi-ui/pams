@@ -241,12 +241,12 @@ function openRecentSortSheet() {
   });
 }
 
-function renderRows(id, rows) {
+function renderRows(id, rows, emptyText) {
   events.clear(`rows:${id}`);
   const el = $(id);
   if (!el) return;
   if (!rows?.length) {
-    el.innerHTML = '<div class="ledgerEmpty">暂无流水</div>';
+    el.innerHTML = `<div class="ledgerEmpty" role="status">${emptyText}</div>`;
     return;
   }
   const showRowDate = Boolean(state.recentAmountSort);
@@ -322,7 +322,9 @@ function renderRows(id, rows) {
 
 function renderRecentRows() {
   const rows = state.streamRows || filteredRecentRows();
-  renderRows('recentRows', rows);
+  const emptyText = state.streamStatus === 'ready' ? '暂无流水' :
+    state.streamStatus === 'error' ? '流水读取失败' : '正在读取流水…';
+  renderRows('recentRows', rows, emptyText);
   const element = $('recentRows');
   if (element && state.streamNext != null) {
     element.insertAdjacentHTML('beforeend', '<button type="button" class="btn ledgerPairMore" data-more-stream>展开更多</button>');
