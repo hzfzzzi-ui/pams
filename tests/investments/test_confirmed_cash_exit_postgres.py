@@ -63,7 +63,12 @@ def test_complete_exit_flows_from_review_to_returns_and_revocation(empty_source_
             buy_id = next(row['trade_id'] for row in ids if row['trade_type'] == 'buy')
             buy_sources = [
                 {**buy, 'quantity': '48118.56'},
-                {**buy, 'valuation_date': '2025-12-31', 'valuation_unit_price': '1.040500'},
+                {**buy, 'valuation_date': '2025-12-31', 'valuation_unit_price': '1.040500',
+                 'valuation_closed_dates': ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04'],
+                 'valuation_observations': [{'date': '2025-12-31', 'cumulative_nav': '1.0405'},
+                                            {'date': '2026-01-05', 'cumulative_nav': '1.0408'},
+                                            {'date': '2026-03-19', 'cumulative_nav': '1.0457'},
+                                            {'date': '2026-03-20', 'cumulative_nav': '1.0458'}]},
             ]
             confirmations = []
             for fields in buy_sources:
@@ -78,6 +83,26 @@ def test_complete_exit_flows_from_review_to_returns_and_revocation(empty_source_
                 confirmations.append(evidence.attach(cur, source_id=proof_source, item_id=proof_item, trade_id=buy_id,
                     expected_revision=proof_rev, note='Owner reviewed screenshot', confirmed=True))
             assert Decimal(read(date(2026, 1, 1))['wealth_management']['amount']) == Decimal('255.02832')
+            exit_source, exit_item = uuid4(), uuid4()
+            exit_fields = {**sell, 'execution_date': '2026-03-20', 'quantity': '48118.56', 'unit_nav': '1.0458'}
+            sources.create_source(cur, source_id=exit_source, account_code='test_asset', source_name='test',
+                                  acquisition_method='screenshot', document_type='trade', filename='exit.jpg',
+                                  file_format='jpg', content_type='image/jpeg', content=b'synthetic exit')
+            sources.add_item(cur, source_id=exit_source, item_id=exit_item, parse_method='manual',
+                             raw_fields={'synthetic': 'exit'}, parsed_fields=exit_fields)
+            exit_rev = sources.review_item(cur, source_id=exit_source, item_id=exit_item, expected_revision=2,
+                                           parsed_fields=exit_fields, review_status='confirmed')
+            evidence.attach(cur, source_id=exit_source, item_id=exit_item, trade_id=trade_id,
+                            expected_revision=exit_rev, note='Owner reviewed redemption', confirmed=True)
+            from domain.investments.position_performance import build_position_return_series
+            chart = build_position_return_series(cur, start=date(2026, 3, 19), end=date(2026, 3, 20),
+                interval='daily', base_currency='CNY', owner_ratio=lambda _: Decimal(1), excluded_accounts=set())
+            assert chart['rows'][-1]['total_pnl'] is not None, chart
+            assert Decimal(chart['rows'][-1]['total_pnl']).quantize(Decimal('.01')) == Decimal('4.81')
+            assert chart['rows'][0]['estimated_positions'] == 1
+            opening = build_position_return_series(cur, start=date(2026, 1, 1), end=date(2026, 1, 5),
+                interval='daily', base_currency='CNY', owner_ratio=lambda _: Decimal(1), excluded_accounts=set())
+            assert Decimal(opening['rows'][-1]['total_pnl']).quantize(Decimal('.01')) == Decimal('14.44')
             evidence.revoke(cur, confirmation_id=confirmations[-1]['confirmation_id'], note='Undo mark', confirmed=True)
             assert read(date(2026, 1, 1)) == {}
             cur.execute('SELECT count(*) AS n FROM pams_investment_trade_fact')

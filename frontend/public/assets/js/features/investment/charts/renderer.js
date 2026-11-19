@@ -747,9 +747,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const period = wealth?.period_amount;
       const periodText = period != null && Number.isFinite(Number(period))
         ? ` · ${wealth.period_start} 起 ${fmtSignedCny(Number(period))}` : '';
+      const curveText = wealth?.curve_has_estimated_positions ? '收益率曲线部分含估算' : '未计入收益率曲线';
       closedWealthStatus.hidden = !show;
       closedWealthStatus.textContent = show
-        ? `理财已实现累计收益 ${fmtSignedCny(Number(amount))}${periodText} · 未计入收益率曲线`
+        ? `理财已实现累计收益 ${fmtSignedCny(Number(amount))}${periodText} · ${curveText}`
         : '';
     }
     const showStatus = (message = '') => {
