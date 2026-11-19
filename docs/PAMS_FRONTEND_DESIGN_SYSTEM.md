@@ -87,11 +87,7 @@ page-shell.css             内容边界及唯一二级导航，内容页最后�
 
 ## 回归要求
 
-涉及前端设计系统的改动至少运行：
-
-```powershell
-python -m pytest tests/frontend/test_frontend_static_contract.py -q
-```
+涉及前端设计系统的改动，按受影响页面核对布局和交互。
 
 仅在获准部署受影响 web 且没有可复用的已验证候选时，才执行相应构建/切换。以下为示例，不是文档修改的必跑项：
 
@@ -126,7 +122,6 @@ docker compose up -d --build pams-web
 
 相关回归测试优先看：
 
-- `tests/frontend/test_frontend_static_contract.py`
 - `frontend/public/investments.html`
 - `frontend/public/assets/js/transactions.js`
 - `frontend/public/assets/js/ui.js`
@@ -262,4 +257,4 @@ PR 必须记录最终提交的本地验证结果，非文档实施按工作流�
 
 `assets/js/shared/chart_theme.js` 读取同一 CSS 变量，将画布不能直接处理的 custom properties 转为绘制颜色；分类 palette 只用于视觉序列顺序，不成为分类事实。投资、收支、穿透及通用图表使用该主题；多线收益图同时采用虚线/点型，分类图保留文字排名与原有下钻。原业务序列、金融计算、金额和 API 路径未因换色变更。
 
-`tests/frontend/test_gray_design.py` 检查变量/样式所有权和主题行为；现有手机转换测试保留媒体条件、规则顺序与确定性，替代旧整文件哈希冻结。既有金额/日期/FX/导入等回归保持语义断言，版本参数与样式迁出位置随实现更新。实际回放和发布结果归对应 PR，固定响应验证不等于生产财务核准。
+更改主题或手机样式时，核对变量归属、媒体条件和规则顺序。实际回放和发布结果归对应 PR，固定响应验证不等于生产财务核准。

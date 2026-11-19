@@ -37,13 +37,6 @@ pams/
 │  │     ├─ css/                 基础样式及生成的手机样式
 │  │     └─ icons/               应用图标
 │  └─ tools/                     手机样式构建工具
-├─ tests/
-│  ├─ accounts/ ledger/ assets/   对应业务测试
-│  ├─ investments/ market/ risk/  估值、收益、行情与风险回归
-│  ├─ imports/ brokers/ibkr/     导入、券商及数据库事务测试
-│  ├─ scheduler/ operations/     调度与发布身份检查
-│  ├─ frontend/                  页面契约、JS 和交互回归
-│  └─ support/                   隔离数据库与演练辅助
 ├─ database/postgres/schema/     结构定义与历史 SQL；不可无条件全量执行
 ├─ config/                       应用本位币、账户、收益、分类、风控
 ├─ gateway/                      Caddy 网关配置
