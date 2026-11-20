@@ -100,7 +100,7 @@ function mobileHeroMetaItem(label, value, tone = '') {
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   if (profile.accountCard) {
     const { net_value, recent_daily_pnl, cumulative_pnl, market_value, cash: cashMetric, leverage: leverageMetric,
-      portfolio_share } = profile.accountCard;
+      portfolio_share, financing } = profile.accountCard;
     const netValue = net_value?.value;
     const netLabel = `${profile.valueLabel || '账户净值'}${net_value?.status === 'estimated' ? '（估算）' : ''}`;
     const daily = recent_daily_pnl?.value;
@@ -135,8 +135,9 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       </div>
       <div class="mobileHeroMiniGrid">
         ${mobileHeroMetaItem(profile.marketLabel || '持仓市值', money(market))}
-        ${mobileHeroMetaItem('现金余额', money(cash), Number(cash) < 0 ? 'down' : '')}
-        ${mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
+        ${mobileHeroMetaItem(profile.cashLabel || '现金余额', money(cash), Number(cash) < 0 ? 'down' : '')}
+        ${financing ? mobileHeroMetaItem('融资负债', money(financing.value))
+          : mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
         ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
       </div>
     `;

@@ -340,22 +340,17 @@ export function makeMobileHeroProfiles({
   fxRates,
   aStockRowsSummary,
   aStockSummary,
-  fundDisplaySummary,
-  usSummary,
-  usRows = [],
   ibkrSummary,
   preciousSummary,
   esopSummary,
 }) {
   const portfolioValue = safeNum(summary.marketValue);
-  const fundValue = safeNum(fundDisplaySummary.totalValue);
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
   const ibkrHasFreshAccount = Boolean(
     ibkrSummary?.holdingsNetCoversPositionDate
   );
-  const ibkrMarket = safeNum(ibkrHasFreshAccount ? ibkrSummary?.positionValue : usSummary.totalValue);
   const ibkrCash = ibkrHasFreshAccount && Number.isFinite(Number(ibkrSummary?.cashValue))
     ? safeNum(ibkrSummary.cashValue)
     : 0;
@@ -364,28 +359,13 @@ export function makeMobileHeroProfiles({
   const netCash = brokerageCash + accountCash.netCash;
   const cashAssets = Math.max(aStockCash, 0) + Math.max(ibkrCash, 0) + accountCash.cashAssets;
   const cashLiabilities = Math.max(-ibkrCash, 0) + accountCash.cashLiabilities;
-  // Cash balances and historical closed positions do not establish today's price-return quality.
-  const usDailyStatuses = usRows.filter(row => !row.is_closed
-    && ![row.major_category, row.minor_category, row.type].some(category => ['现金', '现金/活期'].includes(category)))
-    .map(row => row.daily_pnl_stale === true ? 'pending' : String(row.daily_return_status || row.daily_pnl_status || '').toLowerCase());
-  const usDailyStatus = usDailyStatuses.includes('pending')
-    ? (usDailyStatuses.some(status => ['estimated', 'confirmed'].includes(status)) ? 'partial' : 'pending')
-    : usDailyStatuses.includes('estimated') ? 'estimated'
-      : usDailyStatuses.length && usDailyStatuses.every(status => status === 'confirmed') ? 'confirmed' : '';
-  const totalMarketValue = aStockMarket + fundValue + ibkrMarket + safeNum(preciousSummary.totalValue) + safeNum(esopSummary.totalValue);
-  const positionRatio = pctFromAmount(totalMarketValue, summary.marketValue);
-  const currentFloatPnl = Number.isFinite(Number(summary.currentFloatPnl)) ? safeNum(summary.currentFloatPnl) : safeNum(summary.totalPnl);
-  const totalLiabilities = Math.max(0, safeNum(summary.totalLiabilities));
   const allProfile = {
     key: '全部',
     hideHeader: true,
-    scopeIncomplete: summary.scopeIncomplete,
-    knownInvestmentValue: summary.knownInvestmentValue,
-    knownInvestmentAsOf: summary.knownInvestmentAsOf,
-    valueLabel: summary.scopeIncomplete ? '已知投资持仓净值' : '投资组合价值',
-    marketLabel: summary.scopeIncomplete ? '已知持仓市值' : '持仓市值',
+    valueLabel: '持仓净值',
+    cashLabel: '投资账户现金',
     accountCard: {
-      net_value: {value: summary.scopeIncomplete ? summary.knownInvestmentValue : summary.marketValue},
+      net_value: {value: summary.knownInvestmentValue},
       recent_daily_pnl: {value: summary.investmentMetricsState?.daily_pnl_cny,
         as_of: summary.investmentMetricsState?.daily_pnl_cny == null ? null : summary.investmentMetricsState?.as_of},
       cumulative_pnl: {value: summary.investmentMetricsState?.total_pnl_cny,
@@ -393,24 +373,9 @@ export function makeMobileHeroProfiles({
       market_value: {value: summary.investmentMetricsState?.investment_value_cny},
       cash: {value: null},
       leverage: {value: null},
-      portfolio_share: {value: null},
+      // Household liabilities also include credit cards. This card needs investment financing alone.
+      financing: {value: null},
     },
-    value: summary.marketValue,
-    dailyLabel: '今日盈亏',
-    dailyPnl: summary.dailyPnl,
-    dailyStatus: usDailyStatus === 'pending' ? 'pending' : '',
-    dailyRate: pctFromAmount(summary.dailyPnl, Math.max(summary.marketValue - summary.dailyPnl, 1)),
-    totalLabel: '总盈亏',
-    totalPnl: summary.totalPnl,
-    totalRate: summary.twr,
-    share: 1,
-    miniMetrics: [
-      { label: '总市值', value: formatOptionalMoney(totalMarketValue) },
-      { label: '当前浮盈', value: formatOptionalMoney(currentFloatPnl, 'CNY', { signed: true }), tone: currentFloatPnl < 0 ? 'down' : 'up' },
-      { label: '总负债', value: formatOptionalMoney(totalLiabilities), tone: totalLiabilities > 0 ? 'down' : '' },
-      { label: '现金/活期', value: formatOptionalMoney(netCash, 'CNY', { signed: netCash < 0 }), tone: netCash < 0 ? 'down' : '' },
-      { label: '仓位占比', value: `${Math.max(0, positionRatio * 100).toFixed(1)}%` },
-    ],
   };
   const profiles = {
     '全部': allProfile,
