@@ -52,5 +52,6 @@ export function readListInputs({ get: jget, withClosedParam, onHoldings, onSuppl
   return Promise.all([
     holdings,
     selectPart(view, 'account_positions', () => loadAccountPositions ? loadAccountPositions() : jget(accountPositionsPath)).catch(fallback),
+    view ? view.then(data => data?.account_cards?.investment_overview?.financing_items).catch(fallback) : null,
   ]);
 }

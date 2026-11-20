@@ -47,7 +47,8 @@ export function mount(root, context) {
   let releaseGroupFilter = () => {};
   let currentSegment = context.state?.segment || savedView?.segment || '';
   let summary = remembered?.summary;
-  const primaryOrder = ['全部', '股票', '基金', '银行理财', '贵金属', '员工持股'];
+  let financingItems = remembered?.financingItems;
+  const primaryOrder = ['全部', '股票', '基金', '银行理财', '贵金属', '员工持股', '负债'];
   const marketOrder = ['A股', '港股', '美股', '韩股'];
   const category = row => row.position_group || row.minor_category || row.major_category || '其他';
 
@@ -81,7 +82,11 @@ export function mount(root, context) {
         secondary.innerHTML = secondary.hidden ? '' : button(currentGroup === '股票' ? '全部市场' : '全部基金','',!currentSegment)
           + segments.map(g => button(g,g,g === currentSegment)).join('');
       }
-      renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary});
+      if (currentGroup === '负债') {
+        view.renderFinancing(financingItems);
+      } else {
+        renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary});
+      }
       window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: heroGroup, sourceRoot: root } }));
     }
     if (select) select.innerHTML = groups.map(g => `<option>${esc(g)}</option>`).join('');
@@ -110,7 +115,7 @@ export function mount(root, context) {
       let sourceRows = [];
       let references = [];
       let supplementFailed = false;
-      const [holdings, accountValues] = await readListInputs({
+      const [holdings, accountValues, financing] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
         loadHoldingView: context.loadHoldingView,
         loadAccountPositions: context.loadAccountPositions,
@@ -129,12 +134,13 @@ export function mount(root, context) {
       });
       if (!scope.active) return;
 
+      financingItems = financing;
       const cash = buildAccountCashRows(accountValues, sourceRows);
       const rows = [...sourceRows, ...cash.rows];
       setupHoldingGroupFilter(rows, {references});
       showCashStatus(cash.missing);
       document.getElementById('asof').textContent = holdings.as_of || '--';
-      if (!supplementFailed) memory?.write('rows', variant, {rows, references, summary, asOf: holdings.as_of, missingCash: cash.missing});
+      if (!supplementFailed) memory?.write('rows', variant, {rows, references, summary, financingItems, asOf: holdings.as_of, missingCash: cash.missing});
       showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;

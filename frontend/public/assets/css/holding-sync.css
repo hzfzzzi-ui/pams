@@ -44,3 +44,7 @@ body.page-investments button.personalPosition {
 .personalPositionValues > span:last-child { text-align: end; }
 .personalPositionValues small { color: var(--muted); font-size: 12px; }
 .personalPositionValues b { font-size: clamp(12px, 3.4vw, 16px); overflow-wrap: anywhere; }
+
+#holdings-smart-table.showFinancing > :is(.personalHoldingHeading, .tableWrap, .mobileHoldingList) {
+  display: none !important;
+}

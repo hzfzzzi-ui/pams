@@ -103,7 +103,39 @@ function openHoldingDetail(row, summary, fields) {
   bindMarketDetail(body?.querySelector('.holdingMarketDetail'), row);
 }
 
+function renderFinancing(items) {
+  clearRows();
+  document.getElementById('holdings-smart-table').classList.add('showFinancing');
+  const list = document.getElementById('financingList');
+  list.hidden = false;
+  if (!items?.length) {
+    list.innerHTML = `<div class="mobileEmpty">${items ? '暂无投资融资负债' : '融资明细待更新'}</div>`;
+    return;
+  }
+  const fields = items.map(item => {
+    const kind = item.kind === 'negative_cash' ? (item.amount_cny == null ? '现金余额待核验' : '账户负现金') : '投资借款';
+    return {
+      title: item.name || `${item.account_name} · ${kind}`,
+      amount: item.amount_cny == null ? '待核验' : formatCompactCurrency(item.amount_cny),
+      share: item.share == null ? '—' : `${(Number(item.share) * 100).toFixed(2)}%`,
+      detail: [['所属账户', item.account_name], ['融资类型', kind], ['资料日期', item.as_of || '—']],
+    };
+  });
+  list.innerHTML = '<div class="personalHoldingHeading"><span>融资明细</span><span>占融资负债</span></div>'
+    + fields.map((row, i) => `<button class="mobileHoldingRow personalPosition" type="button" data-financing-index="${i}">
+      <span class="personalPositionTitle"><strong>${esc(row.title)}</strong><b>${row.share}</b></span>
+      <span>负债余额　${row.amount}</span></button>`).join('');
+  list.querySelectorAll('[data-financing-index]').forEach(node => bindRow(node, 'click', () => {
+    const row = fields[Number(node.dataset.financingIndex)];
+    const details = [...row.detail, ['负债余额', row.amount], ['占融资负债', row.share]];
+    openBottomSheet(row.title, '<div class="rowDetailGrid">' + details.map(([label, value]) =>
+      `<div><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join('') + '</div>');
+  }));
+}
+
 function renderRows(rows, options = {}){
+  document.getElementById('holdings-smart-table').classList.remove('showFinancing');
+  document.getElementById('financingList').hidden = true;
   clearRows();
   const tbody = document.getElementById('rows');
   tbody.innerHTML='';
@@ -274,5 +306,5 @@ function renderMobileHoldingRows(rows, { summary }) {
   });
 }
 
-return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
+return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, renderFinancing, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
 }
