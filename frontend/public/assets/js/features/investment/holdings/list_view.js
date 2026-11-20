@@ -248,11 +248,14 @@ function renderMobileHoldingRows(rows, { summary }) {
     const name = shortHoldingName(r);
     const status = r.reference_as_of ? '历史参考' : r.is_closed ? '已平仓' : '';
     return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
-      <span class="personalPositionTitle"><strong>${esc(name)}</strong><b>${weight}</b></span>
+      <span class="personalPositionIdentity">
+        <span class="personalPositionMark" aria-hidden="true">${esc((holdingGroupLabel(r) || '资产').slice(0, 1))}</span>
+        <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc(status || holdingGroupLabel(r))} · 占比 ${weight}</small></span>
+      </span>
       <span class="personalPositionValues">
-        <span><small>${status || '市值'}</small><b>${value == null ? '—' : formatCompactCurrency(value)}</b></span>
-        <span><small>累计盈亏</small><b class="${pnlTone(totalPnl)}">${pnlText(totalPnl)}</b></span>
-        <span><small>最近一日</small><b class="${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</b></span>
+        <b>${value == null ? '—' : formatCompactCurrency(value)}</b>
+        <small class="${pnlTone(totalPnl)}">累计 ${pnlText(totalPnl)}</small>
+        <small class="${dailyPending ? 'muted' : pnlTone(dailyPnl)}">最近一日 ${dailyPending ? '待更新' : pnlText(dailyPnl)}</small>
       </span>
     </button>`;
   }).join('');
