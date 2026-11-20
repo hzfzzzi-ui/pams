@@ -220,6 +220,15 @@ body.page-investments .recentTradePanel {
 body.page-investments .tradeLedgerItem { min-width: 0; }
 body.page-investments .tradeItemMain, body.page-investments .tradeItemNumbers { min-width: 0; }
 body.page-investments .tradeItemNumbers :is(strong, small) { overflow-wrap: anywhere; }
+body.page-investments .tradeDateHeading {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #292a2e;
+  color: #d4d4d8;
+  font-size: 12px;
+  font-weight: 600;
+}
 
 /* Keep both sides of a transfer readable, including long foreign-currency amounts. */
 body.page-ledger .ledgerPairRoute {
