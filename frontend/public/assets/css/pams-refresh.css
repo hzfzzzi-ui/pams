@@ -48,7 +48,7 @@ body.page-ledger :is(.ledgerOverviewCard, .ledgerLoanCard) {
 body.page-more .assetCard { padding: 19px; }
 body.page-more .assetFigures { gap: 0; }
 body.page-more .assetFigures a + a { border-left: 1px solid var(--refresh-border); padding-left: 16px; }
-body.page-more #asset-overview .returnNavChartWrap { height: 180px; }
+body.page-more #asset-overview .returnNavChartWrap { height: 132px; }
 body.page-more .assetDebtRow { padding: 10px 0; }
 body.page-more .accountInstitutionPanel { padding-inline: 15px; }
 body.page-more #accountSyncPanel .accountSyncImport { color: #e5b45d; }
@@ -194,15 +194,15 @@ body.page-account-import .import-modes button:disabled { cursor: not-allowed; }
 
 /* Keep long transaction totals inside their own columns. */
 body.page-investments #investment-ledger .transactionOverviewMetrics {
-  grid-template-columns: minmax(0, 1fr) !important;
-  gap: 10px !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0 !important;
 }
 body.page-investments #investment-ledger .transactionOverviewMetrics > div {
   min-width: 0;
-  padding: 11px 12px;
-  border: 1px solid var(--refresh-border);
-  border-radius: 12px;
-  background: #202124;
+  padding: 9px 10px 9px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 body.page-investments #investment-ledger .transactionOverviewMetrics :is(strong, small) {
   display: block;
@@ -210,12 +210,18 @@ body.page-investments #investment-ledger .transactionOverviewMetrics :is(strong,
   white-space: normal;
   overflow-wrap: anywhere;
 }
-body.page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) { grid-column: auto !important; }
-body.page-investments .recentTradePanel {
-  padding: 14px;
+body.page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) { grid-column: 1 / -1 !important; border-top: 1px solid var(--refresh-border); }
+body.page-investments #investment-ledger .transactionOverview {
+  padding: 16px;
   border: 1px solid var(--refresh-border);
   border-radius: 18px;
   background: var(--refresh-panel);
+}
+body.page-investments .recentTradePanel {
+  padding: 14px !important;
+  border: 1px solid var(--refresh-border) !important;
+  border-radius: 18px !important;
+  background: var(--refresh-panel) !important;
 }
 body.page-investments .tradeLedgerItem { min-width: 0; }
 body.page-investments .tradeItemMain, body.page-investments .tradeItemNumbers { min-width: 0; }
@@ -267,12 +273,16 @@ body.page-investments .holdingMarketDetail .hmBreakdown {
 }
 body.page-more #accountSyncPanel .accountSyncCompact {
   margin: 0;
-  padding: 10px 0;
+  padding: 6px 0;
   border: 0;
   border-bottom: 1px solid var(--refresh-border);
   border-radius: 0;
   background: transparent;
 }
+body.page-more #accountSyncPanel .accountSyncCompactHeading { min-height: 58px; }
+body.page-more #accountSyncPanel .accountSyncAmount { color: #f3f3f4; font-size: 15px; }
+body.page-more #accountSyncPanel .accountSyncNameButton { font-weight: 600; }
+body.page-more #accountSyncPanel .accountSyncAmountWithLabel small { margin-top: 2px; }
 body.page-more #accountSyncPanel .accountSyncCompact:last-child { border-bottom: 0; }
 body.page-more .accountSyncEntry .accountSyncMetadata { gap: 2px 8px; }
 body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
@@ -286,6 +296,8 @@ body.page-ledger .ledgerStreamDayHeader { padding-block: 9px 5px; }
 body.page-ledger .ledgerListRow { padding-block: 10px; }
 body.page-more #asset-overview { gap: 12px; }
 body.page-more .assetCard { padding: 16px; }
+body.page-more .assetCard #personalNet { font-size: clamp(30px, 8.5vw, 36px); line-height: 1.15; }
+body.page-more .assetFigures a { padding-block: 8px; }
 body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading span:last-child {
   color: #a8a9ae;
   font-size: 11px;
@@ -303,6 +315,14 @@ body.page-more .returnWindowSegment button.active {
   background: var(--refresh-glass);
   color: #f3f3f4;
 }
+body.page-more #asset-overview .returnWindowSegment button.active,
+body.page-investments #return-trend .returnWindowSegment button.active {
+  border-radius: 10px;
+  background: var(--refresh-glass);
+  color: #f3f3f4;
+}
+body.page-more #asset-overview .returnWindowSegment button + button::before,
+body.page-investments #return-trend .returnWindowSegment button + button::before { content: none; }
 body.page-investments #return-trend .investmentAnalysisCard {
   border: 1px solid var(--refresh-border);
 }

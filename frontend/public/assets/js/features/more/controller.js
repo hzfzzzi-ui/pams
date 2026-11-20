@@ -58,6 +58,7 @@ export function mount(root, context) {
       actions.append(anchor);
     };
     add('accounts.html', '余额核准', {task: 'balance'});
+    if (account.can_import) add('account_import.html', '导入资料');
     reviewPanel.prepend(actions);
   }
   function locateAccount(container, groups) {

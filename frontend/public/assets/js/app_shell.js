@@ -4,6 +4,7 @@ import { installPageMemory } from './app/page_memory.js';
 const pages = new Set(CONTENT_PAGES);
 const frame = document.getElementById('page-content');
 const links = [...document.querySelectorAll('[data-page]')];
+const toolsLink = document.querySelector('[data-shell-tools]');
 let loadedDocument = null;
 let replaceOnLoad = true;
 
@@ -92,6 +93,13 @@ if (window.parent !== window) {
 } else {
 const updateVisibleViewport = fitVisibleViewport();
 const pageMemory = installPageMemory(window, frame);
+toolsLink?.addEventListener('click', event => {
+  if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const target = new URL('more.html', location.href);
+  target.hash = 'moreAdvanced';
+  navigate(target);
+});
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
   try {

@@ -16,7 +16,7 @@ html {
   padding-bottom: var(--primary-nav-inset);
   margin-inline: auto;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   color: var(--pams-text-primary);
   font-family: var(--pams-font-sans);
 }
@@ -37,6 +37,14 @@ html {
   }
 }
 .pams-viewport { min-height: 0; }
+.pams-header { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 0 var(--pams-mobile-gutter); }
+.pams-brand { display: inline-flex; align-items: center; gap: 6px; font-size: 20px; letter-spacing: -.03em; }
+.pams-brand svg { width: 21px; height: 21px; fill: #d9a13d; }
+.pams-header-tools { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: #e3e3e5; }
+.pams-header-tools svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.pams-header-tools:focus-visible { outline: 2px solid var(--pams-text-primary); }
+.pams-shell:is([data-content-page="account_import.html"], [data-content-page="accounts.html"]) .pams-header { display: none; }
+.pams-shell:is([data-content-page="account_import.html"], [data-content-page="accounts.html"]) { grid-template-rows: minmax(0, 1fr); }
 #page-content { display: block; width: 100%; height: 100%; border: 0; background: var(--pams-bg-canvas); }
 .pams-primary-nav {
   --nav-padding: 5px;
@@ -57,7 +65,7 @@ html {
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   @media (prefers-reduced-transparency: no-preference) {
     .pams-primary-nav {
-      background: linear-gradient(180deg, rgba(255, 255, 255, .055), transparent 48%), rgba(28, 28, 31, .46);
+      background: rgba(28, 28, 31, .78);
       -webkit-backdrop-filter: blur(12px) saturate(145%);
       backdrop-filter: blur(12px) saturate(145%);
     }

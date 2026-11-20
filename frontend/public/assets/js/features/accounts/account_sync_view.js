@@ -194,7 +194,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     item.classList.add('accountSyncCompact');
     item.append(heading);
-    if (status !== 'inactive') {
+    if (status !== 'inactive' && !openAccount) {
       item.append(accountSyncMetadata(doc, data, { compact: true }));
       const action = make(row.can_import ? 'a' : 'button', '导入资料');
       action.className = 'accountSyncImport';
