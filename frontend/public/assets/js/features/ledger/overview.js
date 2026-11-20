@@ -380,14 +380,14 @@ function renderTrendChart(data) {
         {
           label: '收入',
           data: amounts.map(row => row.income ?? null),
-          backgroundColor: '#51b78b',
+          backgroundColor: '#3f8be5',
           borderRadius: 2,
           maxBarThickness: 18,
         },
         {
           label: '消费',
           data: amounts.map(row => row.expense ?? null),
-          backgroundColor: '#db6d7a',
+          backgroundColor: '#d9a13d',
           borderRadius: 2,
           maxBarThickness: 18,
         },

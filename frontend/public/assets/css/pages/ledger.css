@@ -264,8 +264,8 @@
   border-radius:2px;
   content:"";
 }
-.ledgerTrendIncome::before { background:#51b78b }
-.ledgerTrendExpense::before { background:#db6d7a }
+.ledgerTrendIncome::before { background:#3f8be5 }
+.ledgerTrendExpense::before { background:#d9a13d }
 .ledgerTrendNetLabel::before { width:14px; border-top:2px dashed #58a6ff; content:"" }
 .ledgerTrendPlot { position:relative; height:128px; min-width:0 }
 .ledgerTrendPlotNet { height:108px }

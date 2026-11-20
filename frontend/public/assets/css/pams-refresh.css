@@ -54,7 +54,14 @@ body.page-more .accountInstitutionPanel { padding-inline: 15px; }
 body.page-more #accountSyncPanel .accountSyncImport { color: #e5b45d; }
 
 body.page-ledger #cashflow-workbench { --ledger-overview-accent: #d9a13d; }
-body.page-ledger .ledgerTextSwitch button[aria-pressed="true"] { color: #e4b662; }
+body.page-ledger .ledgerTextSwitch button[aria-pressed="true"] {
+  color: #f3f3f4;
+  background: var(--refresh-glass);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.09);
+}
+body.page-ledger .ledgerTextSwitch button + button::before { content: none; }
+body.page-ledger #cashflow-workbench .ledgerOverviewPeriod { margin-bottom: 8px; }
+body.page-ledger #cashflow-workbench .ledgerOverviewPeriod h3 { font-size: 15px; }
 body.page-account-import { --import-yellow: #d9a13d; }
 body.page-account-import .import-file-label {
   background: var(--refresh-panel);
@@ -256,7 +263,7 @@ body.page-ledger .ledgerPairAmount {
   letter-spacing: -.025em;
 }
 body.page-ledger .ledgerPairParty { gap: 4px; }
-body.page-ledger .ledgerPairAccount { overflow-wrap: normal; word-break: normal; }
+body.page-ledger .ledgerPairAccount { overflow-wrap: anywhere; word-break: normal; }
 body.page-ledger .ledgerPairAvatar { flex-basis: 30px; width: 30px; height: 30px; }
 body.page-ledger .ledgerRepaymentRoute { grid-template-columns: minmax(0, 1fr) minmax(110px, 38%) minmax(0, 1fr); }
 
@@ -264,6 +271,15 @@ body.page-ledger .ledgerRepaymentRoute { grid-template-columns: minmax(0, 1fr) m
 body.page-investments :is(.portfolioRiskPanel, .portfolioConfigPanel) {
   padding: 15px;
 }
+body.page-investments :is(.portfolioRiskBlock, .portfolioConfigBlock) {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 18px;
+  background: var(--refresh-panel);
+}
+body.page-investments .portfolioRiskBlock + .portfolioRiskBlock { margin-top: 10px; }
+body.page-investments .portfolioConfigGrid { gap: 10px; }
 body.page-investments .holdingMarketDetail .hmPanel { margin-block: 10px; }
 body.page-investments .holdingMarketDetail .hmBreakdown {
   padding: 14px;
@@ -340,4 +356,9 @@ html.pams-content body.page-investments .appBottomSheetPanel {
 @media (max-width: 360px) {
   body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { font-size: 12px; }
   body.page-investments #mobileHoldingList button.personalPosition { grid-template-columns: minmax(0, 1fr) minmax(0, 44%) !important; }
+  body.page-ledger :is(.ledgerPairRoute, .ledgerRepaymentRoute) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body.page-ledger .ledgerPairCenter { grid-column: 1 / -1; grid-row: 3; }
+  body.page-ledger .ledgerPairRoute .ledgerListDate { grid-column: 2; }
 }
