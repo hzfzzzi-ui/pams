@@ -13,9 +13,9 @@ export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown
     <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
       <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
     <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
+    <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div><div class="hmPlot" aria-label="持仓市值历史走势"></div><div class="hmReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmPanel"><strong>我的持仓收益率</strong><div class="hmReturnPlot"></div><div class="hmReturnReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
-    <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div><div class="hmPlot" aria-label="持仓市值历史走势"></div><div class="hmReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone}">${esc(item.amount)}</b></div>`).join('')}</div>
     <details><summary>账户成交记录</summary><div class="hmTrades"></div></details>
     <details><summary>持仓与盈亏明细</summary>${fields}</details>

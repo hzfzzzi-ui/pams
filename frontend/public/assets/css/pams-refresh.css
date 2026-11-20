@@ -49,6 +49,10 @@ body.page-more .assetCard { padding: 19px; }
 body.page-more .assetFigures { gap: 0; }
 body.page-more .assetFigures a + a { border-left: 1px solid var(--refresh-border); padding-left: 16px; }
 body.page-more #asset-overview .returnNavChartWrap { height: 132px; }
+body.page-more #asset-overview .returnNavPanel { display: flex; flex-direction: column; }
+body.page-more #asset-overview .returnChartHeader { order: 0; }
+body.page-more #asset-overview .returnNavChartWrap { order: 1; }
+body.page-more #asset-overview .returnNavStats { order: 2; margin: 6px 0 0; }
 body.page-more .assetDebtRow { padding: 10px 0; }
 body.page-more .accountInstitutionPanel { padding-inline: 15px; }
 body.page-more .accountInstitutionPicker {
@@ -369,9 +373,30 @@ html.pams-content body.page-investments .appBottomSheetPanel {
 @media (max-width: 360px) {
   body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { font-size: 12px; }
   body.page-investments #mobileHoldingList button.personalPosition { grid-template-columns: minmax(0, 1fr) minmax(0, 44%) !important; }
+  body.page-investments #investment-ledger .transactionOverviewMetrics { grid-template-columns: minmax(0, 1fr) !important; }
+  body.page-investments #investment-ledger .transactionOverviewMetrics > div + div { border-top: 1px solid var(--refresh-border); }
+  body.page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) { grid-column: auto !important; }
   body.page-ledger :is(.ledgerPairRoute, .ledgerRepaymentRoute) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   body.page-ledger .ledgerPairCenter { grid-column: 1 / -1; grid-row: 3; }
   body.page-ledger .ledgerPairRoute .ledgerListDate { grid-column: 2; }
+}
+
+@media (max-width: 760px) {
+  body.page-investments .mobileHeroAll .mobileHeroPrimaryGrid {
+    row-gap: 9px;
+    padding: 4px 0 10px;
+  }
+  body.page-investments .mobileHeroAll .mobileHeroMiniGrid {
+    row-gap: 8px;
+    padding: 10px 0 2px;
+  }
+  body.page-investments .mobileHeroAll .mobileHeroPrimaryMetric:not(.main) strong { font-size: 17px; }
+  body.page-investments #mobileHoldingList button.personalPosition { padding-block: 10px; }
+  body.page-investments .holdingMarketDetail .hmHero { padding: 14px; }
+  body.page-investments .holdingMarketDetail .hmPanel { margin-block: 8px; }
+  body.page-ledger .ledgerMobileValue { margin: 5px 0 10px; }
+  body.page-ledger .ledgerMobileStats { padding-block: 7px; }
+  body.page-ledger .cashflowBodyGrid { margin-top: 10px; gap: 10px; }
 }
