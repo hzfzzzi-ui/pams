@@ -161,7 +161,7 @@ body.page-investments #mobileHoldingList button.personalPosition:last-child { bo
 .personalPositionName strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .personalPositionName small { color: #a8a9ae; font-size: 11px; }
 body.page-investments #mobileHoldingList .personalPositionValues {
-  display: grid; min-width: 0; gap: 3px; justify-items: end; text-align: right; overflow-wrap: anywhere;
+  display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 3px; justify-items: end; text-align: right; overflow-wrap: anywhere;
 }
 body.page-investments #mobileHoldingList .personalPositionValues > b { font-size: 15px; }
 body.page-investments #mobileHoldingList .personalPositionValues small { font-size: 11px; }
