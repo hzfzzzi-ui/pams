@@ -98,6 +98,13 @@ function mobileHeroMetaItem(label, value, tone = '') {
 }
 
 function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
+  if (profile.key === '负债') {
+    const metric = profile.financing;
+    return `<div class="mobileHeroPrimaryMetric main">
+      <span>${metric?.status === 'partial' ? '已知融资负债' : '投资融资负债'}</span>
+      <strong class="mobileHeroValue">${metric?.value == null ? '—' : fmtCny(metric.value)}</strong>
+    </div>`;
+  }
   if (profile.accountCard) {
     const { net_value, recent_daily_pnl, cumulative_pnl, market_value, cash: cashMetric, leverage: leverageMetric,
       portfolio_share, financing } = profile.accountCard;

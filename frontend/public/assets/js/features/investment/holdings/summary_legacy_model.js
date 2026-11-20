@@ -367,6 +367,7 @@ export function makeMobileHeroProfiles({
   };
   const profiles = {
     '全部': allProfile,
+    '负债': {key: '负债', hideHeader: true, financing: accountCards.investment_overview?.financing},
     'A股个股': {
       key: 'A股个股',
       icon: '🇨🇳',

@@ -60,6 +60,7 @@ def holdings_overview_card(page, config):
             groups[row["account"]].append(row)
 
     totals = defaultdict(list)
+    financing_items = []
     profits, daily_results = [], []
     coverage = (holdings.get("recent_confirmed_returns") or {}).get("by_account") or {}
     for code in sorted(set(groups) | set(cards)):
@@ -80,7 +81,25 @@ def holdings_overview_card(page, config):
         exposure = _total(positions, "market_value_cny", absolute=True)
         cash = _decimal(cash_metric.get("value")) if broker else _total(money, "market_value_cny")
         loan = _total(loans, "market_value_cny", absolute=True)
-        financing = loan + max(-cash, 0) if cash is not None and loan is not None else None
+        # Keep the list and its subtotal on the same personal-account cash/position evidence.
+        components = []
+        for row in loans:
+            amount = _decimal(row.get("market_value_cny"))
+            components.append(("loan", row.get("name") or row.get("symbol"),
+                               abs(amount) if amount is not None else None,
+                               row.get("as_of") or row.get("snapshot_as_of")))
+        if cash is None or cash < 0:
+            cash_day = cash_metric.get("as_of") if broker else max(
+                (str(r["as_of"]) for r in money if r.get("as_of")), default=None)
+            components.append(("negative_cash", None, -cash if cash is not None else None, cash_day))
+        for kind, name, amount, day in components:
+            if amount != 0:
+                financing_items.append({
+                    "account_code": code, "account_name": accounts.get(code, {}).get("display_name") or code,
+                    "kind": kind, "name": name, "amount_cny": str(amount) if amount is not None else None,
+                    "as_of": str(day)[:10] if day else None,
+                })
+        totals["financing"].extend([amount for _, _, amount, _ in components] or [Decimal(0)])
         net = market + cash - loan if None not in (market, cash, loan) else None
         if official:
             net = _decimal(net_metric.get("value"))
@@ -89,7 +108,6 @@ def holdings_overview_card(page, config):
         totals["net_value"].append(net)
         totals["market_value"].append(market)
         totals["cash"].append(max(cash, 0) if cash is not None else None)
-        totals["financing"].append(financing)
         totals["exposure"].append(exposure)
         profits.extend(_decimal(r.get("holding_pnl_cny")) for r in positions)
         if positions:
@@ -102,6 +120,12 @@ def holdings_overview_card(page, config):
                        basis="investment_accounts")
 
     result = {key: subtotal(key) for key in ("net_value", "market_value", "cash", "financing")}
+    financing = result["financing"]
+    denominator = _decimal(financing["value"])
+    for item in financing_items:
+        amount = _decimal(item["amount_cny"])
+        item["share"] = (str(amount / denominator)
+                         if amount is not None and denominator and financing["status"] != "partial" else None)
     net = _decimal(result["net_value"]["value"])
     comparable = net and net > 0 and None not in totals["net_value"] and None not in totals["exposure"]
     day = max((item[0] for item in daily_results if item), default=None)
@@ -110,6 +134,7 @@ def holdings_overview_card(page, config):
     known_profit = [v for v in profits if v is not None]
     return {
         **result,
+        "financing_items": financing_items,
         "leverage": _metric(sum(totals["exposure"]) / net if comparable else None,
                             status="estimated", basis="gross_exposure_over_equity"),
         "recent_daily_pnl": _metric(sum(item[1] for item in same_day) if same_day else None, day,

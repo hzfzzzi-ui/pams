@@ -36,6 +36,19 @@ class InvestmentOverviewTest(TestCase):
         for key, value in expected.items():
             self.assertEqual(Decimal(result[key]["value"]), value, key)
 
+        items = result["financing_items"]
+        self.assertEqual({(i["account_code"], i["kind"], Decimal(i["amount_cny"])) for i in items},
+                         {("equity", "loan", Decimal(10)), ("joint", "negative_cash", Decimal(26))})
+        self.assertEqual(sum(Decimal(i["share"]) for i in items), 1)
+
+    def test_known_loan_survives_unknown_cash_without_guessing_a_share(self):
+        rows = [holding("joint", "负债", -12, name="分期本金")]
+        result = self.card(rows, {"joint": {"account_code": "joint"}})
+        self.assertEqual((result["financing"]["value"], result["financing"]["status"]), ("12", "partial"))
+        self.assertEqual([(i["amount_cny"], i["share"]) for i in result["financing_items"]],
+                         [("12", None), (None, None)])
+        self.assertIsNone(result["net_value"]["value"])
+
     def test_same_day_partial_and_no_account_plus_rows_double_count(self):
         rows = [holding("joint", "股票", 20, -3), holding("fund", "基金", 50, 1),
                 holding("fund", "基金", 40, 7, "2026-11-18"), holding("equity", "员工持股", 30)]
