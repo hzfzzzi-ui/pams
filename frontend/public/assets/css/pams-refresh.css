@@ -51,6 +51,18 @@ body.page-more .assetFigures a + a { border-left: 1px solid var(--refresh-border
 body.page-more #asset-overview .returnNavChartWrap { height: 132px; }
 body.page-more .assetDebtRow { padding: 10px 0; }
 body.page-more .accountInstitutionPanel { padding-inline: 15px; }
+body.page-more .accountInstitutionPicker {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+body.page-more #accountSyncPanel .accountInstitutionButton {
+  flex: 0 0 64px;
+  scroll-snap-align: start;
+}
 body.page-more #accountSyncPanel .accountSyncImport { color: #e5b45d; }
 
 body.page-ledger #cashflow-workbench { --ledger-overview-accent: #d9a13d; }
@@ -171,6 +183,7 @@ body.page-investments #mobileHoldingList .personalPositionValues {
   display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 3px; justify-items: end; text-align: right; overflow-wrap: anywhere;
 }
 body.page-investments #mobileHoldingList .personalPositionValues > b { font-size: 15px; }
+body.page-investments #mobileHoldingList .personalPositionWeight { color: #b7b8be; font-weight: 600; }
 body.page-investments #mobileHoldingList .personalPositionValues small { font-size: 11px; }
 body.page-investments #mobileHoldingList .personalPositionValues small.up { color: var(--pams-profit); }
 body.page-investments #mobileHoldingList .personalPositionValues small.down { color: var(--pams-loss); }
