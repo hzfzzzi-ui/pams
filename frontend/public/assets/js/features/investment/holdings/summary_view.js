@@ -139,13 +139,11 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         ${mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
         ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
       </div>
-      ${profile.scopeIncomplete ? `<p>${profile.knownInvestmentAsOf ? '估值截至 ' + esc(profile.knownInvestmentAsOf) + ' · ' : ''}部分账户资料待核验</p>` : ''}
     `;
   }
   if (profile.scopeIncomplete) return `
     <div class="mobileHeroPrimaryMetric main">
       <span>已知投资持仓净值</span><strong class="mobileHeroValue">${profile.knownInvestmentValue == null ? '待核验' : formatCompactCurrency(profile.knownInvestmentValue)}</strong>
-      <p>${profile.knownInvestmentAsOf ? '估值截至 ' + esc(profile.knownInvestmentAsOf) + ' · ' : ''}部分账户资料待核验</p>
     </div>`;
   const value = safeNum(profile.value);
   const dailyPending = profile.dailyStatus === 'pending';
