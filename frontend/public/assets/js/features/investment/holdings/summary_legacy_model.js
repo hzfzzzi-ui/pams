@@ -280,7 +280,6 @@ export function canonicalPortfolioDashboardSummary({
     scopeIncomplete: portfolioSummary?.snapshot_scope_status === 'incomplete',
     knownInvestmentValue: (portfolioValuationState || portfolioSummary?.valuation_state)?.known_investment_value_cny ?? null,
     knownInvestmentAsOf: (portfolioValuationState || portfolioSummary?.valuation_state)?.as_of ?? null,
-    investmentMetricsState: portfolioValuationState || null,
     marketValue,
     totalPnl,
     currentFloatPnl,
@@ -364,18 +363,7 @@ export function makeMobileHeroProfiles({
     hideHeader: true,
     valueLabel: '持仓净值',
     cashLabel: '投资账户现金',
-    accountCard: {
-      net_value: {value: summary.knownInvestmentValue},
-      recent_daily_pnl: {value: summary.investmentMetricsState?.daily_pnl_cny,
-        as_of: summary.investmentMetricsState?.daily_pnl_cny == null ? null : summary.investmentMetricsState?.as_of},
-      cumulative_pnl: {value: summary.investmentMetricsState?.total_pnl_cny,
-        basis: summary.scopeIncomplete ? 'holding_cumulative_partial' : 'holding_cumulative'},
-      market_value: {value: summary.investmentMetricsState?.investment_value_cny},
-      cash: {value: null},
-      leverage: {value: null},
-      // Household liabilities also include credit cards. This card needs investment financing alone.
-      financing: {value: null},
-    },
+    accountCard: accountCards.investment_overview ?? {},
   };
   const profiles = {
     '全部': allProfile,

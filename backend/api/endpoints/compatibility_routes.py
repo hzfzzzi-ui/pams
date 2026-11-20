@@ -8,6 +8,7 @@ from domain.accounts.position_reference import read_historical_position_referenc
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
+from domain.investments.investment_overview import holdings_overview_card
 from domain.investments.holdings_account_cards import account_center_balances, build_holdings_account_cards
 from domain.investments.holding_market_history import holding_history, holding_price_comparison
 from domain.investments.personal_holdings import personal_holdings
@@ -188,16 +189,21 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                if not show_closed:
-                    published = page_projection.read_page(cur, "holdings", business_date=_investment_today_label_date())
-                    if published is not None:
-                        data = published["data"]
-                        if "personal_summary" not in data["holdings"]:
-                            if len(data["holdings"]["rows"]) >= 500:
-                                return json(build_holdings_page(cur, show_closed=False))
+                published = None if show_closed else page_projection.read_page(
+                    cur, "holdings", business_date=_investment_today_label_date())
+                if published is not None:
+                    data = published["data"]
+                    if "personal_summary" not in data["holdings"]:
+                        if len(data["holdings"]["rows"]) >= 500:
+                            published = None
+                        else:
                             data = {**data, "holdings": personal_holdings(data["holdings"])}
-                        return json({**data, "projection": published["projection"]})
-                return json(build_holdings_page(cur, show_closed=show_closed))
+                if published is None:
+                    data = build_holdings_page(cur, show_closed=show_closed)
+                else:
+                    data = {**data, "projection": published["projection"]}
+                overview = holdings_overview_card(data, _load_portfolio_accounts_config())
+                return json({**data, "account_cards": {**data["account_cards"], "investment_overview": overview}})
 
     @router.get("/api/investment/account-center-balances")
     def investment_account_center_balances():

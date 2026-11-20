@@ -48,3 +48,21 @@ def owner_ratio_case_sql(config):
     def build(alias="h"):
         return ratio_case_sql(alias, owner_ratios(config), default_owner_ratio(config))
     return build
+
+
+NON_INVESTMENT_ACCOUNT_TYPES = {
+    "benefit",
+    "bridge",
+    "credit_card",
+    "funding",
+    "liability",
+    "payment",
+    "receivable",
+    "wallet",
+}
+
+
+def is_investment_account(account):
+    if account.get("include_in_investments") is not None:
+        return bool(account["include_in_investments"])
+    return str(account.get("account_type") or "").lower() not in NON_INVESTMENT_ACCOUNT_TYPES

@@ -268,7 +268,6 @@ export function applyLegacySummaryPayload(payloads, context) {
       scopeIncomplete: canonicalSummary.scopeIncomplete,
       knownInvestmentValue: canonicalSummary.knownInvestmentValue,
       knownInvestmentAsOf: canonicalSummary.knownInvestmentAsOf,
-      investmentMetricsState: canonicalSummary.investmentMetricsState,
       marketValue: grandValue,
       totalPnl: grandPnl,
       currentFloatPnl,

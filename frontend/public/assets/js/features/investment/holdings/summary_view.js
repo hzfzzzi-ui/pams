@@ -101,8 +101,9 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   if (profile.accountCard) {
     const { net_value, recent_daily_pnl, cumulative_pnl, market_value, cash: cashMetric, leverage: leverageMetric,
       portfolio_share, financing } = profile.accountCard;
+    const metricLabel = (label, metric) => profile.key === '全部' && metric?.status === 'partial' ? `${label}（部分）` : label;
     const netValue = net_value?.value;
-    const netLabel = `${profile.valueLabel || '账户净值'}${net_value?.status === 'estimated' ? '（估算）' : ''}`;
+    const netLabel = `${profile.valueLabel || '账户净值'}${profile.key !== '全部' && net_value?.status === 'estimated' ? '（估算）' : ''}`;
     const daily = recent_daily_pnl?.value;
     const dailyAsOf = recent_daily_pnl?.as_of;
     const cumulative = cumulative_pnl?.value;
@@ -121,7 +122,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
     };
     const valueTone = amount => amount == null || Number(amount) === 0 ? '' : Number(amount) < 0 ? 'down' : 'up';
     const share = portfolio_share?.value;
-    const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}` : '最近一日盈亏';
+    const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}${recent_daily_pnl.status === 'partial' ? '（部分）' : ''}` : '最近一日盈亏';
     const dailyValue = daily == null && profile.key === 'A股基金' ? '同日数据待齐' : money(daily, true);
     return `
       ${profile.hideHeader ? '' : `<div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
@@ -129,14 +130,14 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
       </div></div>`}
       <div class="mobileHeroPrimaryGrid">
-        <div class="mobileHeroPrimaryMetric main"><span>${esc(netLabel)}</span><strong>${money(netValue)}</strong></div>
+        <div class="mobileHeroPrimaryMetric main"><span>${esc(metricLabel(netLabel, net_value))}</span><strong>${money(netValue)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(dailyLabel)}</span><strong class="${valueTone(daily)}">${dailyValue}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(cumulativeLabel || '累计盈亏')}</span><strong class="${valueTone(cumulative)}">${money(cumulative, true)}</strong></div>
       </div>
       <div class="mobileHeroMiniGrid">
-        ${mobileHeroMetaItem(profile.marketLabel || '持仓市值', money(market))}
-        ${mobileHeroMetaItem(profile.cashLabel || '现金余额', money(cash), Number(cash) < 0 ? 'down' : '')}
-        ${financing ? mobileHeroMetaItem('融资负债', money(financing.value))
+        ${mobileHeroMetaItem(metricLabel(profile.marketLabel || '持仓市值', market_value), money(market))}
+        ${mobileHeroMetaItem(metricLabel(profile.cashLabel || '现金余额', cashMetric), money(cash), Number(cash) < 0 ? 'down' : '')}
+        ${financing ? mobileHeroMetaItem(metricLabel('融资负债', financing), money(financing.value))
           : mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
         ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
       </div>

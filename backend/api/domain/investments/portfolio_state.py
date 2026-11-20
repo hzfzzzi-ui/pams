@@ -20,7 +20,7 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
-from domain.accounts.account_policy import excluded_accounts as _excluded_accounts, owner_ratio as _owner_ratio
+from domain.accounts.account_policy import is_investment_account, excluded_accounts as _excluded_accounts, owner_ratio as _owner_ratio
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.accounts.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
@@ -124,16 +124,6 @@ DATA_QUALITY_FIELDS = [
 ]
 
 LIABILITY_ACCOUNT_KINDS = {"credit_card"}
-NON_INVESTMENT_ACCOUNT_TYPES = {
-    "benefit",
-    "bridge",
-    "credit_card",
-    "funding",
-    "liability",
-    "payment",
-    "receivable",
-    "wallet",
-}
 
 
 def get_conn():
@@ -249,12 +239,7 @@ def _account_initial_capital_cny(account_cfg: dict[str, Any], account_code: str)
 
 def _is_investment_account(account_cfg: dict[str, Any], account_code: str) -> bool:
     cfg = (account_cfg.get("accounts") or {}).get(account_code) or {}
-    if cfg.get("include_in_investments") is not None:
-        return bool(cfg.get("include_in_investments"))
-    account_type = str(cfg.get("account_type") or "").lower()
-    if account_type in NON_INVESTMENT_ACCOUNT_TYPES:
-        return False
-    return True
+    return is_investment_account(cfg)
 
 
 def _net_statement_balance(value: Any, account_kind: str | None) -> Decimal | None:
