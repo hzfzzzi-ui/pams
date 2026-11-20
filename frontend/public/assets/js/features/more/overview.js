@@ -23,6 +23,7 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
       find('personalNet').textContent = money(latest?.market_value);
       find('personalGross').textContent = money(latest?.assets);
       find('personalDebt').textContent = money(latest?.liabilities);
+      find('personalCoverage').hidden = !latest || (latest.assets != null && latest.liabilities != null);
       find('personalAsOf').textContent = latest?.date || '暂无净资产记录';
     } catch {
       if (isActive()) find('personalAsOf').textContent = '净资产暂未读到';

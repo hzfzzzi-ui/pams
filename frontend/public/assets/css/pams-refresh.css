@@ -230,6 +230,14 @@ body.page-investments .tradeDateHeading {
   font-weight: 600;
 }
 
+body.page-more .assetCoverage {
+  margin: 12px 0 0;
+  color: #aaaab2;
+  font-size: 12px;
+  line-height: 1.5;
+}
+body.page-more .assetCoverage a { color: #dedee2; text-decoration: underline; }
+
 /* Keep both sides of a transfer readable, including long foreign-currency amounts. */
 body.page-ledger .ledgerPairRoute {
   grid-template-columns: minmax(0, 1fr) minmax(120px, 42%) minmax(0, 1fr);
