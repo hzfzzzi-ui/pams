@@ -5,6 +5,7 @@ body.app-shell {
   --refresh-glass: rgba(108,110,117,.30);
   --refresh-amber: #d9a13d;
 }
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes)[hidden] { display: none !important; }
 
 body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes) {
   display: grid;
@@ -118,3 +119,77 @@ body.page-account-import #screenshot-area {
   background: var(--refresh-panel);
 }
 body.page-account-import .import-modes button:disabled { opacity: .5; }
+
+/* Compact holding rows retain the same values and open the existing detail sheet. */
+body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading {
+  margin-top: 10px;
+  padding: 15px 14px 9px;
+  border: 1px solid var(--refresh-border);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background: var(--refresh-panel);
+  color: #f3f3f4;
+  font-size: 14px;
+  font-weight: 650;
+}
+body.page-investments #holdings-smart-table:not(.showFinancing) .mobileHoldingList {
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid var(--refresh-border);
+  border-top: 0;
+  border-radius: 0 0 18px 18px;
+  background: var(--refresh-panel);
+}
+body.page-investments #mobileHoldingList button.personalPosition {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 42%) !important;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 0;
+  border: 0;
+  border-bottom: 1px solid var(--refresh-border);
+  border-radius: 0;
+  background: transparent;
+}
+body.page-investments #mobileHoldingList button.personalPosition:last-child { border-bottom: 0; }
+.personalPositionIdentity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.personalPositionMark {
+  display: grid; place-items: center; flex: 0 0 34px; height: 34px;
+  border-radius: 11px; background: #30281b; color: #e4b662; font-size: 14px; font-weight: 650;
+}
+.personalPositionName { display: grid; gap: 4px; min-width: 0; }
+.personalPositionName strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.personalPositionName small { color: #a8a9ae; font-size: 11px; }
+body.page-investments #mobileHoldingList .personalPositionValues {
+  display: grid; min-width: 0; gap: 3px; justify-items: end; text-align: right; overflow-wrap: anywhere;
+}
+body.page-investments #mobileHoldingList .personalPositionValues > b { font-size: 15px; }
+body.page-investments #mobileHoldingList .personalPositionValues small { font-size: 11px; }
+
+/* Date groups and account rows use the same flat panel treatment. */
+body.page-ledger .ledgerStreamDay {
+  overflow: hidden;
+  margin-top: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-ledger .ledgerStreamDayHeader { padding: 12px 0 7px; }
+body.page-ledger .ledgerStreamCategoryIcon { background: #c89036; }
+body.page-more #accountSyncPanel .accountSyncCompact {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 14px;
+  background: #202124;
+}
+body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
+  min-height: 38px; padding: 0 12px; border: 1px solid var(--refresh-border);
+  border-radius: 10px; background: #303137; color: #f3f3f4;
+}
+body.page-account-import .import-modes button:disabled { cursor: not-allowed; }
+@media (max-width: 360px) {
+  body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { font-size: 12px; }
+  body.page-investments #mobileHoldingList button.personalPosition { grid-template-columns: minmax(0, 1fr) minmax(0, 44%) !important; }
+}
