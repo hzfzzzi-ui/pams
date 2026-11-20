@@ -164,12 +164,15 @@ function renderSummary(summary) {
 }
 
 function TransactionSummaryPanel(summary, rows) {
-  const amountText = key => {
+  const amountText = (key, includeCoverage = true, includeKnown = true) => {
     const partial = summary?.amount_coverage?.[key];
     const amount = summary?.[key] ?? partial?.known_subtotal;
     const text = amount == null ? '—' : formatCurrency(amount);
-    return partial ? `${amount == null ? '' : '已知 '}${text} · ${partial.missing_count} 笔待补` : text;
+    return partial ? `${amount == null || !includeKnown ? '' : '已知 '}${text}${includeCoverage ? ` · ${partial.missing_count} 笔待补` : ''}` : text;
   };
+  const coverageText = key => summary?.amount_coverage?.[key] ? `${summary.amount_coverage[key].missing_count} 笔待补 · ` : '';
+  const amountLabel = (label, key) => summary?.amount_coverage?.[key] && (summary?.[key] ?? summary.amount_coverage[key].known_subtotal) != null
+    ? `${label} · 已知` : label;
   const buy = summary?.buy_amount_personal_cny;
   const sell = summary?.sell_amount_personal_cny;
   const fees = summary?.fees_personal_cny;
@@ -197,14 +200,14 @@ function TransactionSummaryPanel(summary, rows) {
       </div>
       <div class="transactionOverviewMetrics">
         <div>
-          <span>个人买入</span>
-          <strong>${amountText('buy_amount_personal_cny')}</strong>
-          <small>${ownerAdjusted ? `账户原始 ${amountText('buy_amount_cny')}` : '与账户原始一致'}</small>
+          <span>${amountLabel('个人买入', 'buy_amount_personal_cny')}</span>
+          <strong>${amountText('buy_amount_personal_cny', false, false)}</strong>
+          <small>${coverageText('buy_amount_personal_cny')}${ownerAdjusted ? `账户原始 ${amountText('buy_amount_cny')}` : '与账户原始一致'}</small>
         </div>
         <div>
-          <span>个人卖出</span>
-          <strong>${amountText('sell_amount_personal_cny')}</strong>
-          <small>${ownerAdjusted ? `账户原始 ${amountText('sell_amount_cny')}` : '与账户原始一致'}</small>
+          <span>${amountLabel('个人卖出', 'sell_amount_personal_cny')}</span>
+          <strong>${amountText('sell_amount_personal_cny', false, false)}</strong>
+          <small>${coverageText('sell_amount_personal_cny')}${ownerAdjusted ? `账户原始 ${amountText('sell_amount_cny')}` : '与账户原始一致'}</small>
         </div>
         <div class="${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
           <span>个人税费</span>

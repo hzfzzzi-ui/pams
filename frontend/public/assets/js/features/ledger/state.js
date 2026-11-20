@@ -24,7 +24,7 @@ export function createLedgerState() {
   trendMode: 'monthly',
   activePanel: 'overview',
   overviewPeriod: 'ytd',
-  overviewFlow: 'income',
+  overviewFlow: 'expense',
   transferPeriod: 'ytd',
   transferMonth: '',
   streamIsRemembered: false,
