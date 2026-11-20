@@ -61,3 +61,60 @@ body.page-account-import .import-file-label {
   border-radius: 12px;
 }
 body.app-shell :is(a, button, summary):focus-visible { outline-offset: 2px; }
+
+/* Investment analysis, transactions and the common instrument detail sheet. */
+body.page-investments :is(#investment-ledger, .portfolioRiskPanel, .portfolioConfigPanel) {
+  background: var(--refresh-panel);
+  border: 1px solid var(--refresh-border);
+  border-radius: 18px;
+}
+body.page-investments .riskSubnav { position: static; margin-top: -6px; }
+body.page-investments .holdingMarketDetail .hmHero {
+  padding: 16px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-investments .holdingMarketDetail .hmPanel {
+  background: var(--refresh-panel);
+  border: 1px solid var(--refresh-border);
+}
+body.page-investments .holdingMarketDetail .hmBar button[aria-pressed="true"] {
+  background: var(--refresh-glass);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+}
+body.page-investments .holdingMarketDetail .hmTradeRow {
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--refresh-border);
+}
+body.page-investments .holdingMarketDetail details {
+  padding: 14px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+
+/* The same compact rows serve income, expense, paired transfers and loans. */
+body.page-ledger :is(.ledgerPair, .ledgerListRow, .ledgerLoanLine) {
+  border-color: var(--refresh-border);
+}
+body.page-ledger .ledgerPair {
+  margin-block: 5px;
+  padding-inline: 12px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-ledger .ledgerLoanCard { padding: 14px; }
+body.page-ledger .ledgerListRow { padding-block: 12px; }
+body.page-ledger .ledgerPairDetails { padding-bottom: 14px; }
+
+/* Keep every account's existing capabilities and disabled states. */
+body.page-account-import :is(.import-steps, .import-modes) { gap: 2px; }
+body.page-account-import #screenshot-area {
+  padding: 16px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-account-import .import-modes button:disabled { opacity: .5; }
