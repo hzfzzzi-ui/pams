@@ -1,4 +1,4 @@
-.page-investments #return-trend {
+:is(#return-trend, #asset-overview) {
   --analysis-panel: #18191b;
   --analysis-rule: #2b2c30;
 }
@@ -8,26 +8,26 @@
   gap: 12px;
 }
 
-#return-trend .investmentAnalysisCard {
+:is(#return-trend, #asset-overview) .investmentAnalysisCard {
   min-width: 0;
   padding: 14px;
   border-radius: 21px;
   background: var(--analysis-panel);
 }
 
-#return-trend .investmentAnalysisCard h3 {
+:is(#return-trend, #asset-overview) .investmentAnalysisCard h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 650;
   line-height: 1.3;
 }
 
-#return-trend .returnChartHeader {
+:is(#return-trend, #asset-overview) .returnChartHeader {
   gap: 0 8px;
   margin: 0 0 3px;
 }
 
-#return-trend .returnWindowSegment,
+:is(#return-trend, #asset-overview) .returnWindowSegment,
 #return-trend .returnSeriesToggle,
 #return-trend .analysisSwitch {
   display: flex;
@@ -42,7 +42,7 @@
   overflow: visible;
 }
 
-#return-trend :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button {
+:is(#return-trend, #asset-overview) :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button {
   position: relative;
   min-height: 44px;
   padding: 0 7px;
@@ -57,15 +57,15 @@
   cursor: pointer;
 }
 
-#return-trend :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button:is(:hover, .active) {
+:is(#return-trend, #asset-overview) :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button:is(:hover, .active) {
   color: var(--pams-text-primary);
 }
 
-#return-trend :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button.active {
+:is(#return-trend, #asset-overview) :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button.active {
   font-weight: 650;
 }
 
-#return-trend :is(.returnWindowSegment, .analysisSwitch) button + button::before {
+:is(#return-trend, #asset-overview) :is(.returnWindowSegment, .analysisSwitch) button + button::before {
   position: absolute;
   top: calc(50% - 7px);
   left: 0;
@@ -75,13 +75,13 @@
   content: "";
 }
 
-#return-trend :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button:focus-visible {
+:is(#return-trend, #asset-overview) :is(.returnWindowSegment, .returnSeriesToggle, .analysisSwitch) button:focus-visible {
   outline: 2px solid var(--pams-text-primary);
   outline-offset: -2px;
   border-radius: 6px;
 }
 
-#return-trend .returnWindowSegment {
+:is(#return-trend, #asset-overview) .returnWindowSegment {
   flex: 0 0 auto;
   margin: 0 0 0 auto;
 }
@@ -111,65 +111,65 @@
   background: transparent !important;
 }
 
-#return-trend .returnNavPanel {
+#asset-overview .returnNavPanel {
   margin: 0;
   border: 0;
 }
 
-#return-trend .returnNavStats {
+#asset-overview .returnNavStats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 8px 0;
 }
 
-#return-trend .returnNavCurrent,
-#return-trend .returnNavStats > .muted {
+#asset-overview .returnNavCurrent,
+#asset-overview .returnNavStats > .muted {
   grid-column: 1 / -1;
 }
 
-#return-trend .returnNavCurrent,
-#return-trend .returnNavMetric {
+#asset-overview .returnNavCurrent,
+#asset-overview .returnNavMetric {
   display: block;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-#return-trend .returnNavCurrent {
+#asset-overview .returnNavCurrent {
   padding-bottom: 9px;
 }
 
-#return-trend .returnNavMetric {
+#asset-overview .returnNavMetric {
   padding: 8px 8px 2px 0;
   border-top: 1px solid var(--analysis-rule);
 }
 
-#return-trend .returnNavMetric + .returnNavMetric {
+#asset-overview .returnNavMetric + .returnNavMetric {
   padding-left: 10px;
   box-shadow: inset 1px 0 var(--analysis-rule);
 }
 
-#return-trend .returnNavStats :is(em, small) {
+#asset-overview .returnNavStats :is(em, small) {
   display: block;
   color: var(--pams-text-muted);
   font-size: 11px;
   font-style: normal;
 }
 
-#return-trend .returnNavStats strong {
+#asset-overview .returnNavStats strong {
   display: block;
   margin-top: 2px;
   font: 650 14px/1.3 var(--pams-font-sans);
   font-variant-numeric: tabular-nums;
 }
 
-#return-trend .returnNavCurrent strong {
+#asset-overview .returnNavCurrent strong {
   font-size: clamp(23px, 7vw, 29px);
 }
 
-#return-trend .returnNavMetric.up strong { color: var(--pams-profit); }
-#return-trend .returnNavMetric.down strong { color: var(--pams-loss); }
+#asset-overview .returnNavMetric.up strong { color: var(--pams-profit); }
+#asset-overview .returnNavMetric.down strong { color: var(--pams-loss); }
 
-.page-investments[data-invest-tab="analysis"] #return-trend .returnNavChartWrap {
+.page-investments[data-invest-tab="analysis"] #asset-overview .returnNavChartWrap {
   height: 132px !important;
   min-height: 0 !important;
   padding: 0;
@@ -217,7 +217,11 @@
 #return-trend .analysisPanelPage { padding-top: 0; border-top: 0; }
 
 @media (max-width: 350px) {
-  #return-trend .investmentAnalysisCard { padding-inline: 11px; }
+  :is(#return-trend, #asset-overview) .investmentAnalysisCard { padding-inline: 11px; }
   #return-trend .returnSeriesToggle button,
-  #return-trend .returnWindowSegment button { padding-inline: 5px; }
+  :is(#return-trend, #asset-overview) .returnWindowSegment button { padding-inline: 5px; }
 }
+
+.riskSubnav[hidden] { display: none; }
+
+button[data-open-financing] { background: transparent; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }

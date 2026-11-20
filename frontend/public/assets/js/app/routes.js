@@ -1,6 +1,6 @@
 // Presentation routes only. These names never grant access to API operations.
 export const CONTENT_PAGES = Object.freeze([
-  'investments.html', 'ledger.html', 'more.html',
+  'more.html', 'investments.html', 'ledger.html',
   'accounts.html', 'account_import.html',
 ]);
 export const PRIMARY_PAGES = Object.freeze(CONTENT_PAGES.slice(0, 3));

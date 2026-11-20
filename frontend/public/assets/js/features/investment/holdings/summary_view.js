@@ -87,13 +87,14 @@ function currentMobileHeroGroup() {
   return filter?.dataset.heroGroup || filter?.value || '全部';
 }
 
-function mobileHeroMetaItem(label, value, tone = '') {
+function mobileHeroMetaItem(label, value, tone = '', financingDetail = false) {
   if (value == null || value === '') return '';
+  const tag = financingDetail ? 'button' : 'div';
   return `
-    <div class="mobileHeroMiniMetric ${tone}">
+    <${tag} class="mobileHeroMiniMetric ${tone}" ${financingDetail ? 'type="button" data-open-financing aria-label="查看投资融资明细"' : ''}>
       <span>${esc(label)}</span>
       <strong>${value}</strong>
-    </div>
+    </${tag}>
   `;
 }
 
@@ -144,7 +145,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       <div class="mobileHeroMiniGrid">
         ${mobileHeroMetaItem(metricLabel(profile.marketLabel || '持仓市值', market_value), money(market))}
         ${mobileHeroMetaItem(metricLabel(profile.cashLabel || '现金余额', cashMetric), money(cash), Number(cash) < 0 ? 'down' : '')}
-        ${financing ? mobileHeroMetaItem(metricLabel('融资负债', financing), money(financing.value))
+        ${financing ? mobileHeroMetaItem(metricLabel('融资负债', financing), money(financing.value), '', true)
           : mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
         ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
       </div>

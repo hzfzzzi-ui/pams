@@ -2,7 +2,7 @@
   "name": "PAMS",
   "short_name": "PAMS",
   "description": "Personal Asset Management System",
-  "start_url": "investments.html",
+  "start_url": "app.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#05070a",

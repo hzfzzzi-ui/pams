@@ -248,8 +248,8 @@ function normalizeInvestmentNavRows(rows) {
         market_value: marketValue,
         nav_scope: partial ? 'partial:' + [...row.available_accounts].sort().join(',') : 'complete',
         available_account_count: partial ? row.available_accounts.length : null,
-        assets: safeNum(row.assets),
-        liabilities: safeNum(row.liabilities),
+        assets: row.assets == null ? null : safeNum(row.assets),
+        liabilities: row.liabilities == null ? null : safeNum(row.liabilities),
       };
     })
     .filter(Boolean)

@@ -76,7 +76,7 @@ export function mount(root, context) {
         select.value = currentGroup;
         select.dataset.heroGroup = heroGroup;
       }
-      if (primary) primary.innerHTML = groups.map(g => button(g,g,g === currentGroup)).join('');
+      if (primary) primary.innerHTML = groups.filter(g => g !== '负债' || currentGroup === g).map(g => button(g === '负债' ? '融资' : g, g, g === currentGroup)).join('');
       if (secondary) {
         secondary.hidden = !segments.length || !['股票','基金'].includes(currentGroup);
         secondary.innerHTML = secondary.hidden ? '' : button(currentGroup === '股票' ? '全部市场' : '全部基金','',!currentSegment)
@@ -89,13 +89,16 @@ export function mount(root, context) {
       }
       window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: heroGroup, sourceRoot: root } }));
     }
-    if (select) select.innerHTML = groups.map(g => `<option>${esc(g)}</option>`).join('');
+    if (select) select.innerHTML = groups.map(g => `<option value="${esc(g)}">${esc(g === '负债' ? '融资' : g)}</option>`).join('');
     function chooseGroup(group) {
       currentGroup = group;
       currentSegment = '';
       apply();
     }
     const removers = [
+      scope.listen(document.getElementById('mobilePortfolioHero'), 'click', event => {
+        if (event.target.closest('[data-open-financing]')) chooseGroup('负债');
+      }),
       scope.listen(select,'change',() => chooseGroup(select.value)),
       scope.listen(primary,'click',event => {
         const btn = event.target.closest('[data-filter]');
