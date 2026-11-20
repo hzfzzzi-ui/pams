@@ -165,6 +165,8 @@ body.page-investments #mobileHoldingList .personalPositionValues {
 }
 body.page-investments #mobileHoldingList .personalPositionValues > b { font-size: 15px; }
 body.page-investments #mobileHoldingList .personalPositionValues small { font-size: 11px; }
+body.page-investments #mobileHoldingList .personalPositionValues small.up { color: var(--pams-profit); }
+body.page-investments #mobileHoldingList .personalPositionValues small.down { color: var(--pams-loss); }
 
 /* Date groups and account rows use the same flat panel treatment. */
 body.page-ledger .ledgerStreamDay {
