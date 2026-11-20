@@ -10503,6 +10503,22 @@ body[data-account-filter="transit"] #accountOverviewRows tr[data-account-issue]:
     min-height: 0 !important;
   }
 
+  .page-investments .mobileHeroAll .mobileHeroPrimaryGrid {
+    row-gap: 18px;
+    padding: 6px 0 16px;
+  }
+
+  .page-investments .mobileHeroAll .mobileHeroPrimaryMetric.main strong {
+    margin-top: 6px;
+    font-size: clamp(30px, 8vw, 39px) !important;
+    letter-spacing: -.035em;
+  }
+
+  .page-investments .mobileHeroAll .mobileHeroMiniGrid {
+    row-gap: 14px;
+    padding: 14px 0 3px;
+  }
+
   .page-investments .mobilePortfolioHero.mobileHeroCategory {
     height: auto !important;
     min-height: 0 !important;
