@@ -191,6 +191,115 @@ body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
   border-radius: 10px; background: #303137; color: #f3f3f4;
 }
 body.page-account-import .import-modes button:disabled { cursor: not-allowed; }
+
+/* Keep long transaction totals inside their own columns. */
+body.page-investments #investment-ledger .transactionOverviewMetrics {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 10px !important;
+}
+body.page-investments #investment-ledger .transactionOverviewMetrics > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 12px;
+  background: #202124;
+}
+body.page-investments #investment-ledger .transactionOverviewMetrics :is(strong, small) {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+body.page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) { grid-column: auto !important; }
+body.page-investments .recentTradePanel {
+  padding: 14px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 18px;
+  background: var(--refresh-panel);
+}
+body.page-investments .tradeLedgerItem { min-width: 0; }
+body.page-investments .tradeItemMain, body.page-investments .tradeItemNumbers { min-width: 0; }
+body.page-investments .tradeItemNumbers :is(strong, small) { overflow-wrap: anywhere; }
+
+/* Keep both sides of a transfer readable, including long foreign-currency amounts. */
+body.page-ledger .ledgerPairRoute {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 42%) minmax(0, 1fr);
+  gap: 4px;
+}
+body.page-ledger .ledgerPairCenter { overflow-wrap: normal; }
+body.page-ledger .ledgerPairAmount {
+  white-space: nowrap;
+  font-size: clamp(10px, 3vw, 13px);
+  letter-spacing: -.025em;
+}
+body.page-ledger .ledgerPairParty { gap: 4px; }
+body.page-ledger .ledgerPairAccount { overflow-wrap: normal; word-break: normal; }
+body.page-ledger .ledgerPairAvatar { flex-basis: 30px; width: 30px; height: 30px; }
+body.page-ledger .ledgerRepaymentRoute { grid-template-columns: minmax(0, 1fr) minmax(110px, 38%) minmax(0, 1fr); }
+
+/* Use the same flat cards for risk, account and import details. */
+body.page-investments :is(.portfolioRiskPanel, .portfolioConfigPanel) {
+  padding: 15px;
+}
+body.page-investments .holdingMarketDetail .hmPanel { margin-block: 10px; }
+body.page-investments .holdingMarketDetail .hmBreakdown {
+  padding: 14px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-more #accountSyncPanel .accountSyncCompact {
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--refresh-border);
+  border-radius: 0;
+  background: transparent;
+}
+body.page-more #accountSyncPanel .accountSyncCompact:last-child { border-bottom: 0; }
+body.page-more .accountSyncEntry .accountSyncMetadata { gap: 2px 8px; }
+body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
+  min-height: 36px;
+  margin-top: 4px;
+}
+body.page-account-import .import-meta { overflow-wrap: anywhere; }
+body.page-account-import .import-modes { margin-block: 16px; }
+body.page-ledger .ledgerStreamDay { margin-top: 8px; }
+body.page-ledger .ledgerStreamDayHeader { padding-block: 9px 5px; }
+body.page-ledger .ledgerListRow { padding-block: 10px; }
+body.page-more #asset-overview { gap: 12px; }
+body.page-more .assetCard { padding: 16px; }
+body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading span:last-child {
+  color: #a8a9ae;
+  font-size: 11px;
+}
+.personalPositionName strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+body.page-investments :is(.returnWindowSegment, .analysisSwitch) button.active,
+body.page-more .returnWindowSegment button.active {
+  padding-inline: 9px;
+  border-radius: 10px;
+  background: var(--refresh-glass);
+  color: #f3f3f4;
+}
+body.page-investments #return-trend .investmentAnalysisCard {
+  border: 1px solid var(--refresh-border);
+}
+body.page-investments .portfolioConfigPanel .portfolioRuleNode {
+  border-color: var(--refresh-border);
+  background: var(--refresh-panel);
+}
+body.page-ledger .ledgerPanelGroup { gap: 10px; }
+body.page-ledger #transferReviewPanel:not([hidden]) { gap: 8px; }
+html.pams-content body.page-investments .appBottomSheetPanel {
+  max-height: min(78vh, 620px, calc(100dvh - var(--pams-primary-nav-clearance)));
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+}
 @media (max-width: 360px) {
   body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { font-size: 12px; }
   body.page-investments #mobileHoldingList button.personalPosition { grid-template-columns: minmax(0, 1fr) minmax(0, 44%) !important; }
