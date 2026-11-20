@@ -32,6 +32,12 @@ export function createLedgerController({ root = document, host = window, sheetSe
   const variant = host.location?.search || '';
   const savedView = memory?.read('view', variant);
   restoreLedgerViewState(state, viewState || savedView?.state);
+  const entry = new URLSearchParams(variant);
+  if (entry.has('account') && !viewState) {
+    state.recentAccountFilter = entry.get('account');
+    state.recentAccountGroup = '';
+    state.recentFlowFilter = entry.get('flow') === 'personal_loan' ? 'personal_loan' : '';
+  }
   const model = createLedgerLegacyModel(state);
   const templates = createLedgerTemplates({ state, model });
   const dom = createLedgerDom(root);

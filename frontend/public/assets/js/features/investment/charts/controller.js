@@ -78,7 +78,7 @@ export function createInvestmentChartController({ root = document, host = window
     if (!current()) return null;
     const el = root.getElementById ? root.getElementById('investmentReturnChart') : root.querySelector('#investmentReturnChart');
     if (!el) return null;
-    loadNavOnce().catch(() => null);
+
     const generation = ++returnGeneration;
     contributionObserver?.disconnect();
     for (const key of sectionReads.keys()) reads.cancel(key);

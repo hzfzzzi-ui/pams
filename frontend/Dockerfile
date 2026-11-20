@@ -82,7 +82,7 @@ RUN printf '%s\n' \
 '  location = /accounts.html { if ($arg_content != 1) { return 302 /app.html?view=accounts.html&$args; } add_header Cache-Control "no-store" always; }' \
 '  location = /data_sources.html { return 404; }' \
 '  location = /account_import.html { if ($arg_content != 1) { return 302 /app.html?view=account_import.html&$args; } add_header Cache-Control "no-store" always; }' \
-'  location = /index.html { return 302 /investments.html; }' \
+'  location = /index.html { return 302 /app.html; }' \
 '  location = /risk.html { return 302 /investments.html#portfolio-risk-disclosure; }' \
 '  location = /holdings.html { return 404; }' \
 '  location = /holdings_categories.html { return 404; }' \
@@ -93,7 +93,7 @@ RUN printf '%s\n' \
 '  location = /watchlist.html { return 404; }' \
 '  location / {' \
 '    add_header Cache-Control "no-store, max-age=0" always;' \
-'    try_files $uri $uri/ /investments.html;' \
+'    try_files $uri $uri/ /app.html;' \
 '  }' \
 '  location ~ "^/assets/build-[0-9a-f]{20}/" {' \
 '    add_header Cache-Control "public, max-age=31536000, immutable";' \

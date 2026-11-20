@@ -45,8 +45,8 @@ function fitVisibleViewport() {
 
 function contentUrl() {
   const url = new URL(location.href);
-  const page = url.searchParams.get('view') || 'investments.html';
-  url.pathname = new URL(pages.has(page) ? page : 'investments.html', location.href).pathname;
+  const page = url.searchParams.get('view') || 'more.html';
+  url.pathname = new URL(pages.has(page) ? page : 'more.html', location.href).pathname;
   url.searchParams.delete('view');
   const target = canonicalContent(url);
   target.searchParams.set('content', '1');

@@ -1,3 +1,4 @@
+import { createAssetOverview } from './overview.js';
 import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createAccountSyncLoader } from '../accounts/account_sync_controller.js';
 import { accountSyncMetadata } from '../accounts/account_sync_view.js';
@@ -27,6 +28,14 @@ export function mount(root, context) {
   let navGrowthLoaded = false;
   let navGrowthPending;
   let reviewPanel;
+  let accountsReady = null;
+  const overview = createAssetOverview(root, {win, isActive: () => alive, readAccounts: ensureAccounts});
+  function ensureAccounts() {
+    accountsReady ??= loadAccountSync().then(() => {
+      if (accountRetry && !accountRetry.hidden) accountsReady = null;
+    });
+    return accountsReady;
+  }
   function openAccount(account, review = false, balanceRequested = false) {
     reviewPanel = openSheet(review ? account.label + ' · 待核查' : account.label);
     if (!reviewPanel) return;
@@ -52,6 +61,7 @@ export function mount(root, context) {
     reviewPanel.prepend(actions);
   }
   function locateAccount(container, groups) {
+    overview.renderCreditCards(groups);
     if (!targetAccount) return;
     const item = [...container.querySelectorAll('[data-account-code]')].find(el => el.dataset.accountCode === targetAccount);
     const account = groups.flatMap(group => group.rows).find(row => row.account_code === targetAccount);
@@ -67,10 +77,24 @@ export function mount(root, context) {
     openAccount: openSheet ? openAccount : undefined,
     openReview: openSheet ? account => openAccount(account, true) : undefined, targetInstitution, onRendered: locateAccount });
 
-  function onAccountRetry() { void loadAccountSync(); }
+  function onAccountRetry() { accountsReady = null; void ensureAccounts(); }
 
   function openRequestedAccounts() {
-    if (accountCenter && (targetAccount || targetInstitution || location?.hash === '#account-center')) accountCenter.open = true;
+    const hash = location?.hash;
+    const toolsRequested = ['#moreAdvanced', '#moreNavGrowthDetails'].includes(hash);
+    const id = toolsRequested || hash === '#account-center' || (!hash && (targetAccount || targetInstitution))
+      ? 'account-center' : 'asset-overview';
+    if (toolsRequested) find('moreAdvanced').open = true;
+    if (hash === '#moreNavGrowthDetails') details.open = true;
+    for (const section of [accountCenter, find('asset-overview')]) {
+      if (section) section.hidden = section.id !== id;
+    }
+    for (const link of root.querySelectorAll('.assetTabs a')) {
+      if (link.hash === '#' + id) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    }
+    if (id === 'account-center') return ensureAccounts();
+    if (id === 'asset-overview') return overview.load();
   }
 
   function loadNavGrowthExplanationOnce() {
@@ -101,6 +125,7 @@ export function mount(root, context) {
   function dispose() {
     if (!alive) return;
     alive = false;
+    overview.dispose();
     reads.dispose();
     if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
@@ -119,9 +144,9 @@ export function mount(root, context) {
   accountRetry?.addEventListener('click', onAccountRetry);
   win?.addEventListener('hashchange', openRequestedAccounts);
   win?.addEventListener('pagehide', dispose);
-  openRequestedAccounts();
+  controller.ready = openRequestedAccounts();
   if (details?.open) void loadNavGrowthExplanationOnce();
-  controller.ready = loadAccountSync();
+
   return controller;
 }
 

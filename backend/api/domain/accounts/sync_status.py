@@ -275,7 +275,7 @@ def read_account_sync(cur, config):
         parent, group_label, label = account_display(config, code, code)
         group = groups.setdefault(parent, {'code': parent, 'label': group_label or parent, 'rows': []})
         row = {
-            'account_code': code, 'label': label,
+            'account_code': code, 'label': label, 'account_type': cfg.get('account_type'),
             'currency': cfg.get('base_currency', 'CNY'), 'active': code in active,
             'can_import': bool(code in active and registered.get(code) and supported_import_modes(code, import_statement_accounts)),
             'show_investment': cfg.get('account_type') in {'brokerage', 'fund_platform', 'cash_management'} or bool(trades.get(code)),

@@ -65,7 +65,7 @@ function bindContributionTabs() {
 }
 
 function bindInvestmentPageTabs() {
-  const links = Array.from(document.querySelectorAll('[data-invest-tab]'));
+  const links = Array.from(document.querySelectorAll('[data-invest-tab], [data-invest-subtab]'));
   const panels = Array.from(document.querySelectorAll('[data-invest-panel]'));
   if (!links.length || !panels.length) return;
 
@@ -103,8 +103,11 @@ function bindInvestmentPageTabs() {
   const setActive = (nextTab, options = {}) => {
     activeTab = nextTab || 'holdings';
     document.body.dataset.investTab = activeTab;
+    const riskNav = document.querySelector('.riskSubnav');
+    if (riskNav) riskNav.hidden = !['risk', 'allocation'].includes(activeTab);
     for (const link of links) {
-      const active = link.dataset.investTab === activeTab;
+      const active = (link.dataset.investTab || link.dataset.investSubtab) === activeTab ||
+        (link.dataset.investTab === 'risk' && activeTab === 'allocation');
       link.classList.toggle('is-active', active);
       if (active) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
@@ -117,7 +120,7 @@ function bindInvestmentPageTabs() {
     syncCategoryVisibility();
 
     if (options.updateHash) {
-      const href = links.find(link => link.dataset.investTab === activeTab)?.getAttribute('href');
+      const href = links.find(link => (link.dataset.investTab || link.dataset.investSubtab) === activeTab)?.getAttribute('href');
       if (href) replaceContentAddress(href);
     }
   };
@@ -126,7 +129,7 @@ function bindInvestmentPageTabs() {
     scope.listen(link, 'click', (event) => {
       if (!media.matches) return;
       event.preventDefault();
-      setActive(link.dataset.investTab, { updateHash: true });
+      setActive(link.dataset.investTab || link.dataset.investSubtab, { updateHash: true });
     });
   }
 
@@ -236,9 +239,6 @@ function getInvestmentChartState() {
   return getInvestmentCharts()?.state || null;
 }
 
-function loadInvestmentNavChartOnce() {
-  return getInvestmentCharts()?.loadNavOnce() || Promise.resolve(null);
-}
 
 function renderInvestmentReturnChart() {
   return getInvestmentCharts()?.renderReturns() || Promise.resolve(null);
@@ -367,7 +367,7 @@ function promoteHoldingsTable() {
   mounted.set(root, instance);
   context.bootstrap?.();
   renderReturnMethodBar(); CategoryDetailTabs(); bindContributionTabs(); bindInvestmentPageTabs(); promoteHoldingsTable();
-  if (document.body.dataset.investTab === 'analysis') loadInvestmentNavChartOnce().catch(() => null);
+
   runWhenInvestmentAnalysisVisible(() => setupAnalysisHeavyLoaders());
   instance.ready = load();
   watchPageRead(scope, window, load);
