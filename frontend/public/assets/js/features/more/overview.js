@@ -9,9 +9,12 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
   const cards = find('assetCards');
   let chart;
   let financingLoaded = false;
+  let financingLoading = false;
 
   async function load() {
     if (!find('asset-overview')) return;
+    void readFinancing();
+    void onCards();
     chart ??= createInvestmentChartController({root, host: win, loadChartClass: () => loadChart(win),
       presenters: {esc, fmtCny, fmtSignedCny, formatNumber, formatPercentRate}});
     try {
@@ -23,6 +26,7 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
       find('personalNet').textContent = money(latest?.market_value);
       find('personalGross').textContent = money(latest?.assets);
       find('personalDebt').textContent = money(latest?.liabilities);
+      find('personalCoverage').hidden = !latest || (latest.assets != null && latest.liabilities != null);
       find('personalAsOf').textContent = latest?.date || '暂无净资产记录';
     } catch {
       if (isActive()) find('personalAsOf').textContent = '净资产暂未读到';
@@ -45,7 +49,8 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
   }
 
   async function readFinancing() {
-    if (!financing.open || financingLoaded) return;
+    if (!financing.open || financingLoaded || financingLoading) return;
+    financingLoading = true;
     const container = financing.querySelector('div');
     container.textContent = '正在读取…';
     try {
@@ -59,6 +64,8 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
       }
     } catch {
       if (isActive()) container.textContent = '融资明细暂未读到，请重新展开';
+    } finally {
+      financingLoading = false;
     }
   }
 

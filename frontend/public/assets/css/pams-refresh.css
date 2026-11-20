@@ -48,13 +48,32 @@ body.page-ledger :is(.ledgerOverviewCard, .ledgerLoanCard) {
 body.page-more .assetCard { padding: 19px; }
 body.page-more .assetFigures { gap: 0; }
 body.page-more .assetFigures a + a { border-left: 1px solid var(--refresh-border); padding-left: 16px; }
-body.page-more #asset-overview .returnNavChartWrap { height: 180px; }
+body.page-more #asset-overview .returnNavChartWrap { height: 132px; }
 body.page-more .assetDebtRow { padding: 10px 0; }
 body.page-more .accountInstitutionPanel { padding-inline: 15px; }
+body.page-more .accountInstitutionPicker {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+body.page-more #accountSyncPanel .accountInstitutionButton {
+  flex: 0 0 64px;
+  scroll-snap-align: start;
+}
 body.page-more #accountSyncPanel .accountSyncImport { color: #e5b45d; }
 
 body.page-ledger #cashflow-workbench { --ledger-overview-accent: #d9a13d; }
-body.page-ledger .ledgerTextSwitch button[aria-pressed="true"] { color: #e4b662; }
+body.page-ledger .ledgerTextSwitch button[aria-pressed="true"] {
+  color: #f3f3f4;
+  background: var(--refresh-glass);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.09);
+}
+body.page-ledger .ledgerTextSwitch button + button::before { content: none; }
+body.page-ledger #cashflow-workbench .ledgerOverviewPeriod { margin-bottom: 8px; }
+body.page-ledger #cashflow-workbench .ledgerOverviewPeriod h3 { font-size: 15px; }
 body.page-account-import { --import-yellow: #d9a13d; }
 body.page-account-import .import-file-label {
   background: var(--refresh-panel);
@@ -164,6 +183,7 @@ body.page-investments #mobileHoldingList .personalPositionValues {
   display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 3px; justify-items: end; text-align: right; overflow-wrap: anywhere;
 }
 body.page-investments #mobileHoldingList .personalPositionValues > b { font-size: 15px; }
+body.page-investments #mobileHoldingList .personalPositionWeight { color: #b7b8be; font-weight: 600; }
 body.page-investments #mobileHoldingList .personalPositionValues small { font-size: 11px; }
 body.page-investments #mobileHoldingList .personalPositionValues small.up { color: var(--pams-profit); }
 body.page-investments #mobileHoldingList .personalPositionValues small.down { color: var(--pams-loss); }
@@ -191,7 +211,167 @@ body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
   border-radius: 10px; background: #303137; color: #f3f3f4;
 }
 body.page-account-import .import-modes button:disabled { cursor: not-allowed; }
+
+/* Keep long transaction totals inside their own columns. */
+body.page-investments #investment-ledger .transactionOverviewMetrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0 !important;
+}
+body.page-investments #investment-ledger .transactionOverviewMetrics > div {
+  min-width: 0;
+  padding: 9px 10px 9px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+body.page-investments #investment-ledger .transactionOverviewMetrics :is(strong, small) {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+body.page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) { grid-column: 1 / -1 !important; border-top: 1px solid var(--refresh-border); }
+body.page-investments #investment-ledger .transactionOverview {
+  padding: 16px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 18px;
+  background: var(--refresh-panel);
+}
+body.page-investments .recentTradePanel {
+  padding: 14px !important;
+  border: 1px solid var(--refresh-border) !important;
+  border-radius: 18px !important;
+  background: var(--refresh-panel) !important;
+}
+body.page-investments .tradeLedgerItem { min-width: 0; }
+body.page-investments .tradeItemMain, body.page-investments .tradeItemNumbers { min-width: 0; }
+body.page-investments .tradeItemNumbers :is(strong, small) { overflow-wrap: anywhere; }
+body.page-investments .tradeDateHeading {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #292a2e;
+  color: #d4d4d8;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body.page-more .assetCoverage {
+  margin: 12px 0 0;
+  color: #aaaab2;
+  font-size: 12px;
+  line-height: 1.5;
+}
+body.page-more .assetCoverage a { color: #dedee2; text-decoration: underline; }
+
+/* Keep both sides of a transfer readable, including long foreign-currency amounts. */
+body.page-ledger .ledgerPairRoute {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 42%) minmax(0, 1fr);
+  gap: 4px;
+}
+body.page-ledger .ledgerPairCenter { overflow-wrap: normal; }
+body.page-ledger .ledgerPairAmount {
+  white-space: nowrap;
+  font-size: clamp(10px, 3vw, 13px);
+  letter-spacing: -.025em;
+}
+body.page-ledger .ledgerPairParty { gap: 4px; }
+body.page-ledger .ledgerPairAccount { overflow-wrap: anywhere; word-break: normal; }
+body.page-ledger .ledgerPairAvatar { flex-basis: 30px; width: 30px; height: 30px; }
+body.page-ledger .ledgerRepaymentRoute { grid-template-columns: minmax(0, 1fr) minmax(110px, 38%) minmax(0, 1fr); }
+
+/* Use the same flat cards for risk, account and import details. */
+body.page-investments :is(.portfolioRiskPanel, .portfolioConfigPanel) {
+  padding: 15px;
+}
+body.page-investments :is(.portfolioRiskBlock, .portfolioConfigBlock) {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 18px;
+  background: var(--refresh-panel);
+}
+body.page-investments .portfolioRiskBlock + .portfolioRiskBlock { margin-top: 10px; }
+body.page-investments .portfolioConfigGrid { gap: 10px; }
+body.page-investments .holdingMarketDetail .hmPanel { margin-block: 10px; }
+body.page-investments .holdingMarketDetail .hmBreakdown {
+  padding: 14px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-more #accountSyncPanel .accountSyncCompact {
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--refresh-border);
+  border-radius: 0;
+  background: transparent;
+}
+body.page-more #accountSyncPanel .accountSyncCompactHeading { min-height: 58px; }
+body.page-more #accountSyncPanel .accountSyncAmount { color: #f3f3f4; font-size: 15px; }
+body.page-more #accountSyncPanel .accountSyncNameButton { font-weight: 600; }
+body.page-more #accountSyncPanel .accountSyncAmountWithLabel small { margin-top: 2px; }
+body.page-more #accountSyncPanel .accountSyncCompact:last-child { border-bottom: 0; }
+body.page-more .accountSyncEntry .accountSyncMetadata { gap: 2px 8px; }
+body.page-more #accountSyncPanel .accountSyncCompact > .accountSyncImport {
+  min-height: 36px;
+  margin-top: 4px;
+}
+body.page-account-import .import-meta { overflow-wrap: anywhere; }
+body.page-account-import .import-modes { margin-block: 16px; }
+body.page-ledger .ledgerStreamDay { margin-top: 8px; }
+body.page-ledger .ledgerStreamDayHeader { padding-block: 9px 5px; }
+body.page-ledger .ledgerListRow { padding-block: 10px; }
+body.page-more #asset-overview { gap: 12px; }
+body.page-more .assetCard { padding: 16px; }
+body.page-more .assetCard #personalNet { font-size: clamp(30px, 8.5vw, 36px); line-height: 1.15; }
+body.page-more .assetFigures a { padding-block: 8px; }
+body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading span:last-child {
+  color: #a8a9ae;
+  font-size: 11px;
+}
+.personalPositionName strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+body.page-investments :is(.returnWindowSegment, .analysisSwitch) button.active,
+body.page-more .returnWindowSegment button.active {
+  padding-inline: 9px;
+  border-radius: 10px;
+  background: var(--refresh-glass);
+  color: #f3f3f4;
+}
+body.page-more #asset-overview .returnWindowSegment button.active,
+body.page-investments #return-trend .returnWindowSegment button.active {
+  border-radius: 10px;
+  background: var(--refresh-glass);
+  color: #f3f3f4;
+}
+body.page-more #asset-overview .returnWindowSegment button + button::before,
+body.page-investments #return-trend .returnWindowSegment button + button::before { content: none; }
+body.page-investments #return-trend .investmentAnalysisCard {
+  border: 1px solid var(--refresh-border);
+}
+body.page-investments .portfolioConfigPanel .portfolioRuleNode {
+  border-color: var(--refresh-border);
+  background: var(--refresh-panel);
+}
+body.page-ledger .ledgerPanelGroup { gap: 10px; }
+body.page-ledger #transferReviewPanel:not([hidden]) { gap: 8px; }
+html.pams-content body.page-investments .appBottomSheetPanel {
+  max-height: min(78vh, 620px, calc(100dvh - var(--pams-primary-nav-clearance)));
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+}
 @media (max-width: 360px) {
   body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { font-size: 12px; }
   body.page-investments #mobileHoldingList button.personalPosition { grid-template-columns: minmax(0, 1fr) minmax(0, 44%) !important; }
+  body.page-ledger :is(.ledgerPairRoute, .ledgerRepaymentRoute) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body.page-ledger .ledgerPairCenter { grid-column: 1 / -1; grid-row: 3; }
+  body.page-ledger .ledgerPairRoute .ledgerListDate { grid-column: 2; }
 }

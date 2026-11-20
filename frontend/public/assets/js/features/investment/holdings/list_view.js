@@ -250,9 +250,10 @@ function renderMobileHoldingRows(rows, { summary }) {
     return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
       <span class="personalPositionIdentity">
         <span class="personalPositionMark" aria-hidden="true">${esc((holdingGroupLabel(r) || '资产').slice(0, 1))}</span>
-        <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc(status || holdingGroupLabel(r))} · 占比 ${weight}</small></span>
+        <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc(status || holdingGroupLabel(r))}</small></span>
       </span>
       <span class="personalPositionValues">
+        <small class="personalPositionWeight">${weight}</small>
         <b>${value == null ? '—' : formatCompactCurrency(value)}</b>
         <small class="${pnlTone(totalPnl)}">累计 ${pnlText(totalPnl)}</small>
         <small class="${dailyPending ? 'muted' : pnlTone(dailyPnl)}">最近一日 ${dailyPending ? '待更新' : pnlText(dailyPnl)}</small>

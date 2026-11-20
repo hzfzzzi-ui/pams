@@ -134,11 +134,17 @@ function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, pref
       entry.button.setAttribute('aria-pressed', String(entry === current));
       entry.section.hidden = entry !== current;
     }
+    if (current && picker.isConnected) {
+      const pickerRect = picker.getBoundingClientRect();
+      const buttonRect = current.button.getBoundingClientRect();
+      if (buttonRect.left < pickerRect.left) picker.scrollLeft -= pickerRect.left - buttonRect.left;
+      else if (buttonRect.right > pickerRect.right) picker.scrollLeft += buttonRect.right - pickerRect.right;
+    }
   }
   for (const entry of entries) entry.button.addEventListener('click', () => select(entry));
+  panel.append(picker, ...entries.map(entry => entry.section));
   select(entries.find(entry => targetAccount && entry.group.rows.some(row => row.account_code === targetAccount)) ||
     entries.find(entry => entry.button.dataset.institution === preferredGroup) || entries[0]);
-  panel.append(picker, ...entries.map(entry => entry.section));
 }
 
 export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount, targetAccount, targetInstitution } = {}) {
@@ -194,7 +200,7 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     item.classList.add('accountSyncCompact');
     item.append(heading);
-    if (status !== 'inactive') {
+    if (status !== 'inactive' && !openAccount) {
       item.append(accountSyncMetadata(doc, data, { compact: true }));
       const action = make(row.can_import ? 'a' : 'button', '导入资料');
       action.className = 'accountSyncImport';

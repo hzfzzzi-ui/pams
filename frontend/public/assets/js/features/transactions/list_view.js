@@ -227,8 +227,12 @@ function TransactionSummaryPanel(summary, rows) {
       </div>
       <div class="muted">数据来源：${escapeHtml(sourceText)}</div>
       <div class="recentTradeList">
-        ${visibleRows.length ? visibleRows.map((r) => {
+        ${visibleRows.length ? visibleRows.map((r, index) => {
           const holding = holdingDisplay(r);
+          const date = r.trade_date || '';
+          const previousDate = index > 0 ? visibleRows[index - 1].trade_date || '' : null;
+          const dateHeading = date !== previousDate
+            ? `<div class="tradeDateHeading">${escapeHtml(date || '日期待补')}</div>` : '';
           const price = r.price ? `成交价 ${fmt2(r.price)}` : '';
           const account = r.account_name || accountLabel(r.account_code);
           const reviewable = isReviewableTrade(r);
@@ -239,9 +243,8 @@ function TransactionSummaryPanel(summary, rows) {
             ? `个人口径 ${formatCurrency(r.gross_amount_personal_cny)} · 税费 ${formatCurrency(r.fees_personal_cny || 0)}`
             : '';
           return `
-          <div class="recentTradeItem tradeLedgerItem">
+          ${dateHeading}<div class="recentTradeItem tradeLedgerItem">
             <div class="tradeItemMain">
-              <span class="mono tradeItemDate">${escapeHtml(r.trade_date || '')}</span>
               <strong>${escapeHtml(holding.name)}</strong>
               <small>${escapeHtml([holding.meta, price, account].filter(Boolean).join(' · '))}</small>
               <small class="tradeReviewSummary ${hasReview ? 'hasReview' : ''}">${escapeHtml(reviewText)}</small>
