@@ -33,7 +33,7 @@ def test_credit_bridge_uses_transaction_day_and_both_posting_cycles():
     from domain.investments import statement_period_nav
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(statement_period_nav, 'read_original_credit_pair',
-                      lambda **_: [(first, D('50')), (later, D('75'))])
+                      lambda **_: [(first, D('50'), None), (later, D('75'), D('0.20'))])
         days, balances, end = statement_period_nav._balance_curve('credit_statement_bridge', (b'one',b'two'), '{}', 'USD')
         by_day = dict(zip(days, balances))
         assert [by_day[date(2025,12,31)], by_day[date(2026,1,1)], by_day[date(2026,1,2)]] == [77,82,182]
@@ -42,6 +42,12 @@ def test_credit_bridge_uses_transaction_day_and_both_posting_cycles():
         later.statement_balance += D('0.20')
         with pytest.raises(ValueError, match='following'):
             statement_period_nav._balance_curve('credit_statement_bridge', (b'one',b'two'), '{}', 'USD')
+        import json
+        supplement={'kind':'cash_interest','amount':'0.20','currency':'USD','transaction_date':'2026-02-02','posting_date':'2026-02-02'}
+        assert statement_period_nav._balance_curve('credit_statement_bridge', (b'1',b'2'), '{}', 'USD', json.dumps(supplement))[1] == balances
+        with pytest.raises(ValueError):
+            statement_period_nav._balance_curve('credit_statement_bridge', (b'1',b'2'), '{}', 'USD',
+                                              json.dumps({**supplement, 'transaction_date':'2026-01-01'}))
         later.statement_balance -= D('0.20')
     later.statement_start = date(2026, 1, 4)
     with pytest.raises(ValueError, match='不连续'):
@@ -112,9 +118,14 @@ def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch, do
                     cur.execute("UPDATE source_records SET status='published',revision=revision+1 WHERE source_id=%s", (str(source),))
                     ids.append(str(item))
                 source, item = uuid4(), uuid4()
-                sources.create_source(cur, source_id=source, account_code='test_credit', source_name='Credit bridge', acquisition_method='manual', document_type='holding')
+                has_supplement = document_type == 'statement'
+                meta = dict(acquisition_method='screenshot', filename='app.png', file_format='png', content=b'synthetic') if has_supplement else dict(acquisition_method='manual')
+                sources.create_source(cur, source_id=source, account_code='test_credit', source_name='Credit bridge', document_type='holding', **meta)
                 fields = {'asset_type':'cash','currency':'USD','business_date':day.isoformat(),'net_cash':'77',
                           'reconstruction_evidence':{'method':'credit_statement_bridge','statement_source_item_ids':ids}}
+                if has_supplement:
+                    fields['reconstruction_evidence']['dated_interest']={'kind':'cash_interest','currency':'USD','amount':'0.20',
+                                                                      'transaction_date':'2026-02-02','posting_date':'2026-02-02'}
                 sources.add_item(cur, source_id=source, item_id=item, parse_method='manual', raw_fields={'entered_fields':fields}, parsed_fields=fields)
                 sources.review_item(cur, source_id=source, item_id=item, expected_revision=2, parsed_fields=fields, review_status='confirmed')
                 plan = publication.preview(cur, source_id=source, revision=3, historical=True)

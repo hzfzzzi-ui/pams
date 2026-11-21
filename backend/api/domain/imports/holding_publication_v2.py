@@ -118,14 +118,14 @@ def _historical_statement_balance_inputs(cur, fields, holding):
     return [{'kind': 'source_item', 'key': {'source_item_id': item_id}, 'role': 'historical_statement_balance'}]
 
 
-def _historical_credit_bridge_inputs(cur, fields, holding):
+def _historical_credit_bridge_inputs(cur, fields, holding, source):
     """Bind a partial credit-balance reconstruction to both original reports."""
     from uuid import UUID
     from domain.imports.source_original_read import SourceOriginals
     from domain.imports.historical_statement_balance import verify_original_credit_bridge
 
     evidence = fields.get('reconstruction_evidence')
-    if (not isinstance(evidence, dict) or set(evidence) != {'method', 'statement_source_item_ids'}
+    if (not isinstance(evidence, dict) or set(evidence) not in ({'method', 'statement_source_item_ids'}, {'method', 'statement_source_item_ids', 'dated_interest'})
             or evidence['method'] != 'credit_statement_bridge'
             or not isinstance(evidence['statement_source_item_ids'], list)
             or len(evidence['statement_source_item_ids']) != 2
@@ -163,8 +163,12 @@ def _historical_credit_bridge_inputs(cur, fields, holding):
                 or raw_hash != row['record_hash'] or not row['sha256'] or not original_ok):
             raise ValueError('信用卡账单来源未通过原件核验')
         content.append(original)
+    supplement = evidence.get('dated_interest')
+    if 'dated_interest' in evidence and (not isinstance(supplement,dict) or source['acquisition_method'] != 'screenshot'
+            or not source['original_content'] or source['file_format'] not in {'jpg','jpeg','png'}):
+        raise ValueError('补充交易日期须关联已核对的截图原件')
     result = verify_original_credit_bridge(originals=content, account=holding['account_code'],
-                                           day=holding['as_of'], currency=holding['currency'])
+                                           day=holding['as_of'], currency=holding['currency'], supplement=supplement)
     if result != holding['market_value']:
         raise ValueError('信用卡历史余额与原始账单计算结果不符')
     return [{'kind': 'source_item', 'key': {'source_item_id': item_id},
@@ -283,7 +287,7 @@ def _plan(cur, source_id, revision, scope, historical=False):
                     if not source['is_asset'] or opening != holding['market_value']:
                         raise ValueError('历史余额与账单计算结果不符')
                 elif isinstance(evidence, dict) and evidence.get('method') == 'credit_statement_bridge':
-                    input_refs[str(item['source_item_id'])] = _historical_credit_bridge_inputs(cur, fields, holding)
+                    input_refs[str(item['source_item_id'])] = _historical_credit_bridge_inputs(cur, fields, holding, source)
                 else:
                     input_refs[str(item['source_item_id'])] = _historical_statement_balance_inputs(cur, fields, holding)
             else:
