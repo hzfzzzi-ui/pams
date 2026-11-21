@@ -23,8 +23,13 @@ def contribution_ratios(events, personal_legs, dates, through, personal_total, a
     personal = total = Decimal(0)
     result = {}
     wanted = set(dates)
+    # Subsequent reconciled trades establish continuity until the next
+    # unidentified capital flow, even if it nets to zero with another flow.
+    next_flow = min((event['trade_date'] for event in events if event['trade_date'] > through
+                     and event['trade_type'] in {'deposit', 'withdraw'}), default=None)
+    verified_through = max((event['trade_date'] for event in events), default=through)
     for day in sorted(wanted | {day for day, _ in broker_legs}):
-        if day > through:
+        if day > max(through, verified_through) or (next_flow is not None and day >= next_flow):
             break
         for kind in ('deposit', 'withdraw'):
             key = day, kind
@@ -37,7 +42,7 @@ def contribution_ratios(events, personal_legs, dates, through, personal_total, a
     return result
 
 
-def load_contribution_ratios(cur, cfg, events, dates):
+def load_contribution_ratios(cur, cfg, events, dates, *, unverified_from=None):
     """Revalidate the reviewed bank allocations against their original facts and broker totals."""
     try:
         history = cfg['funding_history']
@@ -51,7 +56,8 @@ def load_contribution_ratios(cur, cfg, events, dates):
                     for source, day in history['bank_receipts'].items()}
     except (AttributeError, InvalidOperation, ValueError, KeyError, TypeError):
         return {}
-    if not receipts or any(day > through for day in receipts.values()):
+    if (not receipts or any(day > through for day in receipts.values())
+            or (unverified_from is not None and unverified_from <= through)):
         return {}
     cur.execute("""SELECT cashflow_id,source_item_id FROM pams_cashflow_fact
         WHERE account_code=%s AND source_item_id=ANY(%s::uuid[]) ORDER BY cashflow_id""",

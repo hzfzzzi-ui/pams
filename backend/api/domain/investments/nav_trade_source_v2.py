@@ -231,10 +231,8 @@ def daily_estimates(events, prices, dates, symbols):
     return result
 
 
-def estimated_capital_performance(events, values, owner_ratio):
+def estimated_capital_performance(events, values, owner_ratio, *, dated_ratios=None):
     """Calculate cumulative PnL and return after removing external capital flows."""
-    if owner_ratio <= 0:
-        return {}
     capital = events[0]['broker_cash'] - events[0]['net_cash']
     flows = iter(event for event in events if event['trade_type'] in {'deposit', 'withdraw'})
     flow = next(flows, None)
@@ -243,9 +241,10 @@ def estimated_capital_performance(events, values, owner_ratio):
         while flow is not None and flow['trade_date'] <= day:
             capital += flow['net_cash']
             flow = next(flows, None)
-        if capital > 0:
+        ratio = owner_ratio if dated_ratios is None else dated_ratios.get(day)
+        if capital > 0 and ratio is not None and ratio > 0:
             pnl = value - capital
-            result[day] = {'total_pnl': pnl * owner_ratio, 'display_return_rate': pnl / capital}
+            result[day] = {'total_pnl': pnl * ratio, 'display_return_rate': pnl / capital}
     return result
 
 
@@ -268,13 +267,14 @@ def project(cur, *, dates, owner_ratio, series_type, ownership_config=None):
     for row in cur.fetchall():
         prices[row['symbol']][row['as_of']] = row['close_price']
     values = daily_estimates(events, prices, dates, symbols)
+    ratios = None
     if ownership_config is not None:
         from domain.investments.capital_ownership import load_contribution_ratios
-        ratios = load_contribution_ratios(cur, ownership_config, events, dates) if gap is None else {}
+        ratios = load_contribution_ratios(cur, ownership_config, events, dates, unverified_from=gap)
         result.ownership_ratios = ratios
         result.preview_by_date = {day: value * ratios[day] for day, value in values.items() if day in ratios}
     else:
         result.preview_by_date = {day: value * owner_ratio for day, value in values.items()}
-        result.preview_performance_by_date = estimated_capital_performance(events, values, owner_ratio)
+    result.preview_performance_by_date = estimated_capital_performance(events, values, owner_ratio, dated_ratios=ratios)
     result.preview_source_through = events[-1]['trade_date']
     return result

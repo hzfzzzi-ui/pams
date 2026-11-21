@@ -20,6 +20,37 @@ def test_partial_deposit_and_other_investor_withdrawal():
     assert contribution_ratios(events, legs, dates, d3, D(70), D(80)) == {}
 
 
+def test_later_trades_preserve_ownership_until_first_unreviewed_funding(monkeypatch):
+    from domain.investments import nav_trade_source_v2 as nav
+    from domain.investments import capital_ownership
+    from domain.investments.valuation_nav import ValuationEvidenceSeries
+    from unittest.mock import Mock
+
+    days = [date(2026, 1, day) for day in range(1, 6)]
+    first, deposit, trade, unknown_flow, after = days
+    events = [
+        dict(trade_date=first, trade_type='deposit', net_cash=D(100), broker_cash=D(100)),
+        dict(trade_date=deposit, trade_type='deposit', net_cash=D(100)),
+        dict(trade_date=trade, trade_type='interest', net_cash=D(10)),
+        dict(trade_date=unknown_flow, trade_type='withdraw', net_cash=D(-10)),
+        dict(trade_date=after, trade_type='interest', net_cash=D(1)),
+    ]
+    legs = {(first, 'deposit'): D(50)}
+    ratios = contribution_ratios(events, legs, days, deposit, D(50), D(200))
+    assert ratios == {first: D('.5'), deposit: D('.25'), trade: D('.25')}
+    monkeypatch.setattr(nav, '_read_event_prefix', lambda cur: (events, None))
+    monkeypatch.setattr(nav, 'daily_estimates', lambda *args: dict(zip(days, map(D, [110,210,220,210,211]))))
+    monkeypatch.setattr(capital_ownership, 'load_contribution_ratios', lambda *args, **kwargs: ratios)
+    cur = Mock()
+    cur.fetchall.return_value = []
+    series = nav.project(cur, dates=days, owner_ratio=D('.9'), series_type=ValuationEvidenceSeries, ownership_config={})
+    assert series.preview_by_date == {first:D(55), deposit:D('52.5'), trade:D(55)}
+    assert series.preview_performance_by_date == {
+        first: {'total_pnl':D(5), 'display_return_rate':D('.1')},
+        deposit: {'total_pnl':D('2.5'), 'display_return_rate':D('.05')},
+        trade: {'total_pnl':D(5), 'display_return_rate':D('.1')}}
+
+
 def test_only_original_backed_cash_contributes_on_receipt():
     import psycopg2
     from psycopg2.extras import RealDictCursor, Json
@@ -50,6 +81,7 @@ def test_only_original_backed_cash_contributes_on_receipt():
                                           'bank_receipts':{str(item):str(receipt)}}}
                 events = [dict(trade_date=day, trade_type='deposit', net_cash=D(100)) for day in (first,receipt)]
                 assert load_contribution_ratios(cur,cfg,events,[first,receipt]) == {first:D(0), receipt:D('.25')}
+                assert load_contribution_ratios(cur,cfg,events,[receipt],unverified_from=receipt) == {}
                 cur.execute("UPDATE pams_cashflow_fact SET amount=-55 WHERE source_item_id=%s", (str(item),))
                 assert load_contribution_ratios(cur,cfg,events,[first,receipt]) == {}
         finally:
