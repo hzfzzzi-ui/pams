@@ -1,6 +1,6 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js';
 import { fmt2 } from '../../../api.js';
-import { safeNum } from '../../../utils.js';
+import { formatCurrency, safeNum } from '../../../utils.js';
 import { RETURN_WINDOW_OPTIONS, buildInvestmentNavChartData } from './legacy_model.js';
 import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js';
 
@@ -468,6 +468,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           navAccountCounts: data.accountCounts,
           navEstimateCounts: data.estimateCounts,
           navCashFxDates: data.cashFxDates,
+          navLoanCoverage: data.loanCoverage,
           borderColor: el.closest('#asset-overview') ? '#d9a13d' : CHART_THEME.line,
           backgroundColor: el.closest('#asset-overview') ? 'rgba(217,161,61,.10)' : CHART_THEME.fill,
           tension: 0,
@@ -497,6 +498,12 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                 const dates = ctx.dataset.navCashFxDates[ctx.dataIndex];
                 const notes = count ? [`${count} 个账户含估算`] : [];
                 if (dates.length) notes.push(`外币现金参考汇率 · ${dates.join('、')}`);
+                const loan = ctx.dataset.navLoanCoverage[ctx.dataIndex];
+                if (loan?.status === 'principal_movements_only') notes.push('个人借款余额待核');
+                for (const {borrowed, repaid, currency} of loan?.day_movements ?? []) {
+                  if (Number(borrowed) > 0) notes.push(`当日借入本金 ${formatCurrency(borrowed, currency)}`);
+                  if (Number(repaid) > 0) notes.push(`当日归还本金 ${formatCurrency(repaid, currency)}`);
+                }
                 return notes;
               },
             },
@@ -546,6 +553,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     chart.data.datasets[0].navAccountCounts = data.accountCounts;
     chart.data.datasets[0].navEstimateCounts = data.estimateCounts;
     chart.data.datasets[0].navCashFxDates = data.cashFxDates;
+    chart.data.datasets[0].navLoanCoverage = data.loanCoverage;
     chart.data.datasets[0].pointRadius = data.knownCount === 1 ? 2 : 0;
     chart.options.scales.y.display = data.knownCount > 0;
     chart.update('none');

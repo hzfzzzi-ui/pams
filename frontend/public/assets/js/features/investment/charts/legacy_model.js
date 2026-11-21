@@ -284,6 +284,7 @@ function buildInvestmentNavChartData(navRows, period, windowKey) {
     cashFxDates: rows.map(row => [...new Set(Object.values(row.latest_known_components ?? {})
       .filter(part => part?.basis === 'historical_cash_fx' && part.fx_as_of)
       .map(part => part.fx_as_of))].sort()),
+    loanCoverage: rows.map(row => row.personal_loan_coverage),
     knownCount: values.filter(value => value != null).length,
     latest: latestRow && latestRow.date === period.end ? latestRow.market_value : null,
     period,

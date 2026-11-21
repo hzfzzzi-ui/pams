@@ -18,7 +18,10 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
     find('personalNet').textContent = money(latest?.market_value);
     find('personalGross').textContent = money(latest?.assets);
     find('personalDebt').textContent = money(latest?.liabilities);
-    find('personalCoverage').hidden = !latest || (latest.assets != null && latest.liabilities != null);
+    const loanPending = latest?.personal_loan_coverage?.status === 'principal_movements_only';
+    find('personalCoverage').hidden = !latest || (!loanPending && latest.assets != null && latest.liabilities != null);
+    find('personalCoverageNote').textContent = loanPending
+      ? '个人借款余额待核，总负债尚未核齐。' : '部分账户资料待核验，暂无法汇总总资产和总负债。';
     const quality = latest?.estimated_account_count ? ` · ${latest.estimated_account_count} 个账户含估算` : '';
     find('personalAsOf').textContent = latest ? latest.date + quality : '暂无净资产记录';
   }
