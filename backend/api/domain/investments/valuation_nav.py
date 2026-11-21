@@ -655,6 +655,12 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
             contributions.pop(code, None)
         contributions[value['account_code']] = amount
         row['available_accounts'] = sorted((available - covered) | {value['account_code']})
+        # A verified same-day account total proves the net value for its
+        # explicitly declared scope even if individual holdings are partial.
+        # It does not certify other accounts or permit carrying this value to
+        # another day, nor does it establish a gross assets/liabilities split.
+        if 'unavailable_accounts' in row:
+            row['unavailable_accounts'] = sorted(set(row['unavailable_accounts']) - covered)
         row['estimated_accounts'] = sorted((set(row.get('estimated_accounts', ())) - covered) | {value['account_code']})
         row['valuation_quality'] = 'estimated'
 
