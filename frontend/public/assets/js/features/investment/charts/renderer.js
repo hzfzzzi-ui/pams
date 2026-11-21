@@ -1,7 +1,7 @@
 import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js';
 import { fmt2 } from '../../../api.js';
 import { safeNum } from '../../../utils.js';
-import { RETURN_WINDOW_OPTIONS, filterReturnWindowRows, buildInvestmentNavChartData } from './legacy_model.js';
+import { RETURN_WINDOW_OPTIONS, filterReturnWindowRows, filterNavWindowRows, buildInvestmentNavChartData } from './legacy_model.js';
 import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js';
 
 const WINDOW_TOGGLE_IDS = ['investmentReturnWindowToggle', 'investmentNavWindowToggle'];
@@ -402,7 +402,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       const x = xAt(index);
       const y = yAt(value);
       ctx.beginPath();
-      if (index > 0 && values[index - 1] != null) {
+      if (index > 0 && values[index - 1] != null && data.scopes[index - 1] === scope) {
         ctx.setLineDash?.(scope === 'complete' && data.scopes[index - 1] === 'complete' ? [] : [5, 4]);
         ctx.moveTo(xAt(index - 1), yAt(values[index - 1]));
         ctx.lineTo(x, y);
@@ -431,7 +431,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     if (disposed) return null;
     const el = getElementById('investmentNavChart');
     if (!el) return null;
-    const data = buildInvestmentNavChartData(filterReturnWindowRows(rows, windowKey), isMobile);
+    const data = buildInvestmentNavChartData(filterNavWindowRows(rows, windowKey), isMobile);
     renderInvestmentNavSummary(data);
     if (navChart) navChart.destroy();
     if (typeof ChartClass !== 'function') {
@@ -472,10 +472,14 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
             const index = ctx.dataIndex;
             if (values[index] == null) return 0;
             if (scopes[index] === 'complete') return radius;
-            const connected = [index - 1, index + 1].some(i => values[i] != null);
+            const connected = [index - 1, index + 1].some(i => values[i] != null && scopes[i] === scopes[index]);
             return connected ? 0 : 2;
           },
           segment: {
+            borderColor: ctx => {
+              const scopes = ctx.chart.data.datasets[ctx.datasetIndex].navScopes;
+              return scopes[ctx.p0DataIndex] === scopes[ctx.p1DataIndex] ? undefined : 'transparent';
+            },
             borderDash: ctx => {
               const scopes = ctx.chart.data.datasets[ctx.datasetIndex].navScopes;
               return scopes[ctx.p0DataIndex] === 'complete' && scopes[ctx.p1DataIndex] === 'complete' ? [] : [5, 4];
@@ -528,7 +532,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   function updateInvestmentNavChart(state) {
     const chart = state?.navChart || navChart;
     if (!chart || !state) return;
-    const windowRows = filterReturnWindowRows(state.navRows || state.rows || [], state.activeWindow);
+    const windowRows = filterNavWindowRows(state.navRows || state.rows || [], state.activeWindow);
     const data = buildInvestmentNavChartData(windowRows, state.isMobile);
     chart.data.labels = data.labels;
     chart.data.datasets[0].data = data.values;

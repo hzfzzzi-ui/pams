@@ -784,7 +784,9 @@ def create_compatibility_router(
                 "valuation_state": read_current_portfolio_valuation(cur),
             },
             "analysis": {
-                "nav": _verified_nav_weekly(cur, latest=True, **curve_args),
+                # The opening observation is the previous year's close; keep
+                # its actual date rather than treating it as a January 1 close.
+                "nav": _verified_nav_weekly(cur, latest=True, **{**curve_args, "start_date": start - timedelta(days=1)}),
                 "total": build_total_curve(cur, **curve_args, read_revision=read_revision),
                 "sections": {
                     section: build_section_curve(cur, section=section, **curve_args, read_revision=read_revision)
