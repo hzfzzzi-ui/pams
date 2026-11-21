@@ -17,6 +17,7 @@ from domain.imports.account_import_statement import profiles as statement_profil
 from domain.imports.account_import_store import supported_import_modes
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 from domain.investments.portfolio_state import _excluded_accounts, _owner_ratio
 from domain.investments.trade_read_v2 import load_trade_rows
 from domain.investments.valuation_input_evidence import current_holding_source
@@ -96,25 +97,27 @@ def _compact_summary(row, published_at, *, liability, now, source_balance=None):
 
 
 def _latest_cash_snapshots(cur, codes):
-    cur.execute('''WITH latest AS (
-            SELECT account_code, currency, MAX(as_of) AS as_of FROM public.pams_holdings_snapshot
-            WHERE account_code=ANY(%s::text[]) AND major_category='现金'
-            GROUP BY account_code, currency
+    cur.execute(f'''WITH latest AS (
+            SELECT h.account_code, h.currency, MAX(h.as_of) AS as_of FROM public.pams_holdings_snapshot h
+            WHERE h.account_code=ANY(%s::text[]) AND h.major_category='现金'
+              AND {point_in_time_visible_sql('h', 'CURRENT_DATE')}
+            GROUP BY h.account_code, h.currency
         )
         SELECT h.id, h.account_code, h.as_of, h.currency, h.market_value, h.source_item_id,
             CASE WHEN r.status='published' THEN r.updated_at END AS published_at
         FROM latest JOIN public.pams_holdings_snapshot h USING (account_code, currency, as_of)
         LEFT JOIN public.source_items i ON i.source_item_id=h.source_item_id
         LEFT JOIN public.source_records r ON r.source_id=i.source_id
-        WHERE h.major_category='现金' ''', (codes,))
+        WHERE h.major_category='现金' AND {point_in_time_visible_sql('h', 'CURRENT_DATE')} ''', (codes,))
     return cur.fetchall()
 
 
 def _manual_position_value(cur, account_code, day):
-    cur.execute("""SELECT DISTINCT ON (name, currency) id, as_of, currency, asset_liability, market_value
-        FROM public.pams_holdings_snapshot
-        WHERE account_code=%s AND as_of<=%s AND major_category<>'现金'
-        ORDER BY name, currency, as_of DESC, id DESC""", (account_code, day))
+    cur.execute(f"""SELECT DISTINCT ON (h.name, h.currency) h.id, h.as_of, h.currency, h.asset_liability, h.market_value
+        FROM public.pams_holdings_snapshot h
+        WHERE h.account_code=%s AND h.as_of<=%s AND h.major_category<>'现金'
+          AND {point_in_time_visible_sql("h", "%s::date")}
+        ORDER BY h.name, h.currency, h.as_of DESC, h.id DESC""", (account_code, day, day))
     rows = cur.fetchall()
     if not rows or any(row['currency'] != 'CNY' or row['market_value'] is None
                        or current_holding_source(cur, row['id'])['status'] != 'recorded' for row in rows):

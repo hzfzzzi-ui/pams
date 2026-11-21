@@ -19,6 +19,7 @@ import yaml
 
 from domain.accounts.account_policy import excluded_accounts as _excluded_accounts, owner_ratio as owner_ratio_for_account
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 from domain.imports.source_row_read import source_row_relation
 
 
@@ -439,6 +440,7 @@ def _fetch_holding_balances(cur) -> dict[str, list[dict[str, Any]]]:
         JOIN latest_account la
           ON la.account_code = h.account_code
          AND la.account_as_of = h.as_of
+        WHERE {point_in_time_visible_sql("h", "SELECT as_of FROM snapshot_view_cutoff")}
         GROUP BY h.account_code, h.currency, h.asset_liability, la.account_as_of
         ORDER BY h.account_code, h.asset_liability, h.currency
         """,

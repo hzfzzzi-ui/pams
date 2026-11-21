@@ -15,7 +15,7 @@ from domain.market.quote_valuation import quote_price_as_of, quote_valuation_cte
 from domain.investments.trade_snapshot_display import enrich_trade_snapshot_costs
 from domain.brokers.ibkr.ibkr_holding_pnl import enrich_ibkr_holding_pnl
 from domain.market.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session
-from domain.investments.snapshot_coverage import annotate_snapshot_coverage
+from domain.investments.snapshot_coverage import annotate_snapshot_coverage, point_in_time_visible_sql
 
 from domain.investments.daily_return_state import (
     RETURN_STATUS_CONFIRMED,
@@ -38,13 +38,14 @@ from domain.investments.holdings_positions import (
 )
 
 
-COMPLETE_ACCOUNT_SNAPSHOT_CTE = """
+COMPLETE_ACCOUNT_SNAPSHOT_CTE = f"""
 snapshot_view_cutoff AS (SELECT %s::date AS as_of),
 account_snapshot_stats AS (
-    SELECT account_code, as_of, COUNT(*) AS row_count
-    FROM pams_holdings_snapshot
-    WHERE as_of <= (SELECT as_of FROM snapshot_view_cutoff)
-    GROUP BY account_code, as_of
+    SELECT hs.account_code, hs.as_of, COUNT(*) AS row_count
+    FROM pams_holdings_snapshot hs
+    WHERE hs.as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+      AND {point_in_time_visible_sql("hs", "SELECT as_of FROM snapshot_view_cutoff")}
+    GROUP BY hs.account_code, hs.as_of
 ), complete_account_snapshot AS (
     -- This selects observed snapshots only; scope completeness is checked
     -- separately from immutable evidence, never inferred from row counts.
@@ -56,18 +57,20 @@ account_snapshot_stats AS (
 )
 """
 
-LATEST_KNOWN_HOLDINGS_CTE = COMPLETE_ACCOUNT_SNAPSHOT_CTE + """
+LATEST_KNOWN_HOLDINGS_CTE = COMPLETE_ACCOUNT_SNAPSHOT_CTE + f"""
 , latest_known_position AS (
     SELECT hs.account_code, to_jsonb(hs)->>'currency' AS position_currency,
            COALESCE(NULLIF(to_jsonb(hs)->>'name', ''), NULLIF(to_jsonb(hs)->>'symbol', ''), hs.ctid::text) AS position_key, MAX(hs.as_of) AS as_of
     FROM pams_holdings_snapshot hs
-    WHERE as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+    WHERE hs.as_of <= (SELECT as_of FROM snapshot_view_cutoff)
+      AND {point_in_time_visible_sql("hs", "SELECT as_of FROM snapshot_view_cutoff")}
     GROUP BY hs.account_code, to_jsonb(hs)->>'currency', COALESCE(NULLIF(to_jsonb(hs)->>'name', ''), NULLIF(to_jsonb(hs)->>'symbol', ''), hs.ctid::text)
 ), latest_known_holding AS (
     SELECT hs.* FROM pams_holdings_snapshot hs JOIN latest_known_position p
       ON p.account_code=hs.account_code AND p.position_key=COALESCE(NULLIF(to_jsonb(hs)->>'name', ''), NULLIF(to_jsonb(hs)->>'symbol', ''), hs.ctid::text)
      AND p.position_currency IS NOT DISTINCT FROM to_jsonb(hs)->>'currency'
      AND p.as_of=hs.as_of
+    WHERE {point_in_time_visible_sql("hs", "SELECT as_of FROM snapshot_view_cutoff")}
 )
 """
 
@@ -1453,6 +1456,7 @@ def build_holdings_history_payload(
                        d.date, hs.*
                 FROM series_dates d JOIN pams_holdings_snapshot hs ON hs.as_of <= d.date
                 WHERE NOT (hs.account_code = ANY(%s::text[]))
+                  AND {point_in_time_visible_sql("hs", "d.date")}
                 ORDER BY d.date, hs.account_code, hs.name, hs.currency, hs.as_of DESC, hs.id DESC
             )
             SELECT h.date,h.as_of,h.account_code,h.market_value,

@@ -5,6 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 
+def point_in_time_visible_sql(holding_alias: str, date_sql: str) -> str:
+    """A single-day member cannot stand in for a later account observation."""
+    if not holding_alias.replace('_', '').isalnum():
+        raise ValueError('invalid holding alias')
+    return f"""({holding_alias}.as_of = ({date_sql}) OR NOT EXISTS (
+        SELECT 1 FROM public.account_snapshot_member point_member
+        JOIN public.account_snapshot_version point_version ON point_version.version_id=point_member.version_id
+        WHERE point_member.holding_id={holding_alias}.id AND point_version.coverage_status='partial'
+          AND point_version.scope_attestation->'point_in_time_only'='true'::jsonb))"""
+
+
 def load_account_snapshot_coverage(cur, pairs: set[tuple[str, Any]]) -> dict[tuple[str, Any], dict[str, Any]]:
     """Read and revalidate immutable membership and explicit scope evidence."""
     if not pairs:

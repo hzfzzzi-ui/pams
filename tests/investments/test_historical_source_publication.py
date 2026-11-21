@@ -11,6 +11,9 @@ import pytest
 from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
 from domain.investments.position_nav_projection import load_position_nav_estimates
 from domain.investments.holding_evidence_writer import verify_historical_holding_source
+from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
+from domain.accounts.sync_status import _latest_cash_snapshots, _manual_position_value
+from domain.accounts.accounts_view import build_account_detail_payload
 
 
 def test_reviewed_historical_holding_publish_and_nav(monkeypatch):
@@ -46,8 +49,14 @@ def test_reviewed_historical_holding_publish_and_nav(monkeypatch):
                 holding = cur.fetchone()
                 assert holding['cost'] is None and holding['buy_price'] is None
                 assert verify_historical_holding_source(cur, holding_id=holding['id'], source_item_id=str(item))
+                for cutoff, expected in ((day, ['TESTFUND']), (later, []), (date(2026, 3, 1), ['OTHER'])):
+                    cur.execute(f'WITH {LATEST_KNOWN_HOLDINGS_CTE} SELECT symbol FROM latest_known_holding ORDER BY symbol', (cutoff,))
+                    assert [row['symbol'] for row in cur.fetchall()] == expected
                 with pytest.raises(ValueError):
                     publication.publish(cur, source_id=source, revision=3, historical=True, preview_token=plan['preview_token'])
+                assert _latest_cash_snapshots(cur, ['test_history']) == []
+                assert _manual_position_value(cur, 'test_history', later) is None
+                assert build_account_detail_payload(cur, account_code='test_history')['holdings_count'] == 1
                 estimates = load_position_nav_estimates(cur, accounts={'test_history': {}}, dates=[day, later],
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal('1'),
                     rate_at=lambda currency, _: Decimal('1') if currency == 'CNY' else None)
