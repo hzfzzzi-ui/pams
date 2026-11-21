@@ -249,7 +249,7 @@ def estimated_capital_performance(events, values, owner_ratio):
     return result
 
 
-def project(cur, *, dates, owner_ratio, series_type):
+def project(cur, *, dates, owner_ratio, series_type, ownership_config=None):
     result = series_type(unknown_dates=dates, cash_scope_unverified=True)
     if not dates:
         return result
@@ -268,7 +268,13 @@ def project(cur, *, dates, owner_ratio, series_type):
     for row in cur.fetchall():
         prices[row['symbol']][row['as_of']] = row['close_price']
     values = daily_estimates(events, prices, dates, symbols)
-    result.preview_by_date = {day: value * owner_ratio for day, value in values.items()}
-    result.preview_performance_by_date = estimated_capital_performance(events, values, owner_ratio)
+    if ownership_config is not None:
+        from domain.investments.capital_ownership import load_contribution_ratios
+        ratios = load_contribution_ratios(cur, ownership_config, events, dates) if gap is None else {}
+        result.ownership_ratios = ratios
+        result.preview_by_date = {day: value * ratios[day] for day, value in values.items() if day in ratios}
+    else:
+        result.preview_by_date = {day: value * owner_ratio for day, value in values.items()}
+        result.preview_performance_by_date = estimated_capital_performance(events, values, owner_ratio)
     result.preview_source_through = events[-1]['trade_date']
     return result

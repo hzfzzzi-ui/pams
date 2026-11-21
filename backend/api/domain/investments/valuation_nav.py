@@ -1137,6 +1137,7 @@ def _tonghuashun_series_from_trade_fact(
     *,
     dates: list[Date],
     account_owner_ratio,
+    ownership_config=None,
 ) -> ValuationEvidenceSeries:
     """Value Tonghuashun A-shares from the current investment trade fact table."""
     values = ValuationEvidenceSeries({d: Decimal("0") for d in dates})
@@ -1155,7 +1156,11 @@ def _tonghuashun_series_from_trade_fact(
     exists = cur.fetchone()
     if exists and exists.get('redesigned'):
         from domain.investments.nav_trade_source_v2 import project
-        return project(cur, dates=dates, owner_ratio=owner_ratio, series_type=ValuationEvidenceSeries)
+        return project(cur, dates=dates, owner_ratio=owner_ratio, series_type=ValuationEvidenceSeries,
+                       ownership_config=ownership_config)
+    if ownership_config is not None:
+        values.unknown_dates.update(dates)
+        return values
     if not exists or not exists["fact_exists"] or not exists["px_exists"]:
         values.unknown_dates.update(dates)
         if exists and not exists["px_exists"]:
@@ -1356,9 +1361,10 @@ def _tonghuashun_series_from_trade_fact(
     return values
 
 
-def _tonghuashun_series(cur, *, dates: list[Date], base_currency: str, account_owner_ratio) -> ValuationEvidenceSeries:
+def _tonghuashun_series(cur, *, dates: list[Date], base_currency: str, account_owner_ratio, ownership_config=None) -> ValuationEvidenceSeries:
     """Convert the CNY reconstruction to the requested currency using daily evidence."""
-    values = _tonghuashun_series_from_trade_fact(cur, dates=dates, account_owner_ratio=account_owner_ratio)
+    values = _tonghuashun_series_from_trade_fact(cur, dates=dates, account_owner_ratio=account_owner_ratio,
+                                                 ownership_config=ownership_config)
     if base_currency.upper() == 'CNY':
         return values
     rates = load_fx_timelines(cur, base_currency)
@@ -1583,11 +1589,14 @@ def build_nav_weekly_payload(
         base_currency=base_currency,
         owner_ratio_case_sql=owner_ratio_case_sql,
     )
+    account_settings = (account_config or {}).get('accounts', {}).get('tonghuashun', {})
+    ownership_config = account_settings if 'funding_history' in account_settings else None
     a_share_series = (_tonghuashun_series(
         cur,
         dates=dates,
         base_currency=base_currency,
         account_owner_ratio=account_owner_ratio,
+        ownership_config=ownership_config,
     ) if any(str(account.get("account_code") or "") == "tonghuashun" for account in overview_accounts)
        else ValuationEvidenceSeries())
     if any(str(account.get("account_code") or "") == "tonghuashun" for account in overview_accounts):
@@ -1596,14 +1605,16 @@ def build_nav_weekly_payload(
         # snapshot can establish the full value without that inference.
         complete_a_share = _investment_snapshot_series(
             cur, account_codes=['tonghuashun'], dates=dates, base_currency=base_currency,
-            owner_ratio_case_sql=owner_ratio_case_sql,
+            owner_ratio_case_sql=owner_ratio_case_sql if ownership_config is None else lambda _: ('1::numeric', []),
         )
         missing_by_day = getattr(complete_a_share, 'unknown_accounts_by_date', None)
         for day in dates:
-            if missing_by_day is None or day not in complete_a_share or missing_by_day.get(day):
+            ratio = (getattr(a_share_series, 'ownership_ratios', {}).get(day) if ownership_config is not None
+                     else Decimal(1))
+            if ratio is None or missing_by_day is None or day not in complete_a_share or missing_by_day.get(day):
                 a_share_series.unknown_dates.add(day)
             else:
-                a_share_series[day] = complete_a_share[day]
+                a_share_series[day] = complete_a_share[day] * ratio
                 a_share_series.unknown_dates.discard(day)
                 a_share_series.estimated_dates.discard(day)
     terminal_account_values = terminal_account_values_cny or {}
@@ -1697,6 +1708,8 @@ def build_nav_weekly_payload(
         code for row in rows if row.get("net_worth") is None
         for code in set(row.get("unavailable_accounts", ())) - set(row.get("available_accounts", ()))
     }
+    if ownership_config is not None:
+        unresolved.discard('tonghuashun')
     if unresolved & nav_codes:
         from domain.investments.position_nav_projection import load_position_nav_estimates
 
