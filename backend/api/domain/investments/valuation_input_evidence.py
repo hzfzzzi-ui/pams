@@ -570,6 +570,12 @@ def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_d
                         and holding_raw.get("major_category") == "现金")
         statement_balance = (evidence.get('role') == 'historical_statement_balance'
                              and snapshot.get('business_type') == 'cash' and holding_raw.get('major_category') == '现金')
+        bridge_statement = (evidence.get('role') == 'historical_credit_bridge_statement'
+                            and snapshot.get('business_type') == 'cash' and snapshot.get('source_action') == 'balance'
+                            and holding_raw.get('major_category') == '现金' and holding_raw.get('asset_liability') == '负债'
+                            and (snapshot.get('source_fields') or {}).get('currency') == holding_raw.get('currency'))
+        if evidence.get('role') == 'historical_credit_bridge_statement' and not bridge_statement:
+            return False
         if statement_balance:
             fields = snapshot.get('source_fields') or {}
             try:
@@ -581,16 +587,16 @@ def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_d
                     return False
             except (ValueError, TypeError, ArithmeticError):
                 return False
-        review_ok = snapshot.get('review_status') == 'confirmed' or (statement_balance and snapshot.get('review_status') == 'excluded')
+        review_ok = snapshot.get('review_status') == 'confirmed' or ((statement_balance or bridge_statement) and snapshot.get('review_status') == 'excluded')
         if (evidence["source_ref"].get("account_code") != account_code or snapshot.get("batch_status") != "published"
-                or not review_ok or not (kind_allowed or cash_balance or statement_balance)
+                or not review_ok or not (kind_allowed or cash_balance or statement_balance or bridge_statement)
                 or snapshot.get('source_integrity', 'verified') != 'verified'):
             return False
         # A batch range can disprove alignment; it cannot prove the exact input date.
-        if snapshot.get("date_from") and snapshot["date_from"] > business_date:
+        if not bridge_statement and snapshot.get("date_from") and snapshot["date_from"] > business_date:
             return False
         if (snapshot.get("business_type") in {"holding", "cash"} and snapshot.get("date_to")
-                and snapshot["date_to"] < business_date and evidence.get('role')!='ibkr_reviewed_contract_identity'):
+                and snapshot["date_to"] < business_date and evidence.get('role')!='ibkr_reviewed_contract_identity' and not bridge_statement):
             return False
         if evidence.get("role") == "current_source" and not _current_source_matches_holding(snapshot, holding_raw, business_date):
             return False

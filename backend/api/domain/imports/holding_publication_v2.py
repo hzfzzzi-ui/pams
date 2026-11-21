@@ -118,6 +118,59 @@ def _historical_statement_balance_inputs(cur, fields, holding):
     return [{'kind': 'source_item', 'key': {'source_item_id': item_id}, 'role': 'historical_statement_balance'}]
 
 
+def _historical_credit_bridge_inputs(cur, fields, holding):
+    """Bind a partial credit-balance reconstruction to both original reports."""
+    from uuid import UUID
+    from domain.imports.source_original_read import SourceOriginals
+    from domain.imports.historical_statement_balance import verify_original_credit_bridge
+
+    evidence = fields.get('reconstruction_evidence')
+    if (not isinstance(evidence, dict) or set(evidence) != {'method', 'statement_source_item_ids'}
+            or evidence['method'] != 'credit_statement_bridge'
+            or not isinstance(evidence['statement_source_item_ids'], list)
+            or len(evidence['statement_source_item_ids']) != 2
+            or holding['asset_liability'] != '负债'):
+        raise ValueError('信用卡历史余额须关联连续两期账单')
+    try:
+        ids = [str(UUID(str(value))) for value in evidence['statement_source_item_ids']]
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError('信用卡账单来源身份无效') from exc
+    if ids[0] == ids[1]:
+        raise ValueError('信用卡账单来源不能重复')
+    originals = SourceOriginals(cur)
+    content = []
+    for item_id in ids:
+        cur.execute("""SELECT i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,i.parse_method,
+            i.source_position,r.status,r.document_type,r.acquisition_method,r.file_format,r.filename,
+            r.account_code AS source_account,r.source_id AS original_source_id,r.sha256,
+            r.content IS NOT NULL AS inline_original
+            FROM source_items i JOIN source_records r ON r.source_id=i.source_id
+            WHERE i.source_item_id=%s FOR SHARE OF i,r""", (item_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError('信用卡账单来源不存在')
+        raw, parsed = row['raw_fields'], row['parsed_fields']
+        raw_hash = sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        original, original_ok = originals.read(row)
+        if (row['source_account'] != holding['account_code'] or row['status'] != 'published'
+                or row['document_type'] != 'cash' or row['acquisition_method'] != 'file'
+                or row['file_format'] != 'pdf' or row['parse_method'] != 'template'
+                or row['review_status'] not in {'confirmed', 'excluded'}
+                or (row['source_position'] or {}).get('row') != 'statement_balance'
+                or (raw.get('source') or {}).get('balance_candidate') is not True
+                or raw.get('initial_fields') != parsed or parsed.get('action') != 'balance'
+                or parsed.get('currency') != holding['currency']
+                or raw_hash != row['record_hash'] or not row['sha256'] or not original_ok):
+            raise ValueError('信用卡账单来源未通过原件核验')
+        content.append(original)
+    result = verify_original_credit_bridge(originals=content, account=holding['account_code'],
+                                           day=holding['as_of'], currency=holding['currency'])
+    if result != holding['market_value']:
+        raise ValueError('信用卡历史余额与原始账单计算结果不符')
+    return [{'kind': 'source_item', 'key': {'source_item_id': item_id},
+             'role': 'historical_credit_bridge_statement'} for item_id in ids]
+
+
 def _historical_fund_inputs(cur, fields, holding):
     """Bind a reviewed one-day reconstruction to verified trades and daily NAV."""
     from domain.investments.fund_return_history import NAV_SOURCES
@@ -229,6 +282,8 @@ def _plan(cur, source_id, revision, scope, historical=False):
                         account=account, day=day, currency=holding['currency'])
                     if not source['is_asset'] or opening != holding['market_value']:
                         raise ValueError('历史余额与账单计算结果不符')
+                elif isinstance(evidence, dict) and evidence.get('method') == 'credit_statement_bridge':
+                    input_refs[str(item['source_item_id'])] = _historical_credit_bridge_inputs(cur, fields, holding)
                 else:
                     input_refs[str(item['source_item_id'])] = _historical_statement_balance_inputs(cur, fields, holding)
             else:
