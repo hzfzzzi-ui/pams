@@ -6,8 +6,10 @@ from decimal import Decimal
 
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.position_reference import historical_position_reference, position_reference_config
+from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.fund_return_history import NAV_SOURCES
 from domain.investments.fund_closed_sessions import surrounding_sessions
+from domain.investments.redemption_settlement import load_redemption_receivables
 from domain.investments.nav_period_comparison import DisplayContributions, position_member
 from domain.investments.snapshot_coverage import load_account_snapshot_coverage
 from domain.market.quote_valuation import gold_close_join, gold_market_value, uses_gold_close
@@ -78,7 +80,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
                      CASE WHEN s.major_category='现金' THEN NULL ELSE COALESCE(NULLIF(s.symbol, ''), s.name) END,
                      s.as_of DESC, s.id DESC
         )
-        SELECT h.date,h.account_code,h.as_of,h.currency,h.asset_id,h.symbol,h.name,h.asset_liability,
+        SELECT h.date,h.account_code,h.as_of,h.id,h.source_item_id,h.currency,h.asset_id,h.symbol,h.name,h.asset_liability,
                (CASE
                     WHEN h.asset_liability='负债' THEN -ABS(h.market_value)
                     WHEN h.major_category='现金' THEN h.market_value
@@ -129,6 +131,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
            *ratio_params, list(NAV_SOURCES)))
     observed = set()
     represented_assets = set()
+    held_balances = defaultdict(list)
     amounts = defaultdict(list)
     unpriced = set()
     rates = {}
@@ -143,6 +146,8 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
         day, code, source_day = row["date"], row["account_code"], row["as_of"]
         observed.add((day, code))
         represented_assets.add((day, code, row.get("asset_id"), row.get("symbol")))
+        if row['amount'] != 0:
+            held_balances[day, code].append(row)
         if row["amount"] is None or not row["amount"].is_finite():
             unpriced.add((day, code))
             continue
@@ -169,6 +174,38 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             observed.add((day, code))
         elif row['amount']:
             unpriced.add((day, code))
+
+    # Only the units sold become a receivable. An older observation of those
+    # same units must not be added to the redemption proceeds. A verified
+    # closing position on/after confirmation can represent the remaining units.
+    verified_holdings = {}
+
+    def remaining_units_proven(row, confirmation_day):
+        if row['as_of'] < confirmation_day or not row['source_item_id']:
+            return False
+        ident = row['id']
+        if ident not in verified_holdings:
+            proof = coverage[row['account_code'], row['as_of']]
+            verified_holdings[ident] = (ident in proof['member_ids'] and
+                (proof['status'] == 'complete' or _complete_member_proven(cur, ident, row['source_item_id'])))
+        return verified_holdings[ident]
+
+    for claim in load_redemption_receivables(cur, accounts, dates):
+        code, confirmed = claim['account_code'], claim['confirmation']
+        for day in dates:
+            if not confirmed <= day < claim['receipt']:
+                continue
+            if any((row['asset_id'] == claim['asset_id'] or (row['symbol'] and row['symbol'] == claim['symbol']))
+                   and not remaining_units_proven(row, confirmed) for row in held_balances[day, code]):
+                continue
+            observed.add((day, code))
+            rate = dated_rate(claim['currency'], day)
+            if rate is None:
+                unpriced.add((day, code))
+                continue
+            member = ('资产', claim['currency'], f"redemption:{claim['trade_id']}")
+            value = claim['amount'] * rate * account_owner_ratio(code)
+            amounts[day, code].append((value, confirmed, member))
 
     bindings = load_bound_balance_references(cur, accounts)
     for code, cfg in accounts.items():
