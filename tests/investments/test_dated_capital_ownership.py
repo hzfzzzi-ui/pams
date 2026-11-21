@@ -29,7 +29,7 @@ def test_later_trades_preserve_ownership_until_first_unreviewed_funding(monkeypa
     days = [date(2026, 1, day) for day in range(1, 6)]
     first, deposit, trade, unknown_flow, after = days
     events = [
-        dict(trade_date=first, trade_type='deposit', net_cash=D(100), broker_cash=D(100)),
+        dict(trade_date=first, trade_type='deposit', net_cash=D(100), broker_cash=D('100.69')),
         dict(trade_date=deposit, trade_type='deposit', net_cash=D(100)),
         dict(trade_date=trade, trade_type='interest', net_cash=D(10)),
         dict(trade_date=unknown_flow, trade_type='withdraw', net_cash=D(-10)),
