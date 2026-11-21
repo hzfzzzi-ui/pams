@@ -68,6 +68,9 @@ def publish(cur, *, source_id, revision):
                     or Decimal(value['net_asset']) != 0 or _conflicts_with_empty(cur, r['account_code'], day)):
                 raise ValueError('空仓确认必须覆盖当日本账户所有持仓及现金')
             value['confirmed_empty'] = True
+        elif fields.get('attestation') == 'complete_reconstructed_account':
+            from domain.investments.reviewed_account_scope import verify_scope
+            verify_scope(cur, value, fields)
         elif not _verified_unchanged(cur, value, fields, locking=True):
             raise ValueError('须引用同范围、同金额的原始账户总额并明确确认当日总额未变')
     elif (r['acquisition_method'] != 'screenshot' or not r['content']
@@ -107,10 +110,15 @@ def load(cur, *, dates, accounts):
                     if _conflicts_with_empty(cur, r['account_code'], r['business_date']):
                         continue
                     value['confirmed_empty'] = True
+                elif fields.get('attestation') == 'complete_reconstructed_account':
+                    from domain.investments.reviewed_account_scope import verify_scope
+                    verify_scope(cur, value, fields)
                 elif not _verified_unchanged(cur, value, fields, locking=locking):
                     continue
             if _hash(value) != r['result_hash'] or not set(value['covered_account_codes']) <= set(accounts):
                 continue
+            if method == 'screenshot' or fields.get('attestation') == 'unchanged_account_total':
+                value['observed_total'] = True
             candidates.setdefault((r['business_date'],r['account_code']), []).append(value)
         except (KeyError, TypeError, ValueError, InvalidOperation):
             continue
@@ -150,7 +158,18 @@ def _verified_unchanged(cur, value, fields, *, locking):
     if not proof:
         return False
     original, prior_fields, method = proof
-    return (method == 'screenshot' and _hash(original) == anchor['result_hash']
-            and prior_fields['value_scope'] == fields['value_scope']
-            and set(original['covered_account_codes']) == set(value['covered_account_codes'])
-            and Decimal(original['net_asset']) == Decimal(value['net_asset']))
+    if (method != 'screenshot' or _hash(original) != anchor['result_hash']
+            or prior_fields['value_scope'] != fields['value_scope']
+            or set(original['covered_account_codes']) != set(value['covered_account_codes'])
+            or Decimal(original['net_asset']) != Decimal(value['net_asset'])):
+        return False
+    cur.execute('''SELECT version_key,account_code,business_date,base_currency,result_hash,inputs
+        FROM valuation_evidence WHERE result_kind='portfolio' AND calculation_version=%s
+          AND account_code=%s AND business_date=%s AND version_key<>%s''',
+        (VERSION, anchor['account_code'], anchor['business_date'], key))
+    for sibling in cur.fetchall():
+        checked = _verified_source(cur, sibling, locking)
+        if checked and checked[2] == 'screenshot' and _hash(checked[0]) == sibling['result_hash']:
+            if sibling['result_hash'] != anchor['result_hash'] or checked[1]['value_scope'] != prior_fields['value_scope']:
+                return False
+    return True

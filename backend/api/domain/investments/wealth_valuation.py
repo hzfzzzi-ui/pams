@@ -46,5 +46,12 @@ def load_reviewed_wealth_anchors(cur, *, accounts, dates):
                 price_date = max(mark for mark in replay['prices'] if sessions[0] <= mark <= day)
             amount = (replay['buy_quantity'] * replay['prices'][price_date]).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             results.append({'date':day, 'price_date':price_date, 'account_code':account, 'asset_id':asset_id,
-                            'symbol':buy.get('symbol'), 'currency':currency, 'amount':amount})
+                            'symbol':buy.get('symbol'), 'currency':currency, 'amount':amount,
+                            'quantity':replay['buy_quantity'], 'price':replay['prices'][price_date],
+                            'direct_unit_mark':any(entry.get('status') == 'verified'
+                                and entry['fields'].get('valuation_date') == price_date.isoformat()
+                                and entry['fields'].get('valuation_unit_price') is not None
+                                for entry in evidence[buy['trade_id']]),
+                            'source_refs':sorted(item['confirmation_id'] for items in evidence.values()
+                                                for item in items if item.get('status') == 'verified')})
     return results

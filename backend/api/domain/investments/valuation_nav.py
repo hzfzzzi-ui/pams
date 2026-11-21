@@ -635,12 +635,17 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         if (covered & set(row.get('source_evidence_unavailable_accounts', ()))
                 or any(code in available and code not in contributions for code in covered)):
             continue
-        ratios = {Decimal(str(account_owner_ratio(code))) for code in covered}
+        raw_ratios = [account_owner_ratio(code) for code in covered]
+        if any(ratio is None for ratio in raw_ratios):
+            continue
+        ratios = {Decimal(str(ratio)) for ratio in raw_ratios}
         rate = rate_at(value['currency'], row['date'])
         if len(ratios) != 1 or (rate is None and Decimal(value['net_asset']) != 0):
             continue
         amount = Decimal(value['net_asset']) * next(iter(ratios)) * (rate or Decimal(1))
         prior = sum((contributions.get(code, Decimal(0)) for code in covered if code in available), Decimal(0))
+        if value.get('confirmed_components') and covered <= available and abs(amount-prior) > Decimal('0.005'):
+            continue
         delta = amount - prior
         if row.get('net_worth') is not None and any(contributions.get(code, Decimal(0)) < 0 for code in covered):
             continue
@@ -662,7 +667,7 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         if 'unavailable_accounts' in row:
             row['unavailable_accounts'] = sorted(set(row['unavailable_accounts']) - covered)
         estimated = set(row.get('estimated_accounts', ())) - covered
-        if not value.get('confirmed_empty'):
+        if not (value.get('confirmed_empty') or value.get('observed_total')):
             estimated.add(value['account_code'])
         row['estimated_accounts'] = sorted(estimated)
         if estimated:
@@ -974,7 +979,9 @@ def _historical_cash_points(cur, accounts, through):
         if (row['id'] in proof['member_ids'] and row['id'] in proof.get('point_in_time_member_ids', ())
                 and row['currency'] == str(by_code[code].get('base_currency') or 'CNY').upper()
                 and row['market_value'] is not None):
-            candidates[code, day].append(row)
+            complete = (proof['status'] == 'complete' and proof['cash_status'] == 'known'
+                        and proof['member_ids'] == {row['id']})
+            candidates[code, day].append({**row, 'complete_cash_scope': complete})
     return {key: rows[0] for key, rows in candidates.items() if len(rows) == 1}
 
 
@@ -1014,6 +1021,7 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
         for day in sorted(bank_series):
             bucket = bank_series[day]
             point = points.get((code, day))
+            complete_cash = bool(point and point.get('complete_cash_scope'))
             period = periods.get((code, day))
             if period is not None:
                 currency, side, balance = period
@@ -1030,6 +1038,7 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 value = point['market_value']
                 rate = rate_at(point['currency'], day)
                 if rate is None and value:
+                    _replace_cash_contribution(bucket, code, None)
                     continue
                 amount = value * (rate or Decimal(1)) * ratio
                 if point['asset_liability'] == '负债':
@@ -1037,8 +1046,10 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 backcast = bucket.get('account_values', {}).get(code)
                 conflict = backcast is not None and backcast != amount
                 _replace_cash_contribution(bucket, code, amount)
-                if period and code in bucket.get('unavailable_accounts', ()):
+                if (period or complete_cash) and code in bucket.get('unavailable_accounts', ()):
                     bucket['unavailable_accounts'].remove(code)
+                if complete_cash:
+                    bucket['estimated_accounts'].remove(code)
             elif conflict and day < anchor and code in bucket.get('estimated_accounts', ()):
                 _replace_cash_contribution(bucket, code, None)
 
@@ -1730,8 +1741,12 @@ def build_nav_weekly_payload(
     from domain.investments.account_total_evidence import load as load_account_totals
     totals = load_account_totals(cur, dates=dates, accounts=nav_codes)
     for row in rows:
+        def dated_ratio(code):
+            if code == 'tonghuashun' and ownership_config is not None:
+                return getattr(a_share_series, 'ownership_ratios', {}).get(row['date'])
+            return account_owner_ratio(code)
         _apply_account_totals(row, [value for (day, _), value in totals.items() if day == row['date']],
-                              account_owner_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
+                              dated_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,

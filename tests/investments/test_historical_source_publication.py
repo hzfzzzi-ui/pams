@@ -163,6 +163,50 @@ def test_historical_foreign_statement_balance_stays_on_its_day(monkeypatch):
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal('1'), rate_at=lambda *_: None)
                 assert estimates[date(2025,12,31)]['test_foreign'][0] == 0
                 assert 'test_foreign' not in estimates.get(date(2026,1,1), {})
+                from domain.investments.account_snapshot_evidence import record_source_scope
+                from domain.investments.valuation_nav import _historical_cash_points, _apply_historical_cash_points
+                day, later = date(2025, 12, 31), date(2026, 1, 1)
+                code = 'test_foreign'
+                accounts = [{'account_code': code, 'base_currency': 'MXN'}]
+                partial = _historical_cash_points(cur, accounts, later)
+                assert not partial[code, day]['complete_cash_scope']
+                scope = {'confirmed': True, 'as_of': day.isoformat(), 'member_count': 1,
+                         'cash_amount': '0', 'note': 'All account cash confirmed for this date'}
+                cur.execute('SAVEPOINT legacy_scope')
+                with pytest.raises(ValueError, match='完整范围'):
+                    record_source_scope(cur, source_id=source, holding_ids=[partial[code, day]['id']],
+                                        as_of=day, scope=scope)
+                cur.execute('ROLLBACK TO SAVEPOINT legacy_scope')
+                record_source_scope(cur, source_id=source, holding_ids=[partial[code, day]['id']], as_of=day,
+                                    scope={**scope, 'cash_currency': 'MXN'})
+                points = _historical_cash_points(cur, accounts, later)
+                assert set(points) == {(code, day)} and points[code, day]['complete_cash_scope']
+                buckets = {d: {'assets': Decimal(0), 'liabilities': Decimal(0), 'net_worth': Decimal(0),
+                               'unavailable_accounts': [code]} for d in (day, later)}
+                _apply_historical_cash_points(cur, bank_series=buckets, accounts=accounts, dates=[day, later],
+                                             rate_at=lambda *_: None, points=points, periods={})
+                assert buckets[day]['account_values'][code] == 0
+                assert code not in buckets[day]['unavailable_accounts'] + buckets[day]['estimated_accounts']
+                assert code in buckets[later]['unavailable_accounts']
+
+                # A previously issued CNY scope retains its original unit when
+                # the account's base currency has since been changed.
+                from domain.investments.account_snapshot_evidence import verified_complete
+                cur.execute("UPDATE pams_accounts SET base_currency='CNY' WHERE account_code=%s", (code,))
+                legacy_source, legacy_item = uuid4(), uuid4()
+                sources.create_source(cur, source_id=legacy_source, account_code=code, source_name='Legacy account cash',
+                                      acquisition_method='manual', document_type='holding')
+                legacy_fields = {'business_date': later.isoformat(), 'currency': 'CNY', 'asset_type': 'cash', 'net_cash': '5'}
+                sources.add_item(cur, source_id=legacy_source, item_id=legacy_item, parse_method='manual',
+                                 raw_fields={'entered_fields': legacy_fields}, parsed_fields=legacy_fields)
+                sources.review_item(cur, source_id=legacy_source, item_id=legacy_item, expected_revision=2,
+                                    parsed_fields=legacy_fields, review_status='confirmed')
+                legacy_scope = {**scope, 'as_of': later.isoformat(), 'cash_amount': '5'}
+                plan = publication.preview(cur, source_id=legacy_source, revision=3, scope=legacy_scope)
+                out = publication.publish(cur, source_id=legacy_source, revision=3, preview_token=plan['preview_token'],
+                                          scope=legacy_scope)
+                cur.execute("UPDATE pams_accounts SET base_currency='MXN' WHERE account_code=%s", (code,))
+                assert verified_complete(cur, out['snapshot_version_id'])
         finally:
             conn.rollback()
 

@@ -232,8 +232,9 @@ def _verified_source_scope(cur, version_id):
     except (KeyError, TypeError, InvalidOperation):
         return False
     cur.execute("""SELECT h.id,h.source_item_id,h.major_category,h.currency,h.market_value,
-            m.holding_id,i.source_id,i.review_status
-        FROM pams_holdings_snapshot h LEFT JOIN account_snapshot_member m
+            m.holding_id,i.source_id,i.review_status,a.base_currency
+        FROM pams_holdings_snapshot h JOIN pams_accounts a ON a.account_code=h.account_code
+        LEFT JOIN account_snapshot_member m
           ON m.version_id=%s AND m.holding_id=h.id AND m.source_item_id=h.source_item_id
          AND m.holding_row_hash=md5(to_jsonb(h)::text)
         LEFT JOIN source_items i ON i.source_item_id=m.source_item_id
@@ -248,7 +249,13 @@ def _verified_source_scope(cur, version_id):
     if {row['source_item_id'] for row in cur.fetchall()} != {row['source_item_id'] for row in holdings}:
         return False
     cash = [row for row in holdings if row['major_category'] == '现金']
-    if len(cash) != 1 or cash[0]['currency'] != 'CNY' or cash[0]['market_value'] != version['cash_amount']:
+    if len(cash) != 1 or cash[0]['market_value'] != version['cash_amount']:
+        return False
+    # Older attestations omitted the unit and always stated cash in CNY,
+    # including accounts whose master data had another base currency.
+    if 'cash_currency' in scope and (len(holdings) != 1 or scope['cash_currency'] != cash[0]['base_currency']):
+        return False
+    if cash[0]['currency'] != scope.get('cash_currency', 'CNY'):
         return False
     return all(row['holding_id'] is not None and row['source_id'] == version['source_batch_id']
                and row['review_status'] == 'confirmed'
