@@ -99,6 +99,7 @@ def test_fund_single_member_update_cannot_replace_whole_account(monkeypatch):
 
 
 def test_dated_fund_reference_is_a_standalone_fallback(monkeypatch):
+    monkeypatch.setattr(history, 'prior_single_account_total', lambda *a: None)
     day = date(2026, 1, 2)
     cfg = {'accounts': {'fund': {'account_type':'fund_platform', 'truth_source':'manual',
         'base_currency':'CNY', 'reconcile_method':'position_nav', 'manual_balance': {
