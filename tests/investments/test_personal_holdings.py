@@ -5,6 +5,23 @@ from domain.investments.personal_holdings import personal_holdings
 
 
 class PersonalHoldingsTest(TestCase):
+    def test_dedicated_loan_changes_net_value_only_once(self):
+        configs = {"equity": {"latest_position_evidence": "recorded_equity_and_debt"}}
+        rows = [
+            dict(account="equity", major_category="ESOP", market_value_cny=120, cost_cny=100,
+                 snapshot_scope_member="recorded", holding_pnl_cny=20),
+            dict(account="equity", major_category="负债", market_value_cny=40, snapshot_scope_member="recorded"),
+            dict(account="broker", major_category="美股", market_value_cny=80),
+            dict(account="broker", major_category="负债", market_value_cny=10),
+        ]
+        equity, _, stock, _ = personal_holdings({"rows": rows}, {}, accounts=configs)["rows"]
+        self.assertEqual((equity["position_net_value_cny"], equity["portfolio_weight"], equity["cumulative_pnl_ratio"]),
+                         (80, 0.6, 0.2))
+        self.assertEqual(stock["position_net_value_cny"], 80)
+        self.assertIsNone(stock["cumulative_pnl_ratio"])
+        rows[1]["snapshot_scope_member"] = "unverified"
+        self.assertIsNone(personal_holdings({"rows": rows}, {}, accounts=configs)["rows"][0]["position_net_value_cny"])
+
     def test_owner_value_is_already_allocated_and_cash_debt_closed_are_excluded(self):
         rows = [
             dict(major_category="A股", market_value_cny="30", owner_ratio="0.3"),
