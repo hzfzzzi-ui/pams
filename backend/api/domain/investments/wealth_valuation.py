@@ -1,16 +1,17 @@
 """Dated wealth position observations from reviewed trade and NAV evidence."""
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 
 from domain.imports.source_original_read import SourceOriginals
 from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+from domain.investments.fund_closed_sessions import surrounding_sessions
 from domain.investments.position_evidence_replay import replay_reviewed_cycle
 from domain.investments.trade_read_v2 import load_trade_rows
 
 
 def load_reviewed_wealth_anchors(cur, *, accounts, dates):
-    """Return exact dated unit-NAV anchors; do not assert account completeness."""
+    """Estimate held units at reviewed marks, retaining their actual disclosure date."""
     if not accounts or not dates:
         return []
     cur.execute("""SELECT DISTINCT f.account_code FROM pams_investment_trade_fact f
@@ -32,24 +33,18 @@ def load_reviewed_wealth_anchors(cur, *, accounts, dates):
         if not replay:
             continue
         buy = next(row for row in trades if row['trade_type'] in {'buy', 'fund_subscription'})
-        anchors = defaultdict(set)
-        for item in evidence[buy['trade_id']]:
-            fields = item.get('fields') or {}
-            if item.get('status') != 'verified' or not fields.get('valuation_date') or not fields.get('valuation_unit_price'):
-                continue
-            try:
-                day = date.fromisoformat(fields['valuation_date'])
-                price = Decimal(str(fields['valuation_unit_price']))
-            except (TypeError, ValueError, InvalidOperation):
-                continue
-            if price.is_finite() and price > 0:
-                anchors[day].add(price)
         for day in dates:
-            values = anchors.get(day, set())
-            if (len(values) != 1 or not buy['trade_date'] <= day < replay['exit_date']
-                    or replay['prices'].get(day) not in values):
+            if not buy['trade_date'] <= day < replay['exit_date']:
                 continue
-            amount = (replay['buy_quantity'] * next(iter(values))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            results.append({'date':day, 'account_code':account, 'asset_id':asset_id,
+            price_date = day
+            if day not in replay['prices']:
+                sessions = surrounding_sessions(day) if currency == 'CNY' else None
+                if not sessions or not all(mark in replay['prices'] for mark in sessions):
+                    continue
+                # Some products disclose over holidays. Use their latest actual
+                # mark within the bounded gap between observed trading sessions.
+                price_date = max(mark for mark in replay['prices'] if sessions[0] <= mark <= day)
+            amount = (replay['buy_quantity'] * replay['prices'][price_date]).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            results.append({'date':day, 'price_date':price_date, 'account_code':account, 'asset_id':asset_id,
                             'symbol':buy.get('symbol'), 'currency':currency, 'amount':amount})
     return results

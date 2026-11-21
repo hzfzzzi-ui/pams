@@ -111,10 +111,18 @@ def test_historical_fund_reconstruction_binds_existing_evidence(monkeypatch):
                 cur.execute("SELECT version_key FROM valuation_evidence WHERE account_code='test_reconstruction'")
                 version = cur.fetchone()['version_key']
                 assert bound_holding_freshness(cur, version) in {'unknown','unchanged_for_recorded_inputs'}
-                nav_args = dict(accounts={'test_reconstruction': {}}, dates=[date(2025, 12, 31)],
+                prior, holiday, reopened = date(2025, 12, 31), date(2026, 1, 1), date(2026, 1, 5)
+                nav_args = dict(accounts={'test_reconstruction': {}}, dates=[prior, holiday, reopened],
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal('1'),
                     rate_at=lambda currency, _: Decimal('1') if currency == 'CNY' else None)
-                assert load_position_nav_estimates(cur, **nav_args)[date(2025, 12, 31)]['test_reconstruction'][0] == Decimal('120')
+                series = load_position_nav_estimates(cur, **nav_args)
+                assert series[prior]['test_reconstruction'][0] == Decimal('120')
+                assert series[holiday]['test_reconstruction'] == (Decimal('120'), prior, prior)
+                assert 'test_reconstruction' not in series.get(reopened, {})
+                cur.execute("SAVEPOINT holiday_event")
+                cur.execute("UPDATE pams_investment_trade_fact SET trade_date=%s WHERE trade_id=%s", (holiday, trade_id))
+                assert 'test_reconstruction' not in load_position_nav_estimates(cur, **nav_args).get(holiday, {})
+                cur.execute("ROLLBACK TO SAVEPOINT holiday_event")
                 cur.execute("""INSERT INTO market_observations(observation_type,as_of,asset_id,symbol,market,currency,unit_nav,source,source_key)
                     VALUES ('daily','2025-12-31','test_fund','123456','基金','CNY',1.25,'eastmoney_f10','other') RETURNING quote_id""")
                 conflicting = cur.fetchone()['quote_id']

@@ -7,6 +7,7 @@ from decimal import Decimal
 from domain.accounts.balance_reference import historical_account_balance
 from domain.accounts.position_reference import historical_position_reference, position_reference_config
 from domain.investments.fund_return_history import NAV_SOURCES
+from domain.investments.fund_closed_sessions import surrounding_sessions
 from domain.investments.snapshot_coverage import load_account_snapshot_coverage
 from domain.market.quote_valuation import gold_close_join, gold_market_value, uses_gold_close
 
@@ -38,8 +39,12 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
         point_in_time_ids.extend(point_ids)
         invalid_point_ids.extend(point_ids - set(proof.get("member_ids", ())))
     ratio_sql, ratio_params = owner_ratio_case_sql("h")
+    holidays = {day: sessions for day in dates if (sessions := surrounding_sessions(day))}
     cur.execute(f"""
         WITH samples AS (SELECT unnest(%s::date[]) AS date),
+        holidays AS (
+            SELECT * FROM unnest(%s::date[], %s::date[]) AS gap(day, prior_session)
+        ),
         complete_days AS (
             SELECT * FROM unnest(%s::text[], %s::date[]) AS scope(account_code, as_of)
         ),
@@ -54,9 +59,19 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
                    d.date, s.*
             FROM samples d JOIN pams_holdings_snapshot s ON s.as_of <= d.date
             LEFT JOIN scope_cutoffs scope ON scope.date=d.date AND scope.account_code=s.account_code
+            LEFT JOIN holidays gap ON gap.day=d.date AND gap.prior_session=s.as_of
             WHERE s.account_code = ANY(%s) AND (scope.as_of IS NULL OR s.as_of>=scope.as_of)
               AND (s.major_category <> '现金' OR s.id=ANY(%s::bigint[]))
-              AND (s.id<>ALL(%s::bigint[]) OR s.as_of=d.date)
+              AND (s.id<>ALL(%s::bigint[]) OR s.as_of=d.date OR (
+                  gap.day IS NOT NULL AND s.minor_category='A股基金' AND s.currency='CNY'
+                  AND EXISTS (SELECT 1 FROM source_items i WHERE i.source_item_id=s.source_item_id
+                      AND i.review_status='confirmed' AND i.parsed_fields->'reconstruction_evidence' ?& ARRAY['trade_ids','quote_id'])
+                  AND NOT EXISTS (SELECT 1 FROM pams_investment_trade_fact f
+                      WHERE f.account_code=s.account_code AND f.trade_date>s.as_of AND f.trade_date<=d.date)
+                  AND NOT EXISTS (SELECT 1 FROM market_observations m
+                      WHERE m.symbol=s.symbol AND m.market='基金' AND m.currency='CNY' AND m.observation_type='daily'
+                        AND m.source=ANY(%s) AND m.as_of>s.as_of AND m.as_of<=d.date)
+              ))
               AND s.id<>ALL(%s::bigint[])
             ORDER BY d.date, s.account_code, s.currency, s.asset_liability,
                      CASE WHEN s.major_category='现金' THEN NULL ELSE COALESCE(NULLIF(s.symbol, ''), s.name) END,
@@ -107,8 +122,10 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
               AND close>0 AND close::text NOT IN ('NaN','Infinity','-Infinity')
             ORDER BY trade_date DESC LIMIT 1
         ) overseas ON TRUE
-    """, (dates, [code for code, _ in complete_days], [day for _, day in complete_days],
-           sorted(accounts), cash_ids, point_in_time_ids, invalid_point_ids, *ratio_params, list(NAV_SOURCES)))
+    """, (dates, list(holidays), [sessions[0] for sessions in holidays.values()],
+           [code for code, _ in complete_days], [day for _, day in complete_days],
+           sorted(accounts), cash_ids, point_in_time_ids, list(NAV_SOURCES), invalid_point_ids,
+           *ratio_params, list(NAV_SOURCES)))
     observed = set()
     represented_assets = set()
     amounts = defaultdict(list)
@@ -143,7 +160,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
         rate = dated_rate(row['currency'], day)
         if rate is not None:
             value = row['amount'] * rate * account_owner_ratio(code)
-            amounts[day, code].append((value, day))
+            amounts[day, code].append((value, row['price_date']))
             observed.add((day, code))
 
     for code, cfg in accounts.items():
