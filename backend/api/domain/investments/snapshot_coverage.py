@@ -9,11 +9,19 @@ def point_in_time_visible_sql(holding_alias: str, date_sql: str) -> str:
     """A single-day member cannot stand in for a later account observation."""
     if not holding_alias.replace('_', '').isalnum():
         raise ValueError('invalid holding alias')
-    return f"""({holding_alias}.as_of = ({date_sql}) OR NOT EXISTS (
+    return f"""(NOT EXISTS (
         SELECT 1 FROM public.account_snapshot_member point_member
         JOIN public.account_snapshot_version point_version ON point_version.version_id=point_member.version_id
         WHERE point_member.holding_id={holding_alias}.id AND point_version.coverage_status='partial'
-          AND point_version.scope_attestation->'point_in_time_only'='true'::jsonb))"""
+          AND point_version.scope_attestation->'point_in_time_only'='true'::jsonb)
+      OR ({holding_alias}.as_of = ({date_sql}) AND EXISTS (
+        SELECT 1 FROM public.account_snapshot_member valid_member
+        JOIN public.account_snapshot_version valid_version ON valid_version.version_id=valid_member.version_id
+        WHERE valid_member.holding_id={holding_alias}.id
+          AND valid_member.holding_row_hash=md5(to_jsonb({holding_alias})::text)
+          AND valid_version.account_code={holding_alias}.account_code AND valid_version.as_of={holding_alias}.as_of
+          AND valid_version.version_number=(SELECT MAX(v.version_number) FROM public.account_snapshot_version v
+              WHERE v.account_code={holding_alias}.account_code AND v.as_of={holding_alias}.as_of))))"""
 
 
 def load_account_snapshot_coverage(cur, pairs: set[tuple[str, Any]]) -> dict[tuple[str, Any], dict[str, Any]]:

@@ -62,5 +62,8 @@ def test_reviewed_historical_holding_publish_and_nav(monkeypatch):
                     rate_at=lambda currency, _: Decimal('1') if currency == 'CNY' else None)
                 assert estimates[day]['test_history'][0] == Decimal('120')
                 assert 'test_history' not in estimates.get(later, {})
+                cur.execute('UPDATE pams_holdings_snapshot SET market_value=999 WHERE id=%s', (holding['id'],))
+                cur.execute(f'WITH {LATEST_KNOWN_HOLDINGS_CTE} SELECT symbol FROM latest_known_holding', (day,))
+                assert cur.fetchall() == []
         finally:
             conn.rollback()
