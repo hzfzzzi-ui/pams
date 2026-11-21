@@ -1,11 +1,14 @@
 import { accountLabel, fmt2 } from '../../api.js';
 import { escapeHtml, formatCurrency, formatPercent, formatPlainMoney as money, formatQuantity, toFiniteNumber as num } from '../../utils.js';
+import { renderLedgerDays } from '../../shared/date_groups.js';
+import { assetIconCaption, assetIconMarkup, installAssetIconFallback } from '../../shared/asset_icons.js';
 
 export function createListView({state, scope, legacy}) {
 const $ = scope.byId;
 const {defaultFilterState, holdingDisplay, isReviewableTrade, option, reviewSummaryParts, reviewSummaryText, sideClass, sideWithStatus, sourceLabel, todayIso} = legacy;
 const openBottomSheet = scope.openSheet;
 const closeBottomSheet = scope.closeSheet;
+const releaseAssetIcons = installAssetIconFallback(scope.root);
 
 function fillSelects() {
   $('tradeAccount').innerHTML = state.accounts
@@ -230,38 +233,23 @@ function TransactionSummaryPanel(summary, rows) {
       </div>
       <div class="muted">数据来源：${escapeHtml(sourceText)}</div>
       <div class="recentTradeList">
-        ${visibleRows.length ? visibleRows.map((r, index) => {
+        ${visibleRows.length ? renderLedgerDays(visibleRows, r => r.trade_date || '', (r, index) => {
           const holding = holdingDisplay(r);
-          const date = r.trade_date || '';
-          const previousDate = index > 0 ? visibleRows[index - 1].trade_date || '' : null;
-          const dateHeading = date !== previousDate
-            ? `<div class="tradeDateHeading">${escapeHtml(date || '日期待补')}</div>` : '';
-          const price = r.price ? `成交价 ${fmt2(r.price)}` : '';
           const account = r.account_name || accountLabel(r.account_code);
-          const reviewable = isReviewableTrade(r);
-          const reviewText = reviewSummaryText(r);
-          const hasReview = reviewSummaryParts(r).length > 0;
-          const ownerRatio = num(r.owner_ratio ?? 1);
-          const personalLine = ownerRatio !== 1 && r.gross_amount_personal_cny != null
-            ? `个人口径 ${formatCurrency(r.gross_amount_personal_cny)} · 税费 ${formatCurrency(r.fees_personal_cny || 0)}`
-            : '';
           return `
-          ${dateHeading}<div class="recentTradeItem tradeLedgerItem">
-            <div class="tradeItemMain">
+          <button type="button" class="unifiedActivityRow tradeActivityRow" data-trade-detail="${index}">
+            ${assetIconMarkup(r, holding.name)}
+            <span class="unifiedActivityMain">
               <strong>${escapeHtml(holding.name)}</strong>
-              <small>${escapeHtml([holding.meta, price, account].filter(Boolean).join(' · '))}</small>
-              <small class="tradeReviewSummary ${hasReview ? 'hasReview' : ''}">${escapeHtml(reviewText)}</small>
-            </div>
-            <div class="tradeItemNumbers">
-              <span class="sideTag ${sideClass(r.side_normalized)}">${escapeHtml(sideWithStatus(r.side_normalized, r.status))}</span>
-              <strong class="mono">${money(r.gross_amount, r.currency)}</strong>
-              <small>份数 ${escapeHtml(formatQuantity(r.quantity))} · 税费 ${escapeHtml(money(r.fees, r.currency))}</small>
-              ${personalLine ? `<small>${escapeHtml(personalLine)}</small>` : ''}
-              ${reviewable ? `<button type="button" class="tradeReviewBtn" data-trade-review="${escapeHtml(String(r.native_id))}">${hasReview ? '已标注' : '补复盘'}</button>` : ''}
-            </div>
-          </div>
+              <small>${escapeHtml([holding.symbol, account, assetIconCaption(r)].filter(Boolean).join(' · '))}</small>
+            </span>
+            <span class="unifiedActivitySide">
+              <strong class="mono">${escapeHtml(r.gross_amount == null || r.gross_amount === '' ? '—' : money(r.gross_amount, r.currency))}</strong>
+              <small class="${sideClass(r.side_normalized)}">${escapeHtml(sideWithStatus(r.side_normalized, r.status))}</small>
+            </span>
+          </button>
         `;
-        }).join('') : '<div class="emptyState">当前筛选下没有交易记录。</div>'}
+        }, {partialLastDay: hiddenCount > 0 && visibleRows.at(-1)?.trade_date === allRows[visibleRows.length]?.trade_date}) : '<div class="emptyState">当前筛选下没有交易记录。</div>'}
       </div>
       ${allRows.length > 10 ? `
         <button id="btnToggleAllTrades" class="tradeListMoreBtn" type="button">
@@ -278,5 +266,29 @@ function renderTransactionSummary(summary, rows) {
   el.innerHTML = TransactionSummaryPanel(summary || {}, rows || []);
 }
 
-return {fillSelects, assetFilterOptions, hasActiveTradeFilters, TradeFilterSheet, readTradeFilterForm, fillTradeNameOptions, setDefaultFilters, setTradeFilterPanelOpen, toggleTradeFilterPanel, buildQuery, renderSummary, TransactionSummaryPanel, renderTransactionSummary};
+function openTradeDetails(index) {
+  const row = state.rows?.[index];
+  if (!row) return;
+  const holding = holdingDisplay(row);
+  const account = row.account_name || accountLabel(row.account_code);
+  const values = [
+    ['方向', sideWithStatus(row.side_normalized, row.status)],
+    ['交易日期', row.trade_date || '—'],
+    ['账户', account || '—'],
+    ['成交金额', row.gross_amount == null || row.gross_amount === '' ? '—' : money(row.gross_amount, row.currency)],
+    ['份数', formatQuantity(row.quantity)],
+    ['成交价', row.price == null || row.price === '' ? '—' : fmt2(row.price)],
+    ['税费', row.fees == null || row.fees === '' ? '—' : money(row.fees, row.currency)],
+    ['复盘', reviewSummaryText(row)],
+  ];
+  if (num(row.owner_ratio ?? 1) !== 1 && row.gross_amount_personal_cny != null) {
+    values.push(['个人口径', formatCurrency(row.gross_amount_personal_cny)]);
+    values.push(['个人税费', row.fees_personal_cny == null || row.fees_personal_cny === '' ? '—' : formatCurrency(row.fees_personal_cny)]);
+  }
+  const review = isReviewableTrade(row)
+    ? `<button type="button" class="btn tradeDetailReview" data-trade-review="${escapeHtml(String(row.native_id))}">${reviewSummaryParts(row).length ? '查看复盘' : '补复盘'}</button>` : '';
+  openBottomSheet(holding.name, `<div class="tradeDetailIdentity">${assetIconMarkup(row, holding.name)}<span>${escapeHtml(holding.meta)}</span></div><dl class="unifiedDetailFields">${values.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${review}`);
+}
+
+return {fillSelects, assetFilterOptions, hasActiveTradeFilters, TradeFilterSheet, readTradeFilterForm, fillTradeNameOptions, setDefaultFilters, setTradeFilterPanelOpen, toggleTradeFilterPanel, buildQuery, renderSummary, TransactionSummaryPanel, renderTransactionSummary, openTradeDetails, dispose: releaseAssetIcons};
 }

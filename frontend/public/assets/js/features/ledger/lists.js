@@ -2,7 +2,7 @@ import { escapeHtml, formatSignedMoneyFixed2 as signedMoney, toFiniteNumber as n
 import { accountInstitution } from '../../shared/account_institutions.js';
 import { categoryIconPath } from './category_icons.js';
 import { RECENT_SORT_OPTIONS } from './state.js';
-import { renderLedgerDays } from './days.js';
+import { renderLedgerDays } from '../../shared/date_groups.js';
 import { currentBusinessMonth } from './transfers.js';
 
 const accountGlyph = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg>';
@@ -273,14 +273,14 @@ function renderRows(id, rows, emptyText) {
     const showOriginal = row.amount_cny == null && originalAmount;
     const displayAmount = row.amount_cny == null && row.amount == null ? '—' : showOriginal || signedMoney(amount);
     return `
-      <button type="button" class="ledgerListRow" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
+      <button type="button" class="ledgerListRow unifiedActivityRow" data-detail-target="${escapeHtml(detailId)}" title="点击查看账户、对方和原始摘要">
         <span class="ledgerStreamCategoryIcon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${icon}"/></svg></span>
-        <span class="ledgerListMain">
+        <span class="ledgerListMain unifiedActivityMain">
           <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
           <small class="ledgerListAccount">${category && category !== title
             ? `<span class="${pending ? 'ledgerReviewHint' : ''}">${escapeHtml(category)}</span> · ` : ''}${escapeHtml(accountName)}</small>
         </span>
-        <span class="ledgerListSide">
+        <span class="ledgerListSide unifiedActivitySide">
           <b class="${displayAmount === '—' ? '' : amountClass}">${escapeHtml(displayAmount)}</b>
           ${originalAmount && !showOriginal ? `<small class="ledgerOriginalAmount">原币 ${escapeHtml(originalAmount)}</small>` : ''}
           ${row.needs_review && !pending ? '<small class="ledgerReviewHint">待确认</small>' : ''}

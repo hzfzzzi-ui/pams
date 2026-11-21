@@ -176,10 +176,6 @@ body.page-investments #mobileHoldingList button.personalPosition {
 }
 body.page-investments #mobileHoldingList button.personalPosition:last-child { border-bottom: 0; }
 .personalPositionIdentity { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.personalPositionMark {
-  display: grid; place-items: center; flex: 0 0 34px; height: 34px;
-  border-radius: 11px; background: #30281b; color: #e4b662; font-size: 14px; font-weight: 650;
-}
 .personalPositionName { display: grid; gap: 4px; min-width: 0; }
 .personalPositionName strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .personalPositionName small { color: #a8a9ae; font-size: 11px; }
@@ -250,15 +246,6 @@ body.page-investments .recentTradePanel {
 body.page-investments .tradeLedgerItem { min-width: 0; }
 body.page-investments .tradeItemMain, body.page-investments .tradeItemNumbers { min-width: 0; }
 body.page-investments .tradeItemNumbers :is(strong, small) { overflow-wrap: anywhere; }
-body.page-investments .tradeDateHeading {
-  margin-top: 10px;
-  padding: 9px 10px;
-  border-radius: 10px;
-  background: #292a2e;
-  color: #d4d4d8;
-  font-size: 12px;
-  font-weight: 600;
-}
 
 body.page-more .assetCoverage {
   margin: 12px 0 0;
@@ -399,4 +386,102 @@ html.pams-content body.page-investments .appBottomSheetPanel {
   body.page-ledger .ledgerMobileValue { margin: 5px 0 10px; }
   body.page-ledger .ledgerMobileStats { padding-block: 7px; }
   body.page-ledger .cashflowBodyGrid { margin-top: 10px; gap: 10px; }
+}
+
+/* Shared controls for chart periods and in-card choices. */
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 12px;
+  background: #202124;
+}
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button {
+  min-height: 44px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #a8a9ae;
+  font-size: 12px;
+  white-space: nowrap;
+}
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button:is(.active,[aria-pressed="true"]) {
+  color: #f5f5f6;
+  background: var(--refresh-glass);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1);
+}
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch) button + button::before { content: none; }
+body.app-shell .holdingMarketDetail .hmBar button:disabled { opacity: .5; cursor: not-allowed; }
+body.page-more #asset-overview .returnWindowSegment,
+body.page-investments #return-trend .returnWindowSegment { gap: 2px; padding: 3px; border-radius: 12px; background: #202124; }
+body.page-more #asset-overview .returnWindowSegment button,
+body.page-investments #return-trend .returnWindowSegment button { min-height: 44px; padding: 0 8px; border-radius: 9px; }
+body.page-more #asset-overview .returnWindowSegment button.active,
+body.page-investments #return-trend .returnWindowSegment button.active { border-radius: 9px; }
+
+/* Shared identity and activity rows retain their domain-specific data. */
+.assetIdentityMark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #30291f;
+  color: #e4b662;
+  font-size: 11px;
+  font-weight: 650;
+}
+.assetIdentityMark img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.hmIdentity, .tradeDetailIdentity { display: flex; align-items: center; gap: 10px; min-width: 0; margin-bottom: 12px; }
+.tradeDetailIdentity > span:last-child { min-width: 0; color: #a8a9ae; overflow-wrap: anywhere; }
+.unifiedActivityRow { min-width: 0; }
+.unifiedActivityMain { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.unifiedActivitySide { display: grid; gap: 3px; justify-items: end; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.unifiedActivityMain strong { font-size: 14px; line-height: 1.3; }
+.unifiedActivityMain small, .unifiedActivitySide small { color: #a8a9ae; font-size: 11px; line-height: 1.4; }
+.unifiedActivitySide strong { font-size: 15px; font-weight: 600; }
+body.page-investments .recentTradeList .ledgerStreamDay {
+  margin-top: 8px;
+  padding: 0 13px;
+  border: 1px solid var(--refresh-border);
+  border-radius: 16px;
+  background: var(--refresh-panel);
+}
+body.page-investments .recentTradePanel { padding: 0 !important; border: 0 !important; background: transparent !important; }
+body.page-investments .recentTradeList .ledgerStreamDayHeader {
+  display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 9px 0 5px; font-size: 13px;
+}
+body.page-investments .recentTradeList .ledgerStreamDayHeader small { color: #a8a9ae; font-size: 11px; font-weight: 400; }
+body.page-investments .tradeActivityRow {
+  display: grid; grid-template-columns: 36px minmax(0,1fr) minmax(0,43%); align-items: center; gap: 8px;
+  width: 100%; min-height: 58px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--refresh-border);
+  background: transparent; color: #f5f5f6; font: inherit; text-align: left; cursor: pointer;
+}
+body.page-investments .tradeActivityRow:last-child { border-bottom: 0; }
+body.page-investments .tradeActivityRow:focus-visible { outline: 2px solid #eee; outline-offset: -2px; }
+.unifiedDetailFields { display: grid; margin: 0 0 14px; }
+.unifiedDetailFields > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--refresh-border); }
+.unifiedDetailFields dt { color: #a8a9ae; }
+.unifiedDetailFields dd { min-width: 0; margin: 0; text-align: right; overflow-wrap: anywhere; }
+
+body.app-shell :is(.emptyState, .ledgerEmpty, .mobileEmpty) { padding: 14px 0; color: #a8a9ae; font-size: 13px; }
+body.app-shell :is(.ledgerIconButton, .tradeFilterToggle) {
+  display: inline-grid; place-items: center; min-height: 40px;
+  border: 0; border-radius: 10px; background: transparent; color: #d6d6da;
+}
+body.app-shell .tradeFilterToggle { min-width: 40px; }
+body.app-shell :is(.ledgerIconButton, .tradeFilterToggle):is(.active,[aria-pressed="true"]) {
+  background: var(--refresh-glass); color: #f5f5f6;
+}
+body.app-shell :is(.ledgerIconButton, .tradeFilterToggle):focus-visible { outline: 2px solid #f5f5f6; outline-offset: -2px; }
+@media (max-width: 360px) {
+  body.page-investments .tradeActivityRow { grid-template-columns: 36px minmax(0, 1fr) minmax(0, 48%); }
+  body.page-investments .tradeActivityRow .unifiedActivitySide strong { font-size: 13px; }
 }

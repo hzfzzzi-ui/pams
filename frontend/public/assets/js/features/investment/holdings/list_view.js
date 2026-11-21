@@ -10,9 +10,11 @@ import {
 } from './list_legacy_model.js';
 import { typeLabel, accountLabel } from '../../../api.js';
 import { bindMarketDetail, marketDetailHtml } from './market_detail.js';
+import { assetIconCaption, assetIconMarkup, installAssetIconFallback } from '../../../shared/asset_icons.js';
 
 export function createListView({ document, host: window, showDetails: openBottomSheet, scope }) {
   const rowListeners = new Set();
+  const releaseAssetIcons = installAssetIconFallback(window.document);
   function clearRows() { for (const remove of rowListeners) remove(); rowListeners.clear(); }
   function bindRow(node, type, callback) { rowListeners.add(scope.listen(node, type, callback)); }
 function dataBadge(row) {
@@ -94,6 +96,7 @@ function openHoldingDetail(row, summary, fields) {
   const metrics = holdingMetrics(row, summary);
   const accounts = [...new Set((row.__accountRows || [row]).map(holdingAccountName))];
   const body = openBottomSheet(title, marketDetailHtml({
+    iconMarkup: assetIconMarkup(row, title),
     subtitle: [row.symbol, holdingGroupLabel(row), accounts.join(' / ')].filter(Boolean).join(' · '),
     value: metrics.value == null ? '—' : formatCompactCurrency(metrics.value), totalPnl: pnlText(metrics.totalPnl),
     pnlClass: pnlTone(metrics.totalPnl),
@@ -249,8 +252,8 @@ function renderMobileHoldingRows(rows, { summary }) {
     const status = r.reference_as_of ? '历史参考' : r.is_closed ? '已平仓' : '';
     return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
       <span class="personalPositionIdentity">
-        <span class="personalPositionMark" aria-hidden="true">${esc((holdingGroupLabel(r) || '资产').slice(0, 1))}</span>
-        <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc(status || holdingGroupLabel(r))}</small></span>
+        ${assetIconMarkup(r, name)}
+        <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc([status || holdingGroupLabel(r), assetIconCaption(r)].filter(Boolean).join(' · '))}</small></span>
       </span>
       <span class="personalPositionValues">
         <small class="personalPositionWeight">${weight}</small>
@@ -310,5 +313,5 @@ function renderMobileHoldingRows(rows, { summary }) {
   });
 }
 
-return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, renderFinancing, holdingSyncTime, renderMobileHoldingRows, dispose: clearRows };
+return { dataBadge, holdingDailyStatusBadge, closedBadge, renderRows, renderFinancing, holdingSyncTime, renderMobileHoldingRows, dispose() { clearRows(); releaseAssetIcons(); } };
 }
