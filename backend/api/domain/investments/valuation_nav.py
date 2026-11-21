@@ -771,7 +771,8 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
             result["tonghuashun_source_through"] = _norm(row["tonghuashun_source_through"])
     if row.get("net_worth") is None and row.get("available_net_worth") is None:
         result["valuation_error"] = "market_value_unavailable"
-    for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts', 'latest_known_components'):
+    for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts', 'latest_known_components',
+                  'personal_loan_coverage'):
         if field in row:
             result[field] = row[field]
     return result
@@ -1907,6 +1908,15 @@ def build_nav_weekly_payload(
             return account_owner_ratio(code)
         _apply_account_totals(row, [value for (day, _), value in totals.items() if day == row['date']],
                               dated_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
+    from domain.investments.personal_loan_nav import apply_personal_loan_coverage
+
+    def principal_value(proof):
+        if proof['market_value'] == 0:
+            return Decimal(0)
+        rate = fx_rate_at(fx_timelines, proof['currency'], proof['as_of'], base_currency)
+        return None if rate is None else proof['market_value'] * rate * account_owner_ratio(proof['account_code'])
+
+    apply_personal_loan_coverage(cur, rows, nav_codes, principal_value)
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,

@@ -35,6 +35,8 @@ def comparison_scope(row):
     scope = (complete, sorted(row.get('available_accounts', ())),
              sorted(row.get('unavailable_accounts', ())), sorted(row.get('source_evidence_unavailable_accounts', ())),
              row.get('_comparison_basis', {}))
+    if '_unanchored_loan_changes' in row:
+        scope += ('personal_loan_principal_unverified', row['_unanchored_loan_changes'])
     encoded = json.dumps(scope, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
     return sha256(encoded.encode()).hexdigest()
 
@@ -142,7 +144,12 @@ def _comparable_accounts(opening, closing, labels):
     result = {'status':'unavailable', 'opening':None, 'closing':None, 'change':None,
               'change_rate':None, 'account_codes':[], 'account_labels':[], 'estimated_account_codes':[]}
     before, after = _eligible_contributions(opening), _eligible_contributions(closing)
-    codes = sorted(code for code in before.keys() & after.keys() if before[code][:2] == after[code][:2])
+    opening_loans = (opening or {}).get('_unanchored_loan_changes', {})
+    closing_loans = (closing or {}).get('_unanchored_loan_changes', {})
+    affected_cash = {code for code in opening_loans.keys() | closing_loans.keys()
+                     if opening_loans.get(code) != closing_loans.get(code)}
+    codes = sorted(code for code in before.keys() & after.keys()
+                   if before[code][:2] == after[code][:2] and not before[code][1] & affected_cash)
     if not codes:
         return result
     first, last = (sum(values[code][2] for code in codes) for values in (before, after))
