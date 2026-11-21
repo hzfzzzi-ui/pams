@@ -346,29 +346,25 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       statsEl.innerHTML = '<span class="muted">暂无区间估值数据</span>';
       return;
     }
-    const {start, end, status, comparable_accounts: subset} = data.period;
-    const showSubset = status === 'different_coverage' && subset?.status === 'ok';
-    const change = showSubset ? subset.change : data.change;
-    const rate = showSubset ? subset.change_rate : data.changeRate;
-    const subsetCount = subset?.account_codes?.length ?? 0;
-    const subsetName = subsetCount === 1 && subset.account_labels?.[0]
-      ? subset.account_labels[0] : `${subsetCount} 个可比账户`;
-    const scopeNote = showSubset ? [subsetName, subset.estimated_account_codes?.length ? '含估算' : '',
-      rate == null ? '期初净值非正' : ''].filter(Boolean).join(' · ') : '';
-    const partial = status === 'ok' && data.accountCounts.some(count => count != null);
+    const {start, end, status} = data.period;
+    const dates = `${esc(start.slice(5))} 至 ${esc(end.slice(5))}`;
     const reason = !data.knownCount ? '区间内暂无估值'
       : status === 'comparison_unavailable' ? '区间比较待更新'
-      : showSubset ? scopeNote
-      : status === 'different_coverage' ? '期初与期末估值范围不同'
+      : status === 'different_coverage' ? '两端账户范围不同，整体变化待核'
       : status === 'missing_endpoint' ? '缺少期初或期末估值'
-      : data.change != null && data.changeRate == null ? '期初净资产非正' : '';
+      : data.partialEndpoints || data.change == null ? '整体变化待核' : '';
+    if (reason) {
+      statsEl.innerHTML = `<small class="muted">${dates} · ${reason}</small>`;
+      return;
+    }
+    const {change, changeRate: rate} = data;
     statsEl.innerHTML = `
       <span class="returnNavCurrent"><strong>${data.latest == null ? '—' : fmtCny(data.latest)}</strong></span>
-      <span class="returnNavMetric ${change == null ? '' : change >= 0 ? 'up' : 'down'}">
-        <em>${showSubset ? '可比账户变化' : partial ? '已知账户变化' : '区间变化'}</em><strong>${change == null ? '—' : fmtSignedCny(change)}</strong>
-        <small>${esc(start.slice(5))} 至 ${esc(end.slice(5))}</small>
+      <span class="returnNavMetric ${change >= 0 ? 'up' : 'down'}">
+        <em>净资产变化</em><strong>${fmtSignedCny(change)}</strong>
+        <small>${dates}</small>
       </span>
-      <span class="returnNavMetric ${rate == null ? '' : rate >= 0 ? 'up' : 'down'}"><em>${showSubset ? '可比账户变化率' : '变化率'}</em><strong>${rate == null ? '—' : formatPercentRate(rate)}</strong>${reason ? `<small>${esc(reason)}</small>` : ''}</span>
+      <span class="returnNavMetric ${rate == null ? '' : rate >= 0 ? 'up' : 'down'}"><em>变化率</em><strong>${rate == null ? '—' : formatPercentRate(rate)}</strong>${rate == null ? '<small>期初净资产非正</small>' : ''}</span>
     `;
   }
 
