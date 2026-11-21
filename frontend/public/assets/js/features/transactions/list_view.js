@@ -187,10 +187,8 @@ function TransactionSummaryPanel(summary, rows) {
   const hiddenCount = Math.max(0, allRows.length - visibleRows.length);
   const sourceText = (summary?.sources || []).map(sourceLabel).filter(Boolean).join(' / ') || '暂无来源';
   const filters = state.filters || defaultFilterState();
-  const rangeText = [
-    filters.start || '不限开始',
-    filters.end || '不限结束',
-  ].join(' 至 ');
+  const rangeText = filters.start && filters.end ? `${filters.start} 至 ${filters.end}`
+    : filters.start ? `${filters.start} 起` : filters.end ? `截至 ${filters.end}` : '全部时间';
   const filterActive = hasActiveTradeFilters();
   return `
     <div class="transactionOverview">
@@ -205,19 +203,24 @@ function TransactionSummaryPanel(summary, rows) {
         <div>
           <span>${amountLabel('个人买入', 'buy_amount_personal_cny')}</span>
           <strong>${amountText('buy_amount_personal_cny', false, false)}</strong>
-          <small>${coverageText('buy_amount_personal_cny')}${ownerAdjusted ? `账户原始 ${amountText('buy_amount_cny')}` : '与账户原始一致'}</small>
+          ${coverageText('buy_amount_personal_cny') ? `<small>${summary.amount_coverage.buy_amount_personal_cny.missing_count} 笔待补</small>` : ''}
         </div>
         <div>
           <span>${amountLabel('个人卖出', 'sell_amount_personal_cny')}</span>
           <strong>${amountText('sell_amount_personal_cny', false, false)}</strong>
-          <small>${coverageText('sell_amount_personal_cny')}${ownerAdjusted ? `账户原始 ${amountText('sell_amount_cny')}` : '与账户原始一致'}</small>
+          ${coverageText('sell_amount_personal_cny') ? `<small>${summary.amount_coverage.sell_amount_personal_cny.missing_count} 笔待补</small>` : ''}
         </div>
         <div class="${feeRate != null && feeRate > 0.01 ? 'warn' : ''}">
-          <span>个人税费</span>
+          <span>个人税费率</span>
           <strong>${feeRate == null ? '无法计算' : formatPercent(feeRate)}</strong>
-          <small>${amountText('fees_personal_cny')}${ownerAdjusted ? ` · 账户原始 ${amountText('fees_cny')}` : ''}</small>
+          ${coverageText('fees_personal_cny') ? `<small>${summary.amount_coverage.fees_personal_cny.missing_count} 笔待补</small>` : ''}
         </div>
       </div>
+      <details class="transactionOverviewDetails">
+        <summary>统计详情</summary>
+        <p>个人税费 ${amountText('fees_personal_cny')}</p>
+        ${ownerAdjusted ? `<p>账户原始买入 ${amountText('buy_amount_cny')} · 卖出 ${amountText('sell_amount_cny')} · 税费 ${amountText('fees_cny')}</p>` : '<p>个人金额与账户原始金额一致</p>'}
+      </details>
     </div>
     <div class="recentTradePanel">
       <div class="sectionTitle">
