@@ -233,7 +233,9 @@ def daily_estimates(events, prices, dates, symbols):
 
 def estimated_capital_performance(events, values, owner_ratio, *, dated_ratios=None):
     """Calculate cumulative PnL and return after removing external capital flows."""
-    capital = events[0]['broker_cash'] - events[0]['net_cash']
+    # Dated ownership was reconciled to net contributions. The broker's
+    # pre-trade cash is already inside the valuation, not a reviewed deposit.
+    capital = Decimal(0) if dated_ratios is not None else events[0]['broker_cash'] - events[0]['net_cash']
     flows = iter(event for event in events if event['trade_type'] in {'deposit', 'withdraw'})
     flow = next(flows, None)
     result = {}
