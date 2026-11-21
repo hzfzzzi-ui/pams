@@ -571,7 +571,7 @@ def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_d
         statement_balance = (evidence.get('role') == 'historical_statement_balance'
                              and snapshot.get('business_type') == 'cash' and holding_raw.get('major_category') == '现金')
         bridge_statement = (evidence.get('role') == 'historical_credit_bridge_statement'
-                            and snapshot.get('business_type') == 'cash' and snapshot.get('source_action') == 'balance'
+                            and snapshot.get('business_type') in {'cash', 'statement'} and snapshot.get('source_action') == 'balance'
                             and holding_raw.get('major_category') == '现金' and holding_raw.get('asset_liability') == '负债'
                             and (snapshot.get('source_fields') or {}).get('currency') == holding_raw.get('currency'))
         if evidence.get('role') == 'historical_credit_bridge_statement' and not bridge_statement:
