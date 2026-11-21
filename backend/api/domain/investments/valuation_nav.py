@@ -18,7 +18,8 @@ from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.nav_period_comparison import (
-    DisplayContributions, comparison_scope, period_comparisons, position_member, terminal_comparison_basis,
+    DisplayContributions, apply_terminal_breakdown, comparison_scope, period_comparisons, position_member,
+    terminal_comparison_basis,
 )
 from domain.investments.portfolio_state import _owner_ratio
 from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value
@@ -430,6 +431,7 @@ def build_weekly_nav_rows(
             proof = ibkr_bucket.get('daily_close') or {}
             basis['ibkr'] = proof.get('nav_basis') or ibkr_bucket.get('history_evidence') or 'broker_net'
         partial['_comparison_basis'] = basis
+        partial['_dated_cash_accounts'] = set(bank_bucket.get('_dated_cash_accounts', ()))
         if preview is not None and "tonghuashun" in missing_accounts:
             partial["tonghuashun_source_through"] = getattr(a_share_series, "preview_source_through", None)
         carried_ibkr = ("ibkr" in available and ibkr_bucket.get("daily_close", {}).get("status") == "last_valid")
@@ -703,6 +705,8 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         for code in covered:
             contributions.pop(code, None)
             row.setdefault('_comparison_basis', {}).pop(code, None)
+            row.get('latest_known_components', {}).pop(code, None)
+            row.get('_undated_terminal_accounts', set()).discard(code)
         row['_comparison_basis'][value['account_code']] = ['account_total', sorted(covered)]
         contributions[value['account_code']] = amount
         row['available_accounts'] = sorted((available - covered) | {value['account_code']})
@@ -727,9 +731,9 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {
         "date": _norm(row.get("date")),
         "asOfDate": _norm(row.get("date")),
-        "assets": _norm(row.get("assets", Decimal("0"))),
-        "liabilities": _norm(row.get("liabilities", Decimal("0"))),
-        "netWorth": _norm(row.get("net_worth", Decimal("0"))),
+        "assets": _norm(row.get("assets")),
+        "liabilities": _norm(row.get("liabilities")),
+        "netWorth": _norm(row.get("net_worth")),
     }
     if "ibkr_daily_close" in row:
         result["ibkr_daily_close"] = row["ibkr_daily_close"]
@@ -759,6 +763,7 @@ def format_weekly_nav_payload(
     base_currency: str,
     rows: list[dict[str, Any]],
     interval: str = "weekly",
+    account_labels: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return the legacy /nav/weekly response shape for frontend compatibility."""
     rendered = []
@@ -774,7 +779,7 @@ def format_weekly_nav_payload(
         "method": "account_anchor_backcast",
         "anchor_date": terminal_date.isoformat(),
         "rows": rendered,
-        "period_comparisons": period_comparisons(rendered, terminal_date),
+        "period_comparisons": period_comparisons(rendered, terminal_date, rows, account_labels),
     }
 
 
@@ -948,9 +953,18 @@ def _bank_backcast_series(
             (row['transaction_date'], _dec(row['amount'])) for row in rows
             if str(row.get('currency') or anchor_currency).upper() == anchor_currency
         ]
+        evidence_dates = [day for day, _ in native_movements]
+        if anchor is not None and _row_date((account.get('primary_balance') or {}).get('as_of') or account.get('as_of')):
+            evidence_dates.append(anchor_date)
+        evidence_start = min(evidence_dates, default=Date.max)
+        evidence_end = max(evidence_dates, default=Date.min)
 
         for sample_date in dates:
             bucket = values[sample_date]
+            # An anchored reconstruction can be compared within its dated evidence
+            # span. Display may also carry a latest balance past that span.
+            if evidence_start <= sample_date <= evidence_end:
+                bucket.setdefault('_dated_cash_accounts', set()).add(code)
             start, end = sorted((anchor_date if anchor is not None else sample_date, sample_date))
             # Only failures in the balance's calculation interval can invalidate
             # it. A verified snapshot is independent of movements on its own day.
@@ -1114,6 +1128,7 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 conflict = backcast is not None and backcast != amount
                 _replace_cash_contribution(bucket, code, amount)
                 bucket.setdefault('_comparison_basis', {})[code] = 'cash_balance'
+                bucket.setdefault('_dated_cash_accounts', set()).add(code)
                 if (period or complete_cash) and code in bucket.get('unavailable_accounts', ()):
                     bucket['unavailable_accounts'].remove(code)
                 if complete_cash:
@@ -1716,6 +1731,7 @@ def build_nav_weekly_payload(
         a_share_series=a_share_series,
         ibkr_values=ibkr_values,
     )
+    terminal_breakdown = None
     if terminal_nav_bucket:
         for row in rows:
             if row.get("date") == terminal_date:
@@ -1770,7 +1786,7 @@ def build_nav_weekly_payload(
                     # account component while retaining that component's label.
                     break
                 breakdown = terminal_account_values or terminal_nav_bucket.get('_comparison_account_values') or {}
-                row['_comparison_basis'] = terminal_comparison_basis(row, nav_codes, breakdown, terminal_net)
+                terminal_breakdown = (breakdown, terminal_comparison_basis(row, nav_codes, breakdown, terminal_net))
                 row["assets"] = terminal_assets
                 row["liabilities"] = terminal_liabilities
                 row["net_worth"] = terminal_net
@@ -1789,6 +1805,9 @@ def build_nav_weekly_payload(
         if unresolved:
             row.update(assets=None, liabilities=None, net_worth=None, scope_status="incomplete")
             row["unavailable_accounts"] = sorted(set(row.get("unavailable_accounts") or ()) | unresolved)
+        elif terminal_breakdown is not None and row.get('net_worth') is not None:
+            breakdown, basis = terminal_breakdown
+            apply_terminal_breakdown(row, basis, breakdown, terminal_display_values_cny or {})
     # A dated NAV or verified trade reconstruction takes precedence over holding estimates.
     unresolved = {
         code for row in rows if row.get("net_worth") is None
@@ -1830,6 +1849,7 @@ def build_nav_weekly_payload(
         base_currency=base_currency,
         rows=rows,
         interval=interval,
+        account_labels={a['account_code']:a.get('display_name') for a in overview_accounts if a.get('account_code')},
     )
 
 

@@ -346,19 +346,29 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       statsEl.innerHTML = '<span class="muted">暂无区间估值数据</span>';
       return;
     }
-    const {start, end, status} = data.period;
+    const {start, end, status, comparable_accounts: subset} = data.period;
+    const showSubset = status === 'different_coverage' && subset?.status === 'ok';
+    const change = showSubset ? subset.change : data.change;
+    const rate = showSubset ? subset.change_rate : data.changeRate;
+    const subsetCount = subset?.account_codes?.length ?? 0;
+    const subsetName = subsetCount === 1 && subset.account_labels?.[0]
+      ? subset.account_labels[0] : `${subsetCount} 个可比账户`;
+    const scopeNote = showSubset ? [subsetName, subset.estimated_account_codes?.length ? '含估算' : '',
+      rate == null ? '期初净值非正' : ''].filter(Boolean).join(' · ') : '';
+    const partial = status === 'ok' && data.accountCounts.some(count => count != null);
     const reason = !data.knownCount ? '区间内暂无估值'
       : status === 'comparison_unavailable' ? '区间比较待更新'
+      : showSubset ? scopeNote
       : status === 'different_coverage' ? '期初与期末估值范围不同'
       : status === 'missing_endpoint' ? '缺少期初或期末估值'
       : data.change != null && data.changeRate == null ? '期初净资产非正' : '';
     statsEl.innerHTML = `
       <span class="returnNavCurrent"><strong>${data.latest == null ? '—' : fmtCny(data.latest)}</strong></span>
-      <span class="returnNavMetric ${data.change == null ? '' : data.change >= 0 ? 'up' : 'down'}">
-        <em>区间变化</em><strong>${data.change == null ? '—' : fmtSignedCny(data.change)}</strong>
+      <span class="returnNavMetric ${change == null ? '' : change >= 0 ? 'up' : 'down'}">
+        <em>${showSubset ? '可比账户变化' : partial ? '已知账户变化' : '区间变化'}</em><strong>${change == null ? '—' : fmtSignedCny(change)}</strong>
         <small>${esc(start.slice(5))} 至 ${esc(end.slice(5))}</small>
       </span>
-      <span class="returnNavMetric ${data.changeRate == null ? '' : data.changeRate >= 0 ? 'up' : 'down'}"><em>变化率</em><strong>${data.changeRate == null ? '—' : formatPercentRate(data.changeRate)}</strong>${reason ? `<small>${reason}</small>` : ''}</span>
+      <span class="returnNavMetric ${rate == null ? '' : rate >= 0 ? 'up' : 'down'}"><em>${showSubset ? '可比账户变化率' : '变化率'}</em><strong>${rate == null ? '—' : formatPercentRate(rate)}</strong>${reason ? `<small>${esc(reason)}</small>` : ''}</span>
     `;
   }
 
@@ -456,6 +466,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           label: 'NAV',
           data: data.values,
           navAccountCounts: data.accountCounts,
+          navEstimateCounts: data.estimateCounts,
           borderColor: el.closest('#asset-overview') ? '#d9a13d' : CHART_THEME.line,
           backgroundColor: el.closest('#asset-overview') ? 'rgba(217,161,61,.10)' : CHART_THEME.fill,
           tension: 0,
@@ -479,6 +490,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
               label: ctx => {
                 const count = ctx.dataset.navAccountCounts[ctx.dataIndex];
                 return `${count == null ? '个人净资产' : `已知净资产（${count} 个账户）`}：${fmtCny(ctx.raw)}`;
+              },
+              afterLabel: ctx => {
+                const count = ctx.dataset.navEstimateCounts[ctx.dataIndex];
+                return count ? `${count} 个账户含估算` : '';
               },
             },
           },
@@ -525,6 +540,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     }
     chart.data.datasets[0].fill = data.fill;
     chart.data.datasets[0].navAccountCounts = data.accountCounts;
+    chart.data.datasets[0].navEstimateCounts = data.estimateCounts;
     chart.data.datasets[0].pointRadius = data.knownCount === 1 ? 2 : 0;
     chart.options.scales.y.display = data.knownCount > 0;
     chart.update('none');

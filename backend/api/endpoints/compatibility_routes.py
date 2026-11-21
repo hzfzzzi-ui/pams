@@ -24,6 +24,7 @@ from domain.investments.portfolio_valuation_state import (
     published_bank_balances_compatible, read_current_portfolio_valuation,
 )
 from domain.investments.valuation_nav import latest_nav_display_values
+from domain.investments.nav_period_comparison import period_starts
 from domain.market.price_history import valid_holding_history_window
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, build_latest_fx_rates_payload
 
@@ -632,7 +633,7 @@ def create_compatibility_router(
                 )
         return _build_nav_weekly_payload(
                 cur,
-                start_date=start_date,
+                start_date=start_date if start_date is not None else min(period_starts(terminal_date).values()),
                 base_currency=baseCurrency,
                 overview_payload=payload,
                 owner_ratio_case_sql=_owner_ratio_case_sql,
@@ -656,9 +657,9 @@ def create_compatibility_router(
     ):
         """Return NAV using account anchors and evidence-backed statement flows."""
         try:
-            start_date = Date.fromisoformat(start)
+            start_date = None if start == "overview" else Date.fromisoformat(start)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD") from exc
+            raise HTTPException(status_code=400, detail="start must be YYYY-MM-DD or overview") from exc
         with get_conn() as conn:
             conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -787,7 +788,7 @@ def create_compatibility_router(
             "analysis": {
                 # The opening observation is the previous year's close; keep
                 # its actual date rather than treating it as a January 1 close.
-                "nav": _verified_nav_weekly(cur, latest=True, **{**curve_args, "start_date": start - timedelta(days=1)}),
+                "nav": _verified_nav_weekly(cur, latest=True, start_date=None, interval="daily", baseCurrency="CNY"),
                 "total": build_total_curve(cur, **curve_args, read_revision=read_revision),
                 "sections": {
                     section: build_section_curve(cur, section=section, **curve_args, read_revision=read_revision)

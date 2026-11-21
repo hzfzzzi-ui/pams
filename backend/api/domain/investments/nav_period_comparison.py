@@ -63,16 +63,111 @@ def terminal_comparison_basis(row, account_codes, account_values, net):
     return opaque
 
 
-def period_comparisons(rows, end):
-    """Use the requested boundaries, including the prior year-end for YTD."""
+def apply_terminal_breakdown(row, basis, breakdown, dated_values):
+    """Keep a replacing total's contributions and dating in step with its actual value."""
+    row['_comparison_basis'] = basis
+    row['available_accounts'] = sorted(basis)
+    old = row.get('_account_contributions', {})
+    if not breakdown or any(kind == 'terminal_aggregate' for kind in basis.values()):
+        row['_account_contributions'] = {}
+        return
+    amounts = {code:Decimal(str(value)) for code,value in breakdown.items()}
+    row['_account_contributions'] = amounts
+    day = row['date']
+    if getattr(breakdown, 'basis', {}):
+        supported = {
+            code for code, (amount, start, end) in dated_values.items()
+            if code in amounts and start == end == day and abs(amount - amounts[code]) <= Decimal('0.01')
+        }
+        row.setdefault('_dated_cash_accounts', set()).update(
+            code for code in supported if basis[code] == 'cash_balance'
+        )
+    else:
+        # An archived value with no dates for its components requires matching,
+        # independently assembled same-day amounts, as well as matching account scope.
+        supported = {code for code, amount in amounts.items()
+                     if code in old and abs(amount - Decimal(str(old[code]))) <= Decimal('0.01')}
+    row['_undated_terminal_accounts'] = set(amounts) - supported
+
+
+def _eligible_contributions(row):
+    """Return dated personal values with independently identified, non-overlapping scope."""
+    if not row:
+        return {}
+    result = {}
+    blocked = set(row.get('source_evidence_unavailable_accounts', ())) | set(row.get('_undated_terminal_accounts', ()))
+    unavailable = set(row.get('unavailable_accounts', ()))
+    as_of = row['date'].isoformat()
+    amounts = row.get('_account_contributions', {})
+    for code in row.get('available_accounts', ()):
+        source = row.get('_comparison_basis', {}).get(code)
+        if code in blocked or code not in amounts or not source:
+            continue
+        kind = source[0] if isinstance(source, (list, tuple)) else source
+        scope = {code}
+        if kind == 'account_total':
+            scope = set(source[1])
+            if not scope or code not in scope or scope & blocked:
+                continue
+        elif kind in ('cash_balance', 'cash_anchor'):
+            if code not in row.get('_dated_cash_accounts', ()):
+                continue
+            source = 'cash_balance'
+        elif kind == 'position_members':
+            dates = row.get('latest_known_components', {}).get(code, {})
+            if not source[1] or dates.get('from') != as_of or dates.get('through') != as_of:
+                continue
+        elif kind == 'complete_positions':
+            if code in unavailable or code in row.get('estimated_accounts', ()):
+                continue
+        elif kind == 'official_base_nav_at_internal_historical_fx':
+            close = row.get('ibkr_daily_close') or {}
+            if close.get('status') != 'ok' or close.get('as_of') != as_of:
+                continue
+        else:
+            continue
+        try:
+            amount = Decimal(str(amounts[code]))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if amount.is_finite():
+            result[code] = (source, scope, amount)
+    # A parent total and a separately emitted covered member cannot both
+    # establish a unique contribution, even if their amounts happen to agree.
+    return {code:entry for code,entry in result.items()
+            if not any(entry[1] & other[1] for key,other in result.items() if code != key)}
+
+
+def _comparable_accounts(opening, closing, labels):
+    result = {'status':'unavailable', 'opening':None, 'closing':None, 'change':None,
+              'change_rate':None, 'account_codes':[], 'account_labels':[], 'estimated_account_codes':[]}
+    before, after = _eligible_contributions(opening), _eligible_contributions(closing)
+    codes = sorted(code for code in before.keys() & after.keys() if before[code][:2] == after[code][:2])
+    if not codes:
+        return result
+    first, last = (sum(values[code][2] for code in codes) for values in (before, after))
+    estimated = set(opening.get('estimated_accounts', ())) | set(closing.get('estimated_accounts', ()))
+    result.update(status='ok', opening=str(first), closing=str(last), change=str(last-first),
+                  change_rate=str((last-first)/first) if first > 0 else None, account_codes=codes,
+                  account_labels=[labels.get(code) or code for code in codes],
+                  estimated_account_codes=sorted(estimated.intersection(codes)))
+    return result
+
+
+def period_starts(end):
     last_month = end.replace(day=1) - timedelta(days=1)
-    starts = {'ytd':date(end.year, 1, 1) - timedelta(days=1),
-              '1m':last_month.replace(day=min(end.day, last_month.day)),
-              '1w':end - timedelta(days=7)}
+    return {'ytd':date(end.year, 1, 1) - timedelta(days=1),
+            '1m':last_month.replace(day=min(end.day, last_month.day)),
+            '1w':end - timedelta(days=7)}
+
+
+def period_comparisons(rows, end, account_rows=(), account_labels=None):
+    """Use the requested boundaries, including the prior year-end for YTD."""
     observations = {row['date']:row for row in rows if row.get('comparison_scope')}
+    by_day = {row['date'].isoformat():row for row in account_rows}
     current = observations.get(end.isoformat())
     result = {}
-    for period, start in starts.items():
+    for period, start in period_starts(end).items():
         opening = observations.get(start.isoformat())
         item = {'start':start.isoformat(), 'end':end.isoformat(), 'status':'missing_endpoint',
                 'change':None, 'change_rate':None}
@@ -84,5 +179,9 @@ def period_comparisons(rows, end):
                                for row in (opening, current))
                 delta = last - first
                 item.update(status='ok', change=str(delta), change_rate=str(delta / first) if first > 0 else None)
+        item['comparable_accounts'] = _comparable_accounts(
+            by_day.get(start.isoformat()) if opening else None,
+            by_day.get(end.isoformat()) if current else None, account_labels or {},
+        )
         result[period] = item
     return result

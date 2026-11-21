@@ -14,7 +14,7 @@ const MARKET_RETURN_COLORS = new Map([
   ['precious_metal', '#f4c34f'],
 ]);
 
-export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart, loadChartClass = () => ChartClass }) {
+export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart, loadChartClass = () => ChartClass, onNavUpdate }) {
   owners.get(root)?.dispose();
   const reads = createReadScope({AbortController: host?.AbortController});
   const state = createInvestmentChartState(host);
@@ -27,6 +27,7 @@ export function createInvestmentChartController({ root = document, host = window
   let navPromise = null;
   let returnPromise = null;
   let analysisPromise = null;
+  let analysisStale = false;
   let returnGeneration = 0;
   let contributionObserver = null;
   const sectionReads = new Map();
@@ -37,8 +38,9 @@ export function createInvestmentChartController({ root = document, host = window
     if (!projectionStatus) return null;
     analysisPromise ??= reads.run('analysis', signal => readInvestmentAnalysisView({signal})).then(response => {
       if (current() && response?.projection) {
-        projectionStatus.hidden = !response.projection.stale;
-        projectionStatus.textContent = response.projection.stale ? '正在更新 · 显示上一批分析数据' : '';
+        analysisStale = response.projection.stale === true;
+        projectionStatus.hidden = !analysisStale;
+        projectionStatus.textContent = analysisStale ? '正在更新 · 显示上一批分析数据' : '';
       }
       return response?.data ?? null;
     });
@@ -50,26 +52,49 @@ export function createInvestmentChartController({ root = document, host = window
     if (renderer.returnChart) host.__investmentReturnChart = renderer.returnChart;
   };
 
+  function showNav(rows, comparisons) {
+    state.navRows = rows;
+    state.navComparisons = comparisons ?? {};
+    state.navChart = renderer.renderNav();
+    publishCharts();
+    onNavUpdate?.(rows.at(-1));
+  }
+
+  async function readNav() {
+    const [analysis, chartClass] = await Promise.all([readAnalysis(), loadChartClass()]);
+    if (!current()) return null;
+    renderer.setChartClass(chartClass);
+    const cached = analysis?.nav;
+    const cachedRows = normalizeInvestmentNavRows(cached?.rows || []);
+    if (cachedRows.length) {
+      showNav(cachedRows, cached.period_comparisons);
+      const periods = cached.period_comparisons;
+      if (!analysisStale && ['ytd', '1m', '1w'].every(key => periods?.[key]?.comparable_accounts)) {
+        return state.navChart;
+      }
+    }
+    const live = await reads.run('nav', signal => readInvestmentNav({signal}));
+    if (!current()) return null;
+    const rows = normalizeInvestmentNavRows(live?.rows || []);
+    const fresh = rows.length > 0 && (!cachedRows.length || rows.at(-1).date >= cachedRows.at(-1).date);
+    if (fresh || !cachedRows.length) {
+      showNav(rows, live?.period_comparisons);
+      if (projectionStatus) {
+        projectionStatus.textContent = '';
+        projectionStatus.hidden = true;
+      }
+    } else if (projectionStatus) {
+      projectionStatus.textContent = '暂未读到更新的净资产数据，显示已保存的记录';
+      projectionStatus.hidden = false;
+    }
+    if (!fresh) navPromise = null; // Reopening the overview can retry a failed or older direct read.
+    return state.navChart;
+  }
+
   function loadNavOnce() {
     if (!current()) return Promise.resolve(null);
     if (!navPromise) {
-      const legacyNav = () => reads.run('nav', signal => readInvestmentNav({signal}));
-      const navRead = trackInvestmentNav(readAnalysis()?.then(async analysis => {
-        const cached = analysis?.nav;
-        if (cached?.period_comparisons) return cached;
-        const live = await legacyNav();
-        return live.rows?.length || !cached ? live : cached;
-      }) ?? legacyNav());
-      navPromise = Promise.all([navRead, loadChartClass()])
-        .then(([response, chartClass]) => {
-          if (!current()) return null;
-          renderer.setChartClass(chartClass);
-          state.navRows = normalizeInvestmentNavRows(response.rows || []);
-          state.navComparisons = response.period_comparisons ?? {};
-          state.navChart = renderer.renderNav();
-          publishCharts();
-          return state.navChart;
-        })
+      navPromise = trackInvestmentNav(readNav())
         .catch(error => {
           if (!current() || isReadCancelled(error)) return null;
           navPromise = null;

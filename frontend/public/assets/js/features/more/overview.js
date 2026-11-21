@@ -11,23 +11,27 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
   let financingLoaded = false;
   let financingLoading = false;
 
+  function renderNavCard(latest) {
+    if (!isActive()) return;
+    const money = value => value == null ? '—' : fmtCny(value);
+    find('personalNetLabel').textContent = latest?.available_account_count != null ? '已知个人净资产' : '个人净资产';
+    find('personalNet').textContent = money(latest?.market_value);
+    find('personalGross').textContent = money(latest?.assets);
+    find('personalDebt').textContent = money(latest?.liabilities);
+    find('personalCoverage').hidden = !latest || (latest.assets != null && latest.liabilities != null);
+    const quality = latest?.estimated_account_count ? ` · ${latest.estimated_account_count} 个账户含估算` : '';
+    find('personalAsOf').textContent = latest ? latest.date + quality : '暂无净资产记录';
+  }
+
   async function load() {
     if (!find('asset-overview')) return;
     void readFinancing();
     void onCards();
-    chart ??= createInvestmentChartController({root, host: win, loadChartClass: () => loadChart(win),
+    chart ??= createInvestmentChartController({root, host: win, onNavUpdate: renderNavCard, loadChartClass: () => loadChart(win),
       presenters: {esc, fmtCny, fmtSignedCny, formatNumber, formatPercentRate}});
     try {
       await chart.loadNavOnce();
-      if (!isActive()) return;
-      const latest = chart.state.navRows.at(-1);
-      const money = value => value == null ? '—' : fmtCny(value);
-      find('personalNetLabel').textContent = latest?.available_account_count != null ? '已知个人净资产' : '个人净资产';
-      find('personalNet').textContent = money(latest?.market_value);
-      find('personalGross').textContent = money(latest?.assets);
-      find('personalDebt').textContent = money(latest?.liabilities);
-      find('personalCoverage').hidden = !latest || (latest.assets != null && latest.liabilities != null);
-      find('personalAsOf').textContent = latest?.date || '暂无净资产记录';
+      renderNavCard(chart.state.navRows.at(-1));
     } catch {
       if (isActive()) find('personalAsOf').textContent = '净资产暂未读到';
     }

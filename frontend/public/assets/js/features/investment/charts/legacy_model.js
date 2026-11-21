@@ -245,6 +245,7 @@ function normalizeInvestmentNavRows(rows) {
         date,
         market_value: Number.isFinite(marketValue) ? marketValue : null,
         available_account_count: partial ? row.available_accounts.length : null,
+        estimated_account_count: row.estimated_accounts?.length ?? 0,
         assets: row.assets == null ? null : safeNum(row.assets),
         liabilities: row.liabilities == null ? null : safeNum(row.liabilities),
       };
@@ -279,6 +280,7 @@ function buildInvestmentNavChartData(navRows, period, windowKey) {
     labels,
     values,
     accountCounts: rows.map(row => row.available_account_count),
+    estimateCounts: rows.map(row => row.estimated_account_count),
     knownCount: values.filter(value => value != null).length,
     latest: latestRow && latestRow.date === period.end ? latestRow.market_value : null,
     period,
