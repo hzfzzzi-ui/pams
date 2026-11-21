@@ -62,7 +62,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
                      CASE WHEN s.major_category='现金' THEN NULL ELSE COALESCE(NULLIF(s.symbol, ''), s.name) END,
                      s.as_of DESC, s.id DESC
         )
-        SELECT h.date,h.account_code,h.as_of,h.currency,
+        SELECT h.date,h.account_code,h.as_of,h.currency,h.asset_id,h.symbol,
                (CASE
                     WHEN h.asset_liability='负债' THEN -ABS(h.market_value)
                     WHEN h.major_category='现金' THEN h.market_value
@@ -110,6 +110,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
     """, (dates, [code for code, _ in complete_days], [day for _, day in complete_days],
            sorted(accounts), cash_ids, point_in_time_ids, invalid_point_ids, *ratio_params, list(NAV_SOURCES)))
     observed = set()
+    represented_assets = set()
     amounts = defaultdict(list)
     rates = {}
 
@@ -122,6 +123,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
     for row in cur.fetchall():
         day, code, source_day = row["date"], row["account_code"], row["as_of"]
         observed.add((day, code))
+        represented_assets.add((day, code, row.get("asset_id"), row.get("symbol")))
         if row["amount"] is None or not row["amount"].is_finite():
             continue
         rate = dated_rate(row["currency"], day)
@@ -129,6 +131,20 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             amounts[day, code].append((Decimal(0), source_day))
         elif rate is not None:
             amounts[day, code].append((row["amount"] * rate, source_day))
+
+    from domain.investments.wealth_valuation import load_reviewed_wealth_anchors
+    for row in load_reviewed_wealth_anchors(cur, accounts=accounts, dates=dates):
+        day, code = row['date'], row['account_code']
+        if any(existing_day == day and existing_code == code and
+               ((row['asset_id'] and asset == row['asset_id']) or
+                (row['symbol'] and symbol == row['symbol']))
+               for existing_day, existing_code, asset, symbol in represented_assets):
+            continue
+        rate = dated_rate(row['currency'], day)
+        if rate is not None:
+            value = row['amount'] * rate * account_owner_ratio(code)
+            amounts[day, code].append((value, day))
+            observed.add((day, code))
 
     for code, cfg in accounts.items():
         missing_days = [day for day in dates if (day, code) not in observed]
