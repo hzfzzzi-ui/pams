@@ -121,6 +121,7 @@ export function createBottomSheet(doc = document) {
       inheritedScrollLock = doc.body.classList.contains('sheet-open');
     }
     sheet.querySelector('#appBottomSheetTitle').textContent = title || '详情';
+    if (wasOpen) body.dispatchEvent(new win.Event('sheetclear'));
     body.innerHTML = html || '';
     sheet.hidden = false;
     sheet.classList.add('open');
@@ -143,6 +144,7 @@ export function createBottomSheet(doc = document) {
     sheet.classList.remove('open');
     sheet.hidden = true;
     if (!inheritedScrollLock) doc.body.classList.remove('sheet-open');
+    body.dispatchEvent(new win.Event('sheetclear'));
     body.replaceChildren();
     if (restoreFocus) {
       if (opener?.isConnected && !opener.closest('[inert]') && opener.getClientRects().length) {

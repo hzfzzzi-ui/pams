@@ -69,7 +69,7 @@ def _broker_members(cur, account, day, currency):
     from domain.investments.nav_trade_source_v2 import (
         SOURCE, _read_event_prefix, daily_estimates, securities_by_symbol,
     )
-    events, gap = _read_event_prefix(cur)
+    events, gap = _read_event_prefix(cur, account)
     events = [e for e in events if e['trade_date'] <= day]
     if (not events or currency != 'CNY' or (gap and gap <= day)
             or any(e['account_code'] != account or e['currency'] != currency for e in events)):

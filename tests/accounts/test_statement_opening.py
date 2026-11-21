@@ -69,6 +69,13 @@ def test_historical_cash_can_bind_original_statement_in_isolation(monkeypatch):
                                               dates=days, rate_at=lambda *_:Decimal(1))
                 assert [buckets[d]['net_worth'] for d in days] == [100,90,81,0]
                 assert [buckets[d]['unavailable_accounts'] for d in days] == [[],[],[],['bank_test']]
+                from domain.accounts.account_history import read_account_history
+                series = read_account_history(cur, account_code='bank_test',
+                    account_config={'accounts': {}},
+                    start_date=date(2025,12,31), end_date=days[-1])
+                amounts = {point['date']:point['net_value'] for point in series['rows']}
+                assert series['series'] == ['net_value']
+                assert [amounts.get(day) for day in [date(2025,12,31), *days]] == [100,100,90,81,None]
                 periods._balance_curve.cache_clear()
                 with pytest.raises(ValueError):
                     publication.publish(cur,source_id=source,revision=3,preview_token=plan['preview_token'],historical=True)

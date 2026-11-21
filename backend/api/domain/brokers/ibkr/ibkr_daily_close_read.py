@@ -227,7 +227,7 @@ def read_series(*, account_id: str | None = None, evidence: dict[str, Any] | Non
         return {**_unavailable("invalid_evidence"), "daily_closes": {}}
 
 
-def read_published_portfolio_series(cur) -> dict[str, Any] | None:
+def read_published_portfolio_series(cur, *, through: date | None = None) -> dict[str, Any] | None:
     """Read full NAV evidence from the official, account-bound Flex archive."""
     account = os.environ.get("PAMS_IBKR_HOLDINGS_ACCOUNT_ID", "").strip()
     if not account:
@@ -236,12 +236,13 @@ def read_published_portfolio_series(cur) -> dict[str, Any] | None:
                    AND to_regclass('public.ibkr_source_originals') IS NOT NULL AS ready""")
     if not cur.fetchone()["ready"]:
         return None
+    cutoff = " AND r.period_end <= %s" if through is not None else ""
     cur.execute("""SELECT r.period_end, r.sha256, a.base_currency, a.active
         FROM public.source_records r JOIN public.pams_accounts a USING (account_code)
         WHERE r.account_code='ibkr' AND r.source_name='ibkr_daily_holdings'
           AND r.acquisition_method='api' AND r.document_type='holding' AND r.file_format='xml'
           AND r.status='published' AND r.period_start=r.period_end
-        ORDER BY r.period_end DESC LIMIT 2""")
+        """ + cutoff + " ORDER BY r.period_end DESC LIMIT 2", (through,) if through is not None else ())
     archives = cur.fetchall()
     if not archives:
         return None

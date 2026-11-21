@@ -1,5 +1,6 @@
 """Account reconciliation API and explicit user confirmations."""
 
+from contextlib import closing
 from uuid import uuid4
 
 import psycopg2.extras
@@ -7,7 +8,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from domain.accounts import account_overview
+from domain.accounts.account_history import read_account_history
 from domain.accounts.account_overview import get_conn
+from domain.investments.nav_period_comparison import period_starts
 
 router = APIRouter()
 
@@ -25,6 +28,23 @@ class AccountReviewRequest(BaseModel):
 def accounts_overview():
     """Return account master data and current reconciliation inputs."""
     return account_overview._norm(account_overview._overview_payload())
+
+
+@router.get("/accounts/{account_code}/history")
+def account_history(account_code: str):
+    """Return the selected subaccount's observations and display periods."""
+    end = account_overview._view_as_of()
+    starts = period_starts(end)
+    with closing(get_conn()) as conn:
+        conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            result = read_account_history(
+                cur, account_code=account_code, account_config=account_overview._load_accounts_config(),
+                start_date=min(starts.values()), end_date=end,
+            )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown account")
+    return account_overview._norm({**result, "period_starts": starts, "end_date": end})
 
 
 @router.post("/accounts/{account_code}/review")

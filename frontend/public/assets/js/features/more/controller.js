@@ -3,6 +3,7 @@ import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createAccountSyncLoader } from '../accounts/account_sync_controller.js';
 import { accountSyncMetadata } from '../accounts/account_sync_view.js';
 import { showAccountReview } from '../accounts/account_review_sheet.js';
+import { mountAccountHistory } from '../accounts/account_history.js';
 import { accountCenterHref } from '../../app/routes.js';
 
 const mounted = new WeakMap();
@@ -46,6 +47,7 @@ export function mount(root, context) {
           '/source-anomalies?' + new URLSearchParams({kind, offset}), {cache: false}), {balanceRequested});
     }
     reviewPanel.prepend(accountSyncMetadata(reviewPanel.ownerDocument, account.summary));
+    mountAccountHistory(reviewPanel, account.account_code, get);
     if (!account.active) return;
     const actions = reviewPanel.ownerDocument.createElement('div');
     actions.className = 'accountCenterActions';
