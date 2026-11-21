@@ -154,6 +154,9 @@ def published_nav_bucket_from_row(row: dict[str, Any] | None) -> dict[str, Any] 
         "net_worth": _dec(row.get("net_liquidation_value")),
     }
     raw = row.get("raw_json")
+    if isinstance(raw, dict) and isinstance(raw.get("account_values_cny"), dict):
+        # Scope proof only; the terminal override retains its independent NAV/FX checks.
+        result["_comparison_account_values"] = raw["account_values_cny"]
     if isinstance(raw, dict) and isinstance(raw.get("ibkr_daily_close"), dict):
         result["ibkr_daily_close"] = dict(raw["ibkr_daily_close"])
     return result

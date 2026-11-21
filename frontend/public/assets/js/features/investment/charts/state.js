@@ -23,6 +23,7 @@ function writeReturnWindowPreference(key) {
 export function createInvestmentChartState(host) {
   return {
     navRows: [],
+    navComparisons: {},
     activeWindow: readReturnWindowPreference(),
     isMobile: host.matchMedia?.('(min-width: 0px)')?.matches,
     navChart: null,

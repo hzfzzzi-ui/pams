@@ -1,6 +1,6 @@
 """Canonical anchors for bank accounts with a verified cash-only snapshot."""
 
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+from domain.investments.snapshot_coverage import load_account_snapshot_coverage, point_in_time_visible_sql
 
 
 SOURCE = 'verified_bank_balance_snapshot'
@@ -16,18 +16,24 @@ def load_verified_bank_balances(cur, account_cfg, as_of):
     }
     if not accounts:
         return {}
-    cur.execute('''WITH latest AS (
+    cur.execute("""SELECT to_regclass('public.account_snapshot_version') IS NOT NULL
+                   AND to_regclass('public.account_snapshot_member') IS NOT NULL AS has_scope""")
+    if not cur.fetchone()['has_scope']:
+        return {}
+    cur.execute(f'''WITH latest AS (
         SELECT h.account_code, MAX(h.as_of) AS as_of
         FROM public.pams_holdings_snapshot h JOIN public.pams_accounts a USING (account_code)
         WHERE a.active AND h.account_code=ANY(%s::text[]) AND h.as_of<=%s
+          AND {point_in_time_visible_sql('h', '%s::date')}
         GROUP BY h.account_code
     ), snapshot AS (
         SELECT h.id, h.account_code, h.as_of, h.currency, h.market_value, h.source_item_id,
                h.major_category, h.asset_liability, COUNT(*) OVER (PARTITION BY h.account_code) AS members
         FROM latest JOIN public.pams_holdings_snapshot h USING (account_code, as_of)
+        WHERE {point_in_time_visible_sql('h', '%s::date')}
     )
     SELECT * FROM snapshot WHERE members=1 AND major_category='现金' AND asset_liability='资产'
-        AND source_item_id IS NOT NULL''', (list(accounts), as_of))
+        AND source_item_id IS NOT NULL''', (list(accounts), as_of, as_of, as_of))
     rows = [row for row in cur.fetchall() if row['currency'] == accounts[row['account_code']]]
     coverage = load_account_snapshot_coverage(cur, {(row['account_code'], row['as_of']) for row in rows})
     balances = {}

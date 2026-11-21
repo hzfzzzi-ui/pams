@@ -8,6 +8,7 @@ from domain.accounts.balance_reference import historical_account_balance, load_b
 from domain.accounts.position_reference import historical_position_reference, position_reference_config
 from domain.investments.fund_return_history import NAV_SOURCES
 from domain.investments.fund_closed_sessions import surrounding_sessions
+from domain.investments.nav_period_comparison import DisplayContributions, position_member
 from domain.investments.snapshot_coverage import load_account_snapshot_coverage
 from domain.market.quote_valuation import gold_close_join, gold_market_value, uses_gold_close
 
@@ -77,7 +78,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
                      CASE WHEN s.major_category='现金' THEN NULL ELSE COALESCE(NULLIF(s.symbol, ''), s.name) END,
                      s.as_of DESC, s.id DESC
         )
-        SELECT h.date,h.account_code,h.as_of,h.currency,h.asset_id,h.symbol,
+        SELECT h.date,h.account_code,h.as_of,h.currency,h.asset_id,h.symbol,h.name,h.asset_liability,
                (CASE
                     WHEN h.asset_liability='负债' THEN -ABS(h.market_value)
                     WHEN h.major_category='现金' THEN h.market_value
@@ -129,6 +130,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
     observed = set()
     represented_assets = set()
     amounts = defaultdict(list)
+    unpriced = set()
     rates = {}
 
     def dated_rate(currency, day):
@@ -142,12 +144,15 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
         observed.add((day, code))
         represented_assets.add((day, code, row.get("asset_id"), row.get("symbol")))
         if row["amount"] is None or not row["amount"].is_finite():
+            unpriced.add((day, code))
             continue
         rate = dated_rate(row["currency"], day)
         if row["amount"] == 0:
-            amounts[day, code].append((Decimal(0), source_day))
+            amounts[day, code].append((Decimal(0), source_day, position_member(row)))
         elif rate is not None:
-            amounts[day, code].append((row["amount"] * rate, source_day))
+            amounts[day, code].append((row["amount"] * rate, source_day, position_member(row)))
+        else:
+            unpriced.add((day, code))
 
     from domain.investments.wealth_valuation import load_reviewed_wealth_anchors
     for row in load_reviewed_wealth_anchors(cur, accounts=accounts, dates=dates):
@@ -160,8 +165,10 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
         rate = dated_rate(row['currency'], day)
         if rate is not None:
             value = row['amount'] * rate * account_owner_ratio(code)
-            amounts[day, code].append((value, row['price_date']))
+            amounts[day, code].append((value, row['price_date'], position_member({**row,'asset_liability':'资产'})))
             observed.add((day, code))
+        elif row['amount']:
+            unpriced.add((day, code))
 
     bindings = load_bound_balance_references(cur, accounts)
     for code, cfg in accounts.items():
@@ -177,14 +184,19 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
                 amount = Decimal(reference["balance_amount"])
                 rate = dated_rate(reference["balance_currency"], day)
                 if amount == 0 or rate is not None:
-                    amounts[day, code].append((amount if amount == 0 else amount * rate, reference["balance_as_of"]))
+                    amounts[day, code].append((amount if amount == 0 else amount * rate, reference["balance_as_of"], None))
 
     estimates: dict[date, dict[str, tuple[Decimal, date, date]]] = {}
     for (day, code), members in amounts.items():
-        source_days = [source_day for _, source_day in members]
-        estimates.setdefault(day, {})[code] = (
-            sum((amount for amount, _ in members), Decimal(0)),
+        if (day, code) in unpriced:
+            continue
+        source_days = [source_day for _, source_day, _ in members]
+        values = estimates.setdefault(day, DisplayContributions())
+        values[code] = (
+            sum((amount for amount, _, _ in members), Decimal(0)),
             min(source_days),
             max(source_days),
         )
+        keys = sorted(key for _, _, key in members if key is not None)
+        values.basis[code] = ['position_members', keys] if keys else 'balance_reference'
     return estimates

@@ -1,6 +1,4 @@
-// Compatibility-only chart model. Bodies copied unchanged from holdings_categories.js.
-// Existing rebasing, NAV summary, event thresholds and attribution remain legacy behavior.
-// Do not extend these formulas; future changes require the backend result contract.
+// Keep legacy investment-return formulas here. Personal NAV comparisons come from the API.
 import { safeNum } from '../../../utils.js';
 
 const RETURN_WINDOW_OPTIONS = [
@@ -46,12 +44,6 @@ function filterReturnWindowRows(rows, windowKey, start = returnWindowStartDate(r
     const date = parseReturnSeriesDate(row.date);
     return date && date >= start;
   });
-}
-
-function filterNavWindowRows(rows, windowKey) {
-  const start = returnWindowStartDate(rows, windowKey);
-  if (start && normalizeReturnWindowKey(windowKey) === 'ytd') start.setUTCDate(start.getUTCDate() - 1);
-  return filterReturnWindowRows(rows, windowKey, start);
 }
 
 function returnRateForChart(row) {
@@ -247,12 +239,13 @@ function normalizeInvestmentNavRows(rows) {
       const partial = fullValue == null && row.availableNetWorth != null && row.available_accounts?.length;
       const rawValue = partial ? row.availableNetWorth : fullValue;
       const marketValue = rawValue == null || rawValue === '' ? null : Number(rawValue);
-      if (!date || (marketValue !== null && !Number.isFinite(marketValue))) return null;
+      if (!date) return null;
       return {
         ...row,
         date,
-        market_value: marketValue,
-        nav_scope: partial ? 'partial:' + [...row.available_accounts].sort().join(',') : 'complete',
+        market_value: Number.isFinite(marketValue) ? marketValue : null,
+        // A legacy response has no evidence that adjacent amounts use the same basis.
+        comparison_scope: (partial ? 'partial:' : 'complete:') + (row.comparison_scope || 'unknown:' + date),
         available_account_count: partial ? row.available_accounts.length : null,
         assets: row.assets == null ? null : safeNum(row.assets),
         liabilities: row.liabilities == null ? null : safeNum(row.liabilities),
@@ -262,48 +255,22 @@ function normalizeInvestmentNavRows(rows) {
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
-function buildInvestmentNavChartData(windowRows, isMobile) {
-  const rows = windowRows || [];
-  const known = rows.filter(row => row.market_value != null);
-  if (!known.length) {
-    return { labels: [], values: [], scopes: [], latest: null, change: null,
-      changeRate: null, maxDrawdown: null, pointRadius: 0 };
-  }
+function buildInvestmentNavChartData(navRows, period, isMobile) {
+  const rows = period ? navRows.filter(row => row.date >= period.start && row.date <= period.end) : [];
   const labels = rows.map(row => row.date);
   const values = rows.map(row => row.market_value);
-  const scopes = rows.map(row => row.nav_scope || 'complete');
-  const latestRow = known[known.length - 1];
-  const endIndex = rows.lastIndexOf(latestRow);
-  let startIndex = endIndex;
-  while (startIndex > 0 && values[startIndex - 1] != null && scopes[startIndex - 1] === scopes[endIndex]) startIndex--;
-  const first = values[startIndex];
-  const latest = latestRow.market_value;
-  const comparable = startIndex < endIndex;
-  const change = comparable ? latest - first : null;
-  const changeRate = comparable && Math.abs(first) > 0.005 ? change / first : null;
-  let peak = first;
-  let maxDrawdown = 0;
-  for (const value of values.slice(startIndex, endIndex + 1)) {
-    peak = Math.max(peak, value);
-    if (peak > 0.005) maxDrawdown = Math.min(maxDrawdown, value / peak - 1);
-  }
+  const scopes = rows.map(row => row.comparison_scope);
+  const latestRow = rows.at(-1);
   return {
     labels,
     values,
     scopes,
-    first,
-    latest,
-    latestDate: latestRow.date,
-    availableAccountCount: latestRow.available_account_count,
-    hasLatestKnownComponents: Boolean(latestRow.latest_known_components),
-    missingAccountCount: latestRow.available_account_count
-      ? (latestRow.unavailable_accounts || []).filter(code => !latestRow.available_accounts.includes(code)).length
-      : 0,
-    estimated: latestRow.valuation_quality === 'estimated',
-    change,
-    changeStart: comparable ? labels[startIndex] : null,
-    changeRate,
-    maxDrawdown: comparable ? maxDrawdown : null,
+    latest: latestRow && latestRow.date === period.end ? latestRow.market_value : null,
+    period,
+    change: period?.status === 'ok' ? period.change : null,
+    changeRate: period?.status === 'ok' ? period.change_rate : null,
+    fill: Boolean(scopes[0]?.startsWith('complete:')) &&
+      rows.every((row, i) => values[i] != null && scopes[i] === scopes[0]),
     pointRadius: pointRadiusForReturnSeries(values.length, isMobile),
   };
 }
@@ -386,4 +353,4 @@ function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey
   };
 }
 
-export { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, parseReturnSeriesDate, returnWindowStartDate, filterReturnWindowRows, filterNavWindowRows, returnRateForChart, rebaseReturnRate, returnWindowLabel, returnEventCapitalBase, returnEventAdjustedAmount, returnEventMeta, buildReturnEvents, pointRadiusForReturnSeries, buildInvestmentReturnWindowData, normalizeInvestmentNavRows, buildInvestmentNavChartData, sectionReturnAmount, sectionPeriodPnl, sectionPeriodReturnRate, buildTopContributionForWindow };
+export { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, parseReturnSeriesDate, returnWindowStartDate, filterReturnWindowRows, returnRateForChart, rebaseReturnRate, returnWindowLabel, returnEventCapitalBase, returnEventAdjustedAmount, returnEventMeta, buildReturnEvents, pointRadiusForReturnSeries, buildInvestmentReturnWindowData, normalizeInvestmentNavRows, buildInvestmentNavChartData, sectionReturnAmount, sectionPeriodPnl, sectionPeriodReturnRate, buildTopContributionForWindow };

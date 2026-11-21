@@ -69,6 +69,19 @@ def test_point_in_time_partial_is_not_carried_forward():
                 )
                 assert all(accounts[0] not in invalid.get(d, {}) for d in (day, later))
                 assert invalid[later][accounts[1]][0] == Decimal('25')
+                # Zero-valued, closed positions can be priced without FX, but
+                # they cannot replace the other holdings in the same account.
+                cur.execute("""INSERT INTO pams_holdings_snapshot
+                    (account_code,as_of,symbol,name,currency,asset_liability,major_category,minor_category,market_value)
+                    VALUES (%s,%s,'FOREIGN','Foreign','USD','资产','其他','其他',15)""",(accounts[1],day))
+                cur.execute("UPDATE pams_holdings_snapshot SET market_value=0 WHERE account_code=%s AND symbol=%s",
+                            (accounts[1],accounts[1]))
+                def foreign(rate):
+                    return load_position_nav_estimates(cur, accounts={accounts[1]: {}}, dates=[day],
+                        owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal(1),
+                        rate_at=lambda currency, _: Decimal(1) if currency=='CNY' else rate)
+                assert accounts[1] not in foreign(None).get(day,{})
+                assert foreign(Decimal(7))[day][accounts[1]][0]==105
         finally:
             conn.rollback()
 

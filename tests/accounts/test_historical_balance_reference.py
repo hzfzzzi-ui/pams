@@ -45,6 +45,25 @@ def test_unconverted_foreign_reference_never_enters_cny_terminal_value():
     assert values['domestic'][0] == Decimal('100')
 
 
+def test_terminal_broker_reference_requires_official_net_value_and_fx_matches_its_date():
+    from domain.investments.valuation_nav import latest_nav_display_values
+    day, later = date(2026, 1, 5), date(2026, 1, 6)
+    bank = dict(account_code='foreign', currency='USD', amount_cny=Decimal(70), as_of=day, fx_rate_as_of=day)
+    broker = dict(account_code='ibkr', currency='CNY', amount_cny=Decimal(50), as_of=day,
+                  daily_close={'status':'ok', 'as_of':str(day)})
+    position = dict(account_code='ibkr', currency='CNY', market_value_cny=Decimal(150), as_of=day)
+    args = dict(account_balances=[bank,broker], investment_positions=[position], terminal_date=later,
+                confirmed_values={'ibkr':Decimal(50),'foreign':Decimal(70)})
+    assert latest_nav_display_values(**args) == {'ibkr':(Decimal(50), day, day)}
+    broker['daily_close']['status']='unconfirmed'
+    assert not latest_nav_display_values(**args)
+    other = 'another_broker'
+    assert not latest_nav_display_values(
+        account_balances=[{'account_code':other}], investment_positions=[{**position,'account_code':other}],
+        confirmed_values={other:Decimal(150)}, terminal_date=later,
+        account_config={'accounts':{other:{'portfolio_value_evidence':'official_broker_close'}}})
+
+
 def test_bound_principal_is_estimated_and_source_conflict_disables_config_fallback(monkeypatch):
     import os
     from uuid import uuid4
