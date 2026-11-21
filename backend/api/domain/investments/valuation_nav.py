@@ -974,7 +974,9 @@ def _historical_cash_points(cur, accounts, through):
         if (row['id'] in proof['member_ids'] and row['id'] in proof.get('point_in_time_member_ids', ())
                 and row['currency'] == str(by_code[code].get('base_currency') or 'CNY').upper()
                 and row['market_value'] is not None):
-            candidates[code, day].append(row)
+            complete = (proof['status'] == 'complete' and proof['cash_status'] == 'known'
+                        and proof['member_ids'] == {row['id']})
+            candidates[code, day].append({**row, 'complete_cash_scope': complete})
     return {key: rows[0] for key, rows in candidates.items() if len(rows) == 1}
 
 
@@ -1014,6 +1016,7 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
         for day in sorted(bank_series):
             bucket = bank_series[day]
             point = points.get((code, day))
+            complete_cash = bool(point and point.get('complete_cash_scope'))
             period = periods.get((code, day))
             if period is not None:
                 currency, side, balance = period
@@ -1030,6 +1033,7 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 value = point['market_value']
                 rate = rate_at(point['currency'], day)
                 if rate is None and value:
+                    _replace_cash_contribution(bucket, code, None)
                     continue
                 amount = value * (rate or Decimal(1)) * ratio
                 if point['asset_liability'] == '负债':
@@ -1037,8 +1041,10 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 backcast = bucket.get('account_values', {}).get(code)
                 conflict = backcast is not None and backcast != amount
                 _replace_cash_contribution(bucket, code, amount)
-                if period and code in bucket.get('unavailable_accounts', ()):
+                if (period or complete_cash) and code in bucket.get('unavailable_accounts', ()):
                     bucket['unavailable_accounts'].remove(code)
+                if complete_cash:
+                    bucket['estimated_accounts'].remove(code)
             elif conflict and day < anchor and code in bucket.get('estimated_accounts', ()):
                 _replace_cash_contribution(bucket, code, None)
 

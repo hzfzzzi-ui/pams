@@ -163,6 +163,25 @@ def test_historical_foreign_statement_balance_stays_on_its_day(monkeypatch):
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal('1'), rate_at=lambda *_: None)
                 assert estimates[date(2025,12,31)]['test_foreign'][0] == 0
                 assert 'test_foreign' not in estimates.get(date(2026,1,1), {})
+                from domain.investments.account_snapshot_evidence import record_source_scope
+                from domain.investments.valuation_nav import _historical_cash_points, _apply_historical_cash_points
+                day, later = date(2025, 12, 31), date(2026, 1, 1)
+                code = 'test_foreign'
+                accounts = [{'account_code': code, 'base_currency': 'MXN'}]
+                partial = _historical_cash_points(cur, accounts, later)
+                assert not partial[code, day]['complete_cash_scope']
+                record_source_scope(cur, source_id=source, holding_ids=[partial[code, day]['id']], as_of=day,
+                                    scope={'confirmed': True, 'as_of': day.isoformat(), 'member_count': 1,
+                                           'cash_amount': '0', 'note': 'All account cash confirmed for this date'})
+                points = _historical_cash_points(cur, accounts, later)
+                assert set(points) == {(code, day)} and points[code, day]['complete_cash_scope']
+                buckets = {d: {'assets': Decimal(0), 'liabilities': Decimal(0), 'net_worth': Decimal(0),
+                               'unavailable_accounts': [code]} for d in (day, later)}
+                _apply_historical_cash_points(cur, bank_series=buckets, accounts=accounts, dates=[day, later],
+                                             rate_at=lambda *_: None, points=points, periods={})
+                assert buckets[day]['account_values'][code] == 0
+                assert code not in buckets[day]['unavailable_accounts'] + buckets[day]['estimated_accounts']
+                assert code in buckets[later]['unavailable_accounts']
         finally:
             conn.rollback()
 
