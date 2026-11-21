@@ -8,10 +8,9 @@ export const RETURN_SECTION_SPECS = [
     { key: 'precious_metal', label: '贵金属', url: '/investment/section-return-series?section=precious_metal&start=2026-01-01&interval=daily&baseCurrency=CNY' },
   ];
 
-// Keep the existing URLs, parameters, cache policy and per-series empty-response fallback.
 // Cancellation remains a rejected read; ordinary endpoint failures retain the old fallback.
 export function readInvestmentNav({signal} = {}) {
-  return jget('/nav/weekly?start=2025-12-31&baseCurrency=CNY&latest=true&interval=daily', {signal})
+  return jget('/nav/weekly?start=overview&baseCurrency=CNY&latest=true&interval=daily', {signal, cache: false})
     .catch(error => readFallback(error, { rows: [] }));
 }
 
