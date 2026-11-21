@@ -13,7 +13,7 @@ from datetime import date as Date, timedelta
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
-from domain.accounts.balance_reference import historical_account_balance
+from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
@@ -550,6 +550,7 @@ def latest_nav_display_values(
     terminal_date: Date,
     confirmed_values: dict[str, Decimal],
     account_config: dict[str, Any] | None = None,
+    cur=None,
 ) -> dict[str, tuple[Decimal, Date, Date]]:
     """Select dated components that can supplement an incomplete NAV terminal point."""
     balances = {row["account_code"]: row for row in account_balances if row.get("account_code")}
@@ -573,6 +574,7 @@ def latest_nav_display_values(
 
     config = account_config or {}
     configs = config.get("accounts", {})
+    bindings = load_bound_balance_references(cur, configs) if cur is not None else {}
     for code, rows in by_account.items():
         if code in values:
             continue
@@ -590,7 +592,8 @@ def latest_nav_display_values(
     for code, balance in balances.items():
         if code in values or not balance.get("include_in_nav", True):
             continue
-        reference = historical_account_balance(configs.get(code, {}), terminal_date, _owner_ratio(config, code))
+        reference = historical_account_balance(configs.get(code, {}), terminal_date, _owner_ratio(config, code),
+                                               account_code=code, bindings=bindings)
         # This path has no dated FX input; an original-currency reference must
         # never be treated as a CNY contribution. The dated projection handles it.
         if reference and reference['balance_currency'] == 'CNY':

@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
-from domain.accounts.balance_reference import historical_account_balance
+from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.position_reference import historical_position_reference, position_reference_config
 from domain.investments.fund_return_history import NAV_SOURCES
 from domain.investments.fund_closed_sessions import surrounding_sessions
@@ -163,14 +163,15 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             amounts[day, code].append((value, row['price_date']))
             observed.add((day, code))
 
+    bindings = load_bound_balance_references(cur, accounts)
     for code, cfg in accounts.items():
         missing_days = [day for day in dates if (day, code) not in observed]
         if not missing_days:
             continue
         owner_ratio = account_owner_ratio(code)
         for day in missing_days:
-            reference = historical_account_balance(cfg, day, owner_ratio)
-            if not reference and position_reference_config(cfg) and (cfg.get("manual_balance") or {}).get("source"):
+            reference = historical_account_balance(cfg, day, owner_ratio, account_code=code, bindings=bindings)
+            if not reference and code not in bindings and position_reference_config(cfg) and (cfg.get("manual_balance") or {}).get("source"):
                 reference = historical_position_reference(cfg, day, owner_ratio)
             if reference:
                 amount = Decimal(reference["balance_amount"])
