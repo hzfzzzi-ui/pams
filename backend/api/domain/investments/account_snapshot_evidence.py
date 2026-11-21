@@ -251,9 +251,11 @@ def _verified_source_scope(cur, version_id):
     cash = [row for row in holdings if row['major_category'] == '现金']
     if len(cash) != 1 or cash[0]['market_value'] != version['cash_amount']:
         return False
-    # Multi-position attestations have historically stated their cash in CNY.
-    expected_currency = cash[0]['base_currency'] if len(holdings) == 1 else 'CNY'
-    if cash[0]['currency'] != expected_currency:
+    # Older attestations omitted the unit and always stated cash in CNY,
+    # including accounts whose master data had another base currency.
+    if 'cash_currency' in scope and (len(holdings) != 1 or scope['cash_currency'] != cash[0]['base_currency']):
+        return False
+    if cash[0]['currency'] != scope.get('cash_currency', 'CNY'):
         return False
     return all(row['holding_id'] is not None and row['source_id'] == version['source_batch_id']
                and row['review_status'] == 'confirmed'
