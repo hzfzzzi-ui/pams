@@ -371,5 +371,24 @@ def parse_daily_close_series(xml_text: str, *, account_id: str,
         return {"status": "unavailable", "reasons": [reason], "source_sha256": digest, "daily_closes": {}}
     results = {day.isoformat(): _daily_result(evidence, digest, day) for day in sorted(evidence.by_day)}
     complete = all(result["status"] == "ok" for result in results.values())
+    # A daily Flex statement may explicitly carry the previous day's NAV as its
+    # opening comparison. Require the next day's complete, reconciled bridge;
+    # an arbitrary older comparison or an inferred non-trading day is not proof.
+    if evidence.by_day and min(evidence.by_day) > date.min:
+        first = min(evidence.by_day)
+        prior = first - timedelta(days=1)
+        try:
+            statement = _one(evidence.by_day[first], 'daily_statement')
+            _require(_day(statement.get('fromDate')) == first, 'non_daily_statement')
+            verified = _daily_result(evidence, digest, first, first)
+            _require(verified['status'] == 'ok', 'opening_bridge_unavailable')
+            base = evidence.base(statement)
+            opening = evidence.nav(statement, prior, base, comparison=True)
+            _equal(opening['nav_base'], verified['period']['opening_nav_base'], 'opening_nav_bridge_mismatch')
+            results[prior.isoformat()] = {'status':'ok', 'reasons':[], 'account_id':evidence.account,
+                'as_of':prior.isoformat(), 'base_currency':base, 'source_sha256':digest,
+                'evidence_basis':'next_statement_opening_nav', **opening}
+        except _Unavailable:
+            pass
     return {"status": "ok" if complete else "unavailable", "reasons": [] if complete else ["unavailable_daily_close"],
             "source_sha256": digest, "daily_closes": results}
