@@ -123,12 +123,14 @@ body.page-ledger :is(.ledgerPair, .ledgerListRow, .ledgerLoanLine) {
   border-color: var(--refresh-border);
 }
 body.page-ledger .ledgerPair {
-  margin-block: 5px;
-  padding-inline: 12px;
-  border: 1px solid var(--refresh-border);
-  border-radius: 16px;
-  background: var(--refresh-panel);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--refresh-border);
+  border-radius: 0;
+  background: transparent;
 }
+body.page-ledger .ledgerManualPairSummary { padding-inline: 0; border-radius: 0; background: transparent; }
 body.page-ledger .ledgerLoanCard { padding: 14px; }
 body.page-ledger .ledgerListRow { padding-block: 12px; }
 body.page-ledger .ledgerPairDetails { padding-bottom: 14px; }
@@ -146,22 +148,21 @@ body.page-account-import .import-modes button:disabled { opacity: .5; }
 /* Compact holding rows retain the same values and open the existing detail sheet. */
 body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading {
   margin-top: 10px;
-  padding: 15px 14px 9px;
-  border: 1px solid var(--refresh-border);
-  border-bottom: 0;
-  border-radius: 18px 18px 0 0;
-  background: var(--refresh-panel);
+  padding: 15px 0 9px;
+  border: 0;
+  border-bottom: 1px solid var(--refresh-border);
+  border-radius: 0;
+  background: transparent;
   color: #f3f3f4;
   font-size: 14px;
   font-weight: 650;
 }
 body.page-investments #holdings-smart-table:not(.showFinancing) .mobileHoldingList {
   margin: 0;
-  padding: 0 14px;
-  border: 1px solid var(--refresh-border);
-  border-top: 0;
-  border-radius: 0 0 18px 18px;
-  background: var(--refresh-panel);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 body.page-investments #mobileHoldingList button.personalPosition {
   display: grid;
@@ -192,10 +193,10 @@ body.page-investments #mobileHoldingList .personalPositionValues small.down { co
 body.page-ledger .ledgerStreamDay {
   overflow: hidden;
   margin-top: 10px;
-  padding: 0 13px;
-  border: 1px solid var(--refresh-border);
-  border-radius: 16px;
-  background: var(--refresh-panel);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 body.page-ledger .ledgerStreamDayHeader { padding: 12px 0 7px; }
 body.page-ledger .ledgerStreamCategoryIcon { background: #c89036; }
@@ -237,6 +238,9 @@ body.page-investments #investment-ledger .transactionOverview {
   border-radius: 18px;
   background: var(--refresh-panel);
 }
+body.page-investments .transactionOverviewDetails { color: #a8a9ae; font-size: 12px; line-height: 1.5; }
+body.page-investments .transactionOverviewDetails summary { width: fit-content; cursor: pointer; }
+body.page-investments .transactionOverviewDetails p { margin: 8px 0 0; overflow-wrap: anywhere; }
 body.page-investments .recentTradePanel {
   padding: 14px !important;
   border: 1px solid var(--refresh-border) !important;
@@ -449,10 +453,10 @@ body.page-investments #return-trend .returnWindowSegment button.active { border-
 .unifiedActivitySide strong { font-size: 15px; font-weight: 600; }
 body.page-investments .recentTradeList .ledgerStreamDay {
   margin-top: 8px;
-  padding: 0 13px;
-  border: 1px solid var(--refresh-border);
-  border-radius: 16px;
-  background: var(--refresh-panel);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 body.page-investments .recentTradePanel { padding: 0 !important; border: 0 !important; background: transparent !important; }
 body.page-investments .recentTradeList .ledgerStreamDayHeader {
@@ -464,7 +468,6 @@ body.page-investments .tradeActivityRow {
   width: 100%; min-height: 58px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--refresh-border);
   background: transparent; color: #f5f5f6; font: inherit; text-align: left; cursor: pointer;
 }
-body.page-investments .tradeActivityRow:last-child { border-bottom: 0; }
 body.page-investments .tradeActivityRow:focus-visible { outline: 2px solid #eee; outline-offset: -2px; }
 .unifiedDetailFields { display: grid; margin: 0 0 14px; }
 .unifiedDetailFields > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--refresh-border); }
