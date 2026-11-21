@@ -48,6 +48,12 @@ function filterReturnWindowRows(rows, windowKey, start = returnWindowStartDate(r
   });
 }
 
+function filterNavWindowRows(rows, windowKey) {
+  const start = returnWindowStartDate(rows, windowKey);
+  if (start && normalizeReturnWindowKey(windowKey) === 'ytd') start.setUTCDate(start.getUTCDate() - 1);
+  return filterReturnWindowRows(rows, windowKey, start);
+}
+
 function returnRateForChart(row) {
   const value = row?.return_rate ?? row?.display_return_rate ?? row?.time_weighted_return_rate;
   return value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
@@ -380,4 +386,4 @@ function buildTopContributionForWindow(sectionRowsByKey, sectionSpecs, windowKey
   };
 }
 
-export { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, parseReturnSeriesDate, returnWindowStartDate, filterReturnWindowRows, returnRateForChart, rebaseReturnRate, returnWindowLabel, returnEventCapitalBase, returnEventAdjustedAmount, returnEventMeta, buildReturnEvents, pointRadiusForReturnSeries, buildInvestmentReturnWindowData, normalizeInvestmentNavRows, buildInvestmentNavChartData, sectionReturnAmount, sectionPeriodPnl, sectionPeriodReturnRate, buildTopContributionForWindow };
+export { RETURN_WINDOW_OPTIONS, normalizeReturnWindowKey, parseReturnSeriesDate, returnWindowStartDate, filterReturnWindowRows, filterNavWindowRows, returnRateForChart, rebaseReturnRate, returnWindowLabel, returnEventCapitalBase, returnEventAdjustedAmount, returnEventMeta, buildReturnEvents, pointRadiusForReturnSeries, buildInvestmentReturnWindowData, normalizeInvestmentNavRows, buildInvestmentNavChartData, sectionReturnAmount, sectionPeriodPnl, sectionPeriodReturnRate, buildTopContributionForWindow };
