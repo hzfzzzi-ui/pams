@@ -584,7 +584,9 @@ def latest_nav_display_values(
         if code in values or not balance.get("include_in_nav", True):
             continue
         reference = historical_account_balance(configs.get(code, {}), terminal_date, _owner_ratio(config, code))
-        if reference:
+        # This path has no dated FX input; an original-currency reference must
+        # never be treated as a CNY contribution. The dated projection handles it.
+        if reference and reference['balance_currency'] == 'CNY':
             value = Decimal(reference["balance_amount"])
             day = reference["balance_as_of"]
             values[code] = (-value if balance.get("account_type") == "liability" else value, day, day)
