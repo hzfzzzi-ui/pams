@@ -467,6 +467,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           data: data.values,
           navAccountCounts: data.accountCounts,
           navEstimateCounts: data.estimateCounts,
+          navCashFxDates: data.cashFxDates,
           borderColor: el.closest('#asset-overview') ? '#d9a13d' : CHART_THEME.line,
           backgroundColor: el.closest('#asset-overview') ? 'rgba(217,161,61,.10)' : CHART_THEME.fill,
           tension: 0,
@@ -493,7 +494,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
               },
               afterLabel: ctx => {
                 const count = ctx.dataset.navEstimateCounts[ctx.dataIndex];
-                return count ? `${count} 个账户含估算` : '';
+                const dates = ctx.dataset.navCashFxDates[ctx.dataIndex];
+                const notes = count ? [`${count} 个账户含估算`] : [];
+                if (dates.length) notes.push(`外币现金参考汇率 · ${dates.join('、')}`);
+                return notes;
               },
             },
           },
@@ -541,6 +545,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     chart.data.datasets[0].fill = data.fill;
     chart.data.datasets[0].navAccountCounts = data.accountCounts;
     chart.data.datasets[0].navEstimateCounts = data.estimateCounts;
+    chart.data.datasets[0].navCashFxDates = data.cashFxDates;
     chart.data.datasets[0].pointRadius = data.knownCount === 1 ? 2 : 0;
     chart.options.scales.y.display = data.knownCount > 0;
     chart.update('none');

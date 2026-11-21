@@ -1,0 +1,55 @@
+from datetime import date, timedelta
+from decimal import Decimal as D
+
+from domain.investments.valuation_nav import (
+    _add_weekend_cash_references, _bank_backcast_series, format_weekly_nav_payload, fx_rate_at,
+)
+
+
+def test_weekend_reuses_only_an_unchanged_dated_foreign_bank_valuation():
+    friday = date(2026, 5, 29)
+    saturday, sunday, monday = (friday + timedelta(days=i) for i in (1, 2, 3))
+    days = [friday, saturday, sunday, monday]
+    anchor = friday - timedelta(days=3)
+    rates = {'USD':[(friday,D(7))], 'EUR':[(friday,D(8))], 'CHF':[(friday-timedelta(days=1),D(9))]}
+    rate_at = lambda currency, day: fx_rate_at(rates, currency, day, 'CNY')
+
+    def bank(code, currency, as_of=anchor):
+        return {'account_code':code, 'account_type':'funding', 'truth_source':'bank_statement',
+                'base_currency':currency, 'owner_ratio':'0.5',
+                'primary_balance':{'source':'bound bank statement','amount':'20','as_of':as_of,'currency':currency}}
+
+    accounts = [bank('unchanged','USD'), bank('changed','EUR'), bank('too_old','CHF'),
+                bank('new_anchor','USD',saturday), bank('mixed','USD')]
+    flows = {
+        'unchanged':[{'transaction_date':friday,'currency':'USD','amount':D(2)}],
+        'changed':[{'transaction_date':saturday,'currency':'EUR','amount':D(4)}],
+        'mixed':[{'transaction_date':friday,'currency':'EUR','amount':D(3)}],
+    }
+    series = _bank_backcast_series(accounts=accounts,rows_by_account=flows,dates=days,terminal_date=monday,
+                                   fx_timelines=rates,base_currency='CNY')
+    def display(day):
+        row = {'date':day, 'net_worth':None, 'unavailable_accounts':series[day]['unavailable_accounts']}
+        _add_weekend_cash_references(row, series, rate_at)
+        return row
+
+    row = display(saturday)
+    assert row['net_worth'] is None and row['available_accounts'] == row['estimated_accounts'] == ['unchanged']
+    assert row['available_net_worth'] == D('147')  # personal anchor 20 plus one half of the deposit 2
+    proof = row['latest_known_components']['unchanged']
+    assert (proof['balance_anchor_as_of'], proof['balance_as_of'], proof['fx_as_of']) == (
+        anchor.isoformat(), friday.isoformat(), friday.isoformat())
+    assert proof['native_balance'] == '21.0' and proof['currency'] == 'USD'
+    _add_weekend_cash_references(row, series, rate_at)
+    assert row['available_net_worth'] == D(147) and row['unavailable_accounts'] == series[saturday]['unavailable_accounts']
+    assert display(sunday)['available_net_worth'] == D(147)
+    assert 'available_net_worth' not in display(monday)
+    # A weekend reference is never eligible for a comparison of current-dated balances.
+    week_before = {**row,'date':saturday-timedelta(days=7),'_comparison_basis':{'unchanged':['historical_cash_fx','prior']}}
+    report = format_weekly_nav_payload(start_date=week_before['date'],terminal_date=saturday,
+                                       base_currency='CNY',rows=[week_before,row])
+    period = report['period_comparisons']['1w']
+    assert period['status'] == 'different_coverage' and period['comparable_accounts']['status'] == 'unavailable'
+    proven = {'date':saturday,'net_worth':D('12'),'unavailable_accounts':[]}
+    _add_weekend_cash_references(proven,series,rate_at)
+    assert proven['net_worth'] == D(12) and 'available_net_worth' not in proven

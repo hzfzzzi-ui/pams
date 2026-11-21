@@ -17,6 +17,7 @@ from domain.accounts.balance_reference import historical_account_balance, load_b
 from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.cash_fx_reference import preceding_weekend_dates, supports_cash_reference, weekend_cash_references
 from domain.investments.nav_period_comparison import (
     DisplayContributions, apply_terminal_breakdown, comparison_scope, period_comparisons, position_member,
     terminal_comparison_basis,
@@ -667,6 +668,26 @@ def _add_known_display_values(row, values, *, basis=None):
     row["valuation_quality"] = "estimated"
 
 
+def _add_weekend_cash_references(row, bank_series, rate_at):
+    if row.get('net_worth') is not None:
+        return
+    references = weekend_cash_references(row['date'], bank_series, rate_at)
+    if not references:
+        return
+    covered = set(row.get('available_accounts', ())) | set(row.get('source_evidence_unavailable_accounts', ()))
+    values = DisplayContributions()
+    for code in references.keys() & (set(row.get('unavailable_accounts', ())) - covered):
+        info = references[code]
+        values[code] = (info['amount'], info['balance_as_of'], info['fx_as_of'])
+        values.basis[code] = ['historical_cash_fx', row['date'].isoformat()]
+    _add_known_display_values(row, values)
+    for code in values:
+        row['latest_known_components'][code].update(
+            {key:_norm(value) for key,value in references[code].items() if key != 'amount'},
+            basis='historical_cash_fx',
+        )
+
+
 def _apply_account_totals(row, values, account_owner_ratio, rate_at):
     """Replace only individually attributable contributions, never guess a subtraction."""
     if not values:
@@ -954,10 +975,13 @@ def _bank_backcast_series(
             if str(row.get('currency') or anchor_currency).upper() == anchor_currency
         ]
         evidence_dates = [day for day, _ in native_movements]
-        if anchor is not None and _row_date((account.get('primary_balance') or {}).get('as_of') or account.get('as_of')):
+        dated_anchor = _row_date((account.get('primary_balance') or {}).get('as_of') or account.get('as_of'))
+        if anchor is not None and dated_anchor:
             evidence_dates.append(anchor_date)
         evidence_start = min(evidence_dates, default=Date.max)
         evidence_end = max(evidence_dates, default=Date.min)
+        ordered_dates = sorted(evidence_dates)
+        reference_account = anchor_currency != base_currency and supports_cash_reference(account, anchor_currency, rows)
 
         for sample_date in dates:
             bucket = values[sample_date]
@@ -983,10 +1007,17 @@ def _bank_backcast_series(
                 continue
             flow = sum(movements, Decimal(0)) * owner_ratio
             projected_amount = anchor_amount + (flow if sample_date >= anchor_date else -flow)
+            ref_dates = None
+            if reference_account and dated_anchor and sample_date.weekday() >= 5:
+                through = bisect_right(ordered_dates, sample_date)
+                if through:
+                    ref_dates = max(ordered_dates[through-1], anchor_date), dated_anchor
             if verified_snapshot:
                 rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
                 if rate is None:
                     bucket.setdefault('unavailable_accounts', []).append(code)
+                    if ref_dates:
+                        bucket.setdefault('_unconverted_cash', {})[code] = (anchor_currency, projected_amount, *ref_dates)
                     continue
                 account_value = projected_amount * rate
                 add_nav_amount(bucket, account_value)
@@ -1025,6 +1056,8 @@ def _bank_backcast_series(
             rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
             if rate is None:
                 bucket.setdefault("unavailable_accounts", []).append(code)
+                if ref_dates:
+                    bucket.setdefault('_unconverted_cash', {})[code] = (anchor_currency, signed_native_value, *ref_dates)
             else:
                 account_value = signed_native_value * rate
                 add_nav_amount(bucket, account_value)
@@ -1066,6 +1099,7 @@ def _historical_cash_points(cur, accounts, through):
 
 
 def _replace_cash_contribution(bucket, code, value):
+    bucket.get('_unconverted_cash', {}).pop(code, None)
     old = bucket.setdefault('account_values', {}).pop(code, None)
     if old is not None:
         bucket['liabilities' if old < 0 else 'assets'] -= abs(old)
@@ -1658,6 +1692,8 @@ def build_nav_weekly_payload(
     bank_accounts = [_cash_account_at_terminal(account, terminal_date, latest_cash.get(account['account_code']))
                      for account in bank_accounts]
     cash_dates = sorted(set(dates) | {day for _, day in cash_points})
+    reference_dates = {prior for day in dates for prior in preceding_weekend_dates(day)} - set(cash_dates)
+    all_cash_dates = sorted(set(cash_dates) | reference_dates)
     bank_flow_start = min(cash_dates[0], min(
         (account_anchor_date(account, terminal_date) for account in bank_accounts
          if account_anchor_amount(account) is not None),
@@ -1672,15 +1708,23 @@ def build_nav_weekly_payload(
     bank_series = _bank_backcast_series(
         accounts=bank_accounts,
         rows_by_account=rows_by_account,
-        dates=cash_dates,
+        dates=all_cash_dates,
         terminal_date=terminal_date,
         fx_timelines=fx_timelines,
         base_currency=base_currency,
     )
-    _apply_historical_cash_points(
-        cur, bank_series=bank_series, accounts=bank_accounts, dates=cash_dates, points=cash_points,
-        rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
-    )
+    # Extra days required by a sparse display window must never move a cash
+    # reconciliation's conflict boundary in the requested, formal sample.
+    reference_series = {day:bank_series.pop(day) for day in reference_dates}
+    from domain.investments.statement_period_nav import load_statement_period_points
+    periods = load_statement_period_points(cur, [a['account_code'] for a in bank_accounts], all_cash_dates)
+    for samples in (bank_series, reference_series):
+        if samples:
+            _apply_historical_cash_points(
+                cur, bank_series=samples, accounts=bank_accounts, dates=sorted(samples), points=cash_points, periods=periods,
+                rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
+            )
+    bank_series.update(reference_series)
     snapshot_series = _investment_snapshot_series(
         cur,
         account_codes=investment_snapshot_accounts,
@@ -1834,6 +1878,10 @@ def build_nav_weekly_payload(
             }, basis=getattr(by_account,'basis', {}))
     if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
         _add_known_display_values(rows[-1], terminal_display_values_cny)
+    for row in rows:
+        _add_weekend_cash_references(
+            row, bank_series, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
+        )
     from domain.investments.account_total_evidence import load as load_account_totals
     totals = load_account_totals(cur, dates=dates, accounts=nav_codes)
     for row in rows:
