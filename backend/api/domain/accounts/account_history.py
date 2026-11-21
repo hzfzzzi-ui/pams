@@ -9,7 +9,7 @@ from domain.accounts.bank_source_status import summaries
 from domain.accounts.bank_statement_balance import statement_balance_history
 from domain.accounts.credit_card_debt import confirmed_table_net_history, uses_table_net_reference
 from domain.accounts.position_reference import historical_position_reference, position_reference_config
-from domain.accounts.sync_status import _manual_position_value
+from domain.accounts.recorded_positions import recorded_event_dates, recorded_history
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.account_total_evidence import load as load_account_totals, prior_single_account_total
@@ -220,22 +220,12 @@ def _apply_totals(cur, account_code, configs, dates, points):
         if point.get('net_value_status') != 'confirmed':
             point.update(net_value=value, net_value_status='confirmed' if total.get('observed_total')
                          or total.get('confirmed_empty') else 'estimated')
+        if total.get('confirmed_components') and not amounts:
+            point['confirmed_components'] = True
 
 
 def _position_estimates(cur, code, cfg, dates, points):
     """Only continue a fund NAV when the projected member set reconciles to an actual total."""
-    if cfg.get('latest_position_evidence') == 'recorded_equity_and_debt':
-        if cfg.get('base_currency', 'CNY') != 'CNY':
-            return
-        for day, point in points.items():
-            if point.get('net_value') is not None:
-                continue
-            amount = _manual_position_value(cur, code, day)
-            if amount and amount['position_debt'] is not None:
-                point.update(net_value=Decimal(amount['balance_amount']), net_value_status='estimated')
-                point.setdefault('liabilities', Decimal(amount['position_debt']))
-                point.setdefault('liabilities_status', 'estimated')
-        return
     positions_only = cfg.get('latest_position_evidence') == 'fund_snapshot_without_cash'
     unit = cfg.get('base_currency', 'CNY')
     if cfg.get('account_type') == 'fund_platform' and unit == 'CNY':
@@ -305,12 +295,15 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
     account_type = cfg.get('account_type')
     card = account_type in {'liability', 'credit_card'}
     mode = cfg.get('portfolio_value_evidence')
-    dual = mode == 'official_broker_close' or cfg.get('latest_position_evidence') == 'recorded_equity_and_debt'
+    recorded_equity = cfg.get('latest_position_evidence') == 'recorded_equity_and_debt'
+    dual = mode == 'official_broker_close' or recorded_equity
     cash = cfg.get('reconcile_method', 'balance') == 'balance'
     if mode == 'official_broker_close':
         points = {row['date']: row for row in broker_history_rows(
             cur, account_code=account_code, currency=currency, start_date=start_date, end_date=end_date)}
     else:
+        if recorded_equity:
+            dates = recorded_event_dates(cur, account_code, start_date, end_date)
         points = _holding_observations(cur, account_code, currency, dates, cash_account=cash)
         if cash:
             points = _cash_observations(cur, account_code, cfg, currency, dates, points, card)
@@ -322,7 +315,9 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
                     points.setdefault(point['date'], {}).update(point)
         if not card:
             _apply_totals(cur, account_code, configs, dates, points)
-        if not cash and mode != 'reconciled_trade_cash':
+        if recorded_equity and currency == 'CNY':
+            points = recorded_history(cur, account_code, dates, points, start_date, end_date)
+        elif not cash and not recorded_equity and mode != 'reconciled_trade_cash':
             _position_estimates(cur, account_code, cfg, dates, points)
             if (position_reference_config(cfg) and (cfg.get('manual_balance') or {}).get('source')
                     and not any(point.get('net_value') is not None for point in points.values())):
@@ -337,16 +332,19 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
     rows = []
     last_prior_date = None
     for day, point in sorted(points.items()):
-        if day > end_date or all(point.get(key) is None for key in series):
+        if day > end_date or (not point.get('coverage_break') and all(point.get(key) is None for key in series)):
             continue
         if day < start_date:
-            last_prior_date = day
+            if not point.get('coverage_break'):
+                last_prior_date = day
             continue
         row = {'date': day}
         for key in series:
             row[key] = point.get(key)
             row[key + '_status'] = point.get(key + '_status', 'confirmed') if row[key] is not None else 'unavailable'
+            if point.get(key + '_as_of') and point[key + '_as_of'] != day:
+                row[key + '_as_of'] = point[key + '_as_of']
         rows.append(row)
     return {'account_code': account_code, 'currency': currency, 'scope': 'account',
             'start_date': start_date, 'end_date': end_date, 'series': series, 'rows': rows,
-            'last_prior_date': last_prior_date}
+            'last_prior_date': last_prior_date, 'interpolation': 'step' if recorded_equity else 'linear'}

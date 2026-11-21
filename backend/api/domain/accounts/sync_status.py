@@ -13,6 +13,7 @@ from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, sum
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net, uses_table_net_reference
 from domain.accounts.position_reference import historical_position_reference
+from domain.accounts.recorded_positions import recorded_components
 from domain.imports.account_import_statement import profiles as statement_profiles
 from domain.imports.account_import_store import supported_import_modes
 from domain.imports.source_original_read import SourceOriginals
@@ -20,7 +21,6 @@ from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.snapshot_coverage import point_in_time_visible_sql
 from domain.investments.portfolio_state import _excluded_accounts, _owner_ratio
 from domain.investments.trade_read_v2 import load_trade_rows
-from domain.investments.valuation_input_evidence import current_holding_source
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 
 
@@ -113,18 +113,8 @@ def _latest_cash_snapshots(cur, codes):
 
 
 def _manual_position_value(cur, account_code, day):
-    cur.execute(f"""SELECT DISTINCT ON (h.name, h.currency) h.id, h.as_of, h.currency, h.asset_liability, h.market_value
-        FROM public.pams_holdings_snapshot h
-        WHERE h.account_code=%s AND h.as_of<=%s AND h.major_category<>'现金'
-          AND {point_in_time_visible_sql("h", "%s::date")}
-        ORDER BY h.name, h.currency, h.as_of DESC, h.id DESC""", (account_code, day, day))
-    rows = cur.fetchall()
-    if not rows or any(row['currency'] != 'CNY' or row['market_value'] is None
-                       or current_holding_source(cur, row['id'])['status'] != 'recorded' for row in rows):
-        return None
-    assets = [row for row in rows if row['asset_liability'] == '资产']
-    debts = [row for row in rows if row['asset_liability'] == '负债']
-    if not assets or len(assets) + len(debts) != len(rows):
+    assets, debts = recorded_components(cur, account_code, day)
+    if not assets or debts is None:
         return None
     asset_value = sum(row['market_value'] for row in assets)
     debt_value = sum(abs(row['market_value']) for row in debts)
