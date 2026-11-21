@@ -39,7 +39,7 @@ def test_later_trades_preserve_ownership_until_first_unreviewed_funding(monkeypa
     ratios = contribution_ratios(events, legs, days, deposit, D(50), D(200))
     assert ratios == {first: D('.5'), deposit: D('.25'), trade: D('.25')}
     monkeypatch.setattr(nav, '_read_event_prefix', lambda cur, account_code: (events, None))
-    monkeypatch.setattr(nav, 'daily_estimates', lambda *args: dict(zip(days, map(D, [110,210,220,210,211]))))
+    monkeypatch.setattr(nav, 'daily_estimates', lambda *args, **kwargs: dict(zip(days, map(D, [110,210,220,210,211]))))
     monkeypatch.setattr(capital_ownership, 'load_contribution_ratios', lambda *args, **kwargs: ratios)
     cur = Mock()
     cur.fetchall.return_value = []

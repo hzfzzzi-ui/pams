@@ -58,6 +58,6 @@ def reconstructed_history_rows(cur, *, account_code, start_date, end_date, curre
     if currency != "CNY":
         return []
     history = project(cur, dates=series_dates(start_date, end_date, "daily"), owner_ratio=Decimal(1),
-                      series_type=ValuationEvidenceSeries, account_code=account_code)
+                      series_type=ValuationEvidenceSeries, account_code=account_code, require_new_mark_after_ledger=True)
     return [{"date": day, "net_value": value, "net_value_status": "estimated"}
-            for day, value in sorted(history.preview_by_date.items()) if day <= history.preview_source_through]
+            for day, value in sorted(history.preview_by_date.items())]
