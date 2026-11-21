@@ -73,10 +73,14 @@ def load_fund_history_inputs(cur, *, end, excluded_accounts=(), include_trades=T
               or (row["asset_id"] in assets and row["trade_type"] in FUND_TRADES)]
     # Include confirmed zero snapshots and reject contradictory quantities, even
     # if the conflicting observation is earlier than the latest account snapshot.
-    cur.execute("""SELECT account_code, asset_id, symbol, as_of, quantity
-        FROM pams_holdings_snapshot WHERE account_code=ANY(%s) AND minor_category='A股基金'
-          AND currency='CNY' AND asset_liability='资产' AND as_of<=%s ORDER BY as_of,id""",
-                (accounts, end))
+    # A one-day observation cannot attest the ending balance of a replay.
+    cur.execute("""SELECT h.account_code, h.asset_id, h.symbol, h.as_of, h.quantity
+        FROM pams_holdings_snapshot h WHERE h.account_code=ANY(%s) AND h.minor_category='A股基金'
+          AND h.currency='CNY' AND h.asset_liability='资产' AND h.as_of<=%s
+          AND NOT EXISTS (SELECT 1 FROM account_snapshot_member m JOIN account_snapshot_version v ON v.version_id=m.version_id
+              WHERE m.holding_id=h.id AND v.coverage_status='partial'
+                AND v.scope_attestation->'point_in_time_only'='true'::jsonb)
+        ORDER BY h.as_of,h.id""", (accounts, end))
     snapshots = [dict(row) for row in cur.fetchall()]
     return assets, trades, snapshots
 

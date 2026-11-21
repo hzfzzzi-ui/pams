@@ -4,6 +4,7 @@ from psycopg2.extras import Json, RealDictCursor, execute_values
 
 from domain.imports.isolation import source_enabled
 from domain.investments.holding_evidence_writer import lock_holding_accounts
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 
 
 def record_partial(conn, *, account_code, as_of, holding_ids, reason, calculation_version):
@@ -97,13 +98,14 @@ def _complete_member_proven(cur, holding_id, source_item_id):
 
 def _unresolved_prior_holdings(cur, account_code, as_of):
     """An absent earlier member is not evidence of an exit from the account."""
-    cur.execute("""SELECT EXISTS (
+    cur.execute(f"""SELECT EXISTS (
         SELECT 1 FROM pams_holdings_snapshot prior
         WHERE prior.account_code=%s AND prior.as_of<%s
+          AND {point_in_time_visible_sql('prior', '%s::date')}
           AND NOT EXISTS (SELECT 1 FROM pams_holdings_snapshot current
               WHERE current.account_code=prior.account_code AND current.as_of=%s AND current.name=prior.name
                 AND current.currency=prior.currency)
-    ) AS unresolved""", (account_code,as_of,as_of))
+    ) AS unresolved""", (account_code,as_of,as_of,as_of))
     return bool(cur.fetchone()['unresolved'])
 
 def record_complete(cur, *, account_code, as_of, members, source_batch_id, source_revision, source_sha256, version_id=None):

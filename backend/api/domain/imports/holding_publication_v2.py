@@ -25,16 +25,17 @@ def _amount(fields, key, scale):
     raise ValueError(f'持仓字段 {key} 缺失或数值无效')
 
 
-def _holding(cur, fields, account, day, item_id, *, complete, historical=False):
+def _holding(cur, fields, account, day, item_id, *, complete, historical=False, base_currency="CNY", is_asset=True):
     kind = asset_type(fields.get('asset_type'))
-    base = dict(account_code=account, as_of=day, currency='CNY', asset_liability='资产', source_item_id=str(item_id))
-    if fields.get('currency') != 'CNY':
-        raise ValueError('持仓资料币种须为人民币')
+    currency = base_currency if historical and kind == 'cash' else 'CNY'
+    base = dict(account_code=account, as_of=day, currency=currency, asset_liability='资产' if is_asset else '负债', source_item_id=str(item_id))
+    if fields.get('currency') != currency or (not is_asset and kind != 'cash'):
+        raise ValueError('持仓资料币种或账户类型不支持')
     if kind == 'cash':
         amount = _amount(fields, 'net_cash', 4)
         if amount >= Decimal('1e14'):
             raise ValueError('现金持仓超出存储范围')
-        return dict(base, symbol='CASH_CNY', name='Cash CNY', asset_id=None, major_category='现金',
+        return dict(base, symbol='CASH_' + currency, name='Cash ' + currency, asset_id=None, major_category='现金',
                     minor_category='现金/活期', quantity=amount, current_price=Decimal(1), cost=amount,
                     market_value=amount, buy_price=Decimal(1))
     if kind not in {'stock', 'fund'} or (fields.get('cost_basis_type') != 'holding_cost' and not (historical and fields.get('cost_basis_type') == 'unknown')):
@@ -63,6 +64,58 @@ def _holding(cur, fields, account, day, item_id, *, complete, historical=False):
     return dict(base, symbol=asset['primary_symbol'], name=asset['canonical_name'], asset_id=asset['asset_id'],
                 major_category='A股', minor_category='A股基金' if kind == 'fund' else 'A股',
                 quantity=quantity, current_price=price, cost=cost, market_value=value, buy_price=buy_price)
+
+
+def _historical_statement_balance_inputs(cur, fields, holding):
+    """Bind a same-day account balance to an existing original statement row."""
+    from domain.imports.source_original_read import SourceOriginals
+    evidence = fields.get('reconstruction_evidence')
+    if not isinstance(evidence, dict) or set(evidence) != {'statement_source_item_id'}:
+        raise ValueError('历史余额须关联账单余额证据')
+    try:
+        from uuid import UUID
+        item_id = str(UUID(str(evidence['statement_source_item_id'])))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError('账单余额来源身份无效') from exc
+    cur.execute("""SELECT i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,i.parse_method,
+        i.source_position,r.status,r.document_type,r.acquisition_method,r.file_format,r.filename,r.account_code AS source_account,
+        r.source_id AS original_source_id,r.sha256,r.content IS NOT NULL AS inline_original
+        FROM source_items i JOIN source_records r ON r.source_id=i.source_id
+        WHERE i.source_item_id=%s FOR SHARE OF i,r""", (item_id,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError('账单余额来源不存在')
+    raw, parsed = row['raw_fields'], row['parsed_fields']
+    try:
+        raw_hash = sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+        amount = Decimal(str(parsed['net_cash']))
+    except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+        raise ValueError('账单余额来源无效') from exc
+    from domain.imports.historical_statement_balance import statement_row_balance, verify_original_row
+    original, original_ok = SourceOriginals(cur).read(row)
+    if (row['source_account'] != holding['account_code'] or row['status'] != 'published'
+            or row['document_type'] != 'cash' or row['acquisition_method'] != 'file'
+            or row['parse_method'] != 'template' or raw_hash != row['record_hash']
+            or not row['sha256'] or not original_ok):
+        raise ValueError('账单余额来源未通过原件核验')
+    statement = statement_row_balance(raw)
+    if statement is not None:
+        if (row['review_status'] != 'confirmed' or row['file_format'] != 'xls'
+                or statement['business_date'] != holding['as_of'].isoformat()
+                or statement['currency'] != holding['currency']
+                or Decimal(statement['amount']) != holding['market_value']
+                or holding['asset_liability'] != '资产'
+                or not verify_original_row(content=original, filename=row['filename'], account=holding['account_code'],
+                                           raw=raw, day=statement['business_date'])):
+            raise ValueError('账单流水余额的原件、日期或金额不符')
+    elif (row['file_format'] != 'pdf' or row['review_status'] not in {'confirmed', 'excluded'}
+            or (row['source_position'] or {}).get('row') != 'statement_balance'
+            or (raw.get('source') or {}).get('balance_candidate') is not True
+            or raw.get('initial_fields') != parsed or parsed.get('action') != 'balance'
+            or parsed.get('currency') != holding['currency'] or parsed.get('business_date') != holding['as_of'].isoformat()
+            or not amount.is_finite() or amount != (holding['market_value'] if holding['asset_liability'] == '资产' else -holding['market_value'])):
+        raise ValueError('账单余额证据与账户、日期或金额不符')
+    return [{'kind': 'source_item', 'key': {'source_item_id': item_id}, 'role': 'historical_statement_balance'}]
 
 
 def _historical_fund_inputs(cur, fields, holding):
@@ -126,13 +179,14 @@ def _plan(cur, source_id, revision, scope, historical=False):
     account = account_row['account_code']
     lock_holding_accounts(cur, [account])
     cur.execute("""SELECT r.*, public.source_original_content(r.account_code,r.sha256,r.content) AS original_content,
-        a.active, a.base_currency FROM source_records r
+        a.active, a.base_currency, a.is_asset FROM source_records r
         JOIN pams_accounts a ON a.account_code=r.account_code WHERE r.source_id=%s FOR UPDATE OF r""",
                 (str(source_id),))
     source = cur.fetchone()
     if not source or source['revision'] != revision or source['status'] != 'draft':
         raise SourceRevisionConflict('持仓来源版本已变化')
-    if source['document_type'] != 'holding' or not source['active'] or source['base_currency'] != 'CNY':
+    if (source['document_type'] != 'holding' or not source['active']
+            or (not historical and source['base_currency'] != 'CNY')):
         raise ValueError('目标账户或资料不支持人民币持仓发布')
     if source['original_content'] is not None and sha256(bytes(source['original_content'])).hexdigest() != source['sha256']:
         raise ValueError('持仓原件校验失败')
@@ -158,11 +212,16 @@ def _plan(cur, source_id, revision, scope, historical=False):
                 or source['period_start'] and day < source['period_start']
                 or source['period_end'] and day > source['period_end']):
             raise ValueError('持仓业务日期超出来源范围')
-        holding = _holding(cur, fields, account, day, item['source_item_id'], complete=scope is not None, historical=historical)
+        holding = _holding(cur, fields, account, day, item['source_item_id'], complete=scope is not None, historical=historical, base_currency=source['base_currency'], is_asset=source['is_asset'])
         if fields.get('reconstruction_evidence') is not None:
-            if not historical or holding['minor_category'] != 'A股基金':
-                raise ValueError('重建证据仅用于历史单日基金')
-            input_refs[str(item['source_item_id'])] = _historical_fund_inputs(cur, fields, holding)
+            if not historical:
+                raise ValueError('重建证据仅用于历史单日')
+            if holding['minor_category'] == 'A股基金':
+                input_refs[str(item['source_item_id'])] = _historical_fund_inputs(cur, fields, holding)
+            elif holding['major_category'] == '现金':
+                input_refs[str(item['source_item_id'])] = _historical_statement_balance_inputs(cur, fields, holding)
+            else:
+                raise ValueError('该持仓类型不支持历史重建')
         holdings.append(holding)
     if not holdings or len({row['as_of'] for row in holdings}) != 1:
         raise ValueError('每次发布须包含同一日期的持仓')

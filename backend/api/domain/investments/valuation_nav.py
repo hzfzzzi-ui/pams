@@ -849,7 +849,9 @@ def _bank_backcast_series(
                 if rate is None:
                     bucket.setdefault('unavailable_accounts', []).append(code)
                     continue
-                add_nav_amount(bucket, projected_amount * rate)
+                account_value = projected_amount * rate
+                add_nav_amount(bucket, account_value)
+                bucket.setdefault('account_values', {})[code] = account_value
                 bucket.setdefault('available_accounts', []).append(code)
                 if sample_date != anchor_date:
                     bucket.setdefault('estimated_accounts', []).append(code)
@@ -882,13 +884,62 @@ def _bank_backcast_series(
             if rate is None:
                 bucket.setdefault("unavailable_accounts", []).append(code)
             else:
-                add_nav_amount(bucket, signed_native_value * rate)
+                account_value = signed_native_value * rate
+                add_nav_amount(bucket, account_value)
+                bucket.setdefault("account_values", {})[code] = account_value
                 bucket.setdefault("available_accounts", []).append(code)
                 # Cash movements can support an estimate away from the anchor.
                 # An individual verified movement does not prove full coverage.
                 if isinstance(rows_by_account, StatementRowsByAccount) and sample_date != anchor_date:
                     bucket.setdefault('estimated_accounts', []).append(code)
     return values
+
+
+def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at):
+    """Replace an account's dated estimate with its source-bound cash observation."""
+    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+    by_code = {str(account.get('account_code')): account for account in accounts if account.get('account_code')}
+    if not by_code or not dates:
+        return
+    cur.execute("""SELECT h.id,h.account_code,h.as_of,h.currency,h.asset_liability,h.market_value
+        FROM pams_holdings_snapshot h WHERE h.account_code=ANY(%s::text[]) AND h.as_of=ANY(%s::date[])
+          AND h.major_category='现金'""", (list(by_code), dates))
+    rows = [dict(row) for row in cur.fetchall()]
+    coverage = load_account_snapshot_coverage(cur, {(row['account_code'], row['as_of']) for row in rows})
+    candidates = defaultdict(list)
+    for row in rows:
+        pair = (row['account_code'], row['as_of'])
+        proof = coverage.get(pair, {})
+        if row['id'] in proof.get('member_ids', ()) and row['id'] in proof.get('point_in_time_member_ids', ()):
+            candidates[pair].append(row)
+    for (code, day), matches in candidates.items():
+        if len(matches) != 1:
+            continue
+        row = matches[0]
+        account = by_code[code]
+        if row['currency'] != str(account.get('base_currency') or 'CNY').upper():
+            continue
+        value = row['market_value']
+        rate = rate_at(row['currency'], day)
+        if value is None or (value != 0 and rate is None):
+            continue
+        value = value * (rate or Decimal(1)) * Decimal(str(account.get('owner_ratio', 1)))
+        if row['asset_liability'] == '负债':
+            value = -abs(value)
+        bucket = bank_series[day]
+        old = bucket.setdefault('account_values', {}).get(code)
+        if old is not None:
+            if old < 0:
+                bucket['liabilities'] -= abs(old)
+            else:
+                bucket['assets'] -= old
+            bucket['net_worth'] -= old
+        add_nav_amount(bucket, value)
+        bucket['account_values'][code] = value
+        if code not in bucket.setdefault('available_accounts', []):
+            bucket['available_accounts'].append(code)
+        if code not in bucket.setdefault('estimated_accounts', []):
+            bucket['estimated_accounts'].append(code)
 
 
 def _investment_snapshot_series(
@@ -1416,6 +1467,10 @@ def build_nav_weekly_payload(
         terminal_date=terminal_date,
         fx_timelines=fx_timelines,
         base_currency=base_currency,
+    )
+    _apply_historical_cash_points(
+        cur, bank_series=bank_series, accounts=bank_accounts, dates=dates,
+        rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
     )
     snapshot_series = _investment_snapshot_series(
         cur,

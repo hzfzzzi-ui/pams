@@ -568,8 +568,22 @@ def _bound_consistent(evidence: dict[str, Any], *, account_code: str, business_d
         kind_allowed = snapshot.get("business_type") in {"holding", "trade"}
         cash_balance = (snapshot.get("business_type") == "cash" and snapshot.get("source_action") == "balance"
                         and holding_raw.get("major_category") == "现金")
+        statement_balance = (evidence.get('role') == 'historical_statement_balance'
+                             and snapshot.get('business_type') == 'cash' and holding_raw.get('major_category') == '现金')
+        if statement_balance:
+            fields = snapshot.get('source_fields') or {}
+            try:
+                if fields.get('business_date') != business_date or fields.get('currency') != holding_raw.get('currency'):
+                    return False
+                if fields.get('action') == 'balance' and Decimal(str(fields.get('net_cash'))) != (
+                        Decimal(str(holding_raw.get('market_value'))) if holding_raw.get('asset_liability') == '资产'
+                        else -Decimal(str(holding_raw.get('market_value')))):
+                    return False
+            except (ValueError, TypeError, ArithmeticError):
+                return False
+        review_ok = snapshot.get('review_status') == 'confirmed' or (statement_balance and snapshot.get('review_status') == 'excluded')
         if (evidence["source_ref"].get("account_code") != account_code or snapshot.get("batch_status") != "published"
-                or snapshot.get("review_status") != "confirmed" or not (kind_allowed or cash_balance)
+                or not review_ok or not (kind_allowed or cash_balance or statement_balance)
                 or snapshot.get('source_integrity', 'verified') != 'verified'):
             return False
         # A batch range can disprove alignment; it cannot prove the exact input date.
