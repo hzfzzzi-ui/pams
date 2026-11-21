@@ -42,6 +42,9 @@ def latest_position_valuation_date(cur, *, holding_date, through):
           AND EXISTS (
               SELECT 1 FROM pams_holdings_snapshot h
               WHERE h.as_of<=q.as_of AND h.asset_liability='资产' AND h.quantity>0
+                AND NOT EXISTS (SELECT 1 FROM account_snapshot_member pm JOIN account_snapshot_version pv ON pv.version_id=pm.version_id
+                    WHERE pm.holding_id=h.id AND pv.coverage_status='partial'
+                      AND pv.scope_attestation->'point_in_time_only'='true'::jsonb)
                 AND h.major_category=ANY(%s) AND h.currency=q.currency
                 AND (q.symbol=h.symbol OR q.asset_id=h.asset_id
                     OR q.market='CN_A' AND q.symbol IN ('sh'||h.symbol,'sz'||h.symbol)
@@ -107,6 +110,9 @@ def _load_positions(cur, end, excluded, selection=None):
         LEFT JOIN pams_asset_master m ON h.asset_id=m.asset_id
         WHERE h.as_of<=%s AND h.asset_liability='资产' AND h.major_category=ANY(%s)
           AND NOT (h.account_code=ANY(%s::text[]))
+          AND NOT EXISTS (SELECT 1 FROM account_snapshot_member pm JOIN account_snapshot_version pv ON pv.version_id=pm.version_id
+              WHERE pm.holding_id=h.id AND pv.coverage_status='partial'
+                AND pv.scope_attestation->'point_in_time_only'='true'::jsonb)
           AND NOT (h.source_item_id IS NULL AND EXISTS (
             SELECT 1 FROM valuation_evidence v
             WHERE v.result_kind='holding' AND v.account_code=h.account_code AND v.business_date=h.as_of

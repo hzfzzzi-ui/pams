@@ -7,6 +7,7 @@ from datetime import date as Date
 from typing import Any
 
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 
 
 def _norm(value: Any) -> Any:
@@ -64,7 +65,7 @@ def build_account_detail_payload(cur, *, account_code: str) -> dict[str, Any] | 
                         ELSE hs.market_value END) AS market_value
         FROM pams_holdings_snapshot hs JOIN latest_account la
           ON la.account_code=hs.account_code AND la.account_as_of=hs.as_of
-        WHERE hs.account_code=%s GROUP BY la.account_as_of,hs.currency""",
+        WHERE hs.account_code=%s AND {point_in_time_visible_sql("hs", "SELECT as_of FROM snapshot_view_cutoff")} GROUP BY la.account_as_of,hs.currency""",
         (Date.today(), account_code),
     )
     holdings = [dict(item) for item in cur.fetchall()]

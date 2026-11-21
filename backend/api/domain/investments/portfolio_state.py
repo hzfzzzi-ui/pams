@@ -23,6 +23,7 @@ import yaml
 from domain.accounts.account_policy import is_investment_account, excluded_accounts as _excluded_accounts, owner_ratio as _owner_ratio
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.accounts.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.snapshot_coverage import annotate_snapshot_coverage, load_account_snapshot_coverage
 from domain.investments.valuation_state_reader import valuation_series_evidence, valuation_series_rows
@@ -654,6 +655,7 @@ def _cash_like_carry_forward_rows(
         FROM pams_holdings_snapshot h
         JOIN targets t ON t.account_code = h.account_code
         WHERE h.as_of < t.selected_as_of
+          AND {point_in_time_visible_sql('h', 't.selected_as_of')}
           AND h.as_of >= t.selected_as_of - INTERVAL '{CASH_CARRY_FORWARD_LOOKBACK_DAYS} days'
           AND (
               UPPER(COALESCE(h.symbol, '')) LIKE 'CASH\\_%%' ESCAPE '\\'

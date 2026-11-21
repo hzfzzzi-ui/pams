@@ -75,10 +75,12 @@ class Publish(Revision):
 
 
 class HoldingSourcePreview(Revision):
+    historical: bool = False
     scope: CompleteScope | None = None
 
 
 class HoldingSourcePublish(Publish):
+    historical: bool = False
     scope: CompleteScope | None = None
 
 
@@ -499,7 +501,7 @@ def revoke_trade_evidence(confirmation_id: UUID, body: RevokeTradeEvidence, requ
 def preview_holding_source(source_id: UUID, body: HoldingSourcePreview, request: Request):
     from domain.imports import holding_publication_v2
     return execute_source_record(request, lambda cur: holding_publication_v2.preview(
-        cur, source_id=source_id, revision=body.revision, scope=_holding_scope(body)), write=True)
+        cur, source_id=source_id, revision=body.revision, scope=_holding_scope(body), historical=body.historical), write=True)
 
 
 @router.post('/source-records/{source_id}/holding-publish')
@@ -507,7 +509,7 @@ def publish_holding_source(source_id: UUID, body: HoldingSourcePublish, request:
     from domain.imports import holding_publication_v2
     return execute_source_record(request, lambda cur: holding_publication_v2.publish(
         cur, source_id=source_id, revision=body.revision, preview_token=body.preview_token,
-        scope=_holding_scope(body)), write=True)
+        scope=_holding_scope(body), historical=body.historical), write=True)
 
 
 def _holding_scope(body):

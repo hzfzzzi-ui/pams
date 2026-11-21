@@ -8,6 +8,7 @@ import re
 import json
 from zoneinfo import ZoneInfo
 
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 from domain.assets.alias_policy import is_identity_alias
 from domain.imports import account_import_store as store
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
@@ -104,15 +105,18 @@ def current_state(cur, account: str) -> dict:
     cur.execute(f"""WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
         SELECT h.* FROM pams_holdings_snapshot h JOIN latest_account a
         ON a.account_code=h.account_code AND a.account_as_of=h.as_of
-        WHERE h.account_code=%s ORDER BY h.id""", (today, account))
+        WHERE h.account_code=%s AND {point_in_time_visible_sql("h", "SELECT as_of FROM snapshot_view_cutoff")} ORDER BY h.id""", (today, account))
     holdings = [dict(r) for r in cur.fetchall()]
-    cur.execute("SELECT * FROM pams_holdings_snapshot WHERE account_code=%s AND as_of=(SELECT max(as_of) FROM pams_holdings_snapshot WHERE account_code=%s) ORDER BY id", (account, account))
+    cur.execute(f"""SELECT * FROM pams_holdings_snapshot h WHERE h.account_code=%s AND h.as_of=(
+        SELECT max(s.as_of) FROM pams_holdings_snapshot s WHERE s.account_code=%s
+          AND {point_in_time_visible_sql('s', '%s::date')})
+        AND {point_in_time_visible_sql('h', '%s::date')} ORDER BY h.id""", (account, account, today, today))
     latest_rows = [dict(r) for r in cur.fetchall()]
     # Display completeness uses a row-count heuristic. Import safety instead requires
     # explicit last-known member evidence; omission alone never proves a disposal.
-    cur.execute("""SELECT DISTINCT ON (COALESCE(NULLIF(symbol,''),name),currency) *
-        FROM pams_holdings_snapshot WHERE account_code=%s
-        ORDER BY COALESCE(NULLIF(symbol,''),name),currency,as_of DESC,id DESC LIMIT 2001""", (account,))
+    cur.execute(f"""SELECT DISTINCT ON (COALESCE(NULLIF(h.symbol,''),h.name),h.currency) h.*
+        FROM pams_holdings_snapshot h WHERE h.account_code=%s AND {point_in_time_visible_sql('h', '%s::date')}
+        ORDER BY COALESCE(NULLIF(h.symbol,''),h.name),h.currency,h.as_of DESC,h.id DESC LIMIT 2001""", (account,today))
     members = [dict(r) for r in cur.fetchall()]
     if len(members) > 2000:
         raise store.ImportProblem("membership_limit", "历史成员过多，不能截断完整性检查")

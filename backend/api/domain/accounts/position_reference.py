@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 
 from domain.accounts.balance_reference import historical_balance
+from domain.investments.snapshot_coverage import point_in_time_visible_sql
 
 
 REFERENCE_CATEGORIES = {'fund': 'A股基金', 'precious_metal': '贵金属'}
@@ -64,7 +65,7 @@ def read_historical_position_references(cur, *, account_config, as_of, excluded_
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS enabled")
     if not cur.fetchone()['enabled']:
         return []
-    cur.execute("""
+    cur.execute(f"""
         SELECT s.account_code, i.raw_fields, i.parsed_fields, i.record_hash,
                m.primary_symbol AS symbol, m.canonical_name AS name, m.asset_type
         FROM source_records s
@@ -79,10 +80,11 @@ def read_historical_position_references(cur, *, account_config, as_of, excluded_
               SELECT 1 FROM pams_holdings_snapshot h
               WHERE h.account_code=s.account_code AND h.currency='CNY' AND h.as_of<=%s
                 AND h.as_of::text >= i.raw_fields->>'snapshot_date'
+                AND {point_in_time_visible_sql('h', '%s::date')}
                 AND (h.asset_id=m.asset_id OR h.symbol=m.primary_symbol)
           )
         ORDER BY s.account_code, m.primary_symbol
-    """, (list(configs), as_of))
+    """, (list(configs), as_of, as_of))
     candidates = {}
     duplicates = set()
     for raw in cur.fetchall():

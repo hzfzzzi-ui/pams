@@ -30,6 +30,7 @@ import requests
 from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from domain.imports.isolation import source_enabled
 from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
+from domain.investments.snapshot_coverage import point_in_time_visible_sql, load_account_snapshot_coverage
 
 
 MONEY = Decimal("0.01")
@@ -407,13 +408,14 @@ def ensure_fund_nav_estimate_table(cur) -> None:
 def load_latest_active_fund_holdings(cur) -> list[dict[str, Any]]:
     """Load each active A-share fund from its own latest snapshot date."""
     cur.execute(
-        """
+        f"""
         WITH latest_fund_snapshot AS (
-            SELECT MAX(as_of) AS as_of
-            FROM pams_holdings_snapshot
-            WHERE major_category = 'A股'
-              AND minor_category = 'A股基金'
-              AND asset_liability = '资产'
+            SELECT MAX(h.as_of) AS as_of
+            FROM pams_holdings_snapshot h
+            WHERE h.major_category = 'A股'
+              AND h.minor_category = 'A股基金'
+              AND h.asset_liability = '资产'
+              AND {point_in_time_visible_sql('h', 'CURRENT_DATE')}
         ), ranked_holdings AS (
             SELECT
                 h.*,
@@ -428,6 +430,7 @@ def load_latest_active_fund_holdings(cur) -> list[dict[str, Any]]:
               AND asset_liability = '资产'
               AND latest.as_of IS NOT NULL
               AND h.as_of >= latest.as_of - INTERVAL '14 days'
+              AND {point_in_time_visible_sql('h', 'CURRENT_DATE')}
         )
         SELECT h.id, h.account_code, h.symbol, h.name, h.asset_liability, h.currency,
                h.major_category, h.minor_category, h.market_value, h.cost, h.as_of,
@@ -753,9 +756,12 @@ def _stored_nav_prices(cur, symbol, start, end):
 
 
 def _fund_history_holdings(cur, holding, start):
-    cur.execute("""SELECT * FROM pams_holdings_snapshot
-        WHERE account_code=%s AND symbol=%s AND currency='CNY'
-          AND as_of BETWEEN %s AND %s ORDER BY as_of,id""",
+    cur.execute("""SELECT h.*, EXISTS (
+        SELECT 1 FROM account_snapshot_member m JOIN account_snapshot_version v ON v.version_id=m.version_id
+        WHERE m.holding_id=h.id AND v.coverage_status='partial'
+          AND v.scope_attestation->'point_in_time_only'='true'::jsonb) AS point_in_time_only
+        FROM pams_holdings_snapshot h WHERE h.account_code=%s AND h.symbol=%s AND h.currency='CNY'
+          AND h.as_of BETWEEN %s AND %s ORDER BY h.as_of,h.id""",
                 (holding['account_code'], holding['symbol'], start, holding['as_of']))
     rows = defaultdict(list)
     for row in cur.fetchall():
@@ -767,8 +773,15 @@ def _historical_holding_basis(cur, holding, snapshots, day):
     """Require dated position evidence or explicitly reconciled trade quantities."""
     if day in snapshots:
         rows = snapshots[day]
-        return rows[0] if len(rows) == 1 and rows[0]['name'] == holding['name'] else None
-    prior_days = [known_day for known_day in snapshots if known_day < day]
+        if len(rows) != 1 or rows[0]['name'] != holding['name']:
+            return None
+        if rows[0].get('point_in_time_only'):
+            proof = load_account_snapshot_coverage(cur, {(rows[0]['account_code'], day)})
+            if rows[0]['id'] not in proof.get((rows[0]['account_code'], day), {}).get('member_ids', ()):
+                return None
+        return rows[0]
+    prior_days = [known_day for known_day in snapshots if known_day < day
+                  and all(not row.get('point_in_time_only') for row in snapshots[known_day])]
     if prior_days:
         rows = snapshots[max(prior_days)]
         if len(rows) != 1:
