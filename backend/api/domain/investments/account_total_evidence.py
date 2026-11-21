@@ -111,6 +111,8 @@ def load(cur, *, dates, accounts):
                     continue
             if _hash(value) != r['result_hash'] or not set(value['covered_account_codes']) <= set(accounts):
                 continue
+            if method == 'screenshot' or fields.get('attestation') == 'unchanged_account_total':
+                value['observed_total'] = True
             candidates.setdefault((r['business_date'],r['account_code']), []).append(value)
         except (KeyError, TypeError, ValueError, InvalidOperation):
             continue
@@ -150,7 +152,18 @@ def _verified_unchanged(cur, value, fields, *, locking):
     if not proof:
         return False
     original, prior_fields, method = proof
-    return (method == 'screenshot' and _hash(original) == anchor['result_hash']
-            and prior_fields['value_scope'] == fields['value_scope']
-            and set(original['covered_account_codes']) == set(value['covered_account_codes'])
-            and Decimal(original['net_asset']) == Decimal(value['net_asset']))
+    if (method != 'screenshot' or _hash(original) != anchor['result_hash']
+            or prior_fields['value_scope'] != fields['value_scope']
+            or set(original['covered_account_codes']) != set(value['covered_account_codes'])
+            or Decimal(original['net_asset']) != Decimal(value['net_asset'])):
+        return False
+    cur.execute('''SELECT version_key,account_code,business_date,base_currency,result_hash,inputs
+        FROM valuation_evidence WHERE result_kind='portfolio' AND calculation_version=%s
+          AND account_code=%s AND business_date=%s AND version_key<>%s''',
+        (VERSION, anchor['account_code'], anchor['business_date'], key))
+    for sibling in cur.fetchall():
+        checked = _verified_source(cur, sibling, locking)
+        if checked and checked[2] == 'screenshot' and _hash(checked[0]) == sibling['result_hash']:
+            if sibling['result_hash'] != anchor['result_hash'] or checked[1]['value_scope'] != prior_fields['value_scope']:
+                return False
+    return True

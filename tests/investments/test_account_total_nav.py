@@ -75,6 +75,7 @@ def test_screenshot_total_publication_and_date_scope():
                 total.publish(cur,source_id=source,revision=3)
                 found=total.load(cur,dates=[day,date(2026,1,1)],accounts={'platform','cash'})
                 assert found[(day,'platform')]['net_asset']=='120'
+                assert found[(day,'platform')]['observed_total']
                 assert len(found)==1
                 assert total.load(cur,dates=[day],accounts={'platform'})=={}
                 cur.execute("SELECT version_key FROM valuation_evidence WHERE calculation_version=%s",(total.VERSION,))
@@ -97,7 +98,23 @@ def test_screenshot_total_publication_and_date_scope():
                 found=total.load(cur,dates=[day,jan1,date(2026,1,2)],accounts={'platform','cash'})
                 assert set(found)=={(day,'platform'),(jan1,'platform')}
                 assert found[(jan1,'platform')]['net_asset']=='120'
+                row = {'date': jan1, 'net_worth': None, 'available_net_worth': D(10),
+                       'available_accounts': ['cash'], '_account_contributions': {'cash': D(10)},
+                       'estimated_accounts': ['cash', 'other']}
+                _apply_account_totals(row, [found[(jan1, 'platform')]], lambda _: D(1), lambda *_: D(1))
+                assert row['available_net_worth'] == D(120) and row['estimated_accounts'] == ['other']
                 with pytest.raises(ValueError): total.publish(cur,source_id=source,revision=3)
+                second, item2 = uuid4(), uuid4()
+                revised = dict(fields, net_asset='125')
+                sources.create_source(cur, source_id=second, account_code='platform', source_name='revised',
+                                      acquisition_method='screenshot', document_type='statement',
+                                      filename='other.jpg', file_format='jpg', content=b'other')
+                sources.add_item(cur, source_id=second, item_id=item2, parse_method='manual',
+                                 raw_fields={'entered_fields': revised}, parsed_fields=revised)
+                sources.review_item(cur, source_id=second, item_id=item2, expected_revision=2,
+                                    parsed_fields=revised, review_status='confirmed')
+                total.publish(cur, source_id=second, revision=3)
+                assert total.load(cur, dates=[day, jan1], accounts={'platform','cash'}) == {}
         finally:
             conn.rollback()
 

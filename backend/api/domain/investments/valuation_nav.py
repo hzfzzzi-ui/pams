@@ -662,7 +662,7 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         if 'unavailable_accounts' in row:
             row['unavailable_accounts'] = sorted(set(row['unavailable_accounts']) - covered)
         estimated = set(row.get('estimated_accounts', ())) - covered
-        if not value.get('confirmed_empty'):
+        if not (value.get('confirmed_empty') or value.get('observed_total')):
             estimated.add(value['account_code'])
         row['estimated_accounts'] = sorted(estimated)
         if estimated:
