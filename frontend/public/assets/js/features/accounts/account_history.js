@@ -106,7 +106,9 @@ export function mountAccountHistory(container, code, get) {
     plot.hidden = !visibleRows.length || !ChartClass;
     retry.hidden = true;
     if (!visibleRows.length) {
-      status.textContent = '所选时段暂无历史记录';
+      const earlier = payload.rows.findLast(row => row.date < start && keys.some(key => pointValue(row, key) != null));
+      const prior = earlier?.date || payload.last_prior_date;
+      status.textContent = prior ? '本时段暂无记录，上次记录 ' + prior : '所选时段暂无历史记录';
       return;
     }
     showValues();

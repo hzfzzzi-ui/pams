@@ -160,14 +160,17 @@ def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
 
     points = dict(holdings)
     anchors.update(billed)
-    # A hand-confirmed amount or a dated principal reference describes its own
-    # day only; the latter is never used as an exact cash anchor.
     ref = historical_account_balance(cfg, dates[-1], Decimal(1), account_code=code,
                                       bindings=load_bound_balance_references(cur, {code: cfg}))
+    reconciliation = anchors
     if ref:
-        points.setdefault(ref['balance_as_of'], {'net_value': Decimal(ref['balance_amount']),
-                                                  'net_value_status': 'estimated'})
-    for day, amount in _reconciled_cash_movements(cur, code, currency, anchors).items():
+        day, amount = ref['balance_as_of'], Decimal(ref['balance_amount'])
+        points.setdefault(day, {'net_value': amount, 'net_value_status': 'estimated'})
+        # A dated balance reference may bound a verified ledger interval.
+        # Contributed principal excludes interest and cannot certify a balance.
+        if ref.get('balance_reference_basis') != 'contributed_principal' and anchors:
+            reconciliation = {day: amount, **anchors}
+    for day, amount in _reconciled_cash_movements(cur, code, currency, reconciliation).items():
         points.setdefault(day, {'net_value': amount, 'net_value_status': 'estimated'})
     for day, amount in anchors.items():
         points[day] = {'net_value': amount, 'net_value_status': 'confirmed'}
@@ -307,8 +310,12 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
     has_debt = dual or (not cash and any(p.get('liabilities', ZERO) and p['liabilities'] > 0 for p in points.values()))
     series = ['liabilities'] if card else ['net_value', 'liabilities'] if has_debt else ['net_value']
     rows = []
+    last_prior_date = None
     for day, point in sorted(points.items()):
-        if not start_date <= day <= end_date or all(point.get(key) is None for key in series):
+        if day > end_date or all(point.get(key) is None for key in series):
+            continue
+        if day < start_date:
+            last_prior_date = day
             continue
         row = {'date': day}
         for key in series:
@@ -316,4 +323,5 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
             row[key + '_status'] = point.get(key + '_status', 'confirmed') if row[key] is not None else 'unavailable'
         rows.append(row)
     return {'account_code': account_code, 'currency': currency, 'scope': 'account',
-            'start_date': start_date, 'end_date': end_date, 'series': series, 'rows': rows}
+            'start_date': start_date, 'end_date': end_date, 'series': series, 'rows': rows,
+            'last_prior_date': last_prior_date}

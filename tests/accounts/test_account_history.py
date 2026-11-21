@@ -37,6 +37,33 @@ def test_cash_uses_only_reconciled_anchored_intervals(monkeypatch):
     assert history._reconciled_cash_movements(None, 'fund', 'CNY', anchors) == {}
 
 
+def test_reference_balance_can_bound_cash_movements_but_principal_cannot(monkeypatch):
+    days = [date(2026, 1, day) for day in range(1, 4)]
+    reference = {'source': 'archive', 'currency': 'CNY', 'amount': '40', 'as_of': days[0]}
+    cfg = {'accounts': {'benefit': {'base_currency': 'CNY', 'account_balance_reference': reference}}}
+    monkeypatch.setattr(history, 'statement_balance_history', lambda *a, **k: {})
+    monkeypatch.setattr(history, 'load_statement_period_points', lambda *a: {})
+    monkeypatch.setattr(history, 'load_bound_balance_references', lambda *a: {})
+    monkeypatch.setattr(history, 'load_account_totals', lambda *a, **k: {})
+    monkeypatch.setattr(history, '_holding_observations', lambda *a, **k: {
+        days[-1]: {'net_value': Decimal(50), 'net_value_status': 'confirmed'}})
+    monkeypatch.setattr(history, 'load_cash_rows', lambda *a, **k: [{
+        'transaction_date': days[1], 'currency': 'CNY', 'source_evidence_status': 'verified', 'amount': Decimal(10)}])
+
+    def read():
+        return history.read_account_history(None, account_code='benefit', account_config=cfg,
+                                            start_date=days[1], end_date=days[-1])
+
+    result = read()
+    assert result['last_prior_date'] == days[0]
+    assert [(r['date'], r['net_value'], r['net_value_status']) for r in result['rows']] == [
+        (days[1], 50, 'estimated'), (days[2], 50, 'confirmed')]
+    reference.update(amount='39')
+    assert [r['date'] for r in read()['rows']] == [days[2]]
+    reference.update(amount='40', reference_basis='contributed_principal')
+    assert [r['date'] for r in read()['rows']] == [days[2]]
+
+
 def test_account_total_and_liability_have_independent_scope(monkeypatch):
     day = date(2026, 1, 2)
     prior = day - timedelta(days=1)
