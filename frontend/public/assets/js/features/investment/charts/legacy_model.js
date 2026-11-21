@@ -244,8 +244,6 @@ function normalizeInvestmentNavRows(rows) {
         ...row,
         date,
         market_value: Number.isFinite(marketValue) ? marketValue : null,
-        // A legacy response has no evidence that adjacent amounts use the same basis.
-        comparison_scope: (partial ? 'partial:' : 'complete:') + (row.comparison_scope || 'unknown:' + date),
         available_account_count: partial ? row.available_accounts.length : null,
         assets: row.assets == null ? null : safeNum(row.assets),
         liabilities: row.liabilities == null ? null : safeNum(row.liabilities),
@@ -255,23 +253,39 @@ function normalizeInvestmentNavRows(rows) {
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
-function buildInvestmentNavChartData(navRows, period, isMobile) {
+// Old published views still contain observations even when a fresh comparison cannot be read.
+function cachedNavWindow(lastDate, windowKey) {
+  const end = parseReturnSeriesDate(lastDate);
+  if (!end) return null;
+  const start = new Date(end);
+  if (windowKey === '1w') {
+    start.setUTCDate(end.getUTCDate() - 7);
+  } else if (windowKey === '1m') {
+    start.setUTCDate(0);
+    start.setUTCDate(Math.min(end.getUTCDate(), start.getUTCDate()));
+  } else {
+    start.setUTCMonth(0, 0);
+  }
+  return {start: start.toISOString().slice(0, 10), end: lastDate, status: 'comparison_unavailable'};
+}
+
+function buildInvestmentNavChartData(navRows, period, windowKey) {
+  period ??= cachedNavWindow(navRows.at(-1)?.date, windowKey);
   const rows = period ? navRows.filter(row => row.date >= period.start && row.date <= period.end) : [];
   const labels = rows.map(row => row.date);
   const values = rows.map(row => row.market_value);
-  const scopes = rows.map(row => row.comparison_scope);
   const latestRow = rows.at(-1);
   return {
     labels,
     values,
-    scopes,
+    accountCounts: rows.map(row => row.available_account_count),
+    knownCount: values.filter(value => value != null).length,
     latest: latestRow && latestRow.date === period.end ? latestRow.market_value : null,
     period,
     change: period?.status === 'ok' ? period.change : null,
     changeRate: period?.status === 'ok' ? period.change_rate : null,
-    fill: Boolean(scopes[0]?.startsWith('complete:')) &&
-      rows.every((row, i) => values[i] != null && scopes[i] === scopes[0]),
-    pointRadius: pointRadiusForReturnSeries(values.length, isMobile),
+    fill: Boolean(rows[0]?.comparison_scope) && rows.every(row => row.market_value != null &&
+      row.available_account_count == null && row.comparison_scope === rows[0].comparison_scope),
   };
 }
 

@@ -338,6 +338,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   }
 
   function renderInvestmentNavSummary(data) {
+    const heading = getElementById('investmentNavHeading');
+    if (heading) heading.textContent = data.accountCounts.some(count => count != null) ? '已知净资产走势' : '净资产走势';
     const statsEl = getElementById('investmentNavStats');
     if (!statsEl) return;
     if (!data.period) {
@@ -345,7 +347,9 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       return;
     }
     const {start, end, status} = data.period;
-    const reason = status === 'different_coverage' ? '期初与期末估值范围不同'
+    const reason = !data.knownCount ? '区间内暂无估值'
+      : status === 'comparison_unavailable' ? '区间比较待更新'
+      : status === 'different_coverage' ? '期初与期末估值范围不同'
       : status === 'missing_endpoint' ? '缺少期初或期末估值'
       : data.change != null && data.changeRate == null ? '期初净资产非正' : '';
     statsEl.innerHTML = `
@@ -375,7 +379,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     if (!known.length) {
       ctx.fillStyle = CHART_THEME.text;
       ctx.font = '12px sans-serif';
-      ctx.fillText('暂无NAV数据', 16, 28);
+      ctx.fillText('区间内暂无估值', 16, 28);
       return;
     }
     const pad = { left: 14, right: 16, top: 12, bottom: 22 };
@@ -384,8 +388,8 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const minValue = Math.min(...known);
     const maxValue = Math.max(...known);
     const range = Math.max(maxValue - minValue, Math.max(Math.abs(maxValue), 1) * 0.02);
-    const xAt = (index) => pad.left + (values.length === 1 ? innerW : innerW * index / (values.length - 1));
-    const yAt = (value) => pad.top + innerH - ((value - minValue) / range) * innerH;
+    const xAt = (index) => pad.left + (values.length === 1 ? innerW / 2 : innerW * index / (values.length - 1));
+    const yAt = (value) => pad.top + innerH * (minValue === maxValue ? 0.5 : 1 - (value - minValue) / range);
 
     ctx.strokeStyle = CHART_THEME.grid;
     ctx.lineWidth = 1;
@@ -397,33 +401,21 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       ctx.stroke();
     }
 
-    ctx.strokeStyle = CHART_THEME.line;
-    ctx.fillStyle = CHART_THEME.line;
+    ctx.strokeStyle = canvas.closest('#asset-overview') ? '#d9a13d' : CHART_THEME.line;
+    ctx.fillStyle = ctx.strokeStyle;
     ctx.lineWidth = 2;
-    values.forEach((value, index) => {
-      if (value == null) return;
-      const scope = data.scopes[index];
-      const x = xAt(index);
-      const y = yAt(value);
-      ctx.beginPath();
-      if (index > 0 && values[index - 1] != null && data.scopes[index - 1] === scope) {
-        ctx.setLineDash?.(scope.startsWith('complete:') ? [] : [5, 4]);
-        ctx.moveTo(xAt(index - 1), yAt(values[index - 1]));
-        ctx.lineTo(x, y);
-        ctx.stroke();
-      } else {
-        ctx.arc(x, y, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    });
-    ctx.setLineDash?.([]);
-    const lastIndex = values.findLastIndex(value => value != null);
-    const lastX = xAt(lastIndex);
-    const lastY = yAt(values[lastIndex]);
+    const firstIndex = values.findIndex(value => value != null);
     ctx.beginPath();
-    ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = CHART_THEME.line;
-    ctx.fill();
+    ctx.moveTo(xAt(firstIndex), yAt(values[firstIndex]));
+    values.forEach((value, index) => {
+      if (index > firstIndex && value != null) ctx.lineTo(xAt(index), yAt(value));
+    });
+    if (known.length === 1) {
+      ctx.arc(xAt(firstIndex), yAt(values[firstIndex]), 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.stroke();
+    }
 
     ctx.fillStyle = CHART_THEME.text;
     ctx.font = '11px sans-serif';
@@ -432,7 +424,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
   }
 
   function selectedNavWindow() {
-    return buildInvestmentNavChartData(state.navRows, state.navComparisons[state.activeWindow], state.isMobile);
+    return buildInvestmentNavChartData(state.navRows, state.navComparisons[state.activeWindow], state.activeWindow);
   }
 
   function renderInvestmentNavChart() {
@@ -447,15 +439,11 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       navChart = {
         __fallback: true,
         canvas: el,
-        data: { labels: data.labels, datasets: [{ label: 'NAV', data: data.values, navScopes: data.scopes }] },
+        data: { labels: data.labels, datasets: [{ label: 'NAV', data: data.values }] },
         destroy() { this.destroyed = true; },
         update() {
           if (this.destroyed) return;
-          drawInvestmentNavCanvasFallback(el, {
-            labels: this.data.labels,
-            values: this.data.datasets[0].data,
-            scopes: this.data.datasets[0].navScopes,
-          });
+          drawInvestmentNavCanvasFallback(el, { values: this.data.datasets[0].data });
         },
       };
       return navChart;
@@ -467,31 +455,15 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         datasets: [{
           label: 'NAV',
           data: data.values,
-          navScopes: data.scopes,
-          navPointRadius: data.pointRadius,
+          navAccountCounts: data.accountCounts,
           borderColor: el.closest('#asset-overview') ? '#d9a13d' : CHART_THEME.line,
           backgroundColor: el.closest('#asset-overview') ? 'rgba(217,161,61,.10)' : CHART_THEME.fill,
           tension: 0,
           fill: data.fill,
-          spanGaps: false,
-          pointRadius: ctx => {
-            if (ctx.type !== 'data') return 0;
-            const {data: values, navScopes: scopes, navPointRadius: radius} = ctx.dataset;
-            const index = ctx.dataIndex;
-            if (values[index] == null) return 0;
-            const connected = [index - 1, index + 1].some(i => values[i] != null && scopes[i] === scopes[index]);
-            return connected ? (scopes[index].startsWith('complete:') ? radius : 0) : 2;
-          },
-          segment: {
-            borderColor: ctx => {
-              const scopes = ctx.chart.data.datasets[ctx.datasetIndex].navScopes;
-              return scopes[ctx.p0DataIndex] === scopes[ctx.p1DataIndex] ? undefined : 'transparent';
-            },
-            borderDash: ctx => {
-              const scopes = ctx.chart.data.datasets[ctx.datasetIndex].navScopes;
-              return scopes[ctx.p0DataIndex].startsWith('complete:') ? [] : [5, 4];
-            },
-          },
+          spanGaps: true,
+          borderDash: [],
+          pointRadius: data.knownCount === 1 ? 2 : 0,
+          pointHoverRadius: 0,
           borderWidth: 2,
         }],
       },
@@ -504,7 +476,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: ctx => `${ctx.dataset.navScopes[ctx.dataIndex].startsWith('complete:') ? '个人净资产' : '部分账户净资产'}：${fmtCny(ctx.raw)}`,
+              label: ctx => {
+                const count = ctx.dataset.navAccountCounts[ctx.dataIndex];
+                return `${count == null ? '个人净资产' : `已知净资产（${count} 个账户）`}：${fmtCny(ctx.raw)}`;
+              },
             },
           },
         },
@@ -523,6 +498,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
             grid: { color: CHART_THEME.grid },
           },
           y: {
+            display: data.knownCount > 0,
             beginAtZero: false,
             ticks: {
               color: CHART_THEME.text,
@@ -542,14 +518,15 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     const data = selectedNavWindow();
     chart.data.labels = data.labels;
     chart.data.datasets[0].data = data.values;
-    chart.data.datasets[0].navScopes = data.scopes;
     if (chart.__fallback) {
       chart.update();
       renderInvestmentNavSummary(data);
       return;
     }
     chart.data.datasets[0].fill = data.fill;
-    chart.data.datasets[0].navPointRadius = data.pointRadius;
+    chart.data.datasets[0].navAccountCounts = data.accountCounts;
+    chart.data.datasets[0].pointRadius = data.knownCount === 1 ? 2 : 0;
+    chart.options.scales.y.display = data.knownCount > 0;
     chart.update('none');
     renderInvestmentNavSummary(data);
   }
