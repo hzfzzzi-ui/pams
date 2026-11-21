@@ -1691,8 +1691,9 @@ def build_nav_weekly_payload(
             latest_cash[code] = point
     bank_accounts = [_cash_account_at_terminal(account, terminal_date, latest_cash.get(account['account_code']))
                      for account in bank_accounts]
-    cash_dates = sorted(set(dates) | {day for _, day in cash_points}
-                        | {prior for day in dates for prior in preceding_weekend_dates(day)})
+    cash_dates = sorted(set(dates) | {day for _, day in cash_points})
+    reference_dates = {prior for day in dates for prior in preceding_weekend_dates(day)} - set(cash_dates)
+    all_cash_dates = sorted(set(cash_dates) | reference_dates)
     bank_flow_start = min(cash_dates[0], min(
         (account_anchor_date(account, terminal_date) for account in bank_accounts
          if account_anchor_amount(account) is not None),
@@ -1707,15 +1708,23 @@ def build_nav_weekly_payload(
     bank_series = _bank_backcast_series(
         accounts=bank_accounts,
         rows_by_account=rows_by_account,
-        dates=cash_dates,
+        dates=all_cash_dates,
         terminal_date=terminal_date,
         fx_timelines=fx_timelines,
         base_currency=base_currency,
     )
-    _apply_historical_cash_points(
-        cur, bank_series=bank_series, accounts=bank_accounts, dates=cash_dates, points=cash_points,
-        rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
-    )
+    # Extra days required by a sparse display window must never move a cash
+    # reconciliation's conflict boundary in the requested, formal sample.
+    reference_series = {day:bank_series.pop(day) for day in reference_dates}
+    from domain.investments.statement_period_nav import load_statement_period_points
+    periods = load_statement_period_points(cur, [a['account_code'] for a in bank_accounts], all_cash_dates)
+    for samples in (bank_series, reference_series):
+        if samples:
+            _apply_historical_cash_points(
+                cur, bank_series=samples, accounts=bank_accounts, dates=sorted(samples), points=cash_points, periods=periods,
+                rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
+            )
+    bank_series.update(reference_series)
     snapshot_series = _investment_snapshot_series(
         cur,
         account_codes=investment_snapshot_accounts,
