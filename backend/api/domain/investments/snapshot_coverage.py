@@ -26,16 +26,21 @@ def load_account_snapshot_coverage(cur, pairs: set[tuple[str, Any]]) -> dict[tup
         JOIN requested r ON r.account_code=v.account_code AND r.as_of=v.as_of
         ORDER BY v.account_code,v.as_of,v.version_number DESC
     )
-    SELECT v.version_id,v.account_code,v.as_of,v.coverage_status,v.cash_status,
+    SELECT v.version_id,v.account_code,v.as_of,v.coverage_status,v.cash_status,v.scope_attestation,
            COALESCE(array_agg(m.holding_id) FILTER (WHERE h.id IS NOT NULL
              AND h.account_code=v.account_code AND h.as_of=v.as_of
              AND md5(to_jsonb(h)::text)=m.holding_row_hash), '{}') AS valid_members,
+           COALESCE((SELECT array_agg(DISTINCT pm.holding_id)
+             FROM public.account_snapshot_version pv
+             JOIN public.account_snapshot_member pm ON pm.version_id=pv.version_id
+             WHERE pv.account_code=v.account_code AND pv.as_of=v.as_of AND pv.coverage_status='partial'
+               AND pv.scope_attestation->'point_in_time_only'='true'::jsonb), '{}') AS point_members,
            COUNT(m.holding_id) AS member_count,
            COUNT(m.holding_id) FILTER (WHERE h.id IS NOT NULL AND h.account_code=v.account_code
              AND h.as_of=v.as_of AND md5(to_jsonb(h)::text)=m.holding_row_hash) AS valid_count
     FROM latest v LEFT JOIN public.account_snapshot_member m ON m.version_id=v.version_id
     LEFT JOIN public.pams_holdings_snapshot h ON h.id=m.holding_id
-    GROUP BY v.version_id,v.account_code,v.as_of,v.coverage_status,v.cash_status""",
+    GROUP BY v.version_id,v.account_code,v.as_of,v.coverage_status,v.cash_status,v.scope_attestation""",
                 ([account for account, _ in ordered], [day for _, day in ordered]))
     for raw in cur.fetchall():
         row = dict(raw)
@@ -50,7 +55,8 @@ def load_account_snapshot_coverage(cur, pairs: set[tuple[str, Any]]) -> dict[tup
                   "unknown":"snapshot_scope_unproven"}[status]
         result[pair] = {"status": status, "reason": reason,
                         "member_ids": set(row["valid_members"] or []) if valid else set(),
-                        "cash_status": "known" if status == "complete" else "unknown", "version_id": str(row["version_id"])}
+                        "cash_status": "known" if status == "complete" else "unknown", "version_id": str(row["version_id"]),
+                        "point_in_time_member_ids": set(row['point_members'] or ())}
     return result
 
 

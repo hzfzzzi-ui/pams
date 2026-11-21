@@ -28,10 +28,15 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
     coverage = load_account_snapshot_coverage(cur, set(observed_days))
     cash_ids = []
     complete_days = []
+    point_in_time_ids = []
+    invalid_point_ids = []
     for pair, proof in coverage.items():
         cash_ids.extend(set(observed_days[pair]["cash_ids"] or ()) & set(proof.get("member_ids", ())))
         if proof.get("status") == "complete":
             complete_days.append(pair)
+        point_ids = set(proof.get("point_in_time_member_ids", ()))
+        point_in_time_ids.extend(point_ids)
+        invalid_point_ids.extend(point_ids - set(proof.get("member_ids", ())))
     ratio_sql, ratio_params = owner_ratio_case_sql("h")
     cur.execute(f"""
         WITH samples AS (SELECT unnest(%s::date[]) AS date),
@@ -51,6 +56,8 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             LEFT JOIN scope_cutoffs scope ON scope.date=d.date AND scope.account_code=s.account_code
             WHERE s.account_code = ANY(%s) AND (scope.as_of IS NULL OR s.as_of>=scope.as_of)
               AND (s.major_category <> '现金' OR s.id=ANY(%s::bigint[]))
+              AND (s.id<>ALL(%s::bigint[]) OR s.as_of=d.date)
+              AND s.id<>ALL(%s::bigint[])
             ORDER BY d.date, s.account_code, s.currency, s.asset_liability,
                      CASE WHEN s.major_category='现金' THEN NULL ELSE COALESCE(NULLIF(s.symbol, ''), s.name) END,
                      s.as_of DESC, s.id DESC
@@ -101,7 +108,7 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             ORDER BY trade_date DESC LIMIT 1
         ) overseas ON TRUE
     """, (dates, [code for code, _ in complete_days], [day for _, day in complete_days],
-           sorted(accounts), cash_ids, *ratio_params, list(NAV_SOURCES)))
+           sorted(accounts), cash_ids, point_in_time_ids, invalid_point_ids, *ratio_params, list(NAV_SOURCES)))
     observed = set()
     amounts = defaultdict(list)
     rates = {}
