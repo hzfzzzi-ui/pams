@@ -1,6 +1,6 @@
 import { isReadCancelled } from '../../shared/read_scope.js';
 import { escapeHtml as escape, formatMoneyFixed2 as money } from '../../utils.js';
-import { renderLedgerDays } from './days.js';
+import { renderLedgerDays } from '../../shared/date_groups.js';
 import { confirmTransferPair, readLedgerTransfers, readManualTransferOptions, readTransferCandidates } from './requests.js';
 
 export const TRANSFER_TYPES = {

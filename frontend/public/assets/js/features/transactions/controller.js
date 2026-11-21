@@ -256,6 +256,11 @@ function bindEvents() {
       }
       return;
     }
+    const detailButton = event.target?.closest?.('[data-trade-detail]');
+    if (detailButton) {
+      list.openTradeDetails(Number(detailButton.dataset.tradeDetail));
+      return;
+    }
     const reviewButton = event.target?.closest?.('[data-trade-review]');
     if (reviewButton) {
       try {
@@ -411,6 +416,7 @@ function bindEvents() {
     if (!scope.alive) return;
     closeTradeReviewAssetFloat();
     scope.root.classList.remove('trade-review-asset-open');
+    list.dispose();
     reads.dispose();
     scope.dispose();
     if (mounted.get(root) === controller) mounted.delete(root);

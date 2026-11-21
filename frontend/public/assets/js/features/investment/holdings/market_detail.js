@@ -7,9 +7,9 @@ const number = (value, digits = 2) => Number(value).toLocaleString('zh-CN', {
 const amount = value => value == null ? '—' : '¥' + number(value);
 const before = (end, days) => new Date(Date.parse(end) - days * 86400000).toISOString().slice(0, 10);
 
-export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown, fields}) {
+export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown, fields, iconMarkup = ''}) {
   return `<section class="holdingMarketDetail">
-    <div class="hmSubtitle">${esc(subtitle)}</div>
+    <div class="hmIdentity">${iconMarkup}<div class="hmSubtitle">${esc(subtitle)}</div></div>
     <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
       <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
     <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
@@ -135,6 +135,7 @@ export function bindMarketDetail(sheet, holding) {
     readout.textContent='缺少持仓历史标识'; list.textContent='暂无可核对成交';
     sheet.querySelector('.hmReturnReadout').textContent = '缺少持仓历史标识';
     sheet.querySelector('.hmComparisonReadout').textContent = '缺少持仓历史标识';
+    sheet.querySelectorAll('[data-period]').forEach(button => { button.disabled = true; button.title = '缺少持仓历史标识'; });
     return;
   }
   const starts = {ytd: end.slice(0, 4) + '-01-01', month: before(end, 29), quarter: before(end, 89)};

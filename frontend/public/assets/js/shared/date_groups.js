@@ -1,4 +1,4 @@
-import { escapeHtml } from '../../utils.js';
+import { escapeHtml } from '../utils.js';
 
 const dayLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', timeZone: 'UTC' });
 const weekdayLabel = new Intl.DateTimeFormat('zh-CN', { weekday: 'short', timeZone: 'UTC' });
