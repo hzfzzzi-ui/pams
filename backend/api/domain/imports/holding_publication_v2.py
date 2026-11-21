@@ -25,7 +25,7 @@ def _amount(fields, key, scale):
     raise ValueError(f'持仓字段 {key} 缺失或数值无效')
 
 
-def _holding(cur, fields, account, day, item_id, *, complete):
+def _holding(cur, fields, account, day, item_id, *, complete, historical=False):
     kind = asset_type(fields.get('asset_type'))
     base = dict(account_code=account, as_of=day, currency='CNY', asset_liability='资产', source_item_id=str(item_id))
     if fields.get('currency') != 'CNY':
@@ -37,7 +37,7 @@ def _holding(cur, fields, account, day, item_id, *, complete):
         return dict(base, symbol='CASH_CNY', name='Cash CNY', asset_id=None, major_category='现金',
                     minor_category='现金/活期', quantity=amount, current_price=Decimal(1), cost=amount,
                     market_value=amount, buy_price=Decimal(1))
-    if kind not in {'stock', 'fund'} or fields.get('cost_basis_type') != 'holding_cost':
+    if kind not in {'stock', 'fund'} or (fields.get('cost_basis_type') != 'holding_cost' and not (historical and fields.get('cost_basis_type') == 'unknown')):
         raise ValueError('请核对标的类型与持仓成本口径')
     cur.execute(f"""SELECT m.asset_id,m.primary_symbol,m.canonical_name,m.asset_type FROM pams_asset_master m
         WHERE m.status='active' AND m.currency='CNY'
@@ -51,18 +51,23 @@ def _holding(cur, fields, account, day, item_id, *, complete):
         raise ValueError('持仓标的须唯一匹配资产底表')
     asset = assets[0]
     quantity, price = _amount(fields, 'quantity', 6), _amount(fields, 'price', 6)
-    cost, value = _amount(fields, 'cost', 4), _amount(fields, 'market_value', 4)
+    value = _amount(fields, 'market_value', 4)
+    cost = None if historical and fields.get('cost_basis_type') == 'unknown' and fields.get('cost') in (None, '') else _amount(fields, 'cost', 4)
+    if historical and fields.get('cost_basis_type') == 'unknown' and cost is not None:
+        raise ValueError('未知成本不能填写数值')
     if abs(quantity * price - value) > Decimal('0.02') or (quantity == 0 and (not complete or value or cost)):
         raise ValueError('持仓数量、市值和价格不一致，或零持仓缺少完整范围确认')
-    buy_price = (cost / quantity).quantize(Decimal('0.000001')) if quantity else Decimal(0)
-    if buy_price >= Decimal('1e14'):
+    buy_price = ((cost / quantity).quantize(Decimal('0.000001')) if quantity else Decimal(0)) if cost is not None else None
+    if buy_price is not None and buy_price >= Decimal('1e14'):
         raise ValueError('持仓单位成本超出存储范围')
     return dict(base, symbol=asset['primary_symbol'], name=asset['canonical_name'], asset_id=asset['asset_id'],
                 major_category='A股', minor_category='A股基金' if kind == 'fund' else 'A股',
                 quantity=quantity, current_price=price, cost=cost, market_value=value, buy_price=buy_price)
 
 
-def _plan(cur, source_id, revision, scope):
+def _plan(cur, source_id, revision, scope, historical=False):
+    if historical and scope is not None:
+        raise ValueError('历史单日证据不能声明完整范围')
     cur.execute("SELECT account_code FROM source_records WHERE source_id=%s", (str(source_id),))
     account_row = cur.fetchone()
     if not account_row:
@@ -101,7 +106,7 @@ def _plan(cur, source_id, revision, scope):
                 or source['period_start'] and day < source['period_start']
                 or source['period_end'] and day > source['period_end']):
             raise ValueError('持仓业务日期超出来源范围')
-        holdings.append(_holding(cur, fields, account, day, item['source_item_id'], complete=scope is not None))
+        holdings.append(_holding(cur, fields, account, day, item['source_item_id'], complete=scope is not None, historical=historical))
     if not holdings or len({row['as_of'] for row in holdings}) != 1:
         raise ValueError('每次发布须包含同一日期的持仓')
     names = [row['name'] for row in holdings]
@@ -110,7 +115,7 @@ def _plan(cur, source_id, revision, scope):
         raise ValueError('持仓标的或名称重复')
     day = holdings[0]['as_of']
     cur.execute("SELECT as_of,name,symbol FROM pams_holdings_snapshot WHERE account_code=%s AND as_of >= %s", (account, day))
-    if any(row['as_of'] > day or scope is not None or row['name'] in names or row['symbol'] in symbols for row in cur.fetchall()):
+    if any((row['as_of'] > day and not historical) or (row['as_of'] == day and (scope is not None or row['name'] in names or row['symbol'] in symbols)) for row in cur.fetchall()):
         raise ValueError('持仓与现有快照冲突，须先核对已有记录')
     if scope is not None:
         cash = [row for row in holdings if row['major_category'] == '现金']
@@ -118,7 +123,7 @@ def _plan(cur, source_id, revision, scope):
                 or scope['member_count'] != len(holdings) or len(cash) != 1
                 or _amount(scope, 'cash_amount', 4) != cash[0]['market_value']):
             raise ValueError('完整范围须明确确认日期、成员数、现金及备注')
-    return {'source_id': str(source_id), 'revision': revision, 'holdings': holdings, 'scope': scope}
+    return {'source_id': str(source_id), 'revision': revision, 'holdings': holdings, 'scope': scope, 'historical': historical}
 
 
 def _token(plan, bucket):
@@ -126,20 +131,21 @@ def _token(plan, bucket):
     return hmac.new(native_source_http._token_key(), b'pams-holding-source-v1:' + payload, sha256).hexdigest()
 
 
-def preview(cur, *, source_id, revision, scope=None):
-    plan = _plan(cur, source_id, revision, scope)
+def preview(cur, *, source_id, revision, scope=None, historical=False):
+    plan = _plan(cur, source_id, revision, scope, historical)
     return {**plan, 'preview_token': _token(plan, int(time.time() // 30))}
 
 
-def publish(cur, *, source_id, revision, preview_token, scope=None):
+def publish(cur, *, source_id, revision, preview_token, scope=None, historical=False):
     if not native_source.enabled() or cur.connection.autocommit:
         raise ValueError('持仓发布未启用')
-    plan = _plan(cur, source_id, revision, scope)
+    plan = _plan(cur, source_id, revision, scope, historical)
     now = int(time.time() // 30)
     if not any(hmac.compare_digest(preview_token, _token(plan, now - n)) for n in range(31)):
         raise ValueError('持仓预检已失效，请重新核对')
     return publish_validated_holdings(cur, source_id=source_id, as_of=plan['holdings'][0]['as_of'],
-                                      holdings=plan['holdings'], scope=scope)
+                                      holdings=plan['holdings'], scope=scope,
+                                      partial_attestation={'point_in_time_only': True} if historical else None)
 
 
 def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None, partial_attestation=None):

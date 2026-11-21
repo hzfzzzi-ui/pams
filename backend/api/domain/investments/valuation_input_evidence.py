@@ -410,10 +410,15 @@ def _current_source_matches_holding(snapshot: dict[str, Any], holding_raw: dict[
             return False
         if not exact_symbol and not resolved_identity:
             return False
-        if fields.get("cost_basis_type") != "holding_cost":
+        if fields.get("cost_basis_type") == "unknown":
+            if fields.get("cost") not in (None, "") or holding_raw.get("cost") is not None or holding_raw.get("buy_price") is not None:
+                return False
+            pairs = (("quantity", "quantity"), ("price", "current_price"), ("market_value", "market_value"))
+        elif fields.get("cost_basis_type") == "holding_cost":
+            pairs = (("quantity", "quantity"), ("price", "current_price"),
+                     ("cost", "cost"), ("market_value", "market_value"))
+        else:
             return False
-        pairs = (("quantity", "quantity"), ("price", "current_price"),
-                 ("cost", "cost"), ("market_value", "market_value"))
     else:
         return False
     try:
