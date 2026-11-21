@@ -65,6 +65,57 @@ def _holding(cur, fields, account, day, item_id, *, complete, historical=False):
                 quantity=quantity, current_price=price, cost=cost, market_value=value, buy_price=buy_price)
 
 
+def _historical_fund_inputs(cur, fields, holding):
+    """Bind a reviewed one-day reconstruction to verified trades and daily NAV."""
+    from domain.investments.fund_return_history import NAV_SOURCES
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    evidence = fields.get('reconstruction_evidence')
+    if not isinstance(evidence, dict) or set(evidence) != {'trade_ids', 'quote_id'}:
+        raise ValueError('历史基金重建须提供交易与同日净值证据')
+    ids, quote_id = evidence['trade_ids'], evidence['quote_id']
+    if (not isinstance(ids, list) or not ids or len(ids) > 2000
+            or any(type(value) is not int or value <= 0 for value in ids) or len(set(ids)) != len(ids)
+            or type(quote_id) is not int or quote_id <= 0):
+        raise ValueError('历史基金证据身份无效')
+    cur.execute("""SELECT quote_id,symbol,asset_id,as_of,currency,unit_nav,source FROM market_observations
+        WHERE quote_id=%s AND observation_type='daily' AND market='基金' FOR SHARE""", (quote_id,))
+    quote = cur.fetchone()
+    if (not quote or quote['symbol'] != holding['symbol'] or quote['as_of'] != holding['as_of']
+            or quote['currency'] != 'CNY' or quote['source'] not in NAV_SOURCES
+            or quote['unit_nav'] != holding['current_price']
+            or quote['asset_id'] not in (None, holding['asset_id'])):
+        raise ValueError('历史基金净值证据不匹配')
+    cur.execute("""SELECT COUNT(DISTINCT unit_nav) AS count FROM market_observations
+        WHERE observation_type='daily' AND market='基金' AND symbol=%s AND as_of=%s
+          AND currency='CNY' AND source=ANY(%s) AND unit_nav>0""",
+        (holding['symbol'], holding['as_of'], list(NAV_SOURCES)))
+    if cur.fetchone()['count'] != 1:
+        raise ValueError('历史基金净值存在冲突')
+    refs = [{'kind': 'quote', 'key': {'quote_id': quote_id}, 'role': 'historical_daily_nav'}]
+    total = Decimal(0)
+    source_ids = set()
+    for ident in ids:
+        rows = load_trade_rows(cur, account_code=holding['account_code'], start=date.min,
+                               end=holding['as_of'], fact_id=ident, include_fund_execution=True)
+        if len(rows) != 1:
+            raise ValueError('历史基金交易证据不存在或日期不符')
+        row = rows[0]
+        if (row['source_evidence_status'] != 'verified' or not row['fund_execution_confirmed']
+                or row['asset_id'] != holding['asset_id'] or row['symbol'] != holding['symbol']
+                or row['currency'] != 'CNY' or row['trade_type'] not in {'fund_subscription', 'fund_redemption'}
+                or row['quantity'] is None or row['quantity'] <= 0):
+            raise ValueError('历史基金交易尚未确认或标的不符')
+        total += row['quantity'] if row['trade_type'] == 'fund_subscription' else -row['quantity']
+        refs.append({'kind': 'trade', 'key': {'trade_id': ident}, 'role': 'historical_quantity'})
+        source_ids.add(str(row['source_item_id']))
+    refs.extend({'kind': 'source_item', 'key': {'source_item_id': item}, 'role': 'historical_trade_source'}
+                for item in sorted(source_ids))
+    if total != holding['quantity']:
+        raise ValueError('历史基金交易份额与已确认份额不一致')
+    return refs
+
+
 def _plan(cur, source_id, revision, scope, historical=False):
     if historical and scope is not None:
         raise ValueError('历史单日证据不能声明完整范围')
@@ -89,6 +140,7 @@ def _plan(cur, source_id, revision, scope, historical=False):
         WHERE source_id=%s ORDER BY source_item_id""", (str(source_id),))
     items = cur.fetchall()
     holdings = []
+    input_refs = {}
     for item in items:
         if item['review_status'] == 'excluded' and scope is None:
             continue
@@ -106,7 +158,12 @@ def _plan(cur, source_id, revision, scope, historical=False):
                 or source['period_start'] and day < source['period_start']
                 or source['period_end'] and day > source['period_end']):
             raise ValueError('持仓业务日期超出来源范围')
-        holdings.append(_holding(cur, fields, account, day, item['source_item_id'], complete=scope is not None, historical=historical))
+        holding = _holding(cur, fields, account, day, item['source_item_id'], complete=scope is not None, historical=historical)
+        if fields.get('reconstruction_evidence') is not None:
+            if not historical or holding['minor_category'] != 'A股基金':
+                raise ValueError('重建证据仅用于历史单日基金')
+            input_refs[str(item['source_item_id'])] = _historical_fund_inputs(cur, fields, holding)
+        holdings.append(holding)
     if not holdings or len({row['as_of'] for row in holdings}) != 1:
         raise ValueError('每次发布须包含同一日期的持仓')
     names = [row['name'] for row in holdings]
@@ -123,7 +180,7 @@ def _plan(cur, source_id, revision, scope, historical=False):
                 or scope['member_count'] != len(holdings) or len(cash) != 1
                 or _amount(scope, 'cash_amount', 4) != cash[0]['market_value']):
             raise ValueError('完整范围须明确确认日期、成员数、现金及备注')
-    return {'source_id': str(source_id), 'revision': revision, 'holdings': holdings, 'scope': scope, 'historical': historical}
+    return {'source_id': str(source_id), 'revision': revision, 'holdings': holdings, 'scope': scope, 'historical': historical, 'input_refs': input_refs}
 
 
 def _token(plan, bucket):
@@ -145,10 +202,10 @@ def publish(cur, *, source_id, revision, preview_token, scope=None, historical=F
         raise ValueError('持仓预检已失效，请重新核对')
     return publish_validated_holdings(cur, source_id=source_id, as_of=plan['holdings'][0]['as_of'],
                                       holdings=plan['holdings'], scope=scope,
-                                      partial_attestation={'point_in_time_only': True} if historical else None)
+                                      partial_attestation={'point_in_time_only': True} if historical else None, input_refs=plan['input_refs'])
 
 
-def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None, partial_attestation=None):
+def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None, partial_attestation=None, input_refs=None):
     """Write a caller-validated snapshot under the existing account lock and transaction."""
     cur.execute('''UPDATE source_records SET status='published',revision=revision+1,updated_at=now()
         WHERE source_id=%s AND status='draft' AND document_type='holding' ''', (str(source_id),))
@@ -163,7 +220,8 @@ def publish_validated_holdings(cur, *, source_id, as_of, holdings, scope=None, p
                     %(major_category)s,%(minor_category)s,%(quantity)s,%(current_price)s,%(cost)s,
                     %(market_value)s,%(buy_price)s,%(source_item_id)s) RETURNING id""", row)
         holding_id = cur.fetchone()['id']
-        finish_holding_change(cur, holding_id=holding_id, source_item_id=row['source_item_id'])
+        finish_holding_change(cur, holding_id=holding_id, source_item_id=row['source_item_id'],
+                              input_refs=(input_refs or {}).get(str(row['source_item_id'])))
         holding_ids.append(holding_id)
     version = record_source_scope(cur, source_id=source_id, holding_ids=holding_ids,
                                   as_of=as_of, scope=scope,

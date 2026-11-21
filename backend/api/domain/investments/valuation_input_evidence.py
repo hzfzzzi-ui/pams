@@ -214,7 +214,7 @@ def verify_recorded_version(cur: Any, version_key: str) -> bool:
 _BOUND_SOURCES = {
     "holding": ("pams_holdings_snapshot", ("id",), "as_of", "SELECT row_to_json(s)::text FROM public.pams_holdings_snapshot s WHERE id = %s FOR SHARE"),
     "trade": ("pams_investment_trade_fact", ("trade_id",), "trade_date", "SELECT row_to_json(s)::text FROM public.pams_investment_trade_fact s WHERE trade_id = %s FOR SHARE"),
-    "quote": ("market_observations", ("quote_id",), "quote_date", "SELECT row_to_json(s)::text FROM public.market_observations s WHERE quote_id = %s AND observation_type = 'quote' FOR SHARE"),
+    "quote": ("market_observations", ("quote_id",), "quote_date", "SELECT row_to_json(s)::text FROM public.market_observations s WHERE quote_id = %s AND observation_type IN ('quote', 'daily') FOR SHARE"),
     "fx": ("pams_fx_rates_daily", ("as_of", "base_currency", "quote_currency"), "as_of", "SELECT row_to_json(s)::text FROM public.pams_fx_rates_daily s WHERE as_of = %s AND base_currency = %s AND quote_currency = %s FOR SHARE"),
     "source_item": ("source_items", ("source_item_id",), None, "SELECT json_build_object('item', row_to_json(i), 'batch', row_to_json(b))::text FROM public.source_items i JOIN public.source_batches b ON b.batch_id=i.batch_id WHERE i.source_item_id = %s FOR SHARE OF i,b"),
 }
@@ -676,6 +676,11 @@ def bound_holding_freshness(cur: Any, version_key: str) -> str:
     if len(holdings) != 1:
         return "unknown"
     holding_raw = holdings[0]["snapshot"]["content"]
+    cur.execute("SELECT current_setting('transaction_read_only')='on' AS readonly, current_setting('transaction_isolation') AS level")
+    mode = cur.fetchone()
+    readonly, level = ((mode['readonly'], mode['level']) if isinstance(mode, dict) else mode)
+    if readonly and level not in {'repeatable read', 'serializable'}:
+        raise ValueError('holding freshness requires a consistent read-only snapshot')
     current, known = [], []
     unknown, missing, replacement = False, False, False
     for original in stored:
@@ -691,7 +696,7 @@ def bound_holding_freshness(cur: Any, version_key: str) -> str:
             source_key = ref.get('key')
             if not isinstance(source_key, dict):
                 raise ValueError('invalid source key')
-            item, raw = _bound_input(cur, kind, source_key)
+            item, raw = _bound_input(cur, kind, source_key, locking=not readonly)
         except (TypeError, ValueError):
             unknown = True
             continue
@@ -700,7 +705,7 @@ def bound_holding_freshness(cur: Any, version_key: str) -> str:
                 logical = ref.get("logical_key") if kind == "holding" else None
                 if isinstance(logical, dict) and all(logical.get(field) for field in ("account_code", "name", "as_of")):
                     cur.execute("""SELECT id FROM public.pams_holdings_snapshot
-                        WHERE account_code=%s AND name=%s AND as_of=%s FOR SHARE""",
+                        WHERE account_code=%s AND name=%s AND as_of=%s""" + ("" if readonly else " FOR SHARE"),
                         (logical["account_code"], logical["name"], logical["as_of"]))
                     if cur.fetchone():
                         replacement = True

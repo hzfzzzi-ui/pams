@@ -76,6 +76,30 @@ def load_account_snapshot_coverage(cur, pairs: set[tuple[str, Any]]) -> dict[tup
                         "member_ids": set(row["valid_members"] or []) if valid else set(),
                         "cash_status": "known" if status == "complete" else "unknown", "version_id": str(row["version_id"]),
                         "point_in_time_member_ids": set(row['point_members'] or ())}
+    # Reconstructed members depend on the retained trades and daily mark as
+    # well as the holding row. A changed or missing dependency cannot certify
+    # the historical value even if the holding itself has not changed.
+    point_ids = set().union(*(proof.get('point_in_time_member_ids', set()) for proof in result.values()))
+    if point_ids:
+        cur.execute("""SELECT h.id, v.version_key FROM pams_holdings_snapshot h
+            JOIN source_items i ON i.source_item_id=h.source_item_id
+            LEFT JOIN valuation_evidence v ON v.account_code=h.account_code AND v.business_date=h.as_of
+              AND v.result_kind='holding' AND v.inputs @> jsonb_build_array(jsonb_build_object(
+                  'input_kind','holding','evidence',jsonb_build_object('source_ref',jsonb_build_object('key',jsonb_build_object('id',h.id)))))
+            WHERE h.id=ANY(%s::bigint[]) AND i.parsed_fields ? 'reconstruction_evidence'""", (list(point_ids),))
+        versions: dict[int, list[str]] = {}
+        for proof in cur.fetchall():
+            versions.setdefault(proof['id'], [])
+            if proof['version_key']:
+                versions[proof['id']].append(proof['version_key'])
+        if versions:
+            from domain.investments.valuation_input_evidence import bound_holding_freshness
+            rejected = set()
+            for ident, keys in versions.items():
+                if not keys or not any(bound_holding_freshness(cur, key) in {'unknown', 'unchanged_for_recorded_inputs'} for key in keys):
+                    rejected.add(ident)
+            for proof in result.values():
+                proof['member_ids'].difference_update(rejected)
     return result
 
 
