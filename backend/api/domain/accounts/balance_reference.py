@@ -6,7 +6,11 @@ from decimal import Decimal, InvalidOperation
 
 def historical_balance(reference, today, owner_ratio, *, base_currency, basis):
     currency = str(reference.get('currency') or base_currency or 'CNY').upper()
-    if currency != 'CNY':
+    # A single reference can represent the account's own currency only.
+    # Conversion is performed by the NAV reader using dated FX evidence.
+    if len(currency) != 3 or not currency.isascii() or not currency.isalpha():
+        return None
+    if base_currency and currency != str(base_currency).upper():
         return None
     try:
         amount = Decimal(str(reference.get('amount')))
