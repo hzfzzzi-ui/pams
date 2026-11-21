@@ -12,12 +12,13 @@ D = Decimal
 def test_total_replaces_covered_components_once_and_preserves_other_accounts():
     day=date(2025,12,31)
     row={'date':day,'available_net_worth':D('210'),'net_worth':None,
-         'available_accounts':['platform','cash','other'],
+         'available_accounts':['platform','cash','other'], 'unavailable_accounts':['platform','cash','other'],
          '_account_contributions':{'platform':D('100'),'cash':D('10'),'other':D('100')}}
     total={'account_code':'platform','currency':'CNY','net_asset':'120','covered_account_codes':['platform','cash']}
     _apply_account_totals(row,[total],lambda _:D(1),lambda *_:D(1))
     assert row['available_net_worth']==D('220')
     assert row['_account_contributions']=={'platform':D('120'),'other':D('100')}
+    assert row['unavailable_accounts']==['other']
     _apply_account_totals(row,[total],lambda _:D(1),lambda *_:D(1))
     assert row['available_net_worth']==D('220')
     other={**row,'_account_contributions':{'other':D('100')},'available_accounts':['platform','other']}
@@ -27,6 +28,16 @@ def test_total_replaces_covered_components_once_and_preserves_other_accounts():
     before=row['available_net_worth']
     _apply_account_totals(row,conflicting,lambda _:D(1),lambda *_:D(1))
     assert row['available_net_worth']==before
+
+
+def test_total_does_not_hide_source_evidence_failure():
+    row={'date':date(2025,12,31), 'net_worth':None, 'available_net_worth':D('20'),
+         'available_accounts':['cash'], 'unavailable_accounts':['platform'],
+         'source_evidence_unavailable_accounts':['platform'], '_account_contributions':{'cash':D('20')}}
+    total={'account_code':'platform','currency':'CNY','net_asset':'120','covered_account_codes':['platform','cash']}
+    _apply_account_totals(row,[total],lambda _:D(1),lambda *_:D(1))
+    assert row['available_net_worth']==D('20')
+    assert row['unavailable_accounts']==['platform']
 
 
 def test_existing_partial_estimates_are_replaced_without_recounting():
