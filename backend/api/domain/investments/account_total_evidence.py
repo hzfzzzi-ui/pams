@@ -126,6 +126,19 @@ def load(cur, *, dates, accounts, source_accounts=None):
     return {key: values[0] for key,values in candidates.items() if len({_hash(value) for value in values}) == 1}
 
 
+def prior_single_account_total(cur, account, before, currency):
+    """Recheck the latest earlier observation using the same scope and source rules."""
+    cur.execute("""SELECT MAX(business_date) AS day FROM valuation_evidence
+        WHERE result_kind='portfolio' AND calculation_version=%s AND account_code=%s
+          AND base_currency=%s AND business_date<%s""", (VERSION, account, currency, before))
+    day = cur.fetchone()['day']
+    if day:
+        total = load(cur, accounts=[account], dates=[day]).get((day, account))
+        if total:
+            return day, Decimal(total['net_asset'])
+    return None
+
+
 def _verified_source(cur, row, locking):
     if not verify_recorded_version(cur, row['version_key']) or len(row['inputs']) != 1:
         return None

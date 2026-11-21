@@ -5,10 +5,12 @@ import { loadChart } from '../../shared/load_chart.js';
 const metrics = {
   net_value: {label: '净值', color: '#d9a13d'},
   liabilities: {label: '负债', color: '#68a9ed'},
+  position_value: {label: '持仓估值', color: '#83bfbb'},
 };
 const quality = {estimated: '估算', partial: '部分已知'};
 const utcTime = day => Date.parse(day + 'T00:00:00Z');
 const axisNumber = new Intl.NumberFormat('zh-CN', {notation: 'compact', maximumFractionDigits: 2});
+const metricLabel = (key, keys) => key === 'net_value' && keys.includes('position_value') ? '整户净值' : metrics[key].label;
 
 function pointValue(row, key) {
   const value = row[key];
@@ -17,7 +19,8 @@ function pointValue(row, key) {
 
 function describeValue(row, key, money) {
   if (!row || pointValue(row, key) == null) return '暂无记录';
-  return [money.format(row[key]), quality[row[key + '_status']]].filter(Boolean).join(' · ');
+  const note = key === 'position_value' && row.position_value_status === 'partial' ? '部分持仓' : quality[row[key + '_status']];
+  return [money.format(row[key]), note].filter(Boolean).join(' · ');
 }
 
 function draw(canvas, ChartClass, rows, keys, start, end, money) {
@@ -25,7 +28,7 @@ function draw(canvas, ChartClass, rows, keys, start, end, money) {
   const datasets = keys.map(key => {
     const data = rows.map((row, i) => ({x: dates[i], y: pointValue(row, key)}));
     const sparse = data.filter(point => point.y != null).length <= 4;
-    return {label: metrics[key].label, data, spanGaps: true, tension: 0, borderWidth: 2, clip: 5,
+    return {label: metricLabel(key, keys), data, spanGaps: true, tension: 0, borderWidth: 2, clip: 5,
       borderColor: metrics[key].color, backgroundColor: metrics[key].color,
       pointRadius: sparse ? 3 : 0, pointHoverRadius: 4, pointHitRadius: 8};
   });
@@ -81,7 +84,7 @@ export function mountAccountHistory(container, code, get) {
       const item = doc.createElement('div');
       const label = doc.createElement('span');
       label.style.setProperty('--series-color', metrics[key].color);
-      label.textContent = metrics[key].label;
+      label.textContent = metricLabel(key, keys);
       const amount = doc.createElement('strong');
       amount.textContent = describeValue(latest, key, money);
       item.append(label, amount);
@@ -164,7 +167,8 @@ export function mountAccountHistory(container, code, get) {
       if (request.signal.aborted) return;
       keys = payload.series.filter(key => Object.hasOwn(metrics, key));
       money = new Intl.NumberFormat('zh-CN', {style: 'currency', currency: payload.currency});
-      heading.textContent = keys.length ? keys.map(key => metrics[key].label).join('与') + '走势' : '账户走势';
+      heading.textContent = keys.includes('position_value') ? '净值与持仓估值' :
+        keys.length ? keys.map(key => metrics[key].label).join('与') + '走势' : '账户走势';
       section.querySelector('.accountHistoryScope').textContent = '整户 · ' + payload.currency;
       if (payload.rows.length) ChartClass = await loadChart(win);
       if (request.signal.aborted) return;
