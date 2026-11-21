@@ -37,6 +37,9 @@ def comparison_scope(row):
              row.get('_comparison_basis', {}))
     if '_unanchored_loan_changes' in row:
         scope += ('personal_loan_principal_unverified', row['_unanchored_loan_changes'])
+    reference = (row.get('personal_loan_coverage') or {}).get('principal_reference')
+    if reference:
+        scope += ('personal_loan_reference', reference['opening_date'], sorted(reference['native']))
     encoded = json.dumps(scope, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
     return sha256(encoded.encode()).hexdigest()
 

@@ -12,20 +12,22 @@ from domain.ledger.cashflow_read_v2 import load_cash_rows
 def _principal_anchors(cur, codes, through):
     # A complete credit-card or personal receivable balance cannot certify
     # all privately borrowed principal. Require that explicit attestation.
-    cur.execute("""SELECT v.account_code,v.as_of,v.version_id,h.market_value,h.currency,h.id,
+    cur.execute("""SELECT v.account_code,v.as_of,v.version_id,h.market_value,h.currency,h.id,h.asset_liability,h.major_category,
             v.scope_attestation->'point_in_time_only'='true'::jsonb AS point_in_time_only
-        FROM account_snapshot_version v JOIN account_snapshot_member m ON m.version_id=v.version_id
-        JOIN pams_holdings_snapshot h ON h.id=m.holding_id JOIN pams_accounts a ON a.account_code=v.account_code
+        FROM account_snapshot_version v LEFT JOIN account_snapshot_member m ON m.version_id=v.version_id
+        LEFT JOIN pams_holdings_snapshot h ON h.id=m.holding_id JOIN pams_accounts a ON a.account_code=v.account_code
         WHERE v.as_of<=%s AND NOT a.is_asset AND (a.active OR v.account_code=ANY(%s))
-          AND v.coverage_status='complete' AND h.asset_liability='负债' AND h.major_category='现金'
           AND v.scope_attestation->>'liability_scope'='all_personal_loan_principal'""", (through,sorted(codes)))
     records = cur.fetchall()
     coverage = load_account_snapshot_coverage(cur, {(r['account_code'], r['as_of']) for r in records})
     by_day = defaultdict(list)
+    declared = defaultdict(set)
     for record in records:
+        declared[record['as_of']].add(record['account_code'])
         proof = coverage[record['account_code'], record['as_of']]
         if (proof['version_id'] == str(record['version_id']) and proof['status'] == 'complete'
-                and proof['member_ids'] == {record['id']}):
+                and proof['member_ids'] == {record['id']} and record['asset_liability'] == '负债'
+                and record['major_category'] == '现金'):
             by_day[record['as_of']].append(record)
     anchors = {}
     for day, proofs in by_day.items():
@@ -37,7 +39,7 @@ def _principal_anchors(cur, codes, through):
                 # A dated declaration that all borrowing is zero requires no
                 # monetary contribution from its source account to this NAV.
                 anchors[day] = {**proof, 'scope_only_zero': True}
-    return anchors
+    return anchors, declared
 
 
 def annotate_personal_loans(rows, facts, anchors, value_in_base):
@@ -93,7 +95,64 @@ def annotate_personal_loans(rows, facts, anchors, value_in_base):
         row['scope_status'] = 'incomplete'
 
 
-def apply_personal_loan_coverage(cur, rows, codes, value_in_base):
+def _apply_principal_references(rows, facts, anchors, declared, uncertain_days, rate_at, base_currency):
+    """Reconstruct a reference payable from an attested all-borrowing zero and personal principal movements."""
+    movements = defaultdict(lambda: defaultdict(Decimal))
+    for fact in facts:
+        if personal_loan_principal(fact) and fact.get('currency'):
+            movements[fact['transaction_date']][fact['currency']] += fact['amount']
+        else:
+            # A candidate that failed original, classification, currency or direction checks
+            # cannot be silently left out of a running outstanding balance.
+            uncertain_days.add(fact['transaction_date'])
+    samples = {row['date']: row for row in rows}
+    balances = defaultdict(Decimal)
+    payable_accounts = set()
+    opening = None
+    for day in sorted(set(samples) | movements.keys() | declared.keys() | uncertain_days):
+        if day in declared:
+            # A later statement supersedes the bridge, even if it has since failed verification.
+            payable_accounts.update(declared[day])
+            proof = anchors.get(day)
+            opening = day if proof and proof['market_value'] == 0 and len(declared[day]) == 1 else None
+            balances.clear()
+            continue
+        if opening is None:
+            continue
+        for currency, change in movements.get(day, {}).items():
+            balances[currency] += change
+        if day in uncertain_days or any(value < 0 for value in balances.values()):
+            opening = None
+            continue
+        row = samples.get(day)
+        owed = {currency: value for currency, value in balances.items() if value > 0}
+        if not row or not owed or (row.get('personal_loan_coverage') or {}).get('status') != 'principal_movements_only':
+            continue
+        available = row.get('available_net_worth')
+        amounts = row.get('_account_contributions', {})
+        covered = set(row.get('available_accounts', ()))
+        basis = row.get('_comparison_basis', {})
+        if (available is None or covered != amounts.keys() or covered != basis.keys()
+                or abs(sum(amounts.values()) - available) > Decimal('0.01')
+                or 'terminal_aggregate' in basis.values()):
+            continue
+        for source in basis.values():
+            if isinstance(source, (list, tuple)) and source[0] == 'account_total':
+                covered.update(source[1])
+        if payable_accounts & covered:
+            continue
+        rates = {unit: rate_at(unit, day) for unit in owed}
+        if any(rate is None for rate in rates.values()):
+            continue
+        deduction = sum(value * rates[unit] for unit, value in owed.items())
+        row['available_net_worth'] = available - deduction
+        row['personal_loan_coverage']['principal_reference'] = dict(
+            opening_date=opening.isoformat(), amount=str(deduction), currency=base_currency,
+            native={unit: str(value) for unit, value in sorted(owed.items())},
+        )
+
+
+def apply_personal_loan_coverage(cur, rows, codes, value_in_base, *, reference_rate_at=None, base_currency='CNY'):
     if not rows or not codes:
         return
     cur.execute("""SELECT to_regclass('public.source_records') IS NOT NULL AND
@@ -104,10 +163,15 @@ def apply_personal_loan_coverage(cur, rows, codes, value_in_base):
     if not schema['facts']:
         return
     days = [row['date'] for row in rows]
-    cur.execute("""SELECT c.cashflow_id FROM cashflow_classification c JOIN pams_cashflow_fact f USING(cashflow_id)
-        WHERE c.category=%s AND c.status='confirmed' AND c.classification_source='manual'
-          AND f.account_code=ANY(%s) AND f.event_date<=%s""", (PERSONAL_LOAN_CATEGORY, sorted(codes), max(days)))
-    selected = [r['cashflow_id'] for r in cur.fetchall()]
-    facts = load_cash_rows(cur, start=date.min, end=max(days), base_currency='CNY', fact_ids=selected) if selected else []
-    anchors = _principal_anchors(cur, codes, max(days)) if schema['anchors'] else {}
+    cur.execute("""SELECT c.cashflow_id,f.event_date FROM cashflow_classification c JOIN pams_cashflow_fact f USING(cashflow_id)
+        WHERE c.category=%s AND f.event_date<=%s AND (%s OR (c.status='confirmed' AND c.classification_source='manual'
+          AND f.account_code=ANY(%s)))""", (PERSONAL_LOAN_CATEGORY, max(days), reference_rate_at is not None, sorted(codes)))
+    selected = {r['cashflow_id']: r['event_date'] for r in cur.fetchall()}
+    loaded = load_cash_rows(cur, start=date.min, end=max(days), base_currency='CNY', fact_ids=list(selected)) if selected else []
+    facts = [fact for fact in loaded if fact['account_code'] in codes]
+    anchors, declared = _principal_anchors(cur, codes, max(days)) if schema['anchors'] else ({}, {})
     annotate_personal_loans(rows, facts, anchors, value_in_base)
+    if reference_rate_at is not None and anchors:
+        missing = selected.keys() - {f['fact_id'] for f in facts}
+        _apply_principal_references(rows, facts, anchors, declared, {selected[i] for i in missing},
+                                    reference_rate_at, base_currency)
