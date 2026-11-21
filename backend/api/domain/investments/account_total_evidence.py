@@ -9,6 +9,13 @@ from domain.investments.valuation_input_evidence import _bound_input, _hash, rec
 VERSION = 'account-total-observation-v1'
 
 
+def _conflicts_with_empty(cur, account, day):
+    cur.execute("""SELECT EXISTS (SELECT 1 FROM pams_holdings_snapshot
+        WHERE account_code=%s AND as_of=%s AND (market_value IS DISTINCT FROM 0 OR quantity<>0)) AS conflict""",
+        (account, day))
+    return cur.fetchone()['conflict']
+
+
 def _value(fields, account, day, currency):
     try:
         covered = fields['covered_account_codes']
@@ -26,7 +33,7 @@ def _value(fields, account, day, currency):
 
 
 def publish(cur, *, source_id, revision):
-    """Publish an already reviewed screenshot and freeze its valuation evidence atomically."""
+    """Publish a reviewed total or an explicit confirmation of an empty account."""
     from domain.imports.isolation import source_enabled
     if cur.connection.autocommit or not source_enabled(cur):
         raise ValueError('账户总额发布需要受保护事务')
@@ -35,9 +42,8 @@ def publish(cur, *, source_id, revision):
     r = cur.fetchone()
     if not r or r['revision'] != revision or r['status'] != 'draft' or not r['active'] or not r['is_asset']:
         raise ValueError('账户来源版本或账户状态无效')
-    if (r['document_type'] != 'statement' or r['acquisition_method'] != 'screenshot' or not r['content']
-            or sha256(bytes(r['content'])).hexdigest() != r['sha256']):
-        raise ValueError('账户总额截图原件校验失败')
+    if r['document_type'] != 'statement':
+        raise ValueError('账户总额须有已核对的账单或空仓确认')
     cur.execute('SELECT * FROM source_items WHERE source_id=%s FOR UPDATE', (str(source_id),))
     items = cur.fetchall()
     if len(items) != 1 or items[0]['review_status'] != 'confirmed':
@@ -53,6 +59,20 @@ def publish(cur, *, source_id, revision):
     except (KeyError, ValueError, TypeError) as exc:
         raise ValueError('账户总额日期无效') from exc
     value = _value(fields, r['account_code'], day, r['base_currency'])
+    if r['acquisition_method'] == 'manual':
+        if (r['content'] is not None or r['sha256'] is not None or item['parse_method'] != 'manual'
+                or original != fields or not (item['review_note'] or '').strip()):
+            raise ValueError('本人确认须绑定完整录入字段、明确的日期和核对说明')
+        if fields.get('attestation') == 'account_empty':
+            if (fields['value_scope'] != 'account_total' or value['covered_account_codes'] != [r['account_code']]
+                    or Decimal(value['net_asset']) != 0 or _conflicts_with_empty(cur, r['account_code'], day)):
+                raise ValueError('空仓确认必须覆盖当日本账户所有持仓及现金')
+            value['confirmed_empty'] = True
+        elif not _verified_unchanged(cur, value, fields, locking=True):
+            raise ValueError('须引用同范围、同金额的原始账户总额并明确确认当日总额未变')
+    elif (r['acquisition_method'] != 'screenshot' or not r['content']
+            or sha256(bytes(r['content'])).hexdigest() != r['sha256']):
+        raise ValueError('账户总额截图原件校验失败')
     cur.execute('SELECT account_code FROM pams_accounts WHERE active AND is_asset AND account_code=ANY(%s::text[])', (value['covered_account_codes'],))
     if {x['account_code'] for x in cur.fetchall()} != set(value['covered_account_codes']):
         raise ValueError('账户总额覆盖账户不存在')
@@ -78,20 +98,59 @@ def load(cur, *, dates, accounts):
     locking = not (mode['readonly'] and mode['level'] in {'repeatable read', 'serializable'})
     for r in rows:
         try:
-            if not verify_recorded_version(cur, r['version_key']) or len(r['inputs']) != 1:
+            current = _verified_source(cur, r, locking)
+            if current is None:
                 continue
-            saved = r['inputs'][0]['evidence']; key = saved['source_ref']['key']
-            current, _ = _bound_input(cur, 'source_item', key, locking=locking)
-            snap = current['snapshot']; old = saved['snapshot']; fields = snap['source_fields']
-            if (saved.get('role') != 'account_total_source' or current['source_ref'].get('account_code') != r['account_code']
-                    or snap['batch_status'] != 'published' or snap['review_status'] != 'confirmed'
-                    or snap['business_type'] != 'statement' or snap.get('source_integrity') != 'verified'
-                    or snap['content_hash'] != old['content_hash']):
-                continue
-            value = _value(fields, r['account_code'], r['business_date'], r['base_currency'])
+            value, fields, method = current
+            if method == 'manual':
+                if fields.get('attestation') == 'account_empty':
+                    if _conflicts_with_empty(cur, r['account_code'], r['business_date']):
+                        continue
+                    value['confirmed_empty'] = True
+                elif not _verified_unchanged(cur, value, fields, locking=locking):
+                    continue
             if _hash(value) != r['result_hash'] or not set(value['covered_account_codes']) <= set(accounts):
                 continue
             candidates.setdefault((r['business_date'],r['account_code']), []).append(value)
         except (KeyError, TypeError, ValueError, InvalidOperation):
             continue
     return {key: values[0] for key,values in candidates.items() if len({_hash(value) for value in values}) == 1}
+
+
+def _verified_source(cur, row, locking):
+    if not verify_recorded_version(cur, row['version_key']) or len(row['inputs']) != 1:
+        return None
+    saved = row['inputs'][0]['evidence']
+    current, raw = _bound_input(cur, 'source_item', saved['source_ref']['key'], locking=locking)
+    snap = current['snapshot']
+    if (not raw or saved.get('role') != 'account_total_source'
+            or current['source_ref'].get('account_code') != row['account_code']
+            or snap['batch_status'] != 'published' or snap['review_status'] != 'confirmed'
+            or snap['business_type'] != 'statement' or snap.get('source_integrity') != 'verified'
+            or snap['content_hash'] != saved['snapshot']['content_hash']):
+        return None
+    fields = snap['source_fields']
+    value = _value(fields, row['account_code'], row['business_date'], row['base_currency'])
+    return value, fields, raw['batch']['acquisition_method']
+
+
+def _verified_unchanged(cur, value, fields, *, locking):
+    """A dated user confirmation may point only to a freshly verified original observation."""
+    key = fields.get('prior_version_key')
+    if fields.get('attestation') != 'unchanged_account_total' or not isinstance(key, str) or not key:
+        return False
+    cur.execute('''SELECT version_key,account_code,business_date,base_currency,result_hash,inputs
+        FROM valuation_evidence WHERE version_key=%s AND result_kind='portfolio' AND calculation_version=%s
+          AND account_code=%s AND base_currency=%s AND business_date<%s''',
+        (key, VERSION, value['account_code'], value['currency'], value['business_date']))
+    anchor = cur.fetchone()
+    if not anchor:
+        return False
+    proof = _verified_source(cur, anchor, locking)
+    if not proof:
+        return False
+    original, prior_fields, method = proof
+    return (method == 'screenshot' and _hash(original) == anchor['result_hash']
+            and prior_fields['value_scope'] == fields['value_scope']
+            and set(original['covered_account_codes']) == set(value['covered_account_codes'])
+            and Decimal(original['net_asset']) == Decimal(value['net_asset']))

@@ -71,3 +71,23 @@ def test_point_in_time_partial_is_not_carried_forward():
                 assert invalid[later][accounts[1]][0] == Decimal('25')
         finally:
             conn.rollback()
+
+def test_conflicting_backcast_stops_until_next_reconciled_point_or_anchor():
+    from decimal import Decimal as D
+    from datetime import date, timedelta
+    from domain.investments.valuation_nav import _apply_historical_cash_points
+    start = date(2025, 12, 31)
+    dates = [start + timedelta(days=n) for n in range(5)]
+    account = {'account_code':'wallet', 'base_currency':'CNY', 'primary_balance':{'as_of':dates[-1]}}
+    def point(value):
+        return {'currency':'CNY', 'asset_liability':'资产', 'market_value':D(value)}
+    points = {('wallet', dates[0]): point(0), ('wallet', dates[2]):point(300)}
+    buckets = {day: {'net_worth':D(310), 'assets':D(310), 'liabilities':D(0),
+                     'account_values':{'wallet':D(300),'other':D(10)},
+                     'available_accounts':['wallet','other'], 'estimated_accounts':['wallet']} for day in dates}
+    _apply_historical_cash_points(None, bank_series=buckets, accounts=[account], dates=dates,
+                                 rate_at=lambda *_: D(1), points=points, periods={})
+    assert [buckets[d]['net_worth'] for d in dates] == [10,10,310,310,310]
+    assert 'wallet' not in buckets[dates[1]]['available_accounts']
+    assert 'wallet' in buckets[dates[1]]['unavailable_accounts']
+    assert buckets[dates[0]]['account_values']['wallet'] == 0

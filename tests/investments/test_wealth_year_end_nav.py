@@ -34,7 +34,9 @@ def test_reviewed_wealth_anchor_is_dated_and_not_double_counted():
                     trades.append((cur.fetchone()['trade_id'],fields))
                 buy, sell = trades
                 extra_buy = {**buy[1],'quantity':'100','valuation_date':'2025-12-31','valuation_unit_price':'1.05',
-                    'valuation_observations':[{'date':'2025-12-31','cumulative_nav':'1.05'},{'date':'2026-03-20','cumulative_nav':'1.1'}]}
+                    'valuation_observations':[{'date':'2025-12-31','cumulative_nav':'1.05'},
+                                              {'date':'2026-01-05','cumulative_nav':'1.07'},
+                                              {'date':'2026-03-20','cumulative_nav':'1.1'}]}
                 extra_sell = {**sell[1],'quantity':'100','execution_date':'2026-03-20','unit_nav':'1.1',
                     'complete_exit':True,'complete_history':True,'complete_trade_ids':[buy[0],sell[0]]}
                 confirmations = []
@@ -47,11 +49,15 @@ def test_reviewed_wealth_anchor_is_dated_and_not_double_counted():
                     confirmations.append(confirmation['confirmation_id'])
                 cur.execute("""INSERT INTO pams_holdings_snapshot(account_code,as_of,symbol,name,currency,asset_liability,major_category,minor_category,market_value)
                     VALUES ('wealth_test','2025-12-31','OTHER','Other','CNY','资产','其他','其他',5)""")
-                args = dict(accounts={'wealth_test':{}},dates=[date(2025,12,31),date(2026,1,1)],
+                args = dict(accounts={'wealth_test':{}},dates=[date(2025,12,31),date(2026,1,1),date(2026,1,5),
+                                                              date(2026,1,6),date(2026,3,20)],
                     owner_ratio_case_sql=lambda _:('1::numeric',[]),account_owner_ratio=lambda _:Decimal('1'),rate_at=lambda *_:Decimal('1'))
                 values = load_position_nav_estimates(cur,**args)
                 assert values[date(2025,12,31)]['wealth_test'][0] == Decimal('110')
-                assert values[date(2026,1,1)]['wealth_test'][0] == Decimal('5')
+                assert values[date(2026,1,1)]['wealth_test'] == (Decimal('110'),date(2025,12,31),date(2025,12,31))
+                assert values[date(2026,1,5)]['wealth_test'][0] == Decimal('112')
+                assert values[date(2026,1,6)]['wealth_test'][0] == Decimal('5')
+                assert values[date(2026,3,20)]['wealth_test'][0] == Decimal('5')
                 cur.execute('SAVEPOINT revoke_proof')
                 supplement.revoke(cur,confirmation_id=confirmations[0],note='Synthetic revocation',confirmed=True)
                 assert load_position_nav_estimates(cur,**args)[date(2025,12,31)]['wealth_test'][0] == Decimal('5')
