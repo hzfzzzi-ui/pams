@@ -1,0 +1,73 @@
+"""A dated historical observation must not become a later balance."""
+
+from datetime import date
+from decimal import Decimal
+import os
+from uuid import uuid4
+
+import psycopg2
+from psycopg2.extras import Json, RealDictCursor
+import pytest
+
+from domain.imports.isolation import source_enabled
+from domain.investments.position_nav_projection import load_position_nav_estimates
+
+
+def test_point_in_time_partial_is_not_carried_forward():
+    dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
+    if not dsn:
+        pytest.skip('requires explicitly isolated PostgreSQL')
+    day, later = date(2025, 12, 31), date(2026, 1, 1)
+    with psycopg2.connect(dsn) as conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert source_enabled(cur), 'database isolation marker is required'
+                accounts = ['example_historical', 'example_ordinary']
+                historical_id = None
+                for code in accounts:
+                    cur.execute('INSERT INTO pams_accounts(account_code,display_name) VALUES (%s,%s)', (code, code))
+                    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ('account-import:' + code,))
+                    cur.execute('''INSERT INTO pams_holdings_snapshot
+                        (account_code,as_of,symbol,name,currency,asset_liability,major_category,minor_category,market_value)
+                        VALUES (%s,%s,%s,%s,'CNY','资产','其他','其他',%s) RETURNING id''',
+                        (code, day, code, code, Decimal('100') if code == accounts[0] else Decimal('25')))
+                    ident = cur.fetchone()['id']
+                    if code == accounts[0]:
+                        historical_id = ident
+                        version = str(uuid4())
+                        cur.execute('''INSERT INTO account_snapshot_member(version_id,holding_id,holding_row_hash)
+                            SELECT %s,id,md5(to_jsonb(h)::text) FROM pams_holdings_snapshot h WHERE id=%s''', (version, ident))
+                        cur.execute('''INSERT INTO account_snapshot_version
+                            (version_id,account_code,as_of,coverage_status,cash_status,scope_attestation,calculation_version,reason)
+                            VALUES (%s,%s,%s,'partial','unknown',%s,'test-point-v1','synthetic evidence')''',
+                            (version, code, day, Json({'point_in_time_only': True})))
+                        later_version = str(uuid4())
+                        cur.execute('''INSERT INTO account_snapshot_member(version_id,holding_id,holding_row_hash)
+                            SELECT %s,id,md5(to_jsonb(h)::text) FROM pams_holdings_snapshot h WHERE id=%s''', (later_version, ident))
+                        cur.execute('''INSERT INTO account_snapshot_version
+                            (version_id,account_code,as_of,coverage_status,cash_status,calculation_version,reason)
+                            VALUES (%s,%s,%s,'partial','unknown','test-later-v1','later review')''',
+                            (later_version, code, day))
+                estimates = load_position_nav_estimates(
+                    cur, accounts={code: {} for code in accounts}, dates=[day, later],
+                    owner_ratio_case_sql=lambda _: ('1::numeric', []),
+                    account_owner_ratio=lambda _: Decimal('1'),
+                    rate_at=lambda currency, _: Decimal('1') if currency == 'CNY' else None,
+                )
+                assert estimates[day][accounts[0]][0] == Decimal('100')
+                assert accounts[0] not in estimates.get(later, {})
+                assert estimates[day][accounts[1]][0] == Decimal('25')
+                assert estimates[later][accounts[1]][0] == Decimal('25')
+                # A modified row invalidates its immutable membership proof;
+                # it must not leak into either the source day or later days.
+                cur.execute('UPDATE pams_holdings_snapshot SET market_value=999 WHERE id=%s', (historical_id,))
+                invalid = load_position_nav_estimates(
+                    cur, accounts={code: {} for code in accounts}, dates=[day, later],
+                    owner_ratio_case_sql=lambda _: ('1::numeric', []),
+                    account_owner_ratio=lambda _: Decimal('1'),
+                    rate_at=lambda currency, _: Decimal('1') if currency == 'CNY' else None,
+                )
+                assert all(accounts[0] not in invalid.get(d, {}) for d in (day, later))
+                assert invalid[later][accounts[1]][0] == Decimal('25')
+        finally:
+            conn.rollback()
