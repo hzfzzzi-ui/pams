@@ -12,7 +12,7 @@ from domain.imports.source_original_read import SourceOriginals
 
 
 def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None = None,
-                   account_codes: list[str] | None = None, originals: SourceOriginals | None = None,
+                   account_codes: list[str] | None = None, fact_ids: list[int] | None = None, originals: SourceOriginals | None = None,
                    include_pair_evidence: bool = False, before=None, limit=None) -> list[dict[str, Any]]:
     if base_currency != 'CNY':
         raise ValueError('only evidenced CNY projection is supported')
@@ -20,6 +20,9 @@ def load_cash_rows(cur, *, start, end, base_currency: str, fact_id: int | None =
     if fact_id is not None:
         filters.append(' AND f.cashflow_id=%s')
         params.append(fact_id)
+    if fact_ids is not None:
+        filters.append(' AND f.cashflow_id=ANY(%s::bigint[])')
+        params.append(fact_ids)
     if account_codes is not None:
         filters.append(' AND f.account_code=ANY(%s::text[])')
         params.append(account_codes)

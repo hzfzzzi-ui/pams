@@ -1119,7 +1119,7 @@ def _replace_cash_contribution(bucket, code, value):
             bucket[field].append(code)
 
 
-def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at, points=None, periods=None):
+def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at, points=None, periods=None, unbilled=None):
     """Reject a later anchor's backcast where it fails to reconcile to a dated balance."""
     if not dates:
         return
@@ -1167,6 +1167,18 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                     bucket['unavailable_accounts'].remove(code)
                 if complete_cash:
                     bucket['estimated_accounts'].remove(code)
+                # Only an independently reconciled card statement establishes
+                # that its figure covers billed charges alone. A generic
+                # liability balance may already include the installment.
+                contracts = (unbilled or {}).get((day, code), {})
+                if period and point['asset_liability'] == '负债' and contracts:
+                    included = {member: proof[0] for member, proof in contracts.items() if member[1] == currency}
+                    native = sum(included.values(), Decimal(0))
+                    if native and rate is not None:
+                        _replace_cash_contribution(bucket, code, amount - native * rate * ratio)
+                        bucket['_comparison_basis'][code] = ['billed_and_unbilled_debt', sorted(included)]
+                        if code not in bucket.setdefault('unavailable_accounts', []):
+                            bucket['unavailable_accounts'].append(code)
             elif conflict and day < anchor and code in bucket.get('estimated_accounts', ()):
                 _replace_cash_contribution(bucket, code, None)
 
@@ -1716,12 +1728,16 @@ def build_nav_weekly_payload(
     # Extra days required by a sparse display window must never move a cash
     # reconciliation's conflict boundary in the requested, formal sample.
     reference_series = {day:bank_series.pop(day) for day in reference_dates}
+    from domain.investments.installment_principal import load_unbilled_principal
     from domain.investments.statement_period_nav import load_statement_period_points
-    periods = load_statement_period_points(cur, [a['account_code'] for a in bank_accounts], all_cash_dates)
+    bank_codes = [a['account_code'] for a in bank_accounts]
+    unbilled = load_unbilled_principal(cur, bank_codes, all_cash_dates)
+    periods = load_statement_period_points(cur, bank_codes, all_cash_dates)
     for samples in (bank_series, reference_series):
         if samples:
             _apply_historical_cash_points(
                 cur, bank_series=samples, accounts=bank_accounts, dates=sorted(samples), points=cash_points, periods=periods,
+                unbilled=unbilled,
                 rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
             )
     bank_series.update(reference_series)
@@ -1866,7 +1882,7 @@ def build_nav_weekly_payload(
         from domain.investments.position_nav_projection import load_position_nav_estimates
 
         estimates = load_position_nav_estimates(
-            cur, accounts={code: config.get(code, {}) for code in unresolved & nav_codes},
+            cur, unbilled=unbilled, accounts={code: config.get(code, {}) for code in unresolved & nav_codes},
             dates=[row["date"] for row in rows if row.get("net_worth") is None],
             owner_ratio_case_sql=owner_ratio_case_sql, account_owner_ratio=account_owner_ratio,
             rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),

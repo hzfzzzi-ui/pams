@@ -15,7 +15,7 @@ from domain.investments.snapshot_coverage import load_account_snapshot_coverage
 from domain.market.quote_valuation import gold_close_join, gold_market_value, uses_gold_close
 
 
-def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, account_owner_ratio, rate_at):
+def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, account_owner_ratio, rate_at, unbilled=None):
     """Read the latest holding for each member, independently of the quote date."""
     if not accounts or not dates:
         return {}
@@ -206,6 +206,24 @@ def load_position_nav_estimates(cur, *, accounts, dates, owner_ratio_case_sql, a
             member = ('资产', claim['currency'], f"redemption:{claim['trade_id']}")
             value = claim['amount'] * rate * account_owner_ratio(code)
             amounts[day, code].append((value, confirmed, member))
+
+    # A statement moves principal from this contract onto the billed card
+    # balance. Only the still-unbilled member can supplement a missing account.
+    # An existing observation of the same member already carries its amount.
+    for (day, code), members in (unbilled or {}).items():
+        if code not in accounts or day not in dates:
+            continue
+        existing = {key for _, _, key in amounts.get((day, code), ())}
+        for member, (principal, source_day, funded) in members.items():
+            if member in existing or any(c == code and funded <= observed_day <= day for c, observed_day in complete_days):
+                continue
+            rate = dated_rate(member[1], day)
+            if rate is None and principal:
+                unpriced.add((day, code))
+                continue
+            amount = -principal * (rate or Decimal(1)) * account_owner_ratio(code)
+            amounts[day, code].append((amount, source_day, member))
+            observed.add((day, code))
 
     bindings = load_bound_balance_references(cur, accounts)
     for code, cfg in accounts.items():
