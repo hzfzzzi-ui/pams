@@ -153,7 +153,7 @@ def _historical_credit_bridge_inputs(cur, fields, holding):
         raw_hash = sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
         original, original_ok = originals.read(row)
         if (row['source_account'] != holding['account_code'] or row['status'] != 'published'
-                or row['document_type'] != 'cash' or row['acquisition_method'] != 'file'
+                or row['document_type'] not in {'cash', 'statement'} or row['acquisition_method'] != 'file'
                 or row['file_format'] != 'pdf' or row['parse_method'] != 'template'
                 or row['review_status'] not in {'confirmed', 'excluded'}
                 or (row['source_position'] or {}).get('row') != 'statement_balance'

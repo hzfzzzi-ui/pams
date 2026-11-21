@@ -158,7 +158,7 @@ def verify_original_credit_bridge(*, originals, account, day, currency):
     from domain.imports.account_import_statement import profiles
 
     configs = profiles().get(account, [])
-    if (len(configs) != 1 or configs[0].get('statement_template') != 'guangfa_credit_pdf'
+    if (len(configs) != 1 or configs[0].get('statement_template') not in {'guangfa_credit_pdf', 'ccb_credit_pdf'}
             or configs[0].get('currency') != currency or len(originals) != 2):
         raise ValueError('信用卡原始账单来源不支持')
     cfg = configs[0]
@@ -173,6 +173,41 @@ def verify_original_credit_bridge(*, originals, account, day, currency):
             with pdfplumber.open(path) as pdf:
                 if not pdf.pages or len(pdf.pages) > 50:
                     raise ValueError('信用卡账单页数无效')
+                if cfg['statement_template'] == 'ccb_credit_pdf':
+                    from collectors.bank_statement_parser import _parse_date_yyyymmdd, _parse_currency_amount
+                    previous, balance, count = set(), set(), 0
+                    for page in pdf.pages:
+                        for table in page.extract_tables() or []:
+                            if not table or not table[0]:
+                                continue
+                            if table[0][0] == '信用卡卡号(Card Number)':
+                                for row in table[1:]:
+                                    if row and str(row[0] or '').strip() == tail:
+                                        balance.add(Decimal(str(row[2]).replace(',', '')))
+                            if table[0][0] != '交易日':
+                                continue
+                            for row in table[1:]:
+                                first = str(row[0] or '')
+                                if '上期账单日余额(Previous Balance)' in first:
+                                    match = re.search(r'Previous Balance\)\s*([\d,]+(?:\.\d+)?)', first)
+                                    if not match:
+                                        raise ValueError('信用卡上期余额缺失')
+                                    previous.add(Decimal(match.group(1).replace(',', '')))
+                                    continue
+                                if not first.strip():
+                                    continue
+                                if (len(row) < 6 or not _parse_date_yyyymmdd(row[0]) or not _parse_date_yyyymmdd(row[1])
+                                        or str(row[2] or '').strip() != tail or _parse_currency_amount(row[4])[0] != currency
+                                        or _parse_currency_amount(row[4])[1] is None):
+                                    raise ValueError('信用卡账单存在无法核验的流水行')
+                                count += 1
+                    if len(previous) != 1 or len(balance) != 1 or not count:
+                        raise ValueError('信用卡账单汇总不完整')
+                    statement = parse_statement(path, cfg, since=None)
+                    if statement.account_tail != tail or statement.statement_balance != next(iter(balance)) or len(statement.rows) != count:
+                        raise ValueError('信用卡账单账户或流水不完整')
+                    parsed.append((statement, next(iter(previous))))
+                    continue
                 summaries = []
                 for page in pdf.pages:
                     for table in page.extract_tables() or []:
@@ -196,3 +231,53 @@ def verify_original_credit_bridge(*, originals, account, day, currency):
             parsed.append((statement, summaries[0][1]))
     return credit_statement_bridge(parsed[0][0], parsed[1][0], target=day, currency=currency,
                                    first_previous=parsed[0][1], following_previous=parsed[1][1])
+
+
+def publish_statement_pair(cur, *, source_ids, account, day, currency, expected):
+    """Publish evidence-only statements after a complete bridge check, without cash facts."""
+    import json
+    from hashlib import sha256
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    from collectors.bank_statement_parser import parse_statement
+    from domain.imports.account_import_statement import profiles
+    from domain.imports.isolation import source_enabled
+    from domain.imports.source_original_read import SourceOriginals
+    if cur.connection.autocommit or not source_enabled(cur) or len(source_ids) != 2 or len(set(source_ids)) != 2:
+        raise ValueError('账单证据需要受保护事务和两份独立原件')
+    cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('account-import:' + account,))
+    originals = SourceOriginals(cur); contents = []
+    for source_id in source_ids:
+        cur.execute('''SELECT r.source_id AS original_source_id,r.account_code AS source_account,r.content IS NOT NULL AS inline_original,
+            r.sha256,r.status,r.document_type,r.acquisition_method,r.file_format,i.source_item_id,i.raw_fields,
+            i.parsed_fields,i.record_hash,i.review_status,i.parse_method,i.source_position
+            FROM source_records r JOIN source_items i USING(source_id) WHERE r.source_id=%s FOR UPDATE OF r,i''', (str(source_id),))
+        rows=cur.fetchall()
+        if len(rows) != 1:
+            raise ValueError('账单证据须包含唯一余额明细')
+        row=rows[0]; raw=row['raw_fields']; fields=row['parsed_fields']
+        digest=sha256(json.dumps(raw,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+        content, ok=originals.read(row)
+        if (row['source_account'] != account or row['status'] != 'draft' or row['document_type'] != 'statement'
+                or row['acquisition_method'] != 'file' or row['file_format'] != 'pdf' or row['parse_method'] != 'template'
+                or row['review_status'] != 'confirmed' or row['source_position'] != {'row':'statement_balance'}
+                or raw.get('source',{}).get('balance_candidate') is not True or raw.get('initial_fields') != fields
+                or fields.get('action') != 'balance' or fields.get('currency') != currency
+                or digest != row['record_hash'] or not ok):
+            raise ValueError('账单证据或原件未通过核验')
+        configs=profiles().get(account, [])
+        if len(configs) != 1:
+            raise ValueError('账单来源配置不唯一')
+        with TemporaryDirectory(prefix='pams-statement-proof-') as directory:
+            path=Path(directory)/'statement.pdf'; path.write_bytes(bytes(content))
+            statement=parse_statement(path,configs[0],since=None)
+        if (statement.statement_end is None or fields.get('business_date') != statement.statement_end.isoformat()
+                or statement.statement_balance is None or Decimal(str(fields.get('net_cash'))) != statement.statement_balance):
+            raise ValueError('账单余额明细与原件不符')
+        contents.append(content)
+    if verify_original_credit_bridge(originals=contents, account=account, day=day, currency=currency) != Decimal(str(expected)):
+        raise ValueError('账单历史余额不一致')
+    for source_id in source_ids:
+        cur.execute("UPDATE source_records SET status='published',revision=revision+1,updated_at=now() WHERE source_id=%s AND status='draft'", (str(source_id),))
+        if cur.rowcount != 1:
+            raise ValueError('账单来源版本已变化')

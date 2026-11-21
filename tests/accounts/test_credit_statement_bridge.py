@@ -35,7 +35,39 @@ def test_credit_bridge_uses_transaction_day_and_both_posting_cycles():
         credit_statement_bridge(first, later, **args)
 
 
-def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch):
+def test_statement_pair_publishes_only_verified_balance_evidence(monkeypatch):
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from domain.imports import isolation,source_records_v2 as sources,historical_statement_balance as adapter,account_import_statement
+    from collectors import bank_statement_parser
+    dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
+    if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')
+    monkeypatch.setattr(account_import_statement,'profiles',lambda:{'test_credit':[{'statement_template':'ccb_credit_pdf'}]})
+    monkeypatch.setattr(bank_statement_parser,'parse_statement',lambda path,*a,**k: SimpleNamespace(
+        statement_end=date(2026,1,2) if path.read_bytes()==b'first' else date(2026,2,2),
+        statement_balance=D('75') if path.read_bytes()==b'first' else D('182')))
+    monkeypatch.setattr(adapter,'verify_original_credit_bridge',lambda **_:D('77'))
+    with psycopg2.connect(dsn) as conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert isolation.source_enabled(cur)
+                cur.execute("insert into pams_accounts(account_code,display_name,base_currency,is_asset) values ('test_credit','test','USD',false)")
+                ids=[]
+                for num,content in enumerate((b'first',b'second')):
+                    source,item=uuid4(),uuid4(); ids.append(str(source))
+                    sources.create_source(cur,source_id=source,account_code='test_credit',source_name='synthetic',acquisition_method='file',document_type='statement',filename='test.pdf',file_format='pdf',content=content)
+                    f={'action':'balance','currency':'USD','business_date':('2026-01-02','2026-02-02')[num],'net_cash':('75','182')[num]}
+                    sources.add_item(cur,source_id=source,item_id=item,parse_method='template',raw_fields={'source':{'balance_candidate':True},'initial_fields':f},parsed_fields=f,source_position={'row':'statement_balance'})
+                    sources.review_item(cur,source_id=source,item_id=item,expected_revision=2,parsed_fields=f,review_status='confirmed')
+                with pytest.raises(ValueError): adapter.publish_statement_pair(cur,source_ids=ids,account='test_credit',day=date(2025,12,31),currency='USD',expected='76')
+                adapter.publish_statement_pair(cur,source_ids=ids,account='test_credit',day=date(2025,12,31),currency='USD',expected='77')
+                cur.execute('select count(*) n from pams_cashflow_fact'); assert cur.fetchone()['n']==0
+                cur.execute("select count(*) n from source_records where source_id=any(%s::uuid[]) and status='published'",(ids,)); assert cur.fetchone()['n']==2
+        finally: conn.rollback()
+
+
+@pytest.mark.parametrize('document_type', ['cash', 'statement'])
+def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch, document_type):
     import psycopg2
     from psycopg2.extras import RealDictCursor
     from domain.imports import isolation, source_records_v2 as sources, holding_publication_v2 as publication
@@ -58,7 +90,7 @@ def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch):
                 for num, balance in enumerate(('75', '182')):
                     source, item = uuid4(), uuid4()
                     sources.create_source(cur, source_id=source, account_code='test_credit', source_name='Statement',
-                        acquisition_method='file', document_type='cash', filename=f'{num}.pdf', file_format='pdf', content=b'%PDF synthetic'+bytes([num]))
+                        acquisition_method='file', document_type=document_type, filename=f'{num}.pdf', file_format='pdf', content=b'%PDF synthetic'+bytes([num]))
                     fields = {'action':'balance', 'currency':'USD', 'business_date':('2026-01-02','2026-02-02')[num], 'net_cash':balance}
                     raw = {'source':{'balance_candidate':True}, 'initial_fields':fields}
                     sources.add_item(cur, source_id=source, item_id=item, parse_method='template', raw_fields=raw,
