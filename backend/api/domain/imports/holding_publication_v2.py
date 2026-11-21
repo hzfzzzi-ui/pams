@@ -219,7 +219,18 @@ def _plan(cur, source_id, revision, scope, historical=False):
             if holding['minor_category'] == 'A股基金':
                 input_refs[str(item['source_item_id'])] = _historical_fund_inputs(cur, fields, holding)
             elif holding['major_category'] == '现金':
-                input_refs[str(item['source_item_id'])] = _historical_statement_balance_inputs(cur, fields, holding)
+                evidence = fields['reconstruction_evidence']
+                if evidence == {'method': 'original_statement_opening'}:
+                    from domain.imports.historical_statement_balance import verify_original_opening
+                    if (source['acquisition_method'] != 'file' or source['file_format'] != 'pdf'
+                            or source['original_content'] is None or not source['filename']):
+                        raise ValueError('历史余额缺少原始账单')
+                    opening = verify_original_opening(content=source['original_content'], filename=source['filename'],
+                        account=account, day=day, currency=holding['currency'])
+                    if not source['is_asset'] or opening != holding['market_value']:
+                        raise ValueError('历史余额与账单计算结果不符')
+                else:
+                    input_refs[str(item['source_item_id'])] = _historical_statement_balance_inputs(cur, fields, holding)
             else:
                 raise ValueError('该持仓类型不支持历史重建')
         holdings.append(holding)
