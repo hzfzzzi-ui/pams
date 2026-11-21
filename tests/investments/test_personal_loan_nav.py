@@ -46,7 +46,8 @@ def test_borrowing_does_not_become_net_worth_growth_or_an_opening_balance():
     assert later[1]['net_worth'] is None and later[1]['personal_loan_coverage']['balance'] is None
 
 
-def test_confirmed_zero_principal_anchor_is_dated_and_must_still_verify(monkeypatch):
+@pytest.mark.parametrize('amount', ['0', '15'])
+def test_principal_anchor_is_dated_and_must_still_verify(monkeypatch, amount):
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:
         pytest.skip('requires explicitly isolated PostgreSQL')
@@ -61,23 +62,38 @@ def test_confirmed_zero_principal_anchor_is_dated_and_must_still_verify(monkeypa
                 source, item = uuid4(), uuid4()
                 sources.create_source(cur, source_id=source, account_code=code, source_name='dated principal statement',
                                       acquisition_method='manual', document_type='holding')
-                fields = dict(business_date=str(day), currency='CNY', asset_type='cash', net_cash='0')
+                fields = dict(business_date=str(day), currency='CNY', asset_type='cash', net_cash=amount)
                 sources.add_item(cur, source_id=source, item_id=item, parse_method='manual',
                                  raw_fields={'entered_fields': fields}, parsed_fields=fields)
                 sources.review_item(cur, source_id=source, item_id=item, expected_revision=2, parsed_fields=fields,
                                     review_status='confirmed')
-                scope = dict(as_of=str(day), confirmed=True, note='All personal borrowings settled', cash_currency='CNY',
-                             member_count=1, cash_amount='0', liability_scope='all_personal_loan_principal')
+                scope = dict(as_of=str(day), confirmed=True, point_in_time_only=True,
+                             note='All personal borrowing principal at the close', cash_currency='CNY',
+                             member_count=1, cash_amount=amount, liability_scope='all_personal_loan_principal')
                 plan = publication.preview(cur, source_id=source, revision=3, scope=scope)
                 publication.publish(cur, source_id=source, revision=3, preview_token=plan['preview_token'], scope=scope)
                 def read():
-                    rows = [dict(date=day, net_worth=Decimal(0), _account_contributions={code:Decimal(0)})]
+                    rows = [dict(date=day, net_worth=-Decimal(amount), _account_contributions={code:-Decimal(amount)})]
                     apply_personal_loan_coverage(cur, rows, [code], lambda p:p['market_value'])
                     return rows[0]
                 row = read()
-                assert row['net_worth'] == 0 and row['personal_loan_coverage']['status'] == 'confirmed'
-                assert Decimal(row['personal_loan_coverage']['balance']) == 0
+                assert row['net_worth'] == -Decimal(amount) and row['personal_loan_coverage']['status'] == 'confirmed'
+                assert Decimal(row['personal_loan_coverage']['balance']) == Decimal(amount)
+                def read_without_source_account():
+                    points = [dict(date=date(2026, 5, d), net_worth=Decimal(12),
+                                   _account_contributions={'cash':Decimal(12)}) for d in (1, 2, 3)]
+                    apply_personal_loan_coverage(cur, points, ['cash'], lambda p:p['market_value'])
+                    return points
+                before, opening, after = read_without_source_account()
+                if amount == '0':
+                    assert opening['personal_loan_coverage']['status'] == 'confirmed'
+                    assert Decimal(opening['personal_loan_coverage']['balance']) == 0
+                else:
+                    assert 'personal_loan_coverage' not in opening
+                assert opening['net_worth'] == 12 and opening['_account_contributions'] == {'cash':Decimal(12)}
+                assert all('personal_loan_coverage' not in row for row in (before, after))
                 cur.execute('UPDATE pams_holdings_snapshot SET market_value=20 WHERE source_item_id=%s', (str(item),))
                 assert 'personal_loan_coverage' not in read()
+                assert all('personal_loan_coverage' not in p for p in read_without_source_account())
         finally:
             conn.rollback()

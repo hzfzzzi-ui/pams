@@ -12,12 +12,13 @@ from domain.ledger.cashflow_read_v2 import load_cash_rows
 def _principal_anchors(cur, codes, through):
     # A complete credit-card or personal receivable balance cannot certify
     # all privately borrowed principal. Require that explicit attestation.
-    cur.execute("""SELECT v.account_code,v.as_of,v.version_id,h.market_value,h.currency,h.id
+    cur.execute("""SELECT v.account_code,v.as_of,v.version_id,h.market_value,h.currency,h.id,
+            v.scope_attestation->'point_in_time_only'='true'::jsonb AS point_in_time_only
         FROM account_snapshot_version v JOIN account_snapshot_member m ON m.version_id=v.version_id
         JOIN pams_holdings_snapshot h ON h.id=m.holding_id JOIN pams_accounts a ON a.account_code=v.account_code
-        WHERE v.account_code=ANY(%s) AND v.as_of<=%s AND NOT a.is_asset
+        WHERE v.as_of<=%s AND NOT a.is_asset AND (a.active OR v.account_code=ANY(%s))
           AND v.coverage_status='complete' AND h.asset_liability='负债' AND h.major_category='现金'
-          AND v.scope_attestation->>'liability_scope'='all_personal_loan_principal'""", (sorted(codes), through))
+          AND v.scope_attestation->>'liability_scope'='all_personal_loan_principal'""", (through,sorted(codes)))
     records = cur.fetchall()
     coverage = load_account_snapshot_coverage(cur, {(r['account_code'], r['as_of']) for r in records})
     by_day = defaultdict(list)
@@ -26,7 +27,17 @@ def _principal_anchors(cur, codes, through):
         if (proof['version_id'] == str(record['version_id']) and proof['status'] == 'complete'
                 and proof['member_ids'] == {record['id']}):
             by_day[record['as_of']].append(record)
-    return {day: proofs[0] for day, proofs in by_day.items() if len(proofs) == 1}
+    anchors = {}
+    for day, proofs in by_day.items():
+        if len(proofs) == 1:
+            proof = proofs[0]
+            if proof['account_code'] in codes:
+                anchors[day] = proof
+            elif proof['market_value'] == 0 and proof['point_in_time_only']:
+                # A dated declaration that all borrowing is zero requires no
+                # monetary contribution from its source account to this NAV.
+                anchors[day] = {**proof, 'scope_only_zero': True}
+    return anchors
 
 
 def annotate_personal_loans(rows, facts, anchors, value_in_base):
@@ -54,7 +65,8 @@ def annotate_personal_loans(rows, facts, anchors, value_in_base):
         prior = bisect_right(anchor_dates, day) - 1
         if not proof and prior >= 0:
             last_anchor = anchors[anchor_dates[prior]]
-            if last_anchor['market_value'] == 0 and movements[index - 1]['transaction_date'] <= anchor_dates[prior]:
+            if (not last_anchor.get('point_in_time_only') and last_anchor['market_value'] == 0
+                    and movements[index - 1]['transaction_date'] <= anchor_dates[prior]):
                 # A confirmed payoff closes the earlier borrowing warning. It
                 # does not provide a carried zero balance for this later day.
                 continue
@@ -62,7 +74,8 @@ def annotate_personal_loans(rows, facts, anchors, value_in_base):
             amount = proof['market_value']
             observed = row.get('_account_contributions', {}).get(proof['account_code'])
             value = value_in_base(proof)
-            if value is not None and observed == -value:
+            confirmed_zero = proof.get('scope_only_zero') and amount == 0 and observed is None
+            if value is not None and (observed == -value or confirmed_zero and value == 0):
                 row['personal_loan_coverage'] = dict(status='confirmed', balance=str(amount),
                                                      currency=proof['currency'], day_movements=changes)
                 continue
