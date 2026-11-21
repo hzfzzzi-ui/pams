@@ -495,7 +495,10 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                 const notes = count ? [`${count} 个账户含估算`] : [];
                 if (dates.length) notes.push(`外币现金参考汇率 · ${dates.join('、')}`);
                 const loan = ctx.dataset.navLoanCoverage[ctx.dataIndex];
-                if (loan?.status === 'principal_movements_only') notes.push('个人借款余额待核');
+                if (loan?.principal_reference) {
+                  const {amount, currency} = loan.principal_reference;
+                  notes.push(`已按借还记录扣除本金 ${formatCurrency(amount, currency)}`);
+                } else if (loan?.status === 'principal_movements_only') notes.push('个人借款余额待核');
                 for (const {borrowed, repaid, currency} of loan?.day_movements ?? []) {
                   if (Number(borrowed) > 0) notes.push(`当日借入本金 ${formatCurrency(borrowed, currency)}`);
                   if (Number(repaid) > 0) notes.push(`当日归还本金 ${formatCurrency(repaid, currency)}`);

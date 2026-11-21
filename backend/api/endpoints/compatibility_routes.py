@@ -643,6 +643,7 @@ def create_compatibility_router(
                 terminal_account_values_cny=terminal_account_values,
                 terminal_display_values_cny=terminal_display_values,
                 snapshot_scope_incomplete_accounts=incomplete_snapshot_accounts,
+                full_personal_portfolio=True,
                 account_config=account_cfg,
                 include_ibkr=(account_cfg.get("accounts", {}).get("ibkr", {}).get("include_in_nav") is not False),
                 interval=interval,

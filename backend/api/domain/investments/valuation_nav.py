@@ -1677,6 +1677,7 @@ def build_nav_weekly_payload(
     terminal_account_values_cny: dict[str, Any] | None = None,
     terminal_display_values_cny: dict[str, tuple[Decimal, Date, Date]] | None = None,
     snapshot_scope_incomplete_accounts: set[str] | None = None,
+    full_personal_portfolio: bool = False,
     include_ibkr: bool = True,
     interval: str = "weekly",
     account_config: dict[str, Any] | None = None,
@@ -1916,7 +1917,9 @@ def build_nav_weekly_payload(
         rate = fx_rate_at(fx_timelines, proof['currency'], proof['as_of'], base_currency)
         return None if rate is None else proof['market_value'] * rate * account_owner_ratio(proof['account_code'])
 
-    apply_personal_loan_coverage(cur, rows, nav_codes, principal_value)
+    reference_rate_at = (lambda unit, day: fx_rate_at(fx_timelines, unit, day, base_currency)) if full_personal_portfolio else None
+    apply_personal_loan_coverage(cur, rows, nav_codes, principal_value,
+                                 reference_rate_at=reference_rate_at, base_currency=base_currency)
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,
