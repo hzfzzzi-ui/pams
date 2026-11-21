@@ -60,7 +60,7 @@ def _reconciled_trade_cash_value(cur, row, *, as_of, base_currency, owner_ratio,
             or row['fx_missing_count'] or row['known_value_base'] is None or not row['single_snapshot_day']):
         return None
     day = row['holdings_as_of']
-    evidence = read_reconciled_cash(cur, as_of=day)
+    evidence = read_reconciled_cash(cur, as_of=day, account_code=row['account_code'])
     if not evidence:
         return None
     cash_day, broker_cash = evidence

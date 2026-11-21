@@ -1,11 +1,7 @@
 // Keep legacy investment-return formulas here. Personal NAV comparisons come from the API.
 import { safeNum } from '../../../utils.js';
+import { RETURN_WINDOW_OPTIONS } from '../../../shared/chart_window.js';
 
-const RETURN_WINDOW_OPTIONS = [
-  { key: 'ytd', label: '年初至今' },
-  { key: '1m', label: '近1月' },
-  { key: '1w', label: '近1周' },
-];
 const RETURN_EVENT_LIMIT = 4;
 
 function normalizeReturnWindowKey(key) {

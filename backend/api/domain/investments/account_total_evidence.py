@@ -88,13 +88,14 @@ def publish(cur, *, source_id, revision):
     return {'version_key':version, **value}
 
 
-def load(cur, *, dates, accounts):
+def load(cur, *, dates, accounts, source_accounts=None):
     """Return only unchanged, uniquely valued same-day observations."""
     if not dates or not accounts:
         return {}
     cur.execute('''SELECT version_key,account_code,business_date,base_currency,result_hash,inputs
         FROM valuation_evidence WHERE result_kind='portfolio' AND calculation_version=%s
-          AND account_code=ANY(%s::text[]) AND business_date=ANY(%s::date[])''', (VERSION, list(accounts), list(dates)))
+          AND account_code=ANY(%s::text[]) AND business_date=ANY(%s::date[])''',
+                (VERSION, list(accounts if source_accounts is None else set(accounts) & set(source_accounts)), list(dates)))
     rows = cur.fetchall(); candidates = {}
     cur.execute("SELECT current_setting('transaction_read_only')='on' AS readonly, current_setting('transaction_isolation') AS level")
     mode = cur.fetchone()

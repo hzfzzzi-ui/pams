@@ -11,7 +11,7 @@ from domain.accounts.account_overview import _apply_owner_ratio_to_money, _manua
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
-from domain.accounts.credit_card_debt import confirmed_table_net
+from domain.accounts.credit_card_debt import confirmed_table_net, uses_table_net_reference
 from domain.accounts.position_reference import historical_position_reference
 from domain.imports.account_import_statement import profiles as statement_profiles
 from domain.imports.account_import_store import supported_import_modes
@@ -269,12 +269,12 @@ def read_account_sync(cur, config):
         ):
             statement_accounts[code] = (cfg.get('base_currency', 'CNY'), liability)
     source_balances = statement_balances(cur, statement_accounts, now.date(), originals=originals)
-    if 'ccb_credit_0453' in statement_accounts and 'ccb_credit_0453' not in source_balances:
-        # The user approved table net for this card before an archived balance is available.
-        source_balances['ccb_credit_0453'] = confirmed_table_net(
-            cur, 'ccb_credit_0453', currency=statement_accounts['ccb_credit_0453'][0], today=now.date(),
-            has_duplicate_alerts=bool(source_status['ccb_credit_0453']['duplicate_count']),
-        )
+    for code, (currency, liability) in statement_accounts.items():
+        if liability and code not in source_balances and uses_table_net_reference(code, accounts[code]):
+            source_balances[code] = confirmed_table_net(
+                cur, code, currency=currency, today=now.date(),
+                has_duplicate_alerts=bool(source_status[code]['duplicate_count']),
+            )
     for code, cfg in accounts.items():
         parent, group_label, label = account_display(config, code, code)
         group = groups.setdefault(parent, {'code': parent, 'label': group_label or parent, 'rows': []})

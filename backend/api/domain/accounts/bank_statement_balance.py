@@ -7,6 +7,12 @@ from decimal import Decimal, InvalidOperation
 
 def statement_balances(cur, accounts, today, *, originals):
     """Return the latest unambiguous statement balance in each account's currency."""
+    return {code: rows[-1] for code, rows in statement_balance_history(
+        cur, accounts, today, originals=originals, latest_only=True).items() if rows}
+
+
+def statement_balance_history(cur, accounts, today, *, originals, latest_only=False):
+    """One signed closing balance per matching statement day; conflicting originals are unusable."""
     if not accounts:
         return {}
     cur.execute("""SELECT r.account_code AS source_account, r.source_id AS original_source_id,
@@ -20,7 +26,7 @@ def statement_balances(cur, accounts, today, *, originals):
           AND i.source_position->>'row'='statement_balance'
           AND i.raw_fields#>>'{source,balance_candidate}'='true'
           AND i.raw_fields->'initial_fields'=i.parsed_fields""", (sorted(accounts),))
-    by_account = defaultdict(list)
+    by_account = defaultdict(lambda: defaultdict(list))
     for row in cur.fetchall():
         code = row['source_account']
         if row['currency'] != accounts[code][0]:
@@ -30,17 +36,19 @@ def statement_balances(cur, accounts, today, *, originals):
         except (TypeError, ValueError, InvalidOperation):
             continue
         if day <= today and amount.is_finite():
-            by_account[code].append((day, amount, row))
+            by_account[code][day].append((amount, row))
 
     results = {}
-    for code, balances in by_account.items():
-        latest = max(day for day, _, _ in balances)
-        current = [(amount, row) for day, amount, row in balances if day == latest]
-        amounts = {amount for amount, _ in current}
-        if len(amounts) != 1 or not all(originals.read(row)[1] for _, row in current):
-            continue
-        amount = amounts.pop()
+    for code, by_day in by_account.items():
         liability = accounts[code][1]
-        results[code] = {'amount': str(-amount if liability else amount), 'as_of': latest,
-                         'basis': 'credit_card_statement' if liability else 'bank_statement'}
+        days = [max(by_day)] if latest_only else sorted(by_day)
+        originals.verify_many(row for day in days for _, row in by_day[day])
+        for day in days:
+            rows = by_day[day]
+            amounts = {amount for amount, _ in rows}
+            if len(amounts) != 1 or not all(originals.verify(row) for _, row in rows):
+                continue
+            amount = amounts.pop()
+            results.setdefault(code, []).append({'amount': str(-amount if liability else amount), 'as_of': day,
+                'basis': 'credit_card_statement' if liability else 'bank_statement'})
     return results

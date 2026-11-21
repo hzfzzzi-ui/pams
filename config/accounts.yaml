@@ -167,6 +167,7 @@ accounts:
     role: 支付宝余额
 
   ccb_credit_0453:
+    credit_balance_basis: posted_flow_net
     display_name: 建行0453人民币信用卡
     account_type: liability
     parent_account_code: ccb

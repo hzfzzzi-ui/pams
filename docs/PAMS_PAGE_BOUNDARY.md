@@ -40,6 +40,7 @@
 | `GET /api/portfolio/config` | 查询配置页目标规则和偏离情况 |
 | `GET /api/investment-transactions` | 查询投资交易事实列表 |
 | `GET /api/accounts` | 查询账户视图 |
+| `GET /api/accounts/{account_code}/history` | 读取单个子账户有记录的净值、负债和业务日期，供详情走势图使用 |
 | `GET /api/ledger/workbench` | 查询流水工作台数据 |
 | `POST /api/prices/*` | 刷新行情、基金净值或价格数据 |
 
@@ -48,6 +49,7 @@
 ## 展示责任
 
 - 前端展示及交互消费统一业务结果，不能新增临时分类或补差金额。
+- 账户中心点开子账户后，在同步信息下方展示走势。信用卡显示欠款，公积金和储蓄账户显示净值，有融资的投资账户可在同一张图上查看净值与负债。区间沿用年初至今、近一月、近一周。月度资料按实际业务日展示。
 - 持仓、账户净值、区间收益、NAV 与归因分别按 [数据契约](DATA_AND_RETURNS.md) 追溯。
 - 修改页面前核对调用方、模板和关键状态，并按 [工作流程](DEVELOPMENT_WORKFLOW.md) 选择验证范围。
 

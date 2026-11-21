@@ -2,6 +2,7 @@ import { createReadScope, isReadCancelled } from '../../shared/read_scope.js';
 import { createView } from './view.js';
 import { createActions } from './actions.js';
 import { createAccountSyncLoader } from './account_sync_controller.js';
+import { mountAccountHistory } from './account_history.js';
 import { ACCOUNT_TASKS, accountCenterHref, returnRoute } from '../../app/routes.js';
 
 const mounted = new WeakMap();
@@ -25,6 +26,7 @@ export function mount(root, context) {
   const generations = new Map();
   const pendingActions = new Set();
   const disabledButtons = new Map();
+  const inlineHistories = new Map();
   let alive = true;
   let ready = false;
   let releaseSheet = () => {};
@@ -32,6 +34,7 @@ export function mount(root, context) {
   let restoreDetails = Boolean(restore);
 
   function renderOverview(data) {
+    clearInlineHistories();
     if (task === 'balance' && targetAccount) {
       const accounts = (data.accounts || []).filter(account => account.account_code === targetAccount);
       if (!accounts.length) view.setMsg('未找到该账户的余额核准记录。');
@@ -101,11 +104,28 @@ export function mount(root, context) {
     runAction(`review:${code}`, button, () => actions.reviewAccount(code, button.dataset.reviewAction));
   }
 
-  function showDetail(title, html) {
+  function clearInlineHistories() {
+    for (const release of inlineHistories.values()) release();
+    inlineHistories.clear();
+  }
+
+  function onAccountToggle(event) {
+    const detail = event.target;
+    if (!detail.matches?.('details[data-account-detail]')) return;
+    if (detail.open && !inlineHistories.has(detail)) {
+      inlineHistories.set(detail, mountAccountHistory(detail, detail.dataset.accountDetail, get));
+    } else if (!detail.open && inlineHistories.has(detail)) {
+      inlineHistories.get(detail)();
+      inlineHistories.delete(detail);
+    }
+  }
+
+  function showDetail(title, html, code) {
     releaseSheet();
     const body = openSheet(title, html);
     if (!body) return;
     const anchor = body.firstElementChild;
+    mountAccountHistory(body, code, get);
     const onClick = event => {
       const button = event.target?.closest?.('[data-account-review]');
       if (!button || !body.contains(button)) return;
@@ -136,7 +156,7 @@ export function mount(root, context) {
     const balanceReview = target.closest('[data-sync-balance-review]');
     if (balanceReview) {
       const account = state.accountOverview?.accounts?.find(item => item.account_code === balanceReview.dataset.syncBalanceReview);
-      if (account) showDetail(account.subaccount_label || account.display_name || '余额核对', view.accountDetailGrid(account));
+      if (account) showDetail(account.subaccount_label || account.display_name || '余额核对', view.accountDetailGrid(account), account.account_code);
       else showTab('balance');
       return;
     }
@@ -155,6 +175,7 @@ export function mount(root, context) {
       const key = groupRow.dataset.groupKey;
       if (state.collapsedAccountGroups.has(key)) state.collapsedAccountGroups.delete(key);
       else state.collapsedAccountGroups.add(key);
+      clearInlineHistories();
       view.renderAccountOverviewRows(state.accountOverview?.accounts || []);
       view.renderAccountBalanceRows(state.accountOverview?.accounts || []);
       return;
@@ -162,7 +183,7 @@ export function mount(root, context) {
     const mobileRow = target.closest('[data-mobile-account-index]');
     if (mobileRow && root.contains(mobileRow)) {
       const account = view.accountMobileRows(state.accountOverview?.accounts || [])[Number(mobileRow.dataset.mobileAccountIndex)];
-      if (account) showDetail(account.subaccount_label || account.display_name || '账户详情', view.accountDetailGrid(account));
+      if (account) showDetail(account.subaccount_label || account.display_name || '账户详情', view.accountDetailGrid(account), account.account_code);
       return;
     }
     const overviewRow = target.closest('#accountOverviewRows tr[data-account-issue]');
@@ -171,7 +192,7 @@ export function mount(root, context) {
       if (details) {
         if (win.matchMedia('(max-width: 760px)').matches) {
           const title = overviewRow.querySelector('.accountCell div')?.innerText || '账户详情';
-          showDetail(title, details.querySelector('.accountDetailGrid')?.outerHTML || details.innerHTML);
+          showDetail(title, details.querySelector('.accountDetailGrid')?.outerHTML || details.innerHTML, details.dataset.accountDetail);
         } else details.open = !details.open;
       }
       return;
@@ -226,7 +247,9 @@ export function mount(root, context) {
     if (!alive) return;
     alive = false;
     reads.dispose();
+    clearInlineHistories();
     root.removeEventListener('click', onClick);
+    root.removeEventListener('toggle', onAccountToggle, true);
     win?.removeEventListener('pagehide', dispose);
     releaseSheet();
     for (const [button, disabled] of disabledButtons) button.disabled = disabled;
@@ -248,6 +271,7 @@ export function mount(root, context) {
   mounted.set(root, controller);
   bootstrap();
   root.addEventListener('click', onClick);
+  root.addEventListener('toggle', onAccountToggle, true);
   win?.addEventListener('pagehide', dispose);
   if (task) {
     find('accountTaskHeader').hidden = false;

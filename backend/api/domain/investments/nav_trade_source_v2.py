@@ -37,17 +37,17 @@ def _original_rows(content, file_format):
         yield number, (day, amount, balance, reference, raw)
 
 
-def _read_event_prefix(cur):
+def _read_event_prefix(cur, account_code='tonghuashun'):
     originals = SourceOriginals(cur)
-    facts = load_trade_rows(cur, account_code='tonghuashun', start=date.min, end=date.max, originals=originals)
+    facts = load_trade_rows(cur, account_code=account_code, start=date.min, end=date.max, originals=originals)
     if not facts:
         return [], None
     cur.execute("""SELECT r.source_id AS original_source_id, r.account_code AS source_account,
         r.sha256, r.content IS NOT NULL AS inline_original, r.file_format,
         i.source_item_id, i.raw_fields->'source' AS origin, i.parse_method
         FROM source_records r JOIN source_items i USING (source_id)
-        WHERE r.account_code='tonghuashun' AND r.status='published' AND r.document_type='trade'
-        ORDER BY r.created_at, r.source_id""")
+        WHERE r.account_code=%s AND r.status='published' AND r.document_type='trade'
+        ORDER BY r.created_at, r.source_id""", (account_code,))
     records = cur.fetchall()
     origins = {row['source_item_id']: row for row in records}
     sheets = {}
@@ -165,9 +165,9 @@ def _reconciled_day_cash(activity, opening_cash):
     return closing_cash if any(event['broker_cash'] == closing_cash for event in activity) else None
 
 
-def read_reconciled_cash(cur, *, as_of):
+def read_reconciled_cash(cur, *, as_of, account_code='tonghuashun'):
     """Return the last original-backed cash balance on or before the valuation day."""
-    events, gap = _read_event_prefix(cur)
+    events, gap = _read_event_prefix(cur, account_code)
     if not events or (gap is not None and gap <= as_of):
         return None
     cash = events[0]['broker_cash'] - events[0]['net_cash']
@@ -250,11 +250,11 @@ def estimated_capital_performance(events, values, owner_ratio, *, dated_ratios=N
     return result
 
 
-def project(cur, *, dates, owner_ratio, series_type, ownership_config=None):
+def project(cur, *, dates, owner_ratio, series_type, ownership_config=None, account_code='tonghuashun'):
     result = series_type(unknown_dates=dates, cash_scope_unverified=True)
     if not dates:
         return result
-    events, gap = _read_event_prefix(cur)
+    events, gap = _read_event_prefix(cur, account_code)
     if gap:
         dates = [day for day in dates if day < gap]
     symbols = securities_by_symbol(events) if events else None
