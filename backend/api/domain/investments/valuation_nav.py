@@ -991,12 +991,15 @@ def _replace_cash_contribution(bucket, code, value):
             bucket[field].append(code)
 
 
-def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at, points=None):
+def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at, points=None, periods=None):
     """Reject a later anchor's backcast where it fails to reconcile to a dated balance."""
     if not dates:
         return
     if points is None:
         points = _historical_cash_points(cur, accounts, max(dates))
+    if periods is None:
+        from domain.investments.statement_period_nav import load_statement_period_points
+        periods = load_statement_period_points(cur, [a['account_code'] for a in accounts], dates)
     for account in accounts:
         code = account['account_code']
         ratio = Decimal(str(account.get('owner_ratio', 1)))
@@ -1005,7 +1008,19 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
         for day in sorted(bank_series):
             bucket = bank_series[day]
             point = points.get((code, day))
+            period = periods.get((code, day))
+            if period is not None:
+                currency, side, balance = period
+                if currency != str(account.get('base_currency') or 'CNY').upper():
+                    continue
+                if point and (point['currency'], point['asset_liability'], point['market_value']) != period:
+                    _replace_cash_contribution(bucket, code, None)
+                    conflict = True
+                    continue
+                point = {'currency':currency, 'asset_liability':side, 'market_value':balance}
             if point is not None:
+                if code in bucket.get('source_evidence_unavailable_accounts', ()):
+                    continue
                 value = point['market_value']
                 rate = rate_at(point['currency'], day)
                 if rate is None and value:
@@ -1016,6 +1031,8 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 backcast = bucket.get('account_values', {}).get(code)
                 conflict = backcast is not None and backcast != amount
                 _replace_cash_contribution(bucket, code, amount)
+                if period and code in bucket.get('unavailable_accounts', ()):
+                    bucket['unavailable_accounts'].remove(code)
             elif conflict and day < anchor and code in bucket.get('estimated_accounts', ()):
                 _replace_cash_contribution(bucket, code, None)
 

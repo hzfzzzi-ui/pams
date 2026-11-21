@@ -86,7 +86,7 @@ def test_conflicting_backcast_stops_until_next_reconciled_point_or_anchor():
                      'account_values':{'wallet':D(300),'other':D(10)},
                      'available_accounts':['wallet','other'], 'estimated_accounts':['wallet']} for day in dates}
     _apply_historical_cash_points(None, bank_series=buckets, accounts=[account], dates=dates,
-                                 rate_at=lambda *_: D(1), points=points)
+                                 rate_at=lambda *_: D(1), points=points, periods={})
     assert [buckets[d]['net_worth'] for d in dates] == [10,10,310,310,310]
     assert 'wallet' not in buckets[dates[1]]['available_accounts']
     assert 'wallet' in buckets[dates[1]]['unavailable_accounts']

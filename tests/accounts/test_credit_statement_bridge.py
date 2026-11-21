@@ -30,6 +30,19 @@ def test_credit_bridge_uses_transaction_day_and_both_posting_cycles():
         credit_statement_bridge(first, later, **{**args, 'following_previous': D('76')})
     with pytest.raises(ValueError, match='不衔接'):
         credit_statement_bridge(first, later, **{**args, 'first_previous': D('49')})
+    from domain.investments import statement_period_nav
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(statement_period_nav, 'read_original_credit_pair',
+                      lambda **_: [(first, D('50')), (later, D('75'))])
+        days, balances, end = statement_period_nav._balance_curve('credit_statement_bridge', (b'one',b'two'), '{}', 'USD')
+        by_day = dict(zip(days, balances))
+        assert [by_day[date(2025,12,31)], by_day[date(2026,1,1)], by_day[date(2026,1,2)]] == [77,82,182]
+        assert end == date(2026,1,2)
+        statement_period_nav._balance_curve.cache_clear()
+        later.statement_balance += D('0.20')
+        with pytest.raises(ValueError, match='following'):
+            statement_period_nav._balance_curve('credit_statement_bridge', (b'one',b'two'), '{}', 'USD')
+        later.statement_balance -= D('0.20')
     later.statement_start = date(2026, 1, 4)
     with pytest.raises(ValueError, match='不连续'):
         credit_statement_bridge(first, later, **args)

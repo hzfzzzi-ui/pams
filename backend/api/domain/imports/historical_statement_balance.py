@@ -38,7 +38,7 @@ def verify_original_row(*, content, filename, account, raw, day):
     return len(observed) == 1 and observed[0][1] == expected
 
 
-def statement_opening_balance(statement, *, target, currency, account_tail):
+def _statement_balance_rows(statement, *, target, currency, account_tail):
     """Infer the prior closing balance from an account-identified complete report."""
     from datetime import timedelta
     if (statement.statement_start != target + timedelta(days=1) or not statement.statement_end
@@ -61,22 +61,24 @@ def statement_opening_balance(statement, *, target, currency, account_tail):
     opening = rows[0]['balance'] - rows[0]['amount']
     if not opening.is_finite() or opening < 0:
         raise ValueError('账单推算余额无效')
+    return opening, rows
+
+
+def statement_opening_balance(statement, *, target, currency, account_tail):
+    opening, _ = _statement_balance_rows(statement, target=target, currency=currency, account_tail=account_tail)
     return opening
 
 
-def verify_original_opening(*, content, filename, account, day, currency):
+def read_original_debit_statement(*, content, filename, cfg, currency):
     """Reparse the configured original report; never trust supplied values."""
     import re
     from pathlib import Path
     from tempfile import TemporaryDirectory
     import pdfplumber
     from collectors.bank_statement_parser import parse_statement, _parse_icbc_datetime, _parse_icbc_currency
-    from domain.imports.account_import_statement import profiles
 
-    configs = profiles().get(account, [])
-    if len(configs) != 1 or configs[0].get('statement_template') != 'icbc_debit_pdf':
+    if cfg.get('statement_template') != 'icbc_debit_pdf':
         raise ValueError('该账单来源尚不支持历史期初核验')
-    cfg = configs[0]
     expected = str(cfg.get('account_tail') or '')
     if not re.fullmatch(r'\d{4}', expected) or Path(filename).suffix.lower() != '.pdf':
         raise ValueError('账单账户身份不明确')
@@ -112,7 +114,16 @@ def verify_original_opening(*, content, filename, account, day, currency):
         statement = parse_statement(path, cfg, since=None)
     if len(statement.rows) != expected_rows:
         raise ValueError('账单流水解析不完整')
-    return statement_opening_balance(statement, target=day, currency=currency, account_tail=expected)
+    return statement, expected
+
+
+def verify_original_opening(*, content, filename, account, day, currency):
+    from domain.imports.account_import_statement import profiles
+    configs = profiles().get(account, [])
+    if len(configs) != 1:
+        raise ValueError('账单账户设置不唯一')
+    statement, tail = read_original_debit_statement(content=content, filename=filename, cfg=configs[0], currency=currency)
+    return statement_opening_balance(statement, target=day, currency=currency, account_tail=tail)
 
 
 def credit_statement_bridge(first, following, *, target, currency, first_previous, following_previous):
@@ -148,20 +159,17 @@ def credit_statement_bridge(first, following, *, target, currency, first_previou
     return value
 
 
-def verify_original_credit_bridge(*, originals, account, day, currency):
+def read_original_credit_pair(*, originals, cfg, currency):
     """Read two original monthly reports through the configured source adapter."""
     import re
     from pathlib import Path
     from tempfile import TemporaryDirectory
     import pdfplumber
     from collectors.bank_statement_parser import parse_statement
-    from domain.imports.account_import_statement import profiles
 
-    configs = profiles().get(account, [])
-    if (len(configs) != 1 or configs[0].get('statement_template') not in {'guangfa_credit_pdf', 'ccb_credit_pdf'}
-            or configs[0].get('currency') != currency or len(originals) != 2):
+    if (cfg.get('statement_template') not in {'guangfa_credit_pdf', 'ccb_credit_pdf'}
+            or cfg.get('currency') != currency or len(originals) != 2):
         raise ValueError('信用卡原始账单来源不支持')
-    cfg = configs[0]
     tail = str(cfg.get('card_tail') or '')
     if not re.fullmatch(r'\d{4}', tail):
         raise ValueError('信用卡账户身份不明确')
@@ -229,6 +237,15 @@ def verify_original_credit_bridge(*, originals, account, day, currency):
             if statement.account_tail != tail or statement.statement_balance != summaries[0][0]:
                 raise ValueError('信用卡账单汇总与账户不符')
             parsed.append((statement, summaries[0][1]))
+    return parsed
+
+
+def verify_original_credit_bridge(*, originals, account, day, currency):
+    from domain.imports.account_import_statement import profiles
+    configs = profiles().get(account, [])
+    if len(configs) != 1:
+        raise ValueError('信用卡账单来源不唯一')
+    parsed = read_original_credit_pair(originals=originals, cfg=configs[0], currency=currency)
     return credit_statement_bridge(parsed[0][0], parsed[1][0], target=day, currency=currency,
                                    first_previous=parsed[0][1], following_previous=parsed[1][1])
 
