@@ -68,6 +68,9 @@ def publish(cur, *, source_id, revision):
                     or Decimal(value['net_asset']) != 0 or _conflicts_with_empty(cur, r['account_code'], day)):
                 raise ValueError('空仓确认必须覆盖当日本账户所有持仓及现金')
             value['confirmed_empty'] = True
+        elif fields.get('attestation') == 'complete_reconstructed_account':
+            from domain.investments.reviewed_account_scope import verify_scope
+            verify_scope(cur, value, fields)
         elif not _verified_unchanged(cur, value, fields, locking=True):
             raise ValueError('须引用同范围、同金额的原始账户总额并明确确认当日总额未变')
     elif (r['acquisition_method'] != 'screenshot' or not r['content']
@@ -107,6 +110,9 @@ def load(cur, *, dates, accounts):
                     if _conflicts_with_empty(cur, r['account_code'], r['business_date']):
                         continue
                     value['confirmed_empty'] = True
+                elif fields.get('attestation') == 'complete_reconstructed_account':
+                    from domain.investments.reviewed_account_scope import verify_scope
+                    verify_scope(cur, value, fields)
                 elif not _verified_unchanged(cur, value, fields, locking=locking):
                     continue
             if _hash(value) != r['result_hash'] or not set(value['covered_account_codes']) <= set(accounts):

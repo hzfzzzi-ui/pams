@@ -635,12 +635,17 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         if (covered & set(row.get('source_evidence_unavailable_accounts', ()))
                 or any(code in available and code not in contributions for code in covered)):
             continue
-        ratios = {Decimal(str(account_owner_ratio(code))) for code in covered}
+        raw_ratios = [account_owner_ratio(code) for code in covered]
+        if any(ratio is None for ratio in raw_ratios):
+            continue
+        ratios = {Decimal(str(ratio)) for ratio in raw_ratios}
         rate = rate_at(value['currency'], row['date'])
         if len(ratios) != 1 or (rate is None and Decimal(value['net_asset']) != 0):
             continue
         amount = Decimal(value['net_asset']) * next(iter(ratios)) * (rate or Decimal(1))
         prior = sum((contributions.get(code, Decimal(0)) for code in covered if code in available), Decimal(0))
+        if value.get('confirmed_components') and covered <= available and abs(amount-prior) > Decimal('0.005'):
+            continue
         delta = amount - prior
         if row.get('net_worth') is not None and any(contributions.get(code, Decimal(0)) < 0 for code in covered):
             continue
@@ -1736,8 +1741,12 @@ def build_nav_weekly_payload(
     from domain.investments.account_total_evidence import load as load_account_totals
     totals = load_account_totals(cur, dates=dates, accounts=nav_codes)
     for row in rows:
+        def dated_ratio(code):
+            if code == 'tonghuashun' and ownership_config is not None:
+                return getattr(a_share_series, 'ownership_ratios', {}).get(row['date'])
+            return account_owner_ratio(code)
         _apply_account_totals(row, [value for (day, _), value in totals.items() if day == row['date']],
-                              account_owner_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
+                              dated_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,
