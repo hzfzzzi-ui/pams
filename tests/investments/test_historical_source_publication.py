@@ -188,6 +188,10 @@ def test_historical_foreign_statement_balance_stays_on_its_day(monkeypatch):
                 assert buckets[day]['account_values'][code] == 0
                 assert code not in buckets[day]['unavailable_accounts'] + buckets[day]['estimated_accounts']
                 assert code in buckets[later]['unavailable_accounts']
+                from domain.accounts.balance_snapshot import load_verified_bank_balances
+                bank_config = {'accounts': {code: {'account_type':'funding','truth_source':'bank_statement','base_currency':'MXN'}}}
+                assert load_verified_bank_balances(cur, bank_config, day)[code]['amount'] == 0
+                assert code not in load_verified_bank_balances(cur, bank_config, later)
 
                 # A previously issued CNY scope retains its original unit when
                 # the account's base currency has since been changed.

@@ -54,13 +54,19 @@ export function createInvestmentChartController({ root = document, host = window
     if (!current()) return Promise.resolve(null);
     if (!navPromise) {
       const legacyNav = () => reads.run('nav', signal => readInvestmentNav({signal}));
-      const navRead = trackInvestmentNav(readAnalysis()?.then(analysis => analysis?.nav ?? legacyNav()) ?? legacyNav());
+      const navRead = trackInvestmentNav(readAnalysis()?.then(async analysis => {
+        const cached = analysis?.nav;
+        if (cached?.period_comparisons) return cached;
+        const live = await legacyNav();
+        return live.rows?.length || !cached ? live : cached;
+      }) ?? legacyNav());
       navPromise = Promise.all([navRead, loadChartClass()])
         .then(([response, chartClass]) => {
           if (!current()) return null;
           renderer.setChartClass(chartClass);
           state.navRows = normalizeInvestmentNavRows(response.rows || []);
-          state.navChart = renderer.renderNav(state.navRows, state.activeWindow, state.isMobile);
+          state.navComparisons = response.period_comparisons ?? {};
+          state.navChart = renderer.renderNav();
           publishCharts();
           return state.navChart;
         })

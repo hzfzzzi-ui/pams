@@ -22,7 +22,7 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
       if (!isActive()) return;
       const latest = chart.state.navRows.at(-1);
       const money = value => value == null ? '—' : fmtCny(value);
-      find('personalNetLabel').textContent = latest?.nav_scope.startsWith('partial:') ? '已知个人净资产' : '个人净资产';
+      find('personalNetLabel').textContent = latest?.available_account_count != null ? '已知个人净资产' : '个人净资产';
       find('personalNet').textContent = money(latest?.market_value);
       find('personalGross').textContent = money(latest?.assets);
       find('personalDebt').textContent = money(latest?.liabilities);

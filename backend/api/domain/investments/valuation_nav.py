@@ -17,6 +17,9 @@ from domain.accounts.balance_reference import historical_account_balance, load_b
 from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.nav_period_comparison import (
+    DisplayContributions, comparison_scope, period_comparisons, position_member, terminal_comparison_basis,
+)
 from domain.investments.portfolio_state import _owner_ratio
 from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value
 
@@ -419,6 +422,14 @@ def build_weekly_nav_rows(
         partial = ({"available_net_worth": available_net, "available_accounts": sorted(available)}
                    if available else {})
         partial['_account_contributions'] = contributions
+        basis = dict(bank_bucket.get('_comparison_basis', {}))
+        basis.update({code:'complete_positions' for code in snapshot_accounts})
+        if 'tonghuashun' in available:
+            basis['tonghuashun'] = ('broker_ledger' if 'tonghuashun' in missing_accounts else 'complete_positions')
+        if 'ibkr' in available:
+            proof = ibkr_bucket.get('daily_close') or {}
+            basis['ibkr'] = proof.get('nav_basis') or ibkr_bucket.get('history_evidence') or 'broker_net'
+        partial['_comparison_basis'] = basis
         if preview is not None and "tonghuashun" in missing_accounts:
             partial["tonghuashun_source_through"] = getattr(a_share_series, "preview_source_through", None)
         carried_ibkr = ("ibkr" in available and ibkr_bucket.get("daily_close", {}).get("status") == "last_valid")
@@ -517,7 +528,7 @@ def current_nav_account_values_from_parts(
         for row in investment_positions
         if row.get("account_code")
     }
-    values: dict[str, Decimal] = {}
+    values = DisplayContributions()
     official = current_daily_close_accounts(account_balances, investment_positions)
     incomplete = {str(row.get("account_code")) for row in [*account_balances, *investment_positions]
                   if row.get("account_code") and row.get("include_in_nav", True)
@@ -530,16 +541,23 @@ def current_nav_account_values_from_parts(
         if account_code in official:
             continue
         values[account_code] = values.get(account_code, Decimal("0")) + _dec(row.get("market_value_cny"))
+        if row.get('snapshot_scope_status') != 'complete' or row.get('market_value_cny') is None:
+            values.basis[account_code] = 'terminal_positions_unverified'
+        else:
+            values.basis.setdefault(account_code, 'complete_positions')
     for row in account_balances:
         account_code = str(row.get("account_code") or "")
         if account_code in incomplete:
             continue
         if account_code in official:
-            values[account_code] = _dec(official.pop(account_code)["amount_cny"])
+            source = official.pop(account_code)
+            values[account_code] = _dec(source["amount_cny"])
+            values.basis[account_code] = source['daily_close'].get('nav_basis') or 'broker_net'
             continue
         if not account_code or not row.get("include_in_nav", True) or account_code in represented_accounts:
             continue
         values[account_code] = values.get(account_code, Decimal("0")) + _dec(row.get("amount_cny"))
+        values.basis[account_code] = 'complete_positions' if row.get('snapshot_scope_status') == 'complete' else 'cash_balance'
     return values
 
 
@@ -559,24 +577,44 @@ def latest_nav_display_values(
         code = row.get("account_code")
         if code and row.get("include_in_nav", True) and balances.get(code, {}).get("include_in_nav", True):
             by_account[code].append(row)
-    values = {}
+    values = DisplayContributions()
+    configs = (account_config or {}).get("accounts", {})
+    broker_close_accounts = {code for code, row in balances.items()
+                             if row.get('daily_close') is not None or configs.get(code, {}).get('portfolio_value_evidence') == 'official_broker_close'}
     def record(code, rows, value):
         dates = [_row_date(row.get("market_price_as_of") or row.get("as_of")) for row in rows]
         if all(day is not None and day <= terminal_date for day in dates) and value.is_finite():
             values[code] = (value, min(dates), max(dates))
+            close = rows[0].get('daily_close') or {}
+            if close.get('status') in {'ok','last_valid'} and close.get('nav_basis'):
+                values.basis[code] = (['prior_official_nav', close['nav_basis']] if max(dates) < terminal_date
+                                      else close['nav_basis'])
+            elif any(r.get('asset_id') or r.get('symbol') for r in rows):
+                values.basis[code] = ['position_members', sorted(position_member(r) for r in rows)]
+            else:
+                values.basis[code] = 'cash_balance'
 
     for code, value in confirmed_values.items():
         positions = by_account.get(code)
-        rows = positions or [balances.get(code, {})]
+        balance = balances.get(code, {})
+        if code in broker_close_accounts:
+            # A broker net asset value includes cash and financing. A
+            # portfolio of individually priced securities cannot replace it.
+            if code in current_daily_close_accounts([balance], positions or []):
+                record(code, [balance], value)
+            continue
+        rows = positions or [balance]
         amount_key = "market_value_cny" if positions else "amount_cny"
+        if any(row.get('currency') not in (None, 'CNY') and row.get(amount_key) != 0
+               and _row_date(row.get('fx_rate_as_of')) != terminal_date for row in rows):
+            continue
         if all(row.get(amount_key) is not None for row in rows):
             record(code, rows, value)
 
     config = account_config or {}
-    configs = config.get("accounts", {})
     bindings = load_bound_balance_references(cur, configs) if cur is not None else {}
     for code, rows in by_account.items():
-        if code in values:
+        if code in values or code in broker_close_accounts:
             continue
         mode = (configs.get(code) or {}).get("latest_position_evidence")
         supported = all(
@@ -590,7 +628,7 @@ def latest_nav_display_values(
             record(code, rows, sum((_dec(row["market_value_cny"]) for row in rows), Decimal(0)))
 
     for code, balance in balances.items():
-        if code in values or not balance.get("include_in_nav", True):
+        if code in values or code in broker_close_accounts or not balance.get("include_in_nav", True):
             continue
         reference = historical_account_balance(configs.get(code, {}), terminal_date, _owner_ratio(config, code),
                                                account_code=code, bindings=bindings)
@@ -600,10 +638,11 @@ def latest_nav_display_values(
             value = Decimal(reference["balance_amount"])
             day = reference["balance_as_of"]
             values[code] = (-value if balance.get("account_type") == "liability" else value, day, day)
+            values.basis[code] = 'balance_reference'
     return values
 
 
-def _add_known_display_values(row, values):
+def _add_known_display_values(row, values, *, basis=None):
     """Add missing contributions once to the partial display series."""
     if row.get("net_worth") is not None:
         return
@@ -616,6 +655,8 @@ def _add_known_display_values(row, values):
     )
     row["available_accounts"] = sorted(available.union(additions))
     row.setdefault('_account_contributions', {}).update({code:values[code][0] for code in additions})
+    sources = getattr(values, 'basis', {}) if basis is None else basis
+    row.setdefault('_comparison_basis', {}).update({code:sources.get(code, 'display_estimate') for code in additions})
     row["estimated_accounts"] = sorted(set(row.get("estimated_accounts", ())).union(additions))
     row.setdefault("latest_known_components", {}).update({
         code: {"from": values[code][1].isoformat(), "through": values[code][2].isoformat()}
@@ -661,6 +702,8 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
             row['net_worth'] += delta
         for code in covered:
             contributions.pop(code, None)
+            row.setdefault('_comparison_basis', {}).pop(code, None)
+        row['_comparison_basis'][value['account_code']] = ['account_total', sorted(covered)]
         contributions[value['account_code']] = amount
         row['available_accounts'] = sorted((available - covered) | {value['account_code']})
         # A verified same-day account total proves the net value for its
@@ -718,6 +761,11 @@ def format_weekly_nav_payload(
     interval: str = "weekly",
 ) -> dict[str, Any]:
     """Return the legacy /nav/weekly response shape for frontend compatibility."""
+    rendered = []
+    for row in rows:
+        point = normalize_nav_row(row)
+        point['comparison_scope'] = comparison_scope(row)
+        rendered.append(point)
     return {
         "start": start_date.isoformat(),
         "end": terminal_date.isoformat(),
@@ -725,7 +773,8 @@ def format_weekly_nav_payload(
         "interval": interval,
         "method": "account_anchor_backcast",
         "anchor_date": terminal_date.isoformat(),
-        "rows": [normalize_nav_row(row) for row in rows],
+        "rows": rendered,
+        "period_comparisons": period_comparisons(rendered, terminal_date),
     }
 
 
@@ -853,13 +902,20 @@ def _statement_balance_native_value(
     return future_balance - reverse_flow, latest_balance_date or future_date
 
 
-def _cash_account_at_terminal(account: dict[str, Any], terminal_date: Date) -> dict[str, Any]:
-    if ((account.get('primary_balance') or {}).get('source') != VERIFIED_BANK_BALANCE_SOURCE
-            or account_anchor_date(account, terminal_date) <= terminal_date):
-        return account
-    previous = [balance for balance in (account.get('manual_balance'), account.get('statement_balance'))
-                if balance and (_row_date(balance.get('as_of')) or Date.max) <= terminal_date]
-    return {**account, 'primary_balance': max(previous, key=lambda balance: str(balance['as_of']), default=None)}
+def _cash_account_at_terminal(account: dict[str, Any], terminal_date: Date, dated_cash=None) -> dict[str, Any]:
+    if ((account.get('primary_balance') or {}).get('source') == VERIFIED_BANK_BALANCE_SOURCE
+            and account_anchor_date(account, terminal_date) > terminal_date):
+        previous = [balance for balance in (account.get('manual_balance'), account.get('statement_balance'))
+                    if balance and (_row_date(balance.get('as_of')) or Date.max) <= terminal_date]
+        account = {**account, 'primary_balance': max(previous, key=lambda balance: str(balance['as_of']), default=None)}
+    if (dated_cash and account.get('account_type') == 'funding'
+            and account.get('truth_source') in {'bank_statement', 'official_statement'}
+            and (not account_anchor_amount(account) or dated_cash['as_of'] >= account_anchor_date(account, terminal_date))):
+        # This anchor is only for reconstruction with dated movements.
+        ratio = Decimal(str(account.get('owner_ratio', 1)))
+        return {**account, 'primary_balance': {'amount': dated_cash['market_value'] * ratio, 'currency': dated_cash['currency'],
+                'as_of': dated_cash['as_of'], 'source': VERIFIED_BANK_BALANCE_SOURCE, 'point_in_time_only': True}}
+    return account
 
 
 def _bank_backcast_series(
@@ -908,6 +964,9 @@ def _bank_backcast_series(
                     bucket.setdefault('source_evidence_unavailable_accounts', []).append(code)
                     continue
             movements = [amount for day, amount in native_movements if start < day <= end]
+            if sample_date != anchor_date and (account.get('primary_balance') or {}).get('point_in_time_only') and not movements:
+                bucket.setdefault('unavailable_accounts', []).append(code)
+                continue
             flow = sum(movements, Decimal(0)) * owner_ratio
             projected_amount = anchor_amount + (flow if sample_date >= anchor_date else -flow)
             if verified_snapshot:
@@ -919,6 +978,7 @@ def _bank_backcast_series(
                 add_nav_amount(bucket, account_value)
                 bucket.setdefault('account_values', {})[code] = account_value
                 bucket.setdefault('available_accounts', []).append(code)
+                bucket.setdefault('_comparison_basis', {})[code] = 'cash_balance'
                 if sample_date != anchor_date:
                     bucket.setdefault('estimated_accounts', []).append(code)
                 continue
@@ -939,11 +999,13 @@ def _bank_backcast_series(
                 and not (anchor is not None and latest_statement_date is not None and sample_date > latest_statement_date and anchor_date >= latest_statement_date)
             ):
                 native_value = statement_native_value
+                basis = 'cash_balance'
             elif anchor is None or (sample_date < effective_date and not movements):
                 bucket.setdefault('unavailable_accounts', []).append(code)
                 continue
             else:
                 native_value = projected_amount
+                basis = 'cash_anchor'
 
             signed_native_value = signed_account_native_value(account, native_value)
             rate = fx_rate_at(fx_timelines, anchor_currency, sample_date, base_currency)
@@ -954,6 +1016,7 @@ def _bank_backcast_series(
                 add_nav_amount(bucket, account_value)
                 bucket.setdefault("account_values", {})[code] = account_value
                 bucket.setdefault("available_accounts", []).append(code)
+                bucket.setdefault('_comparison_basis', {})[code] = basis
                 # Cash movements can support an estimate away from the anchor.
                 # An individual verified movement does not prove full coverage.
                 if isinstance(rows_by_account, StatementRowsByAccount) and sample_date != anchor_date:
@@ -994,6 +1057,7 @@ def _replace_cash_contribution(bucket, code, value):
         bucket['liabilities' if old < 0 else 'assets'] -= abs(old)
         bucket['net_worth'] -= old
     if value is None:
+        bucket.get('_comparison_basis', {}).pop(code, None)
         for field in ('available_accounts', 'estimated_accounts'):
             if code in bucket.get(field, ()):
                 bucket[field].remove(code)
@@ -1049,6 +1113,7 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 backcast = bucket.get('account_values', {}).get(code)
                 conflict = backcast is not None and backcast != amount
                 _replace_cash_contribution(bucket, code, amount)
+                bucket.setdefault('_comparison_basis', {})[code] = 'cash_balance'
                 if (period or complete_cash) and code in bucket.get('unavailable_accounts', ()):
                     bucket['unavailable_accounts'].remove(code)
                 if complete_cash:
@@ -1566,12 +1631,17 @@ def build_nav_weekly_payload(
     ]
     nav_codes = {str(account["account_code"]) for account in overview_accounts if account.get("account_code")}
     bank_accounts, investment_snapshot_accounts = select_weekly_nav_accounts(overview_accounts)
-    bank_accounts = [_cash_account_at_terminal(account, terminal_date) for account in bank_accounts]
 
     fx_timelines = load_fx_timelines(cur, base_currency)
     # Fetch the facts needed to connect samples to balance anchors, including
     # movements between a pre-window anchor and the first visible sample.
     cash_points = _historical_cash_points(cur, bank_accounts, max(dates))
+    latest_cash = {}
+    for (code, day), point in cash_points.items():
+        if point['complete_cash_scope'] and (code not in latest_cash or latest_cash[code]['as_of'] < day):
+            latest_cash[code] = point
+    bank_accounts = [_cash_account_at_terminal(account, terminal_date, latest_cash.get(account['account_code']))
+                     for account in bank_accounts]
     cash_dates = sorted(set(dates) | {day for _, day in cash_points})
     bank_flow_start = min(cash_dates[0], min(
         (account_anchor_date(account, terminal_date) for account in bank_accounts
@@ -1699,6 +1769,8 @@ def build_nav_weekly_payload(
                     # A portfolio-wide terminal total cannot erase one proven
                     # account component while retaining that component's label.
                     break
+                breakdown = terminal_account_values or terminal_nav_bucket.get('_comparison_account_values') or {}
+                row['_comparison_basis'] = terminal_comparison_basis(row, nav_codes, breakdown, terminal_net)
                 row["assets"] = terminal_assets
                 row["liabilities"] = terminal_liabilities
                 row["net_worth"] = terminal_net
@@ -1724,10 +1796,12 @@ def build_nav_weekly_payload(
     }
     if ownership_config is not None:
         unresolved.discard('tonghuashun')
+    config = (account_config or {}).get("accounts", {})
+    unresolved.difference_update(code for code, cfg in config.items()
+                                 if cfg.get('portfolio_value_evidence') == 'official_broker_close')
     if unresolved & nav_codes:
         from domain.investments.position_nav_projection import load_position_nav_estimates
 
-        config = (account_config or {}).get("accounts", {})
         estimates = load_position_nav_estimates(
             cur, accounts={code: config.get(code, {}) for code in unresolved & nav_codes},
             dates=[row["date"] for row in rows if row.get("net_worth") is None],
@@ -1738,7 +1812,7 @@ def build_nav_weekly_payload(
             by_account = estimates.get(row["date"], {})
             _add_known_display_values(row, {
                 code: by_account[code] for code in row.get("unavailable_accounts", ()) if code in by_account
-            })
+            }, basis=getattr(by_account,'basis', {}))
     if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
         _add_known_display_values(rows[-1], terminal_display_values_cny)
     from domain.investments.account_total_evidence import load as load_account_totals
