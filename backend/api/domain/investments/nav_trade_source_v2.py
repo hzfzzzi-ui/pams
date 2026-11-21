@@ -185,7 +185,7 @@ def read_reconciled_cash(cur, *, as_of, account_code='tonghuashun'):
     return (observed, cash) if observed is not None else None
 
 
-def daily_estimates(events, prices, dates, symbols):
+def daily_estimates(events, prices, dates, symbols, *, require_new_mark_after_ledger=False):
     """Validate end-of-day cash against the original; return only covered valuations."""
     if not events or not dates:
         return {}
@@ -225,7 +225,10 @@ def daily_estimates(events, prices, dates, symbols):
             previous = {symbol: prices.get(symbol, {}).get(day) for symbol in symbols.values()}
         if day in wanted:
             active = [symbol for symbol, qty in quantities.items() if qty]
-            if all(previous.get(symbols[symbol]) is not None for symbol in active):
+            # Beyond the ledger, cash can accompany a new valuation of the held
+            # securities. An empty portfolio or a holiday supplies no such mark.
+            dated = not require_new_mark_after_ledger or day <= last_day or (active and not closed)
+            if dated and all(previous.get(symbols[symbol]) is not None for symbol in active):
                 result[day] = cash + sum((quantities[s] * previous[symbols[s]] for s in active), Decimal(0))
         day += timedelta(days=1)
     return result
@@ -250,7 +253,8 @@ def estimated_capital_performance(events, values, owner_ratio, *, dated_ratios=N
     return result
 
 
-def project(cur, *, dates, owner_ratio, series_type, ownership_config=None, account_code='tonghuashun'):
+def project(cur, *, dates, owner_ratio, series_type, ownership_config=None, account_code='tonghuashun',
+            require_new_mark_after_ledger=False):
     result = series_type(unknown_dates=dates, cash_scope_unverified=True)
     if not dates:
         return result
@@ -268,7 +272,7 @@ def project(cur, *, dates, owner_ratio, series_type, ownership_config=None, acco
     prices = defaultdict(dict)
     for row in cur.fetchall():
         prices[row['symbol']][row['as_of']] = row['close_price']
-    values = daily_estimates(events, prices, dates, symbols)
+    values = daily_estimates(events, prices, dates, symbols, require_new_mark_after_ledger=require_new_mark_after_ledger)
     ratios = None
     if ownership_config is not None:
         from domain.investments.capital_ownership import load_contribution_ratios
