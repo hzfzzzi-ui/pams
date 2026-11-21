@@ -23,14 +23,33 @@ function describeValue(row, key, money) {
   return [money.format(row[key]), note].filter(Boolean).join(' · ');
 }
 
-function draw(canvas, ChartClass, rows, keys, start, end, money) {
+function windowRows(payload, keys, start, end) {
+  const rows = payload.rows.filter(row => row.date >= start && row.date <= end);
+  if (payload.interpolation !== 'step') return rows.filter(row => keys.some(key => pointValue(row, key) != null));
+  const previous = payload.rows.findLast(row => row.date < start);
+  if (previous && rows[0]?.date !== start && keys.some(key => pointValue(previous, key) != null)) {
+    const boundary = {...previous, date: start};
+    for (const key of keys) {
+      if (pointValue(previous, key) == null) continue;
+      boundary[key + '_as_of'] = previous[key + '_as_of'] || previous.date;
+      if (previous[key + '_status'] === 'confirmed') boundary[key + '_status'] = 'estimated';
+    }
+    rows.unshift(boundary);
+  }
+  return rows;
+}
+
+function draw(canvas, ChartClass, rows, keys, start, end, money, step) {
   const dates = rows.map(row => utcTime(row.date));
   const datasets = keys.map(key => {
     const data = rows.map((row, i) => ({x: dates[i], y: pointValue(row, key)}));
-    const sparse = data.filter(point => point.y != null).length <= 4;
-    return {label: metricLabel(key, keys), data, spanGaps: true, tension: 0, borderWidth: 2, clip: 5,
+    const count = data.filter(point => point.y != null).length;
+    const pointRadius = step
+      ? data.map((p, i) => p.y != null && data[i - 1]?.y == null && data[i + 1]?.y == null ? 3 : 0)
+      : count <= 4 ? 3 : 0;
+    return {label: metricLabel(key, keys), data, spanGaps: !step, stepped: step ? 'before' : false, tension: 0, borderWidth: 2, clip: 5,
       borderColor: metrics[key].color, backgroundColor: metrics[key].color,
-      pointRadius: sparse ? 3 : 0, pointHoverRadius: 4, pointHitRadius: 8};
+      pointRadius, pointHoverRadius: 4, pointHitRadius: 8};
   });
   const min = utcTime(start), max = utcTime(end);
   return new ChartClass(canvas, {type: 'line', data: {datasets}, options: {
@@ -38,7 +57,11 @@ function draw(canvas, ChartClass, rows, keys, start, end, money) {
     interaction: {mode: 'index', axis: 'x', intersect: false},
     plugins: {legend: {display: false}, tooltip: {callbacks: {
       title: items => rows[items[0].dataIndex].date,
-      label: item => item.dataset.label + '  ' + describeValue(rows[item.dataIndex], keys[item.datasetIndex], money),
+      label: item => {
+        const row = rows[item.dataIndex], key = keys[item.datasetIndex];
+        const asOf = row[key + '_as_of'];
+        return item.dataset.label + '  ' + describeValue(row, key, money) + (asOf ? '（沿用 ' + asOf + '）' : '');
+      },
     }}},
     scales: {
       x: {type: 'linear', min, max, grid: {display: false}, border: {color: CHART_THEME.grid},
@@ -90,7 +113,8 @@ export function mountAccountHistory(container, code, get) {
       item.append(label, amount);
       if (latest && pointValue(latest, key) != null) {
         const date = doc.createElement('small');
-        date.textContent = latest.date;
+        const asOf = latest[key + '_as_of'];
+        date.textContent = asOf ? '沿用 ' + asOf : latest.date;
         item.append(date);
       }
       values.append(item);
@@ -103,12 +127,13 @@ export function mountAccountHistory(container, code, get) {
     selected = -1;
     canvas.setAttribute('aria-label', '账户历史走势，左右方向键可逐条查看记录');
     const start = payload.period_starts[period], end = payload.end_date;
-    visibleRows = payload.rows.filter(row => row.date >= start && row.date <= end && keys.some(key => pointValue(row, key) != null));
+    visibleRows = windowRows(payload, keys, start, end);
     for (const button of windows.children) button.setAttribute('aria-pressed', String(button.dataset.window === period));
     values.replaceChildren();
-    plot.hidden = !visibleRows.length || !ChartClass;
+    const hasValues = visibleRows.some(row => keys.some(key => pointValue(row, key) != null));
+    plot.hidden = !hasValues || !ChartClass;
     retry.hidden = true;
-    if (!visibleRows.length) {
+    if (!hasValues) {
       const earlier = payload.rows.findLast(row => row.date < start && keys.some(key => pointValue(row, key) != null));
       const prior = earlier?.date || payload.last_prior_date;
       status.textContent = prior ? '本时段暂无记录，上次记录 ' + prior : '所选时段暂无历史记录';
@@ -120,7 +145,7 @@ export function mountAccountHistory(container, code, get) {
       retry.hidden = false;
       return;
     }
-    chart = draw(canvas, ChartClass, visibleRows, keys, start, end, money);
+    chart = draw(canvas, ChartClass, visibleRows, keys, start, end, money, payload.interpolation === 'step');
     const statuses = new Set(visibleRows.flatMap(row => keys.map(key => pointValue(row, key) == null ? null : row[key + '_status'])));
     const notes = [statuses.has('estimated') && '含估算记录', statuses.has('partial') && '含部分已知记录'];
     status.textContent = notes.filter(Boolean).join(' · ');

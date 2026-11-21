@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from domain.accounts import account_history as history
+from domain.accounts import recorded_positions
 
 
 def test_card_bill_unbilled_principal_and_credit_balance(monkeypatch):
@@ -72,13 +73,40 @@ def test_account_total_and_liability_have_independent_scope(monkeypatch):
                               'latest_position_evidence': 'recorded_equity_and_debt'}}}
     monkeypatch.setattr(history, '_holding_observations', lambda *a, **k: {
         prior: {'liabilities': Decimal('20'), 'liabilities_status': 'partial'}})
-    monkeypatch.setattr(history, '_manual_position_value', lambda *a: None)
+    monkeypatch.setattr(history, 'recorded_event_dates', lambda *a: [prior, day])
+    monkeypatch.setattr(recorded_positions, 'recorded_components', lambda *a, **kw: ([], []))
     monkeypatch.setattr(history, 'load_account_totals', lambda *a, **k: {
         (day, code): {'net_asset': '130', 'currency': 'CNY', 'covered_account_codes': [code]},
         (prior, code): {'net_asset': '250', 'currency': 'CNY', 'covered_account_codes': [code, 'another']}})
     payload = history.read_account_history(None, account_code=code, account_config=cfg, start_date=prior, end_date=day)
     assert payload['series'] == ['net_value', 'liabilities']
     assert [(p['net_value'], p['liabilities']) for p in payload['rows']] == [(None, Decimal(20)), (Decimal(130), None)]
+
+
+def test_recorded_equity_follows_subscription_and_loan_dates(monkeypatch):
+    days = [date(2026, 1, n) for n in range(1, 8)]
+    anchor, deposit, issue, missing, restored, start, end = days
+    def component(value, day):
+        return {'market_value': Decimal(value), 'as_of': day}
+    equity = [component(100, anchor)]
+    subscribed = equity + [component(25, deposit)]
+    borrowed = [component(50, issue)]
+    rows = {anchor: (equity, []), deposit: (subscribed, []), issue: ([component(175, issue)], borrowed),
+            missing: (None, borrowed), restored: ([component(175, restored)], borrowed)}
+    monkeypatch.setattr(recorded_positions, 'recorded_components',
+                        lambda _, code, day, **kw: rows.get(day, rows[restored]))
+    points = {anchor: {'net_value': Decimal(100), 'confirmed_components': True}}
+    values = recorded_positions.recorded_history(None, 'employee', days, points, start, end)
+    assert [(values[day].get('net_value'), values[day]['liabilities']) for day in days] == [
+        (100, 0), (125, 0), (125, 50), (None, 50), (125, 50), (125, 50), (125, 50)]
+    assert values[end]['net_value_as_of'] == restored
+    assert values[end]['liabilities_as_of'] == issue
+    unproven = recorded_positions.recorded_history(None, 'employee', days[:2], {}, anchor, deposit)
+    assert all(row.get('net_value') is None and row.get('liabilities') is None for row in unproven.values())
+    inconsistent = {**points, issue: {'net_value': Decimal(150)}}
+    conflicting = recorded_positions.recorded_history(None, 'employee', days, inconsistent, start, end)
+    assert conflicting[issue]['net_value'] == 150
+    assert conflicting[end].get('net_value') is None and conflicting[end]['liabilities'] == 50
 
 
 def test_fund_single_member_update_cannot_replace_whole_account(monkeypatch):
