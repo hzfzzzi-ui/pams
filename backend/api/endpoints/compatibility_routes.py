@@ -623,6 +623,7 @@ def create_compatibility_router(
             )
             if baseCurrency.upper() == "CNY":
                 terminal_display_values = latest_nav_display_values(
+                    cur=cur,
                     account_balances=account_balances,
                     investment_positions=investment_positions,
                     terminal_date=terminal_date,

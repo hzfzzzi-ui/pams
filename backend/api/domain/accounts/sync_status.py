@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from domain.accounts.account_identity import account_display
 from domain.accounts.account_overview import _apply_owner_ratio_to_money, _manual_balance
-from domain.accounts.balance_reference import historical_account_balance
+from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
 from domain.accounts.credit_card_debt import confirmed_table_net
@@ -232,6 +232,7 @@ def read_account_sync(cur, config):
     import_statement_accounts = statement_profiles()
     excluded = _excluded_accounts(config) | {'ibkr_in_transit_mxn'}
     accounts = {code: cfg for code, cfg in config.get('accounts', {}).items() if code not in excluded}
+    bindings = load_bound_balance_references(cur, accounts)
     active = [code for code, cfg in accounts.items() if cfg.get('active', True) and registered.get(code, True)]
     source_status = summaries(cur, active)
     cur.execute("""SELECT account_code, MAX(updated_at) AS synced_at FROM public.source_records
@@ -292,8 +293,9 @@ def read_account_sync(cur, config):
         if row['active'] and row['summary']['balance_amount'] is None:
             balance = _position_balance_summary(cur, config, code, cfg, now.date())
             if balance is None:
-                balance = historical_account_balance(cfg, now.date(), _owner_ratio(config, code))
-            if balance is None:
+                balance = historical_account_balance(cfg, now.date(), _owner_ratio(config, code),
+                                                     account_code=code, bindings=bindings)
+            if balance is None and code not in bindings:
                 balance = _manual_cash_balance_summary(config, code, cfg, now.date())
             if balance:
                 _apply_balance_summary(row['summary'], balance, cfg, now.date())
