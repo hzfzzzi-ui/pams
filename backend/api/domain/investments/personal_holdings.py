@@ -34,6 +34,27 @@ def position_category(row, classes):
     return major or "其他", None
 
 
+def attach_position_net_values(rows, accounts):
+    financed = {}
+    for row in rows:
+        row["position_net_value_cny"] = row.get("market_value_cny")
+        code = row.get("account") or row.get("account_code")
+        if (accounts.get(code, {}).get("latest_position_evidence") == "recorded_equity_and_debt"
+                and not row.get("is_closed")):
+            financed.setdefault(code, []).append(row)
+    for members in financed.values():
+        assets = [r for r in members if r["position_group"] not in {"负债", "现金/活期"}]
+        debts = [r for r in members if r["position_group"] == "负债"]
+        for row in assets:
+            row["position_net_value_cny"] = None
+        # Only a single recorded equity can own the account's recorded loan.
+        if (len(assets) == 1 and assets[0]["position_group"] == "员工持股" and debts
+                and all(r.get("market_value_cny") is not None and r.get("snapshot_scope_member") in
+                        {"recorded", "verified"} for r in [*assets, *debts])):
+            debt = sum(abs(Decimal(str(r["market_value_cny"]))) for r in debts)
+            assets[0]["position_net_value_cny"] = float(Decimal(str(assets[0]["market_value_cny"])) - debt)
+
+
 def attach_combined_positions(rows):
     groups = {}
     for row in rows:
@@ -46,7 +67,7 @@ def attach_combined_positions(rows):
             continue
         combined = {}
         for field in ("quantity", "portfolio_weight", "cost", "cost_cny", "market_value", "market_value_cny",
-                      "holding_pnl", "holding_pnl_cny", "realized_trade_pnl_cny", "net_distributions_cny",
+                      "position_net_value_cny", "holding_pnl", "holding_pnl_cny", "realized_trade_pnl_cny", "net_distributions_cny",
                       "daily_total_pnl_cny", "daily_pnl_cny", "daily_fx_pnl_cny", "daily_pnl_native"):
             values = [row.get(field) for row in members]
             combined[field] = float(sum(Decimal(str(v)) for v in values)) if None not in values else None
@@ -65,7 +86,7 @@ def attach_combined_positions(rows):
         members[0]["combined_count"] = len(members)
 
 
-def personal_holdings(payload, classes=None):
+def personal_holdings(payload, classes=None, *, accounts=None):
     classes = instrument_classes() if classes is None else classes
     total = Decimal("0")
     missing = valued = 0
@@ -86,7 +107,12 @@ def personal_holdings(payload, classes=None):
     for row in rows:
         amount = row["portfolio_weight"]
         row["portfolio_weight"] = float(amount / total) if amount is not None and total > 0 else None
+    attach_position_net_values(rows, accounts or {})
     attach_combined_positions(rows)
+    for item in [*rows, *(r["combined_position"] for r in rows if r.get("combined_position"))]:
+        cost, pnl = item.get("cost_cny"), item.get("holding_pnl_cny")
+        item["cumulative_pnl_ratio"] = (float(Decimal(str(pnl)) / Decimal(str(cost)))
+                                        if pnl is not None and cost is not None and Decimal(str(cost)) > 0 else None)
     references = []
     for reference in payload.get("historical_references", []):
         group, segment = position_category(reference, classes)

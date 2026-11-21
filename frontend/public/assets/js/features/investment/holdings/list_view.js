@@ -247,7 +247,11 @@ function renderMobileHoldingRows(rows, { summary }) {
   }
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
-    const {value, weight, totalPnl, dailyPnl, dailyPending} = holdingMetrics(r, summary);
+    const {weight, totalPnl, dailyPnl, dailyPending} = holdingMetrics(r, summary);
+    const net = r.position_net_value_cny;
+    const cumulativeRate = totalPnl == null ? null : r.cumulative_pnl_ratio;
+    const daily = dailyPending ? null : dailyPnl;
+    const dailyRate = dailyPending || r.reference_as_of ? null : holdingPriceChangePct(r);
     const name = shortHoldingName(r);
     const status = r.reference_as_of ? '历史参考' : r.is_closed ? '已平仓' : '';
     return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
@@ -256,10 +260,12 @@ function renderMobileHoldingRows(rows, { summary }) {
         <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc([status || holdingGroupLabel(r), assetIconCaption(r)].filter(Boolean).join(' · '))}</small></span>
       </span>
       <span class="personalPositionValues">
-        <small class="personalPositionWeight">${weight}</small>
-        <b>${value == null ? '—' : formatCompactCurrency(value)}</b>
-        <small class="${pnlTone(totalPnl)}">累计 ${pnlText(totalPnl)}</small>
-        <small class="${dailyPending ? 'muted' : pnlTone(dailyPnl)}">最近一日 ${dailyPending ? '待更新' : pnlText(dailyPnl)}</small>
+        <b title="持仓净值"><span class="metricCaption">持仓净值</span>${net == null ? '—' : formatCompactCurrency(net)}</b>
+        <small class="personalPositionWeight" title="仓位占比"><span class="metricCaption">仓位占比</span>${weight}</small>
+        <small class="${pnlTone(totalPnl)}" title="累计盈亏"><span class="metricCaption">累计盈亏</span>${pnlText(totalPnl)}</small>
+        <small class="${pnlTone(cumulativeRate)}" title="累计盈亏率"><span class="metricCaption">累计盈亏率</span>${signedPercentText(cumulativeRate == null ? null : cumulativeRate * 100)}</small>
+        <small class="${pnlTone(daily)}" title="最近一日盈亏"><span class="metricCaption">最近一日盈亏</span>${pnlText(daily)}</small>
+        <small class="${pnlTone(dailyRate)}" title="最近一日涨跌幅"><span class="metricCaption">最近一日涨跌幅</span>${signedPercentText(dailyRate)}</small>
       </span>
     </button>`;
   }).join('');

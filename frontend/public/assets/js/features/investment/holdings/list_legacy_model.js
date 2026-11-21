@@ -253,17 +253,11 @@ export function holdingAveragePriceText(row) {
 }
 
 export function holdingPriceChangePct(row) {
-  const direct = Number(row.price_change_pct);
-  if (Number.isFinite(direct)) return direct * 100;
-  const daily = safeNum(cnyValue(row, 'daily_pnl'));
-  const value = safeNum(cnyValue(row, 'market_value'));
-  const base = value - daily;
-  if (Math.abs(daily) > 0.005 && Math.abs(base) > 0.005) return daily / base * 100;
-  return null;
+  return row.price_change_pct == null ? null : Number(row.price_change_pct) * 100;
 }
 
 export function signedPercentText(value) {
-  if (!Number.isFinite(Number(value))) return '--';
+  if (value == null || !Number.isFinite(Number(value))) return '—';
   const n = Number(value);
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
@@ -282,6 +276,7 @@ export function cashRow({ symbol, name, account, currency = 'CNY', nativeAmount 
     currency,
     market_value: amount,
     market_value_cny: cnyAmount,
+    position_net_value_cny: cnyAmount,
     market_value_native: amount,
     cost: amount,
     cost_cny: cnyAmount,
@@ -328,6 +323,7 @@ export function historicalReferenceRow(reference) {
     currency: reference.currency,
     minor_category: reference.category,
     market_value_cny: reference.value,
+    position_net_value_cny: reference.value,
     reference_as_of: reference.as_of,
     position_group: reference.position_group,
     position_segment: reference.position_segment,

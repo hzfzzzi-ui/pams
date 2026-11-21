@@ -147,11 +147,12 @@ def create_compatibility_router(
 
     def holdings_for_list(cur, context, *, limit=500, include_closed=False):
         holdings = read_holdings(cur, context, limit=None, include_closed=include_closed)
+        account_config = _load_portfolio_accounts_config()
         holdings["historical_references"] = read_historical_position_references(
-            cur, account_config=_load_portfolio_accounts_config(), as_of=context[0],
+            cur, account_config=account_config, as_of=context[0],
             excluded_accounts=context[2]["excluded_accounts"], owner_ratio=_account_owner_ratio,
         )
-        holdings = personal_holdings(holdings)
+        holdings = personal_holdings(holdings, accounts=account_config.get("accounts", {}))
         holdings["rows"] = holdings["rows"][:limit]
         return holdings
 
@@ -194,11 +195,13 @@ def create_compatibility_router(
                     cur, "holdings", business_date=_investment_today_label_date())
                 if published is not None:
                     data = published["data"]
-                    if "personal_summary" not in data["holdings"]:
+                    if ("personal_summary" not in data["holdings"] or
+                            any("position_net_value_cny" not in r for r in data["holdings"]["rows"])):
                         if len(data["holdings"]["rows"]) >= 500:
                             published = None
                         else:
-                            data = {**data, "holdings": personal_holdings(data["holdings"])}
+                            data = {**data, "holdings": personal_holdings(data["holdings"],
+                                    accounts=_load_portfolio_accounts_config()["accounts"])}
                 if published is None:
                     data = build_holdings_page(cur, show_closed=show_closed)
                 else:

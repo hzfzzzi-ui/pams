@@ -166,7 +166,7 @@ body.page-investments #holdings-smart-table:not(.showFinancing) .mobileHoldingLi
 }
 body.page-investments #mobileHoldingList button.personalPosition {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 42%) !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
   align-items: center;
   gap: 10px;
   padding: 13px 0;
@@ -181,11 +181,17 @@ body.page-investments #mobileHoldingList button.personalPosition:last-child { bo
 .personalPositionName strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .personalPositionName small { color: #a8a9ae; font-size: 11px; }
 body.page-investments #mobileHoldingList .personalPositionValues {
-  display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 3px; justify-items: end; text-align: right; overflow-wrap: anywhere;
+  display: grid; grid-template-columns: max-content minmax(8ch, max-content);
+  gap: 3px 10px; align-items: baseline; justify-items: end; text-align: right;
+  white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 12px;
+}
+.personalPositionValues .metricCaption {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
 }
 body.page-investments #mobileHoldingList .personalPositionValues > b { font-size: 15px; }
 body.page-investments #mobileHoldingList .personalPositionWeight { color: #b7b8be; font-weight: 600; }
 body.page-investments #mobileHoldingList .personalPositionValues small { font-size: 11px; }
+body.page-investments #mobileHoldingList .personalPositionValues small.muted { display: block; }
 body.page-investments #mobileHoldingList .personalPositionValues small.up { color: var(--pams-profit); }
 body.page-investments #mobileHoldingList .personalPositionValues small.down { color: var(--pams-loss); }
 
@@ -363,7 +369,7 @@ html.pams-content body.page-investments .appBottomSheetPanel {
 }
 @media (max-width: 360px) {
   body.app-shell :is(.investAnchorNav, .ledgerAnchorNav) a { font-size: 12px; }
-  body.page-investments #mobileHoldingList button.personalPosition { grid-template-columns: minmax(0, 1fr) minmax(0, 44%) !important; }
+  body.page-investments #mobileHoldingList .personalPositionValues { column-gap: 6px; }
   body.page-investments #investment-ledger .transactionOverviewMetrics { grid-template-columns: minmax(0, 1fr) !important; }
   body.page-investments #investment-ledger .transactionOverviewMetrics > div + div { border-top: 1px solid var(--refresh-border); }
   body.page-investments #investment-ledger .transactionOverviewMetrics > div:nth-child(3) { grid-column: auto !important; }
