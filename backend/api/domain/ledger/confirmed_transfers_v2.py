@@ -318,11 +318,20 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
     return {'transfer_id':str(transfer_id), 'replayed':False}
 
 
-def read(cur, *, limit=200, originals=None):
+def read(cur, *, limit=200, originals=None, redemption_accounts=None):
     """Revalidate both legs of every decision without locking in read-only views."""
     sql = """SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c
-        WHERE c.confirmation_type='transfer' ORDER BY c.confirmed_at DESC,c.confirmation_id DESC"""
-    cur.execute(sql + (' LIMIT %s' if limit is not None else ''), (limit,) if limit is not None else ())
+        WHERE c.confirmation_type='transfer'"""
+    params = []
+    if redemption_accounts is not None:
+        sql += """ AND c.from_account_code=ANY(%s) AND c.from_trade_id IS NOT NULL AND c.to_cashflow_id IS NOT NULL
+                   AND c.from_evidence->>'purpose'=ANY(%s)"""
+        params.extend((sorted(redemption_accounts), [REDEMPTION_PURPOSE, BANK_REDEMPTION_PURPOSE]))
+    sql += ' ORDER BY c.confirmed_at DESC,c.confirmation_id DESC'
+    if limit is not None:
+        sql += ' LIMIT %s'
+        params.append(limit)
+    cur.execute(sql, params)
     rows = [dict(row) for row in cur.fetchall()]
     ids = {'cashflow': set(), 'trade': set()}
     for row in rows:

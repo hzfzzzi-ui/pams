@@ -128,6 +128,7 @@ def load_trade_rows(cur, *, account_code: str, start: date, end: date, fact_id: 
                 (row['execution_status'] is None and fields.get('status') == 'confirmed')
             )
             row['fund_pricing_date'] = raw_fields.get('pricing_date') or raw_fields.get('nav_date_inferred')
+            row['fund_confirmation_date'] = fields.get('confirmed_date')
         for key in ('raw_fields', 'parsed_fields', 'record_hash', 'item_review', 'source_status',
                     'source_account', 'content', 'original_source_id', 'inline_original', 'sha256', 'item_source_uid', 'source_name',
                     'acquisition_method', 'file_format', 'parse_method', 'asset_identity'):
