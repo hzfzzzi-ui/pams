@@ -83,7 +83,15 @@ def test_zero_opening_supports_only_a_deduplicated_dated_reference():
     assert rows[2]['_account_contributions'] == {'cash': 140}
     assert replay(facts, anchors, points=[days[6]]) == [rows[6]]
     assert 'principal_reference' not in rows[3]['personal_loan_coverage']
-    assert 'principal_reference' not in rows[-1]['personal_loan_coverage']
+    settled = rows[-1]['personal_loan_coverage']
+    assert settled == dict(status='recorded_principal_settled', balance=None,
+                           day_movements=[dict(currency='CNY', borrowed='0', repaid='3')])
+    later = replay(facts, anchors, points=[date(2020, 5, 1)])[0]
+    assert later['personal_loan_coverage'] == dict(status='recorded_principal_settled', balance=None, day_movements=[])
+    assert later['liabilities'] is None and later['available_net_worth'] == 140
+    assert replay(facts, {}, points=[days[-1]])[0]['personal_loan_coverage']['status'] == 'principal_movements_only'
+    stale = [*facts, {**facts[-1], 'source_evidence_status':'unknown'}]
+    assert replay(stale, anchors, points=[days[-1]])[0]['personal_loan_coverage']['status'] == 'principal_movements_only'
     assert replay(facts, anchors, points=[second], overlap=['account_total', ['cash','payable']])[0]['available_net_worth'] == 140
     assert replay(facts, anchors, points=[second], overlap='terminal_aggregate')[0]['available_net_worth'] == 140
     assert all(r['available_net_worth'] == 140 for r in replay(facts, {}))

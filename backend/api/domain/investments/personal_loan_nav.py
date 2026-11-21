@@ -125,8 +125,8 @@ def _apply_principal_references(rows, facts, anchors, declared, uncertain_days, 
             opening = None
             continue
         row = samples.get(day)
-        owed = {currency: value for currency, value in balances.items() if value > 0}
-        if not row or not owed or (row.get('personal_loan_coverage') or {}).get('status') != 'principal_movements_only':
+        coverage = (row or {}).get('personal_loan_coverage') or {}
+        if not balances or coverage.get('status') != 'principal_movements_only':
             continue
         available = row.get('available_net_worth')
         amounts = row.get('_account_contributions', {})
@@ -141,12 +141,17 @@ def _apply_principal_references(rows, facts, anchors, declared, uncertain_days, 
                 covered.update(source[1])
         if payable_accounts & covered:
             continue
+        owed = {currency: value for currency, value in balances.items() if value > 0}
+        if not owed:
+            # This settles only the evidenced movements. A formal total still requires a dated statement.
+            coverage['status'] = 'recorded_principal_settled'
+            continue
         rates = {unit: rate_at(unit, day) for unit in owed}
         if any(rate is None for rate in rates.values()):
             continue
         deduction = sum(value * rates[unit] for unit, value in owed.items())
         row['available_net_worth'] = available - deduction
-        row['personal_loan_coverage']['principal_reference'] = dict(
+        coverage['principal_reference'] = dict(
             opening_date=opening.isoformat(), amount=str(deduction), currency=base_currency,
             native={unit: str(value) for unit, value in sorted(owed.items())},
         )
