@@ -214,10 +214,20 @@ def read_original_credit_pair(*, originals, cfg, currency):
                     statement = parse_statement(path, cfg, since=None)
                     if statement.account_tail != tail or statement.statement_balance != next(iter(balance)) or len(statement.rows) != count:
                         raise ValueError('信用卡账单账户或流水不完整')
-                    parsed.append((statement, next(iter(previous))))
+                    parsed.append((statement, next(iter(previous)), None))
                     continue
+                from collectors.bank_statement_parser import _CURRENCY_ALIASES
                 summaries = []
+                interest_rows = []
+                detail_tail = None
                 for page in pdf.pages:
+                    for line in (page.extract_text() or '').splitlines():
+                        identity = re.match(r'卡号[：:]\s*\d+\*+(\d{4})', line.strip())
+                        if identity:
+                            detail_tail = identity.group(1)
+                        detail = re.fullmatch(r'现金利息\s+([\d,.]+)\s+(\S+)\s+([\d,.]+)\s+(\S+)', line.strip())
+                        if detail and detail_tail == tail and _CURRENCY_ALIASES.get(detail[4], detail[4]) == currency:
+                            interest_rows.append(Decimal(detail[3].replace(',', '')))
                     for table in page.extract_tables() or []:
                         for pos, row in enumerate(table):
                             if not row or ''.join(str(c or '') for c in row).replace('\n', '').find('上期账单金额') < 0:
@@ -227,25 +237,54 @@ def read_original_credit_pair(*, originals, cfg, currency):
                                     if len(values) < 5:
                                         raise ValueError('信用卡账单汇总不完整')
                                     try:
+                                        headings = [str(cell or '').replace('\n','').strip() for cell in row]
+                                        interest_column = headings.index('现金利息') if '现金利息' in headings else None
+                                        interest = (Decimal(str(values[interest_column]).replace(',', ''))
+                                                    if interest_column is not None and interest_column < len(values) else None)
                                         summaries.append((Decimal(str(values[2]).replace(',', '')),
-                                                          Decimal(str(values[4]).replace(',', ''))))
+                                                          Decimal(str(values[4]).replace(',', '')), interest))
                                     except (ValueError, InvalidOperation) as exc:
                                         raise ValueError('信用卡账单汇总金额无效') from exc
-                if len(summaries) != 1 or not all(v.is_finite() for v in summaries[0]):
+                if len(summaries) != 1 or not all(v.is_finite() for v in summaries[0][:2]):
                     raise ValueError('信用卡账单缺少唯一的账户汇总')
             statement = parse_statement(path, cfg, since=None)
             if statement.account_tail != tail or statement.statement_balance != summaries[0][0]:
                 raise ValueError('信用卡账单汇总与账户不符')
-            parsed.append((statement, summaries[0][1]))
+            interest = summaries[0][2]
+            matching_interest = interest if interest and interest_rows == [interest] else None
+            parsed.append((statement, summaries[0][1], matching_interest))
     return parsed
 
 
-def verify_original_credit_bridge(*, originals, account, day, currency):
+def reconcile_following_statement(later, previous, original_interest, supplement, currency):
+    expected = previous - sum(row['amount'] for row in later.rows)
+    if supplement is not None:
+        if (not isinstance(supplement,dict)
+                or set(supplement) != {'kind','currency','amount','transaction_date','posting_date'}
+                or supplement['kind'] != 'cash_interest' or supplement['currency'] != currency):
+            raise ValueError('利息补充资料类型或币种不符')
+        try:
+            amount = Decimal(str(supplement['amount']))
+            transaction = date.fromisoformat(supplement['transaction_date'])
+            posting = date.fromisoformat(supplement['posting_date'])
+        except (TypeError, ValueError, InvalidOperation) as exc:
+            raise ValueError('利息补充资料金额或日期不符') from exc
+        if (not amount.is_finite() or amount <= 0 or amount != original_interest
+                or not later.statement_start <= transaction <= posting <= later.statement_end):
+            raise ValueError('截图与后期账单利息或日期范围不符')
+        expected += amount
+    if expected != later.statement_balance:
+        raise ValueError('Unreconciled following credit statement')
+
+
+def verify_original_credit_bridge(*, originals, account, day, currency, supplement=None):
     from domain.imports.account_import_statement import profiles
     configs = profiles().get(account, [])
     if len(configs) != 1:
         raise ValueError('信用卡账单来源不唯一')
     parsed = read_original_credit_pair(originals=originals, cfg=configs[0], currency=currency)
+    if supplement is not None:
+        reconcile_following_statement(*parsed[1], supplement, currency)
     return credit_statement_bridge(parsed[0][0], parsed[1][0], target=day, currency=currency,
                                    first_previous=parsed[0][1], following_previous=parsed[1][1])
 

@@ -8,13 +8,14 @@ import json
 from domain.imports.account_import_statement import profiles
 from domain.imports.historical_statement_balance import (
     _statement_balance_rows, credit_statement_bridge, read_original_credit_pair, read_original_debit_statement,
+    reconcile_following_statement,
 )
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.snapshot_coverage import load_account_snapshot_coverage
 
 
 @lru_cache(maxsize=4)
-def _balance_curve(method, originals, config_json, currency):
+def _balance_curve(method, originals, config_json, currency, supplement_json='null'):
     """Cache parsing only. Original contents, profile and currency identify each entry."""
     cfg = json.loads(config_json)
     if method == 'original_statement_opening':
@@ -28,11 +29,10 @@ def _balance_curve(method, originals, config_json, currency):
             values[row['transaction_date']] = row['balance']
         end = statement.statement_end
     else:
-        (first, previous), (later, later_previous) = read_original_credit_pair(originals=originals, cfg=cfg, currency=currency)
+        (first, previous, _), (later, later_previous, interest) = read_original_credit_pair(originals=originals, cfg=cfg, currency=currency)
         if not first.statement_start or not first.statement_end or later.statement_balance is None:
             raise ValueError('Missing statement dates or balance')
-        if later_previous - sum(row['amount'] for row in later.rows) != later.statement_balance:
-            raise ValueError('Unreconciled following credit statement')
+        reconcile_following_statement(later, later_previous, interest, json.loads(supplement_json), currency)
         days = {first.statement_start}
         days.update(row['transaction_date'] for report in (first, later) for row in report.rows
                     if first.statement_start <= row['transaction_date'] <= first.statement_end)
@@ -94,11 +94,16 @@ def load_statement_period_points(cur, accounts, dates):
         if (anchor['id'] not in proof['member_ids'] or anchor['id'] not in proof.get('point_in_time_member_ids', ())
                 or len(configs) != 1 or configs[0].get('currency') != currency):
             continue
+        supplement = anchor['reconstruction'].get('dated_interest')
+        if supplement is not None and (anchor['acquisition_method'] != 'screenshot'
+                or not anchor['sha256'] or not loader.verify(anchor)):
+            continue
         contents = _source_bytes(cur, loader, anchor)
         if not contents:
             continue
         try:
-            days, values, end = _balance_curve(anchor['method'], contents, json.dumps(configs[0], sort_keys=True, default=str), currency)
+            days, values, end = _balance_curve(anchor['method'], contents, json.dumps(configs[0], sort_keys=True, default=str),
+                                               currency, json.dumps(supplement, sort_keys=True))
         except (ValueError, ArithmeticError, TypeError):
             continue
         if not days[0] <= anchor_day <= end or values[bisect_right(days, anchor_day)-1] != anchor['market_value']:
