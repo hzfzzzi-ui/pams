@@ -25,4 +25,3 @@ export function renderLedgerDays(rows, dateOf, renderRow, { countUnit = '笔', p
     </section>`;
   }).join('');
 }
-
