@@ -1,0 +1,71 @@
+from datetime import date
+from decimal import Decimal
+from uuid import uuid4
+import os
+import pytest
+
+from domain.investments.valuation_nav import _apply_account_totals
+
+D = Decimal
+
+
+def test_total_replaces_covered_components_once_and_preserves_other_accounts():
+    day=date(2025,12,31)
+    row={'date':day,'available_net_worth':D('210'),'net_worth':None,
+         'available_accounts':['platform','cash','other'],
+         '_account_contributions':{'platform':D('100'),'cash':D('10'),'other':D('100')}}
+    total={'account_code':'platform','currency':'CNY','net_asset':'120','covered_account_codes':['platform','cash']}
+    _apply_account_totals(row,[total],lambda _:D(1),lambda *_:D(1))
+    assert row['available_net_worth']==D('220')
+    assert row['_account_contributions']=={'platform':D('120'),'other':D('100')}
+    _apply_account_totals(row,[total],lambda _:D(1),lambda *_:D(1))
+    assert row['available_net_worth']==D('220')
+    other={**row,'_account_contributions':{'other':D('100')},'available_accounts':['platform','other']}
+    _apply_account_totals(other,[total],lambda _:D(1),lambda *_:D(1))
+    assert other['available_net_worth']==D('220')
+    conflicting=[total,{'account_code':'cash','currency':'CNY','net_asset':'10','covered_account_codes':['cash']}]
+    before=row['available_net_worth']
+    _apply_account_totals(row,conflicting,lambda _:D(1),lambda *_:D(1))
+    assert row['available_net_worth']==before
+
+
+def test_existing_partial_estimates_are_replaced_without_recounting():
+    from domain.investments.valuation_nav import build_weekly_nav_rows, ValuationEvidenceSeries, _add_known_display_values
+    day=date(2025,12,31)
+    banks={day:{'net_worth':D('20'),'assets':D('20'),'liabilities':D(0),
+                'available_accounts':['cash'],'account_values':{'cash':D('20')},'unavailable_accounts':['platform']}}
+    snapshots=ValuationEvidenceSeries({day:D(0)}); snapshots.unknown_accounts_by_date[day]=['platform']
+    row=build_weekly_nav_rows(dates=[day],bank_series=banks,snapshot_series=snapshots,
+                              a_share_series=ValuationEvidenceSeries(),ibkr_values={})[0]
+    _add_known_display_values(row,{'platform':(D('80'),day,day)})
+    total={'account_code':'platform','currency':'CNY','net_asset':'120','covered_account_codes':['platform','cash']}
+    _apply_account_totals(row,[total],lambda _:D(1),lambda *_:D(1))
+    assert row['available_net_worth']==D('120')
+
+
+def test_screenshot_total_publication_and_date_scope():
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from domain.imports import isolation,source_records_v2 as sources
+    from domain.investments import account_total_evidence as total
+    dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
+    if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')
+    day=date(2025,12,31)
+    with psycopg2.connect(dsn) as conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert isolation.source_enabled(cur)
+                cur.execute("insert into pams_accounts(account_code,display_name) values ('platform','p'),('cash','c')")
+                source,item=uuid4(),uuid4()
+                sources.create_source(cur,source_id=source,account_code='platform',source_name='synthetic',acquisition_method='screenshot',document_type='statement',filename='test.jpg',file_format='jpg',content=b'synthetic')
+                fields={'kind':'account_portfolio_value','value_scope':'platform_total','business_date':day.isoformat(),'currency':'CNY','net_asset':'120','covered_account_codes':['platform','cash']}
+                sources.add_item(cur,source_id=source,item_id=item,parse_method='manual',raw_fields={'entered_fields':fields},parsed_fields=fields)
+                sources.review_item(cur,source_id=source,item_id=item,expected_revision=2,parsed_fields=fields,review_status='confirmed')
+                total.publish(cur,source_id=source,revision=3)
+                found=total.load(cur,dates=[day,date(2026,1,1)],accounts={'platform','cash'})
+                assert found[(day,'platform')]['net_asset']=='120'
+                assert len(found)==1
+                assert total.load(cur,dates=[day],accounts={'platform'})=={}
+                with pytest.raises(ValueError): total.publish(cur,source_id=source,revision=3)
+        finally:
+            conn.rollback()

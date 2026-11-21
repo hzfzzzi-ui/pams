@@ -39,6 +39,7 @@ class ValuationEvidenceSeries(dict):
         self.unknown_accounts_by_date: dict[Date, list[str]] = {}
         self.available_accounts_by_date: dict[Date, list[str]] = {}
         self.estimated_accounts_by_date: dict[Date, list[str]] = {}
+        self.account_values_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_by_date: dict[Date, Decimal] = {}
         self.preview_performance_by_date: dict[Date, dict[str, Decimal]] = {}
         self.preview_source_through: Date | None = None
@@ -395,6 +396,8 @@ def build_weekly_nav_rows(
         if ibkr_bucket.get("history_evidence") == "unavailable":
             missing_accounts.append("ibkr")
         available = set(bank_bucket.get("available_accounts") or ())
+        contributions = dict(bank_bucket.get('account_values') or {})
+        contributions.update(getattr(snapshot_series, 'account_values_by_date', {}).get(sample_date, {}))
         available_net = bank_bucket.get("net_worth", Decimal("0"))
         snapshot_accounts = getattr(snapshot_series, "available_accounts_by_date", {}).get(sample_date, ())
         if snapshot_accounts:
@@ -403,15 +406,19 @@ def build_weekly_nav_rows(
         if sample_date in a_share_series and "tonghuashun" not in missing_accounts:
             available.add("tonghuashun")
             available_net += a_share_series[sample_date]
+            contributions['tonghuashun'] = a_share_series[sample_date]
         preview = getattr(a_share_series, "preview_by_date", {}).get(sample_date)
         if preview is not None and "tonghuashun" in missing_accounts:
             available.add("tonghuashun")
             available_net += preview
+            contributions['tonghuashun'] = preview
         if ibkr_bucket.get("net_worth") is not None and "ibkr" not in missing_accounts:
             available.add("ibkr")
             available_net += ibkr_bucket["net_worth"]
+            contributions['ibkr'] = ibkr_bucket['net_worth']
         partial = ({"available_net_worth": available_net, "available_accounts": sorted(available)}
                    if available else {})
+        partial['_account_contributions'] = contributions
         if preview is not None and "tonghuashun" in missing_accounts:
             partial["tonghuashun_source_through"] = getattr(a_share_series, "preview_source_through", None)
         carried_ibkr = ("ibkr" in available and ibkr_bucket.get("daily_close", {}).get("status") == "last_valid")
@@ -605,12 +612,51 @@ def _add_known_display_values(row, values):
         (values[code][0] for code in additions), Decimal(0),
     )
     row["available_accounts"] = sorted(available.union(additions))
+    row.setdefault('_account_contributions', {}).update({code:values[code][0] for code in additions})
     row["estimated_accounts"] = sorted(set(row.get("estimated_accounts", ())).union(additions))
     row.setdefault("latest_known_components", {}).update({
         code: {"from": values[code][1].isoformat(), "through": values[code][2].isoformat()}
         for code in additions
     })
     row["valuation_quality"] = "estimated"
+
+
+def _apply_account_totals(row, values, account_owner_ratio, rate_at):
+    """Replace only individually attributable contributions, never guess a subtraction."""
+    if not values:
+        return
+    scopes = [set(v['covered_account_codes']) for v in values]
+    for index, value in enumerate(values):
+        covered = scopes[index]
+        if any(covered & other for j, other in enumerate(scopes) if j != index):
+            continue
+        available = set(row.get('available_accounts', ()))
+        contributions = row.setdefault('_account_contributions', {})
+        if (covered & set(row.get('source_evidence_unavailable_accounts', ()))
+                or any(code in available and code not in contributions for code in covered)):
+            continue
+        ratios = {Decimal(str(account_owner_ratio(code))) for code in covered}
+        rate = rate_at(value['currency'], row['date'])
+        if len(ratios) != 1 or (rate is None and Decimal(value['net_asset']) != 0):
+            continue
+        amount = Decimal(value['net_asset']) * next(iter(ratios)) * (rate or Decimal(1))
+        prior = sum((contributions.get(code, Decimal(0)) for code in covered if code in available), Decimal(0))
+        delta = amount - prior
+        if row.get('net_worth') is not None and any(contributions.get(code, Decimal(0)) < 0 for code in covered):
+            continue
+        if row.get('available_net_worth') is not None:
+            row['available_net_worth'] += delta
+        elif row.get('net_worth') is None:
+            row['available_net_worth'] = delta
+        if row.get('net_worth') is not None:
+            row['assets'] += delta
+            row['net_worth'] += delta
+        for code in covered:
+            contributions.pop(code, None)
+        contributions[value['account_code']] = amount
+        row['available_accounts'] = sorted((available - covered) | {value['account_code']})
+        row['estimated_accounts'] = sorted((set(row.get('estimated_accounts', ())) - covered) | {value['account_code']})
+        row['valuation_quality'] = 'estimated'
 
 
 def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1018,6 +1064,7 @@ def _investment_snapshot_series(
         if proof.get("status") != "complete":
             continue
         values[day] += _dec(row["value_cny"])
+        values.account_values_by_date.setdefault(day, {})[code] = _dec(row['value_cny'])
         proven[day].add(code)
         if row.get("prior_gold_close"):
             values.estimated_accounts_by_date.setdefault(day, []).append(code)
@@ -1610,6 +1657,11 @@ def build_nav_weekly_payload(
             })
     if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
         _add_known_display_values(rows[-1], terminal_display_values_cny)
+    from domain.investments.account_total_evidence import load as load_account_totals
+    totals = load_account_totals(cur, dates=dates, accounts=nav_codes)
+    for row in rows:
+        _apply_account_totals(row, [value for (day, _), value in totals.items() if day == row['date']],
+                              account_owner_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
     return format_weekly_nav_payload(
         start_date=start_date,
         terminal_date=terminal_date,
