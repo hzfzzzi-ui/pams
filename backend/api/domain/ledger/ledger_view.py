@@ -1795,6 +1795,18 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             'transfer_pairs': _transfer_pair_details(cur, ytd_transfer_matches) if redesigned else [],
             **({'manual_pending': manual_pending} if include_manual_pending else {}),
         }
+    if view == 'monthly_close':
+        months = defaultdict(list)
+        for row in ytd_rows:
+            months[row['transaction_date_obj'].replace(day=1)].append(row)
+        result = {}
+        for first, rows in months.items():
+            _, end = _month_bounds(first.strftime('%Y-%m'))
+            result[first] = {
+                'totals': summarize_period(rows, transfer_matches, first, end),
+                'categories': category_insights(rows, first, redesigned=redesigned)['month'],
+            }
+        return result
     if view in {'overview', 'full'}:
         overview = {
             'as_of': latest_date.isoformat() if latest_date else None,

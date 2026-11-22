@@ -1,45 +1,19 @@
-import { createInvestmentChartController } from '../investment/charts/controller.js';
-import { esc, fmtCny, fmtSignedCny, formatNumber, formatPercentRate } from '../investment/holdings/summary_legacy_model.js';
-import { loadHoldingView } from '../investment/holdings/view_request.js';
-import { loadChart } from '../../shared/load_chart.js';
+import {fmtCny} from '../investment/holdings/summary_legacy_model.js';
+import {loadHoldingView} from '../investment/holdings/view_request.js';
+import {createMonthlyOverview} from './monthly_overview.js';
 
-export function createAssetOverview(root, {win, isActive, readAccounts}) {
+export function createAssetOverview(root, {win, read, isActive, readAccounts}) {
   const find = id => root.querySelector('#' + id);
   const financing = find('assetFinancing');
   const cards = find('assetCards');
-  let chart;
+  const report = createMonthlyOverview(find('monthlyOverview'), {win, read, isActive});
   let financingLoaded = false;
   let financingLoading = false;
 
-  function renderNavCard(latest) {
-    if (!isActive()) return;
-    const money = value => value == null ? '—' : fmtCny(value);
-    find('personalNetLabel').textContent = latest?.available_account_count != null ? '已知个人净资产' : '个人净资产';
-    find('personalNet').textContent = money(latest?.market_value);
-    find('personalGross').textContent = money(latest?.assets);
-    find('personalDebt').textContent = money(latest?.liabilities);
-    const loanPending = latest?.personal_loan_coverage?.status === 'principal_movements_only';
-    find('personalCoverage').hidden = !latest || (!loanPending && latest.assets != null && latest.liabilities != null);
-    let coverageNote = '部分账户资料待核验，暂无法汇总总资产和总负债。';
-    if (loanPending) coverageNote = latest.personal_loan_coverage.principal_reference
-      ? '已按借还记录扣除本金，总负债待核。' : '个人借款余额待核，总负债尚未核齐。';
-    find('personalCoverageNote').textContent = coverageNote;
-    const quality = latest?.estimated_account_count ? ` · ${latest.estimated_account_count} 个账户含估算` : '';
-    find('personalAsOf').textContent = latest ? latest.date + quality : '暂无净资产记录';
-  }
-
   async function load() {
-    if (!find('asset-overview')) return;
     void readFinancing();
     void onCards();
-    chart ??= createInvestmentChartController({root, host: win, onNavUpdate: renderNavCard, loadChartClass: () => loadChart(win),
-      presenters: {esc, fmtCny, fmtSignedCny, formatNumber, formatPercentRate}});
-    try {
-      await chart.loadNavOnce();
-      renderNavCard(chart.state.navRows.at(-1));
-    } catch {
-      if (isActive()) find('personalAsOf').textContent = '净资产暂未读到';
-    }
+    await report.load();
   }
 
   function debtRow(container, title, value, date, href) {
@@ -104,7 +78,7 @@ export function createAssetOverview(root, {win, isActive, readAccounts}) {
   financing?.addEventListener('toggle', readFinancing);
   cards?.addEventListener('toggle', onCards);
   return {load, renderCreditCards, dispose() {
-    chart?.dispose();
+    report.dispose();
     financing?.removeEventListener('toggle', readFinancing);
     cards?.removeEventListener('toggle', onCards);
   }};

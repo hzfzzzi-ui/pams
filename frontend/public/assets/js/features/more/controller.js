@@ -30,7 +30,10 @@ export function mount(root, context) {
   let navGrowthPending;
   let reviewPanel;
   let accountsReady = null;
-  const overview = createAssetOverview(root, {win, isActive: () => alive, readAccounts: ensureAccounts});
+  const overview = createAssetOverview(root, {
+    win, isActive: () => alive, readAccounts: ensureAccounts,
+    read: () => reads.get('monthly-overview', '/api/assets/monthly-overview'),
+  });
   function ensureAccounts() {
     accountsReady ??= loadAccountSync().then(() => {
       if (accountRetry && !accountRetry.hidden) accountsReady = null;
