@@ -3,7 +3,8 @@ from collections import defaultdict
 from decimal import Decimal
 
 from domain.accounts.account_policy import excluded_accounts, is_investment_account
-from domain.investments.holdings_account_cards import _decimal, _metric
+from domain.investments.holdings_account_cards import _decimal, _metric, fund_overview_members
+from domain.investments.personal_holdings import holding_filter_weights
 
 
 def _number_text(value):
@@ -64,6 +65,8 @@ def holdings_overview_card(page, config):
             groups[row["account"]].append(row)
 
     totals = defaultdict(list)
+    account_nets = {}
+    position_groups = {}
     financing_items = []
     account_returns = []
     profits, daily_results = [], []
@@ -135,6 +138,8 @@ def holdings_overview_card(page, config):
             "as_of": net_metric.get("as_of") or evidence_day,
             "reported_pnl": card.get("cumulative_pnl") if official else None,
         })
+        account_nets[code] = net
+        position_groups[code] = {r["position_group"] for r in positions}
         totals["net_value"].append(net)
         totals["market_value"].append(market)
         totals["cash"].append(max(cash, 0) if cash is not None else None)
@@ -158,12 +163,47 @@ def holdings_overview_card(page, config):
                          if amount is not None and denominator and financing["status"] != "partial" else None)
     net = _decimal(result["net_value"]["value"])
     comparable = net and net > 0 and None not in totals["net_value"] and None not in totals["exposure"]
+
+    def net_share(codes, display_metric=None):
+        values = [account_nets.get(code) for code in codes]
+        amount = sum(values) if values and None not in values else None
+        if display_metric is not None:
+            display = _decimal(display_metric.get("value"))
+            if amount is None or display is None or abs(amount - display) >= Decimal("0.01"):
+                amount = None
+        value = (amount / net if amount is not None and net and net > 0
+                 and result["net_value"]["status"] != "partial" else None)
+        return _metric(value, holdings.get("as_of"), status="estimated", basis="investment_net_value")
+
+    account_shares = {}
+    for key, card in page["account_cards"].items():
+        if code := card.get("account_code"):
+            members = {code}
+        elif key == "fund_overview":
+            # The existing fund card includes open OTC funds and its cash-management subaccount.
+            members = fund_overview_members(page.get("funds", {}))
+            if any(position_groups.get(code, set()) - {"基金"} for code in members):
+                members = set()
+        else:
+            continue
+        account_shares[key] = net_share(members, card.get("net_value") or {})
+    group_shares = {}
+    for group in {g for groups_in_account in position_groups.values() for g in groups_in_account}:
+        members = [code for code, groups_in_account in position_groups.items() if group in groups_in_account]
+        if all(position_groups[code] == {group} for code in members):
+            group_shares[group] = net_share(members)
     day = max((item[0] for item in daily_results if item), default=None)
     same_day = [item for item in daily_results if item and item[0] == day]
     partial = len(same_day) != len(daily_results) or any(item[2] for item in same_day)
     known_profit = [v for v in profits if v is not None]
+    personal = holdings.get("personal_summary") or {}
+    has_positions = (_decimal(personal.get("market_value_cny")) or 0) > 0
     return {
         **result,
+        "complete_position_weights": personal.get("missing_values") == 0 and has_positions,
+        "filter_weights": holding_filter_weights(holdings),
+        "group_net_shares": group_shares,
+        "account_card_net_shares": account_shares,
         "financing_items": financing_items,
         "account_returns": account_returns,
         "leverage": _metric(sum(totals["exposure"]) / net if comparable else None,

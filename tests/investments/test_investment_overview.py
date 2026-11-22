@@ -36,6 +36,8 @@ class InvestmentOverviewTest(TestCase):
         for key, value in expected.items():
             self.assertEqual(Decimal(result[key]["value"]), value, key)
 
+        self.assertEqual(Decimal(result["account_card_net_shares"]["joint"]["value"]), Decimal(75) / 130)
+        self.assertEqual(Decimal(result["group_net_shares"]["员工持股"]["value"]), Decimal(40) / 130)
         by_code = {a["account_code"]: a for a in result["account_returns"]}
         self.assertEqual(by_code["joint"]["net_value"]["value"], "75")
         self.assertEqual(by_code["joint"]["cash"]["value"], "-26")
@@ -45,6 +47,21 @@ class InvestmentOverviewTest(TestCase):
                          {("equity", "loan", Decimal(10)), ("joint", "negative_cash", Decimal(26))})
         self.assertEqual(sum(Decimal(i["share"]) for i in items), 1)
 
+    def test_fund_card_uses_included_net_once_and_rejects_a_stale_display(self):
+        fund = holding("fund", "基金", 40)
+        cash_code = "tencent_licaitong_current_plus"
+        card = {"net_value": {"value": "42"}}
+        page = {"holdings": {"rows": [fund, holding(cash_code, "现金/活期", 2), holding("broker", "股票", 58)]},
+                "funds": {"rows": [fund, dict(fund, account="old", is_closed=True)]},
+                "account_cards": {"fund_overview": card}, "accounts": {"overview": {"accounts": [
+                    {"account_code": code, "account_type": kind} for code, kind in
+                    [("fund", "fund_platform"), (cash_code, "cash_management"), ("broker", "brokerage")]
+                ]}}}
+        for amount, expected in [("42", "0.42"), ("43", None), (None, None)]:
+            card["net_value"]["value"] = amount
+            self.assertEqual(holdings_overview_card(page, {})["account_card_net_shares"]["fund_overview"]["value"],
+                             expected)
+
     def test_known_loan_survives_unknown_cash_without_guessing_a_share(self):
         rows = [holding("joint", "负债", -12, name="分期本金")]
         result = self.card(rows, {"joint": {"account_code": "joint"}})
@@ -52,6 +69,7 @@ class InvestmentOverviewTest(TestCase):
         self.assertEqual([(i["amount_cny"], i["share"]) for i in result["financing_items"]],
                          [("12", None), (None, None)])
         self.assertIsNone(result["net_value"]["value"])
+        self.assertIsNone(result["account_card_net_shares"]["joint"]["value"])
 
     def test_same_day_partial_and_no_account_plus_rows_double_count(self):
         rows = [holding("joint", "股票", 20, -3), holding("fund", "基金", 50, 1),

@@ -1,7 +1,7 @@
 import json
 from unittest import TestCase
 
-from domain.investments.personal_holdings import personal_holdings
+from domain.investments.personal_holdings import holding_filter_weights, personal_holdings
 
 
 class PersonalHoldingsTest(TestCase):
@@ -62,6 +62,8 @@ class PersonalHoldingsTest(TestCase):
         self.assertEqual([r["portfolio_weight"] for r in result["rows"]],
                          [0.3, 0.7, None, None, None, None])
         self.assertEqual(result["rows"][1]["position_segment"], "场内")
+        self.assertEqual(holding_filter_weights(result), {"股票": {"": 0.3, "A股": 0.3},
+                         "基金": {"": 0.7, "场内": 0.7}, "贵金属": {"": None}})
 
     def test_one_instrument_in_two_accounts_keeps_both_details(self):
         rows = [dict(holding_id=i, account=str(i), symbol="TEST", currency="CNY",

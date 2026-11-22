@@ -98,7 +98,20 @@ function mobileHeroMetaItem(label, value, tone = '', financingDetail = false) {
   `;
 }
 
-function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
+function filterWeightBadge(selection) {
+  if (!selection) return '';
+  const { value, partial, label } = selection;
+  const pct = value == null ? '—' : (partial ? '≈' : '') + signedPctText(value).replace('+', '');
+  return `<div class="mobileAccountWeight ${shareTone(value)}" title="${esc(label)}持仓市值 / 全部个人持仓市值">
+    <span>持仓占比 ${pct}</span>
+    ${value == null ? '' : `<i aria-hidden="true"><b style="width:${Math.min(100, Math.abs(value) * 100)}%"></b></i>`}</div>`;
+}
+
+function netShareText(metric) {
+  return metric?.value == null ? '—' : (metric.status === 'estimated' ? '≈' : '') + signedPctText(metric.value).replace('+', '');
+}
+
+function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null, selection = null) {
   if (profile.key === '负债') {
     const metric = profile.financing;
     return `<div class="mobileHeroPrimaryMetric main">
@@ -129,14 +142,13 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
       return signed || Number(amount) < 0 ? fmtSignedCny(amount) : fmtCny(amount);
     };
     const valueTone = amount => amount == null || Number(amount) === 0 ? '' : Number(amount) < 0 ? 'down' : 'up';
-    const share = portfolio_share?.value;
     const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}${recent_daily_pnl.status === 'partial' ? '（部分）' : ''}` : '最近一日盈亏';
     const dailyValue = daily == null && profile.key === 'A股基金' ? '同日数据待齐' : money(daily, true);
     return `
-      ${profile.hideHeader ? '' : `<div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
+      ${profile.hideHeader ? (selection ? `<div class="mobileAccountHeroTop"><span>投资组合</span>${filterWeightBadge(selection)}</div>` : '') : `<div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
         <span class="mobileAccountIcon">${esc(profile.icon)}</span>
         <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
-      </div></div>`}
+      </div>${filterWeightBadge(selection)}</div>`}
       <div class="mobileHeroPrimaryGrid">
         <div class="mobileHeroPrimaryMetric main"><span>${esc(metricLabel(netLabel, net_value))}</span><strong>${money(netValue)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(dailyLabel)}</span><strong class="${valueTone(daily)}">${dailyValue}</strong></div>
@@ -146,7 +158,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         ${mobileHeroMetaItem(metricLabel(profile.marketLabel || '持仓市值', market_value), money(market))}
         ${mobileHeroMetaItem(metricLabel(profile.cashLabel || '现金余额', cashMetric), money(cash), Number(cash) < 0 ? 'down' : '')}
         ${financing ? mobileHeroMetaItem(metricLabel('融资负债', financing), money(financing.value), '', true)
-          : mobileHeroMetaItem('组合占比', share == null ? '—' : signedPctText(share).replace('+', ''))}
+          : mobileHeroMetaItem('组合占比', netShareText(portfolio_share))}
         ${mobileHeroMetaItem('杠杆倍数', leverage == null ? '—' : `${Number(leverage).toFixed(2)}×`)}
       </div>
     `;
@@ -167,9 +179,6 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
   const totalPnl = Number.isFinite(Number(profile.totalPnl)) ? safeNum(profile.totalPnl) : 0;
   const totalRate = Number.isFinite(Number(profile.totalRate)) ? safeNum(profile.totalRate) : 0;
   const valueDisplay = profile.value == null ? '--' : formatOptionalMoney(value, 'CNY', { signed: Boolean(profile.valueSigned) });
-  const rawShare = safeNum(profile.share);
-  const shareWidth = Math.abs(rawShare);
-  const tone = shareTone(rawShare);
   const miniMetrics = (profile.miniMetrics || []).map(item => mobileHeroMetaItem(item.label, item.value, item.tone)).join('');
   return `
     ${profile.hideHeader ? '' : `<div class="mobileAccountHeroTop">
@@ -177,10 +186,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <span class="mobileAccountIcon">${profile.icon || '◌'}</span>
         <span>${esc(profile.identity || 'CNY PAMS')}</span>
       </div>
-      ${profile.hideShare ? '' : `<div class="mobileAccountWeight ${tone}">
-        <span>仓位 ${signedPctText(rawShare).replace('+', '')}</span>
-        <i><b style="width:${Math.max(2, Math.min(100, shareWidth * 100))}%"></b></i>
-      </div>`}
+      ${filterWeightBadge(selection)}
     </div>`}
     <div class="mobileHeroPrimaryGrid">
       <div class="mobileHeroPrimaryMetric main">
@@ -198,7 +204,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null) {
         <em class="${profile.ratePendingLabel ? 'muted' : totalPnl >= 0 ? 'up' : 'down'}"${profile.totalRateTitle ? ` title="${esc(profile.totalRateTitle)}"` : ''}>${profile.totalRateUndefined === true ? esc(profile.ratePendingLabel || '--') : signedPctText(totalRate)}</em>
       </div>
     </div>
-    <div class="mobileHeroMiniGrid ${miniMetrics ? '' : 'mobileHeroMiniGrid-empty'}">${miniMetrics}</div>
+    <div class="mobileHeroMiniGrid ${miniMetrics || profile.portfolioShare ? '' : 'mobileHeroMiniGrid-empty'}">${miniMetrics}${profile.portfolioShare ? mobileHeroMetaItem('组合占比', netShareText(profile.portfolioShare)) : ''}</div>
   `;
 }
 
@@ -210,7 +216,17 @@ function updateMobilePortfolioHero(group = currentMobileHeroGroup()) {
   const profile = mobileHeroContext.profiles[selected] || mobileHeroContext.profiles['全部'];
   mobileHeroEl.classList.toggle('mobileHeroAll', Boolean(profile.hideHeader));
   mobileHeroEl.classList.toggle('mobileHeroCategory', !profile.hideHeader);
-  mobileHeroEl.innerHTML = MobilePortfolioHero(profile, mobileHeroContext.asOf, mobileHeroContext.dataIssues, mobileHeroContext.syncAt);
+  const filter = document.getElementById('holdingGroupFilter');
+  const category = filter?.value;
+  const segment = filter?.dataset.segment || '';
+  const overview = mobileHeroContext.profiles['全部']?.accountCard;
+  const weights = overview?.filter_weights;
+  const selection = category && !['全部', '负债', '现金/活期'].includes(category) ? {
+    value: weights?.[category]?.[segment] ?? (weights && !(category in weights) && overview.complete_position_weights ? 0 : null),
+    partial: !overview?.complete_position_weights,
+    label: segment || category,
+  } : null;
+  mobileHeroEl.innerHTML = MobilePortfolioHero(profile, mobileHeroContext.asOf, mobileHeroContext.dataIssues, mobileHeroContext.syncAt, selection);
 }
 
 function bindMobileMethodology(summary, dataIssues, asOf) {

@@ -84,6 +84,7 @@ export function mount(root, context) {
       if (select) {
         select.value = currentGroup;
         select.dataset.heroGroup = heroGroup;
+        select.dataset.segment = currentSegment;
       }
       if (primary) primary.innerHTML = groups.filter(g => g !== '负债' || currentGroup === g).map(g => button(g === '负债' ? '融资' : g, g, g === currentGroup)).join('');
       if (secondary) {

@@ -343,7 +343,6 @@ export function makeMobileHeroProfiles({
   preciousSummary,
   esopSummary,
 }) {
-  const portfolioValue = safeNum(summary.marketValue);
   const aStockValue = safeNum(aStockSummary.totalValue);
   const aStockMarket = safeNum(aStockRowsSummary.totalValue);
   const aStockCash = Math.max(aStockValue - aStockMarket, 0);
@@ -379,7 +378,7 @@ export function makeMobileHeroProfiles({
       key: 'A股基金',
       icon: '🇨🇳',
       identity: '基金总览',
-      accountSubtitle: '基金持仓与活期+ · 人民币',
+      accountSubtitle: '场外基金与活期+ · 人民币',
       valueLabel: '基金净值',
       accountCard: accountCards.fund_overview ?? {},
     },
@@ -400,7 +399,7 @@ export function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: safeNum(preciousSummary.totalPnl),
       totalRate: safeNum(preciousSummary.holdingReturnRate ?? categoryByLabel(categories, '贵金属').holdingReturnRate),
-      share: safeNum(preciousSummary.totalValue) / portfolioValue,
+      portfolioShare: accountCards.investment_overview?.group_net_shares?.['贵金属'],
     },
     '内部股份/分红': {
       key: '内部股份/分红',
@@ -418,7 +417,7 @@ export function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: safeNum(esopSummary.totalPnl),
       totalRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
-      share: safeNum(esopSummary.totalValue) / portfolioValue,
+      portfolioShare: accountCards.investment_overview?.group_net_shares?.['员工持股'],
     },
     '现金/活期': {
       key: '现金/活期',
@@ -433,7 +432,6 @@ export function makeMobileHeroProfiles({
       totalLabel: '总盈亏',
       totalPnl: 0,
       totalRate: 0,
-      share: netCash / portfolioValue,
       miniMetrics: [
         { label: '现金资产', value: formatOptionalMoney(cashAssets) },
         { label: '现金负债', value: formatOptionalMoney(-cashLiabilities, 'CNY', { signed: cashLiabilities > 0 }), tone: cashLiabilities > 0 ? 'down' : '' },
