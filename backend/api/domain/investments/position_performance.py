@@ -314,7 +314,7 @@ def _position_days(dates, anchors, events, kind):
 
 
 def build_position_return_series(cur, *, start, end, interval, base_currency, owner_ratio, excluded_accounts,
-                                 position_kind=None, selection=None):
+                                 position_kind=None, selection=None, monthly_changes=None):
     """Compute a securities return from holdings and marks, with trade flows only."""
     start = min(start, end)
     dates = series_dates(start, end, 'daily')
@@ -387,8 +387,13 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
         # settlement leaves a gap for the affected part of the investment scope.
         comparable = [key for key in common if flows[day].get(key) is not None]
         prior = sum((previous[key] for key in comparable), ZERO)
-        change = sum((current[key] - previous[key] - flows[day][key] for key in comparable), ZERO)
         if prior > 0:
+            change = ZERO
+            for key in comparable:
+                movement = current[key] - previous[key] - flows[day][key]
+                change += movement
+                if monthly_changes is not None and (current[key] or previous[key] or flows[day][key]):
+                    monthly_changes[day.replace(day=1)][(kinds[key], key[1], key[2])] += movement
             daily = change / prior
             cumulative = (1 + cumulative) * (1 + daily) - 1
             total_pnl += change

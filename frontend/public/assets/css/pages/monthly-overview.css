@@ -1,0 +1,58 @@
+.monthlyOverview {
+  --month-previous: #9299a5;
+  --month-current: #82b9f1;
+  --month-warm: #e5b16e;
+  --month-line: #35383d;
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+.monthlyOverview [hidden] { display: none; }
+.monthlyOverview header, .monthlyOverview .between {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.monthlyOverview header { margin-bottom: 10px; }
+.monthlyOverview h2, .monthlyOverview h3, .monthlyOverview p { margin: 0; }
+.monthlyOverview select, .monthlyOverview button { font: inherit; color: inherit; cursor: pointer; }
+.monthlyOverview select { border: 1px solid var(--month-line); background: #252629; border-radius: 8px; padding: 5px; }
+.monthlyHero { background: var(--surface, #1a1b1f); border-radius: 15px; padding: 14px 16px 8px; }
+.monthlyOverview small, .monthlyOverview [data-period], .monthlyOverview .legend { font-size: 12px; color: #afb2bb; }
+.monthlyHero [data-nav] { font-size: clamp(24px, 6vw, 36px); letter-spacing: -.04em; }
+.monthlyHero [data-change] { font-size: 12px; color: var(--month-warm); }
+.monthlyHero .trend { display: block; width: 100%; height: 62px; touch-action: pan-y; }
+.monthlyHero line { stroke: #858b95; stroke-width: 1.6; }
+.monthlyHero line.active { stroke: var(--month-warm); stroke-width: 3; }
+.monthlyHero circle { fill: var(--month-warm); }
+.monthlyHero text { fill: #b9bcc3; font-size: 11px; }
+.monthlyHero rect { cursor: pointer; }
+.monthlyOverview .monthlyFocus { margin: 15px 0 11px; border-left: 3px solid var(--month-warm); padding-left: 8px; font-weight: 600; }
+.monthlyOverview .metricTabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; margin-bottom: 14px; }
+.monthlyOverview .metricTabs button { border: 1px solid transparent; border-radius: 8px; background: #1b1c20; padding: 7px 2px; font-size: 12px; color: #c0c4cc; }
+.monthlyOverview .metricTabs b { display: block; font-size: 15px; }
+.monthlyOverview .metricTabs [aria-pressed=true] { background: #202e3b; color: #daedff; border-color: #557492; }
+.monthlyOverview .legend { display: flex; gap: 11px; }
+.monthlyOverview .legend i { display: inline-block; width: 14px; height: 5px; border-radius: 1px; vertical-align: middle; margin-right: 4px; background: var(--month-previous); }
+.monthlyOverview .legend .current, .monthlyOverview .bar.current { background: var(--month-current); }
+.monthlyOverview .graph { margin-top: 6px; }
+.monthlyOverview .plotRow {
+  width: 100%; min-height: 44px; display: grid; align-items: center;
+  grid-template-columns: minmax(72px,.9fr) minmax(65px,1.7fr) minmax(58px,auto); gap: 8px;
+  background: transparent; border: 0; border-bottom: 1px solid #2c2d31; border-radius: 0;
+  padding: 3px 2px; text-align: left; font-size: 13px;
+}
+.monthlyOverview .plotRow[aria-pressed=true], .monthlyOverview .plotRow:hover { background: #22262a; }
+.monthlyOverview .rowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monthlyOverview .rowValue { text-align: right; white-space: nowrap; }
+.monthlyOverview .axis { position: relative; height: 26px; margin: 0 4px; }
+.monthlyOverview .zero { position: absolute; height: 22px; top: 2px; border-left: 1px solid #666b72; }
+.monthlyOverview .bar { position: absolute; height: 6px; border-radius: 1px; }
+.monthlyOverview .bar.previous { top: 5px; background: var(--month-previous); }
+.monthlyOverview .bar.current { top: 15px; }
+.monthlyOverview .bar.measuredZero { min-width: 2px; transform: translateX(-1px); }
+.monthlyOverview [data-more], .monthlyOverview [data-back] { padding: 8px 2px; border: 0; background: none; color: var(--month-current); }
+.monthlyAudit { margin: 5px 0 12px; padding-top: 7px; border-top: 1px solid var(--month-line); color: #b7bbc2; font-size: 12px; }
+.monthlyAudit summary { cursor: pointer; }
+.monthlyOverview .monthlyAudit p { margin: 6px 0; }
+.monthlyTip { position: absolute; z-index: 6; background: #2b3037; color: #f3f4f7; border: 1px solid #535c68; border-radius: 9px; padding: 9px 11px; width: min(235px,92%); font-size: 12px; }
+.monthlyTip strong { display: block; overflow-wrap: anywhere; margin-bottom: 3px; }
+.monthlyTip div { display: flex; justify-content: space-between; gap: 4px; }
+.monthlyTip button { background: #38495c; border: 0; border-radius: 6px; padding: 6px 9px; margin-top: 5px; }

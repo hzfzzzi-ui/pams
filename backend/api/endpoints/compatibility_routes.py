@@ -775,6 +775,16 @@ def create_compatibility_router(
         return with_closed_wealth(_apply_summary_pnl_to_return_series_payload(payload_with_valuation, summary_payload))
 
 
+    @router.get("/api/assets/monthly-overview")
+    def asset_monthly_overview():
+        from domain.investments.monthly_overview import build_monthly_overview
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                return json(build_monthly_overview(cur, today=_investment_today_label_date(),
+                                                  owner_ratio=_account_owner_ratio,
+                                                  excluded_accounts=_excluded_holding_accounts()))
+
     @router.get("/api/investment/analysis-view")
     def investment_analysis_view():
         with get_conn() as conn:

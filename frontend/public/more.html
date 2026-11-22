@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="assets/css/design-system-phone.css" />
   <link rel="stylesheet" href="assets/css/pages/investment-analysis.css" />
   <link rel="stylesheet" href="assets/css/more.css" />
+  <link rel="stylesheet" href="assets/css/pages/monthly-overview.css" />
   <link rel="stylesheet" href="assets/css/account-sync.css" />
   <link rel="stylesheet" href="assets/css/page-shell.css" />
   <link rel="stylesheet" href="assets/css/pams-refresh.css" />
@@ -24,24 +25,28 @@
 <main class="moreHub lowFrequencyStack" aria-label="资产">
       <nav class="assetTabs" aria-label="资产页导航"><a href="#asset-overview">总览</a><a href="#account-center">账户</a></nav>
       <section id="asset-overview">
-        <section class="assetCard" aria-label="个人净资产">
-          <h2 id="personalNetLabel">个人净资产</h2><strong id="personalNet">—</strong>
-          <div class="assetFigures"><a href="#account-center">总资产<strong id="personalGross">—</strong></a><a href="#asset-debts">总负债<strong id="personalDebt">—</strong></a></div>
-          <p id="personalCoverage" class="assetCoverage" role="status" hidden><span id="personalCoverageNote">部分账户资料待核验，暂无法汇总总资产和总负债。</span><a href="#account-center">查看账户</a></p>
-          <small id="personalAsOf"></small>
+        <section class="monthlyOverview" id="monthlyOverview" aria-label="月末资产总览">
+          <p class="monthlyStatus" role="status">正在读取月末对账…</p>
+          <button type="button" data-retry hidden>重新读取</button>
+          <div data-report hidden>
+            <header><h2>资产总览</h2><select aria-label="查看月份"></select></header>
+            <section class="monthlyHero">
+              <div class="between"><span data-period></span><small data-scope></small></div>
+              <div class="between"><strong data-nav></strong><span data-change></span></div>
+              <svg class="trend" role="img" aria-label="各月末净资产，可点选月份"></svg>
+            </section>
+            <p class="monthlyFocus" aria-live="polite"></p>
+            <div class="metricTabs" aria-label="选择指标"></div>
+            <div class="between"><div data-heading></div><div class="legend"></div></div>
+            <div class="graph" aria-label="分类金额对比"></div>
+            <button type="button" data-more></button>
+            <details class="monthlyAudit"><summary></summary><p></p>
+              <div><a href="#account-center">总资产 <b data-assets></b></a> · <a href="#asset-debts">总负债 <b data-debts></b></a></div>
+            </details>
+          </div>
+          <div class="monthlyTip" hidden></div>
         </section>
-        <p id="investmentAnalysisProjectionStatus" role="status" hidden></p>
-        <section class="investmentAnalysisCard returnNavPanel" aria-labelledby="investmentNavHeading">
-            <div class="returnChartHeader">
-              <h3 id="investmentNavHeading">净资产走势</h3>
-              <div id="investmentNavWindowToggle" class="returnWindowSegment" aria-label="NAV时间范围切换"></div>
-            </div>
-            <div id="investmentNavStats" class="returnNavStats" aria-label="NAV变化摘要"></div>
-            <div class="chartWrapSm returnNavChartWrap">
-              <canvas id="investmentNavChart"></canvas>
-            </div>
-          </section>
-        <section class="assetCard" id="asset-debts"><h2>负债明细</h2>
+        <section class="assetCard" id="asset-debts"><h2>最新负债明细</h2>
           <details id="assetFinancing" open><summary>投资融资</summary><div></div></details>
           <details id="assetCards" open><summary>信用卡欠款</summary><div></div></details>
         </section>
