@@ -207,7 +207,10 @@ def create_compatibility_router(
                 else:
                     data = {**data, "projection": published["projection"]}
                 overview = holdings_overview_card(data, _load_portfolio_accounts_config())
-                return json({**data, "account_cards": {**data["account_cards"], "investment_overview": overview}})
+                shares = overview.pop("account_card_net_shares")
+                cards = {key: {**card, "portfolio_share": shares[key]} if key in shares else card
+                         for key, card in data["account_cards"].items()}
+                return json({**data, "account_cards": {**cards, "investment_overview": overview}})
 
     @router.get("/api/investment/account-funding-history")
     def investment_account_funding_history(account: str):
@@ -265,7 +268,6 @@ def create_compatibility_router(
             cards = build_holdings_account_cards(
                 positions=positions, overview=accounts["overview"], stock_performance=accounts["tonghuashun"],
                 stock=stock, funds=funds_all, overseas=overseas, closed_returns=closed_returns,
-                summary=summary,
             )
             return {
                 "holdings": holdings_for_list(cur, context, limit=None, include_closed=show_closed),

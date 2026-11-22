@@ -102,6 +102,22 @@ def attach_combined_positions(rows):
         members[0]["combined_count"] = len(members)
 
 
+def holding_filter_weights(holdings):
+    """Sum the same personal weights used by the unfiltered position list."""
+    weights = {}
+    for row in holdings["rows"]:
+        group = row["position_group"]
+        if group in {"负债", "现金/活期"} or row.get("is_closed") or row.get("reference_as_of"):
+            continue
+        amounts = weights.setdefault(group, {})
+        for key in {"", row.get("position_segment")} - {None}:
+            value = amounts.setdefault(key, None)
+            if row.get("portfolio_weight") is not None:
+                amounts[key] = (value or Decimal(0)) + Decimal(str(row["portfolio_weight"]))
+    return {group: {key: float(value) if value is not None else None for key, value in amounts.items()}
+            for group, amounts in weights.items()}
+
+
 def personal_holdings(payload, classes=None, *, accounts=None):
     classes = instrument_classes() if classes is None else classes
     total = Decimal("0")

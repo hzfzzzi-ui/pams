@@ -13,7 +13,7 @@ class ValuationDatesTest(TestCase):
         stock = {"as_of": "2026-03-03", "rows": [{"account": "tonghuashun", "currency": "CNY",
                   "market_value": "20", "owner_ratio": "0.5", "market_value_cny": market}]}
         cards = build_holdings_account_cards(positions=positions, overview={}, stock_performance={}, stock=stock,
-                                            funds={}, overseas={}, closed_returns={}, summary={})
+                                            funds={}, overseas={}, closed_returns={})
         return cards["tonghuashun"]
 
     def test_new_quote_keeps_cash_and_personal_scope(self):

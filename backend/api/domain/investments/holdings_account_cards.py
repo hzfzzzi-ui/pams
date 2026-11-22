@@ -32,9 +32,18 @@ def _cny_balance(accounts, code):
     return balance
 
 
+FUND_CASH_ACCOUNT = "tencent_licaitong_current_plus"
+
+
+def fund_overview_members(funds):
+    codes = {r.get("account") or r.get("account_code") for r in funds.get("rows", [])
+             if not r.get("is_closed") and not r.get("reference_as_of")}
+    return codes | {FUND_CASH_ACCOUNT}
+
+
 def _fund_overview_card(funds, cash, closed_returns):
     """Estimate the fund section's value from its active holdings and verified cash."""
-    rows = [row for row in funds.get("rows", []) if not row.get("is_closed")]
+    rows = [row for row in funds.get("rows", []) if not row.get("is_closed") and not row.get("reference_as_of")]
     amounts = [_decimal(row.get("market_value_cny")) for row in rows]
     market = sum(amounts, Decimal(0)) if amounts and None not in amounts else None
     cash_amount = _decimal(cash["value"])
@@ -89,7 +98,7 @@ def account_center_balances(positions, funds, cards):
 
 
 def build_holdings_account_cards(*, positions, overview, stock_performance, stock, funds, overseas,
-                                 closed_returns, summary):
+                                 closed_returns):
     accounts = {row["account_code"]: row for row in overview.get("accounts", [])}
     by_account = {row["account_code"]: row for row in positions.get("by_account", [])}
     stock_position = by_account.get("tonghuashun", {})
@@ -101,7 +110,7 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
     fund_holding = funds.get("holding_performance") or {}
     fund_value = fund_position.get("fund_card_valuation") or fund_position.get("portfolio_value") or {}
     fund_balance = _cny_balance(accounts, "tencent_licaitong")
-    fund_cash = _cny_balance(accounts, "tencent_licaitong_current_plus")
+    fund_cash = _cny_balance(accounts, FUND_CASH_ACCOUNT)
     ibkr_value = by_account.get("ibkr", {}).get("portfolio_value") or {}
     if ibkr_value.get("status") != "official_close":
         ibkr_value = {}
@@ -207,15 +216,7 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
                                       basis="official_year_to_date", period_start=ibkr_value.get("period_start")),
         },
     }
-    portfolio_value = _decimal((summary.get("totals") or {}).get("market_value"))
     for code, card in cards.items():
-        net = card["net_value"]
-        amount = _decimal(net["value"])
-        if code == "tencent_licaitong" and net["status"] == "estimated":
-            amount = _decimal(fund_balance.get("amount"))
-        share = (amount / portfolio_value if amount is not None and portfolio_value and portfolio_value > 0
-                 and summary.get("snapshot_scope_status") != "incomplete" else None)
-        card.update(account_code=code, base_currency="CNY",
-                    portfolio_share=_metric(share, summary.get("as_of"), basis="portfolio_value"))
+        card.update(account_code=code, base_currency="CNY", portfolio_share=_metric(None))
     cards["fund_overview"] = _fund_overview_card(funds, fund_cash_metric, closed_returns.get("a_fund") or {})
     return cards
