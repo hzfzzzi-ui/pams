@@ -91,6 +91,7 @@ def holding_price_comparison(cur, selection, start, end, benchmark_loader):
     return {
         'status': 'ok', 'benchmark': name,
         'base_date': observations[0][0].isoformat(),
+        'drawdown_from_peak_pct': norm((observations[-1][1] / max(p for _, p, _ in observations) - 1) * 100),
         'rows': [{'date': day.isoformat(),
                   'asset_index': norm(price / base_price),
                   'benchmark_index': norm(benchmark / base_benchmark),

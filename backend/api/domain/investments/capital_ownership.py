@@ -42,6 +42,42 @@ def contribution_ratios(events, personal_legs, dates, through, personal_total, a
     return result
 
 
+def funding_history(cur, account_code, cfg):
+    """Show verified daily capital movements, bounded by the reconciled funding period."""
+    from domain.investments.trade_read_v2 import load_trade_rows
+
+    history = cfg.get('funding_history') or {}
+    if history.get('complete_personal_flows') is not True:
+        return []
+    try:
+        through = date.fromisoformat(str(history.get('as_of')))
+    except ValueError:
+        return []
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS ready")
+    if not cur.fetchone()['ready']:
+        return []
+    events = [row for row in load_trade_rows(cur, account_code=account_code, start=date.min, end=through)
+              if row['trade_type'] in {'deposit', 'withdraw'}]
+    if any(row['source_evidence_status'] != 'verified' or row['currency'] != 'CNY' for row in events):
+        return []
+    daily = defaultdict(Decimal)
+    for row in events:
+        daily[row['trade_date']] += row['net_cash']
+    ratios = load_contribution_ratios(cur, cfg, events, sorted(daily))
+    if set(daily) != set(ratios):
+        return []
+    result = []
+    capital = personal = Decimal(0)
+    for day, change in sorted(daily.items()):
+        capital += change
+        balance = (capital * ratios[day]).quantize(Decimal('0.01'))
+        mine = balance - personal
+        result.append({'date': day.isoformat(), 'personal_change': str(mine), 'other_change': str(change - mine),
+                       'personal_balance': str(balance), 'account_balance': str(capital)})
+        personal = balance
+    return result
+
+
 def load_contribution_ratios(cur, cfg, events, dates, *, unverified_from=None):
     """Revalidate the reviewed bank allocations against their original facts and broker totals."""
     try:

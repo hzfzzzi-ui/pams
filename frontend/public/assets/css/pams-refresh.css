@@ -145,6 +145,29 @@ body.page-account-import #screenshot-area {
 }
 body.page-account-import .import-modes button:disabled { opacity: .5; }
 
+/* Personal positions and account-level returns share the existing holdings route. */
+#holdingReturnTabs { display:flex; gap:18px; border-bottom:1px solid var(--refresh-border); margin:5px 0 12px; }
+#holdingReturnTabs button, #holdingBasis, .holdingAccountLinks button, .returnLink, .returnStats button {
+  background:transparent; border:0; color:inherit; font:inherit; cursor:pointer;
+}
+#holdingReturnTabs button { padding:10px 2px; color:var(--muted); border-bottom:2px solid transparent; }
+#holdingReturnTabs button[aria-pressed="true"] { border-color:currentColor; color:var(--text); font-weight:650; }
+#holdingReturnHero { padding:16px; margin:10px 0 14px; background:var(--refresh-panel); border-radius:17px; }
+#holdingReturnHero>strong, .returnDetail>strong { display:block; font-size:clamp(26px,6vw,34px); margin:4px 0 11px; font-variant-numeric:tabular-nums; }
+.returnStats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px; border-top:1px solid var(--refresh-border); padding:12px 0 0; }
+.returnStats small, #holdingReturnHero>small, .returnDetail small, .returnLink small {display:block;color:var(--muted)}
+.returnStats strong, .returnStats b {display:block;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;margin-top:3px}
+.returnStats button {text-align:left;padding:0}
+#holdingBasis, .holdingAccountLinks button {color:var(--muted);padding:5px 8px;font-size:12px}
+.returnLink {display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;text-align:left;border-bottom:1px solid var(--refresh-border)}
+.returnLink b {white-space:nowrap}
+.returnDetail details {padding:14px 0}
+.returnDetail summary {cursor:pointer}
+body[data-invest-tab="holdings"][data-position-overview="true"] #investment-conclusion,
+#holdings-smart-table[data-return-mode="accounts"] > :not(#holdingReturnTabs):not(#holdingReturnAccounts):not(#holdingReturnHero),
+#holdingReturnAccounts[hidden], #holdingReturnHero[hidden] {display:none!important}
+#holdingReturnAccounts h3 {font-size:16px;margin:14px 0 2px}
+#holdings-smart-table .personalHoldingHeading {display:flex;align-items:center;justify-content:space-between}
 /* Compact holding rows retain the same values and open the existing detail sheet. */
 body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading {
   margin-top: 10px;

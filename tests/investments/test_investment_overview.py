@@ -36,6 +36,10 @@ class InvestmentOverviewTest(TestCase):
         for key, value in expected.items():
             self.assertEqual(Decimal(result[key]["value"]), value, key)
 
+        by_code = {a["account_code"]: a for a in result["account_returns"]}
+        self.assertEqual(by_code["joint"]["net_value"]["value"], "75")
+        self.assertEqual(by_code["joint"]["cash"]["value"], "-26")
+        self.assertTrue(by_code["cash"]["cash_only"])
         items = result["financing_items"]
         self.assertEqual({(i["account_code"], i["kind"], Decimal(i["amount_cny"])) for i in items},
                          {("equity", "loan", Decimal(10)), ("joint", "negative_cash", Decimal(26))})

@@ -18,6 +18,8 @@ import {
 import { pageMemory, pageScroller, restorePageScroll, showRememberedData } from '../../../app/page_memory.js';
 import { watchPageRead } from '../../../shared/page_read.js';
 
+import { createReturnView } from './return_view.js';
+
 const mounted = new WeakMap();
 export function mount(root, context) {
   if (mounted.has(root)) return mounted.get(root);
@@ -28,7 +30,14 @@ export function mount(root, context) {
   const closed = acquireClosedPositions(root, window);
   const { withClosedParam } = closed;
   const details = createOwnedDetails(context.showDetails, context.closeDetails);
-  const view = createListView({document, host: window, showDetails: details.show, scope});
+  const view = createListView({document, host: window, showDetails: details.show, scope,
+    openAccount: code => returns.openAccount(code)});
+  const returns = createReturnView({document, scope, details, openPosition: view.openPosition,
+    showFinancing() {
+      const select = document.getElementById('holdingGroupFilter');
+      select.value = '负债';
+      select.dispatchEvent(new window.Event('change'));
+    }});
   const { renderRows } = view;
   const memory = pageMemory(window);
   const variant = window.location.search;
@@ -47,7 +56,7 @@ export function mount(root, context) {
   let releaseGroupFilter = () => {};
   let currentSegment = context.state?.segment || savedView?.segment || '';
   let summary = remembered?.summary;
-  let financingItems = remembered?.financingItems;
+  let overview = remembered?.returnOverview;
   const primaryOrder = ['全部', '股票', '基金', '银行理财', '贵金属', '员工持股', '负债'];
   const marketOrder = ['A股', '港股', '美股', '韩股'];
   const category = row => row.position_group || row.minor_category || row.major_category || '其他';
@@ -83,10 +92,11 @@ export function mount(root, context) {
           + segments.map(g => button(g,g,g === currentSegment)).join('');
       }
       if (currentGroup === '负债') {
-        view.renderFinancing(financingItems);
+        view.renderFinancing(overview?.financing_items);
       } else {
         renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary});
       }
+      returns.update({overview, summary, rows: allRows, group: currentGroup});
       window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: heroGroup, sourceRoot: root } }));
     }
     if (select) select.innerHTML = groups.map(g => `<option value="${esc(g)}">${esc(g === '负债' ? '融资' : g)}</option>`).join('');
@@ -118,7 +128,7 @@ export function mount(root, context) {
       let sourceRows = [];
       let references = [];
       let supplementFailed = false;
-      const [holdings, accountValues, financing] = await readListInputs({
+      const [holdings, accountValues, accountOverview] = await readListInputs({
         get: path => scope.get(path, savedView ? {force: true} : undefined),
         loadHoldingView: context.loadHoldingView,
         loadAccountPositions: context.loadAccountPositions,
@@ -137,13 +147,13 @@ export function mount(root, context) {
       });
       if (!scope.active) return;
 
-      financingItems = financing;
+      overview = accountOverview;
       const cash = buildAccountCashRows(accountValues, sourceRows);
       const rows = [...sourceRows, ...cash.rows];
       setupHoldingGroupFilter(rows, {references});
       showCashStatus(cash.missing);
       document.getElementById('asof').textContent = holdings.as_of || '--';
-      if (!supplementFailed) memory?.write('rows', variant, {rows, references, summary, financingItems, asOf: holdings.as_of, missingCash: cash.missing});
+      if (!supplementFailed) memory?.write('rows', variant, {rows, references, summary, returnOverview: overview, asOf: holdings.as_of, missingCash: cash.missing});
       showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;

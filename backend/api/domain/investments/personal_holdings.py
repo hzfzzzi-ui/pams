@@ -111,6 +111,13 @@ def personal_holdings(payload, classes=None, *, accounts=None):
     attach_combined_positions(rows)
     for item in [*rows, *(r["combined_position"] for r in rows if r.get("combined_position"))]:
         cost, pnl = item.get("cost_cny"), item.get("holding_pnl_cny")
+        market = item.get("market_value_cny")
+        floating = None
+        if market is not None and cost is not None and not item.get("is_closed") and not item.get("reference_as_of"):
+            floating = Decimal(str(market)) - Decimal(str(cost))
+        item["floating_pnl_cny"] = float(floating) if floating is not None else None
+        item["floating_pnl_ratio"] = (float(floating / Decimal(str(cost)))
+                                      if floating is not None and Decimal(str(cost)) > 0 else None)
         item["cumulative_pnl_ratio"] = (float(Decimal(str(pnl)) / Decimal(str(cost)))
                                         if pnl is not None and cost is not None and Decimal(str(cost)) > 0 else None)
     references = []

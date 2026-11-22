@@ -196,7 +196,7 @@ def create_compatibility_router(
                 if published is not None:
                     data = published["data"]
                     if ("personal_summary" not in data["holdings"] or
-                            any("position_net_value_cny" not in r for r in data["holdings"]["rows"])):
+                            any("floating_pnl_ratio" not in r for r in data["holdings"]["rows"])):
                         if len(data["holdings"]["rows"]) >= 500:
                             published = None
                         else:
@@ -208,6 +208,17 @@ def create_compatibility_router(
                     data = {**data, "projection": published["projection"]}
                 overview = holdings_overview_card(data, _load_portfolio_accounts_config())
                 return json({**data, "account_cards": {**data["account_cards"], "investment_overview": overview}})
+
+    @router.get("/api/investment/account-funding-history")
+    def investment_account_funding_history(account: str):
+        from domain.investments.capital_ownership import funding_history
+        cfg = _load_portfolio_accounts_config().get("accounts", {}).get(account) or {}
+        if account in _excluded_holding_accounts() or not cfg.get("funding_history"):
+            return {"rows": []}
+        with get_conn() as conn:
+            conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                return {"rows": funding_history(cur, account, cfg)}
 
     @router.get("/api/investment/account-center-balances")
     def investment_account_center_balances():

@@ -12,11 +12,12 @@ export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown
     <div class="hmIdentity">${iconMarkup}<div class="hmSubtitle">${esc(subtitle)}</div></div>
     <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
       <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
+    <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone || ''}">${esc(item.amount)}</b></div>`).join('')}</div>
+    <div class="holdingAccountLinks"></div>
     <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
     <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div><div class="hmPlot" aria-label="持仓市值历史走势"></div><div class="hmReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmPanel"><strong>我的持仓收益率</strong><div class="hmReturnPlot"></div><div class="hmReturnReadout" aria-live="polite">正在读取走势…</div></div>
     <div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
-    <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone}">${esc(item.amount)}</b></div>`).join('')}</div>
     <details><summary>账户成交记录</summary><div class="hmTrades"></div></details>
     <details><summary>持仓与盈亏明细</summary>${fields}</details>
   </section>`;
@@ -123,8 +124,11 @@ function returnMarkup(rows) {
   return `<svg viewBox="0 0 365 175" role="img" aria-label="我的持仓区间收益率">${shapes.join('')}</svg>`;
 }
 
-export function bindMarketDetail(sheet, holding) {
+export function bindMarketDetail(sheet, holding, shared = false) {
   if (!sheet) return;
+  if (shared) {
+    sheet.querySelector('.hmLegend span').textContent = '按当前归属折算的持仓市值 · 万元';
+  }
   const accounts = holding.__accountRows || [holding];
   const end = accounts.flatMap(row => [row.as_of, row.snapshot_as_of])
     .map(value => String(value || '').slice(0, 10))
@@ -156,7 +160,7 @@ export function bindMarketDetail(sheet, holding) {
       data.history = history;
       records = history.trades.slice().reverse();
     }).catch(() => { data.historyError = true; }).finally(() => { renderTrades(); render(); });
-    jget('/api/holdings/position-return?' + params).then(result => { data.returns = result; })
+    if (!shared) jget('/api/holdings/position-return?' + params).then(result => { data.returns = result; })
       .catch(() => { data.returnError = true; }).finally(render);
     jget('/api/holdings/price-comparison?' + params, {ttlMs:60000}).then(index => {
       data.index = index;
@@ -202,7 +206,10 @@ export function bindMarketDetail(sheet, holding) {
     const {history, index, returns, returnError, historyError, indexError} = activeWindow();
     const returnPlot = sheet.querySelector('.hmReturnPlot');
     const returnReadout = sheet.querySelector('.hmReturnReadout');
-    if (returns?.status === 'available') {
+    if (shared) {
+      returnPlot.replaceChildren();
+      returnReadout.textContent = '个人历史收益待按出入金时的份额核对';
+    } else if (returns?.status === 'available') {
       returnPlot.innerHTML = returnMarkup(returns.rows);
       const last = returns.rows[returns.rows.length - 1];
       returnReadout.textContent = last.return_rate == null ? '当日收益率待核对'
@@ -211,6 +218,21 @@ export function bindMarketDetail(sheet, holding) {
     } else {
       returnPlot.replaceChildren();
       returnReadout.textContent = returnError ? '收益率读取失败' : returns ? '暂无可核对收益率' : '正在读取走势…';
+    }
+    const comparisonPlot = sheet.querySelector('.hmComparisonPlot');
+    const comparisonReadout = sheet.querySelector('.hmComparisonReadout');
+    sheet.querySelector('.hmComparisonLegend').hidden = index?.status !== 'ok';
+    if (index?.status === 'ok') {
+      sheet.querySelector('.hmBenchmarkName').textContent = index.benchmark;
+      const series = index.rows.map(row => ({value:Number(row.asset_index), close:Number(row.benchmark_index)}));
+      const compareDates = index.rows.map(row => row.date);
+      comparisonPlot.innerHTML = comparisonMarkup(series, compareDates);
+      const last = series[series.length - 1];
+      comparisonReadout.textContent = '起点 ' + index.base_date + ' = 1　标的 ' + number(last.value) + '　' + index.benchmark + ' ' + number(last.close)
+        + (index.drawdown_from_peak_pct == null ? '' : '　区间高点至末日 ' + number(index.drawdown_from_peak_pct) + '%');
+    } else {
+      comparisonPlot.replaceChildren();
+      comparisonReadout.textContent = indexError ? '对比数据读取失败' : index ? '暂无可用的市场对比数据' : '正在读取走势…';
     }
     const points=new Map(), days=new Set();
     function put(rows,key){for(const row of rows||[]){if(row.date<first)continue;days.add(row.date);const p=points.get(row.date)||{};
@@ -228,20 +250,6 @@ export function bindMarketDetail(sheet, holding) {
     const active=dates.includes(selected)?dates.indexOf(selected):dates.length-1;
     const day=dates[active], current=rows[active];plot.innerHTML=chartMarkup(rows,dates,active,sides);
     const tradeInfo=trades.filter(t=>t.date===day).map(tradeLabel).join(' / ');
-    const comparisonPlot = sheet.querySelector('.hmComparisonPlot');
-    const comparisonReadout = sheet.querySelector('.hmComparisonReadout');
-    sheet.querySelector('.hmComparisonLegend').hidden = index?.status !== 'ok';
-    if (index?.status === 'ok') {
-      sheet.querySelector('.hmBenchmarkName').textContent = index.benchmark;
-      const series = index.rows.map(row => ({value:Number(row.asset_index), close:Number(row.benchmark_index)}));
-      const compareDates = index.rows.map(row => row.date);
-      comparisonPlot.innerHTML = comparisonMarkup(series, compareDates);
-      const last = series[series.length - 1];
-      comparisonReadout.textContent = '起点 ' + index.base_date + ' = 1　标的 ' + number(last.value) + '　' + index.benchmark + ' ' + number(last.close);
-    } else {
-      comparisonPlot.replaceChildren();
-      comparisonReadout.textContent = indexError ? '对比数据读取失败' : index ? '暂无可用的市场对比数据' : '正在读取走势…';
-    }
     readout.textContent=day+'　持仓 '+(historyError?'读取失败':amount(current.value))+(tradeInfo?'　'+tradeInfo:'');
     function pick(event){const bounds=plot.getBoundingClientRect();const px=(event.clientX-bounds.left)/bounds.width*365;
       const i=Math.max(0,Math.min(dates.length-1,Math.round((px-41)/269*(dates.length-1))));

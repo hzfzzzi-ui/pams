@@ -6,6 +6,10 @@ from domain.accounts.account_policy import excluded_accounts, is_investment_acco
 from domain.investments.holdings_account_cards import _decimal, _metric
 
 
+def _number_text(value):
+    return str(value) if value is not None else None
+
+
 def _dated(amount, day):
     value = _decimal(amount)
     return (str(day)[:10], value) if day and value is not None else None
@@ -61,6 +65,7 @@ def holdings_overview_card(page, config):
 
     totals = defaultdict(list)
     financing_items = []
+    account_returns = []
     profits, daily_results = [], []
     coverage = (holdings.get("recent_confirmed_returns") or {}).get("by_account") or {}
     for code in sorted(set(groups) | set(cards)):
@@ -105,6 +110,31 @@ def holdings_overview_card(page, config):
             net = _decimal(net_metric.get("value"))
             ratio = _decimal(card.get("leverage", {}).get("value"))
             exposure = net * ratio if net is not None and ratio is not None else None
+        cfg = settings.get(code) or {}
+        ratios = {_decimal(r.get("owner_ratio")) for r in positions}
+        owner = next(iter(ratios)) if len(ratios) == 1 else None
+        shared = owner is not None and 0 < owner < 1
+        dedicated = cfg.get("latest_position_evidence") == "recorded_equity_and_debt"
+        funding = cfg.get("funding_history") or {}
+        evidence_day = max((str(r.get("snapshot_as_of") or r.get("as_of"))[:10] for r in positions
+                            if r.get("snapshot_as_of") or r.get("as_of")), default=None)
+        cash_only = bool(money) and not positions and not loans
+        account_returns.append({
+            "account_code": code, "name": accounts.get(code, {}).get("display_name") or cfg.get("display_name") or code,
+            "shared": shared, "dedicated_loan": dedicated, "official_close": official, "cash_only": cash_only,
+            "owner_ratio": _number_text(owner), "market_value_cny": _number_text(market),
+            "remaining_cost_cny": _number_text(_total(positions, "cost_cny")),
+            "personal_capital": cfg.get("personal_capital") if shared and funding.get("complete_personal_flows") else None,
+            "account_capital": cfg.get("capital_base") if shared and funding.get("complete_personal_flows") else None,
+            "net_value": net_metric if official or broker else None,
+            "cash": cash_metric if broker else _metric(cash) if cash_only else None,
+            "leverage": card.get("leverage") if official else None,
+            "position_equity_cny": positions[0].get("position_net_value_cny") if dedicated and len(positions) == 1 else None,
+            "dedicated_debt_cny": _number_text(loan) if dedicated and loans else None,
+            "dividends_cny": _number_text(_total(positions, "annual_dividend_income_cny")) if dedicated else None,
+            "as_of": net_metric.get("as_of") or evidence_day,
+            "reported_pnl": card.get("cumulative_pnl") if official else None,
+        })
         totals["net_value"].append(net)
         totals["market_value"].append(market)
         totals["cash"].append(max(cash, 0) if cash is not None else None)
@@ -135,6 +165,7 @@ def holdings_overview_card(page, config):
     return {
         **result,
         "financing_items": financing_items,
+        "account_returns": account_returns,
         "leverage": _metric(sum(totals["exposure"]) / net if comparable else None,
                             status="estimated", basis="gross_exposure_over_equity"),
         "recent_daily_pnl": _metric(sum(item[1] for item in same_day) if same_day else None, day,
