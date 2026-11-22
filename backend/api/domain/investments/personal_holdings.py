@@ -3,6 +3,7 @@ from decimal import Decimal
 from functools import lru_cache
 
 from domain.assets.lookthrough_state import load_lookthrough_config
+from domain.investments.esop_dividends import dividend_yield_on_cost
 
 
 @lru_cache(maxsize=1)
@@ -55,6 +56,21 @@ def attach_position_net_values(rows, accounts):
             assets[0]["position_net_value_cny"] = float(Decimal(str(assets[0]["market_value_cny"])) - debt)
 
 
+def position_dividend_return(members):
+    if (members[0]["position_group"] != "员工持股" or members[0].get("is_closed")
+            or members[0].get("reference_as_of")):
+        return None
+    annual = cost = None
+    if all(r.get("realized_income_status") == "confirmed" and r.get("annual_dividend_income_cny") is not None
+           for r in members):
+        annual = sum(Decimal(str(r["annual_dividend_income_cny"])) for r in members)
+    if all(r.get("cost_cny") is not None for r in members):
+        cost = sum(Decimal(str(r["cost_cny"])) for r in members)
+    rate = dividend_yield_on_cost(annual, cost)
+    return {"amount_cny": str(annual) if annual is not None else None,
+            "yield_on_cost": str(rate) if rate is not None else None}
+
+
 def attach_combined_positions(rows):
     groups = {}
     for row in rows:
@@ -65,7 +81,7 @@ def attach_combined_positions(rows):
     for group_index, members in enumerate(groups.values()):
         if len(members) < 2:
             continue
-        combined = {}
+        combined = {"position_dividend_return": position_dividend_return(members)}
         for field in ("quantity", "portfolio_weight", "cost", "cost_cny", "market_value", "market_value_cny",
                       "position_net_value_cny", "holding_pnl", "holding_pnl_cny", "realized_trade_pnl_cny", "net_distributions_cny",
                       "daily_total_pnl_cny", "daily_pnl_cny", "daily_fx_pnl_cny", "daily_pnl_native"):
@@ -94,6 +110,7 @@ def personal_holdings(payload, classes=None, *, accounts=None):
     for source in payload.get("rows", []):
         group, segment = position_category(source, classes)
         row = dict(source, position_group=group, position_segment=segment, portfolio_weight=None)
+        row["position_dividend_return"] = position_dividend_return([row])
         rows.append(row)
         if group in {"现金/活期", "负债"} or row.get("reference_as_of") or row.get("is_closed"):
             continue

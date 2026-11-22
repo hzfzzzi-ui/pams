@@ -92,7 +92,7 @@ export function createReturnView({document, scope, details, openPosition, showFi
   scope.listen(hero,'click', e => { if (e.target.closest('[data-financing]')) {mode = 'positions'; showFinancing(); render();} });
   scope.listen(document.getElementById('holdingBasis'),'click', () => details.show('数字口径',
     '<div class="returnDetail"><div class="returnStats">'+[
-      ['第一行','个人市值 / 市值占比'],['第二行','浮动盈亏 / 浮动盈亏率'],['第三行','最近一日盈亏 / 标的涨跌幅'],
+      ['第一行','个人市值 / 市值占比'],['第二行','浮动盈亏 / 浮动盈亏率'],['员工持股第二行','年内分红 / 年内分红占持仓成本'],['第三行','最近一日盈亏 / 标的涨跌幅'],
       ['占比分母','全部个人持仓市值'],['缺少可核对数据','—'],
     ].map(pair=>field(...pair)).join('')+'</div></div>'));
   return { openAccount, update(data) { ({overview, summary, rows, group} = data); render(); } };

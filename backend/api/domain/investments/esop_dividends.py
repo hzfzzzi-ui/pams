@@ -56,6 +56,10 @@ def enrich_verified_dividends(cur, rows, *, view_as_of):
     return rows
 
 
+def dividend_yield_on_cost(annual, cost):
+    return annual / cost if annual is not None and cost is not None and cost > 0 else None
+
+
 def summarize_dividends(rows):
     positions = [row for row in rows if not row.get("is_closed")
                  and row.get("asset_liability") not in {"负债", "liability", "debt"}]
@@ -64,7 +68,7 @@ def summarize_dividends(rows):
     cost = sum((row["cost_cny"] for row in positions if row.get("cost_cny") is not None), Decimal(0))
     annual = sum(income, Decimal(0)) if income else None
     return {"annual_pnl_cny": annual, "annual_basis": "confirmed_dividends",
-            "annual_return_rate": annual / cost if annual is not None and cost > 0 else None}
+            "annual_return_rate": dividend_yield_on_cost(annual, cost)}
 
 
 def reconcile_bank_dividend(cur, *, cashflow_id, event_date, expected_amount, account, symbol, apply=False):

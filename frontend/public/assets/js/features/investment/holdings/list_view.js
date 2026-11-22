@@ -76,6 +76,13 @@ function holdingMetrics(row, summary) {
   };
 }
 
+function positionReturn(row) {
+  const dividend = row.position_dividend_return;
+  return dividend
+    ? {amount:dividend.amount_cny, rate:dividend.yield_on_cost, label:'年内分红', rateLabel:'年内分红收益率（按持仓成本）'}
+    : {amount:row.floating_pnl_cny, rate:row.floating_pnl_ratio, label:'浮动盈亏', rateLabel:'浮动盈亏率'};
+}
+
 function pnlText(value) {
   if (value == null) return '—';
   return Number(value) === 0 ? formatCompactCurrency(0) : formatSignedCurrency(value);
@@ -108,7 +115,11 @@ function openHoldingDetail(row, summary, fields) {
       {label:'浮动盈亏率', amount:row.floating_pnl_ratio == null ? '—' : signedPercentText(row.floating_pnl_ratio * 100), tone:pnlTone(row.floating_pnl_ratio)},
       {label:'市值占比', amount:metrics.weight},
       ...(metrics.shared && !row.__isAggregated ? [{label:'当前个人归属', amount:formatNumber(Number(row.owner_ratio) * 100) + '%'}] : []),
-      ...(row.annual_dividend_income_cny == null ? [] : [{label:'年内分红', amount:pnlText(row.annual_dividend_income_cny)}]),
+      ...(row.position_dividend_return ? [
+        {label:'年内分红', amount:pnlText(row.position_dividend_return.amount_cny)},
+        {label:'年内分红收益率（按持仓成本）', amount:row.position_dividend_return.yield_on_cost == null
+          ? '—' : signedPercentText(Number(row.position_dividend_return.yield_on_cost) * 100)},
+      ] : []),
       ...(metrics.realized == null ? [] : [{label:'已实现盈亏', amount:pnlText(metrics.realized), tone:pnlTone(metrics.realized)}]),
     ], fields,
   }));
@@ -176,6 +187,7 @@ function renderRows(rows, options = {}){
   let lastGroup = '';
   for(const r of displayRows){
     const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, summary);
+    const listed = positionReturn(r);
     const groupLabel = holdingGroupLabel(r);
     if (showGroupRows && groupLabel !== lastGroup) {
       const group = document.createElement('tr');
@@ -196,7 +208,7 @@ function renderRows(rows, options = {}){
       <td class="mono num">${holdingQuantityText(r)}</td>
       <td class="mono num">${r.current_price ? formatNumber(r.current_price, 3) : '价格缺失'}</td>
       <td class="mono num ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</td>
-      <td class="mono num ${pnlTone(floatPnl)}">${pnlText(floatPnl)}</td>
+      <td title="${listed.label}" class="mono num ${pnlTone(listed.amount)}">${pnlText(listed.amount)}</td>
       <td class="mono">${realizedPnlNote(realized) || '—'}</td>
       <td>${dataBadge(r)}</td>
     `;
@@ -268,8 +280,8 @@ function renderMobileHoldingRows(rows, { summary }) {
   }
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
-    const {weight, value, floatPnl, dailyPnl, dailyPending} = holdingMetrics(r, summary);
-    const rate = r.reference_as_of ? null : r.floating_pnl_ratio;
+    const {weight, value, dailyPnl, dailyPending} = holdingMetrics(r, summary);
+    const {amount, rate, label, rateLabel} = positionReturn(r);
     const daily = dailyPending ? null : dailyPnl;
     const dailyRate = dailyPending || r.reference_as_of ? null : holdingPriceChangePct(r);
     const name = shortHoldingName(r);
@@ -282,8 +294,8 @@ function renderMobileHoldingRows(rows, { summary }) {
       <span class="personalPositionValues">
         <b title="个人持仓市值"><span class="metricCaption">个人持仓市值</span>${value == null ? '—' : formatCompactCurrency(value)}</b>
         <small class="personalPositionWeight" title="仓位占比"><span class="metricCaption">仓位占比</span>${weight}</small>
-        <small class="${pnlTone(floatPnl)}" title="浮动盈亏"><span class="metricCaption">浮动盈亏</span>${pnlText(floatPnl)}</small>
-        <small class="${pnlTone(rate)}" title="浮动盈亏率"><span class="metricCaption">浮动盈亏率</span>${rate == null ? '—' : (rate === 0 ? '0.00%' : signedPercentText(rate * 100))}</small>
+        <small class="${pnlTone(amount)}" title="${label}"><span class="metricCaption">${label}</span>${pnlText(amount)}</small>
+        <small class="${pnlTone(rate)}" title="${rateLabel}"><span class="metricCaption">${rateLabel}</span>${rate == null ? '—' : (Number(rate) === 0 ? '0.00%' : signedPercentText(rate * 100))}</small>
         <small class="${pnlTone(daily)}" title="最近一日盈亏"><span class="metricCaption">最近一日盈亏</span>${pnlText(daily)}</small>
         <small class="${pnlTone(dailyRate)}" title="最近一日涨跌幅"><span class="metricCaption">最近一日涨跌幅</span>${signedPercentText(dailyRate)}</small>
       </span>
