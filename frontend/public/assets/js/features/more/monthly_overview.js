@@ -170,7 +170,7 @@ export function createMonthlyOverview(root, {win, read, isActive}) {
       render();
       const selected = q('[data-key="' + metric.key + '"]');
       selected.focus({preventScroll:true});
-      show(selected, true);
+      show(selected, e.pointerType === 'touch');
     } else if (btn.hasAttribute('data-back')) {
       parent = null;
       all = false;
