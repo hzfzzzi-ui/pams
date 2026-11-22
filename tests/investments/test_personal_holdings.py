@@ -22,6 +22,23 @@ class PersonalHoldingsTest(TestCase):
         rows[1]["snapshot_scope_member"] = "unverified"
         self.assertIsNone(personal_holdings({"rows": rows}, {}, accounts=configs)["rows"][0]["position_net_value_cny"])
 
+    def test_employee_equity_shows_confirmed_annual_income_over_personal_cost(self):
+        equity = dict(account="equity", major_category="员工持股", symbol="E", currency="CNY",
+                      market_value_cny=100, cost_cny=100, annual_dividend_income_cny=5,
+                      realized_income_status="confirmed", holding_pnl_cny=12)
+        second = dict(equity, account="joint", owner_ratio="0.5", market_value_cny=50, cost_cny=50,
+                      annual_dividend_income_cny=4)
+        rows = personal_holdings({"rows": [equity, second, dict(equity, major_category="股票")]}, {})["rows"]
+        self.assertEqual(rows[0]["floating_pnl_cny"], 0)
+        self.assertEqual(rows[0]["position_dividend_return"], {"amount_cny": "5", "yield_on_cost": "0.05"})
+        self.assertEqual(rows[0]["combined_position"]["position_dividend_return"], {"amount_cny": "9", "yield_on_cost": "0.06"})
+        self.assertIsNone(rows[2]["position_dividend_return"])
+        second.update(realized_income_status="partial")
+        equity.update(cost_cny=0)
+        rows = personal_holdings({"rows": [equity, second]}, {})["rows"]
+        self.assertEqual(rows[0]["position_dividend_return"], {"amount_cny": "5", "yield_on_cost": None})
+        self.assertEqual(rows[0]["combined_position"]["position_dividend_return"], {"amount_cny": None, "yield_on_cost": None})
+
     def test_floating_return_uses_remaining_cost_and_personal_value(self):
         rows = [dict(account="pooled", symbol="SEC", major_category="A股", market_value_cny=80,
                      cost_cny=100, holding_pnl_cny=-60, owner_ratio="0.5"),

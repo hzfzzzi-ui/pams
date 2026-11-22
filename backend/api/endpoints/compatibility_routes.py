@@ -196,7 +196,7 @@ def create_compatibility_router(
                 if published is not None:
                     data = published["data"]
                     if ("personal_summary" not in data["holdings"] or
-                            any("floating_pnl_ratio" not in r for r in data["holdings"]["rows"])):
+                            any("position_dividend_return" not in r for r in data["holdings"]["rows"])):
                         if len(data["holdings"]["rows"]) >= 500:
                             published = None
                         else:
