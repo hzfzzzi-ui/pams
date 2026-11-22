@@ -22,6 +22,15 @@ class PersonalHoldingsTest(TestCase):
         rows[1]["snapshot_scope_member"] = "unverified"
         self.assertIsNone(personal_holdings({"rows": rows}, {}, accounts=configs)["rows"][0]["position_net_value_cny"])
 
+    def test_floating_return_uses_remaining_cost_and_personal_value(self):
+        rows = [dict(account="pooled", symbol="SEC", major_category="A股", market_value_cny=80,
+                     cost_cny=100, holding_pnl_cny=-60, owner_ratio="0.5"),
+                dict(account="second", symbol="SEC", major_category="A股", market_value_cny=50, cost_cny=0)]
+        first, zero = personal_holdings({"rows": rows}, {})["rows"]
+        self.assertEqual((first["floating_pnl_cny"], first["floating_pnl_ratio"]), (-20, -0.2))
+        self.assertIsNone(zero["floating_pnl_ratio"])
+        self.assertEqual(first["combined_position"]["floating_pnl_ratio"], 0.3)
+
     def test_owner_value_is_already_allocated_and_cash_debt_closed_are_excluded(self):
         rows = [
             dict(major_category="A股", market_value_cny="30", owner_ratio="0.3"),

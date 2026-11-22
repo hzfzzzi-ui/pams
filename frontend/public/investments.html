@@ -88,6 +88,12 @@
 
     <!-- 全部投资资产总览 -->
     <div id="holdings-smart-table" class="card" data-invest-panel="holdings">
+      <div id="holdingReturnTabs" aria-label="持仓视图">
+        <button type="button" data-return-mode="positions" aria-pressed="true">标的持仓</button>
+        <button type="button" data-return-mode="accounts" aria-pressed="false">账户收益</button>
+      </div>
+      <div id="holdingReturnHero" aria-live="polite"></div>
+      <div id="holdingReturnAccounts" hidden></div>
       <div class="sectionTitle">
         <h2>持仓</h2>
         <select id="holdingGroupFilter" class="holdingGroupSelect" aria-label="持仓分类"></select>
@@ -95,7 +101,7 @@
       <div id="mobileHoldingFilterChips" class="mobileHoldingFilterChips" aria-label="持仓分类"></div>
       <div id="holdingSegmentFilter" aria-label="持仓细分" hidden></div>
       <div id="financingList" hidden></div>
-      <div class="personalHoldingHeading"><span>标的</span></div>
+      <div class="personalHoldingHeading"><span>持仓明细</span><button type="button" id="holdingBasis">数字口径 ⓘ</button></div>
       <p id="holdingProjectionStatus" class="muted" role="status" hidden></p>
       <div class="tableWrap" style="margin-top:10px">
         <table class="tableWide" style="min-width:1120px">
@@ -109,7 +115,7 @@
               <th class="nowrap num" style="width:96px">份数</th>
               <th class="nowrap num" style="width:90px">现价</th>
               <th class="nowrap num" style="width:120px">今日盈亏</th>
-              <th class="nowrap num" style="width:120px">累计盈亏</th>
+              <th class="nowrap num" style="width:120px">浮动盈亏</th>
               <th style="width:140px">说明</th>
               <th style="width:86px">数据</th>
             </tr>
