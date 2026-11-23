@@ -1835,9 +1835,11 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         omitted = set()
         if redesigned:
             from domain.investments.installment_principal import load_principal_cash_ids
+            from domain.investments.subscription_settlement import subscription_cash_ids
             from domain.ledger.investment_receipts import counted_receipt_ids
             omitted = load_principal_cash_ids(cur, configured_accounts, ytd_start)
             omitted.update(counted_receipt_ids(cur, ytd_rows, counted_income_sources))
+            omitted.update(subscription_cash_ids(cur, {row['id'] for row in ytd_rows}))
         months = defaultdict(list)
         for row in ytd_rows:
             # Keep raw ledger history intact. Principal changes the balance sheet;
