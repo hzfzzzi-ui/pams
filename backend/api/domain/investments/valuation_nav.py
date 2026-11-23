@@ -14,6 +14,7 @@ from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
+from domain.accounts.credit_card_debt import uses_table_net_reference
 from domain.accounts.dated_valuation import AccountValuation, posted_card_valuations, statement_closings, statement_valuations
 from domain.accounts.position_valuation import fund_account_observations, uses_fund_account_valuation
 from domain.accounts.position_reference import supports_dated_position_reference
@@ -369,6 +370,8 @@ def build_weekly_nav_rows(
         partial = ({"available_net_worth": available_net, "available_accounts": sorted(available)}
                    if available else {})
         partial['_account_contributions'] = contributions
+        if bank_bucket.get('latest_known_components'):
+            partial['latest_known_components'] = dict(bank_bucket['latest_known_components'])
         basis = dict(bank_bucket.get('_comparison_basis', {}))
         basis.update({code:'complete_positions' for code in snapshot_accounts})
         if 'tonghuashun' in available:
@@ -1192,9 +1195,18 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 _replace_cash_contribution(bucket, code, amount)
                 bucket.setdefault('_comparison_basis', {})[code] = 'cash_balance'
                 bucket.setdefault('_dated_cash_accounts', set()).add(code)
+                if period and period.evidence_dates:
+                    first, last = period.evidence_dates
+                    bucket.setdefault('latest_known_components', {})[code] = {
+                        'basis': period.basis, 'from': first.isoformat(), 'through': last.isoformat(),
+                        'balance_as_of': day.isoformat(), 'currency': period.currency,
+                        'billed_balance': str(period.amount)}
+                    bucket['_comparison_basis'][code] = period.basis
                 if (period or complete_cash) and code in bucket.get('unavailable_accounts', ()):
                     bucket['unavailable_accounts'].remove(code)
-                if complete_cash or (period and period.basis == 'statement' and not included):
+                verified_closing = period and (period.basis == 'statement' or
+                                               period.evidence_dates and period.quality == 'confirmed')
+                if complete_cash or (verified_closing and not included):
                     bucket['estimated_accounts'].remove(code)
                 if included:
                     bucket['_comparison_basis'][code] = ['billed_and_unbilled_debt', sorted(included)]
@@ -1765,7 +1777,9 @@ def build_nav_weekly_payload(
     from domain.investments.installment_principal import load_unbilled_principal
     bank_codes = [a['account_code'] for a in bank_accounts]
     unbilled = load_unbilled_principal(cur, bank_codes, all_cash_dates)
-    periods = statement_valuations(cur, statements, all_cash_dates, closings=closings)
+    table_cards = [code for code, (_, card) in statements.items() if card and
+                   uses_table_net_reference(code, (account_config or {}).get("accounts", {}).get(code, {}))]
+    periods = statement_valuations(cur, statements, all_cash_dates, closings=closings, table_cards=table_cards)
     for samples in (bank_series, reference_series):
         if samples:
             _apply_historical_cash_points(

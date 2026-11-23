@@ -11,7 +11,7 @@ def statement_balances(cur, accounts, today, *, originals):
         cur, accounts, today, originals=originals, latest_only=True).items() if rows}
 
 
-def statement_balance_history(cur, accounts, today, *, originals, latest_only=False):
+def statement_balance_history(cur, accounts, today, *, originals, latest_only=False, evidence_statements=False, conflicts=None):
     """One signed closing balance per matching statement day; conflicting originals are unusable."""
     if not accounts:
         return {}
@@ -20,12 +20,13 @@ def statement_balance_history(cur, accounts, today, *, originals, latest_only=Fa
                i.parsed_fields->>'business_date' AS as_of,
                i.parsed_fields->>'net_cash' AS amount, i.parsed_fields->>'currency' AS currency
         FROM public.source_records r JOIN public.source_items i USING(source_id)
-        WHERE r.account_code=ANY(%s::text[]) AND r.status='published' AND r.document_type='cash'
+        WHERE r.account_code=ANY(%s::text[]) AND r.status='published'
+          AND (r.document_type='cash' OR (%s AND r.document_type='statement' AND i.review_status='confirmed'))
           AND r.acquisition_method='file' AND r.file_format='pdf' AND r.sha256 IS NOT NULL
           AND i.parse_method='template' AND i.parsed_fields->>'action'='balance'
           AND i.source_position->>'row'='statement_balance'
           AND i.raw_fields#>>'{source,balance_candidate}'='true'
-          AND i.raw_fields->'initial_fields'=i.parsed_fields""", (sorted(accounts),))
+          AND i.raw_fields->'initial_fields'=i.parsed_fields""", (sorted(accounts), evidence_statements))
     by_account = defaultdict(lambda: defaultdict(list))
     for row in cur.fetchall():
         code = row['source_account']
@@ -47,6 +48,8 @@ def statement_balance_history(cur, accounts, today, *, originals, latest_only=Fa
             rows = by_day[day]
             amounts = {amount for amount, _ in rows}
             if len(amounts) != 1 or not all(originals.verify(row) for _, row in rows):
+                if conflicts is not None:
+                    conflicts.add((code, day))
                 continue
             amount = amounts.pop()
             results.setdefault(code, []).append({'amount': str(-amount if liability else amount), 'as_of': day,
