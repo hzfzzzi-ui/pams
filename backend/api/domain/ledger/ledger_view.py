@@ -436,7 +436,7 @@ def _investment_transfer_sign(match: Mapping[str, Any]) -> int:
     return 0
 
 
-def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]], start: date, end: date) -> dict[str, Any]:
+def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]], start: date, end: date, *, full_precision_net: bool = False) -> dict[str, Any]:
     """Summarize operating cashflow and one-way internal fund movement for a period."""
 
     period_rows = [r for r in rows if (r.get("transaction_date_obj") and start <= r["transaction_date_obj"] <= end)]
@@ -536,6 +536,12 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
         result['fx_status'] = 'estimated'
     if missing_source:
         result.update(source_status='incomplete', source_unverified_count=missing_source)
+    if full_precision_net:
+        result['unrounded_net'] = (
+            sum((Decimal(str(amount)) for amount in income_amounts), Decimal(0))
+            - sum((Decimal(str(amount)) for amount in expense_amounts), Decimal(0))
+            if result['net'] is not None else None
+        )
     return result
 
 
@@ -1719,7 +1725,7 @@ def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles,
         else:
             ledger_rows.append(row)
     return {
-        'totals': summarize_period(ledger_rows, transfers, first, end),
+        'totals': summarize_period(ledger_rows, transfers, first, end, full_precision_net=True),
         'categories': category_insights(ledger_rows, first, redesigned=redesigned)['month'],
         'money_fund_returns': returns,
         'operating_timing_ids': [

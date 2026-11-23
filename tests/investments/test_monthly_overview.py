@@ -9,22 +9,22 @@ from domain.ledger.ledger_view import _monthly_close
 def test_month_end_cutoff_contributions_and_unknown_cash(monkeypatch):
     today = date(2030, 3, 20)
     dates = ['2029-12-31', '2030-01-31', '2030-02-28', '2030-03-19']
-    nav = [{'date': day, 'availableNetWorth': value} for day, value in zip(dates, [100, 112, 110, 200])]
+    nav = [{'date': day, 'availableNetWorth': value} for day, value in zip(dates, [100, Decimal('112.004'), 110, 200])]
     published = {'projection': {}, 'data': {'nav': {'rows': nav},
                                             'total': {'start': dates[0], 'end': dates[-1]}}}
     monkeypatch.setattr(monthly_overview.page_projection, 'read_page', lambda *a, **kw: published)
     def positions(cur, *, monthly_changes, **kwargs):
-        monthly_changes[date(2030, 1, 1)]['stock', 'CNY', 'X'] = Decimal('-3')
+        monthly_changes[date(2030, 1, 1)]['stock', 'CNY', 'X'] = Decimal('-3.003')
         monthly_changes[date(2030, 1, 1)]['fund', 'CNY', 'Y'] = Decimal('0')
     monkeypatch.setattr(monthly_overview, 'build_position_return_series', positions)
-    ledger = {date(2030, 1, 1): {'totals': {'income': 30, 'expense': 10}},
+    ledger = {date(2030, 1, 1): {'totals': {'income': 30.01, 'expense': 10, 'unrounded_net': Decimal('20.006')}},
               date(2030, 2, 1): {'totals': {'income': None, 'expense': 5}}}
     monkeypatch.setattr(monthly_overview, 'build_ledger_workbench_payload', lambda *a, **kw: ledger)
     cur = Mock()
     cur.fetchall.return_value = []
     jan, feb = monthly_overview.build_monthly_overview(
         cur, today=today, owner_ratio=lambda _: 1, excluded_accounts=set())['months']
-    assert (jan['delta'], jan['cash'], jan['pnl'], jan['gap']) == (12, 20, -3, -5)
+    assert (jan['delta'], jan['cash'], jan['pnl'], jan['gap']) == (12, 20.01, -3, -5)
     assert jan['invest']['基金']['parts']['Y'] == 0
     assert jan['partial'] and jan['assets'] is None
     assert feb['date'] == dates[2] and feb['delta'] == -2
@@ -69,3 +69,22 @@ def test_month_end_money_fund_income_is_counted_once_at_personal_share(monkeypat
     assert first['invest']['货币基金'] == {'total': 2, 'parts': {'现金管理': 2}}
     assert set(first['receipts']) == {'工资薪酬'}
     assert second['pnl'] is None and second['inc'] == 0
+
+
+def test_cash_interest_uses_the_receipt_date_and_excludes_instrument_and_statement_interest(monkeypatch):
+    first = date(2030, 1, 1)
+    end = date(2030, 1, 31)
+    row = {'trade_date': end, 'account_code': 'shared', 'asset_id': None, 'symbol': 'CASH_CNY',
+           'currency': 'CNY', 'source_evidence_status': 'verified', 'net_cash': Decimal(10), 'source_item_id': 'cash'}
+    nav = {str(end): {'date': str(end), 'monthly_book': {'accounts': {
+        'shared': {'method': 'trade_cash_and_shares'}, 'statement': {'method': 'broker_cash_legs_and_executions'}
+    }}}}
+    def read(cur, *, account_code, **kwargs):
+        assert account_code == 'shared'
+        return [row, {**row, 'asset_id': 'bond', 'symbol': 'B'}]
+    monkeypatch.setattr(monthly_overview, 'load_trade_rows', read)
+    monkeypatch.setattr(monthly_overview, 'position_ownership', lambda *_: {'shared': {end: Decimal('.25')}})
+    assert monthly_overview._cash_interest(None, nav, first, end, lambda _: 1, set()) == (
+        {first: Decimal('2.50')}, {'cash'}, set())
+    row['source_evidence_status'] = 'unknown'
+    assert monthly_overview._cash_interest(None, nav, first, end, lambda _: 1, set()) == ({}, set(), {first})
