@@ -30,7 +30,7 @@ def _reconciled_cash_movements(cur, code, currency, anchors, conflicts=()):
     movements = defaultdict(Decimal)
     issues = set(conflicts)
     for row in flows:
-        day = row['transaction_date']
+        day = row.get('posting_date') or row['transaction_date']
         if row['source_evidence_status'] != 'verified' or row['currency'] != currency:
             issues.add(day)
         else:
@@ -49,9 +49,10 @@ def _reconciled_cash_movements(cur, code, currency, anchors, conflicts=()):
     return points
 
 
-def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
-    statements = statement_valuations(cur, {code: (currency, card)}, dates,
-                                      table_cards=[code] if card and uses_table_net_reference(code, cfg) else [])
+def _cash_observations(cur, code, cfg, currency, dates, holdings, card, statements=None):
+    if statements is None:
+        statements = statement_valuations(cur, {code: (currency, card)}, dates,
+                                      table_cards=[code] if card and uses_table_net_reference(code, cfg, cur) else [])
     billed = {day: obs for (_, day), obs in statements.items() if obs.amount is not None}
     conflicts = {day for (_, day), obs in statements.items() if obs.amount is None}
     anchors = {day: point['net_value'] for day, point in holdings.items()
@@ -64,7 +65,7 @@ def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
         anchors.setdefault(*manual)
     if card:
         contracts = load_unbilled_principal(cur, [code], dates)
-        result = {day: {'liabilities': max(-value.amount, ZERO), 'liabilities_status': 'estimated'}
+        result = {day: {'liabilities': max(-value.amount, ZERO), 'liabilities_status': 'estimated', 'basis': 'posted_flow_net'}
                   for day, value in posted_card_valuations(cur, code, cfg, currency, dates[-1]).items()}
         for day in dates:
             members = contracts.get((day, code), {})
@@ -76,10 +77,12 @@ def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
             elif day in billed:
                 # Only a billed-only statement may be supplemented. A general
                 # debt snapshot can already include the remaining principal.
-                result[day] = {'liabilities': max(-billed[day].including_unbilled(remaining).amount, ZERO), 'liabilities_status': billed[day].quality}
+                value = billed[day].including_unbilled(remaining)
+                result[day] = {'signed_balance': value.amount, 'basis': value.basis, 'evidence_dates': value.evidence_dates,
+                               'liabilities': max(-value.amount, ZERO), 'liabilities_status': value.quality}
             elif day in anchors:
                 whole = holdings.get(day, {}).get('complete_scope')
-                result[day] = {'liabilities': max(-anchors[day], ZERO),
+                result[day] = {'signed_balance': anchors[day], 'liabilities': max(-anchors[day], ZERO),
                                'liabilities_status': 'partial' if remaining and not whole else 'confirmed'}
             elif holdings.get(day, {}).get('liabilities') is not None:
                 item = holdings[day]
@@ -113,7 +116,7 @@ def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
     return points
 
 
-def read_account_history(cur, *, account_code, account_config, start_date, end_date):
+def read_account_history(cur, *, account_code, account_config, start_date, end_date, statements=None):
     configs = account_config.get('accounts', {})
     cfg = configs.get(account_code)
     if account_code in excluded_accounts(account_config) or (cfg or {}).get('exclude_from_reconcile'):
@@ -145,7 +148,7 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
             dates = recorded_event_dates(cur, account_code, start_date, end_date)
         points = _holding_observations(cur, account_code, currency, dates, cash_account=cash)
         if cash:
-            points = _cash_observations(cur, account_code, cfg, currency, dates, points, card)
+            points = _cash_observations(cur, account_code, cfg, currency, dates, points, card, statements)
         elif mode == 'reconciled_trade_cash':
             from domain.investments.broker_account_history import reconstructed_history_rows
             for point in reconstructed_history_rows(cur, account_code=account_code, currency=currency,
@@ -178,7 +181,8 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
             if not point.get('coverage_break'):
                 last_prior_date = day
             continue
-        row = {'date': day}
+        row = {'date': day, **{key: point[key] for key in ('signed_balance', 'evidence_dates', 'basis', 'coverage_break', 'complete_scope', 'gross_assets', 'gross_debt', 'daily_close', 'position_symbols')
+                              if key in point}}
         if point.get('price_dates'):
             row['price_dates'] = point['price_dates']
         for key in series:

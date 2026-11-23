@@ -11,7 +11,7 @@ def test_official_nav_and_financing_use_same_close_across_archives(monkeypatch):
 
     def close(nav, cash):
         return {"status": "ok", "identity_evidence": {"status": "ok"}, "base_currency": "USD",
-                "nav_base": Decimal(nav), "cash_base": Decimal(cash)}
+                "nav_base": Decimal(nav), "cash_base": Decimal(cash), "source_sha256": "a"*64}
 
     def archive(cur, *, through=None):
         if through is None:
@@ -23,7 +23,9 @@ def test_official_nav_and_financing_use_same_close_across_archives(monkeypatch):
 
     monkeypatch.setattr(history.daily_close, "read_published_portfolio_series", archive)
     params = {"account_code": history.ACCOUNT, "start_date": prior, "end_date": latest, "currency": "USD"}
-    assert history.broker_history_rows(None, **params) == [
+    rows = history.broker_history_rows(None, **params)
+    assert all(r["daily_close"]["source_sha256"] == "a"*64 and r["daily_close"]["as_of"] == r["date"].isoformat() for r in rows)
+    assert [{k:r[k] for k in ("date","net_value","liabilities")} for r in rows] == [
         {"date": prior, "net_value": 70, "liabilities": 30},
         {"date": opening, "net_value": 75, "liabilities": 25},
         {"date": latest, "net_value": 80, "liabilities": 0},

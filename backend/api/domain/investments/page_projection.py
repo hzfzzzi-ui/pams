@@ -14,16 +14,16 @@ def schema_available(cur):
     return cur.fetchone()["available"]
 
 
-def read_page(cur, page, *, business_date):
+def read_page(cur, page, *, business_date, member=None):
     if not schema_available(cur):
         return None
     cur.execute(
-        """SELECT payload -> %s AS data, published_revision, published_at,
+        """SELECT payload #> %s::text[] AS data, published_revision, published_at,
                   EXISTS (SELECT 1 FROM public.investment_projection_invalidation) OR business_date <> %s
                   OR published_at < now() - make_interval(mins => %s) AS stale
              FROM public.investment_page_projection
             WHERE singleton AND payload IS NOT NULL""",
-        (page, business_date, _RECHECK_MINUTES),
+        ([page] if member is None else [page, member], business_date, _RECHECK_MINUTES),
     )
     row = cur.fetchone()
     if not row or row["data"] is None:

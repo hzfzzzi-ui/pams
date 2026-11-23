@@ -80,7 +80,8 @@ def test_zero_opening_supports_only_a_deduplicated_dated_reference():
     assert reference == dict(opening_date=str(opening), amount='30', currency='CNY', native={'CNY':'12', 'USD':'3'})
     assert rows[2]['net_worth'] is None and rows[2]['liabilities'] is None
     assert rows[2]['personal_loan_coverage']['balance'] is None
-    assert rows[2]['_account_contributions'] == {'cash': 140}
+    assert rows[2]['_account_contributions'] == {'cash': 140, 'payable': -30}
+    assert sum(rows[2]['_account_contributions'].values()) == rows[2]['available_net_worth']
     assert replay(facts, anchors, points=[days[6]]) == [rows[6]]
     assert 'principal_reference' not in rows[3]['personal_loan_coverage']
     settled = rows[-1]['personal_loan_coverage']

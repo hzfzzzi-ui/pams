@@ -75,6 +75,8 @@ def recorded_history(cur, code, dates, points, start, end):
         if point.get('net_value') is None and gross is not None and debt is not None and components_reconcile:
             point.update(net_value=gross - debt, net_value_status='estimated',
                          net_value_as_of=max(max(r['as_of'] for r in assets), debt_as_of))
+        if gross is not None and debt is not None and components_reconcile and gross - debt == point.get('net_value'):
+            point.update(gross_assets=gross, gross_debt=debt)
         values = (point.get('net_value'), point.get('liabilities'))
         if observed or day in (start, end) or values != previous:
             point['coverage_break'] = values == (None, None) and previous != values

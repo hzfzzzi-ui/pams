@@ -137,7 +137,7 @@ def anchored_table_valuations(cur, code, unit, dates):
 
 def posted_card_valuations(cur, code, cfg, currency, through):
     """Return posting-day estimates only for an approved, duplicate-free ledger."""
-    if not uses_table_net_reference(code, cfg):
+    if not uses_table_net_reference(code, cfg, cur):
         return {}
     status = summaries(cur, [code]).get(code, {})
     rows = confirmed_table_net_history(cur, code, currency=currency, today=through,

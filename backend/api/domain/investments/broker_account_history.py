@@ -6,7 +6,7 @@ from decimal import Decimal
 from domain.brokers.ibkr import ibkr_daily_close_read as daily_close
 from domain.brokers.ibkr.ibkr_daily_holdings import ACCOUNT
 from domain.investments.nav_trade_source_v2 import project
-from domain.investments.valuation_nav import ValuationEvidenceSeries, daily_close_account_identity, series_dates
+from domain.investments.valuation_nav import ValuationEvidenceSeries, daily_close_account_identity, daily_close_nav_bucket, series_dates
 
 
 def broker_history_rows(cur, *, account_code, start_date, end_date, currency):
@@ -40,6 +40,13 @@ def broker_history_rows(cur, *, account_code, start_date, end_date, currency):
                 rows[day] = {"date": day, "net_value": close["nav_base"] * rate,
                              "liabilities": max(-close["cash_base"], Decimal(0)) * rate}
 
+                gross = daily_close_nav_bucket(close, rate=rate, owner_ratio=Decimal(1))
+                if gross is not None:
+                    rows[day].update(gross_assets=gross['assets'], gross_debt=gross['liabilities'])
+                rows[day]['daily_close'] = {'status': 'ok', 'as_of': key, 'source_sha256': close.get('source_sha256'),
+                                           'nav_basis': 'official_base_nav_at_internal_historical_fx',
+                                           'identity_evidence': identity}
+
         first = date.fromisoformat(min(closes))
         if not published or first <= low:
             break
@@ -59,5 +66,13 @@ def reconstructed_history_rows(cur, *, account_code, start_date, end_date, curre
         return []
     history = project(cur, dates=series_dates(start_date, end_date, "daily"), owner_ratio=Decimal(1),
                       series_type=ValuationEvidenceSeries, account_code=account_code, require_new_mark_after_ledger=True)
-    return [{"date": day, "net_value": value, "net_value_status": "estimated"}
-            for day, value in sorted(history.preview_by_date.items())]
+    from exchange_calendars import get_calendar
+    calendar = get_calendar("XSHG")
+    rows = []
+    for day, value in sorted(history.preview_by_date.items()):
+        point = {"date": day, "net_value": value, "net_value_status": "estimated"}
+        if calendar.first_session.date() <= day <= calendar.last_session.date() and not calendar.is_session(day.isoformat()):
+            price_day = calendar.date_to_session(day.isoformat(), direction="previous").date()
+            point["price_dates"] = {"market_close": price_day}
+        rows.append(point)
+    return rows

@@ -9,7 +9,8 @@ from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.investment_overview import holdings_overview_card
-from domain.investments.holdings_account_cards import account_center_balances, build_holdings_account_cards
+from domain.accounts.valuation_book import current_balances, read_account_view
+from domain.investments.holdings_account_cards import build_holdings_account_cards
 from domain.investments.holding_market_history import holding_history, holding_price_comparison
 from domain.investments.personal_holdings import personal_holdings
 from domain.investments import page_projection
@@ -23,7 +24,6 @@ from domain.investments.position_performance import METHOD as POSITION_RETURN_ME
 from domain.investments.portfolio_valuation_state import (
     published_bank_balances_compatible, read_current_portfolio_valuation,
 )
-from domain.investments.valuation_nav import latest_nav_display_values
 from domain.investments.nav_period_comparison import period_starts
 from domain.market.price_history import valid_holding_history_window
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, build_latest_fx_rates_payload
@@ -228,11 +228,8 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                published = page_projection.read_page(cur, "account_balances", business_date=_investment_today_label_date())
-                if published is not None:
-                    return json(published["data"])
-                page = build_holdings_page(cur, show_closed=False)
-                return json(account_center_balances(page["account_positions"], page["funds"], page["account_cards"]))
+                balances = read_account_view(cur, 'account_balances', accounts_endpoint._view_as_of())
+                return json(accounts_endpoint._norm(balances))
 
     def build_holdings_page(cur, *, show_closed):
         with reuse_ibkr_holding_evidence(cur):
@@ -588,7 +585,7 @@ def create_compatibility_router(
         )
 
 
-    def _verified_nav_weekly(cur, *, start_date, baseCurrency, latest, interval):
+    def _verified_nav_weekly(cur, *, start_date, baseCurrency, latest, interval, account_histories=None):
         current_view_as_of = _investment_return_view_as_of(cur) if latest else ANCHOR_NAV_DATE
         account_cfg = _load_portfolio_accounts_config()
         account_balances = _load_account_balances(cur, baseCurrency, account_cfg)
@@ -598,9 +595,6 @@ def create_compatibility_router(
         )
         investment_positions = _load_investment_positions(
             cur, baseCurrency, account_cfg, account_balances=account_balances)
-        incomplete_snapshot_accounts = {str(row.get("account_code")) for row in [*account_balances, *investment_positions]
-            if row.get("account_code") and row.get("include_in_nav", True)
-            and row.get("snapshot_scope_status") in {"partial", "unknown"}}
         published_state = (
             _latest_published_portfolio_valuation_state(cur, base_currency=baseCurrency)
             if latest
@@ -617,12 +611,7 @@ def create_compatibility_router(
             if published_state_fresh and published_state and published_state.get("valuation_date")
             else current_view_as_of
         )
-        terminal_nav_bucket = None
-        terminal_account_values = None
-        terminal_display_values = None
-        if published_state_fresh and published_state:
-            terminal_nav_bucket = _published_nav_bucket_from_row(published_state)
-        elif latest:
+        if latest and not published_state_fresh:
             current_as_of_dates = [
                 str(item.get("as_of") or "")[:10]
                 for item in [*account_balances, *investment_positions]
@@ -630,23 +619,6 @@ def create_compatibility_router(
             ]
             if current_as_of_dates:
                 terminal_date = Date.fromisoformat(max(current_as_of_dates))
-            terminal_nav_bucket = _current_nav_bucket_from_parts(
-                account_balances=account_balances,
-                investment_positions=investment_positions,
-            )
-            terminal_account_values = _current_nav_account_values_from_parts(
-                account_balances=account_balances,
-                investment_positions=investment_positions,
-            )
-            if baseCurrency.upper() == "CNY":
-                terminal_display_values = latest_nav_display_values(
-                    cur=cur,
-                    account_balances=account_balances,
-                    investment_positions=investment_positions,
-                    terminal_date=terminal_date,
-                    confirmed_values=terminal_account_values,
-                    account_config=account_cfg,
-                )
         return _build_nav_weekly_payload(
                 cur,
                 start_date=start_date if start_date is not None else min(period_starts(terminal_date).values()),
@@ -655,11 +627,8 @@ def create_compatibility_router(
                 owner_ratio_case_sql=_owner_ratio_case_sql,
                 account_owner_ratio=_account_owner_ratio,
                 terminal_date=terminal_date,
-                terminal_nav_bucket=terminal_nav_bucket,
-                terminal_account_values_cny=terminal_account_values,
-                terminal_display_values_cny=terminal_display_values,
-                snapshot_scope_incomplete_accounts=incomplete_snapshot_accounts,
                 full_personal_portfolio=True,
+                account_histories=account_histories, evidence_through=accounts_endpoint._view_as_of(),
                 account_config=account_cfg,
                 include_ibkr=(account_cfg.get("accounts", {}).get("ibkr", {}).get("include_in_nav") is not False),
                 interval=interval,
@@ -805,8 +774,11 @@ def create_compatibility_router(
             return _return_revision(cur, **settings, revisions=revisions)
 
         holdings = build_holdings_page(cur, show_closed=False)
+        histories = {}
+        nav = _verified_nav_weekly(cur, latest=True, start_date=None, interval="daily", baseCurrency="CNY", account_histories=histories)
         return {
-            "account_balances": account_center_balances(holdings["account_positions"], holdings["funds"], holdings["account_cards"]),
+            "account_histories": accounts_endpoint._norm(histories),
+            "account_balances": accounts_endpoint._norm(current_balances(histories)),
             "holdings": {
                 **holdings,
                 "fx_rates": build_latest_fx_rates_payload(cur, base_currency="CNY"),
@@ -815,7 +787,7 @@ def create_compatibility_router(
             "analysis": {
                 # The opening observation is the previous year's close; keep
                 # its actual date rather than treating it as a January 1 close.
-                "nav": _verified_nav_weekly(cur, latest=True, start_date=None, interval="daily", baseCurrency="CNY"),
+                "nav": nav,
                 "total": build_total_curve(cur, **curve_args, read_revision=read_revision),
                 "sections": {
                     section: build_section_curve(cur, section=section, **curve_args, read_revision=read_revision)

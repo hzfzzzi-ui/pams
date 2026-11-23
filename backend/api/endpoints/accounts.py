@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from domain.accounts import account_overview
-from domain.accounts.account_history import read_account_history
+from domain.accounts.valuation_book import read_account_view
 from domain.accounts.account_overview import get_conn
 from domain.investments.nav_period_comparison import period_starts
 
@@ -27,7 +27,14 @@ class AccountReviewRequest(BaseModel):
 @router.get("/accounts/overview")
 def accounts_overview():
     """Return account master data and current reconciliation inputs."""
-    return account_overview._norm(account_overview._overview_payload())
+    with closing(get_conn()) as conn:
+        conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            payload = account_overview._overview_payload(cur=cur)
+            balances = read_account_view(cur, 'account_balances', account_overview._view_as_of(), accounts=payload['accounts'])
+            for account in payload['accounts']:
+                account['valuation'] = balances.get(account['account_code'])
+            return account_overview._norm(payload)
 
 
 @router.get("/accounts/{account_code}/history")
@@ -38,10 +45,7 @@ def account_history(account_code: str):
     with closing(get_conn()) as conn:
         conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            result = read_account_history(
-                cur, account_code=account_code, account_config=account_overview._load_accounts_config(),
-                start_date=min(starts.values()), end_date=end,
-            )
+            result = read_account_view(cur, 'account_histories', end, member=account_code)
     if result is None:
         raise HTTPException(status_code=404, detail="Unknown account")
     return account_overview._norm({**result, "period_starts": starts, "end_date": end})
@@ -95,4 +99,11 @@ def review_account(account_code: str, req: AccountReviewRequest):
                     (str(uuid4()), account_code, psycopg2.extras.Json(evidence), req.note or ''))
         conn.commit()
 
-    return account_overview._norm(account_overview._overview_payload())
+    with closing(get_conn()) as conn:
+        conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            payload = account_overview._overview_payload(cur=cur)
+            balances = read_account_view(cur, 'account_balances', account_overview._view_as_of(), accounts=payload['accounts'])
+            for account in payload['accounts']:
+                account['valuation'] = balances.get(account['account_code'])
+            return account_overview._norm(payload)
