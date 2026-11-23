@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from domain.accounts.position_reference import read_historical_position_references
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
@@ -750,9 +751,10 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                return json(build_monthly_overview(cur, today=_investment_today_label_date(),
-                                                  owner_ratio=_account_owner_ratio,
-                                                  excluded_accounts=_excluded_holding_accounts()))
+                report = build_monthly_overview(cur, today=_investment_today_label_date(),
+                                                owner_ratio=_account_owner_ratio,
+                                                excluded_accounts=_excluded_holding_accounts())
+                return json(jsonable_encoder(report))
 
     @router.get("/api/investment/analysis-view")
     def investment_analysis_view():

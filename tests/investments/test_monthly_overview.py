@@ -88,3 +88,19 @@ def test_cash_interest_uses_the_receipt_date_and_excludes_instrument_and_stateme
         {first: Decimal('2.50')}, {'cash'}, set())
     row['source_evidence_status'] = 'unknown'
     assert monthly_overview._cash_interest(None, nav, first, end, lambda _: 1, set()) == ({}, set(), {first})
+
+
+def test_monthly_endpoint_serves_cash_explanation_as_json_numbers(monkeypatch):
+    import json
+    from unittest.mock import MagicMock
+    import main
+
+    monkeypatch.setattr(main, 'get_conn', lambda: MagicMock())
+    item = {'exchange': Decimal('1.00251'), 'posting': None}
+    monkeypatch.setattr(monthly_overview, 'build_monthly_overview',
+                        lambda *a, **kw: {'months': [{'cash_attribution': {'wallet': item}}]})
+    route = next(r for r in main.app.routes if r.path == '/api/assets/monthly-overview')
+    response = route.endpoint()
+    assert response.status_code == 200
+    assert json.loads(response.body)['months'][0]['cash_attribution']['wallet'] == {
+        'exchange': 1.00251, 'posting': None}
