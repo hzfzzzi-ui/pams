@@ -3,6 +3,7 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 from domain.investments import monthly_overview
+from domain.ledger.ledger_view import _monthly_close
 
 
 def test_month_end_cutoff_contributions_and_unknown_cash(monkeypatch):
@@ -28,3 +29,43 @@ def test_month_end_cutoff_contributions_and_unknown_cash(monkeypatch):
     assert jan['partial'] and jan['assets'] is None
     assert feb['date'] == dates[2] and feb['delta'] == -2
     assert feb['cash'] is None and feb['pnl'] is None and feb['gap'] is None
+
+
+def test_month_end_money_fund_income_is_counted_once_at_personal_share(monkeypatch):
+    jan = date(2030, 1, 1)
+    feb = date(2030, 2, 1)
+    start, end = '2029-12-31', '2030-02-28'
+    published = {'projection': {}, 'data': {'nav': {'rows': []}, 'total': {'start': start, 'end': end}}}
+    monkeypatch.setattr(monthly_overview.page_projection, 'read_page', lambda *a, **kw: published)
+
+    def positions(cur, *, monthly_changes, counted_income_sources, **kwargs):
+        monthly_changes[jan]['stock', 'CNY', 'X'] = Decimal('8')
+        counted_income_sources.add('stock-dividend')
+
+    def closes(cur, *, counted_income_sources, **kwargs):
+        base = {'account_code': 'shared', 'transaction_date_obj': jan, 'amount': 4, 'amount_cny': 4,
+                'classification_status': 'confirmed', 'source_evidence_status': 'verified',
+                'category': '投资收益', 'subcategory': '货币基金收益', 'cashflow_type': 'investment_return_cash',
+                'flow_type': 'income'}
+        rows = [base, {**base, 'flow_type': 'transfer'}, {**base, 'account_code': 'excluded'},
+                {**base, 'source_item_id': 'stock-dividend', 'subcategory': '投资分红'},
+                {**base, 'cashflow_type': 'salary_income', 'category': '工资薪酬', 'subcategory': '工资'}]
+        config = {'shared': {'display_name': '现金管理'}}
+        return {
+            jan: _monthly_close(rows, [], jan, date(2030, 1, 31), redesigned=True, account_profiles=config,
+                                counted_income_sources=counted_income_sources),
+            feb: _monthly_close([{**base, 'transaction_date_obj': feb, 'source_evidence_status': 'unknown',
+                                  'amount_cny': None}], [], feb, date(2030, 2, 28), redesigned=True,
+                                account_profiles=config, counted_income_sources=counted_income_sources),
+        }
+
+    monkeypatch.setattr(monthly_overview, 'build_position_return_series', positions)
+    monkeypatch.setattr(monthly_overview, 'build_ledger_workbench_payload', closes)
+    cur = Mock()
+    cur.fetchall.return_value = []
+    first, second = monthly_overview.build_monthly_overview(cur, today=date(2030, 3, 10),
+        owner_ratio=lambda _: Decimal('0.5'), excluded_accounts={'excluded'})['months']
+    assert (first['pnl'], first['inc'], first['exp']) == (10, 4, 0)
+    assert first['invest']['货币基金'] == {'total': 2, 'parts': {'现金管理': 2}}
+    assert set(first['receipts']) == {'工资薪酬'}
+    assert second['pnl'] is None and second['inc'] == 0
