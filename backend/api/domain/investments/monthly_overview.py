@@ -18,6 +18,8 @@ def difference(left, right):
 
 
 def _net(row):
+    if row.get('monthly_book') is not None:
+        return money(row['monthly_book']['known_nav'])
     value = row.get('netWorth')
     return money(value if value is not None else row.get('availableNetWorth'))
 
@@ -76,10 +78,11 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         pnl = money(sum(items.values())) if items and end >= closing and start <= opening else None
         cash = difference(totals.get('income'), totals.get('expense'))
         gap = difference(difference(delta, cash), pnl)
+        book = closing_row.get('monthly_book')
         months.append({
             'm': number, 'date': closing.isoformat(), 'open': prior, 'nav': value, 'delta': delta,
             'assets': money(closing_row.get('assets')), 'debts': money(closing_row.get('liabilities')),
-            'partial': closing_row.get('netWorth') is None, 'inc': totals.get('income'), 'exp': totals.get('expense'),
+            'book': book, 'partial': not book['complete'] if book else closing_row.get('netWorth') is None, 'inc': totals.get('income'), 'exp': totals.get('expense'),
             'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
             'receipts': _categories(cats.get('income', [])), 'payments': _categories(cats.get('expense', [])),
         })

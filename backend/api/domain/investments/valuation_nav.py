@@ -747,6 +747,9 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
         "liabilities": _norm(row.get("liabilities")),
         "netWorth": _norm(row.get("net_worth")),
     }
+    if 'monthly_book' in row:
+        from domain.accounts.account_overview import _norm as normalize_tree
+        result['monthly_book'] = normalize_tree(row['monthly_book'])
     if '_account_contributions' in row:
         result['account_contributions'] = {code: str(amount) for code, amount in row['_account_contributions'].items()}
     if "ibkr_daily_close" in row:
