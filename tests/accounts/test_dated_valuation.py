@@ -63,6 +63,11 @@ def test_month_end_billed_cash_uses_posting_date_and_audited_interest_only_once(
     assert calc(flows,charge) == {cutoff:D(-17)}
     assert calc(flows + [flow(-2,end)],charge) == {cutoff:D(-17)}
     assert calc([flow(-5,None),flow(-3,end)],charge) == {}
+    closing_fee = {**flow(-2, None), 'transaction_date': end}
+    assert calc(flows + [closing_fee], charge) == {cutoff:D(-17)}
+    assert calc(flows + [{**closing_fee, 'amount':D(-1)}], charge) == {}
+    assert calc(flows + [{**closing_fee, 'source_evidence_status':'unverified'}], charge) == {}
+    assert calc(flows + [{**closing_fee, 'transaction_date':cutoff}], charge) == {}
     observation = valuation.AccountValuation(cutoff,'USD',D(-17),'posted_statement_bridge','billed')
     assert observation.including_unbilled(D(100)).amount == -117
 

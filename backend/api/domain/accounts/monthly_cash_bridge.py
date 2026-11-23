@@ -26,18 +26,31 @@ def posted_balances(closes, flows, dates, currency, charges):
             continue
         movement = defaultdict(Decimal)
         uncertain = False
+        closing_day_movement = None
         for row in flows:
             posting = row.get('posting_date')
             day = posting or row['transaction_date']
             if not start < day <= end:
                 continue
-            if not posting or row['source_evidence_status'] != 'verified' or row['currency'] != currency:
+            if row['source_evidence_status'] != 'verified' or row['currency'] != currency:
                 uncertain = True
                 break
-            movement[day] += row['amount']
+            if posting is None:
+                # A transaction on the closing date cannot affect any earlier target.
+                # Accept it in the period reconciliation only if it exactly closes the ledger.
+                if day != end or closing_day_movement is not None:
+                    uncertain = True
+                    break
+                closing_day_movement = row['amount']
+            else:
+                movement[day] += row['amount']
         if uncertain:
             continue
         first, last = Decimal(opening['amount']), Decimal(closing['amount'])
+        if closing_day_movement is not None:
+            if first + sum(movement.values()) + closing_day_movement != last:
+                continue
+            movement[end] += closing_day_movement
         if first + sum(movement.values()) != last:
             # A dated charge can close a gap in the published ledger. Never add it
             # to an interval which already reconciles, or accept competing evidence.
