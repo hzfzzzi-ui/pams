@@ -151,8 +151,9 @@ def monthly_profit_reallocations(history, nav_by_date, code):
                 point = prior.get('latest_known_components', {}).get(code, {})
                 current = nav_by_date[day.isoformat()].get('latest_known_components', {}).get(code, {})
                 if (point.get('currency') != 'CNY' or point.get('native_balance') is None
-                        or Decimal(str(point.get('owner_ratio', -1))) != before
-                        or Decimal(str(current.get('owner_ratio', -1))) != after):
+                        or point.get('owner_ratio') is None or current.get('owner_ratio') is None
+                        or Decimal(str(point['owner_ratio'])) != before
+                        or Decimal(str(current['owner_ratio'])) != after):
                     result[month] = None
                 elif result.get(month, 0) is not None:
                     pooled_pnl = Decimal(str(point['native_balance'])) - previous_capital

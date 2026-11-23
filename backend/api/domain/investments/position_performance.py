@@ -353,8 +353,9 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
     quantity_days, price_days = defaultdict(dict), defaultdict(dict)
     owners = position_ownership(cur, {key[0] for key in kinds}, dates, owner_ratio)
     # Keep accounts with missing dated evidence in the coverage count.
-    kinds = {key: kind for key, kind in kinds.items() if set(owners[key[0]].values()) != {ZERO}
-             or len(owners[key[0]]) < len(dates)}
+    excluded_owners = {account for account, schedule in owners.items()
+                       if len(schedule) == len(dates) and all(ratio == 0 for ratio in schedule.values())}
+    kinds = {key: kind for key, kind in kinds.items() if key[0] not in excluded_owners}
     for key, kind in kinds.items():
         account, currency, _ = key
         for day, quantity, confirmed_on, reference, flow in _position_days(
