@@ -69,3 +69,22 @@ def test_month_end_money_fund_income_is_counted_once_at_personal_share(monkeypat
     assert first['invest']['货币基金'] == {'total': 2, 'parts': {'现金管理': 2}}
     assert set(first['receipts']) == {'工资薪酬'}
     assert second['pnl'] is None and second['inc'] == 0
+
+
+def test_cash_interest_uses_the_receipt_date_and_excludes_instrument_and_statement_interest(monkeypatch):
+    first = date(2030, 1, 1)
+    end = date(2030, 1, 31)
+    row = {'trade_date': end, 'account_code': 'shared', 'asset_id': None, 'symbol': 'CASH_CNY',
+           'currency': 'CNY', 'source_evidence_status': 'verified', 'net_cash': Decimal(10), 'source_item_id': 'cash'}
+    nav = {str(end): {'date': str(end), 'monthly_book': {'accounts': {
+        'shared': {'method': 'trade_cash_and_shares'}, 'statement': {'method': 'broker_cash_legs_and_executions'}
+    }}}}
+    def read(cur, *, account_code, **kwargs):
+        assert account_code == 'shared'
+        return [row, {**row, 'asset_id': 'bond', 'symbol': 'B'}]
+    monkeypatch.setattr(monthly_overview, 'load_trade_rows', read)
+    monkeypatch.setattr(monthly_overview, 'position_ownership', lambda *_: {'shared': {end: Decimal('.25')}})
+    assert monthly_overview._cash_interest(None, nav, first, end, lambda _: 1, set()) == (
+        {first: Decimal('2.50')}, {'cash'}, set())
+    row['source_evidence_status'] = 'unknown'
+    assert monthly_overview._cash_interest(None, nav, first, end, lambda _: 1, set()) == ({}, set(), {first})

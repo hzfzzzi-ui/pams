@@ -7,7 +7,9 @@ from decimal import Decimal
 from domain.brokers.ibkr.ibkr_monthly_attribution import monthly_attribution
 from domain.accounts.monthly_cash_attribution import monthly_cash_attribution
 from domain.investments import page_projection
-from domain.investments.capital_ownership import read_monthly_profit_reallocations
+from domain.investments.capital_ownership import position_ownership, read_monthly_profit_reallocations
+from domain.investments.trade_read_v2 import load_trade_rows
+from domain.investments.valuation_nav import load_fx_timelines, fx_rate_at
 from domain.investments.position_performance import build_position_return_series
 from domain.ledger.ledger_view import build_ledger_workbench_payload
 
@@ -46,6 +48,40 @@ def _categories(rows):
     }} for row in rows}
 
 
+def _cash_interest(cur, nav, start, end, owner_ratio, excluded):
+    """Interest on uninvested broker cash is outside security marks."""
+    by_account = defaultdict(set)
+    for row in nav.values():
+        for code, entry in (row.get('monthly_book') or {}).get('accounts', {}).items():
+            if entry.get('method') == 'trade_cash_and_shares' and code not in excluded:
+                by_account[code].add(row['date'][:7])
+    events = []
+    for account, months in by_account.items():
+        for row in load_trade_rows(cur, account_code=account, start=start, end=end, trade_types=('interest',)):
+            if (row['trade_date'].strftime('%Y-%m') in months and row.get('asset_id') is None
+                    and row['symbol'] == 'CASH_' + row['currency']):
+                events.append(row)
+    if not events:
+        return {}, set(), set()
+    dates = sorted({r['trade_date'] for r in events})
+    owners = position_ownership(cur, by_account, dates, owner_ratio)
+    rates = load_fx_timelines(cur, 'CNY') if any(r['currency'] != 'CNY' for r in events) else {}
+    amounts = defaultdict(Decimal)
+    sources, missing = set(), set()
+    for event in events:
+        day = event['trade_date']
+        month = day.replace(day=1)
+        ratio = owners[event['account_code']].get(day)
+        rate = fx_rate_at(rates, event['currency'], day, 'CNY')
+        if (ratio is None or rate is None or event['source_evidence_status'] != 'verified'
+                or event['net_cash'] is None):
+            missing.add(month)
+            continue
+        amounts[month] += event['net_cash'] * rate * ratio
+        sources.add(event['source_item_id'])
+    return amounts, sources, missing
+
+
 def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
     last = today.replace(day=1) - timedelta(days=1)
     first = date(last.year, 1, 1)
@@ -57,7 +93,9 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
     reallocations = read_monthly_profit_reallocations(cur, nav, excluded_accounts)
     changes = defaultdict(lambda: defaultdict(Decimal))
     statement_months, statement_cash = monthly_attribution(cur, nav, excluded_accounts=excluded_accounts)
-    counted_income_sources = set()
+    interest, counted_income_sources, missing_interest = _cash_interest(cur, nav, first, last, owner_ratio, excluded_accounts)
+    for month, amount in interest.items():
+        changes[month]['broker_component', 'CNY', '证券账户现金利息'] += amount
     # Match the published series' original valuation window and universe.
     total = analysis['total']
     start = date.fromisoformat(total['start'])
@@ -108,12 +146,14 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
             else:
                 items['money_market', 'CNY', receipt['name']] += Decimal(str(receipt['amount'])) * share
         has_position_period = items and end >= closing and start <= opening
-        pnl = money(sum(items.values())) if has_position_period and not missing_yield and not missing_statements else None
+        pnl = money(sum(items.values())) if has_position_period and not missing_yield and not missing_statements and opening not in missing_interest else None
         cash = difference(totals.get('income'), totals.get('expense'))
         ownership = reallocations.get(opening, {})
         adjustments = {}
         if ownership:
             adjustments['出资份额调整'] = money(sum(ownership.values())) if None not in ownership.values() else None
+        if book and 'cash_transfer_fx' in book and book['cash_transfer_fx'] != 0:
+            adjustments['券商资金交收汇兑'] = money(book['cash_transfer_fx'])
         accounts = cash_adjustments.get(opening, {})
         for field, label in (('exchange', '现金与欠款汇兑'), ('posting', '跨月入账')):
             if accounts:
