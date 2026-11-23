@@ -1743,7 +1743,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     cash_start = month_start if view == 'stream' and period == 'month' else ytd_start
     cash_rows = [] if view == 'transfers' else _load_cash_rows(
         cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier,
-        include_pair_evidence=redesigned and view == 'full', **original_args,
+        include_pair_evidence=redesigned and view in {'full', 'monthly_close'}, **original_args,
     )
     decision_args = {'decisions': _confirmed_transfer_records(cur, start=ytd_start, end=month_end, **original_args)} if redesigned else {}
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
@@ -1823,9 +1823,19 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             **({'manual_pending': manual_pending} if include_manual_pending else {}),
         }
     if view == 'monthly_close':
+        omitted = set()
+        if redesigned:
+            from domain.investments.installment_principal import load_principal_cash_ids
+            from domain.ledger.investment_receipts import counted_receipt_ids
+            omitted = load_principal_cash_ids(cur, configured_accounts, ytd_start)
+            omitted.update(counted_receipt_ids(cur, ytd_rows, counted_income_sources))
         months = defaultdict(list)
         for row in ytd_rows:
-            months[row['transaction_date_obj'].replace(day=1)].append(row)
+            # Keep raw ledger history intact. Principal changes the balance sheet;
+            # a receipt already attributed to investment return must count once.
+            monthly_rows = months[row['transaction_date_obj'].replace(day=1)]
+            if row['id'] not in omitted or row['flow_type'] not in {'income', 'expense'}:
+                monthly_rows.append(row)
         result = {}
         for first, rows in months.items():
             _, end = _month_bounds(first.strftime('%Y-%m'))
