@@ -1,0 +1,100 @@
+"""Native dated account values shared by account history and personal NAV."""
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
+from domain.accounts.bank_source_status import summaries
+from domain.accounts.credit_card_debt import confirmed_table_net_history, uses_table_net_reference
+from domain.accounts.bank_statement_balance import statement_balance_history
+from domain.imports.source_original_read import SourceOriginals
+from domain.investments.statement_period_nav import load_statement_period_points
+
+
+@dataclass(frozen=True)
+class AccountValuation:
+    day: date
+    currency: str
+    amount: Decimal | None
+    basis: str
+    # A billed balance covers posted items only. An account net already includes debt.
+    scope: str = 'account'
+    quality: str = 'confirmed'
+    observed_on: date | None = None
+
+    @classmethod
+    def from_measurement(cls, day, currency, point, field):
+        scopes = {'net_value': 'account', 'liabilities': 'debt', 'position_value': 'positions'}
+        value = point.get(field)
+        quality = 'unavailable' if value is None else point.get(field + '_status', 'confirmed')
+        return cls(day, currency, value, field, scopes[field], quality, point.get(field + '_as_of') or day)
+
+    def including_unbilled(self, principal):
+        if self.scope != 'billed' or self.amount is None:
+            return self
+        return AccountValuation(self.day, self.currency, self.amount - principal, self.basis,
+                                quality=self.quality, observed_on=self.observed_on)
+
+    def agrees_with_balance(self, signed_balance, principal=Decimal(0)):
+        combined = self.including_unbilled(principal)
+        return self.amount is not None and signed_balance in (self.amount, combined.amount)
+
+    def personal_value(self, owner_ratio, rate):
+        if (self.scope != 'account' or self.quality not in ('confirmed', 'estimated')
+                or self.amount is None or owner_ratio is None):
+            return None
+        try:
+            ratio = Decimal(str(owner_ratio))
+            amount = Decimal(str(self.amount))
+        except (InvalidOperation, ValueError):
+            return None
+        if not amount.is_finite() or not ratio.is_finite() or not 0 <= ratio <= 1:
+            return None
+        owned = amount * ratio
+        if not owned:
+            return Decimal(0)
+        if rate is None:
+            return None
+        fx = Decimal(str(rate))
+        return owned * fx if fx.is_finite() and fx > 0 else None
+
+
+def statement_closings(cur, accounts, through):
+    return statement_balance_history(cur, accounts, through, originals=SourceOriginals(cur))
+
+
+def statement_valuations(cur, accounts, dates, *, closings=None):
+    """Read signed originals and reconstructed periods once per range, preserving conflicts."""
+    if not accounts or not dates:
+        return {}
+    if closings is None:
+        closings = statement_closings(cur, accounts, max(dates))
+    result = {}
+    for code, rows in closings.items():
+        currency, card = accounts[code]
+        for row in rows:
+            day = row['as_of']
+            result[code, day] = AccountValuation(day, currency, Decimal(row['amount']), 'statement',
+                                                'billed' if card else 'account')
+    for (code, day), (currency, side, value) in load_statement_period_points(cur, list(accounts), dates).items():
+        unit, card = accounts[code]
+        if currency != unit or (side == '负债') != card:
+            continue
+        signed = -value if card else value
+        previous = result.get((code, day))
+        if previous is not None and previous.amount != signed:
+            result[code, day] = AccountValuation(day, unit, None, 'conflicting_statements')
+        else:
+            result[code, day] = AccountValuation(day, unit, signed, 'statement_period' if previous is None else 'statement',
+                                                'billed' if card else 'account')
+    return result
+
+
+def posted_card_valuations(cur, code, cfg, currency, through):
+    """Return posting-day estimates only for an approved, duplicate-free ledger."""
+    if not uses_table_net_reference(code, cfg):
+        return {}
+    status = summaries(cur, [code]).get(code, {})
+    rows = confirmed_table_net_history(cur, code, currency=currency, today=through,
+                                       has_duplicate_alerts=bool(status.get('duplicate_count')))
+    return {row['as_of']: AccountValuation(row['as_of'], currency, Decimal(row['amount']), 'posted_flow_net', quality='estimated')
+            for row in rows}

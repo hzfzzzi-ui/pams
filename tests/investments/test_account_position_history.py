@@ -7,7 +7,10 @@ import psycopg2
 import pytest
 from psycopg2.extras import RealDictCursor
 
-from domain.accounts.account_history import _position_estimates
+from domain.accounts.account_history import read_account_history
+from domain.accounts.position_valuation import _position_estimates
+from domain.investments.valuation_nav import _add_dated_account_observations
+from decimal import Decimal
 from domain.imports import source_records_v2 as sources
 from domain.imports.isolation import source_enabled
 from domain.investments.account_total_evidence import publish as publish_total
@@ -87,6 +90,15 @@ def test_verified_trades_reprice_all_members_without_inventing_cash_or_zero():
                 window = {}
                 _position_estimates(cur, code, cfg, days[1:], window)
                 assert {d:p['net_value'] for d,p in window.items()} == {days[1]:20, days[2]:35}
+                cfg['reconcile_method'] = 'position_nav'
+                detail = read_account_history(cur, account_code=code, account_config={'accounts': {code: cfg}},
+                                              start_date=days[1], end_date=days[-1])
+                detail_values = {row['date']: row['net_value'] for row in detail['rows']}
+                nav = [{'date': day, 'net_worth': None, 'unavailable_accounts': [code]} for day in days[1:]]
+                _add_dated_account_observations(cur, nav, {code: cfg}, {code}, lambda _: Decimal('.5'),
+                                                lambda *_: Decimal(1))
+                assert [row.get('available_net_worth') for row in nav] == [10, Decimal('17.5'), None, None]
+                assert detail_values[days[2]] == 2 * nav[1]['available_net_worth']
                 cfg['latest_position_evidence'] = 'fund_snapshot_without_cash'
                 points = {days[2]: {'net_value': 36, 'net_value_status':'confirmed'}}
                 _position_estimates(cur, code, cfg, days, points)
