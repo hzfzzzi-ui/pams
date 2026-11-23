@@ -18,6 +18,8 @@ PERSONAL_LOAN_PRINCIPAL = {
 def personal_loan_principal(row):
     """Identify an explicitly classified principal movement by its original direction."""
     amount = row.get('amount')
+    if amount and row.get('verified_cycle_principal') is True and row.get('source_evidence_status') == 'verified':
+        return 'personal_loan_drawdown' if amount > 0 else 'personal_loan_repayment'
     if (not amount or row.get('classification_status') != 'confirmed'
             or row.get('category') != PERSONAL_LOAN_CATEGORY
             or row.get('classification_source') != 'manual'
