@@ -179,7 +179,18 @@ def apply_personal_loan_coverage(cur, rows, codes, value_in_base, *, reference_r
         WHERE c.category=%s AND f.event_date<=%s AND (%s OR (c.status='confirmed' AND c.classification_source='manual'
           AND f.account_code=ANY(%s)))""", (PERSONAL_LOAN_CATEGORY, max(days), reference_rate_at is not None, sorted(codes)))
     selected = {r['cashflow_id']: r['event_date'] for r in cur.fetchall()}
+    from domain.ledger.loan_cycle_evidence import principal_ids, read as read_loan_cycles
+    cycles = [c for c in read_loan_cycles(cur) if all(r['account'] in codes for r in c['cash'])]
+    principal = principal_ids(cycles)
+    for cycle in cycles:
+        for ref in cycle['cash']:
+            when = date.fromisoformat(ref['day'])
+            if when <= max(days):
+                selected[ref['id']] = when
     loaded = load_cash_rows(cur, start=date.min, end=max(days), base_currency='CNY', fact_ids=list(selected)) if selected else []
+    for fact in loaded:
+        if fact['id'] in principal:
+            fact['verified_cycle_principal'] = True
     facts = [fact for fact in loaded if fact['account_code'] in codes]
     anchors, declared = _principal_anchors(cur, codes, max(days)) if schema['anchors'] else ({}, {})
     annotate_personal_loans(rows, facts, anchors, value_in_base)
