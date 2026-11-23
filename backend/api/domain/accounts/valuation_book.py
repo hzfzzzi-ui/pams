@@ -11,7 +11,7 @@ from domain.investments.account_total_evidence import load as account_totals
 from domain.investments.capital_ownership import account_contribution_ratios
 from domain.investments.personal_loan_nav import apply_personal_loan_coverage
 from domain.market.month_end_marks import month_end_fx
-from domain.market.valuation_fx import load_fx_timelines
+from domain.market.valuation_fx import fx_rate_at, load_fx_timelines
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
@@ -314,13 +314,16 @@ def read_account_book(cur, *, accounts, config, start, end, evidence_through, ba
         first_month = start + timedelta(days=1) if (start.month, start.day) == (12, 31) else start
         books = build_months(cur, values, included, config, first_month, min(end, last_close),
                              rate_at=rate_at, owner_ratio=owner_ratio)
-        transit = cash_in_transit(cur, books, rate_at)
+        transfer_fx = {}
+        transit = cash_in_transit(cur, books, rate_at, fx_changes=transfer_fx,
+                                  flow_rate_at=lambda unit, day: fx_rate_at(rates, unit, day, base))
         for row in rows:
             if row['date'] in books:
                 for entry in books[row['date']].values():
                     fixing = _fixing(rates, entry['currency'], row['date'], base)
                     entry['fx_date'] = str(fixing[0]) if fixing else None
                 apply_month(row, values, books[row['date']], by_date.get(row['date'], ()), transit.get(row['date'], ()))
+                row['monthly_book']['cash_transfer_fx'] = transfer_fx.get(row['date'], ZERO)
     return values, [r for r in rows if r["date"] <= end]
 
 
