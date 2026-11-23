@@ -315,7 +315,8 @@ def _position_days(dates, anchors, events, kind):
 
 
 def build_position_return_series(cur, *, start, end, interval, base_currency, owner_ratio, excluded_accounts,
-                                 position_kind=None, selection=None, monthly_changes=None, counted_income_sources=None):
+                                 position_kind=None, selection=None, monthly_changes=None, counted_income_sources=None,
+                                 statement_months=None):
     """Compute a securities return from holdings and marks, with trade flows only."""
     start = min(start, end)
     dates = series_dates(start, end, 'daily')
@@ -384,6 +385,7 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
     cumulative, total_pnl = ZERO, ZERO
     previous = {}
     for day in dates:
+        month = day.replace(day=1)
         current = {key: value for key, value in values[day].items() if day in owners[key[0]]}
         common = current.keys() & previous.keys()
         # Compare the same instruments across each mark boundary. An unresolved
@@ -397,8 +399,9 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
             for key in comparable:
                 movement = (current[key] - previous[key] - flows[day][key]) * owners[key[0]][day]
                 change += movement
-                if monthly_changes is not None and (current[key] or previous[key] or flows[day][key]):
-                    monthly_changes[day.replace(day=1)][(kinds[key], key[1], key[2])] += movement
+                if (monthly_changes is not None and key[0] not in (statement_months or {}).get(month, {})
+                        and (current[key] or previous[key] or flows[day][key])):
+                    monthly_changes[month][(kinds[key], key[1], key[2])] += movement
                     if counted_income_sources is not None:
                         counted_income_sources.update(event['source_item_id'] for event in events.get(key, {}).get(day, ())
                                                       if event['trade_type'] in {'dividend', 'coupon', 'interest'})

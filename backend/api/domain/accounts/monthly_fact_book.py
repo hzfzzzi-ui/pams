@@ -129,6 +129,16 @@ def _independent(point, day):
     return point.get("signed_balance")
 
 
+def transaction_opening_accounts(cur, origin):
+    """Credit accounts whose evidenced opening already includes pre-opening transactions."""
+    cur.execute(
+        """SELECT DISTINCT h.account_code FROM pams_holdings_snapshot h JOIN source_items i USING(source_item_id)
+                WHERE h.as_of=%s AND i.parsed_fields#>>'{reconstruction_evidence,method}'='credit_statement_bridge'""",
+        (origin,),
+    )
+    return {row["account_code"] for row in cur.fetchall()}
+
+
 def build_months(cur, values, included, config, start, end, *, rate_at, owner_ratio):
     months = [
         date(y, m, monthrange(y, m)[1])
@@ -168,12 +178,7 @@ def build_months(cur, values, included, config, start, end, *, rate_at, owner_ra
         principal = (
             load_unbilled_principal(cur, cards, [origin, *days]) if cards else {}
         )
-        cur.execute(
-            """SELECT DISTINCT h.account_code FROM pams_holdings_snapshot h JOIN source_items i USING(source_item_id)
-                    WHERE h.as_of=%s AND i.parsed_fields#>>'{reconstruction_evidence,method}'='credit_statement_bridge'""",
-            (origin,),
-        )
-        transaction_openings = {r["account_code"] for r in cur.fetchall()}
+        transaction_openings = transaction_opening_accounts(cur, origin)
         for code, account in included.items():
             cfg = {**account, **config.get("accounts", {}).get(code, {})}
             history = values[code]["rows"]

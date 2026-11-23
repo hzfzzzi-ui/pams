@@ -94,13 +94,12 @@ def _verify_attachments(originals, row):
         return False
 
 
-def load_unbilled_principal(cur, accounts, dates):
-    """Return contract members only on covered dates, separately from the card statement balance."""
-    if not accounts or not dates:
-        return {}
+def _verified_contracts(cur, accounts, since):
+    if not accounts:
+        return
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS supported")
     if not cur.fetchone()['supported']:
-        return {}
+        return
     cur.execute("""SELECT h.id,h.as_of,h.account_code,h.currency,h.asset_liability,h.asset_id,h.symbol,h.name,h.market_value,
                i.raw_fields,i.parsed_fields,i.record_hash,r.source_id original_source_id,r.account_code source_account,
                r.content IS NOT NULL inline_original,r.sha256
@@ -109,13 +108,13 @@ def load_unbilled_principal(cur, accounts, dates):
           AND i.review_status='confirmed' AND r.status='published' AND r.acquisition_method='file'
           AND r.document_type='holding' AND r.file_format='zip'
           AND i.raw_fields ?& ARRAY['contract_principal','verified_postings','unbilled_principal','bank_funding_fact']""",
-                (sorted(accounts), min(dates)))
+                (sorted(accounts), since))
     rows = cur.fetchall()
     if not rows:
-        return {}
+        return
     coverage = load_account_snapshot_coverage(cur, {(r['account_code'], r['as_of']) for r in rows})
     originals = SourceOriginals(cur)
-    result = defaultdict(lambda: defaultdict(set))
+    verified = []
     order_members = defaultdict(set)
     member_orders = defaultdict(set)
     for row in rows:
@@ -134,11 +133,36 @@ def load_unbilled_principal(cur, accounts, dates):
         steps = _principal_steps(row, facts)
         if not steps:
             continue
-        transitions = sorted(steps)
         member = position_member(row)
         contract = (row['account_code'], raw['order_number'])
         order_members[contract].add(member)
         member_orders[row['account_code'], member].add(contract)
+        verified.append((row, member, contract, steps))
+    for row, member, contract, steps in verified:
+        if len(order_members[contract]) == 1 and len(member_orders[row['account_code'], member]) == 1:
+            yield row, member, contract, steps
+
+
+def load_principal_cash_ids(cur, accounts, since):
+    """Cash funding and separately verified principal postings for recognized liabilities."""
+    claims = defaultdict(set)
+    for row, _, contract, _ in _verified_contracts(cur, accounts, since):
+        raw = row['raw_fields']
+        claims[raw['bank_funding_fact']].add((contract, 'principal'))
+        for posting in raw['verified_postings']:
+            for ident in posting['fact_ids']:
+                role = 'principal' if ident == posting['principal_fact'] else 'interest'
+                claims[ident].add((contract, role))
+    return {ident for ident, roles in claims.items() if len(roles) == 1 and next(iter(roles))[1] == 'principal'}
+
+
+def load_unbilled_principal(cur, accounts, dates):
+    """Return contract members only on covered dates, separately from the card statement balance."""
+    if not dates:
+        return {}
+    result = defaultdict(lambda: defaultdict(set))
+    for row, member, _, steps in _verified_contracts(cur, accounts, min(dates)):
+        transitions = sorted(steps)
         for day in dates:
             if transitions[0] <= day <= row['as_of']:
                 changed = transitions[bisect_right(transitions, day) - 1]
@@ -146,7 +170,6 @@ def load_unbilled_principal(cur, accounts, dates):
     points = defaultdict(dict)
     for (day, code), members in result.items():
         for member, values in members.items():
-            contracts = member_orders[code, member]
-            if len(values) == 1 and len(contracts) == 1 and len(order_members[next(iter(contracts))]) == 1:
+            if len(values) == 1:
                 points[day, code][member] = next(iter(values))
     return points

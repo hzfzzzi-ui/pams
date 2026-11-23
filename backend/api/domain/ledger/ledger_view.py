@@ -1694,10 +1694,14 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
     }
 
 
-def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles, counted_income_sources):
+def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles, counted_income_sources,
+                   statement_cash=()):
     ledger_rows = []
     returns = []
     for row in rows:
+        if (str(row.get('source_item_id')) in statement_cash and row.get('source_evidence_status') == 'verified'
+                and row['flow_type'] in {'income', 'expense', 'investment_return', 'investment_fee'}):
+            continue
         # A confirmed transfer or reversal takes priority over its original classification.
         if (row['flow_type'] in {'income', 'expense', 'investment_return'}
                 and row.get('classification_status') == 'confirmed'
@@ -1718,6 +1722,11 @@ def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles,
         'totals': summarize_period(ledger_rows, transfers, first, end),
         'categories': category_insights(ledger_rows, first, redesigned=redesigned)['month'],
         'money_fund_returns': returns,
+        'operating_timing_ids': [
+            row['fact_id'] for row in ledger_rows
+            if row.get('posting_date') and not first <= row['posting_date'] <= end
+            and row['flow_type'] in ('income', 'expense')
+        ],
     }
 
 
@@ -1727,7 +1736,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
                                    period: str = "ytd", account: str = "", account_group: str = "",
                                    flow: str = "", search: str = "",
                                    sort: str = "", offset: int = 0, limit: int = 80,
-                                   matching_accounts: set[str] | None = None, counted_income_sources=()) -> dict[str, Any]:
+                                   matching_accounts: set[str] | None = None, counted_income_sources=(), statement_cash=None) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
     redesigned = _table_exists(cur, 'source_records')
@@ -1743,7 +1752,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     cash_start = month_start if view == 'stream' and period == 'month' else ytd_start
     cash_rows = [] if view == 'transfers' else _load_cash_rows(
         cur, start=cash_start, end=month_end, base_currency=base_currency, verifier=verifier,
-        include_pair_evidence=redesigned and view == 'full', **original_args,
+        include_pair_evidence=redesigned and view in {'full', 'monthly_close'}, **original_args,
     )
     decision_args = {'decisions': _confirmed_transfer_records(cur, start=ytd_start, end=month_end, **original_args)} if redesigned else {}
     all_transfer_matches = _load_transfer_matches(cur, start=ytd_start, end=month_end, base_currency=base_currency,
@@ -1823,14 +1832,25 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             **({'manual_pending': manual_pending} if include_manual_pending else {}),
         }
     if view == 'monthly_close':
+        omitted = set()
+        if redesigned:
+            from domain.investments.installment_principal import load_principal_cash_ids
+            from domain.ledger.investment_receipts import counted_receipt_ids
+            omitted = load_principal_cash_ids(cur, configured_accounts, ytd_start)
+            omitted.update(counted_receipt_ids(cur, ytd_rows, counted_income_sources))
         months = defaultdict(list)
         for row in ytd_rows:
-            months[row['transaction_date_obj'].replace(day=1)].append(row)
+            # Keep raw ledger history intact. Principal changes the balance sheet;
+            # a receipt already attributed to investment return must count once.
+            monthly_rows = months[row['transaction_date_obj'].replace(day=1)]
+            if row['id'] not in omitted or row['flow_type'] not in {'income', 'expense'}:
+                monthly_rows.append(row)
         result = {}
         for first, rows in months.items():
             _, end = _month_bounds(first.strftime('%Y-%m'))
             result[first] = _monthly_close(rows, transfer_matches, first, end, redesigned=redesigned,
-                                           account_profiles=account_profiles, counted_income_sources=counted_income_sources)
+                                           account_profiles=account_profiles, counted_income_sources=counted_income_sources,
+                                           statement_cash=(statement_cash or {}).get(first, ()))
         return result
     if view in {'overview', 'full'}:
         overview = {
