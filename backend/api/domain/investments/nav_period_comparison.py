@@ -118,9 +118,10 @@ def _eligible_contributions(row):
             if code not in row.get('_dated_cash_accounts', ()):
                 continue
             source = 'cash_balance'
-        elif kind == 'position_members':
+        elif kind in ('position_members', 'net_value', 'posted_flow_net'):
             dates = row.get('latest_known_components', {}).get(code, {})
-            if not source[1] or dates.get('from') != as_of or dates.get('through') != as_of:
+            if ((kind == 'position_members' and not source[1])
+                    or dates.get('from') != as_of or dates.get('through') != as_of):
                 continue
         elif kind == 'complete_positions':
             if code in unavailable or code in row.get('estimated_accounts', ()):

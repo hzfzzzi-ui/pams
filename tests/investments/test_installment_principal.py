@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal as D
 
 from domain.investments.installment_principal import _principal_steps
+from domain.accounts.dated_valuation import AccountValuation
 from domain.investments.valuation_nav import _apply_historical_cash_points
 
 
@@ -35,7 +36,7 @@ def test_card_statement_and_unbilled_contract_are_disjoint_and_partial():
     row = {'assets':D(0), 'liabilities':D(0), 'net_worth':D(0)}
     args = dict(bank_series={day:row}, accounts=[{'account_code':code,'base_currency':'CNY'}],
                 dates=[day], rate_at=lambda *_:D(1), points={},
-                periods={(code,day):('CNY','负债',D(42))},
+                periods={(code,day):AccountValuation(day,'CNY',D(-42),'statement','billed')},
                 unbilled={(day,code):{('负债','CNY','symbol:loan'):(D(60),day,day)}})
     _apply_historical_cash_points(None, **args)
     assert row['account_values'] == {code:D(-102)}

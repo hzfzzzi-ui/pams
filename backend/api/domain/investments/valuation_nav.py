@@ -14,6 +14,8 @@ from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
+from domain.accounts.dated_valuation import AccountValuation, posted_card_valuations, statement_closings, statement_valuations
+from domain.accounts.position_valuation import fund_account_observations, uses_fund_account_valuation
 from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
@@ -23,10 +25,11 @@ from domain.investments.nav_period_comparison import (
     terminal_comparison_basis,
 )
 from domain.investments.portfolio_state import _owner_ratio
+from domain.market.valuation_fx import fx_rate_at, load_fx_timelines
 from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value
 
 ANCHOR_NAV_DATE = Date(2026, 5, 31)
-STATEMENT_BACKCAST_TYPES = {"funding", "cash_management", "benefit", "liability"}
+STATEMENT_BACKCAST_TYPES = {"funding", "cash_management", "benefit", "liability", "credit_card"}
 INVESTMENT_SNAPSHOT_ACCOUNT_TYPES = {"brokerage", "fund_platform"}
 STABLE_ANCHOR_ACCOUNTS = {"huawei_stock"}
 INVESTMENT_SNAPSHOT_EXCLUDE = {"tonghuashun", "ibkr", *STABLE_ANCHOR_ACCOUNTS}
@@ -141,65 +144,6 @@ def select_weekly_nav_accounts(
         and str(account.get("account_code")) not in INVESTMENT_SNAPSHOT_EXCLUDE
     ]
     return bank_accounts, investment_snapshot_accounts
-
-
-def load_fx_timelines(
-    cur,
-    base_currency: str,
-    *,
-    identity_date: Date | None = None,
-) -> dict[str, list[tuple[Date, Decimal]]]:
-    """Load FX rates once so valuation back-casting can convert by sample date."""
-    base_currency = base_currency.upper()
-    cur.execute(
-        """
-        SELECT base_currency, quote_currency, as_of, rate
-        FROM pams_fx_rates_daily
-        WHERE base_currency = ANY(%s::text[])
-          AND rate > 0 AND rate::text NOT IN ('NaN','Infinity','-Infinity')
-          AND NULLIF(BTRIM(source), '') IS NOT NULL
-        ORDER BY base_currency, quote_currency, as_of
-        """,
-        ([base_currency, 'CNY'],),
-    )
-    direct: dict[tuple[str, Date], Decimal] = {}
-    cny: dict[tuple[str, Date], Decimal] = {}
-    for row in cur.fetchall():
-        currency = str(row["quote_currency"] or "").upper()
-        day = row["as_of"]
-        rate = _dec(row["rate"])
-        if str(row.get("base_currency") or base_currency).upper() == base_currency:
-            direct[(currency, day)] = rate
-        if str(row.get("base_currency") or base_currency).upper() == 'CNY':
-            cny[(currency, day)] = rate
-    if base_currency != 'CNY':
-        for (currency, day), rate in cny.items():
-            denominator = cny.get((base_currency, day))
-            if denominator is not None:
-                direct.setdefault((currency, day), rate / denominator)
-                direct.setdefault(('CNY', day), Decimal(1) / denominator)
-    timelines: dict[str, list[tuple[Date, Decimal]]] = {}
-    for (currency, day), rate in sorted(direct.items(), key=lambda item: (item[0][0], item[0][1])):
-        timelines.setdefault(currency, []).append((day, rate))
-    timelines.setdefault(base_currency, []).append((identity_date or Date(2026, 5, 31), Decimal("1")))
-    return timelines
-
-
-def fx_rate_at(
-    timelines: dict[str, list[tuple[Date, Decimal]]],
-    currency: str,
-    as_of: Date,
-    base_currency: str,
-) -> Decimal | None:
-    """Return a same-day rate, or unknown when the evidence is absent."""
-    quote = str(currency or base_currency).upper()
-    if quote == str(base_currency).upper():
-        return Decimal("1")
-    rows = timelines.get(quote) or []
-    for row_date, rate in reversed(rows):
-        if row_date == as_of:
-            return rate if rate.is_finite() and rate > 0 else None
-    return None
 
 
 def scale_series_to_terminal_anchor(
@@ -668,6 +612,39 @@ def _add_known_display_values(row, values, *, basis=None):
     row["valuation_quality"] = "estimated"
 
 
+def _add_dated_account_observations(cur, rows, configs, account_codes, owner_ratio, rate_at, *, unbilled=None):
+    """Use whole-account observations before considering incomplete holdings or stale references."""
+    if not rows or not account_codes:
+        return
+    first, last = rows[0]['date'], rows[-1]['date']
+    by_day = {row['date']: row for row in rows if row.get('net_worth') is None}
+    # Replay intervening changes even for a weekly chart. Only requested samples are emitted.
+    days = series_dates(first, last, 'daily')
+    for code in sorted(account_codes):
+        cfg = configs.get(code, {})
+        currency = cfg.get('base_currency', 'CNY')
+        if cfg.get('account_type') in ('credit_card', 'liability'):
+            native = posted_card_valuations(cur, code, cfg, currency, last)
+        elif uses_fund_account_valuation(cfg):
+            points = fund_account_observations(cur, code, configs, days)
+            native = {day: AccountValuation.from_measurement(day, currency, point, 'net_value')
+                      for day, point in points.items() if point.get('net_value') is not None
+                      and point.get('net_value_status') in ('confirmed', 'estimated')}
+        else:
+            continue
+        for day in by_day.keys() & native.keys():
+            row = by_day[day]
+            if code not in row.get('unavailable_accounts', ()) or code in row.get('available_accounts', ()):
+                continue
+            observation = native[day]
+            if observation.basis == 'posted_flow_net' and (unbilled or {}).get((day, code)):
+                continue
+            amount = observation.personal_value(owner_ratio(code), rate_at(currency, day))
+            if amount is not None:
+                source_day = observation.observed_on or day
+                _add_known_display_values(row, {code: (amount, source_day, source_day)}, basis={code: observation.basis})
+
+
 def _add_weekend_cash_references(row, bank_series, rate_at):
     if row.get('net_worth') is not None:
         return
@@ -709,7 +686,10 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         rate = rate_at(value['currency'], row['date'])
         if len(ratios) != 1 or (rate is None and Decimal(value['net_asset']) != 0):
             continue
-        amount = Decimal(value['net_asset']) * next(iter(ratios)) * (rate or Decimal(1))
+        total = AccountValuation(row['date'], value['currency'], Decimal(value['net_asset']), 'account_total')
+        amount = total.personal_value(next(iter(ratios)), rate)
+        if amount is None:
+            continue
         prior = sum((contributions.get(code, Decimal(0)) for code in covered if code in available), Decimal(0))
         if value.get('confirmed_components') and covered <= available and abs(amount-prior) > Decimal('0.005'):
             continue
@@ -1120,6 +1100,12 @@ def _replace_cash_contribution(bucket, code, value):
             bucket[field].append(code)
 
 
+def _cash_statement_accounts(accounts):
+    return {a['account_code']: (str(a.get('base_currency') or 'CNY').upper(),
+                                a.get('account_type') in ('liability', 'credit_card'))
+            for a in accounts}
+
+
 def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at, points=None, periods=None, unbilled=None):
     """Reject a later anchor's backcast where it fails to reconcile to a dated balance."""
     if not dates:
@@ -1127,38 +1113,47 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
     if points is None:
         points = _historical_cash_points(cur, accounts, max(dates))
     if periods is None:
-        from domain.investments.statement_period_nav import load_statement_period_points
-        periods = load_statement_period_points(cur, [a['account_code'] for a in accounts], dates)
+        periods = statement_valuations(cur, _cash_statement_accounts(accounts), dates)
     for account in accounts:
         code = account['account_code']
         ratio = Decimal(str(account.get('owner_ratio', 1)))
         anchor = account_anchor_date(account, max(dates))
         conflict = False
+        previous_day = Date.min
         for day in sorted(bank_series):
+            if previous_day < anchor <= day:
+                conflict = False
+            previous_day = day
             bucket = bank_series[day]
             point = points.get((code, day))
             complete_cash = bool(point and point.get('complete_cash_scope'))
             period = periods.get((code, day))
+            observation = None
+            if point is not None:
+                signed = -abs(point['market_value']) if point['asset_liability'] == '负债' else point['market_value']
+                observation = AccountValuation(day, point['currency'], signed, 'snapshot')
+            contracts = (unbilled or {}).get((day, code), {})
+            included = {}
             if period is not None:
-                currency, side, balance = period
-                if currency != str(account.get('base_currency') or 'CNY').upper():
-                    continue
-                if point and (point['currency'], point['asset_liability'], point['market_value']) != period:
+                if period.scope == 'billed':
+                    included = {member: proof[0] for member, proof in contracts.items() if member[1] == period.currency}
+                principal = sum(included.values(), Decimal(0))
+                resolved = period.including_unbilled(principal)
+                # A point may attest the billed balance or the already-combined account balance.
+                if (resolved.amount is None or observation and (observation.currency != period.currency
+                        or not period.agrees_with_balance(observation.amount, principal))):
                     _replace_cash_contribution(bucket, code, None)
+                    bucket.setdefault('source_evidence_unavailable_accounts', []).append(code)
                     conflict = True
                     continue
-                point = {'currency':currency, 'asset_liability':side, 'market_value':balance}
-            if point is not None:
+                observation = resolved
+            if observation is not None:
                 if code in bucket.get('source_evidence_unavailable_accounts', ()):
                     continue
-                value = point['market_value']
-                rate = rate_at(point['currency'], day)
-                if rate is None and value:
+                amount = observation.personal_value(ratio, rate_at(observation.currency, day))
+                if amount is None:
                     _replace_cash_contribution(bucket, code, None)
                     continue
-                amount = value * (rate or Decimal(1)) * ratio
-                if point['asset_liability'] == '负债':
-                    amount = -abs(amount)
                 backcast = bucket.get('account_values', {}).get(code)
                 conflict = backcast is not None and backcast != amount
                 _replace_cash_contribution(bucket, code, amount)
@@ -1166,21 +1161,13 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 bucket.setdefault('_dated_cash_accounts', set()).add(code)
                 if (period or complete_cash) and code in bucket.get('unavailable_accounts', ()):
                     bucket['unavailable_accounts'].remove(code)
-                if complete_cash:
+                if complete_cash or (period and period.basis == 'statement' and not included):
                     bucket['estimated_accounts'].remove(code)
-                # Only an independently reconciled card statement establishes
-                # that its figure covers billed charges alone. A generic
-                # liability balance may already include the installment.
-                contracts = (unbilled or {}).get((day, code), {})
-                if period and point['asset_liability'] == '负债' and contracts:
-                    included = {member: proof[0] for member, proof in contracts.items() if member[1] == currency}
-                    native = sum(included.values(), Decimal(0))
-                    if native and rate is not None:
-                        _replace_cash_contribution(bucket, code, amount - native * rate * ratio)
-                        bucket['_comparison_basis'][code] = ['billed_and_unbilled_debt', sorted(included)]
-                        if code not in bucket.setdefault('unavailable_accounts', []):
-                            bucket['unavailable_accounts'].append(code)
-            elif conflict and day < anchor and code in bucket.get('estimated_accounts', ()):
+                if included:
+                    bucket['_comparison_basis'][code] = ['billed_and_unbilled_debt', sorted(included)]
+                    if code not in bucket.setdefault('unavailable_accounts', []):
+                        bucket['unavailable_accounts'].append(code)
+            elif conflict and day != anchor and code in bucket.get('estimated_accounts', ()):
                 _replace_cash_contribution(bucket, code, None)
 
 
@@ -1705,7 +1692,11 @@ def build_nav_weekly_payload(
             latest_cash[code] = point
     bank_accounts = [_cash_account_at_terminal(account, terminal_date, latest_cash.get(account['account_code']))
                      for account in bank_accounts]
-    cash_dates = sorted(set(dates) | {day for _, day in cash_points})
+    statements = _cash_statement_accounts(bank_accounts)
+    # Include intervening statement cutoffs when reconciling a sparse chart.
+    closings = statement_closings(cur, statements, terminal_date)
+    cash_dates = sorted(set(dates) | {day for _, day in cash_points}
+                        | {r['as_of'] for entries in closings.values() for r in entries if r['as_of'] >= start_date})
     reference_dates = {prior for day in dates for prior in preceding_weekend_dates(day)} - set(cash_dates)
     all_cash_dates = sorted(set(cash_dates) | reference_dates)
     bank_flow_start = min(cash_dates[0], min(
@@ -1731,10 +1722,9 @@ def build_nav_weekly_payload(
     # reconciliation's conflict boundary in the requested, formal sample.
     reference_series = {day:bank_series.pop(day) for day in reference_dates}
     from domain.investments.installment_principal import load_unbilled_principal
-    from domain.investments.statement_period_nav import load_statement_period_points
     bank_codes = [a['account_code'] for a in bank_accounts]
     unbilled = load_unbilled_principal(cur, bank_codes, all_cash_dates)
-    periods = load_statement_period_points(cur, bank_codes, all_cash_dates)
+    periods = statement_valuations(cur, statements, all_cash_dates, closings=closings)
     for samples in (bank_series, reference_series):
         if samples:
             _apply_historical_cash_points(
@@ -1880,6 +1870,9 @@ def build_nav_weekly_payload(
     config = (account_config or {}).get("accounts", {})
     unresolved.difference_update(code for code, cfg in config.items()
                                  if cfg.get('portfolio_value_evidence') == 'official_broker_close')
+    _add_dated_account_observations(cur, rows, config, unresolved & nav_codes, account_owner_ratio,
+                                    lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
+                                    unbilled=unbilled)
     if unresolved & nav_codes:
         from domain.investments.position_nav_projection import load_position_nav_estimates
 

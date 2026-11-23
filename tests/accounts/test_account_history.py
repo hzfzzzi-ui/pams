@@ -2,16 +2,16 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from domain.accounts import account_history as history
-from domain.accounts import recorded_positions
+from domain.accounts import recorded_positions, dated_valuation, position_valuation
 
 
 def test_card_bill_unbilled_principal_and_credit_balance(monkeypatch):
     first = date(2026, 1, 1)
     days = [first + timedelta(days=n) for n in range(5)]
     code = 'card'
-    monkeypatch.setattr(history, 'statement_balance_history', lambda *a, **k: {code: [
+    monkeypatch.setattr(dated_valuation, 'statement_balance_history', lambda *a, **k: {code: [
         {'amount': '-80', 'as_of': days[0]}, {'amount': '55', 'as_of': days[2]}]})
-    monkeypatch.setattr(history, 'load_statement_period_points', lambda *a: {})
+    monkeypatch.setattr(dated_valuation, 'load_statement_period_points', lambda *a: {})
     principal = {('负债', 'USD', 'loan'): (Decimal(25), first, first)}
     monkeypatch.setattr(history, 'load_unbilled_principal',
                         lambda *a: {(day, code): principal for day in days})
@@ -42,10 +42,10 @@ def test_reference_balance_can_bound_cash_movements_but_principal_cannot(monkeyp
     days = [date(2026, 1, day) for day in range(1, 4)]
     reference = {'source': 'archive', 'currency': 'CNY', 'amount': '40', 'as_of': days[0]}
     cfg = {'accounts': {'benefit': {'base_currency': 'CNY', 'account_balance_reference': reference}}}
-    monkeypatch.setattr(history, 'statement_balance_history', lambda *a, **k: {})
-    monkeypatch.setattr(history, 'load_statement_period_points', lambda *a: {})
+    monkeypatch.setattr(dated_valuation, 'statement_balance_history', lambda *a, **k: {})
+    monkeypatch.setattr(dated_valuation, 'load_statement_period_points', lambda *a: {})
     monkeypatch.setattr(history, 'load_bound_balance_references', lambda *a: {})
-    monkeypatch.setattr(history, 'load_account_totals', lambda *a, **k: {})
+    monkeypatch.setattr(position_valuation, 'load_account_totals', lambda *a, **k: {})
     monkeypatch.setattr(history, '_holding_observations', lambda *a, **k: {
         days[-1]: {'net_value': Decimal(50), 'net_value_status': 'confirmed'}})
     monkeypatch.setattr(history, 'load_cash_rows', lambda *a, **k: [{
@@ -75,7 +75,7 @@ def test_account_total_and_liability_have_independent_scope(monkeypatch):
         prior: {'liabilities': Decimal('20'), 'liabilities_status': 'partial'}})
     monkeypatch.setattr(history, 'recorded_event_dates', lambda *a: [prior, day])
     monkeypatch.setattr(recorded_positions, 'recorded_components', lambda *a, **kw: ([], []))
-    monkeypatch.setattr(history, 'load_account_totals', lambda *a, **k: {
+    monkeypatch.setattr(position_valuation, 'load_account_totals', lambda *a, **k: {
         (day, code): {'net_asset': '130', 'currency': 'CNY', 'covered_account_codes': [code]},
         (prior, code): {'net_asset': '250', 'currency': 'CNY', 'covered_account_codes': [code, 'another']}})
     payload = history.read_account_history(None, account_code=code, account_config=cfg, start_date=prior, end_date=day)
@@ -119,21 +119,21 @@ def test_fund_single_member_update_cannot_replace_whole_account(monkeypatch):
         sample['fund'] = (Decimal(value), day, day)
         sample.basis['fund'] = ['position_members', members]
         samples[day] = sample
-    monkeypatch.setattr(history, 'load_fx_timelines', lambda *a: {})
-    monkeypatch.setattr(history, 'load_position_nav_estimates', lambda *a, **k: samples)
+    monkeypatch.setattr(position_valuation, 'load_fx_timelines', lambda *a: {})
+    monkeypatch.setattr(position_valuation, 'load_position_nav_estimates', lambda *a, **k: samples)
     points = {start: {'net_value': Decimal(100), 'net_value_status':'confirmed'}}
     history._position_estimates(None, 'fund', {'base_currency':'CNY'}, days, points)
     assert [(day, row['net_value']) for day, row in points.items()] == [(start, 100), (days[1], 103)]
 
 
 def test_dated_fund_reference_is_a_standalone_fallback(monkeypatch):
-    monkeypatch.setattr(history, 'prior_single_account_total', lambda *a: None)
+    monkeypatch.setattr(position_valuation, 'prior_single_account_total', lambda *a: None)
     day = date(2026, 1, 2)
     cfg = {'accounts': {'fund': {'account_type':'fund_platform', 'truth_source':'manual',
         'base_currency':'CNY', 'reconcile_method':'position_nav', 'manual_balance': {
             'as_of': day, 'currency':'CNY', 'amount':'71.80', 'source':'confirmed fund holding'}}}}
-    monkeypatch.setattr(history, '_holding_observations', lambda *a, **k: {})
-    monkeypatch.setattr(history, 'load_account_totals', lambda *a, **k: {})
+    monkeypatch.setattr(position_valuation, '_holding_observations', lambda *a, **k: {})
+    monkeypatch.setattr(position_valuation, 'load_account_totals', lambda *a, **k: {})
     def result():
         return history.read_account_history(None, account_code='fund', account_config=cfg,
                                             start_date=day, end_date=day + timedelta(days=1))
