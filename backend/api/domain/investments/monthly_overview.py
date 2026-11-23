@@ -15,7 +15,10 @@ from domain.ledger.ledger_view import build_ledger_workbench_payload
 
 
 def money(value):
-    return None if value is None else float(round(Decimal(str(value)), 2))
+    if value is None:
+        return None
+    rounded = round(Decimal(str(value)), 2)
+    return float(rounded) if rounded else 0.0
 
 
 def difference(left, right):

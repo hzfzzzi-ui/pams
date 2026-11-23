@@ -537,7 +537,11 @@ def summarize_period(rows: list[dict[str, Any]], transfers: list[dict[str, Any]]
     if missing_source:
         result.update(source_status='incomplete', source_unverified_count=missing_source)
     if full_precision_net:
-        result['unrounded_net'] = disposable_net if result['net'] is not None else None
+        result['unrounded_net'] = (
+            sum((Decimal(str(amount)) for amount in income_amounts), Decimal(0))
+            - sum((Decimal(str(amount)) for amount in expense_amounts), Decimal(0))
+            if result['net'] is not None else None
+        )
     return result
 
 
