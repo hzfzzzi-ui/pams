@@ -53,3 +53,30 @@ def test_weekend_reuses_only_an_unchanged_dated_foreign_bank_valuation():
     proven = {'date':saturday,'net_worth':D('12'),'unavailable_accounts':[]}
     _add_weekend_cash_references(proven,series,rate_at)
     assert proven['net_worth'] == D(12) and 'available_net_worth' not in proven
+
+
+def test_month_end_statement_changes_native_cash_before_applying_independent_fixing():
+    from domain.accounts.dated_valuation import AccountValuation
+    from domain.investments.valuation_nav import _apply_historical_cash_points, _add_month_end_marks
+    from domain.market.month_end_marks import month_end_fx
+    friday, day = date(2026, 1, 30), date(2026, 1, 31)
+    rates = {'MXN': [(friday, D('.40')), (day + timedelta(days=2), D('.48'))]}
+    code = 'foreign_bank'
+    bank = {'account_code': code, 'account_type': 'funding', 'base_currency': 'MXN', 'owner_ratio': '.5'}
+    period = AccountValuation(day, 'MXN', D('240'), 'statement')
+    bank_series = {day: {'unavailable_accounts': [code], 'net_worth': D(0)}}
+    _apply_historical_cash_points(None, accounts=[bank], bank_series=bank_series, dates=[day],
+                                 points={}, periods={(code, day): period}, rate_at=lambda *_: None)
+    marks = bank_series[day]['_month_end_marks']
+    row = {'date': day, 'net_worth': None, 'unavailable_accounts': [code]}
+    for _ in range(2):
+        _add_month_end_marks(row, marks, rates, 'CNY')
+    assert row['available_net_worth'] == 48 and row['net_worth'] is None
+    detail = row['latest_known_components'][code]
+    assert (detail['balance_as_of'], detail['fx_as_of']) == (day.isoformat(), friday.isoformat())
+    assert month_end_fx(rates, 'MXN', date(2026, 2, 15), 'CNY') is None
+    assert month_end_fx(rates, 'MXN', date(2026, 3, 31), 'CNY') is None
+    blocked = {'date': day, 'net_worth': None, 'unavailable_accounts': [code],
+               'source_evidence_unavailable_accounts': [code]}
+    _add_month_end_marks(blocked, marks, rates, 'CNY')
+    assert 'available_net_worth' not in blocked

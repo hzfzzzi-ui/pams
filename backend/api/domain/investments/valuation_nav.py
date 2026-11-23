@@ -25,6 +25,7 @@ from domain.investments.nav_period_comparison import (
     terminal_comparison_basis,
 )
 from domain.investments.portfolio_state import _owner_ratio
+from domain.market.month_end_marks import is_month_end, month_end_fx
 from domain.market.valuation_fx import fx_rate_at, load_fx_timelines
 from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value
 
@@ -623,6 +624,7 @@ def _add_dated_account_observations(cur, rows, configs, account_codes, owner_rat
     for code in sorted(account_codes):
         cfg = configs.get(code, {})
         currency = cfg.get('base_currency', 'CNY')
+        points = {}
         if cfg.get('account_type') in ('credit_card', 'liability'):
             native = posted_card_valuations(cur, code, cfg, currency, last)
         elif uses_fund_account_valuation(cfg):
@@ -643,6 +645,34 @@ def _add_dated_account_observations(cur, rows, configs, account_codes, owner_rat
             if amount is not None:
                 source_day = observation.observed_on or day
                 _add_known_display_values(row, {code: (amount, source_day, source_day)}, basis={code: observation.basis})
+                details = row.get('latest_known_components', {}).get(code)
+                prices = points.get(day, {}).get('price_dates')
+                if details is not None and prices:
+                    details['from'] = min(prices.values()).isoformat()
+                    details['balance_as_of'] = day.isoformat()
+                    details['price_dates'] = {symbol: d.isoformat() for symbol, d in prices.items()}
+
+
+def _add_month_end_marks(row, observations, timelines, base_currency):
+    day = row['date']
+    for code, (observation, ratio) in observations.items():
+        if code not in row.get('unavailable_accounts', ()) or code in row.get('available_accounts', ()):
+            continue
+        fixing = month_end_fx(timelines, observation.currency, day, base_currency)
+        if not fixing:
+            continue
+        fx_day, rate = fixing
+        amount = observation.personal_value(ratio, rate)
+        if amount is None:
+            continue
+        source_day = observation.observed_on or observation.day
+        _add_known_display_values(row, {code: (amount, min(source_day, fx_day), max(source_day, fx_day))},
+                                  basis={code: observation.basis})
+        details = row.get('latest_known_components', {}).get(code)
+        if details is not None:
+            details.update(balance_as_of=source_day.isoformat(), fx_as_of=fx_day.isoformat(),
+                           currency=observation.currency, native_balance=str(observation.amount), fx_rate=str(rate),
+                           fx_age_days=(day - fx_day).days)
 
 
 def _add_weekend_cash_references(row, bank_series, rate_at):
@@ -1080,6 +1110,7 @@ def _historical_cash_points(cur, accounts, through):
 
 
 def _replace_cash_contribution(bucket, code, value):
+    bucket.get('_month_end_marks', {}).pop(code, None)
     bucket.get('_unconverted_cash', {}).pop(code, None)
     old = bucket.setdefault('account_values', {}).pop(code, None)
     if old is not None:
@@ -1153,6 +1184,8 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                 amount = observation.personal_value(ratio, rate_at(observation.currency, day))
                 if amount is None:
                     _replace_cash_contribution(bucket, code, None)
+                    if is_month_end(day) and (period or complete_cash):
+                        bucket.setdefault('_month_end_marks', {})[code] = (observation, ratio)
                     continue
                 backcast = bucket.get('account_values', {}).get(code)
                 conflict = backcast is not None and backcast != amount
@@ -1540,6 +1573,7 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
                                    "reasons": (closes.get(requested) or {}).get("reasons")
                                    or evidence.get("reasons") or ["missing_closing_date"]}
         bucket = None
+        month_end_mark = None
         if close.get("status") == "ok":
             source_day = Date.fromisoformat(close["as_of"])
             if native:
@@ -1570,6 +1604,11 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
                                                               base_currency=base_currency, as_of=fx_day)
                 fx = rates[fx_day]
                 rate = fx.get("rate") if fx.get("status") == "ok" else None
+                if (rate is None and native and is_month_end(day) and day.weekday() >= 5
+                        and source_day in (day, _calendar().date_to_session(requested, direction="previous").date())
+                        and daily_close_nav_bucket(close, rate=Decimal(1), owner_ratio=ratio) is not None):
+                    month_end_mark = AccountValuation(day, close["base_currency"], Decimal(str(close["nav_base"])),
+                                                      "broker_close", observed_on=source_day), ratio
                 bucket = daily_close_nav_bucket(close, rate=rate, owner_ratio=ratio)
                 if bucket is not None and rate is not None:
                     metadata = daily_close_value_metadata(close, rate=rate, owner_ratio=ratio,
@@ -1590,6 +1629,8 @@ def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account
                     metadata["reasons"] = fx.get("reasons") if rate is None else ["missing_gross_nav_proof"]
                     metadata["fx_evidence"] = {k: str(v) if isinstance(v, Decimal) else v for k, v in fx.items()}
         result[day] = {**(bucket if bucket is not None else legacy), "daily_close": metadata}
+        if month_end_mark:
+            result[day]['_month_end_marks'] = {'ibkr': month_end_mark}
     return result
 
 
@@ -1870,6 +1911,12 @@ def build_nav_weekly_payload(
     config = (account_config or {}).get("accounts", {})
     unresolved.difference_update(code for code, cfg in config.items()
                                  if cfg.get('portfolio_value_evidence') == 'official_broker_close')
+    for row in rows:
+        day = row['date']
+        if is_month_end(day):
+            observations = {**bank_series.get(day, {}).get('_month_end_marks', {}),
+                            **ibkr_values.get(day, {}).get('_month_end_marks', {})}
+            _add_month_end_marks(row, observations, fx_timelines, base_currency)
     _add_dated_account_observations(cur, rows, config, unresolved & nav_codes, account_owner_ratio,
                                     lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
                                     unbilled=unbilled)

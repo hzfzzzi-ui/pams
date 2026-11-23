@@ -177,6 +177,8 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
                 last_prior_date = day
             continue
         row = {'date': day}
+        if point.get('price_dates'):
+            row['price_dates'] = point['price_dates']
         for key in series:
             observation = AccountValuation.from_measurement(day, currency, point, key)
             row[key] = observation.amount
