@@ -7,6 +7,7 @@ from decimal import Decimal
 import re
 
 from domain.imports.source_original_read import SourceOriginals
+from domain.investments.capital_ownership import position_ownership
 from domain.investments.fund_return_history import NAV_SOURCES, _trade_day
 from domain.investments.investment_return_ibkr import _ibkr_yfinance_symbol
 from domain.investments.investment_return_math import norm
@@ -350,8 +351,11 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
                 valuation_fx[currency][day] = timeline[index][1]
     values, flows = defaultdict(dict), defaultdict(dict)
     quantity_days, price_days = defaultdict(dict), defaultdict(dict)
-    owners = {account: owner_ratio(account) for account in {key[0] for key in kinds}}
-    kinds = {key: kind for key, kind in kinds.items() if owners[key[0]] != 0}
+    owners = position_ownership(cur, {key[0] for key in kinds}, dates, owner_ratio)
+    # Keep accounts with missing dated evidence in the coverage count.
+    excluded_owners = {account for account, schedule in owners.items()
+                       if len(schedule) == len(dates) and all(ratio == 0 for ratio in schedule.values())}
+    kinds = {key: kind for key, kind in kinds.items() if key[0] not in excluded_owners}
     for key, kind in kinds.items():
         account, currency, _ = key
         for day, quantity, confirmed_on, reference, flow in _position_days(
@@ -361,7 +365,7 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
                 continue
             trade_rate = fx_rate_at(fx, currency, day, base_currency) if flow else None
             flows[day][key] = ZERO if flow == 0 else (
-                flow * trade_rate * owners[account] if flow is not None and trade_rate is not None else None
+                flow * trade_rate if flow is not None and trade_rate is not None else None
             )
             mark = ((confirmed_on, reference) if reference is not None else None) if kind == 'reference' else (
                 _market_price(marks, key, kind, day) if quantity else None
@@ -374,7 +378,7 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
             if quantity == 0:
                 values[day][key] = ZERO
             elif quantity is not None and mark is not None and mark[1] is not None and valuation_rate is not None:
-                values[day][key] = quantity * mark[1] * valuation_rate * owners[account]
+                values[day][key] = quantity * mark[1] * valuation_rate
                 quantity_days[day][key] = confirmed_on
                 price_days[day][key] = mark[0]
 
@@ -383,16 +387,18 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
     previous = {}
     for day in dates:
         month = day.replace(day=1)
-        current = values[day]
+        current = {key: value for key, value in values[day].items() if day in owners[key[0]]}
         common = current.keys() & previous.keys()
         # Compare the same instruments across each mark boundary. An unresolved
         # settlement leaves a gap for the affected part of the investment scope.
         comparable = [key for key in common if flows[day].get(key) is not None]
-        prior = sum((previous[key] for key in comparable), ZERO)
+        # End-of-day funding sets the ownership weight for this day's change.
+        # Apply that same weight to both marks. New capital is never market PnL.
+        prior = sum((previous[key] * owners[key[0]][day] for key in comparable), ZERO)
         if prior > 0:
             change = ZERO
             for key in comparable:
-                movement = current[key] - previous[key] - flows[day][key]
+                movement = (current[key] - previous[key] - flows[day][key]) * owners[key[0]][day]
                 change += movement
                 if (monthly_changes is not None and key[0] not in (statement_months or {}).get(month, {})
                         and (current[key] or previous[key] or flows[day][key])):
@@ -410,7 +416,7 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
             daily = ZERO
         full_scope = len(current) == len(kinds) and (day == dates[0] or len(comparable) == len(current))
         row = {
-            'date': day, 'market_value': sum(current.values(), ZERO) if covered else None,
+            'date': day, 'market_value': sum((amount * owners[key[0]][day] for key, amount in current.items()), ZERO) if covered else None,
             'daily_return_rate': daily, 'return_rate': cumulative if daily is not None else None,
             'display_return_rate': cumulative if daily is not None else None,
             'time_weighted_return_rate': cumulative if daily is not None else None,

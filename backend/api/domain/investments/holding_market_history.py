@@ -1,6 +1,7 @@
 """Personal position history for a selected holding, with dated execution evidence."""
 from datetime import date
 
+from domain.investments.capital_ownership import position_ownership
 from domain.investments.fund_return_history import _trade_day
 from domain.investments.investment_return_math import norm
 from domain.investments.position_performance import (
@@ -19,9 +20,9 @@ def holding_history(cur, selection, start, end, owner_ratio, *, all_trades=False
     fx = load_fx_timelines(cur, 'CNY') if any(key[1] != 'CNY' for key in kinds) else {}
     values = {day: [] for day in dates}
     trades = []
+    owners = position_ownership(cur, {code for code, _ in selection}, dates, owner_ratio)
     for (account, currency, asset_id), key in keys.items():
         kind = kinds[key]
-        ownership = owner_ratio(account)
         events = {}
         for trade in load_trade_rows(cur, account_code=account, start=date.min, end=date.max if all_trades else end,
                                      include_fund_execution=True, trade_types=tuple(sorted(CHANGES)),
@@ -36,7 +37,8 @@ def holding_history(cur, selection, start, end, owner_ratio, *, all_trades=False
                                'quantity': trade['quantity'], 'price': trade['price'], 'currency': currency,
                                'account': account, 'id': trade['trade_id']})
         for day, qty, confirmed, reference, _ in _position_days(dates, positions[key], events, kind):
-            if day not in values or qty is None:
+            ownership = owners[account].get(day)
+            if day not in values or qty is None or ownership is None:
                 continue
             mark = _market_price(prices, key, kind, day)
             anchor = positions[key].get(day)

@@ -1,6 +1,6 @@
 """Dated ownership of pooled accounts using reconciled personal funding legs."""
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
@@ -115,3 +115,61 @@ def load_contribution_ratios(cur, cfg, events, dates, *, unverified_from=None):
             return {}
         legs[received, 'deposit' if amount > 0 else 'withdraw'] += amount
     return contribution_ratios(events, legs, dates, through, personal_total, account_total)
+
+
+def account_contribution_ratios(cur, code, cfg, dates):
+    if not cfg.get('funding_history'):
+        return None
+    from domain.investments.nav_trade_source_v2 import _read_event_prefix
+    events, gap = _read_event_prefix(cur, code)
+    return load_contribution_ratios(cur, cfg, events, dates, unverified_from=gap)
+
+
+def position_ownership(cur, accounts, dates, owner_ratio):
+    from domain.accounts.account_overview import _load_accounts_config
+    configs = _load_accounts_config().get('accounts', {})
+    schedules = {}
+    for code in accounts:
+        dated = account_contribution_ratios(cur, code, configs.get(code, {}), dates)
+        schedules[code] = dict.fromkeys(dates, owner_ratio(code)) if dated is None else dated
+    return schedules
+
+
+def monthly_profit_reallocations(history, nav_by_date, code):
+    """Allocate only accumulated gains or losses when net-contribution shares change."""
+    result = {}
+    previous_capital = personal = Decimal(0)
+    for record in history:
+        day = date.fromisoformat(record['date'])
+        capital = Decimal(record['account_balance'])
+        new_personal = Decimal(record['personal_balance'])
+        if previous_capital and capital and day.isoformat() in nav_by_date:
+            before, after = personal / previous_capital, new_personal / capital
+            if after != before:
+                month = day.replace(day=1)
+                prior = nav_by_date.get((day - timedelta(days=1)).isoformat(), {})
+                point = prior.get('latest_known_components', {}).get(code, {})
+                current = nav_by_date[day.isoformat()].get('latest_known_components', {}).get(code, {})
+                if (point.get('currency') != 'CNY' or point.get('native_balance') is None
+                        or point.get('owner_ratio') is None or current.get('owner_ratio') is None
+                        or Decimal(str(point['owner_ratio'])) != before
+                        or Decimal(str(current['owner_ratio'])) != after):
+                    result[month] = None
+                elif result.get(month, 0) is not None:
+                    pooled_pnl = Decimal(str(point['native_balance'])) - previous_capital
+                    result[month] = result.get(month, Decimal(0)) + (after - before) * pooled_pnl
+        previous_capital, personal = capital, new_personal
+    return result
+
+
+def read_monthly_profit_reallocations(cur, nav, excluded_accounts):
+    from domain.accounts.account_overview import _load_accounts_config
+    months = defaultdict(dict)
+    active = {code for row in nav.values() for code in (row.get('monthly_book') or {}).get('accounts', {})}
+    for code, cfg in _load_accounts_config().get('accounts', {}).items():
+        if code not in active or code in excluded_accounts or not cfg.get('funding_history'):
+            continue
+        history = funding_history(cur, code, cfg)
+        for month, value in monthly_profit_reallocations(history, nav, code).items():
+            months[month][code] = value
+    return months

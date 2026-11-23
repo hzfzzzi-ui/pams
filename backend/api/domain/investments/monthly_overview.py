@@ -5,7 +5,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from domain.brokers.ibkr.ibkr_monthly_attribution import monthly_attribution
+from domain.accounts.monthly_cash_attribution import monthly_cash_attribution
 from domain.investments import page_projection
+from domain.investments.capital_ownership import read_monthly_profit_reallocations
 from domain.investments.position_performance import build_position_return_series
 from domain.ledger.ledger_view import build_ledger_workbench_payload
 
@@ -52,6 +54,7 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         return {'months': []}
     analysis = published['data']
     nav = {row['date']: row for row in analysis['nav']['rows']}
+    reallocations = read_monthly_profit_reallocations(cur, nav, excluded_accounts)
     changes = defaultdict(lambda: defaultdict(Decimal))
     statement_months, statement_cash = monthly_attribution(cur, nav, excluded_accounts=excluded_accounts)
     counted_income_sources = set()
@@ -74,6 +77,7 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
     names = {row['primary_symbol']: row['name'] for row in cur.fetchall()}
     ledger = build_ledger_workbench_payload(cur, view='monthly_close', month=last.strftime('%Y-%m'),
                                            counted_income_sources=counted_income_sources, statement_cash=statement_cash)
+    cash_adjustments = monthly_cash_attribution(cur, nav, ledger, start=first, end=last)
     months = []
     for number in range(1, last.month + 1):
         opening = date(first.year, number, 1)
@@ -106,13 +110,23 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         has_position_period = items and end >= closing and start <= opening
         pnl = money(sum(items.values())) if has_position_period and not missing_yield and not missing_statements else None
         cash = difference(totals.get('income'), totals.get('expense'))
-        gap = difference(difference(delta, cash), pnl)
+        ownership = reallocations.get(opening, {})
+        adjustments = {}
+        if ownership:
+            adjustments['出资份额调整'] = money(sum(ownership.values())) if None not in ownership.values() else None
+        accounts = cash_adjustments.get(opening, {})
+        for field, label in (('exchange', '现金与欠款汇兑'), ('posting', '跨月入账')):
+            if accounts:
+                amounts = [account[field] for account in accounts.values()]
+                adjustments[label] = money(sum(amounts)) if None not in amounts else None
+        known_adjustments = sum((Decimal(str(v)) for v in adjustments.values() if v is not None), Decimal(0))
+        gap = difference(difference(difference(delta, cash), pnl), known_adjustments)
         months.append({
             'm': number, 'date': closing.isoformat(), 'open': prior, 'nav': value, 'delta': delta,
             'assets': money(closing_row.get('assets')), 'debts': money(closing_row.get('liabilities')),
             'book': book, 'partial': not book['complete'] if book else closing_row.get('netWorth') is None, 'inc': totals.get('income'), 'exp': totals.get('expense'),
             'missing_investment_statements': missing_statements,
-            'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
+            'adjustments': adjustments, 'cash_attribution': accounts, 'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
             'receipts': _categories(cats.get('income', [])), 'payments': _categories(cats.get('expense', [])),
         })
     return {'months': months, 'projection': published['projection']}
