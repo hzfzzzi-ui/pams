@@ -68,6 +68,8 @@ def _holding_observations(cur, code, currency, dates, *, cash_account):
         observation = {}
         if known and None not in known and (complete or cash_balance):
             observation.update(net_value=sum(known, ZERO), net_value_status=status, complete_scope=complete)
+        if complete and known and None not in known:
+            observation.update(gross_assets=sum(assets, ZERO), gross_debt=-sum(debt, ZERO))
         if complete or debt:
             if None not in debt:
                 observation.update(liabilities=-sum(debt, ZERO),
@@ -145,7 +147,8 @@ def _position_estimates(cur, code, cfg, dates, points):
                 value = marks.get(day)
                 actual = points.get(day, {}).get('net_value')
                 if positions_only and value is not None:
-                    points.setdefault(day, {}).update(position_value=value, position_value_status='partial')
+                    points.setdefault(day, {}).update(position_value=value, position_value_status='partial',
+                                                     position_symbols=sorted(marks.price_dates.get(day, {})))
                 elif actual is not None:
                     anchored = value is not None and abs(actual - value) <= Decimal('0.005')
                 elif anchored and value is not None:

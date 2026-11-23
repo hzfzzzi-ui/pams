@@ -104,8 +104,9 @@ def test_verified_trades_reprice_all_members_without_inventing_cash_or_zero():
                 _position_estimates(cur, code, cfg, days, points)
                 assert days[0] not in points and days[3] not in points
                 assert points[days[2]] == {'net_value':36, 'net_value_status':'confirmed',
-                                           'position_value':35, 'position_value_status':'partial'}
-                assert points[days[4]] == {'position_value':5, 'position_value_status':'partial'}
+                                           'position_value':35, 'position_value_status':'partial',
+                                           'position_symbols':['001999', 'GOLD']}
+                assert points[days[4]] == {'position_value':5, 'position_value_status':'partial', 'position_symbols':['GOLD']}
         finally:
             conn.rollback()
 

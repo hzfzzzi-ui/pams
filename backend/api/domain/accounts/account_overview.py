@@ -98,7 +98,7 @@ def _norm(value: Any) -> Any:
         return str(value)
     if hasattr(value, "isoformat"):
         return value.isoformat()
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [_norm(v) for v in value]
     if isinstance(value, dict):
         return {k: _norm(v) for k, v in value.items()}

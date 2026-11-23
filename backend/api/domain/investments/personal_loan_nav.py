@@ -150,7 +150,14 @@ def _apply_principal_references(rows, facts, anchors, declared, uncertain_days, 
         if any(rate is None for rate in rates.values()):
             continue
         deduction = sum(value * rates[unit] for unit, value in owed.items())
-        row['available_net_worth'] = available - deduction
+        if len(payable_accounts) != 1:
+            continue
+        code = next(iter(payable_accounts))
+        row['_account_contributions'][code] = -deduction
+        row['_comparison_basis'][code] = ['personal_loan_principal', sorted(owed)]
+        row['available_accounts'] = sorted(set(row['available_accounts']) | {code})
+        row['estimated_accounts'] = sorted(set(row.get('estimated_accounts', ())) | {code})
+        row['available_net_worth'] = sum(row['_account_contributions'].values())
         coverage['principal_reference'] = dict(
             opening_date=opening.isoformat(), amount=str(deduction), currency=base_currency,
             native={unit: str(value) for unit, value in sorted(owed.items())},

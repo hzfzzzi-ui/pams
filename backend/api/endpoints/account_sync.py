@@ -9,6 +9,8 @@ from typing import Any, Literal
 import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
+from domain.accounts.account_overview import _view_as_of
+from domain.accounts.valuation_book import read_account_view
 from domain.accounts.sync_status import read_account_sync, review_records
 from domain.investments.portfolio_state import _load_accounts_config
 
@@ -44,7 +46,13 @@ def account_sync_status():
     with closing(get_conn()) as conn:
         conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return _norm(read_account_sync(cur, _load_accounts_config()))
+            result = read_account_sync(cur, _load_accounts_config())
+            balances = read_account_view(cur, 'account_balances', _view_as_of())
+            for group in result['groups']:
+                for row in group['rows']:
+                    if row['account_code'] in balances:
+                        row['summary'].update(balances[row['account_code']])
+            return _norm(result)
 
 
 @router.get('/accounts/{account_code}/source-anomalies')

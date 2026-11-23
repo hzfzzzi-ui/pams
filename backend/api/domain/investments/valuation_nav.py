@@ -19,7 +19,6 @@ from domain.accounts.dated_valuation import AccountValuation, posted_card_valuat
 from domain.accounts.position_valuation import fund_account_observations, uses_fund_account_valuation
 from domain.accounts.position_reference import supports_dated_position_reference
 from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.cash_fx_reference import preceding_weekend_dates, supports_cash_reference, weekend_cash_references
 from domain.investments.nav_period_comparison import (
     DisplayContributions, apply_terminal_breakdown, comparison_scope, period_comparisons, position_member,
@@ -31,11 +30,6 @@ from domain.market.valuation_fx import fx_rate_at, load_fx_timelines
 from domain.market.quote_valuation import GOLD_CLOSE_SOURCE, gold_close_join, gold_market_value
 
 ANCHOR_NAV_DATE = Date(2026, 5, 31)
-STATEMENT_BACKCAST_TYPES = {"funding", "cash_management", "benefit", "liability", "credit_card"}
-INVESTMENT_SNAPSHOT_ACCOUNT_TYPES = {"brokerage", "fund_platform"}
-STABLE_ANCHOR_ACCOUNTS = {"huawei_stock"}
-INVESTMENT_SNAPSHOT_EXCLUDE = {"tonghuashun", "ibkr", *STABLE_ANCHOR_ACCOUNTS}
-
 
 class ValuationEvidenceSeries(dict):
     """Values plus dates where an input is missing; consumers must honor the latter."""
@@ -118,34 +112,6 @@ def account_anchor_value_cny(
     amount, currency = anchor
     rate = fx_rate_at(fx_timelines, currency, as_of, base_currency)
     return amount * rate if rate is not None else None
-
-
-def _cash_balance_effective_date(account: dict[str, Any], anchor_date: Date) -> Date:
-    """Return when the selected balance can be used without earlier cash evidence."""
-    if str(account.get("account_code") or "") in STABLE_ANCHOR_ACCOUNTS:
-        return Date(2026, 1, 1)
-    return anchor_date
-
-
-def select_weekly_nav_accounts(
-    overview_accounts: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Split account-center rows into statement-backcast and snapshot-valued NAV inputs."""
-    bank_accounts = [
-        account
-        for account in overview_accounts
-        if str(account.get("account_type") or "") in STATEMENT_BACKCAST_TYPES
-        or str(account.get("truth_source") or "") in {"bank_statement", "official_statement"}
-        or str(account.get("account_type") or "") in {"bridge", "receivable"}
-        or str(account.get("account_code") or "") in STABLE_ANCHOR_ACCOUNTS
-    ]
-    investment_snapshot_accounts = [
-        str(account.get("account_code"))
-        for account in overview_accounts
-        if str(account.get("account_type") or "") in INVESTMENT_SNAPSHOT_ACCOUNT_TYPES
-        and str(account.get("account_code")) not in INVESTMENT_SNAPSHOT_EXCLUDE
-    ]
-    return bank_accounts, investment_snapshot_accounts
 
 
 def scale_series_to_terminal_anchor(
@@ -724,7 +690,15 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         if amount is None:
             continue
         prior = sum((contributions.get(code, Decimal(0)) for code in covered if code in available), Decimal(0))
-        if value.get('confirmed_components') and covered <= available and abs(amount-prior) > Decimal('0.005'):
+        conflicting = covered <= available and abs(amount - prior) > Decimal('0.005')
+        whole_confirmed = covered.isdisjoint(set(row.get('unavailable_accounts', ())) | set(row.get('estimated_accounts', ())))
+        if conflicting and (value.get('confirmed_components') or whole_confirmed):
+            row.setdefault('valuation_discrepancies', {})[value['account_code']] = {
+                'covered_accounts': sorted(covered), 'contributions': str(prior),
+                'reported_total': str(amount), 'difference': str(amount - prior)}
+            row['available_net_worth'] = row.get('net_worth') if row.get('net_worth') is not None else row.get('available_net_worth')
+            row.update(net_worth=None, assets=None, liabilities=None)
+            row['unavailable_accounts'] = sorted(set(row.get('unavailable_accounts', ())) | covered)
             continue
         delta = amount - prior
         if row.get('net_worth') is not None and any(contributions.get(code, Decimal(0)) < 0 for code in covered):
@@ -734,7 +708,8 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         elif row.get('net_worth') is None:
             row['available_net_worth'] = delta
         if row.get('net_worth') is not None:
-            row['assets'] += delta
+            if row.get('assets') is not None:
+                row['assets'] += delta
             row['net_worth'] += delta
         for code in covered:
             contributions.pop(code, None)
@@ -744,6 +719,9 @@ def _apply_account_totals(row, values, account_owner_ratio, rate_at):
         row['_comparison_basis'][value['account_code']] = ['account_total', sorted(covered)]
         contributions[value['account_code']] = amount
         row['available_accounts'] = sorted((available - covered) | {value['account_code']})
+        # A platform net amount alone cannot certify a gross breakdown.
+        if delta or len(covered) > 1:
+            row['assets'] = row['liabilities'] = None
         # A verified same-day account total proves the net value for its
         # explicitly declared scope even if individual holdings are partial.
         # It does not certify other accounts or permit carrying this value to
@@ -769,6 +747,8 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
         "liabilities": _norm(row.get("liabilities")),
         "netWorth": _norm(row.get("net_worth")),
     }
+    if '_account_contributions' in row:
+        result['account_contributions'] = {code: str(amount) for code, amount in row['_account_contributions'].items()}
     if "ibkr_daily_close" in row:
         result["ibkr_daily_close"] = row["ibkr_daily_close"]
     if "ibkr_history_evidence" in row:
@@ -785,7 +765,7 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("net_worth") is None and row.get("available_net_worth") is None:
         result["valuation_error"] = "market_value_unavailable"
     for field in ('source_evidence_unavailable_accounts', 'valuation_quality', 'estimated_accounts', 'latest_known_components',
-                  'personal_loan_coverage'):
+                  'personal_loan_coverage', 'valuation_discrepancies'):
         if field in row:
             result[field] = row[field]
     return result
@@ -811,7 +791,7 @@ def format_weekly_nav_payload(
         "end": terminal_date.isoformat(),
         "base_currency": base_currency,
         "interval": interval,
-        "method": "account_anchor_backcast",
+        "method": "dated_account_valuation",
         "anchor_date": terminal_date.isoformat(),
         "rows": rendered,
         "period_comparisons": period_comparisons(rendered, terminal_date, rows, account_labels),
@@ -845,7 +825,7 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
             code = item['account_code']
             if item['source_evidence_status'] != 'verified':
                 result.unknown(code, item.get('source_issue') or 'source_evidence_unavailable',
-                               _row_date(item.get('transaction_date')))
+                               _row_date(item.get('posting_date') or item.get('transaction_date')))
                 continue
             item['statement_balance'] = None
             result.setdefault(code, []).append(item)
@@ -982,7 +962,7 @@ def _bank_backcast_series(
         else:
             anchor_amount, anchor_currency = anchor
             anchor_date = account_anchor_date(account, terminal_date)
-        effective_date = _cash_balance_effective_date(account, anchor_date)
+        effective_date = anchor_date
         owner_ratio = Decimal(str(account.get('owner_ratio', 1)))
         native_movements = [
             (row['transaction_date'], _dec(row['amount'])) for row in rows
@@ -1214,95 +1194,6 @@ def _apply_historical_cash_points(cur, *, bank_series, accounts, dates, rate_at,
                         bucket['unavailable_accounts'].append(code)
             elif conflict and day != anchor and code in bucket.get('estimated_accounts', ()):
                 _replace_cash_contribution(bucket, code, None)
-
-
-def _investment_snapshot_series(
-    cur,
-    *,
-    account_codes: list[str],
-    dates: list[Date],
-    base_currency: str,
-    owner_ratio_case_sql,
-) -> dict[Date, Decimal]:
-    """Value each account day only after checking immutable complete scope and dated FX."""
-    values = ValuationEvidenceSeries({d: Decimal("0") for d in dates})
-    if not account_codes or not dates:
-        return values
-    owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("h")
-    market_value = gold_market_value("h")
-    cur.execute(
-        f"""
-        WITH series_dates AS (SELECT unnest(%s::date[]) AS date),
-        {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, account_latest AS (
-            SELECT d.date, cas.account_code, MAX(cas.as_of) AS as_of
-            FROM series_dates d JOIN complete_account_snapshot cas ON cas.as_of <= d.date
-            WHERE cas.account_code = ANY(%s::text[])
-            GROUP BY d.date, cas.account_code
-        ), h AS (
-            SELECT al.date, hs.* FROM account_latest al
-            JOIN pams_holdings_snapshot hs ON hs.account_code=al.account_code AND hs.as_of=al.as_of
-        ), marked AS (
-            SELECT h.date, h.as_of, h.account_code,
-                gold_close.quote_date AS gold_quote_date,
-                CASE WHEN ({market_value}) = 0 THEN 0 ELSE
-                  (CASE WHEN h.asset_liability='负债' THEN -ABS(h.market_value) ELSE ({market_value}) END)
-                  * (CASE WHEN h.currency=config.base_currency THEN 1
-                          WHEN fx.rate IS NOT NULL THEN fx.rate
-                          WHEN h.currency='CNY' THEN 1 / NULLIF(base_fx.rate,0)
-                          WHEN config.base_currency='CNY' THEN source_fx.rate
-                          ELSE source_fx.rate / NULLIF(base_fx.rate,0) END) * {owner_ratio_sql} END AS value_cny
-            FROM h CROSS JOIN (SELECT %s::text AS base_currency) config
-            {gold_close_join("h", "h.date")}
-            LEFT JOIN LATERAL (
-                SELECT rate FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency=config.base_currency AND fx.quote_currency=h.currency AND fx.as_of=h.date
-                  AND fx.rate>0 AND fx.rate::text NOT IN ('NaN','Infinity','-Infinity')
-                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL LIMIT 1
-            ) fx ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT rate FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency='CNY' AND fx.quote_currency=h.currency AND fx.as_of=h.date
-                  AND fx.rate>0 AND fx.rate::text NOT IN ('NaN','Infinity','-Infinity')
-                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL LIMIT 1
-            ) source_fx ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT rate FROM pams_fx_rates_daily fx
-                WHERE fx.base_currency='CNY' AND fx.quote_currency=config.base_currency AND fx.as_of=h.date
-                  AND fx.rate>0 AND fx.rate::text NOT IN ('NaN','Infinity','-Infinity')
-                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL LIMIT 1
-            ) base_fx ON TRUE
-        )
-        SELECT date,as_of,account_code,SUM(value_cny) AS value_cny,
-               COUNT(*) FILTER (WHERE value_cny IS NULL) AS missing_values,
-               BOOL_OR(gold_quote_date < date) AS prior_gold_close
-        FROM marked GROUP BY date,as_of,account_code ORDER BY date,account_code
-        """,
-        ([d.isoformat() for d in dates], dates[-1], account_codes, *owner_ratio_params, base_currency),
-    )
-    rows = [dict(row) for row in cur.fetchall()]
-    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
-    pairs = {(str(row["account_code"]), row["as_of"]) for row in rows}
-    coverage = load_account_snapshot_coverage(cur, pairs)
-    proven: dict[Date, set[str]] = {day: set() for day in dates}
-    for row in rows:
-        day, code = row["date"], str(row["account_code"])
-        if row["as_of"] != day or row["missing_values"] or row["value_cny"] is None:
-            continue
-        proof = coverage.get((code, row["as_of"]), {})
-        if proof.get("status") != "complete":
-            continue
-        values[day] += _dec(row["value_cny"])
-        values.account_values_by_date.setdefault(day, {})[code] = _dec(row['value_cny'])
-        proven[day].add(code)
-        if row.get("prior_gold_close"):
-            values.estimated_accounts_by_date.setdefault(day, []).append(code)
-    for day in dates:
-        missing = sorted(set(account_codes) - proven[day])
-        if proven[day]:
-            values.available_accounts_by_date[day] = sorted(proven[day])
-        if missing:
-            values.unknown_accounts_by_date[day] = missing
-    return values
 
 
 def _tonghuashun_series_from_trade_fact(
@@ -1555,155 +1446,6 @@ def _tonghuashun_series(cur, *, dates: list[Date], base_currency: str, account_o
     return values
 
 
-def _overlay_ibkr_daily_closes(cur, *, values: dict, base_currency: str, account_owner_ratio) -> dict:
-    from domain.brokers.ibkr import ibkr_daily_close_read as daily_close
-    from domain.brokers.ibkr.ibkr_report_state import _calendar
-
-    evidence = daily_close.read_published_portfolio_series(cur)
-    native = evidence is not None
-    if not native:
-        if not daily_close.configured():
-            return values
-        evidence = daily_close.read_series()
-    closes = evidence.get("daily_closes", {})
-    proven_days = sorted(day for day, close in closes.items() if close.get("status") == "ok")
-    result = {}
-    identities: dict[Date, dict[str, Any]] = {}
-    rates: dict[Date, dict[str, Any]] = {}
-    ratio: Decimal | None = None
-    ratio_loaded = False
-    for day, legacy in values.items():
-        requested = day.isoformat()
-        index = bisect_right(proven_days, requested) - 1
-        close = closes[proven_days[index]] if index >= 0 else {}
-        if native and requested in closes:
-            close = closes[requested]
-        elif native and evidence.get("as_of", "") >= requested and _calendar().is_session(requested):
-            close = {}
-        metadata: dict[str, Any] = {"status": "unconfirmed", "as_of": day.isoformat(),
-                                   "requested_as_of": requested, "carried": False,
-                                   "reasons": (closes.get(requested) or {}).get("reasons")
-                                   or evidence.get("reasons") or ["missing_closing_date"]}
-        bucket = None
-        month_end_mark = None
-        if close.get("status") == "ok":
-            source_day = Date.fromisoformat(close["as_of"])
-            if native:
-                identities[source_day] = close["identity_evidence"]
-            elif source_day not in identities:
-                identities[source_day] = daily_close_account_identity(cur, source_account_id=close["account_id"], as_of=source_day)
-            identity = identities[source_day]
-            if identity["status"] != "ok":
-                result[day] = {**legacy, "daily_close": {**metadata, "reasons": identity["reasons"],
-                                                         "identity_evidence": identity}}
-                continue
-            if account_owner_ratio is None:
-                metadata["reasons"] = ["missing_owner_ratio"]
-            else:
-                # Resolve this invocation's config once, only after eligible evidence.
-                if not ratio_loaded:
-                    try:
-                        ratio = Decimal(str(account_owner_ratio("ibkr")))
-                    except (ValueError, TypeError, InvalidOperation):
-                        ratio = None
-                    ratio_loaded = True
-                if ratio is None:
-                    result[day] = {**legacy, "daily_close": {**metadata, "reasons": ["invalid_owner_ratio"]}}
-                    continue
-                fx_day = day if native else source_day
-                if fx_day not in rates:
-                    rates[fx_day] = daily_close.historical_fx(cur, currency=close["base_currency"],
-                                                              base_currency=base_currency, as_of=fx_day)
-                fx = rates[fx_day]
-                rate = fx.get("rate") if fx.get("status") == "ok" else None
-                if (rate is None and native and is_month_end(day) and day.weekday() >= 5
-                        and source_day in (day, _calendar().date_to_session(requested, direction="previous").date())
-                        and daily_close_nav_bucket(close, rate=Decimal(1), owner_ratio=ratio) is not None):
-                    month_end_mark = AccountValuation(day, close["base_currency"], Decimal(str(close["nav_base"])),
-                                                      "broker_close", observed_on=source_day), ratio
-                bucket = daily_close_nav_bucket(close, rate=rate, owner_ratio=ratio)
-                if bucket is not None and rate is not None:
-                    metadata = daily_close_value_metadata(close, rate=rate, owner_ratio=ratio,
-                                                          legacy_value=_dec(legacy["net_worth"]), fx_evidence=fx)
-                    if legacy.get("history_evidence") == "unavailable":
-                        for field in ("legacy_native_value_cny", "native_fx_vs_base_fx_bridge_cny",
-                                      "nav_adjustment_cny"):
-                            metadata[field] = None
-                        metadata["bridge_basis"] = "legacy_history_unavailable"
-                    metadata["valuation_currency"] = base_currency
-                    metadata["identity_evidence"] = identity
-                    metadata.update(requested_as_of=requested, carried=source_day != day,
-                                    age_days=(day - source_day).days)
-                    if source_day != day:
-                        metadata.update(status="last_valid", reasons=(closes.get(requested) or {}).get("reasons")
-                                        or ["missing_closing_date"])
-                else:
-                    metadata["reasons"] = fx.get("reasons") if rate is None else ["missing_gross_nav_proof"]
-                    metadata["fx_evidence"] = {k: str(v) if isinstance(v, Decimal) else v for k, v in fx.items()}
-        result[day] = {**(bucket if bucket is not None else legacy), "daily_close": metadata}
-        if month_end_mark:
-            result[day]['_month_end_marks'] = {'ibkr': month_end_mark}
-    return result
-
-
-def _ibkr_nav_series(cur, *, dates: list[Date], base_currency: str, owner_ratio_case_sql,
-                     account_owner_ratio=None) -> dict[Date, dict[str, Any]]:
-    """Keep IBKR NAV unavailable unless an independently verified day close proves it."""
-    values = {day: {"assets": Decimal("0"), "liabilities": Decimal("0"), "net_worth": Decimal("0"),
-                    "history_evidence": "unavailable"} for day in dates}
-    return _overlay_ibkr_daily_closes(cur, values=values, base_currency=base_currency,
-                                      account_owner_ratio=account_owner_ratio)
-
-
-def _terminal_daily_close_compatible(
-    terminal: dict[str, Any], assembled: dict[str, Any], ibkr_bucket: dict[str, Any],
-    account_values: dict[str, Any], *, base_currency: str,
-) -> bool:
-    """A terminal aggregate must prove it includes the same IBKR valuation."""
-    proposed = terminal.get("ibkr_daily_close")
-    if not isinstance(proposed, dict) or proposed.get("status") not in {"ok", "last_valid"}:
-        return False
-    for field in ("source_sha256", "source_account_id", "as_of", "nav_basis", "source_base_currency",
-                  "valuation_currency", "fx_evidence"):
-        if field not in proposed or field not in assembled or proposed[field] != assembled[field]:
-            return False
-        if field != "fx_evidence" and (not isinstance(proposed[field], str) or not proposed[field]):
-            return False
-    fx = proposed["fx_evidence"]
-    if (proposed["valuation_currency"] != base_currency
-            or proposed["nav_basis"] != "official_base_nav_at_internal_historical_fx"
-            or not isinstance(fx, dict) or fx.get("status") != "ok" or not fx.get("source")
-            or fx.get("as_of") != proposed["as_of"] or fx.get("currency") != proposed["source_base_currency"]
-            or fx.get("base_currency") != base_currency):
-        return False
-    try:
-        with localcontext(Context(prec=160, Emax=512, Emin=-512)):
-            for field in ("owner_ratio", "fx_rate"):
-                left, right = Decimal(str(proposed[field])), Decimal(str(assembled[field]))
-                if (not left.is_finite() or not right.is_finite() or left != right
-                        or left < 0 or (field == "fx_rate" and left == 0)):
-                    return False
-            for field, key in (("assets_cny", "assets"), ("liabilities_cny", "liabilities"),
-                               ("net_worth_cny", "net_worth")):
-                left, right = Decimal(str(proposed[field])), Decimal(str(ibkr_bucket[key]))
-                if not left.is_finite() or not right.is_finite() or left != right:
-                    return False
-            if "ibkr" in account_values:
-                account_value = Decimal(str(account_values["ibkr"]))
-                if not account_value.is_finite() or account_value != Decimal(str(ibkr_bucket["net_worth"])):
-                    return False
-            assets, liabilities, net = (Decimal(str(terminal[key])) for key in ("assets", "liabilities", "net_worth"))
-            if not all(value.is_finite() for value in (assets, liabilities, net)):
-                return False
-            tolerance = Decimal("0.00000001")
-            return (assets >= 0 and liabilities >= 0
-                    and assets + tolerance >= Decimal(str(ibkr_bucket["assets"]))
-                    and liabilities + tolerance >= Decimal(str(ibkr_bucket["liabilities"]))
-                    and abs(assets - liabilities - net) <= tolerance)
-    except (KeyError, TypeError, ValueError, InvalidOperation):
-        return False
-
-
 def build_nav_weekly_payload(
     cur,
     *,
@@ -1718,270 +1460,28 @@ def build_nav_weekly_payload(
     terminal_display_values_cny: dict[str, tuple[Decimal, Date, Date]] | None = None,
     snapshot_scope_incomplete_accounts: set[str] | None = None,
     full_personal_portfolio: bool = False,
+    account_histories: dict | None = None,
+    evidence_through: Date | None = None,
     include_ibkr: bool = True,
     interval: str = "weekly",
     account_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return the legacy /nav/weekly payload."""
+    from domain.accounts.valuation_book import read_account_book, render_histories
     terminal_date = terminal_date or ANCHOR_NAV_DATE
-    if start_date > terminal_date:
-        start_date = terminal_date
-    dates = series_dates(start_date, terminal_date, interval)
-    overview_accounts = [
-        account
-        for account in overview_payload.get("accounts", [])
-        if account.get("include_in_nav")
-    ]
-    nav_codes = {str(account["account_code"]) for account in overview_accounts if account.get("account_code")}
-    bank_accounts, investment_snapshot_accounts = select_weekly_nav_accounts(overview_accounts)
-
-    fx_timelines = load_fx_timelines(cur, base_currency)
-    # Fetch the facts needed to connect samples to balance anchors, including
-    # movements between a pre-window anchor and the first visible sample.
-    cash_points = _historical_cash_points(cur, bank_accounts, max(dates))
-    latest_cash = {}
-    for (code, day), point in cash_points.items():
-        if point['complete_cash_scope'] and (code not in latest_cash or latest_cash[code]['as_of'] < day):
-            latest_cash[code] = point
-    bank_accounts = [_cash_account_at_terminal(account, terminal_date, latest_cash.get(account['account_code']))
-                     for account in bank_accounts]
-    statements = _cash_statement_accounts(bank_accounts)
-    # Include intervening statement cutoffs when reconciling a sparse chart.
-    closings = statement_closings(cur, statements, terminal_date)
-    cash_dates = sorted(set(dates) | {day for _, day in cash_points}
-                        | {r['as_of'] for entries in closings.values() for r in entries if r['as_of'] >= start_date})
-    reference_dates = {prior for day in dates for prior in preceding_weekend_dates(day)} - set(cash_dates)
-    all_cash_dates = sorted(set(cash_dates) | reference_dates)
-    bank_flow_start = min(cash_dates[0], min(
-        (account_anchor_date(account, terminal_date) for account in bank_accounts
-         if account_anchor_amount(account) is not None),
-        default=terminal_date,
-    ))
-    rows_by_account = _statement_rows_by_account(
-        cur,
-        [str(account.get("account_code")) for account in bank_accounts],
-        bank_flow_start,
-        terminal_date,
-    )
-    bank_series = _bank_backcast_series(
-        accounts=bank_accounts,
-        rows_by_account=rows_by_account,
-        dates=all_cash_dates,
-        terminal_date=terminal_date,
-        fx_timelines=fx_timelines,
-        base_currency=base_currency,
-    )
-    # Extra days required by a sparse display window must never move a cash
-    # reconciliation's conflict boundary in the requested, formal sample.
-    reference_series = {day:bank_series.pop(day) for day in reference_dates}
-    from domain.investments.installment_principal import load_unbilled_principal
-    bank_codes = [a['account_code'] for a in bank_accounts]
-    unbilled = load_unbilled_principal(cur, bank_codes, all_cash_dates)
-    table_cards = [code for code, (_, card) in statements.items() if card and
-                   uses_table_net_reference(code, (account_config or {}).get("accounts", {}).get(code, {}))]
-    periods = statement_valuations(cur, statements, all_cash_dates, closings=closings, table_cards=table_cards)
-    for samples in (bank_series, reference_series):
-        if samples:
-            _apply_historical_cash_points(
-                cur, bank_series=samples, accounts=bank_accounts, dates=sorted(samples), points=cash_points, periods=periods,
-                unbilled=unbilled,
-                rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
-            )
-    bank_series.update(reference_series)
-    snapshot_series = _investment_snapshot_series(
-        cur,
-        account_codes=investment_snapshot_accounts,
-        dates=dates,
-        base_currency=base_currency,
-        owner_ratio_case_sql=owner_ratio_case_sql,
-    )
-    account_settings = (account_config or {}).get('accounts', {}).get('tonghuashun', {})
-    ownership_config = account_settings if 'funding_history' in account_settings else None
-    a_share_series = (_tonghuashun_series(
-        cur,
-        dates=dates,
-        base_currency=base_currency,
-        account_owner_ratio=account_owner_ratio,
-        ownership_config=ownership_config,
-    ) if any(str(account.get("account_code") or "") == "tonghuashun" for account in overview_accounts)
-       else ValuationEvidenceSeries())
-    if any(str(account.get("account_code") or "") == "tonghuashun" for account in overview_accounts):
-        # Individual reviewed trades do not prove the opening cash balance or
-        # that every transaction was imported. A complete same-day account
-        # snapshot can establish the full value without that inference.
-        complete_a_share = _investment_snapshot_series(
-            cur, account_codes=['tonghuashun'], dates=dates, base_currency=base_currency,
-            owner_ratio_case_sql=owner_ratio_case_sql if ownership_config is None else lambda _: ('1::numeric', []),
-        )
-        missing_by_day = getattr(complete_a_share, 'unknown_accounts_by_date', None)
-        for day in dates:
-            ratio = (getattr(a_share_series, 'ownership_ratios', {}).get(day) if ownership_config is not None
-                     else Decimal(1))
-            if ratio is None or missing_by_day is None or day not in complete_a_share or missing_by_day.get(day):
-                a_share_series.unknown_dates.add(day)
-            else:
-                a_share_series[day] = complete_a_share[day] * ratio
-                a_share_series.unknown_dates.discard(day)
-                a_share_series.estimated_dates.discard(day)
-    terminal_account_values = terminal_account_values_cny or {}
-    ibkr_values = (_ibkr_nav_series(
-        cur,
-        dates=dates,
-        base_currency=base_currency,
-        owner_ratio_case_sql=owner_ratio_case_sql,
-        account_owner_ratio=account_owner_ratio,
-    ) if include_ibkr else {})
-    rows = build_weekly_nav_rows(
-        dates=dates,
-        bank_series=bank_series,
-        snapshot_series=snapshot_series,
-        a_share_series=a_share_series,
-        ibkr_values=ibkr_values,
-    )
-    terminal_breakdown = None
-    if terminal_nav_bucket:
-        for row in rows:
-            if row.get("date") == terminal_date:
-                # A current portfolio with missing scope or FX cannot replace
-                # a known historical row with fabricated zeroes. Check the
-                # explicit evidence and all three amounts before any overlay.
-                try:
-                    if (terminal_nav_bucket.get('scope_status') in {'incomplete','partial','unknown'}
-                            or terminal_nav_bucket.get('fx_status') == 'unavailable'
-                            or terminal_nav_bucket.get('unavailable_accounts')):
-                        raise ValueError('incomplete terminal portfolio')
-                    values = [terminal_nav_bucket.get(key) for key in ('assets','liabilities','net_worth')]
-                    if any(value is None or isinstance(value,bool) for value in values):
-                        raise ValueError('missing terminal amount')
-                    terminal_assets, terminal_liabilities, terminal_net = (Decimal(str(value)) for value in values)
-                    if (not all(value.is_finite() for value in (terminal_assets,terminal_liabilities,terminal_net))
-                            or terminal_assets < 0 or terminal_liabilities < 0
-                            or abs(terminal_assets-terminal_liabilities-terminal_net) > Decimal('0.00000001')):
-                        raise ValueError('invalid terminal portfolio')
-                except (ValueError, TypeError, InvalidOperation):
-                    row.update(assets=None, liabilities=None, net_worth=None, scope_status='incomplete')
-                    missing = terminal_nav_bucket.get('unavailable_accounts') or []
-                    row['unavailable_accounts'] = sorted(set(row.get('unavailable_accounts') or ()) | set(missing))
-                    break
-                if row.get("unavailable_accounts"):
-                    if row.get('source_evidence_unavailable_accounts'):
-                        break
-                    # The terminal aggregate must include each unavailable account.
-                    try:
-                        amounts = [Decimal(str(terminal_account_values[account]))
-                                   for account in row["unavailable_accounts"]]
-                        assets, liabilities, net = (Decimal(str(terminal_nav_bucket[key]))
-                                                    for key in ("assets", "liabilities", "net_worth"))
-                        proven = (all(value.is_finite() for value in (*amounts, assets, liabilities, net))
-                                  and assets >= 0 and liabilities >= 0
-                                  and abs(assets - liabilities - net) <= Decimal("0.00000001")
-                                  and all(assets >= amount if amount >= 0 else liabilities >= -amount
-                                          for amount in amounts))
-                    except (KeyError, TypeError, ValueError, InvalidOperation):
-                        proven = False
-                    if not proven:
-                        break
-                    if "ibkr" in row["unavailable_accounts"]:
-                        row["ibkr_history_evidence"] = "current_portfolio_snapshot"
-                    row["unavailable_accounts"] = []
-                close_proof = row.get("ibkr_daily_close") or {}
-                if close_proof.get("status") in {"ok", "last_valid"} and not _terminal_daily_close_compatible(
-                    terminal_nav_bucket, close_proof, ibkr_values[terminal_date], terminal_account_values,
-                    base_currency=base_currency,
-                ):
-                    # A portfolio-wide terminal total cannot erase one proven
-                    # account component while retaining that component's label.
-                    break
-                breakdown = terminal_account_values or terminal_nav_bucket.get('_comparison_account_values') or {}
-                terminal_breakdown = (breakdown, terminal_comparison_basis(row, nav_codes, breakdown, terminal_net))
-                row["assets"] = terminal_assets
-                row["liabilities"] = terminal_liabilities
-                row["net_worth"] = terminal_net
-                break
-    # Snapshot coverage is evidence about the current day only. Each historical
-    # row already carries its own evidence gaps from build_weekly_nav_rows.
-    if rows and rows[-1]["date"] == terminal_date:
-        row = rows[-1]
-        unresolved = set(snapshot_scope_incomplete_accounts or ())
-        close = row.get("ibkr_daily_close") or {}
-        if ((close.get("status") == "ok" and close.get("as_of") == row["date"].isoformat())
-                or (close.get("status") == "last_valid"
-                    and close.get("requested_as_of") == row["date"].isoformat()
-                    and close.get("identity_evidence", {}).get("basis") == "configured_published_flex_account")):
-            unresolved.discard("ibkr")
-        if unresolved:
-            row.update(assets=None, liabilities=None, net_worth=None, scope_status="incomplete")
-            row["unavailable_accounts"] = sorted(set(row.get("unavailable_accounts") or ()) | unresolved)
-        elif terminal_breakdown is not None and row.get('net_worth') is not None:
-            breakdown, basis = terminal_breakdown
-            apply_terminal_breakdown(row, basis, breakdown, terminal_display_values_cny or {})
-    # A dated NAV or verified trade reconstruction takes precedence over holding estimates.
-    unresolved = {
-        code for row in rows if row.get("net_worth") is None
-        for code in set(row.get("unavailable_accounts", ())) - set(row.get("available_accounts", ()))
-    }
-    if ownership_config is not None:
-        unresolved.discard('tonghuashun')
-    config = (account_config or {}).get("accounts", {})
-    unresolved.difference_update(code for code, cfg in config.items()
-                                 if cfg.get('portfolio_value_evidence') == 'official_broker_close')
-    for row in rows:
-        day = row['date']
-        if is_month_end(day):
-            observations = {**bank_series.get(day, {}).get('_month_end_marks', {}),
-                            **ibkr_values.get(day, {}).get('_month_end_marks', {})}
-            _add_month_end_marks(row, observations, fx_timelines, base_currency)
-    _add_dated_account_observations(cur, rows, config, unresolved & nav_codes, account_owner_ratio,
-                                    lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
-                                    unbilled=unbilled)
-    if unresolved & nav_codes:
-        from domain.investments.position_nav_projection import load_position_nav_estimates
-
-        estimates = load_position_nav_estimates(
-            cur, unbilled=unbilled, accounts={code: config.get(code, {}) for code in unresolved & nav_codes},
-            dates=[row["date"] for row in rows if row.get("net_worth") is None],
-            owner_ratio_case_sql=owner_ratio_case_sql, account_owner_ratio=account_owner_ratio,
-            rate_at=lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
-        )
-        for row in rows:
-            by_account = estimates.get(row["date"], {})
-            _add_known_display_values(row, {
-                code: by_account[code] for code in row.get("unavailable_accounts", ()) if code in by_account
-            }, basis=getattr(by_account,'basis', {}))
-    if terminal_display_values_cny and rows and rows[-1]["date"] == terminal_date:
-        _add_known_display_values(rows[-1], terminal_display_values_cny)
-    for row in rows:
-        _add_weekend_cash_references(
-            row, bank_series, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency),
-        )
-    from domain.investments.account_total_evidence import load as load_account_totals
-    totals = load_account_totals(cur, dates=dates, accounts=nav_codes)
-    for row in rows:
-        def dated_ratio(code):
-            if code == 'tonghuashun' and ownership_config is not None:
-                return getattr(a_share_series, 'ownership_ratios', {}).get(row['date'])
-            return account_owner_ratio(code)
-        _apply_account_totals(row, [value for (day, _), value in totals.items() if day == row['date']],
-                              dated_ratio, lambda currency, day: fx_rate_at(fx_timelines, currency, day, base_currency))
-    from domain.investments.personal_loan_nav import apply_personal_loan_coverage
-
-    def principal_value(proof):
-        if proof['market_value'] == 0:
-            return Decimal(0)
-        rate = fx_rate_at(fx_timelines, proof['currency'], proof['as_of'], base_currency)
-        return None if rate is None else proof['market_value'] * rate * account_owner_ratio(proof['account_code'])
-
-    reference_rate_at = (lambda unit, day: fx_rate_at(fx_timelines, unit, day, base_currency)) if full_personal_portfolio else None
-    apply_personal_loan_coverage(cur, rows, nav_codes, principal_value,
-                                 reference_rate_at=reference_rate_at, base_currency=base_currency)
-    return format_weekly_nav_payload(
-        start_date=start_date,
-        terminal_date=terminal_date,
-        base_currency=base_currency,
-        rows=rows,
-        interval=interval,
-        account_labels={a['account_code']:a.get('display_name') for a in overview_accounts if a.get('account_code')},
-    )
+    start_date = min(start_date, terminal_date)
+    cfg = account_config or {'accounts': {a['account_code']: a for a in overview_payload['accounts']}}
+    accounts = overview_payload['accounts']
+    if not include_ibkr:
+        accounts = [a for a in accounts if cfg.get('accounts', {}).get(a['account_code'], {}).get('portfolio_value_evidence') != 'official_broker_close']
+    values, rows = read_account_book(cur, accounts=accounts, config=cfg,
+        start=start_date, end=terminal_date, evidence_through=evidence_through or terminal_date,
+        base=base_currency, owner_ratio=account_owner_ratio, full_portfolio=full_personal_portfolio)
+    if account_histories is not None:
+        account_histories.update(render_histories(values, start_date, evidence_through or terminal_date))
+    samples = set(series_dates(start_date, terminal_date, interval))
+    return format_weekly_nav_payload(start_date=start_date, terminal_date=terminal_date, base_currency=base_currency,
+        rows=[row for row in rows if row['date'] in samples], interval=interval,
+        account_labels={a['account_code']: a.get('display_name') for a in overview_payload['accounts']})
 
 
 def build_nav_series_payload(rows: list[dict[str, Any]]) -> dict[str, Any]:

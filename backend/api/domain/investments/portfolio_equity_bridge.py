@@ -877,8 +877,8 @@ def build_equity_bridge_payload(
                 owner_ratio_case_sql=_owner_ratio_case_sql(account_cfg),
                 account_owner_ratio=_account_owner_ratio_lookup(account_cfg),
                 terminal_date=terminal_date,
-                terminal_nav_bucket=terminal_nav_bucket,
-                terminal_account_values_cny=terminal_account_values,
+                account_config=account_cfg,
+                full_personal_portfolio=True,
                 interval="daily",
             )
             rows = nav_payload.get("rows") or []

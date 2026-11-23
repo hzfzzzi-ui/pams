@@ -261,7 +261,7 @@ def read_account_sync(cur, config):
             statement_accounts[code] = (cfg.get('base_currency', 'CNY'), liability)
     source_balances = statement_balances(cur, statement_accounts, now.date(), originals=originals)
     for code, (currency, liability) in statement_accounts.items():
-        if liability and uses_table_net_reference(code, accounts[code]):
+        if liability and uses_table_net_reference(code, accounts[code], cur):
             posted = confirmed_table_net(
                 cur, code, currency=currency, today=now.date(),
                 has_duplicate_alerts=bool(source_status[code]['duplicate_count']),

@@ -7,12 +7,15 @@ import json
 from decimal import Decimal, InvalidOperation
 
 
-def uses_table_net_reference(account_code, config):
-    """Retain the previously approved basis when a private config predates this capability."""
+def uses_table_net_reference(account_code, config, cur=None):
     basis = config.get('credit_balance_basis')
-    if basis is None:
-        return account_code == 'ccb_credit_0453'
-    return basis == 'posted_flow_net'
+    if basis is not None or cur is None:
+        return basis == 'posted_flow_net'
+    cur.execute("""SELECT EXISTS(SELECT 1 FROM source_records r JOIN source_items i USING(source_id)
+        WHERE r.account_code=%s AND r.status='published' AND r.document_type='cash'
+        AND i.review_status='confirmed' AND i.raw_fields#>'{source,statement_row,posting_date}' IS NOT NULL
+        AND r.file_format IN ('csv','xls','xlsx','tsv')) AS supported""", (account_code,))
+    return cur.fetchone()['supported']
 
 
 def confirmed_table_net(cur, account_code, *, currency, today, has_duplicate_alerts):
@@ -53,13 +56,17 @@ def confirmed_table_net_history(cur, account_code, *, currency, today, has_dupli
 def verified_table_postings(cur, account, currency, originals):
     """Read one signed movement per reviewed statement-table item, on its posting date."""
     cur.execute("""SELECT i.raw_fields,i.record_hash,i.parsed_fields,r.account_code source_account,
-                   r.source_id original_source_id,r.sha256,r.content IS NOT NULL inline_original
+                   f.cashflow_id,f.amount AS fact_amount,f.currency AS fact_currency,f.posting_date AS fact_day,
+                   f.account_code AS fact_account,
+                   r.source_id original_source_id,r.sha256,i.source_item_id,r.content IS NOT NULL inline_original
             FROM source_records r JOIN source_items i USING(source_id)
+            LEFT JOIN pams_cashflow_fact f ON f.source_item_id=i.source_item_id
             WHERE r.account_code=%s AND r.status='published' AND r.document_type='cash'
             AND i.review_status='confirmed' AND i.parsed_fields->>'action' IS DISTINCT FROM 'balance'""", (account,))
     rows = cur.fetchall()
     originals.verify_many(rows)
     totals = defaultdict(Decimal)
+    seen = set()
     for row in rows:
         fields, raw = row['parsed_fields'], row['raw_fields']
         statement = raw.get('source', {}).get('statement_row') or {}
@@ -73,5 +80,14 @@ def verified_table_postings(cur, account, currency, originals):
                 return {}
         except (ValueError, TypeError, KeyError, InvalidOperation):
             return {}
-        totals[day] += amount
+        if row['source_item_id'] in seen:
+            return {}
+        seen.add(row['source_item_id'])
+        if row['cashflow_id'] is not None:
+            if (row['fact_day'], row['fact_currency'], row['fact_amount'], row['fact_account']) != (day, currency, amount, account):
+                return {}
+            totals[row['fact_day']] += row['fact_amount']
+        else:
+            # Evidence-only imports may legitimately have no cash fact.
+            totals[day] += amount
     return dict(totals)
