@@ -23,7 +23,7 @@ def _mark(row, account):
             # Only the sender's published cash balance enters this bridge.
             transit = sum((Decimal(t['native']) for t in row['monthly_book']['in_transit']
                            if t['from_account'] == account and t['currency'] == entry['currency']
-                           and Decimal(t['native']) > 0), ZERO)
+                           and t.get('native') is not None and Decimal(t['native']) > 0), ZERO)
             if not transit or Decimal(entry['difference']) != -transit:
                 return None
     elif account not in row.get('account_contributions', {}):
