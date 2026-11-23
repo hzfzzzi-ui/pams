@@ -46,7 +46,7 @@ def transfer_accounting_identity(left, right):
     if right.get('purpose') in {SUBSCRIPTION_PURPOSE, PURCHASE_PURPOSE}:
         return 'investment_funding', left['day']
     if left.get('purpose') == BANK_REDEMPTION_PURPOSE:
-        return MANUAL_WITHDRAWAL_PAIR, right['day']
+        return MANUAL_WITHDRAWAL_PAIR, left.get('receipt_day', right['day'])
     kind = ('investment_funding' if right['kind'] == 'trade' else
             'investment_withdrawal' if left['kind'] == 'trade' else 'internal_transfer')
     return kind, left['day'] if left['day'] == right['day'] else None
@@ -86,8 +86,11 @@ def _leg_rows(cur, kind, ids, *, lock):
         table,pk,amount,day,kind_clause='pams_investment_trade_fact','trade_id','net_cash','trade_date',f"(f.trade_type IN ('deposit','withdraw','fund_redemption','fund_subscription','buy') OR {linked_sale})"
     type_column="f.trade_type" if kind=='trade' else "NULL::text"
     symbol_column="f.symbol" if kind=='trade' else "NULL::text"
+    settlement_column = """EXISTS (SELECT 1 FROM public.evidence_confirmation e
+        WHERE e.confirmation_type='trade_source' AND e.revoked_at IS NULL AND e.from_trade_id=f.trade_id
+          AND e.evidence->'fields' ? 'settlement_receipt')""" if kind == 'trade' else 'FALSE'
     cur.execute(f'''SELECT f.{pk} AS id,f.account_code,f.currency,f.{amount} AS amount,f.{day} AS day,{type_column} AS fact_type,
-        {symbol_column} AS symbol,
+        {symbol_column} AS symbol,{settlement_column} AS has_settlement,
         i.source_item_id,i.source_uid,i.raw_fields,i.parsed_fields,i.record_hash,i.review_status,
         r.source_id AS original_source_id,r.status,r.account_code AS source_account,
         r.content IS NOT NULL AS inline_original,r.sha256,r.acquisition_method
@@ -96,6 +99,9 @@ def _leg_rows(cur, kind, ids, *, lock):
         {"FOR UPDATE OF f FOR SHARE OF i,r" if lock else ""}''',(ids,))
     rows = cur.fetchall()
     for row in rows:
+        if row['fact_type'] == 'fund_redemption' and row['has_settlement']:
+            from domain.ledger.redemption_receipt_evidence import load as load_settlement
+            row['settlement'] = load_settlement(cur, row)
         if row['fact_type'] == 'sell':
             from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
             proofs = read_trade_evidence(cur, trade_id=row['id'])
@@ -105,7 +111,7 @@ def _leg_rows(cur, kind, ids, *, lock):
     return rows
 
 
-def _verified_leg(row, kind, originals, *, hash_only=False):
+def _verified_leg(row, kind, originals, *, hash_only=False, supplemental=True):
     if not row: raise ValueError('transfer fact not found')
     from domain.investments.investment_trade_fact import classify_trade_type
     data=dict(row)
@@ -116,7 +122,12 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
         purchase = kind == 'trade' and data['fact_type'] == 'buy'
         sale = kind == 'trade' and data['fact_type'] == 'sell'
         arrival = None
-        if redemption and data['account_code'] == REDEMPTION_ACCOUNT:
+        settlement = data.get('settlement') if supplemental and redemption else None
+        if settlement:
+            if (not data['symbol'] or fields.get('symbol') != data['symbol']
+                    or (fields.get('execution_status') or fields.get('status')) != 'confirmed'):
+                raise ValueError('Unconfirmed fund redemption')
+        elif redemption and data['account_code'] == REDEMPTION_ACCOUNT:
             if data['acquisition_method'] != 'screenshot' or data['currency'] != 'CNY':
                 raise ValueError('Unsupported redemption receipt')
             arrival = _redemption_arrival(fields, data['raw_fields'], data['day'])
@@ -146,7 +157,9 @@ def _verified_leg(row, kind, originals, *, hash_only=False):
     leg = {'kind':kind,'id':data['id'],'account_code':data['account_code'],'currency':data['currency'],
            'amount':str(data['amount']),'day':str(data['day']),'source_item_id':str(data['source_item_id']),
            'source_id':str(data['original_source_id']),'source_hash':data['sha256']}
-    if arrival is not None:
+    if settlement:
+        leg.update(amount=str(-parsed_amount), purpose=BANK_REDEMPTION_PURPOSE, symbol=data['symbol'], **settlement)
+    elif arrival is not None:
         arrival_day, arrival_time = arrival
         leg.update(amount=str(-parsed_amount), purpose=REDEMPTION_PURPOSE,
                    receipt_day=str(arrival_day), receipt_time=arrival_time, target_account=LICAITONG_CURRENT_PLUS)
@@ -188,7 +201,8 @@ def is_independent_equal_pair(left, right):
     if left.get('purpose') == BANK_REDEMPTION_PURPOSE and 'bank_cashflow_id' in left:
         if (right['kind'] != 'cashflow' or left['bank_cashflow_id'] != right.get('id')
                 or left['bank_source_item_id'] != str(right['source_item_id'])
-                or left['target_account'] != right['account_code'] or left['receipt_day'] != right['day']):
+                or left['target_account'] != right['account_code']
+                or left.get('cash_event_day', left['receipt_day']) != right['day']):
             return False
     if left.get('purpose') == REDEMPTION_PURPOSE and (
         right['kind'] != 'cashflow' or right['account_code'] != left['target_account']
@@ -284,13 +298,18 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
         (from_kind,from_id,from_id,from_kind,from_id,from_id,to_kind,to_id,to_id,to_kind,to_id,to_id))
     existing = cur.fetchall()
     if existing:
-        existing_left = dict(existing[0]['from_evidence'] or {})
-        pair_type = existing_left.pop('pair_type', None)
-        if (len(existing) == 1 and existing[0]['confirmation_type'] == 'transfer' and
-                existing_left == a and existing[0]['to_evidence'] == b and
-                (pair_type is None or manual_anchor_id in (from_id, to_id)) and
-                existing[0]['note'] == note.strip()):
-            return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
+        previous = existing[0]
+        previous_left = dict(previous['from_evidence'] or {})
+        pair_type = previous_left.pop('pair_type', None)
+        if (len(existing) == 1 and previous['confirmation_type'] == 'transfer' and previous['to_evidence'] == b
+                and (pair_type is None or manual_anchor_id in (from_id, to_id)) and previous['note'] == note.strip()):
+            if previous_left == a:
+                return {'transfer_id': str(existing[0]['transfer_id']), 'replayed': True}
+            # New supplementary evidence must not invalidate an earlier native receipt.
+            if (a.get('settlement_confirmation_id') and previous_left.get('kind') == from_kind
+                    and previous_left.get('id') == from_id
+                    and read(cur, transfer_ids=[str(previous['transfer_id'])])[0]['evidence_status'] == 'confirmed'):
+                return {'transfer_id': str(previous['transfer_id']), 'replayed': True}
         raise ValueError('transfer leg already confirmed')
     if set(cash_ids) & occupied_cashflow_ids(cur):
         raise ValueError('transfer leg already confirmed')
@@ -348,14 +367,20 @@ def read(cur, *, limit=200, originals=None, redemption_accounts=None, transfer_i
                         ids[kind].add(ident)
     originals = originals if originals is not None else SourceOriginals(cur)
     verified = {}
+    supplemental = {}
     for kind, fact_ids in ids.items():
         if fact_ids:
             facts = _leg_rows(cur, kind, sorted(fact_ids), lock=False)
             originals.verify_many(fact for fact in facts if fact['status']=='published'
                                   and fact['review_status']=='confirmed' and fact['account_code']==fact['source_account'])
             for fact in facts:
+                if fact.get('settlement'):
+                    try:
+                        supplemental[kind, fact['id']] = _verified_leg(fact, kind, originals, hash_only=True)
+                    except ValueError:
+                        pass
                 try:
-                    verified[kind, fact['id']] = _verified_leg(fact, kind, originals, hash_only=True)
+                    verified[kind, fact['id']] = _verified_leg(fact, kind, originals, hash_only=True, supplemental=False)
                 except ValueError:
                     continue
     for row in rows:
@@ -367,9 +392,11 @@ def read(cur, *, limit=200, originals=None, redemption_accounts=None, transfer_i
             left_fact = dict(left)
             pair_type = left_fact.pop('pair_type', None)
             _, primary, *additional = decision_legs(row)
+            left_legs = supplemental if left.get('settlement_confirmation_id') else verified
             valid = (_valid_id(left['id']) and _valid_id(right['id'])
-                     and verified.get((left['kind'], left['id'])) == left_fact
+                     and left_legs.get((left['kind'], left['id'])) == left_fact
                      and verified.get((right['kind'], right['id'])) == primary
+                     and (not left.get('settlement_confirmation_id') or is_independent_equal_pair(left, primary))
                      and (not additional or (left['kind'] == primary['kind'] == 'cashflow'
                           and primary['day'] == left['day'] and is_independent_opposite_pair(left, primary)
                           and len({leg['account_code'] for leg in (primary, *additional)}) == 1 + len(additional)))

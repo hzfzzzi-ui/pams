@@ -132,6 +132,9 @@ def _redemption_ids(cur, anchor, *, trade_id=None):
     cur.execute("""SELECT f.trade_id FROM public.pams_investment_trade_fact f
         JOIN public.source_items i ON i.source_item_id=f.source_item_id
         WHERE ((f.trade_type='fund_redemption' AND f.trade_date BETWEEN %s AND %s AND f.symbol=ANY(%s))
+            OR (f.trade_type='fund_redemption' AND EXISTS (SELECT 1 FROM public.evidence_confirmation e
+                WHERE e.confirmation_type='trade_source' AND e.revoked_at IS NULL AND e.from_trade_id=f.trade_id
+                  AND e.evidence->'fields'->'settlement_receipt'->>'cashflow_id'=%s))
             OR (f.trade_type='sell' AND i.raw_fields->>'cashflow_id'=%s))
           AND f.net_cash=%s AND f.currency=%s AND f.account_code<>%s
           AND (%s::bigint IS NULL OR f.trade_id=%s)
@@ -139,7 +142,7 @@ def _redemption_ids(cur, anchor, *, trade_id=None):
               WHERE e.confirmation_type IN ('transfer','payment_proxy') AND e.revoked_at IS NULL
                 AND (e.from_trade_id=f.trade_id OR e.to_trade_id=f.trade_id))
         ORDER BY f.trade_date,f.trade_id""",
-        (anchor['transaction_date'] - timedelta(days=7), anchor['transaction_date'], sorted(symbols), str(anchor['id']),
+        (anchor['transaction_date'] - timedelta(days=7), anchor['transaction_date'], sorted(symbols), str(anchor['id']), str(anchor['id']),
          anchor['amount'], anchor['currency'], anchor['account_code'], trade_id, trade_id))
     return [row['trade_id'] for row in cur.fetchall()]
 

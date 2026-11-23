@@ -83,3 +83,21 @@ def test_dated_receivable_and_remaining_position_are_counted_once(monkeypatch):
                 assert [result[d][code][0] for d in dates] == [100,100,100,80]
         finally:
             conn.rollback()
+
+
+def test_fund_receivable_starts_when_shares_leave_and_ends_on_posting_day():
+    trade = dict(trade_id=5, account_code='fund', asset_id='fund-A', symbol='A', trade_type='fund_redemption',
+                 currency='CNY', trade_date=date(2026,3,30), fund_pricing_date='2026-03-31',
+                 fund_confirmation_date='2026-04-01', fund_execution_confirmed=True, source_evidence_status='verified',
+                 quantity=D('10.01'), price=D('3'), gross_amount=D('30.02'), fee_amount=D('.02'), net_cash=D('30'))
+    cash = dict(kind='cashflow', account_code='cash', day='2026-03-30', amount='30', currency='CNY')
+    sale = dict(kind='trade', id=5, account_code='fund', currency='CNY', amount='-30', cash_event_day=cash['day'],
+                receipt_day='2026-04-01', settlement_confirmation_id='reviewed')
+    pair = dict(evidence_status='confirmed', from_evidence=sale, to_evidence=cash)
+    claim = settlement._redemption(pair, trade, [])
+    assert (claim['confirmation'], claim['receipt'], claim['amount']) == (date(2026,3,31), date(2026,4,1), D(30))
+    assert settlement._redemption(pair, {**trade, 'fund_execution_confirmed':False}, []) is None
+    assert settlement._redemption(pair, {**trade, 'quantity':D('11')}, []) is None
+    assert settlement._redemption(pair, {**trade, 'gross_amount':D('30.10')}, []) is None
+    assert settlement._redemption(pair, {**trade, 'fund_confirmation_date':'2026-04-02'}, []) is None
+    assert settlement._redemption({**pair, 'to_evidence':{**cash, 'day':'2026-03-31'}}, trade, []) is None
