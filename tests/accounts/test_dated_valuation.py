@@ -47,3 +47,37 @@ def test_only_a_whole_dated_value_can_be_converted_to_personal_nav():
         assert read(day, 'USD', point, field).personal_value(D(1), D(7)) is None
     point.update(net_value_status='partial')
     assert read(day, 'USD', point, 'net_value').personal_value(D(1), D(7)) is None
+
+
+def test_month_end_billed_cash_uses_posting_date_and_audited_interest_only_once():
+    from domain.accounts.monthly_cash_bridge import posted_balances
+    start, end, cutoff = date(2026, 3, 2), date(2026, 4, 2), date(2026, 3, 31)
+    bounds = [dict(as_of=start, amount='-12'), dict(as_of=end, amount='-22')]
+    def flow(value, posted):
+        return dict(transaction_date=cutoff, posting_date=posted, currency='USD', amount=D(value),
+                    source_evidence_status='verified')
+    flows = [flow(-5,cutoff), flow(-3,end)]
+    charge = {end:{('USD','2')}}
+    calc = lambda rows, extras: posted_balances(bounds, rows, [cutoff], 'USD', extras)
+    assert calc(flows,{}) == {}
+    assert calc(flows,charge) == {cutoff:D(-17)}
+    assert calc(flows + [flow(-2,end)],charge) == {cutoff:D(-17)}
+    assert calc([flow(-5,None),flow(-3,end)],charge) == {}
+    observation = valuation.AccountValuation(cutoff,'USD',D(-17),'posted_statement_bridge','billed')
+    assert observation.including_unbilled(D(100)).amount == -117
+
+
+def test_recurring_credit_requires_matching_evidence_and_ends_at_confirmed_month():
+    from domain.accounts.monthly_credit_evidence import confirmed_months
+    start = date(2025, 12, 31)
+    dates = [date(2026,1,30),date(2026,1,31),date(2026,2,28),date(2026,3,31)]
+    proof = dict(anchor_date='2026-02-28',months=2,anchor_amount='140',result='120',monthly_credit='10',
+                 other_movements='user_confirmed_none_2026_jan_feb')
+    evidence = dict(kind='contribution_evidence',currency='CNY',period='2026-01/2026-02',monthly_personal_amount='10')
+    calc = lambda: confirmed_months(start,D(120),proof,evidence,'CNY',dates)
+    assert calc() == {dates[1]: D(130), dates[2]: D(140)}
+    evidence['monthly_personal_amount'] = '11'
+    assert calc() == {}
+    evidence['monthly_personal_amount'] = '10'
+    proof['other_movements'] = 'unknown'
+    assert calc() == {}

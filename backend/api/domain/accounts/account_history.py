@@ -74,7 +74,7 @@ def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
             elif day in billed:
                 # Only a billed-only statement may be supplemented. A general
                 # debt snapshot can already include the remaining principal.
-                result[day] = {'liabilities': max(-billed[day].including_unbilled(remaining).amount, ZERO), 'liabilities_status': 'confirmed'}
+                result[day] = {'liabilities': max(-billed[day].including_unbilled(remaining).amount, ZERO), 'liabilities_status': billed[day].quality}
             elif day in anchors:
                 whole = holdings.get(day, {}).get('complete_scope')
                 result[day] = {'liabilities': max(-anchors[day], ZERO),
@@ -105,7 +105,7 @@ def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
     for day, amount in _reconciled_cash_movements(cur, code, currency, reconciliation, conflicts).items():
         points.setdefault(day, {'net_value': amount, 'net_value_status': 'estimated'})
     for day, amount in anchors.items():
-        points[day] = {'net_value': amount, 'net_value_status': 'confirmed'}
+        points[day] = {'net_value': amount, 'net_value_status': billed[day].quality if day in billed else 'confirmed'}
     for day in conflicts:
         points[day] = {'coverage_break': True}
     return points

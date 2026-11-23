@@ -1,8 +1,11 @@
 """Native dated account values shared by account history and personal NAV."""
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
+from domain.accounts.monthly_cash_bridge import reconciled_card_months
+from domain.accounts.monthly_credit_evidence import recurring_credit_months
+from domain.market.month_end_marks import is_month_end
 from domain.accounts.bank_source_status import summaries
 from domain.accounts.credit_card_debt import confirmed_table_net_history, uses_table_net_reference
 from domain.accounts.bank_statement_balance import statement_balance_history
@@ -75,7 +78,12 @@ def statement_valuations(cur, accounts, dates, *, closings=None):
             day = row['as_of']
             result[code, day] = AccountValuation(day, currency, Decimal(row['amount']), 'statement',
                                                 'billed' if card else 'account')
-    for (code, day), (currency, side, value) in load_statement_period_points(cur, list(accounts), dates).items():
+    charges = {}
+    monthly = [d for d in dates if is_month_end(d)]
+    cards = {c: spec for c, spec in accounts.items() if spec[1]}
+    periods = (load_statement_period_points(cur, list(accounts), dates, dated_charges=charges) if monthly and cards
+               else load_statement_period_points(cur, list(accounts), dates))
+    for (code, day), (currency, side, value) in periods.items():
         unit, card = accounts[code]
         if currency != unit or (side == '负债') != card:
             continue
@@ -86,6 +94,17 @@ def statement_valuations(cur, accounts, dates, *, closings=None):
         else:
             result[code, day] = AccountValuation(day, unit, signed, 'statement_period' if previous is None else 'statement',
                                                 'billed' if card else 'account')
+    if monthly:
+        brackets = dict(closings)
+        if cards and any(not closings.get(c) or closings[c][-1]['as_of'] < max(monthly) for c in cards):
+            brackets.update(statement_closings(cur, cards, max(monthly) + timedelta(days=35)))
+        evidence = [(reconciled_card_months(cur, accounts, monthly, brackets, charges), 'posted_statement_bridge', 'billed'),
+                    (recurring_credit_months(cur, accounts, monthly), 'recurring_credit_bridge', 'account')]
+        for balances, basis, scope in evidence:
+            for key, amount in balances.items():
+                code, day = key
+                if key not in result:
+                    result[key] = AccountValuation(day, accounts[code][0], amount, basis, scope, quality='estimated')
     return result
 
 
