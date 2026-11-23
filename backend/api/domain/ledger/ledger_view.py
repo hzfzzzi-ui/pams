@@ -390,7 +390,7 @@ def classify_ledger_row(
 
 
 def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int], reversal_ids: set[int] | None = None) -> dict[str, Any]:
-    from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
+    from domain.ledger.cashflow_classification import PERSONAL_LOAN_PRINCIPAL, loan_repayment_needs_split, personal_loan_principal
 
     amount = row["amount"]
     if amount == 0:
@@ -403,8 +403,8 @@ def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int],
     if row["id"] in matched_cash_ids:
         return {"account_flow_type": direction, "flow_type": "transfer", "coarse_category": "内部划转",
                 "needs_review": False, "is_operating": False, "is_internal_transfer": True}
-    if personal_loan_principal(row):
-        return {"account_flow_type": direction, "flow_type": "personal_loan", "coarse_category": row["subcategory"],
+    if principal := personal_loan_principal(row):
+        return {"account_flow_type": direction, "flow_type": "personal_loan", "coarse_category": PERSONAL_LOAN_PRINCIPAL[principal][1],
                 "needs_review": False, "is_operating": False, "is_internal_transfer": False}
 
     confirmed = row.get("classification_status") == "confirmed"
@@ -1790,9 +1790,15 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             if decision['evidence_status'] == 'confirmed':
                 confirmed_proxy_roles[decision['from_cashflow_id']] = 'source'
                 confirmed_proxy_roles[decision['to_cashflow_id']] = 'target'
+    cycle_cash_ids = set()
+    if redesigned:
+        from domain.ledger.loan_cycle_evidence import principal_ids, read as read_loan_cycles
+        cycle_cash_ids = principal_ids(read_loan_cycles(cur))
     enriched_rows: list[dict[str, Any]] = []
     for raw in cash_rows:
         row = dict(raw)
+        if row.get("id") in cycle_cash_ids:
+            row["verified_cycle_principal"] = True
         row["account_type"] = (account_profiles.get(row.get("account_code")) or {}).get("account_type")
         if row.get("id") in confirmed_proxy_roles:
             row["confirmed_payment_proxy_role"] = confirmed_proxy_roles[row["id"]]

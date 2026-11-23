@@ -256,13 +256,19 @@ def _validate_cross_currency_pair(cur, left, right):
         rows[0][0], rows[1][0], _load_accounts_config().get('accounts', {}))
 
 
-def occupied_cashflow_ids(cur):
-    """Use the same active-confirmation scope as the write path."""
+def paired_cashflow_ids(cur):
     cur.execute('''SELECT from_cashflow_id, to_cashflow_id, to_evidence FROM public.evidence_confirmation
         WHERE confirmation_type IN ('transfer','payment_proxy','cash_reversal') AND revoked_at IS NULL''')
     rows = cur.fetchall()
     return ({row[key] for row in rows for key in ('from_cashflow_id', 'to_cashflow_id') if row[key] is not None}
             | {leg['id'] for row in rows for leg in (row.get('to_evidence') or {}).get('additional_targets', [])})
+
+
+def occupied_cashflow_ids(cur):
+    """Loan principal, transfers and reversals cannot claim the same bank entry."""
+    from domain.ledger.loan_cycle_evidence import principal_ids, read as read_loan_cycles
+    paired = paired_cashflow_ids(cur)
+    return paired | principal_ids(read_loan_cycles(cur, paired=paired))
 
 
 def decision_legs(item):
