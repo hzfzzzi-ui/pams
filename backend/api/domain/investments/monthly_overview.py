@@ -5,9 +5,9 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from domain.brokers.ibkr.ibkr_monthly_attribution import monthly_attribution
-from domain.accounts.monthly_cash_attribution import monthly_cash_attribution
+from domain.accounts.monthly_cash_attribution import CASH_METHOD, monthly_cash_attribution
 from domain.investments import page_projection
-from domain.investments.capital_ownership import read_monthly_profit_reallocations
+from domain.investments.capital_ownership import position_ownership, read_monthly_profit_reallocations
 from domain.investments.position_performance import build_position_return_series
 from domain.ledger.ledger_view import build_ledger_workbench_payload
 
@@ -46,6 +46,30 @@ def _categories(rows):
     }} for row in rows}
 
 
+def _conversion_spreads(cur, ledger, nav, excluded_accounts, owner_ratio):
+    included = {}
+    for month, report in ledger.items():
+        closing = month.replace(day=monthrange(month.year, month.month)[1])
+        book = nav.get(closing.isoformat(), {}).get('monthly_book') or {}
+        accounts = {code for code, row in book.get('accounts', {}).items()
+                    if row.get('method') == CASH_METHOD and code not in excluded_accounts}
+        included[month] = [s for s in report.get('conversion_settlements', []) if accounts.issuperset(s['accounts'])]
+    pairs = [s for month in included.values() for s in month]
+    if not pairs:
+        return {}
+    shares = position_ownership(cur, {code for pair in pairs for code in pair['accounts']},
+                                {pair['day'] for pair in pairs}, owner_ratio)
+    totals = {}
+    for month, settlements in included.items():
+        for settlement in settlements:
+            ratios = {shares[code].get(settlement['day']) for code in settlement['accounts']}
+            if len(ratios) != 1 or None in ratios or settlement['amount'] is None:
+                totals[month] = None
+                break
+            totals[month] = totals.get(month, Decimal(0)) + settlement['amount'] * ratios.pop()
+    return totals
+
+
 def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
     last = today.replace(day=1) - timedelta(days=1)
     first = date(last.year, 1, 1)
@@ -78,6 +102,7 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
     ledger = build_ledger_workbench_payload(cur, view='monthly_close', month=last.strftime('%Y-%m'),
                                            counted_income_sources=counted_income_sources, statement_cash=statement_cash)
     cash_adjustments = monthly_cash_attribution(cur, nav, ledger, start=first, end=last)
+    conversion_spreads = _conversion_spreads(cur, ledger, nav, excluded_accounts, owner_ratio)
     months = []
     for number in range(1, last.month + 1):
         opening = date(first.year, number, 1)
@@ -112,6 +137,8 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         cash = difference(totals.get('income'), totals.get('expense'))
         ownership = reallocations.get(opening, {})
         adjustments = {}
+        if opening in conversion_spreads:
+            adjustments['换汇结算差额'] = money(conversion_spreads[opening])
         if ownership:
             adjustments['出资份额调整'] = money(sum(ownership.values())) if None not in ownership.values() else None
         accounts = cash_adjustments.get(opening, {})

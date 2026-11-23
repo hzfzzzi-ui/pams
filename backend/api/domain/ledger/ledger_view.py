@@ -1832,6 +1832,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             **({'manual_pending': manual_pending} if include_manual_pending else {}),
         }
     if view == 'monthly_close':
+        from domain.ledger.conversion_settlement import monthly_conversion_settlements
+
         omitted = set()
         if redesigned:
             from domain.investments.installment_principal import load_principal_cash_ids
@@ -1847,12 +1849,14 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             monthly_rows = months[row['transaction_date_obj'].replace(day=1)]
             if row['id'] not in omitted or row['flow_type'] not in {'income', 'expense'}:
                 monthly_rows.append(row)
+        settlements = monthly_conversion_settlements(cash_rows, transfer_matches) if redesigned else {}
         result = {}
         for first, rows in months.items():
             _, end = _month_bounds(first.strftime('%Y-%m'))
             result[first] = _monthly_close(rows, transfer_matches, first, end, redesigned=redesigned,
                                            account_profiles=account_profiles, counted_income_sources=counted_income_sources,
                                            statement_cash=(statement_cash or {}).get(first, ()))
+            result[first]['conversion_settlements'] = settlements.get(first, [])
         return result
     if view in {'overview', 'full'}:
         overview = {
