@@ -1718,6 +1718,11 @@ def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles,
         'totals': summarize_period(ledger_rows, transfers, first, end),
         'categories': category_insights(ledger_rows, first, redesigned=redesigned)['month'],
         'money_fund_returns': returns,
+        'operating_timing_ids': [
+            row['fact_id'] for row in ledger_rows
+            if row.get('posting_date') and not first <= row['posting_date'] <= end
+            and row['flow_type'] in ('income', 'expense')
+        ],
     }
 
 
