@@ -1,9 +1,10 @@
 """Dated investment-account marks reconstructed from its own verified trades."""
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
+from domain.investments.fund_closed_sessions import mainland_mark_floor
 from domain.investments.fund_return_history import (
     FUND_ASSET_TYPES, SELLS, _position_history, _trade_day, load_fund_nav_marks,
 )
@@ -12,6 +13,12 @@ from domain.investments.snapshot_coverage import load_account_snapshot_coverage
 from domain.investments.trade_read_v2 import load_trade_rows
 from domain.investments.wealth_valuation import load_reviewed_wealth_anchors
 from domain.market.quote_valuation import GOLD_BENCHMARK_ASSET, GOLD_CLOSE_SOURCE, uses_gold_close
+
+
+class PositionMarks(dict):
+    def __init__(self, values):
+        super().__init__(values)
+        self.price_dates = defaultdict(dict)
 
 
 def _quantity_marks(cur, dates, trades, holdings, gold_assets):
@@ -29,28 +36,35 @@ def _quantity_marks(cur, dates, trades, holdings, gold_assets):
         by_asset[asset].append(trade)
     if set(holdings) - by_asset.keys():
         return None
-    prices = load_fund_nav_marks(cur, assets=funds, start=dates[0], end=dates[-1])
+    floors = {day: mainland_mark_floor(day) for day in dates}
+    first = min(floors.values())
+    prices = load_fund_nav_marks(cur, assets=funds, start=first, end=dates[-1])
     if gold_assets:
-        cur.execute("""SELECT as_of, MIN(close_price) AS price FROM market_observations
+        cur.execute("""SELECT as_of, CASE WHEN COUNT(DISTINCT close_price)=1 THEN MIN(close_price) END AS price FROM market_observations
             WHERE observation_type='daily' AND source=%s AND asset_id=%s AND as_of BETWEEN %s AND %s
               AND close_price>0 AND close_price::text NOT IN ('NaN','Infinity','-Infinity')
-            GROUP BY as_of HAVING COUNT(DISTINCT close_price)=1""",
-            (GOLD_CLOSE_SOURCE, GOLD_BENCHMARK_ASSET, dates[0], dates[-1]))
+            GROUP BY as_of""",
+            (GOLD_CLOSE_SOURCE, GOLD_BENCHMARK_ASSET, first, dates[-1]))
         gold_prices = {row['as_of']: row['price'] for row in cur.fetchall()}
-    values = dict.fromkeys(dates, Decimal(0))
+    values = PositionMarks(dict.fromkeys(dates, Decimal(0)))
     for asset, orders in by_asset.items():
         replay, issue = _position_history(orders, holdings.get(asset, {}), dates)
         if issue:
             return None
         units, _ = replay
         symbol = orders[0]['symbol']
+        quotes = gold_prices if asset in gold_assets else {d: p for (sym, d), p in prices.items() if sym == symbol}
         for day in dates:
             if values[day] is None or not units[day]:
                 continue
-            price = gold_prices.get(day) if asset in gold_assets else prices.get((symbol, day))
+            price_day = day
+            while price_day > floors[day] and price_day not in quotes:
+                price_day -= timedelta(days=1)
+            price = quotes.get(price_day)
             if price is None:
                 values[day] = None
             else:
+                values.price_dates[day][symbol] = price_day
                 values[day] += (units[day] * price).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
     return values
 
@@ -123,7 +137,7 @@ def load_account_trade_marks(cur, code, dates, *, positions_only):
                 marks[day] += claim['amount']
 
     if wealth:
-        wealth_marks = {(r['date'], r['asset_id']): r['amount'] for r in
+        wealth_marks = {(r['date'], r['asset_id']): r for r in
                         load_reviewed_wealth_anchors(cur, accounts=[code], dates=dates)}
         for asset in {r['asset_id'] for r in wealth}:
             orders = [r for r in wealth if r['asset_id'] == asset]
@@ -141,8 +155,15 @@ def load_account_trade_marks(cur, code, dates, *, positions_only):
                 if marks[day] is not None and purchases[0]['trade_date'] <= day < (
                     claim['confirmation'] if claim else sales[0]['trade_date']
                 ):
-                    price = wealth_marks.get((day, asset))
-                    marks[day] = None if price is None else marks[day] + price
+                    mark = wealth_marks.get((day, asset))
+                    if mark:
+                        marks[day] += mark['amount']
+                        marks.price_dates[day][orders[0]['symbol']] = mark['price_date']
+                    else:
+                        marks[day] = None
     first_trade = min(_trade_day(row) for row in trades)
-    return {day: value for day, value in marks.items() if value is not None
-            and (not positions_only or day >= first_trade)}
+    for day in dates:
+        if marks[day] is None or (positions_only and day < first_trade):
+            marks.pop(day)
+            marks.price_dates.pop(day, None)
+    return marks

@@ -108,3 +108,34 @@ def test_verified_trades_reprice_all_members_without_inventing_cash_or_zero():
                 assert points[days[4]] == {'position_value':5, 'position_value_status':'partial'}
         finally:
             conn.rollback()
+
+
+def test_month_end_prices_use_current_units_and_keep_each_mark_date(monkeypatch):
+    from domain.investments import account_position_history as history
+    friday, saturday, monday = date(2026, 1, 30), date(2026, 1, 31), date(2026, 2, 2)
+    days = [saturday, monday]
+    trades = [{'asset_id': code, 'asset_type': 'fund', 'symbol': code} for code in ('A', 'B')]
+    prices = {('A', friday): Decimal(2), ('B', saturday): Decimal(3), ('A', monday): Decimal(100)}
+    def quotes(cur, *, assets, start, end):
+        assert start == friday and end == monday
+        return prices
+    monkeypatch.setattr(history, 'load_fund_nav_marks', quotes)
+    monkeypatch.setattr(history, '_position_history', lambda *args: ((dict.fromkeys(days, 5), {}), None))
+    marks = history._quantity_marks(None, days, trades, {}, set())
+    assert marks[saturday] == 25 and marks[monday] is None
+    assert marks.price_dates[saturday] == {'A': friday, 'B': saturday}
+    prices['A', saturday] = None  # conflicting exact quotes cannot be bypassed
+    assert history._quantity_marks(None, days, trades, {}, set())[saturday] is None
+
+
+def test_month_end_direct_account_amount_precedes_prior_session_price(monkeypatch):
+    from domain.investments import account_position_history as history
+    friday, sunday = date(2026, 5, 29), date(2026, 5, 31)
+    marks = history.PositionMarks({friday: Decimal(12), sunday: Decimal(12)})
+    marks.price_dates[sunday]['GOLD'] = friday
+    monkeypatch.setattr(history, 'load_account_trade_marks', lambda *a, **kw: marks)
+    cfg = {'account_type':'fund_platform', 'truth_source':'manual', 'reconcile_method':'position_nav',
+           'manual_balance':{'source':'statement', 'amount':'13', 'as_of':sunday.isoformat()}}
+    points = {friday: {'net_value':Decimal(12), 'net_value_status':'confirmed'}}
+    _position_estimates(None, 'test', cfg, [friday, sunday], points)
+    assert points[sunday]['net_value'] == 13 and not points[sunday].get('price_dates')

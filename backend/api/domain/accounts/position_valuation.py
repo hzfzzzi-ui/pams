@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from domain.accounts.position_reference import position_reference_config
 from domain.investments.account_snapshot_evidence import _complete_member_proven
 from domain.investments.account_total_evidence import load as load_account_totals, prior_single_account_total
 from domain.investments.position_nav_projection import load_position_nav_estimates
@@ -139,6 +140,7 @@ def _position_estimates(cur, code, cfg, dates, points):
         if marks is not None:
             prior_value = marks.get(prior[0]) if prior else None
             anchored = prior_value is not None and abs(prior_value - prior[1]) <= Decimal('0.005')
+            manual = _manual_observation(cfg, unit, dates[-1]) if position_reference_config(cfg) else None
             for day in dates:
                 value = marks.get(day)
                 actual = points.get(day, {}).get('net_value')
@@ -147,7 +149,14 @@ def _position_estimates(cur, code, cfg, dates, points):
                 elif actual is not None:
                     anchored = value is not None and abs(actual - value) <= Decimal('0.005')
                 elif anchored and value is not None:
+                    if manual and manual[0] == day and any(d != day for d in marks.price_dates.get(day, {}).values()):
+                        points.setdefault(day, {}).update(net_value=manual[1], net_value_status='estimated')
+                        continue
                     points.setdefault(day, {}).update(net_value=value, net_value_status='estimated')
+                if value is not None and (positions_only or actual is None and anchored):
+                    source_dates = marks.price_dates.get(day, {})
+                    if any(price_day != day for price_day in source_dates.values()):
+                        points[day]['price_dates'] = source_dates
             return
     if not any(p.get('net_value') is not None for p in points.values()):
         return
