@@ -1,7 +1,7 @@
 """Read balance points backed by an already reconciled, dated bank statement."""
 from bisect import bisect_right
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 import json
 
@@ -66,7 +66,7 @@ def _source_bytes(cur, loader, anchor):
     return tuple(bytes(content) for content in contents) if all(contents) else None
 
 
-def load_statement_period_points(cur, accounts, dates):
+def load_statement_period_points(cur, accounts, dates, *, dated_charges=None):
     """Recover only within report coverage, rechecking the published anchor and original."""
     if not accounts or not dates:
         return {}
@@ -108,6 +108,9 @@ def load_statement_period_points(cur, accounts, dates):
             continue
         if not days[0] <= anchor_day <= end or values[bisect_right(days, anchor_day)-1] != anchor['market_value']:
             continue
+        if dated_charges is not None and supplement is not None:
+            posting = date.fromisoformat(supplement['posting_date'])
+            dated_charges.setdefault((code, posting), set()).add((currency, supplement['amount']))
         for day in dates:
             if days[0] <= day <= end:
                 candidates[code, day].add((currency, anchor['asset_liability'], values[bisect_right(days, day)-1]))
