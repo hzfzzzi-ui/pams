@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from domain.investments import page_projection
+from domain.investments.capital_ownership import read_monthly_profit_reallocations
 from domain.investments.position_performance import build_position_return_series
 from domain.ledger.ledger_view import build_ledger_workbench_payload
 
@@ -50,6 +51,7 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         return {'months': []}
     analysis = published['data']
     nav = {row['date']: row for row in analysis['nav']['rows']}
+    reallocations = read_monthly_profit_reallocations(cur, nav, excluded_accounts)
     changes = defaultdict(lambda: defaultdict(Decimal))
     counted_income_sources = set()
     # Match the published series' original valuation window and universe.
@@ -93,13 +95,18 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
                 items['money_market', 'CNY', receipt['name']] += Decimal(str(receipt['amount'])) * share
         pnl = money(sum(items.values())) if items and not missing_yield and end >= closing and start <= opening else None
         cash = difference(totals.get('income'), totals.get('expense'))
-        gap = difference(difference(delta, cash), pnl)
+        ownership = reallocations.get(opening, {})
+        adjustments = {}
+        if ownership:
+            adjustments['出资份额调整'] = money(sum(ownership.values())) if None not in ownership.values() else None
+        known_adjustments = sum((Decimal(str(v)) for v in adjustments.values() if v is not None), Decimal(0))
+        gap = difference(difference(difference(delta, cash), pnl), known_adjustments)
         book = closing_row.get('monthly_book')
         months.append({
             'm': number, 'date': closing.isoformat(), 'open': prior, 'nav': value, 'delta': delta,
             'assets': money(closing_row.get('assets')), 'debts': money(closing_row.get('liabilities')),
             'book': book, 'partial': not book['complete'] if book else closing_row.get('netWorth') is None, 'inc': totals.get('income'), 'exp': totals.get('expense'),
-            'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
+            'adjustments': adjustments, 'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
             'receipts': _categories(cats.get('income', [])), 'payments': _categories(cats.get('expense', [])),
         })
     return {'months': months, 'projection': published['projection']}

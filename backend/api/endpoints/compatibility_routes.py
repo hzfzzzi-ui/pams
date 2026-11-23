@@ -82,7 +82,7 @@ def create_compatibility_router(
                          section=None, revisions=None):
         broker_close = ibkr_daily_close_read.load_evidence() if ibkr_daily_close_read.configured() else {}
         return return_snapshot_revision(cur, settings={
-            "version": {None: 4, "a_stock": 2, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
+            "version": {None: 5, "a_stock": 3, "us_stock": 2, "a_fund": 6, "precious_metal": 6}.get(section, 1),
             "start_date": start_date, "interval": interval, "view_as_of": view_as_of,
             "today_label_date": today_label_date,
             "accounts": accounts_endpoint._load_accounts_config(), "banks": accounts_endpoint._load_bank_config(),

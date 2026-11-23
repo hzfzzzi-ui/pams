@@ -117,7 +117,8 @@ export function createMonthlyOverview(root, {win, read, isActive}) {
     q('[data-more]').textContent = all ? '收起' : '全部 ' + entries.length + (parent === null ? ' 类 ›' : ' 项 ›');
     q('.monthlyAudit summary').textContent = '待核差额　' + signed(month.gap);
     q('.monthlyAudit p').textContent = '净资产变化 ' + exact(month.delta) + '，账面结余 ' + exact(month.cash) +
-      '，可比持仓盈亏 ' + exact(month.pnl) + '。账面支出含还款等项目。';
+      '，投资盈亏 ' + exact(month.pnl) +
+      Object.entries(month.adjustments || {}).map(([name, amount]) => '，' + name + ' ' + exact(amount)).join('') + '。';
     q('[data-assets]').textContent = month.assets == null ? '待结账' : exact(month.assets);
     q('[data-debts]').textContent = month.debts == null ? '待结账' : exact(month.debts);
     drawTrend();

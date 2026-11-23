@@ -86,3 +86,35 @@ def test_only_original_backed_cash_contributes_on_receipt():
                 assert load_contribution_ratios(cur,cfg,events,[first,receipt]) == {}
         finally:
             conn.rollback()
+
+
+def test_personal_positions_use_dated_shares_without_counting_ownership_changes_as_market_gains(monkeypatch):
+    from collections import defaultdict
+    from domain.investments import position_performance as perf
+    from domain.investments.capital_ownership import monthly_profit_reallocations
+    from unittest.mock import Mock
+
+    days = [date(2030, 1, day) for day in (1, 2, 3)]
+    key = ('pooled', 'CNY', 'X')
+    anchors = {day: {'quantity': D(10), 'current_price': D(price), 'source_item_id': 'proof'}
+               for day, price in zip(days, (12, 12, 14))}
+    monkeypatch.setattr(perf, '_load_positions', lambda *a: ({key: anchors}, {key: 'reference'}, {}))
+    monkeypatch.setattr(perf, '_load_events', lambda *a: ({}, {}))
+    monkeypatch.setattr(perf, '_load_prices', lambda *a: {})
+    monkeypatch.setattr(perf, 'load_fx_timelines', lambda *a: {})
+    ratios = dict(zip(days, (D('.5'), D('.25'), D('.25'))))
+    monkeypatch.setattr(perf, 'position_ownership', lambda *a: {'pooled': ratios})
+    changes = defaultdict(lambda: defaultdict(D))
+    series = perf.build_position_return_series(Mock(), start=days[0], end=days[-1], interval='daily',
+        base_currency='CNY', owner_ratio=lambda _: D('.9'), excluded_accounts=set(), monthly_changes=changes)
+    assert [D(str(r['market_value'])) for r in series['rows']] == [60, 30, 35]
+    assert [D(str(r['total_pnl'])) for r in series['rows']] == [0, 0, 5]
+    assert changes[days[0]]['reference', 'CNY', 'X'] == 5
+
+    history = [dict(date=days[0].isoformat(), personal_balance=50, account_balance=100),
+               dict(date=days[1].isoformat(), personal_balance=50, account_balance=200)]
+    nav = {d.isoformat(): {'latest_known_components': {'pooled': {'native_balance': str(v),
+            'currency': 'CNY', 'owner_ratio': str(ratios[d])}}} for d, v in zip(days, (120, 220, 240))}
+    assert monthly_profit_reallocations(history, nav, 'pooled') == {days[0]: D(-5)}
+    del nav[days[0].isoformat()]
+    assert monthly_profit_reallocations(history, nav, 'pooled') == {days[0]: None}

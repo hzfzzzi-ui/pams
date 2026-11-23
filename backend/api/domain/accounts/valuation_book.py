@@ -8,7 +8,7 @@ from domain.accounts.account_policy import excluded_accounts
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.dated_valuation import AccountValuation
 from domain.investments.account_total_evidence import load as account_totals
-from domain.investments.capital_ownership import load_contribution_ratios
+from domain.investments.capital_ownership import account_contribution_ratios
 from domain.investments.personal_loan_nav import apply_personal_loan_coverage
 from domain.market.month_end_marks import month_end_fx
 from domain.market.valuation_fx import load_fx_timelines
@@ -76,11 +76,7 @@ def _observations(cur, account, config, days, owner_ratio):
     card = cfg.get('account_type') in ('credit_card', 'liability')
     bindings = load_bound_balance_references(cur, {code: cfg}) if not card else {}
     mode = cfg.get('portfolio_value_evidence')
-    ratios = None
-    if cfg.get('funding_history'):
-        from domain.investments.nav_trade_source_v2 import _read_event_prefix
-        events, gap = _read_event_prefix(cur, code)
-        ratios = load_contribution_ratios(cur, cfg, events, days, unverified_from=gap)
+    ratios = account_contribution_ratios(cur, code, cfg, days)
     if mode == 'official_broker_close':
         from domain.brokers.ibkr.ibkr_report_state import _calendar
         calendar = _calendar()
