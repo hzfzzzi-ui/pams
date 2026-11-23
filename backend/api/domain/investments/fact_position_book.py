@@ -13,6 +13,7 @@ from domain.investments.fund_return_history import (
     load_fund_nav_marks,
 )
 from domain.investments.redemption_settlement import load_redemption_receivables
+from domain.investments.subscription_settlement import subscription_refunds
 from domain.investments.trade_read_v2 import load_trade_rows
 from domain.investments.wealth_valuation import load_reviewed_wealth_anchors
 from domain.investments.valuation_input_evidence import current_holding_source
@@ -85,6 +86,7 @@ def dated_fund_book(cur, code, start, days):
         else {}
     )
     claims = load_redemption_receivables(cur, [code], days)
+    refunds = subscription_refunds(cur, trades)
     units = defaultdict(Decimal, opening)
     events = sorted(trades, key=lambda r: (_trade_day(r), r["trade_id"]))
     index = 0
@@ -148,6 +150,7 @@ def dated_fund_book(cur, code, start, days):
                     total += mark["amount"]
                     price_dates[asset] = mark["price_date"]
         if total is not None:
+            total += sum(amount for paid, returned, amount in refunds if paid <= day < returned)
             total += sum(
                 c["amount"] for c in claims if c["confirmation"] <= day < c["receipt"]
             )
