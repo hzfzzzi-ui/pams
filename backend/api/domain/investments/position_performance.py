@@ -314,7 +314,7 @@ def _position_days(dates, anchors, events, kind):
 
 
 def build_position_return_series(cur, *, start, end, interval, base_currency, owner_ratio, excluded_accounts,
-                                 position_kind=None, selection=None, monthly_changes=None):
+                                 position_kind=None, selection=None, monthly_changes=None, counted_income_sources=None):
     """Compute a securities return from holdings and marks, with trade flows only."""
     start = min(start, end)
     dates = series_dates(start, end, 'daily')
@@ -394,6 +394,9 @@ def build_position_return_series(cur, *, start, end, interval, base_currency, ow
                 change += movement
                 if monthly_changes is not None and (current[key] or previous[key] or flows[day][key]):
                     monthly_changes[day.replace(day=1)][(kinds[key], key[1], key[2])] += movement
+                    if counted_income_sources is not None:
+                        counted_income_sources.update(event['source_item_id'] for event in events.get(key, {}).get(day, ())
+                                                      if event['trade_type'] in {'dividend', 'coupon', 'interest'})
             daily = change / prior
             cumulative = (1 + cumulative) * (1 + daily) - 1
             total_pnl += change

@@ -26,10 +26,11 @@ def _net(row):
 
 def _investment_categories(changes, names):
     grouped = defaultdict(lambda: defaultdict(Decimal))
-    labels = {'stock': 'A 股个股', 'fund': '基金', 'wealth': '银行理财', 'gold': '贵金属', 'reference': '员工持股'}
+    labels = {'stock': 'A 股个股', 'fund': '基金', 'wealth': '银行理财', 'gold': '贵金属', 'reference': '员工持股',
+              'money_market': '货币基金'}
     for (kind, currency, symbol), amount in changes.items():
         label = labels.get(kind, {'USD': '美元证券', 'HKD': '港元证券', 'KRW': '韩元证券'}.get(currency, currency + '证券'))
-        name = names.get(symbol)
+        name = None if kind == 'money_market' else names.get(symbol)
         grouped[label][f'{name} · {symbol}' if name and name != symbol else symbol] += amount
     return {label: {'total': money(sum(parts.values())), 'parts': {k: money(v) for k, v in parts.items()}}
             for label, parts in grouped.items()}
@@ -50,19 +51,22 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
     analysis = published['data']
     nav = {row['date']: row for row in analysis['nav']['rows']}
     changes = defaultdict(lambda: defaultdict(Decimal))
+    counted_income_sources = set()
     # Match the published series' original valuation window and universe.
     total = analysis['total']
     start = date.fromisoformat(total['start'])
     end = date.fromisoformat(total['end'])
     if end >= first and start <= last:
         build_position_return_series(cur, start=start, end=end, interval='daily', base_currency='CNY',
-                                     owner_ratio=owner_ratio, excluded_accounts=excluded_accounts, monthly_changes=changes)
+                                     owner_ratio=owner_ratio, excluded_accounts=excluded_accounts, monthly_changes=changes,
+                                     counted_income_sources=counted_income_sources)
     symbols = sorted({symbol for items in changes.values() for _, _, symbol in items})
     cur.execute("""SELECT primary_symbol, min(coalesce(display_name,canonical_name)) AS name
                    FROM pams_asset_master WHERE primary_symbol=ANY(%s) GROUP BY primary_symbol
                    HAVING count(distinct coalesce(display_name,canonical_name))=1""", (symbols,))
     names = {row['primary_symbol']: row['name'] for row in cur.fetchall()}
-    ledger = build_ledger_workbench_payload(cur, view='monthly_close', month=last.strftime('%Y-%m'))
+    ledger = build_ledger_workbench_payload(cur, view='monthly_close', month=last.strftime('%Y-%m'),
+                                           counted_income_sources=counted_income_sources)
     months = []
     for number in range(1, last.month + 1):
         opening = date(first.year, number, 1)
@@ -74,8 +78,20 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         value = _net(closing_row)
         prior = _net(nav.get((opening - timedelta(days=1)).isoformat(), {}))
         delta = difference(value, prior)
-        items = changes.get(opening, {})
-        pnl = money(sum(items.values())) if items and end >= closing and start <= opening else None
+        items = changes[opening]
+        missing_yield = False
+        for receipt in report.get('money_fund_returns', []):
+            account = receipt['account']
+            if account in excluded_accounts:
+                continue
+            share = owner_ratio(account)
+            if not share:
+                continue
+            if receipt['amount'] is None:
+                missing_yield = True
+            else:
+                items['money_market', 'CNY', receipt['name']] += Decimal(str(receipt['amount'])) * share
+        pnl = money(sum(items.values())) if items and not missing_yield and end >= closing and start <= opening else None
         cash = difference(totals.get('income'), totals.get('expense'))
         gap = difference(difference(delta, cash), pnl)
         book = closing_row.get('monthly_book')

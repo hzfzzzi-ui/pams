@@ -1694,13 +1694,40 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
     }
 
 
+def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles, counted_income_sources):
+    ledger_rows = []
+    returns = []
+    for row in rows:
+        # A confirmed transfer or reversal takes priority over its original classification.
+        if (row['flow_type'] in {'income', 'expense', 'investment_return'}
+                and row.get('classification_status') == 'confirmed'
+                and row.get('cashflow_type') == 'investment_return_cash'):
+            if row.get('source_item_id') in counted_income_sources:
+                continue
+            if row.get('subcategory') != '货币基金收益':
+                ledger_rows.append(row)
+                continue
+            account = row['account_code']
+            returns.append({
+                'account': account, 'name': (account_profiles.get(account) or {}).get('display_name') or account,
+                'amount': row['amount_cny'] if row.get('source_evidence_status') == 'verified' else None,
+            })
+        else:
+            ledger_rows.append(row)
+    return {
+        'totals': summarize_period(ledger_rows, transfers, first, end),
+        'categories': category_insights(ledger_rows, first, redesigned=redesigned)['month'],
+        'money_fund_returns': returns,
+    }
+
+
 def build_ledger_workbench_payload(cur, *, month: str | None = None, base_currency: str = "CNY", recent_days: int = 30,
                                    include_transfer_pairs: bool = False, pair_cards: bool = False, view: str = "full",
                                    include_manual_pending: bool = False,
                                    period: str = "ytd", account: str = "", account_group: str = "",
                                    flow: str = "", search: str = "",
                                    sort: str = "", offset: int = 0, limit: int = 80,
-                                   matching_accounts: set[str] | None = None) -> dict[str, Any]:
+                                   matching_accounts: set[str] | None = None, counted_income_sources=()) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
     redesigned = _table_exists(cur, 'source_records')
@@ -1802,10 +1829,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         result = {}
         for first, rows in months.items():
             _, end = _month_bounds(first.strftime('%Y-%m'))
-            result[first] = {
-                'totals': summarize_period(rows, transfer_matches, first, end),
-                'categories': category_insights(rows, first, redesigned=redesigned)['month'],
-            }
+            result[first] = _monthly_close(rows, transfer_matches, first, end, redesigned=redesigned,
+                                           account_profiles=account_profiles, counted_income_sources=counted_income_sources)
         return result
     if view in {'overview', 'full'}:
         overview = {
