@@ -47,3 +47,33 @@ def test_broker_cash_shares_and_interest_use_movements_even_when_statement_total
     }
     assert replay_xml(xml, source, opening, [close])[close] == (3, 16, 13, close)
     assert replay_xml(xml, source, opening, [close], opening=Decimal(5)) == {}
+
+
+def test_verified_transfer_only_contributes_while_between_both_accounts(monkeypatch):
+    from unittest.mock import Mock
+    from domain.accounts.monthly_fact_book import cash_in_transit
+    from domain.ledger import confirmed_transfers_v2
+
+    start, end = date(2026, 1, 31), date(2026, 2, 2)
+    cur = Mock()
+    cur.fetchall.return_value = [
+        {"confirmation_id": "x", "sent": start, "received": end}
+    ]
+    pair = {
+        "confirmation_id": "x",
+        "evidence_status": "confirmed",
+        "from_evidence": {"currency": "USD", "amount": "-10", "account_code": "bank"},
+        "to_evidence": {"currency": "USD", "amount": "10", "account_code": "broker"},
+    }
+    monkeypatch.setattr(confirmed_transfers_v2, "read", lambda *a, **kw: [pair])
+    members = {
+        "bank": {"owner_ratio": Decimal(1)},
+        "broker": {"owner_ratio": Decimal(1)},
+    }
+    books = {start: members, end: members}
+    assert (
+        cash_in_transit(cur, books, lambda u, d: Decimal(7))[start][0]["personal"] == 70
+    )
+    assert end not in cash_in_transit(cur, books, lambda u, d: Decimal(7))
+    pair["evidence_status"] = "revoked"
+    assert not cash_in_transit(cur, books, lambda u, d: Decimal(7))

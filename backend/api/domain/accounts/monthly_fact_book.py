@@ -353,7 +353,68 @@ def build_months(cur, values, included, config, start, end, *, rate_at, owner_ra
     return results
 
 
-def apply_month(row, values, entries, proofs):
+def cash_in_transit(cur, books, rate_at):
+    """Value the time between the two booked cash legs of a verified internal transfer."""
+    from domain.ledger import confirmed_transfers_v2
+
+    if not books:
+        return {}
+    cur.execute(
+        """SELECT DISTINCT e.confirmation_id,coalesce(f.posting_date,f.event_date) sent,
+                   coalesce(t.posting_date,t.event_date) received
+              FROM evidence_confirmation e JOIN pams_cashflow_fact f ON f.cashflow_id=e.from_cashflow_id
+              JOIN pams_cashflow_fact t ON t.cashflow_id=e.to_cashflow_id
+              WHERE e.confirmation_type='transfer' AND e.revoked_at IS NULL AND f.currency=t.currency
+                AND EXISTS (SELECT 1 FROM unnest(%s::date[]) AS dates(d)
+                  WHERE d>=least(coalesce(f.posting_date,f.event_date),coalesce(t.posting_date,t.event_date))
+                    AND d<greatest(coalesce(f.posting_date,f.event_date),coalesce(t.posting_date,t.event_date)))""",
+        (list(books),),
+    )
+    periods = {
+        str(r["confirmation_id"]): (r["sent"], r["received"]) for r in cur.fetchall()
+    }
+    result = defaultdict(list)
+    for transfer in confirmed_transfers_v2.read(cur, limit=None, transfer_ids=periods):
+        if transfer["evidence_status"] != "confirmed" or transfer["to_evidence"].get(
+            "additional_targets"
+        ):
+            continue
+        left, right = transfer["from_evidence"], transfer["to_evidence"]
+        amount = Decimal(right["amount"])
+        if (
+            amount <= 0
+            or amount != -Decimal(left["amount"])
+            or left["currency"] != right["currency"]
+        ):
+            continue
+        sent, received = periods[str(transfer["confirmation_id"])]
+        for day, accounts in books.items():
+            if not min(sent, received) <= day < max(sent, received):
+                continue
+            source = accounts.get(left["account_code"])
+            target = accounts.get(right["account_code"])
+            if source is None or target is None:
+                continue
+            signed = amount if sent < received else -amount
+            ratio = (source if signed > 0 else target)["owner_ratio"]
+            rate = rate_at(left["currency"], day)
+            result[day].append(
+                {
+                    "from_account": left["account_code"],
+                    "to_account": right["account_code"],
+                    "sent": sent,
+                    "received": received,
+                    "currency": left["currency"],
+                    "native": signed,
+                    "personal": signed * ratio * rate
+                    if None not in (ratio, rate)
+                    else None,
+                }
+            )
+    return result
+
+
+def apply_month(row, values, entries, proofs, transit=()):
     """Publish the same account contributions in the monthly series, account details and portfolio."""
     day = row["date"]
     extra = {
@@ -361,8 +422,12 @@ def apply_month(row, values, entries, proofs):
         for code, value in row["_account_contributions"].items()
         if code not in entries
     }
+    pending_transit = any(v["personal"] is None for v in transit)
+    if transit and not pending_transit:
+        extra["internal_transfers_in_transit"] = sum(v["personal"] for v in transit)
+        row["_comparison_basis"]["internal_transfers_in_transit"] = "confirmed_transfer"
     contributions = dict(extra)
-    missing = []
+    missing = ["internal_transfers_in_transit"] if pending_transit else []
     for code, entry in entries.items():
         point = values[code]["rows"].setdefault(day, {"date": day})
         point["monthly_book"] = entry
@@ -422,7 +487,7 @@ def apply_month(row, values, entries, proofs):
                 "members": members,
                 "currency": proof["currency"],
                 "book": value,
-                "observed_date": observed_day,
+                "observed_date": day,
                 "observed": observed,
                 "difference": value - observed,
             }
@@ -434,6 +499,7 @@ def apply_month(row, values, entries, proofs):
         "missing": sorted(missing),
         "complete": complete,
         "family_comparisons": families,
+        "in_transit": list(transit),
     }
     row.update(
         monthly_book=book,
