@@ -312,18 +312,19 @@ def read_account_book(cur, *, accounts, config, start, end, evidence_through, ba
             owner_ratio(p['account_code']), rate_at(p['currency'], p['as_of'])),
         reference_rate_at=rate_at if full_portfolio else None, base_currency=base)
     if full_portfolio and base == 'CNY':
-        from domain.accounts.monthly_fact_book import build_months, apply_month
+        from domain.accounts.monthly_fact_book import build_months, apply_month, cash_in_transit
         last_close = evidence_through.replace(day=1) - timedelta(days=1)
         # A Dec 31 request includes the opening inventory for the next year's report.
         first_month = start + timedelta(days=1) if (start.month, start.day) == (12, 31) else start
         books = build_months(cur, values, included, config, first_month, min(end, last_close),
                              rate_at=rate_at, owner_ratio=owner_ratio)
+        transit = cash_in_transit(cur, books, rate_at)
         for row in rows:
             if row['date'] in books:
                 for entry in books[row['date']].values():
                     fixing = _fixing(rates, entry['currency'], row['date'], base)
                     entry['fx_date'] = str(fixing[0]) if fixing else None
-                apply_month(row, values, books[row['date']], by_date.get(row['date'], ()))
+                apply_month(row, values, books[row['date']], by_date.get(row['date'], ()), transit.get(row['date'], ()))
     return values, [r for r in rows if r["date"] <= end]
 
 

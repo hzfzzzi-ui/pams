@@ -318,11 +318,16 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
     return {'transfer_id':str(transfer_id), 'replayed':False}
 
 
-def read(cur, *, limit=200, originals=None, redemption_accounts=None):
+def read(cur, *, limit=200, originals=None, redemption_accounts=None, transfer_ids=None):
     """Revalidate both legs of every decision without locking in read-only views."""
     sql = """SELECT c.*,c.confirmation_id AS transfer_id FROM public.evidence_confirmation c
         WHERE c.confirmation_type='transfer'"""
     params = []
+    if transfer_ids is not None:
+        if not transfer_ids:
+            return []
+        sql += " AND c.confirmation_id=ANY(%s::uuid[])"
+        params.append(list(transfer_ids))
     if redemption_accounts is not None:
         sql += """ AND c.from_account_code=ANY(%s) AND c.from_trade_id IS NOT NULL AND c.to_cashflow_id IS NOT NULL
                    AND c.from_evidence->>'purpose'=ANY(%s)"""
