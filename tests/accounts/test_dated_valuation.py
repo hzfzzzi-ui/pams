@@ -81,3 +81,65 @@ def test_recurring_credit_requires_matching_evidence_and_ends_at_confirmed_month
     evidence['monthly_personal_amount'] = '10'
     proof['other_movements'] = 'unknown'
     assert calc() == {}
+
+
+def test_billed_table_uses_closed_period_then_latest_statement_without_double_count():
+    from domain.accounts.monthly_cash_bridge import table_balances_at
+    jan, feb, mar = [date(2026, n, 23) for n in (1, 2, 3)]
+    jan_end, feb_end, mar_end, apr_end = date(2026,1,31), date(2026,2,28), date(2026,3,31), date(2026,4,30)
+    closes = [{'as_of': jan,'amount':'-22'},{'as_of': feb,'amount':'-32'},{'as_of': mar,'amount':'-12'}]
+    moves = {date(2026,1,30):D(-7),feb:D(-3),date(2026,2,27):D(20),date(2026,4,1):D(5)}
+    targets = [jan_end,feb_end,mar_end,apr_end]
+    result = table_balances_at(closes,moves,targets)
+    assert result == {jan_end:(D(-29),'posted_statement_bridge',jan,feb),
+                      feb_end:(D(-12),'posted_statement_bridge',feb,mar),
+                      mar_end:(D(-12),'statement_plus_postings',mar,mar)}
+    closes[-1]['amount']='-11'
+    assert list(table_balances_at(closes,moves,targets)) == [jan_end]
+
+
+def test_reviewed_statement_documents_and_native_table_feed_one_billed_value():
+    from uuid import uuid4
+    from domain.imports import source_records_v2 as sources
+    dsn = os.environ.get('PAMS_TEST_POSTGRES_DSN')
+    if not dsn:
+        pytest.skip('requires explicitly isolated PostgreSQL')
+    code = 'synthetic_statement_table'
+    with psycopg2.connect(dsn) as conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert source_enabled(cur)
+                cur.execute('INSERT INTO pams_accounts(account_code,display_name,base_currency,is_asset) VALUES (%s,%s,%s,false)',
+                            (code,code,'CNY'))
+                def publish(kind, entries):
+                    source = uuid4()
+                    ext = 'csv' if kind == 'cash' else 'pdf'
+                    sources.create_source(cur,source_id=source,account_code=code,source_name='synthetic',
+                                          acquisition_method='file',document_type=kind,filename=f'synthetic.{ext}',
+                                          file_format=ext, content=str(source).encode())
+                    for idx,(day,amount) in enumerate(entries):
+                        item = uuid4()
+                        fields = dict(business_date=day,currency='CNY',net_cash=amount)
+                        if kind == 'statement':
+                            fields['action']='balance'
+                            position={'row':'statement_balance'}
+                            source_fields={'balance_candidate':True}
+                        else:
+                            fields.update(action='expense',posting_date=day)
+                            position={'row':idx}
+                            source_fields={'statement_row':{'currency':'CNY','posting_date':day,'amount':amount}}
+                        sources.add_item(cur,source_id=source,item_id=item,parse_method='template',parsed_fields=fields,
+                                         raw_fields={'initial_fields':fields,'source':source_fields},source_position=position)
+                        sources.review_item(cur,source_id=source,item_id=item,expected_revision=2+2*idx,
+                                            parsed_fields=fields,review_status='confirmed')
+                    cur.execute("UPDATE source_records SET status='published',revision=revision+1 WHERE source_id=%s",(str(source),))
+                publish('statement',[('2026-01-23','100')])
+                publish('statement',[('2026-02-23','112')])
+                publish('cash',[('2026-01-28','-5'),('2026-02-23','-7'),('2026-03-01','-3')])
+                jan,feb = date(2026,1,31),date(2026,2,28)
+                rows=valuation.statement_valuations(cur,{code:('CNY',True)},[jan,feb],table_cards=[code])
+                assert (rows[code,jan].amount,rows[code,jan].quality)==(D(-105),'confirmed')
+                assert (rows[code,feb].amount,rows[code,feb].quality)==(D(-112),'estimated')
+                assert rows[code,feb].evidence_dates==(date(2026,2,23),date(2026,2,23))
+        finally:
+            conn.rollback()

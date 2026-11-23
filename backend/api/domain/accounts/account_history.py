@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from domain.accounts.account_policy import excluded_accounts
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
+from domain.accounts.credit_card_debt import uses_table_net_reference
 from domain.accounts.dated_valuation import AccountValuation, posted_card_valuations, statement_valuations
 from domain.accounts.position_valuation import (
     _apply_totals, _holding_observations, _manual_observation, _position_estimates, fund_account_observations,
@@ -49,7 +50,8 @@ def _reconciled_cash_movements(cur, code, currency, anchors, conflicts=()):
 
 
 def _cash_observations(cur, code, cfg, currency, dates, holdings, card):
-    statements = statement_valuations(cur, {code: (currency, card)}, dates)
+    statements = statement_valuations(cur, {code: (currency, card)}, dates,
+                                      table_cards=[code] if card and uses_table_net_reference(code, cfg) else [])
     billed = {day: obs for (_, day), obs in statements.items() if obs.amount is not None}
     conflicts = {day for (_, day), obs in statements.items() if obs.amount is None}
     anchors = {day: point['net_value'] for day, point in holdings.items()

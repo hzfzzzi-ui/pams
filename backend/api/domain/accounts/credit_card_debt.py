@@ -1,6 +1,9 @@
 """Read-only credit-card amounts for the account center."""
 
+from collections import defaultdict
 from datetime import date
+from hashlib import sha256
+import json
 from decimal import Decimal, InvalidOperation
 
 
@@ -46,3 +49,29 @@ def confirmed_table_net_history(cur, account_code, *, currency, today, has_dupli
         total += amount
         history.append({'amount': str(total), 'as_of': day, 'basis': 'credit_card_flow_net'})
     return history
+
+def verified_table_postings(cur, account, currency, originals):
+    """Read one signed movement per reviewed statement-table item, on its posting date."""
+    cur.execute("""SELECT i.raw_fields,i.record_hash,i.parsed_fields,r.account_code source_account,
+                   r.source_id original_source_id,r.sha256,r.content IS NOT NULL inline_original
+            FROM source_records r JOIN source_items i USING(source_id)
+            WHERE r.account_code=%s AND r.status='published' AND r.document_type='cash'
+            AND i.review_status='confirmed' AND i.parsed_fields->>'action' IS DISTINCT FROM 'balance'""", (account,))
+    rows = cur.fetchall()
+    originals.verify_many(rows)
+    totals = defaultdict(Decimal)
+    for row in rows:
+        fields, raw = row['parsed_fields'], row['raw_fields']
+        statement = raw.get('source', {}).get('statement_row') or {}
+        try:
+            day = date.fromisoformat(fields['posting_date'])
+            amount = Decimal(fields['net_cash'])
+            digest = sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            if (not row['sha256'] or not originals.verify(row) or row['record_hash'] != digest
+                    or statement.get('posting_date') != day.isoformat() or statement.get('currency') != currency
+                    or fields['currency'] != currency or not amount.is_finite() or Decimal(statement['amount']) != amount):
+                return {}
+        except (ValueError, TypeError, KeyError, InvalidOperation):
+            return {}
+        totals[day] += amount
+    return dict(totals)

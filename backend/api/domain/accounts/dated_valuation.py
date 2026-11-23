@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
-from domain.accounts.monthly_cash_bridge import reconciled_card_months
+from domain.accounts.monthly_cash_bridge import reconciled_card_months, table_balances_at
 from domain.accounts.monthly_credit_evidence import recurring_credit_months
 from domain.market.month_end_marks import is_month_end
 from domain.accounts.bank_source_status import summaries
-from domain.accounts.credit_card_debt import confirmed_table_net_history, uses_table_net_reference
+from domain.accounts.credit_card_debt import confirmed_table_net_history, uses_table_net_reference, verified_table_postings
 from domain.accounts.bank_statement_balance import statement_balance_history
 from domain.imports.source_original_read import SourceOriginals
 from domain.investments.statement_period_nav import load_statement_period_points
@@ -24,6 +24,8 @@ class AccountValuation:
     quality: str = 'confirmed'
     observed_on: date | None = None
 
+    evidence_dates: tuple[date, date] | None = None
+
     @classmethod
     def from_measurement(cls, day, currency, point, field):
         scopes = {'net_value': 'account', 'liabilities': 'debt', 'position_value': 'positions'}
@@ -35,7 +37,7 @@ class AccountValuation:
         if self.scope != 'billed' or self.amount is None:
             return self
         return AccountValuation(self.day, self.currency, self.amount - principal, self.basis,
-                                quality=self.quality, observed_on=self.observed_on)
+                                quality=self.quality, observed_on=self.observed_on, evidence_dates=self.evidence_dates)
 
     def agrees_with_balance(self, signed_balance, principal=Decimal(0)):
         combined = self.including_unbilled(principal)
@@ -65,7 +67,7 @@ def statement_closings(cur, accounts, through):
     return statement_balance_history(cur, accounts, through, originals=SourceOriginals(cur))
 
 
-def statement_valuations(cur, accounts, dates, *, closings=None):
+def statement_valuations(cur, accounts, dates, *, closings=None, table_cards=()):
     """Read signed originals and reconstructed periods once per range, preserving conflicts."""
     if not accounts or not dates:
         return {}
@@ -98,13 +100,38 @@ def statement_valuations(cur, accounts, dates, *, closings=None):
         brackets = dict(closings)
         if cards and any(not closings.get(c) or closings[c][-1]['as_of'] < max(monthly) for c in cards):
             brackets.update(statement_closings(cur, cards, max(monthly) + timedelta(days=35)))
-        evidence = [(reconciled_card_months(cur, accounts, monthly, brackets, charges), 'posted_statement_bridge', 'billed'),
+        evidence = [(reconciled_card_months(cur, {c: spec for c, spec in accounts.items() if c not in table_cards}, monthly, brackets, charges), 'posted_statement_bridge', 'billed'),
                     (recurring_credit_months(cur, accounts, monthly), 'recurring_credit_bridge', 'account')]
         for balances, basis, scope in evidence:
             for key, amount in balances.items():
                 code, day = key
                 if key not in result:
                     result[key] = AccountValuation(day, accounts[code][0], amount, basis, scope, quality='estimated')
+    for code in cards.keys() & set(table_cards):
+        for day, value in anchored_table_valuations(cur, code, cards[code][0], dates).items():
+            result.setdefault((code, day), value)
+    return result
+
+
+def anchored_table_valuations(cur, code, unit, dates):
+    sources = SourceOriginals(cur)
+    conflicts = set()
+    closes = statement_balance_history(cur, {code: (unit, True)}, max(dates) + timedelta(days=35),
+                                      originals=sources, evidence_statements=True, conflicts=conflicts).get(code, [])
+    if not closes:
+        return {}
+    blocked = any(c == code for c, _ in conflicts) or summaries(cur, [code]).get(code, {}).get('duplicate_count')
+    movements = {} if blocked else verified_table_postings(cur, code, unit, sources)
+    result = {day: AccountValuation(day, unit, amount, basis, 'billed',
+                                  quality='estimated' if basis == 'statement_plus_postings' else 'confirmed',
+                                  evidence_dates=(first, last))
+            for day, (amount, basis, first, last) in table_balances_at(closes, movements, dates).items()}
+    # After an original balance is known, a broken bridge cannot fall back to
+    # treating the entire ledger as if its opening debt were zero.
+    through = max(max(movements, default=closes[-1]['as_of']), closes[-1]['as_of'])
+    for day in dates:
+        if closes[0]['as_of'] < day <= through and day not in result:
+            result[day] = AccountValuation(day, unit, None, 'unreconciled_statement', 'billed', quality='unavailable')
     return result
 
 

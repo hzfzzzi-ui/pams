@@ -11,6 +11,7 @@ from domain.accounts.account_overview import _apply_owner_ratio_to_money, _manua
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE, summaries
 from domain.accounts.bank_statement_balance import statement_balances
+from domain.accounts.dated_valuation import anchored_table_valuations
 from domain.accounts.credit_card_debt import confirmed_table_net, uses_table_net_reference
 from domain.accounts.position_reference import historical_position_reference
 from domain.accounts.recorded_positions import recorded_components
@@ -260,11 +261,19 @@ def read_account_sync(cur, config):
             statement_accounts[code] = (cfg.get('base_currency', 'CNY'), liability)
     source_balances = statement_balances(cur, statement_accounts, now.date(), originals=originals)
     for code, (currency, liability) in statement_accounts.items():
-        if liability and code not in source_balances and uses_table_net_reference(code, accounts[code]):
-            source_balances[code] = confirmed_table_net(
+        if liability and uses_table_net_reference(code, accounts[code]):
+            posted = confirmed_table_net(
                 cur, code, currency=currency, today=now.date(),
                 has_duplicate_alerts=bool(source_status[code]['duplicate_count']),
             )
+            closing = source_balances.get(code)
+            if posted and (not closing or posted['as_of'] > closing['as_of']):
+                day = posted['as_of']
+                value = anchored_table_valuations(cur, code, currency, [day]).get(day)
+                if value and value.amount is not None:
+                    source_balances[code] = {**posted, 'amount': str(value.amount)}
+                elif value is None and not closing:
+                    source_balances[code] = posted
     for code, cfg in accounts.items():
         parent, group_label, label = account_display(config, code, code)
         group = groups.setdefault(parent, {'code': parent, 'label': group_label or parent, 'rows': []})
