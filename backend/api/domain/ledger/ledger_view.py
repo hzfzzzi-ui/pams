@@ -1694,10 +1694,14 @@ def _ledger_stream_page(rows, *, account_config, base_currency, account, flow, s
     }
 
 
-def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles, counted_income_sources):
+def _monthly_close(rows, transfers, first, end, *, redesigned, account_profiles, counted_income_sources,
+                   statement_cash=()):
     ledger_rows = []
     returns = []
     for row in rows:
+        if (str(row.get('source_item_id')) in statement_cash and row.get('source_evidence_status') == 'verified'
+                and row['flow_type'] in {'income', 'expense', 'investment_return', 'investment_fee'}):
+            continue
         # A confirmed transfer or reversal takes priority over its original classification.
         if (row['flow_type'] in {'income', 'expense', 'investment_return'}
                 and row.get('classification_status') == 'confirmed'
@@ -1727,7 +1731,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
                                    period: str = "ytd", account: str = "", account_group: str = "",
                                    flow: str = "", search: str = "",
                                    sort: str = "", offset: int = 0, limit: int = 80,
-                                   matching_accounts: set[str] | None = None, counted_income_sources=()) -> dict[str, Any]:
+                                   matching_accounts: set[str] | None = None, counted_income_sources=(), statement_cash=None) -> dict[str, Any]:
     """Build the ledger workbench payload from imported bank/payment rows."""
 
     redesigned = _table_exists(cur, 'source_records')
@@ -1830,7 +1834,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         for first, rows in months.items():
             _, end = _month_bounds(first.strftime('%Y-%m'))
             result[first] = _monthly_close(rows, transfer_matches, first, end, redesigned=redesigned,
-                                           account_profiles=account_profiles, counted_income_sources=counted_income_sources)
+                                           account_profiles=account_profiles, counted_income_sources=counted_income_sources,
+                                           statement_cash=(statement_cash or {}).get(first, ()))
         return result
     if view in {'overview', 'full'}:
         overview = {
