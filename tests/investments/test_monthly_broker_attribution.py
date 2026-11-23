@@ -53,4 +53,3 @@ def test_multi_currency_statement_matches_nav_less_dated_funding_and_counts_cash
     closes[end.isoformat()]['nav_base'] += 1
     with pytest.raises(ValueError, match='noncontiguous'):
         _movements(evidence, closes, [end], start)
-

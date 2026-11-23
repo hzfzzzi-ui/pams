@@ -216,4 +216,3 @@ def monthly_attribution(cur, nav, *, excluded_accounts):
         result[first] = {ACCOUNT: converted}
         duplicates[first] = matched
     return result, duplicates
-
