@@ -24,9 +24,9 @@ def difference(left, right):
 
 def _net(row):
     if row.get('monthly_book') is not None:
-        return money(row['monthly_book']['known_nav'])
+        return row['monthly_book']['known_nav']
     value = row.get('netWorth')
-    return money(value if value is not None else row.get('availableNetWorth'))
+    return value if value is not None else row.get('availableNetWorth')
 
 
 def _investment_categories(changes, names):
@@ -151,7 +151,8 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
         closing_row = nav.get(closing.isoformat(), {})
         value = _net(closing_row)
         prior = _net(nav.get((opening - timedelta(days=1)).isoformat(), {}))
-        delta = difference(value, prior)
+        net_change = Decimal(str(value)) - Decimal(str(prior)) if None not in (value, prior) else None
+        delta = money(net_change)
         items = changes[opening]
         book = closing_row.get('monthly_book')
         missing_statements = sorted(code for code, account in (book or {}).get('accounts', {}).items()
@@ -171,31 +172,35 @@ def build_monthly_overview(cur, *, today, owner_ratio, excluded_accounts):
             else:
                 items['money_market', 'CNY', receipt['name']] += Decimal(str(receipt['amount'])) * share
         has_position_period = items and end >= closing and start <= opening
-        pnl = money(sum(items.values())) if has_position_period and not missing_yield and not missing_statements and opening not in missing_interest else None
+        pnl_value = sum(items.values()) if (has_position_period and not missing_yield
+                                             and not missing_statements and opening not in missing_interest) else None
+        pnl = money(pnl_value)
         cash = difference(totals.get('income'), totals.get('expense'))
         ownership = reallocations.get(opening, {})
         adjustments = {}
         if opening in conversion_spreads:
-            adjustments['换汇结算差额'] = money(conversion_spreads[opening])
+            adjustments['换汇结算差额'] = conversion_spreads[opening]
         if ownership:
-            adjustments['出资份额调整'] = money(sum(ownership.values())) if None not in ownership.values() else None
+            adjustments['出资份额调整'] = sum(ownership.values()) if None not in ownership.values() else None
         if book and 'cash_transfer_fx' in book:
-            transfer_fx = money(book['cash_transfer_fx'])
-            if transfer_fx != 0:
+            transfer_fx = book['cash_transfer_fx']
+            if transfer_fx is None or Decimal(str(transfer_fx)) != 0:
                 adjustments['券商资金交收汇兑'] = transfer_fx
         accounts = cash_adjustments.get(opening, {})
         for field, label in (('exchange', '现金与欠款汇兑'), ('posting', '跨月入账')):
             if accounts:
                 amounts = [account[field] for account in accounts.values()]
-                adjustments[label] = money(sum(amounts)) if None not in amounts else None
+                adjustments[label] = sum(amounts) if None not in amounts else None
         known_adjustments = sum((Decimal(str(v)) for v in adjustments.values() if v is not None), Decimal(0))
-        gap = difference(difference(difference(delta, cash), pnl), known_adjustments)
+        net_cash = totals.get('unrounded_net', cash)
+        gap = (money(net_change - Decimal(str(net_cash)) - pnl_value - known_adjustments)
+               if None not in (net_change, net_cash, pnl_value) and None not in adjustments.values() else None)
         months.append({
-            'm': number, 'date': closing.isoformat(), 'open': prior, 'nav': value, 'delta': delta,
+            'm': number, 'date': closing.isoformat(), 'open': money(prior), 'nav': money(value), 'delta': delta,
             'assets': money(closing_row.get('assets')), 'debts': money(closing_row.get('liabilities')),
             'book': book, 'partial': not book['complete'] if book else closing_row.get('netWorth') is None, 'inc': totals.get('income'), 'exp': totals.get('expense'),
             'missing_investment_statements': missing_statements,
-            'adjustments': adjustments, 'cash_attribution': accounts, 'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
+            'adjustments': {label: money(amount) for label, amount in adjustments.items()}, 'cash_attribution': accounts, 'cash': cash, 'pnl': pnl, 'gap': gap, 'invest': _investment_categories(items, names) if pnl is not None else {},
             'receipts': _categories(cats.get('income', [])), 'payments': _categories(cats.get('expense', [])),
         })
     return {'months': months, 'projection': published['projection']}
