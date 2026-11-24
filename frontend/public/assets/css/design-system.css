@@ -7,7 +7,7 @@
    ============================================================ */
 
 :root {
-  --pams-bg: var(--pams-bg-canvas, var(--bg, #05070a));
+  --pams-bg: var(--pams-bg-canvas, var(--bg, #040608));
   --pams-surface: var(--pams-bg-surface, #0b0f14);
   --pams-surface-raised: var(--pams-bg-panel, #0f141b);
   --pams-surface-soft: var(--pams-bg-soft, rgba(255,255,255,.026));
@@ -15,12 +15,12 @@
   --pams-border-strong: var(--pams-line-strong, rgba(255,255,255,.14));
   --pams-text: var(--pams-text-primary, var(--text, #f3f6fb));
   --pams-muted: var(--pams-text-muted, var(--muted, #6f7888));
-  --pams-good: var(--pams-profit, var(--good, #23c26b));
-  --pams-bad: var(--pams-loss, var(--bad, #ff5b5b));
+  --pams-good: var(--pams-profit, var(--good, #10b981));
+  --pams-bad: var(--pams-loss, var(--bad, #f43f5e));
   --pams-warn: var(--pams-warning, var(--warn, #f5a524));
-  --pams-info: #4c8dff;
-  --pams-radius-panel: var(--pams-radius-lg, 14px);
-  --pams-radius-row: var(--pams-radius-md, 8px);
+  --pams-info: #38bdf8;
+  --pams-radius-panel: var(--pams-radius-lg, 16px);
+  --pams-radius-row: var(--pams-radius-md, 10px);
   --pams-radius-control: var(--pams-radius-pill, 999px);
   --pams-row-min: 58px;
   --pams-chip-height: 30px;
@@ -33,6 +33,23 @@
   --pams-list-row-pad-x: 12px;
   --pams-font-sans: var(--pams-font-ui, Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
   --pams-font-mono: var(--pams-font-number, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+
+  /* PAMS Liquid Glass & iOS Precision Tokens */
+  --pams-glass-surface: rgba(18, 25, 38, 0.62);
+  --pams-glass-blur: blur(28px) saturate(180%);
+  --pams-glass-border: 1px solid rgba(255, 255, 255, 0.09);
+  --pams-glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  --pams-glass-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.6);
+  --pams-glass-active: rgba(255, 255, 255, 0.12);
+  --pams-glass-active-border: 1px solid rgba(255, 255, 255, 0.2);
+  --pams-glass-active-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
+  --pams-spring-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --pams-profit-emerald: #10b981;
+  --pams-profit-pill-bg: rgba(16, 185, 129, 0.12);
+  --pams-profit-pill-border: rgba(16, 185, 129, 0.28);
+  --pams-loss-crimson: #f43f5e;
+  --pams-loss-pill-bg: rgba(244, 63, 94, 0.12);
+  --pams-loss-pill-border: rgba(244, 63, 94, 0.28);
 }
 
 html {
@@ -42,10 +59,15 @@ html {
 }
 
 body.app-shell {
-  background: var(--pams-bg);
+  background-color: var(--pams-bg);
+  background-image:
+    radial-gradient(circle at 50% -12%, rgba(37, 99, 235, 0.16), transparent 52%),
+    radial-gradient(circle at 92% 35%, rgba(16, 185, 129, 0.04), transparent 45%);
+  background-attachment: fixed;
   color: var(--pams-text);
   font-family: var(--pams-font-sans);
   letter-spacing: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body.app-shell *,
@@ -694,8 +716,7 @@ body.app-shell.app-low-frequency .lowFrequencyStack,
 body.app-shell.app-low-frequency .moreHub,
 body.app-shell.app-low-frequency .profileList,
 body.app-shell.app-low-frequency .actionChecklist,
-body.app-shell.app-low-frequency .qualityList,
-body.app-shell.app-low-frequency .researchMobileList {
+body.app-shell.app-low-frequency .qualityList{
   display: grid;
   gap: var(--pams-list-gap);
 }
@@ -1051,9 +1072,7 @@ body.app-shell .moreRow.accent-risk {
   border-left-color: color-mix(in srgb, var(--pams-bad) 58%, transparent);
 }
 
-body.app-shell .moreRow.accent-research {
-  border-left-color: color-mix(in srgb, var(--pams-warn) 58%, transparent);
-}
+
 
 body.app-shell .moreRow.accent-system {
   border-left-color: var(--pams-border-strong);
@@ -1098,4 +1117,204 @@ body.app-shell .moreRow.accent-system {
 @keyframes pamsSkeletonPulse {
   0% { background-position: 120% 0; }
   100% { background-position: -120% 0; }
+}
+
+/* ============================================================
+   PAMS Liquid Glass & iOS Precision Interactive Enhancements
+   ============================================================ */
+
+/* 1. Liquid Glass Hero & Main Cards */
+body.app-shell .card.investmentHero,
+body.page-investments .mobilePortfolioHero {
+  background: var(--pams-glass-surface) !important;
+  backdrop-filter: var(--pams-glass-blur) !important;
+  -webkit-backdrop-filter: var(--pams-glass-blur) !important;
+  border: var(--pams-glass-border) !important;
+  box-shadow: var(--pams-glass-specular), var(--pams-glass-shadow) !important;
+  border-radius: 22px !important;
+}
+
+body.app-shell .card {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 8px 24px -4px rgba(0, 0, 0, 0.45);
+  border-radius: 18px;
+}
+
+/* 2. iOS 18 Segmented Control for Secondary Anchor Nav */
+body.app-shell .investAnchorNav {
+  display: flex !important;
+  padding: 4px !important;
+  background: rgba(15, 22, 33, 0.6) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3) !important;
+  gap: 3px !important;
+  margin-bottom: 14px !important;
+  overflow-x: auto !important;
+}
+
+body.app-shell .investAnchorNav::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.app-shell .investAnchorNav a {
+  flex: 1 1 0 !important;
+  text-align: center !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #94A3B8 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  padding: 7px 0 !important;
+  min-height: 32px !important;
+  line-height: 1.2 !important;
+  transition: all 0.22s var(--pams-spring-smooth) !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+body.app-shell .investAnchorNav a:active {
+  transform: scale(0.96) !important;
+}
+
+body.app-shell .investAnchorNav a.is-active,
+body.app-shell .investAnchorNav a.active,
+body.app-shell .investAnchorNav a[aria-current="true"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 4px 12px rgba(0,0,0,0.35) !important;
+}
+
+/* 3. Hero Balance & PnL Glow Pills */
+body.page-investments .mobileHeroValue {
+  font-family: var(--pams-font-mono) !important;
+  font-size: 32px !important;
+  letter-spacing: -0.5px !important;
+  font-weight: 700 !important;
+  color: #FFFFFF !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric strong.up {
+  color: var(--pams-profit-emerald) !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric strong.down {
+  color: var(--pams-loss-crimson) !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric em.up {
+  background: var(--pams-profit-pill-bg) !important;
+  border: 1px solid var(--pams-profit-pill-border) !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.12) !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  font-style: normal !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  display: inline-block !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric em.down {
+  background: var(--pams-loss-pill-bg) !important;
+  border: 1px solid var(--pams-loss-pill-border) !important;
+  color: #fb7185 !important;
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.12) !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  font-style: normal !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  display: inline-block !important;
+}
+
+/* 4. Touch Tactile Feedback on Buttons & Interactive Pills */
+body.app-shell .btn,
+body.app-shell .pill,
+body.app-shell .ledgerActionBtn,
+body.app-shell .reviewBtn {
+  -webkit-tap-highlight-color: transparent !important;
+  transition: transform 0.2s var(--pams-spring-smooth), background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+
+body.app-shell .btn:active,
+body.app-shell .pill:active,
+body.app-shell .ledgerActionBtn:active,
+body.app-shell .reviewBtn:active {
+  transform: scale(0.96) !important;
+}
+
+/* 5. Liquid Glass Bottom Sheet */
+body.app-shell .appBottomSheetPanel {
+  background: rgba(18, 25, 38, 0.8) !important;
+  backdrop-filter: blur(32px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(190%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-bottom: 0 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 -20px 60px rgba(0,0,0,0.7) !important;
+  border-radius: 24px 24px 0 0 !important;
+}
+
+body.app-shell .appBottomSheetClose {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+  color: #F8FAFC !important;
+  padding: 4px 14px !important;
+  transition: transform 0.2s var(--pams-spring-smooth) !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+body.app-shell .appBottomSheetClose:active {
+  transform: scale(0.94) !important;
+}
+
+/* 6. Filter Chips */
+body.app-shell .mobileHoldingFilterChips {
+  display: flex !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  padding: 4px 0 10px !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+body.app-shell .mobileHoldingFilterChips::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.app-shell .mobileHoldingFilterChips button,
+body.app-shell .mobileHoldingFilterChips .chip {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 999px !important;
+  padding: 6px 13px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #94A3B8 !important;
+  transition: all 0.2s var(--pams-spring-smooth) !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+body.app-shell .mobileHoldingFilterChips button:active,
+body.app-shell .mobileHoldingFilterChips .chip:active {
+  transform: scale(0.94) !important;
+}
+
+body.app-shell .mobileHoldingFilterChips button.active,
+body.app-shell .mobileHoldingFilterChips .chip.active {
+  color: #FFFFFF !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 2px 8px rgba(0,0,0,0.3) !important;
 }

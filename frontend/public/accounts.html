@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/style.css?v=20260623-nav-growth-overflow-v1" />
-  <link rel="stylesheet" href="assets/css/design-system.css?v=20260620-visual-cohesion-v1" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261031-legacy-css-v1" />
+  <link rel="stylesheet" href="assets/css/design-system.css?v=20261125-liquid-glass-v1" />
   <style>
     .reconcileGrid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
     .profileList { display: grid; gap: 10px; }
@@ -425,10 +425,9 @@
 
         <div class="card">
           <div class="sectionTitle">
-            <h3>账单导入</h3>
+            <h3>导入资料</h3>
             <div class="right">
-              <button id="btnPreview" class="btn">预览</button>
-              <button id="btnImport" class="btn primary">导入暂存</button>
+              <a id="btnImport" class="btn primary" href="account_import.html?kind=cash">导入资料</a>
             </div>
           </div>
           <div class="kpiGrid" style="margin-top: 12px;">
@@ -440,10 +439,6 @@
               <label class="formLabel">当前模板</label>
               <input id="profileCode" class="formInput" type="text" readonly />
             </div>
-          </div>
-          <div style="margin-top: 12px;">
-            <label class="formLabel">账单文件路径（一行一个）</label>
-            <textarea id="filePaths" class="formInput fileBox"></textarea>
           </div>
           <div id="opMsg" class="muted" style="margin-top: 10px;"></div>
         </div>
@@ -495,6 +490,6 @@
     </section>
   </div>
 
-  <script type="module" src="assets/js/bank_reconcile.js?v=20260622-data-state-a11y-v1"></script>
+  <script type="module" src="assets/js/bank_reconcile.js?v=20261031-risk-summary-retired-v1"></script>
 </body>
 </html>

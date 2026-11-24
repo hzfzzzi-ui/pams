@@ -1,0 +1,1320 @@
+/* ============================================================
+   PAMS Design System Layer v4
+
+   Loaded after the legacy stylesheet. Keep this file small:
+   tokens, shared app-shell primitives, and cross-page density rules only.
+   Page-specific business layouts should stay in their own modules.
+   ============================================================ */
+
+:root {
+  --pams-bg: var(--pams-bg-canvas, var(--bg, #040608));
+  --pams-surface: var(--pams-bg-surface, #0b0f14);
+  --pams-surface-raised: var(--pams-bg-panel, #0f141b);
+  --pams-surface-soft: var(--pams-bg-soft, rgba(255,255,255,.026));
+  --pams-border: var(--pams-line-subtle, rgba(255,255,255,.085));
+  --pams-border-strong: var(--pams-line-strong, rgba(255,255,255,.14));
+  --pams-text: var(--pams-text-primary, var(--text, #f3f6fb));
+  --pams-muted: var(--pams-text-muted, var(--muted, #6f7888));
+  --pams-good: var(--pams-profit, var(--good, #10b981));
+  --pams-bad: var(--pams-loss, var(--bad, #f43f5e));
+  --pams-warn: var(--pams-warning, var(--warn, #f5a524));
+  --pams-info: #38bdf8;
+  --pams-radius-panel: var(--pams-radius-lg, 16px);
+  --pams-radius-row: var(--pams-radius-md, 10px);
+  --pams-radius-control: var(--pams-radius-pill, 999px);
+  --pams-row-min: 58px;
+  --pams-chip-height: 30px;
+  --pams-shell-max-width: 1400px;
+  --pams-shell-gutter: 20px;
+  --pams-shell-gap: 16px;
+  --pams-card-pad: 16px;
+  --pams-list-gap: 8px;
+  --pams-list-row-pad-y: 10px;
+  --pams-list-row-pad-x: 12px;
+  --pams-font-sans: var(--pams-font-ui, Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  --pams-font-mono: var(--pams-font-number, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+
+  /* PAMS Liquid Glass & iOS Precision Tokens */
+  --pams-glass-surface: rgba(18, 25, 38, 0.62);
+  --pams-glass-blur: blur(28px) saturate(180%);
+  --pams-glass-border: 1px solid rgba(255, 255, 255, 0.09);
+  --pams-glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  --pams-glass-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.6);
+  --pams-glass-active: rgba(255, 255, 255, 0.12);
+  --pams-glass-active-border: 1px solid rgba(255, 255, 255, 0.2);
+  --pams-glass-active-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
+  --pams-spring-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --pams-profit-emerald: #10b981;
+  --pams-profit-pill-bg: rgba(16, 185, 129, 0.12);
+  --pams-profit-pill-border: rgba(16, 185, 129, 0.28);
+  --pams-loss-crimson: #f43f5e;
+  --pams-loss-pill-bg: rgba(244, 63, 94, 0.12);
+  --pams-loss-pill-border: rgba(244, 63, 94, 0.28);
+}
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body.app-shell {
+  background-color: var(--pams-bg);
+  background-image:
+    radial-gradient(circle at 50% -12%, rgba(37, 99, 235, 0.16), transparent 52%),
+    radial-gradient(circle at 92% 35%, rgba(16, 185, 129, 0.04), transparent 45%);
+  background-attachment: fixed;
+  color: var(--pams-text);
+  font-family: var(--pams-font-sans);
+  letter-spacing: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.app-shell *,
+body.app-shell *::before,
+body.app-shell *::after {
+  box-sizing: border-box;
+}
+
+/* PAMS Page Shell Template v1 */
+body.app-shell .wrap {
+  width: 100%;
+  max-width: var(--pams-shell-max-width);
+  margin-right: auto;
+  margin-left: auto;
+  padding-right: var(--pams-shell-gutter);
+  padding-left: var(--pams-shell-gutter);
+}
+
+body.app-shell .pageHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin: 2px 0 14px;
+}
+
+body.app-shell .pageHeader h1 {
+  margin: 0;
+  font-size: clamp(28px, min(4vw, 17.2px), 40px);
+  line-height: 1.04;
+}
+
+body.app-shell .pageSubtitle {
+  max-width: 760px;
+  margin-top: 6px;
+  color: var(--pams-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body.app-shell .pageMeta,
+body.app-shell .sectionTitle .right {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+body.app-shell .card,
+body.app-shell details.card {
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: var(--pams-surface-raised);
+  padding: var(--pams-card-pad);
+}
+
+body.app-shell .card + .card,
+body.app-shell details.card + details.card {
+  margin-top: var(--pams-shell-gap);
+}
+
+body.app-shell .sectionTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+body.app-shell .sectionTitle > div,
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3 {
+  min-width: 0;
+}
+
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.12;
+}
+
+body.app-shell .mono,
+body.app-shell .num,
+body.app-shell .kpi-value,
+body.app-shell .metricPanel .value,
+body.app-shell .ledgerKpi .value,
+body.app-shell .syncMetric strong,
+body.app-shell .mobileHeroValue,
+body.app-shell .mobileHoldingValue,
+body.app-shell .accountMobileValue {
+  font-variant-numeric: tabular-nums;
+}
+
+body.app-shell .pageHeader,
+body.app-shell .sectionTitle,
+body.app-shell .tradeReviewSubsectionHead,
+body.app-shell .returnChartHeader {
+  min-width: 0;
+}
+
+body.app-shell .pageHeader h1,
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3,
+body.app-shell .appWorkHeader h2,
+body.app-shell .moreRow strong,
+body.app-shell .ledgerListMain strong,
+body.app-shell .syncCenterMain strong {
+  letter-spacing: 0;
+}
+
+body.app-shell .card,
+body.app-shell details.card,
+body.app-shell .investmentPanel,
+body.app-shell .portfolioRiskCategory,
+body.app-shell .portfolioRiskChecklistCard,
+body.app-shell .portfolioRuleNode,
+body.app-shell .tradeReviewSubsection,
+body.app-shell .moreGroup,
+body.app-shell .qualityBox,
+body.app-shell .sourceTodo,
+body.app-shell .syncCenterPanel,
+body.app-shell .assetMasterFund {
+  border-color: var(--pams-border);
+  box-shadow: none;
+}
+
+body.app-shell .card:hover,
+body.app-shell details.card:hover,
+body.app-shell .investmentPanel:hover,
+body.app-shell .portfolioRiskCategory:hover,
+body.app-shell .portfolioRuleNode:hover,
+body.app-shell .moreGroup:hover {
+  transform: none;
+}
+
+body.app-shell .appWorkHeader {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 15px 16px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: linear-gradient(180deg, rgba(15,20,27,.98), rgba(9,13,19,.98));
+}
+
+body.app-shell .appWorkHeaderTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+body.app-shell .appWorkHeader h2 {
+  margin: 4px 0 0;
+  font-size: clamp(23px, min(4vw, 17.2px), 30px);
+  line-height: 1.08;
+}
+
+body.app-shell .appWorkHeader p {
+  max-width: 760px;
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body.app-shell .appWorkEyebrow {
+  display: inline-flex;
+  align-items: center;
+  color: #9fc2ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+body.app-shell .appWorkLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+body.app-shell .appShortcutGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.app-shell .appShortcutCard {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  padding: 11px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-row);
+  background: var(--pams-surface-soft);
+  transition: border-color .16s ease, background .16s ease;
+}
+
+body.app-shell .appShortcutCard:hover {
+  border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-info) 8%, transparent);
+}
+
+body.app-shell .appShortcutCard strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-text);
+  font-size: 14px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .appShortcutCard small {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+body.app-shell .pill,
+body.app-shell .tag,
+body.app-shell .btn,
+body.app-shell .statusBadge,
+body.app-shell .statusChip,
+body.app-shell .flowTag,
+body.app-shell .basisBadge,
+body.app-shell .ledgerActionBtn,
+body.app-shell .reviewBtn,
+body.app-shell .analysisSwitch button,
+body.app-shell .returnSeriesToggle,
+body.app-shell .returnWindowSegment button,
+body.app-shell .tradeReviewDirectionFilterToggle {
+  min-height: var(--pams-chip-height);
+  border-radius: var(--pams-radius-control);
+  letter-spacing: 0;
+}
+
+body.app-shell .miniBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-control);
+  background: var(--pams-surface-raised);
+  color: var(--pams-muted);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+body.app-shell .statusBadge,
+body.app-shell .statusChip,
+body.app-shell .tag,
+body.app-shell .flowTag,
+body.app-shell .basisBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+body.app-shell .flowTag {
+  min-width: 64px;
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+
+body.app-shell .ledgerActionBtn,
+body.app-shell .reviewBtn {
+  border: 1px solid var(--pams-border);
+  background: transparent;
+  color: var(--pams-text);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 850;
+}
+
+body.app-shell .ledgerActionBtn {
+  min-width: 72px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+body.app-shell .reviewBtn {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+body.app-shell .ledgerActionBtn:disabled,
+body.app-shell .reviewBtn:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+body.app-shell .statusBadge-data,
+body.app-shell .tag.data,
+body.app-shell .flowTag.transfer,
+body.app-shell .basisBadge,
+body.app-shell .miniBadge.data,
+body.app-shell .statusChip.in_transit {
+  border-color: color-mix(in srgb, var(--pams-info) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-info) 11%, transparent);
+  color: #9dc7ff;
+}
+
+body.app-shell .tag.warn,
+body.app-shell .statusChip.ready_for_review,
+body.app-shell .reviewBtn.warn,
+body.app-shell .flowTag.other,
+body.app-shell .miniBadge.warn {
+  border-color: color-mix(in srgb, var(--pams-warn) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-warn) 10%, transparent);
+  color: #ffd184;
+}
+
+body.app-shell .tag.risk,
+body.app-shell .statusChip.missing_statement,
+body.app-shell .statusChip.missing_platform,
+body.app-shell .statusChip.missing_manual,
+body.app-shell .statusChip.missing_data,
+body.app-shell .flowTag.expense {
+  border-color: color-mix(in srgb, var(--pams-bad) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-bad) 10%, transparent);
+  color: #ff9a9a;
+}
+
+body.app-shell .tag.good,
+body.app-shell .statusChip.approved,
+body.app-shell .flowTag.income,
+body.app-shell .reviewBtn.primary,
+body.app-shell .miniBadge.ok {
+  border-color: color-mix(in srgb, var(--pams-good) 42%, transparent);
+  background: color-mix(in srgb, var(--pams-good) 10%, transparent);
+  color: #7ee2a6;
+}
+
+body.app-shell .miniBadge.pending {
+  border-color: color-mix(in srgb, #a371f7 42%, transparent);
+  background: color-mix(in srgb, #a371f7 10%, transparent);
+  color: #d9bdff;
+}
+
+body.app-shell .statusChip.missing_deferred,
+body.app-shell .ledgerActionBtn.ghost {
+  border-color: var(--pams-border);
+  background: color-mix(in srgb, white 4%, transparent);
+  color: var(--pams-muted);
+}
+
+body.app-shell .ledgerActionBtn.confirm {
+  border-color: var(--pams-border-strong);
+  background: color-mix(in srgb, white 5%, transparent);
+  color: var(--pams-text);
+}
+
+body.app-shell .emptyState {
+  border: 1px dashed var(--pams-border-strong);
+  border-radius: var(--pams-radius-row);
+  padding: var(--sp-4);
+  background: var(--pams-surface-soft);
+  color: var(--pams-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+body.app-shell .dataState {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+body.app-shell .dataStateTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+body.app-shell .dataStateTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pams-text);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .dataStateDetail {
+  margin: 0;
+  color: var(--pams-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+body.app-shell .dataStateAction {
+  justify-self: flex-start;
+}
+
+body.app-shell .dataState.compact {
+  padding: 10px 12px;
+}
+
+body.app-shell .dataState-error {
+  border-color: color-mix(in srgb, var(--pams-bad) 40%, transparent);
+  background: color-mix(in srgb, var(--pams-bad) 7%, transparent);
+}
+
+body.app-shell .dataState-stale,
+body.app-shell .dataState-loading {
+  border-color: color-mix(in srgb, var(--pams-warn) 35%, transparent);
+  background: color-mix(in srgb, var(--pams-warn) 6%, transparent);
+}
+
+body.app-shell .dataState-empty {
+  border-color: var(--pams-border-strong);
+}
+
+body.app-shell .skeletonCard,
+body.app-shell .skeletonLine,
+body.app-shell .skeletonList {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(255,255,255,.045), rgba(255,255,255,.09), rgba(255,255,255,.045));
+  background-size: 220% 100%;
+  animation: pamsSkeletonPulse 1.15s ease-in-out infinite;
+}
+
+body.app-shell .skeletonCard {
+  height: 78px;
+  border: 1px solid var(--pams-border);
+}
+
+body.app-shell .skeletonLine {
+  height: 18px;
+  max-width: 420px;
+}
+
+body.app-shell .skeletonList {
+  height: 150px;
+}
+
+body.app-shell .appBottomSheet {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: none;
+}
+
+body.app-shell .appBottomSheet.open {
+  display: block;
+}
+
+body.app-shell .appBottomSheetScrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.58);
+}
+
+body.app-shell .appBottomSheetPanel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: min(78vh, 620px);
+  padding: 8px 16px calc(18px + env(safe-area-inset-bottom));
+  overflow: auto;
+  border: 1px solid var(--pams-border);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  background: var(--pams-surface-raised);
+  box-shadow: 0 -18px 50px rgba(0,0,0,.38);
+}
+
+body.app-shell .appBottomSheetHandle {
+  width: 42px;
+  height: 4px;
+  margin: 4px auto 12px;
+  border-radius: var(--pams-radius-control);
+  background: rgba(255,255,255,.18);
+}
+
+body.app-shell .appBottomSheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+body.app-shell .appBottomSheetHead h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.app-shell .appBottomSheetClose {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-control);
+  background: var(--pams-surface-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+body.sheet-open {
+  overflow: hidden;
+}
+
+/* PAMS Core List Template v1 */
+body.app-shell .pamsList,
+body.app-shell .ledgerList,
+body.app-shell .syncCenterRows,
+body.app-shell .accountIssueRows,
+body.app-shell .sourceHealthList,
+body.app-shell .mobileHoldingList,
+body.app-shell .tradeReviewDirectionList {
+  display: grid;
+  gap: var(--pams-list-gap);
+}
+
+body.app-shell .ledgerListRow,
+body.app-shell .syncCenterRow,
+body.app-shell .accountIssueRow,
+body.app-shell .sourceHealthRow,
+body.app-shell .sourceTodo,
+body.app-shell .moreRow,
+body.app-shell .mobileHoldingRow,
+body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .portfolioRiskInlineItem,
+body.app-shell .portfolioRuleChild,
+body.app-shell .assetMasterFundHolding {
+  min-height: var(--pams-row-min);
+  min-width: 0;
+  border-color: var(--pams-border);
+  border-radius: var(--pams-radius-row);
+  background-color: var(--pams-surface-soft);
+  color: var(--pams-text);
+}
+
+body.app-shell .ledgerListRow,
+body.app-shell .accountIssueRow,
+body.app-shell .sourceHealthRow,
+body.app-shell .sourceTodo,
+body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .portfolioRiskInlineItem,
+body.app-shell .portfolioRuleChild,
+body.app-shell .assetMasterFundHolding {
+  padding: var(--pams-list-row-pad-y) var(--pams-list-row-pad-x);
+}
+
+body.app-shell .ledgerListMain,
+body.app-shell .syncCenterMain,
+body.app-shell .accountIssueRow,
+body.app-shell .sourceHealthRow,
+body.app-shell .moreRow span,
+body.app-shell .tradeReviewDirectionTrade,
+body.app-shell .mobileHoldingMain,
+body.app-shell .mobileHoldingText,
+body.app-shell .mobileHoldingName {
+  min-width: 0;
+}
+
+body.app-shell .ledgerListMain strong,
+body.app-shell .ledgerListMain small,
+body.app-shell .syncCenterMain strong,
+body.app-shell .syncCenterMain small,
+body.app-shell .accountIssueRow strong,
+body.app-shell .accountIssueRow small,
+body.app-shell .sourceHealthRow strong,
+body.app-shell .sourceHealthRow small,
+body.app-shell .moreRow strong,
+body.app-shell .moreRow small,
+body.app-shell .mobileHoldingText strong,
+body.app-shell .mobileHoldingText small,
+body.app-shell .tradeReviewDirectionTrade span,
+body.app-shell .tradeReviewDirectionTrade strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.app-shell .ledgerListMain strong,
+body.app-shell .syncCenterMain strong,
+body.app-shell .accountIssueRow strong,
+body.app-shell .sourceHealthRow strong,
+body.app-shell .moreRow strong,
+body.app-shell .mobileHoldingText strong,
+body.app-shell .tradeReviewDirectionTrade strong {
+  color: var(--pams-text);
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+body.app-shell .ledgerListMain small,
+body.app-shell .syncCenterMain small,
+body.app-shell .accountIssueRow small,
+body.app-shell .sourceHealthRow small,
+body.app-shell .moreRow small,
+body.app-shell .mobileHoldingText small,
+body.app-shell .tradeReviewDirectionTrade span {
+  color: var(--pams-muted);
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+body.app-shell .ledgerListSide,
+body.app-shell .syncCenterMeta,
+body.app-shell .accountIssueRow em,
+body.app-shell .sourceHealthRow em,
+body.app-shell .moreRow em,
+body.app-shell .mobileHoldingValue,
+body.app-shell .mobileHoldingQuote,
+body.app-shell .tradeReviewDirectionTrade em,
+body.app-shell .tradeReviewDirectionTrade b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* PAMS Low Frequency Page Template v1 */
+body.app-shell.app-low-frequency .lowFrequencyStack,
+body.app-shell.app-low-frequency .moreHub,
+body.app-shell.app-low-frequency .profileList,
+body.app-shell.app-low-frequency .actionChecklist,
+body.app-shell.app-low-frequency .qualityList{
+  display: grid;
+  gap: var(--pams-list-gap);
+}
+
+body.app-shell.app-low-frequency .appWorkHeader {
+  margin-bottom: var(--pams-shell-gap);
+}
+
+body.app-shell.app-low-frequency .moreGroup,
+body.app-shell.app-low-frequency .qualityBox,
+body.app-shell.app-low-frequency .metricPanel,
+body.app-shell.app-low-frequency .ipsStatusItem,
+body.app-shell.app-low-frequency .profileItem,
+body.app-shell.app-low-frequency .pipelineStep,
+body.app-shell.app-low-frequency .accountMobileStat,
+body.app-shell.app-low-frequency .mobileAccountRow {
+  border-color: var(--pams-border);
+  border-radius: var(--pams-radius-panel);
+  background: var(--pams-surface-raised);
+}
+
+body.app-shell.app-low-frequency .qualityBox,
+body.app-shell.app-low-frequency .metricPanel,
+body.app-shell.app-low-frequency .ipsStatusItem,
+body.app-shell.app-low-frequency .profileItem,
+body.app-shell.app-low-frequency .pipelineStep,
+body.app-shell.app-low-frequency .accountMobileStat {
+  padding: var(--pams-list-row-pad-y) var(--pams-list-row-pad-x);
+}
+
+body.app-shell.app-low-frequency details.card > summary,
+body.app-shell.app-low-frequency .sourceNote > summary,
+body.app-shell.app-low-frequency .truthNote > summary {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--pams-text);
+  font-weight: 900;
+}
+
+body.app-shell.app-low-frequency details.card > summary::after,
+body.app-shell.app-low-frequency .sourceNote > summary::after,
+body.app-shell.app-low-frequency .truthNote > summary::after {
+  content: "展开";
+  min-width: 42px;
+  border: 1px solid var(--pams-border);
+  border-radius: var(--pams-radius-control);
+  color: var(--pams-muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 22px;
+  text-align: center;
+}
+
+body.app-shell.app-low-frequency details.card[open] > summary::after,
+body.app-shell.app-low-frequency .sourceNote[open] > summary::after,
+body.app-shell.app-low-frequency .truthNote[open] > summary::after {
+  content: "收起";
+  color: var(--pams-info);
+}
+
+body.app-shell.app-low-frequency .statusLine,
+body.app-shell.app-low-frequency .summaryCards,
+body.app-shell.app-low-frequency .qualityGrid,
+body.app-shell.app-low-frequency .ipsStatusStrip,
+body.app-shell.app-low-frequency .pipeline,
+body.app-shell.app-low-frequency .relationshipGrid {
+  gap: var(--pams-list-gap);
+}
+
+body.app-shell .formInput,
+body.app-shell input,
+body.app-shell select,
+body.app-shell textarea {
+  border-color: var(--pams-border);
+  background-color: var(--pams-surface);
+}
+
+body.app-shell :focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pams-info) 72%, white);
+  outline-offset: 2px;
+}
+
+@media (min-width: 0px) {
+  body.app-shell {
+    --pams-shell-gutter: 12px;
+    --pams-shell-gap: 10px;
+    --pams-card-pad: 12px;
+    --pams-list-gap: 7px;
+    --pams-list-row-pad-y: 9px;
+    --pams-list-row-pad-x: 10px;
+  }
+
+  body.app-shell .wrap {
+    max-width: 430px;
+  }
+
+  body.app-shell .pageHeader {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  body.app-shell .card,
+  body.app-shell .investmentPanel,
+  body.app-shell .portfolioRiskCategory,
+  body.app-shell .portfolioRiskChecklistCard,
+  body.app-shell .portfolioRuleNode,
+  body.app-shell .tradeReviewSubsection,
+  body.app-shell .moreGroup {
+    border-radius: var(--pams-radius-panel);
+  }
+
+  body.app-shell .sectionTitle {
+    margin-bottom: 10px;
+  }
+
+  body.app-shell .sectionTitle h2,
+  body.app-shell .sectionTitle h3 {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  body.app-shell .appWorkHeader {
+    margin-bottom: 12px;
+    padding: 13px 14px;
+  }
+
+  body.app-shell .appWorkHeaderTop {
+    grid-template-columns: 1fr;
+  }
+
+  body.app-shell .appWorkLinks {
+    justify-content: flex-start;
+  }
+
+  body.app-shell .appShortcutGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.app-shell .appShortcutCard {
+    min-height: 72px;
+  }
+
+  body.app-shell .nav {
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  body.app-shell .nav a[data-mobile-nav="primary"] {
+    min-height: 50px;
+  }
+
+  body.app-shell .nav .mobileNavText {
+    letter-spacing: 0;
+  }
+}
+
+/* PAMS Mobile Polish v1 */
+@media (min-width: 0px) {
+  body.app-shell {
+    --pams-mobile-gutter: 10px;
+    --pams-shell-gutter: var(--pams-mobile-gutter);
+    --pams-shell-gap: 9px;
+    --pams-card-pad: 11px;
+    --pams-list-gap: 6px;
+    --pams-list-row-pad-y: 8px;
+    --pams-list-row-pad-x: 10px;
+    overflow-x: hidden;
+  }
+
+  body.app-shell .wrap,
+  body.page-investments .wrap {
+    max-width: 430px;
+    padding-right: var(--pams-mobile-gutter) !important;
+    padding-left: var(--pams-mobile-gutter) !important;
+  }
+
+  body.app-shell .nav {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  body.app-shell .nav a[data-mobile-nav="primary"] {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 14px;
+    line-height: 36px;
+  }
+
+  body.app-shell .pageHeader {
+    gap: 7px !important;
+    margin-bottom: 9px !important;
+  }
+
+  body.app-shell .pageHeader h1 {
+    font-size: 23px !important;
+  }
+
+  body.app-shell .pageSubtitle,
+  body.app-shell .pageMeta,
+  body.app-shell .muted {
+    line-height: 1.38;
+  }
+
+  body.app-shell .sectionTitle {
+    align-items: flex-start;
+    gap: 7px !important;
+  }
+
+  body.app-shell .sectionTitle .right,
+  body.app-shell .pageMeta {
+    justify-content: flex-start;
+  }
+
+  body.app-shell .pill,
+  body.app-shell .tag,
+  body.app-shell .btn,
+  body.app-shell .statusBadge,
+  body.app-shell .statusChip,
+  body.app-shell .flowTag,
+  body.app-shell .basisBadge,
+  body.app-shell .miniBadge {
+    max-width: 100%;
+  }
+
+  body.app-shell .dataState,
+  body.app-shell .emptyState,
+  body.app-shell .qualityBox,
+  body.app-shell .sourceTodo {
+    padding: 10px;
+  }
+
+  body.app-shell .appBottomSheetPanel {
+    max-height: min(82vh, 640px);
+    padding-right: 12px;
+    padding-left: 12px;
+    border-radius: 20px 20px 0 0;
+  }
+
+  body.app-shell .analysisSwitch,
+  body.app-shell .lookthroughTabs,
+  body.app-shell .mobileHoldingFilterChips,
+  body.app-shell .returnSeriesRail,
+  body.app-shell .returnWindowSegment {
+    gap: 6px;
+    scrollbar-width: none;
+  }
+
+  body.app-shell .analysisSwitch::-webkit-scrollbar,
+  body.app-shell .lookthroughTabs::-webkit-scrollbar,
+  body.app-shell .mobileHoldingFilterChips::-webkit-scrollbar,
+  body.app-shell .returnSeriesRail::-webkit-scrollbar,
+  body.app-shell .returnWindowSegment::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  body.app-shell {
+    --pams-mobile-gutter: 8px;
+  }
+
+  body.app-shell .nav a[data-mobile-nav="primary"] {
+    padding: 0 8px;
+    font-size: 13px;
+  }
+}
+
+/* PAMS Visual Cohesion v1 */
+body.app-shell {
+  font-size: var(--pams-font-size-base);
+}
+
+body.app-shell .pageHeader h1 {
+  font-size: clamp(24px, min(3vw, 12.9px), 32px);
+}
+
+body.app-shell .pageSubtitle {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 620px;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+body.app-shell .sectionTitle h2,
+body.app-shell .sectionTitle h3 {
+  font-size: 20px;
+}
+
+body.app-shell .card,
+body.app-shell details.card,
+body.app-shell .investmentPanel,
+body.app-shell .portfolioRiskCategory,
+body.app-shell .portfolioRiskChecklistCard,
+body.app-shell .portfolioRuleNode,
+body.app-shell .tradeReviewSubsection,
+body.app-shell .moreGroup,
+body.app-shell .qualityBox,
+body.app-shell .sourceTodo,
+body.app-shell .syncCenterPanel,
+body.app-shell .assetMasterFund {
+  background: var(--pams-surface-raised);
+  color: var(--pams-text);
+}
+
+body.app-shell .appWorkHeader {
+  background: var(--pams-surface-raised);
+}
+
+body.app-shell .appWorkHeader h2 {
+  font-size: clamp(22px, min(3vw, 12.9px), 26px);
+}
+
+body.app-shell .appWorkHeader p {
+  display: none;
+}
+
+body.app-shell .appWorkEyebrow {
+  color: var(--pams-muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body.app-shell .moreGroupTitle,
+body.app-shell .kpi-label,
+body.app-shell .metricPanel .label,
+body.app-shell .ipsStatusLabel,
+body.app-shell .mobileHeroLabel,
+body.app-shell .accountMobileLabel {
+  color: var(--pams-muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+body.app-shell .moreRow {
+  border-left-color: color-mix(in srgb, var(--pams-info) 48%, transparent);
+}
+
+body.app-shell .moreRow.accent-data,
+body.app-shell .moreRow.accent-account {
+  border-left-color: color-mix(in srgb, var(--pams-info) 58%, transparent);
+}
+
+body.app-shell .moreRow.accent-invest {
+  border-left-color: color-mix(in srgb, var(--pams-good) 58%, transparent);
+}
+
+body.app-shell .moreRow.accent-risk {
+  border-left-color: color-mix(in srgb, var(--pams-bad) 58%, transparent);
+}
+
+
+
+body.app-shell .moreRow.accent-system {
+  border-left-color: var(--pams-border-strong);
+}
+
+@media (min-width: 0px) {
+  body.app-shell .statusbar,
+  body.app-shell .pageHeader {
+    display: none !important;
+  }
+
+  body.app-shell .wrap,
+  body.page-investments .wrap {
+    padding-top: 10px !important;
+  }
+
+  body.app-shell .appWorkHeader {
+    display: none !important;
+  }
+
+  body.app-shell .sectionTitle h2,
+  body.app-shell .sectionTitle h3 {
+    font-size: 18px !important;
+  }
+
+  body.app-shell .moreGroupTitle {
+    padding: 0 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.app-shell *,
+  body.app-shell *::before,
+  body.app-shell *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+@keyframes pamsSkeletonPulse {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
+/* ============================================================
+   PAMS Liquid Glass & iOS Precision Interactive Enhancements
+   ============================================================ */
+
+/* 1. Liquid Glass Hero & Main Cards */
+body.app-shell .card.investmentHero,
+body.page-investments .mobilePortfolioHero {
+  background: var(--pams-glass-surface) !important;
+  backdrop-filter: var(--pams-glass-blur) !important;
+  -webkit-backdrop-filter: var(--pams-glass-blur) !important;
+  border: var(--pams-glass-border) !important;
+  box-shadow: var(--pams-glass-specular), var(--pams-glass-shadow) !important;
+  border-radius: 22px !important;
+}
+
+body.app-shell .card {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 8px 24px -4px rgba(0, 0, 0, 0.45);
+  border-radius: 18px;
+}
+
+/* 2. iOS 18 Segmented Control for Secondary Anchor Nav */
+body.app-shell .investAnchorNav {
+  display: flex !important;
+  padding: 4px !important;
+  background: rgba(15, 22, 33, 0.6) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3) !important;
+  gap: 3px !important;
+  margin-bottom: 14px !important;
+  overflow-x: auto !important;
+}
+
+body.app-shell .investAnchorNav::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.app-shell .investAnchorNav a {
+  flex: 1 1 0 !important;
+  text-align: center !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #94A3B8 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  padding: 7px 0 !important;
+  min-height: 32px !important;
+  line-height: 1.2 !important;
+  transition: all 0.22s var(--pams-spring-smooth) !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+body.app-shell .investAnchorNav a:active {
+  transform: scale(0.96) !important;
+}
+
+body.app-shell .investAnchorNav a.is-active,
+body.app-shell .investAnchorNav a.active,
+body.app-shell .investAnchorNav a[aria-current="true"] {
+  color: #FFFFFF !important;
+  font-weight: 600 !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 4px 12px rgba(0,0,0,0.35) !important;
+}
+
+/* 3. Hero Balance & PnL Glow Pills */
+body.page-investments .mobileHeroValue {
+  font-family: var(--pams-font-mono) !important;
+  font-size: 32px !important;
+  letter-spacing: -0.5px !important;
+  font-weight: 700 !important;
+  color: #FFFFFF !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric strong.up {
+  color: var(--pams-profit-emerald) !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric strong.down {
+  color: var(--pams-loss-crimson) !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric em.up {
+  background: var(--pams-profit-pill-bg) !important;
+  border: 1px solid var(--pams-profit-pill-border) !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.12) !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  font-style: normal !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  display: inline-block !important;
+}
+
+body.page-investments .mobileHeroPrimaryMetric em.down {
+  background: var(--pams-loss-pill-bg) !important;
+  border: 1px solid var(--pams-loss-pill-border) !important;
+  color: #fb7185 !important;
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.12) !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  font-style: normal !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  display: inline-block !important;
+}
+
+/* 4. Touch Tactile Feedback on Buttons & Interactive Pills */
+body.app-shell .btn,
+body.app-shell .pill,
+body.app-shell .ledgerActionBtn,
+body.app-shell .reviewBtn {
+  -webkit-tap-highlight-color: transparent !important;
+  transition: transform 0.2s var(--pams-spring-smooth), background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+
+body.app-shell .btn:active,
+body.app-shell .pill:active,
+body.app-shell .ledgerActionBtn:active,
+body.app-shell .reviewBtn:active {
+  transform: scale(0.96) !important;
+}
+
+/* 5. Liquid Glass Bottom Sheet */
+body.app-shell .appBottomSheetPanel {
+  background: rgba(18, 25, 38, 0.8) !important;
+  backdrop-filter: blur(32px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(190%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-bottom: 0 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 -20px 60px rgba(0,0,0,0.7) !important;
+  border-radius: 24px 24px 0 0 !important;
+}
+
+body.app-shell .appBottomSheetClose {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+  color: #F8FAFC !important;
+  padding: 4px 14px !important;
+  transition: transform 0.2s var(--pams-spring-smooth) !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+body.app-shell .appBottomSheetClose:active {
+  transform: scale(0.94) !important;
+}
+
+/* 6. Filter Chips */
+body.app-shell .mobileHoldingFilterChips {
+  display: flex !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  padding: 4px 0 10px !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+body.app-shell .mobileHoldingFilterChips::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.app-shell .mobileHoldingFilterChips button,
+body.app-shell .mobileHoldingFilterChips .chip {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 999px !important;
+  padding: 6px 13px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #94A3B8 !important;
+  transition: all 0.2s var(--pams-spring-smooth) !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+body.app-shell .mobileHoldingFilterChips button:active,
+body.app-shell .mobileHoldingFilterChips .chip:active {
+  transform: scale(0.94) !important;
+}
+
+body.app-shell .mobileHoldingFilterChips button.active,
+body.app-shell .mobileHoldingFilterChips .chip.active {
+  color: #FFFFFF !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 2px 8px rgba(0,0,0,0.3) !important;
+}
