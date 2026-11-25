@@ -24,7 +24,7 @@ from domain.ledger.cashflow.category_insights import category_insights
 
 
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
-LOCAL_ACCOUNTS_CONFIG_PATH = Path(__file__).resolve().parents[4] / "config" / "accounts.yaml"
+LOCAL_ACCOUNTS_CONFIG_PATH = Path(__file__).resolve().parents[5] / "config" / "accounts.yaml"
 
 INVESTMENT_ACCOUNT_CODES = {
     "tencent_licaitong",

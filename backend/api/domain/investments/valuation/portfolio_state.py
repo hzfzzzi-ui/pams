@@ -30,7 +30,7 @@ from domain.investments.valuation.valuation_state_reader import valuation_series
 from domain.market.quote_valuation import quote_valuation_cte, snapshot_tables
 
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[5]
 CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
 LOCAL_CONFIG_PATH = ROOT / "config" / "accounts.yaml"
 

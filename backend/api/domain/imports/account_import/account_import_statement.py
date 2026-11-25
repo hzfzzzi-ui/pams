@@ -15,7 +15,7 @@ from domain.ledger.evidence.bank_statement_rules import _classify_statement_row
 
 def config():
     primary = Path(os.environ.get("PAMS_BANK_RECONCILE_CONFIG", "/app/config/bank_reconcile.yaml"))
-    local = Path(__file__).resolve().parents[4] / "config/bank_reconcile.yaml"
+    local = Path(__file__).resolve().parents[5] / "config/bank_reconcile.yaml"
     path = primary if primary.exists() else local
     if not path.exists():
         return {}

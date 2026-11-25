@@ -59,7 +59,7 @@ AttributionUnit = dict[str, Any]
 
 
 REPORTED_RETURNS_CONFIG_PATH = Path(os.environ.get("PAMS_INVESTMENT_RETURNS_CONFIG", "/app/config/investment_returns.yaml"))
-LOCAL_REPORTED_RETURNS_CONFIG_PATH = Path(__file__).resolve().parents[4] / "config" / "investment_returns.yaml"
+LOCAL_REPORTED_RETURNS_CONFIG_PATH = Path(__file__).resolve().parents[5] / "config" / "investment_returns.yaml"
 RETURN_ATTRIBUTION_START_DATE = Date(2026, 1, 1)
 SECTION_ACCOUNT_MAP = {
     "a_stock": {"tonghuashun"},
