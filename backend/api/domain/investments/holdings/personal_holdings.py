@@ -174,11 +174,17 @@ def personal_holdings(payload, classes=None, *, accounts=None):
         else:
             floating_missing += 1
         stale = row.get("daily_pnl_stale") is True or str(row.get("daily_return_status") or "").lower() == "pending"
-        raw_daily = row.get("daily_total_pnl_cny")
-        if raw_daily is None:
-            raw_daily = row.get("daily_pnl_cny")
+        raw_daily = None
+        if not stale:
+            raw_daily = row.get("daily_total_pnl_cny")
+            if raw_daily is None:
+                raw_daily = row.get("daily_pnl_cny")
+        else:
+            recent = row.get("recent_confirmed_return") or {}
+            if recent.get("status") == "confirmed":
+                raw_daily = (recent.get("fields") or {}).get("daily_total_pnl_cny")
         mv = row.get("market_value_cny")
-        if not stale and raw_daily is not None and mv is not None:
+        if raw_daily is not None and mv is not None:
             daily_valued += 1
             d_dec = Decimal(str(raw_daily))
             daily_total += d_dec
