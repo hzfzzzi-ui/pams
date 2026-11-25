@@ -3,8 +3,8 @@ from collections import Counter
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from domain.imports.source_original_read import SourceOriginals
-from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+from domain.imports.sources.source_original_read import SourceOriginals
+from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
 from domain.investments.returns.fund_return_history import _trade_day
 from domain.investments.trades.trade_read_v2 import load_trade_rows
 from domain.ledger import confirmed_transfers_v2 as transfers

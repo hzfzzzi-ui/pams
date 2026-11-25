@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from psycopg2.extras import Json
 
-from domain.imports.source_records_v2 import create_source
+from domain.imports.sources.source_records_v2 import create_source
 
 
 def published_results(cur, account_code, digest=None):

@@ -5,7 +5,7 @@ from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import lru_cache
 
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports.sources.source_original_read import SourceOriginals
 
 
 _INCOME_TYPES = ('Dividends', 'Payment In Lieu Of Dividends', 'Withholding Tax')

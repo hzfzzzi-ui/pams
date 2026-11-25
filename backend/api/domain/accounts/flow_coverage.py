@@ -16,9 +16,9 @@ from uuid import UUID, uuid5
 
 from psycopg2.extras import Json
 from domain.imports import isolation
-from domain.imports.account_import_store import norm
-from domain.imports.source_fact_evidence import NativeFactVerifier, _digest, _reviewed_snapshot
-from domain.imports.unified_source import add_item, attach_file, create_batch, lock_source_review
+from domain.imports.account_import.account_import_store import norm
+from domain.imports.sources.source_fact_evidence import NativeFactVerifier, _digest, _reviewed_snapshot
+from domain.imports.sources.unified_source import add_item, attach_file, create_batch, lock_source_review
 from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
 from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 from domain.accounts.official_flow_coverage import _view_date
@@ -232,7 +232,7 @@ def publish(cur, *, batch_id, revision, mappings, note, confirmed):
 
 
 def _publish(cur, *, batch_id, revision, mappings, note, confirmed):
-    from domain.imports.native_source import enabled
+    from domain.imports.sources.native_source import enabled
     if not enabled() or cur.connection.isolation_level != 3:
         raise ValueError('coverage publication requires enabled serializable transaction')
     if confirmed is not True or not isinstance(note,str) or not note.strip() or len(note)>500:

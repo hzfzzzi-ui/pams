@@ -6,9 +6,13 @@ from pathlib import PurePath
 from uuid import UUID, uuid4
 from psycopg2.extras import Json
 
-from domain.imports import account_import_store, document_kind, source_records_v2
-from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
-from domain.imports.template_assessment import assess_template
+from domain.imports.account_import import account_import_store
+
+from domain.imports.sources import document_kind
+
+from domain.imports.sources import source_records_v2
+from domain.imports.account_import.account_import_types import LICAITONG_CURRENT_PLUS
+from domain.imports.sources.template_assessment import assess_template
 
 
 def _rows(parsed, kind, *, screenshot=False):

@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import uuid4
 from psycopg2.extras import Json
 from domain.imports.isolation import source_enabled
-from domain.imports.source_fact_evidence import verify_native_fact
+from domain.imports.sources.source_fact_evidence import verify_native_fact
 
 
 def _redesigned(cur):

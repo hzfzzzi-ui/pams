@@ -5,12 +5,12 @@ from datetime import date, timedelta
 from functools import lru_cache
 import json
 
-from domain.imports.account_import_statement import profiles
-from domain.imports.historical_statement_balance import (
+from domain.imports.account_import.account_import_statement import profiles
+from domain.imports.publication.historical_statement_balance import (
     _statement_balance_rows, credit_statement_bridge, read_original_credit_pair, read_original_debit_statement,
     reconcile_following_statement,
 )
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports.sources.source_original_read import SourceOriginals
 from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 
 

@@ -57,7 +57,8 @@ def test_existing_partial_estimates_are_replaced_without_recounting():
 def test_screenshot_total_publication_and_date_scope():
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from domain.imports import isolation,source_records_v2 as sources
+    from domain.imports import isolation
+    from domain.imports.sources import source_records_v2 as sources
     from domain.investments.valuation import account_total_evidence as total
     dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')
@@ -121,7 +122,8 @@ def test_screenshot_total_publication_and_date_scope():
 def test_confirmed_empty_account_is_a_single_day_total_without_holdings():
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from domain.imports import isolation, source_records_v2 as sources
+    from domain.imports import isolation
+    from domain.imports.sources import source_records_v2 as sources
     from domain.investments.valuation import account_total_evidence as total
 
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')

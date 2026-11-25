@@ -10,15 +10,15 @@ from zoneinfo import ZoneInfo
 
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.assets.alias_policy import is_identity_alias
-from domain.imports import account_import_store as store
+from domain.imports.account_import import account_import_store as store
 from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.trades.investment_trade_fact import build_investment_trade_fact
 from domain.investments.valuation.portfolio_state import _is_cash_like_holding
-from domain.imports.account_import_types import asset_type
-from domain.imports import account_import_ths as ths
-from domain.imports import account_import_statement as statement
-from domain.imports.account_import_plan import entries as write_entries
-from domain.imports.account_import_review import image_reviewed
+from domain.imports.account_import.account_import_types import asset_type
+from domain.imports.account_import import account_import_ths as ths
+from domain.imports.account_import import account_import_statement as statement
+from domain.imports.account_import.account_import_plan import entries as write_entries
+from domain.imports.account_import.account_import_review import image_reviewed
 
 
 def fingerprint(value) -> str:
@@ -238,7 +238,7 @@ def deferred_source_verified(cur, batch: dict, row: dict, cache: dict) -> bool:
     partial = (parent.get('published_result') or {}).get('partial') or {}
     if partial.get('deferred_batch_id') != str(batch['batch_id']):
         return False
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
     if not _reviewed_snapshot(cur, parent, parent_id, locking=False, snapshot_cache=cache):
         return False
     cur.execute('SELECT raw_fields,parsed_fields,review_status,file_id FROM source_items WHERE batch_id=%s AND source_item_id=%s',
@@ -250,7 +250,7 @@ def deferred_source_verified(cur, batch: dict, row: dict, cache: dict) -> bool:
     if ({key: value for key, value in source.items() if key not in {'file_id', 'deferred_from'}} !=
             {key: value for key, value in original_source.items() if key != 'file_id'}):
         return False
-    from domain.imports.account_import_review import DECISIONS
+    from domain.imports.account_import.account_import_review import DECISIONS
     old_fields = (original['parsed_fields'] or {}).get('fields') or {}
     return all((row.get('fields') or {}).get(key) == old_fields.get(key)
                for key in (set(row.get('fields') or {}) | set(old_fields)) - DECISIONS)

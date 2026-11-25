@@ -12,16 +12,16 @@ from uuid import UUID, uuid4
 
 from psycopg2.extras import Json
 
-from domain.imports import account_import_store as store
-from domain.imports import native_source as native
+from domain.imports.account_import import account_import_store as store
+from domain.imports.sources import native_source as native
 from domain.imports import isolation
-from domain.imports.account_import_review import (
+from domain.imports.account_import.account_import_review import (
     DECISIONS,
     editable_fields,
     image_fingerprint,
     image_reviewed,
 )
-from domain.imports.unified_source import add_item, attach_file
+from domain.imports.sources.unified_source import add_item, attach_file
 
 
 def _token_key():
@@ -242,7 +242,7 @@ def upload(cur, batch_id, filename, content, content_type):
     parsed = store.parse(content, filename, result['account_code'], result['kind'], template['mapping'] if template else None)
     suffix = filename.rsplit('.', 1)[-1].lower()
     if suffix not in {'png', 'jpg', 'jpeg'}:
-        from domain.imports.template_assessment import assess_template
+        from domain.imports.sources.template_assessment import assess_template
         parsed['template_status'] = assess_template(parsed, result['kind'])
     safe = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'csv': 'text/plain',
             'tsv': 'text/plain', 'xls': 'text/plain', 'pdf': 'application/pdf',
@@ -255,7 +255,7 @@ def upload(cur, batch_id, filename, content, content_type):
     _append_parsed(cur, batch_id, key, digest, parsed)
     initialized = None
     if result['account_code'] == 'tonghuashun' and result['kind'] == 'trade':
-        from domain.imports.ths_asset_candidates import initialize
+        from domain.imports.sources.ths_asset_candidates import initialize
         initialized = initialize(cur, parsed, batch_id=batch_id, file_id=key, file_sha256=digest)
     updated = batch(cur, batch_id)
     if initialized is not None:
@@ -275,7 +275,7 @@ def reparse(cur, batch_id, file_id, mapping, kind=None):
     file = get_file(cur, batch_id, file_id)
     parsed = store.parse(bytes(file['content']), file['filename'], result['account_code'], result['kind'], mapping)
     if not file['content_type'].startswith('image/'):
-        from domain.imports.template_assessment import assess_template
+        from domain.imports.sources.template_assessment import assess_template
         parsed['template_status'] = assess_template(parsed, result['kind'])
     _append_parsed(cur, batch_id, file_id, file['sha256'], parsed)
     cur.execute("""INSERT INTO source_templates(account_code,business_type,mapping) VALUES (%s,%s,%s)

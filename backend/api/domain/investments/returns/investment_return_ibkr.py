@@ -290,7 +290,7 @@ def _ibkr_full_trade_return_series(
         )
         candidates = [dict(row) for row in cur.fetchall()]
         from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
-        from domain.imports.source_fact_evidence import NativeFactVerifier
+        from domain.imports.sources.source_fact_evidence import NativeFactVerifier
         source_cache, native_verifier = EvidenceCache(), NativeFactVerifier(cur)
     trades_by_symbol: dict[str, list[dict[str, Any]]] = {}
     unverified_from: list[Date] = []

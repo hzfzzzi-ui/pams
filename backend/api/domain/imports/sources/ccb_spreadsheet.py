@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from domain.imports.account_import_parse import MAX_CELLS, MAX_INPUT_BYTES, MAX_ROWS, MAX_SHEETS, _csv
+from domain.imports.account_import.account_import_parse import MAX_CELLS, MAX_INPUT_BYTES, MAX_ROWS, MAX_SHEETS, _csv
 
 _DEBIT = ("序号", "摘要", "币别", "钞汇", "交易日期", "交易金额", "账户余额", "交易地点/附言", "对方账号与户名")
 _CREDIT = ("交易日", "入账日", "信用卡卡号", "类型", "入账币种", "入账金额", "交易描述")

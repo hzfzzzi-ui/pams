@@ -38,7 +38,7 @@ def is_statement(account):
 
 
 def public_profile(account):
-    from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
+    from domain.imports.publication.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
     return {"label": account, "profile": "statement", "default_asset_type": "cash", "kinds": ["cash"],
             "source_only_cash": account in SOURCE_ONLY_ACCOUNTS,
             "trade_actions": {"cash": ["income", "expense", "transfer", "balance"]}}
@@ -49,13 +49,13 @@ def _serial(value):
 
 
 def parse(content, filename, account, kind, mapping=None):
-    from domain.imports.account_import_parse import parse_document, _csv, _xlsx
-    from domain.imports.account_import_ocr import parse_image
+    from domain.imports.account_import.account_import_parse import parse_document, _csv, _xlsx
+    from domain.imports.account_import.account_import_ocr import parse_image
     if kind != "cash":
         raise ValueError("账单账户仅接受账单资料")
     suffix = Path(filename).suffix.lower()
     candidates = profiles().get(account, [])
-    from domain.imports.ccb_spreadsheet import parse as parse_ccb_spreadsheet
+    from domain.imports.sources.ccb_spreadsheet import parse as parse_ccb_spreadsheet
     ccb_result = (parse_ccb_spreadsheet(content, filename, account, candidates[0].get("statement_template", ""))
                   if len(candidates) == 1 else None)
     if ccb_result is not None:

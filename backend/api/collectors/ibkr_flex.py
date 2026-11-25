@@ -736,7 +736,7 @@ def _upsert_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_
 def _validate_isolated_holding_inputs(parsed, observed, account_code, xml_text):
     """Do not turn missing or unrepresentable report fields into holdings."""
     from decimal import Decimal, InvalidOperation
-    from domain.imports.ibkr_holding_source import _extract, _number
+    from domain.imports.sources.ibkr_holding_source import _extract, _number
     if account_code!='ibkr' or len(parsed.source_account_ids)!=1:
         raise ValueError('isolated holdings need one report account')
     _,_,positions=_extract(xml_text.encode('utf8'),source_account_id=parsed.source_account_ids[0],

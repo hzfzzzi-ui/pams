@@ -7,7 +7,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytest
 
-from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
+from domain.imports.publication import holding_publication_v2 as publication
+
+from domain.imports.sources import source_records_v2 as sources
 from domain.imports.isolation import source_enabled
 from domain.investments.valuation.personal_loan_nav import _apply_principal_references, annotate_personal_loans, apply_personal_loan_coverage
 from domain.investments.valuation.valuation_nav import format_weekly_nav_payload

@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 import re
 
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports.sources.source_original_read import SourceOriginals
 from domain.investments.valuation.capital_ownership import position_ownership
 from domain.investments.returns.fund_return_history import NAV_SOURCES, _trade_day
 from domain.investments.returns.investment_return_ibkr import _ibkr_yfinance_symbol
@@ -167,7 +167,7 @@ def _load_events(cur, end, excluded, asset_keys, kinds, selected_keys=None):
             day = _trade_day(row) if kind == 'fund' else row['trade_date']
             if day <= end:
                 events[key][day].append(row)
-    from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+    from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
     from domain.investments.holdings.position_evidence_replay import replay_reviewed_cycle
     for key, rows in wealth_rows.items():
         proof = {row['trade_id']: read_trade_evidence(cur, trade_id=row['trade_id']) for row in rows}

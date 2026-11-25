@@ -4,10 +4,10 @@ from __future__ import annotations
 from pathlib import PurePath
 import re
 
-from domain.imports import account_import_statement as statement
-from domain.imports import account_import_ths as ths
-from domain.imports.account_import_parse import HEADER_FIELDS, HEADER_SCAN, _csv, _text, _xlsx
-from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
+from domain.imports.account_import import account_import_statement as statement
+from domain.imports.account_import import account_import_ths as ths
+from domain.imports.account_import.account_import_parse import HEADER_FIELDS, HEADER_SCAN, _csv, _text, _xlsx
+from domain.imports.account_import.account_import_types import LICAITONG_CURRENT_PLUS
 
 INVESTMENT_PROFILES = {'tonghuashun', 'tencent_licaitong'}
 IMAGES = {'.png', '.jpg', '.jpeg'}
@@ -18,7 +18,7 @@ def detect_licaitong_screenshot(content: bytes, filename: str, account: str) -> 
     """Route only screenshots with a recognized Tencent detail template."""
     if account not in LICAITONG_ACCOUNTS or PurePath(filename).suffix.lower() not in IMAGES:
         return {'kind': None, 'account_code': None, 'status': 'mismatch'}
-    from domain.imports.account_import_ocr import parse_image
+    from domain.imports.account_import.account_import_ocr import parse_image
     image = parse_image(content, 'tencent_licaitong', 'trade')
     kind = image.get('document_kind')
     target = LICAITONG_CURRENT_PLUS if kind == 'cash' else 'tencent_licaitong' if kind == 'trade' else None
@@ -53,7 +53,7 @@ def detect(content: bytes, filename: str, account: str, *, statement_mapping=Non
     if account not in INVESTMENT_PROFILES and account != LICAITONG_CURRENT_PLUS:
         raise ValueError('此账户不支持资料导入')
     if suffix in IMAGES:
-        from domain.imports.account_import_ocr import parse_image
+        from domain.imports.account_import.account_import_ocr import parse_image
         image = parse_image(content, account, 'trade')
         if image.get('required_account', account) != account:
             return {'kind': None, 'status': 'mismatch'}

@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from domain.imports.source_display import statement_display_summary
+from domain.imports.sources.source_display import statement_display_summary
 
 
 class SourceCaptionTest(TestCase):

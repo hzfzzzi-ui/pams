@@ -8,8 +8,8 @@ import re
 from uuid import UUID
 
 from domain.imports import isolation
-from domain.imports.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed
-from domain.imports.unified_source import review_item
+from domain.imports.sources.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed
+from domain.imports.sources.unified_source import review_item
 
 
 def _hash(raw):
@@ -36,7 +36,7 @@ def _position(cur, *, batch_id, item_id, holding_id, published):
             or scope.get('origin_file_id')!=item.get('origin_file_id')):
         raise ValueError('identity source item is missing')
     if published:
-        from domain.imports.source_fact_evidence import _reviewed_snapshot
+        from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
         if (scope['review_status']!='confirmed' or item['review_status']!='confirmed'
                 or not str(scope['review_note'] or '').strip() or not str(item['review_note'] or '').strip()
                 or not _reviewed_snapshot(cur,batch,str(batch_id),locking=True,snapshot_cache={})):
@@ -73,7 +73,7 @@ def _position(cur, *, batch_id, item_id, holding_id, published):
     raw_text=selected['body']; holding=json.loads(raw_text,parse_float=Decimal)
     numbers={'quantity':('position','quantity','qty'),'cost':('costBasisMoney','costBasis','cost'),
              'market_value':('marketValue','positionValue','value','markValue')}
-    from domain.imports.ibkr_holding_source import _number
+    from domain.imports.sources.ibkr_holding_source import _number
     if (holding.get('account_code')!='ibkr' or holding.get('as_of')!=batch['date_to'].isoformat()
             or holding.get('symbol')!=row['symbol'] or holding.get('currency')!=row['currency']
             or any(holding.get(k) is None or Decimal(str(holding[k]))!=_number(attrs,aliases) for k,aliases in numbers.items())):

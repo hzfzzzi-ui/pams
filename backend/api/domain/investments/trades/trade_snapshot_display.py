@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from domain.imports.source_fact_evidence import NativeFactVerifier
+from domain.imports.sources.source_fact_evidence import NativeFactVerifier
 from domain.investments.trades.trade_read_v2 import load_trade_rows
 from domain.investments.trades.trade_snapshot_publication import published_results
 from domain.investments.valuation.valuation_input_evidence import _bound_input, _hash, verify_recorded_version

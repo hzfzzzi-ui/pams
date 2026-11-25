@@ -9,7 +9,7 @@ import re
 from uuid import UUID, uuid5
 
 from domain.imports import isolation
-from domain.imports.unified_source import add_item, attach_file, create_batch
+from domain.imports.sources.unified_source import add_item, attach_file, create_batch
 from domain.brokers.ibkr.ibkr_daily_close import _document
 
 MAX_REPORT_BYTES = 32 * 1024 * 1024
@@ -129,7 +129,7 @@ def _read_source_report(cur, batch, scope, *, locking=True):
         original=cur.fetchone()
         cur.execute("SELECT * FROM source_items WHERE batch_id=%s AND source_uid='scope'" + (' FOR SHARE' if locking else ''),(file['batch_id'],))
         source_scope=cur.fetchone()
-        from domain.imports.source_fact_evidence import _reviewed_snapshot
+        from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
         original_raw=(source_scope.get('raw_fields') or {}) if source_scope else {}
         original_kind='report' if file['original_workflow'] in {'ibkr_report','ibkr_cash_report'} else 'scope'
         digest_key='sha256' if original_kind=='report' else 'source_sha256'
@@ -228,7 +228,7 @@ def retirement_status(cur, *, batch_id, item_id, account_code: str, business_dat
         not str(scope['review_note'] or '').strip() or not str(item['review_note'] or '').strip() or
         scope['parsed_fields'].get('coverage') != 'all_positions' or scope['parsed_fields'].get('confirmed_complete') is not True):
         return {'state': 'unknown', 'reason': 'scope_or_item_not_reviewed'}
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
     if not _reviewed_snapshot(cur,batch,str(batch_id),locking=not read_only,snapshot_cache={}):
         return {'state': 'unknown', 'reason': 'published_snapshot_mismatch'}
     raw_scope, raw_item = scope['raw_fields'], item['raw_fields']

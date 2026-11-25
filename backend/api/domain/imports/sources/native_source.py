@@ -17,11 +17,11 @@ from uuid import UUID, uuid4
 from psycopg2.extensions import ISOLATION_LEVEL_SERIALIZABLE
 from psycopg2.extras import Json
 
-from domain.imports import account_import_preflight as preflight
-from domain.imports.account_import_plan import bank_leg
-from domain.imports import account_import_store as store
+from domain.imports.account_import import account_import_preflight as preflight
+from domain.imports.account_import.account_import_plan import bank_leg
+from domain.imports.account_import import account_import_store as store
 from domain.imports.isolation import source_enabled
-from domain.imports.unified_source import add_item, create_batch, lock_source_review
+from domain.imports.sources.unified_source import add_item, create_batch, lock_source_review
 from domain.investments.holdings.holding_evidence_writer import (
     finish_holding_change,
     assert_holding_accounts_locked,
@@ -279,7 +279,7 @@ def _replay(cur, batch_id, revision, source_sha256):
         return None
     if state['revision'] != revision or not hmac.compare_digest(state['published_source_hash'], source_sha256):
         raise ValueError('published source identity differs')
-    from domain.imports.source_fact_evidence import _LockedNativeReplay, verify_native_fact
+    from domain.imports.sources.source_fact_evidence import _LockedNativeReplay, verify_native_fact
     # Proof locks and caches exist only for this replay call. A subsequent
     # replay, including after savepoint rollback, always rebuilds the evidence.
     with _LockedNativeReplay(cur, state) as replay_proof:

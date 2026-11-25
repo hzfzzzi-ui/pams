@@ -6,7 +6,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from domain.imports.isolation import source_enabled, source_mode, runtime_import_active
-from domain.imports.native_source import enabled as publication_enabled
+from domain.imports.sources.native_source import enabled as publication_enabled
 from domain.investments.returns.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 
 

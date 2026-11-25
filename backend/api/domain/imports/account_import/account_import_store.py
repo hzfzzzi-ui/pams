@@ -8,9 +8,9 @@ from decimal import Decimal
 from typing import Any
 
 from domain.accounts.account_identity import account_display
-from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS, asset_type
-from domain.imports.account_import_parse import FIELDS as PARSE_FIELDS
-from domain.imports import account_import_statement as statement
+from domain.imports.account_import.account_import_types import LICAITONG_CURRENT_PLUS, asset_type
+from domain.imports.account_import.account_import_parse import FIELDS as PARSE_FIELDS
+from domain.imports.account_import import account_import_statement as statement
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_BATCH_BYTES = 30 * 1024 * 1024
@@ -56,9 +56,9 @@ def parse(content, filename, profile, kind, mapping=None):
     if statement.is_statement(profile):
         return statement.parse(content, filename, profile, kind, mapping)
     if filename.rsplit(".", 1)[-1].lower() in {"png", "jpg", "jpeg"}:
-        from domain.imports.account_import_ocr import parse_image
+        from domain.imports.account_import.account_import_ocr import parse_image
         return parse_image(content, profile, kind)
-    from domain.imports.account_import_parse import parse_document
+    from domain.imports.account_import.account_import_parse import parse_document
     return parse_document(content, filename, profile, kind, mapping)
 
 

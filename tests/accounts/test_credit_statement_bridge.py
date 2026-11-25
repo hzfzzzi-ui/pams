@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from domain.imports.historical_statement_balance import credit_statement_bridge
+from domain.imports.publication.historical_statement_balance import credit_statement_bridge
 
 
 def _statement(start, end, balance, rows, tail='1234'):
@@ -57,7 +57,10 @@ def test_credit_bridge_uses_transaction_day_and_both_posting_cycles():
 def test_statement_pair_publishes_only_verified_balance_evidence(monkeypatch):
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from domain.imports import isolation,source_records_v2 as sources,historical_statement_balance as adapter,account_import_statement
+    from domain.imports import isolation
+    from domain.imports.sources import source_records_v2 as sources
+    from domain.imports.publication import historical_statement_balance as adapter
+    from domain.imports.account_import import account_import_statement
     from collectors import bank_statement_parser
     dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')
@@ -89,8 +92,10 @@ def test_statement_pair_publishes_only_verified_balance_evidence(monkeypatch):
 def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch, document_type):
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from domain.imports import isolation, source_records_v2 as sources, holding_publication_v2 as publication
-    from domain.imports import historical_statement_balance as adapter
+    from domain.imports import isolation
+    from domain.imports.sources import source_records_v2 as sources
+    from domain.imports.publication import holding_publication_v2 as publication
+    from domain.imports.publication import historical_statement_balance as adapter
     from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')

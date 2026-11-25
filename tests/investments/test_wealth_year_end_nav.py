@@ -8,7 +8,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytest
 
-from domain.imports import source_records_v2 as sources, trade_supplemental_evidence as supplement
+from domain.imports.sources import source_records_v2 as sources
+
+from domain.imports.publication import trade_supplemental_evidence as supplement
 from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 
 

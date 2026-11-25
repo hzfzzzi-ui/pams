@@ -8,8 +8,8 @@ from uuid import uuid4
 
 from domain.brokers.ibkr.ibkr_daily_close import _document, _day, _rows, _number
 from domain.brokers.ibkr.ibkr_instrument_types import SECURITY_COMPONENTS, SECURITY_LABELS
-from domain.imports import source_records_v2
-from domain.imports.holding_publication_v2 import publish_validated_holdings
+from domain.imports.sources import source_records_v2
+from domain.imports.publication.holding_publication_v2 import publish_validated_holdings
 from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
 
 ACCOUNT = 'ibkr'
@@ -34,7 +34,8 @@ def archive_account():
 
 
 def credentials():
-    from domain.imports import isolation, native_source
+    from domain.imports import isolation
+    from domain.imports.sources import native_source
 
     if isolation.source_mode() == 'development' or not native_source.enabled():
         return None

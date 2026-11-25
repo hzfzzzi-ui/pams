@@ -9,9 +9,9 @@ from uuid import UUID
 
 from collectors.tradingview_portfolio import _parse_time, _to_decimal, normalize_symbol
 from domain.imports import isolation
-from domain.imports.tradingview_source import _prepare
-from domain.imports.unified_source import lock_source_review, review_item
-from domain.imports.fact_associations import check_all_source_links
+from domain.imports.tradingview.tradingview_source import _prepare
+from domain.imports.sources.unified_source import lock_source_review, review_item
+from domain.imports.publication.fact_associations import check_all_source_links
 from domain.investments.trades.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
 
 

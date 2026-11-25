@@ -461,7 +461,7 @@ def _verified_current_source(cur: Any, raw: dict[str, Any], holding_id: int,
                              holding_raw: dict[str, Any], *, locking: bool,
                              snapshot_cache: dict | None = None) -> bool:
     """Rebuild the published native snapshot and bind its decision to this holding."""
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
 
     batch, item = raw.get('batch'), raw.get('item')
     if not isinstance(batch, dict) or not isinstance(item, dict):

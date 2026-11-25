@@ -6,8 +6,8 @@ from uuid import UUID, uuid4, uuid5
 import xml.etree.ElementTree as ET
 from psycopg2.extras import Json, execute_values
 
-from domain.imports.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed, _number
-from domain.imports.source_fact_evidence import _reviewed_snapshot
+from domain.imports.sources.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed, _number
+from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
 from domain.investments.valuation.valuation_input_evidence import _hash as holding_hash
 
 from domain.brokers.ibkr.ibkr_instrument_types import SECURITY_COMPONENTS, SECURITY_LABELS

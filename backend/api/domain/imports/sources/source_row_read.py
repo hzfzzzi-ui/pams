@@ -103,7 +103,7 @@ def source_row_relation(cur, *, verifier=None, originals=None) -> str:
     cur.execute("""SELECT f.cashflow_id FROM pams_cashflow_fact f JOIN source_items i ON i.source_item_id=f.source_item_id
                    JOIN source_batches b ON b.batch_id=i.batch_id WHERE i.review_status <> 'excluded'""")
     ids = [int(r['cashflow_id'] if isinstance(r,dict) else r[0]) for r in cur.fetchall()]
-    from domain.imports.source_fact_evidence import NativeFactVerifier
+    from domain.imports.sources.source_fact_evidence import NativeFactVerifier
     verifier = verifier or NativeFactVerifier(cur)
     proofs = (verifier.verify_many(table='pams_cashflow_fact',fact_ids=ids) if hasattr(verifier,'verify_many')
               else {ident:verifier.verify(table='pams_cashflow_fact',fact_id=ident) for ident in ids})

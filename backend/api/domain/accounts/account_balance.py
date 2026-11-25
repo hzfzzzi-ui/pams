@@ -72,7 +72,7 @@ def _cash_delta_cny(cur, account_code: str, start: Any, end: Any, *, external_on
     row = cur.fetchone() or {}
     if row.get('cash_delta') is None:
         return None
-    from domain.imports.source_fact_evidence import NativeFactVerifier
+    from domain.imports.sources.source_fact_evidence import NativeFactVerifier
     verifier = NativeFactVerifier(cur)
     for fact_id in row.get('fact_ids') or []:
         if verifier.verify(table='pams_investment_trade_fact',fact_id=fact_id).get('status') != 'verified':

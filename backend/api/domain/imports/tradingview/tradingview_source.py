@@ -13,7 +13,7 @@ from uuid import UUID, uuid5
 
 from collectors.tradingview_portfolio import SUPPORTED_SIDES, _parse_time, _row_hash, _to_decimal
 from domain.imports import isolation
-from domain.imports.unified_source import add_item, attach_file, create_batch
+from domain.imports.sources.unified_source import add_item, attach_file, create_batch
 
 REQUIRED = {'Symbol', 'Side', 'Qty', 'Fill Price', 'Commission', 'Closing Time'}
 MAX_FILE_BYTES = 10 * 1024 * 1024

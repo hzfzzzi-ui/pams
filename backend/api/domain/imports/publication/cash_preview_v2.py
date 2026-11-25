@@ -79,8 +79,8 @@ def _separate_statement_rows(source, items):
 
 def plan_cash(cur, *, source_id, expected_revision: int, for_write=False, verified_ibkr_ids=False) -> dict:
     """Prepare normalized facts and review outcomes, locking before a publish recheck."""
-    from domain.imports.source_records_v2 import _verify_deferred_source
-    from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
+    from domain.imports.sources.source_records_v2 import _verify_deferred_source
+    from domain.imports.publication.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
 
     ident = str(source_id)
     locked_account = None

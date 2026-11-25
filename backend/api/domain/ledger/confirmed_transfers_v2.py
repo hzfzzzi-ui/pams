@@ -7,8 +7,8 @@ import json
 import re
 from uuid import uuid4
 from psycopg2.extras import Json
-from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports.account_import.account_import_types import LICAITONG_CURRENT_PLUS
+from domain.imports.sources.source_original_read import SourceOriginals
 
 REDEMPTION_ACCOUNT = 'tencent_licaitong'
 REDEMPTION_PURPOSE = 'fund_redemption_receipt'
@@ -103,7 +103,7 @@ def _leg_rows(cur, kind, ids, *, lock):
             from domain.ledger.redemption_receipt_evidence import load as load_settlement
             row['settlement'] = load_settlement(cur, row)
         if row['fact_type'] == 'sell':
-            from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+            from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
             proofs = read_trade_evidence(cur, trade_id=row['id'])
             days = {p['fields']['execution_date'] for p in proofs if p['status'] == 'verified'
                     and (p['fields'] or {}).get('execution_date')}

@@ -176,8 +176,8 @@ def daily_close_nav_bucket(
 def daily_close_account_identity(cur, *, source_account_id: str, as_of: Date) -> dict[str, Any]:
     """Verify a separately reviewed account mapping without claiming authentication."""
     from uuid import UUID, uuid5
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
-    from domain.imports.ibkr_holding_source import _read_source_report, _extract
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.sources.ibkr_holding_source import _read_source_report, _extract
 
     def unknown(reason: str) -> dict[str, Any]:
         return {"status": "unconfirmed", "reasons": [reason], "authentication": "unknown"}
@@ -845,7 +845,7 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
           AND COALESCE(LOWER(review_status),'') NOT IN ('ignored','cancelled','canceled','void','duplicate')
         ORDER BY account_code,event_date,cashflow_id""", (account_codes,start_date,terminal_date))
     rows = [dict(row) for row in cur.fetchall()]
-    from domain.imports.source_fact_evidence import NativeFactVerifier
+    from domain.imports.sources.source_fact_evidence import NativeFactVerifier
     verifier = NativeFactVerifier(cur)
     for item in rows:
         code = str(item['account_code'])
@@ -1263,8 +1263,8 @@ def _tonghuashun_series_from_trade_fact(
         candidates = [dict(row) for row in cur.fetchall()]
         native_ids = [int(row['trade_id']) for row in candidates if row['source_table']=='source_items']
         tv_ids = [int(row['trade_id']) for row in candidates if row['source_table']=='tradingview_csv']
-        from domain.imports.source_fact_evidence import NativeFactVerifier
-        from domain.imports.tradingview_fact_verification import TradingViewFactVerifier
+        from domain.imports.sources.source_fact_evidence import NativeFactVerifier
+        from domain.imports.tradingview.tradingview_fact_verification import TradingViewFactVerifier
         native = NativeFactVerifier(cur).verify_many(table='pams_investment_trade_fact',fact_ids=native_ids) if native_ids else {}
         tv = TradingViewFactVerifier(cur).verify_many(tv_ids) if tv_ids else {}
         for row in candidates:

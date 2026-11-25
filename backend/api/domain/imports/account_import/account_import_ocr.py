@@ -12,8 +12,8 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 from typing import Any
 
-from domain.imports.account_import_parse import FIELDS, _issue, _value
-from domain.imports.account_import_types import LICAITONG_CURRENT_PLUS
+from domain.imports.account_import.account_import_parse import FIELDS, _issue, _value
+from domain.imports.account_import.account_import_types import LICAITONG_CURRENT_PLUS
 
 MAX_BYTES, MAX_PIXELS, MAX_OUTPUT = 10 * 1024**2, 20_000_000, 2 * 1024**2
 MAX_WORDS, MAX_TSV_ROWS, MAX_ROWS = 10000, 20000, 2000

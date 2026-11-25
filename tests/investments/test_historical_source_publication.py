@@ -8,7 +8,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytest
 
-from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
+from domain.imports.publication import holding_publication_v2 as publication
+
+from domain.imports.sources import source_records_v2 as sources
 from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 from domain.investments.holdings.holding_evidence_writer import verify_historical_holding_source
 from domain.investments.holdings.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
@@ -221,7 +223,7 @@ def test_historical_statement_running_balance_requires_last_verified_row(monkeyp
         pytest.skip('requires explicitly isolated PostgreSQL')
     monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', '12' * 32)
     monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
-    from domain.imports import account_import_statement
+    from domain.imports.account_import import account_import_statement
     day = date(2025, 12, 31)
     from pathlib import Path
     content = (Path(__file__).parent / 'fixtures' / 'synthetic_statement.xls').read_bytes()

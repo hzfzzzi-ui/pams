@@ -12,13 +12,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
-from domain.imports import account_import_access as access
-from domain.imports import account_import_store as store
-from domain.imports import native_source as source
-from domain.imports import native_source_http as source_http
+from domain.imports.account_import import account_import_access as access
+from domain.imports.account_import import account_import_store as store
+from domain.imports.sources import native_source as source
+from domain.imports.sources import native_source_http as source_http
 from domain.imports import isolation
-from domain.imports.source_records_v2 import SourceRevisionConflict
-from domain.imports.account_import_ocr import ocr_available
+from domain.imports.sources.source_records_v2 import SourceRevisionConflict
+from domain.imports.account_import.account_import_ocr import ocr_available
 
 def private_response(response: Response):
     response.headers["Cache-Control"] = "no-store"
@@ -282,7 +282,7 @@ async def stage_source_record(request: Request, account_code: str = Query(..., m
         content.extend(part)
         if len(content) > store.MAX_FILE_BYTES:
             raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
-    from domain.imports.document_stage_v2 import stage_document
+    from domain.imports.sources.document_stage_v2 import stage_document
     return await run_in_threadpool(execute_source_record, request,
         lambda cur: stage_document(cur, account_code=account_code, source_name=source_name,
                                    filename=filename, content=bytes(content), document_type=document_type), write=True)
@@ -296,7 +296,7 @@ async def stage_trade_evidence(trade_id: int, request: Request, filename: str = 
         content.extend(part)
         if len(content) > store.MAX_FILE_BYTES:
             raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
-    from domain.imports.trade_supplemental_evidence import stage
+    from domain.imports.publication.trade_supplemental_evidence import stage
     return await run_in_threadpool(execute_source_record, request,
         lambda cur: stage(cur, trade_id=trade_id, filename=filename, content=bytes(content)), write=True)
 
@@ -353,7 +353,7 @@ def source_record_assets(request: Request, q: str = Query('', max_length=80)):
 
 @router.post('/source-records/manual')
 def create_manual_source(body: ManualSource, request: Request):
-    from domain.imports.source_records_v2 import create_source
+    from domain.imports.sources.source_records_v2 import create_source
     def create(cur):
         context = store.context(cur)
         if not any(row['account_code'] == body.account_code and body.document_type in row.get('kinds', [])
@@ -368,7 +368,7 @@ def create_manual_source(body: ManualSource, request: Request):
 
 @router.post('/source-records/{source_id}/items')
 def create_manual_source_item(source_id: UUID, body: ManualSourceItem, request: Request):
-    from domain.imports.source_records_v2 import add_manual_item
+    from domain.imports.sources.source_records_v2 import add_manual_item
     def create(cur):
         item_id = uuid4()
         revision = add_manual_item(cur, source_id=source_id, item_id=item_id,
@@ -413,7 +413,7 @@ def source_record_original(source_id: UUID, request: Request):
 
 @router.post('/source-records/{source_id}/delete-draft')
 def delete_source_draft(source_id: UUID, body: Revision, request: Request):
-    from domain.imports.source_records_v2 import delete_draft
+    from domain.imports.sources.source_records_v2 import delete_draft
     def remove(cur):
         delete_draft(cur, source_id=source_id, expected_revision=body.revision)
         return {'deleted': True}
@@ -422,7 +422,7 @@ def delete_source_draft(source_id: UUID, body: Revision, request: Request):
 
 @router.put('/source-records/{source_id}/items/{item_id}')
 def review_source_record(source_id: UUID, item_id: UUID, body: SourceReview, request: Request):
-    from domain.imports.source_records_v2 import review_item
+    from domain.imports.sources.source_records_v2 import review_item
     return execute_source_record(request, lambda cur: {'revision': review_item(cur, source_id=source_id, item_id=item_id,
         expected_revision=body.revision, parsed_fields=body.parsed_fields, review_status=body.review_status,
         note=body.note)}, write=True)
@@ -430,35 +430,35 @@ def review_source_record(source_id: UUID, item_id: UUID, body: SourceReview, req
 
 @router.put('/source-records/{source_id}/reviews')
 def review_source_records(source_id: UUID, body: SourceBatchReview, request: Request):
-    from domain.imports.source_records_v2 import review_items
+    from domain.imports.sources.source_records_v2 import review_items
     return execute_source_record(request, lambda cur: {'revision': review_items(cur, source_id=source_id,
         expected_revision=body.revision, items=[item.model_dump() for item in body.items])}, write=True)
 
 
 @router.get('/source-records/{source_id}/mapping')
 def source_record_mapping(source_id: UUID, request: Request):
-    from domain.imports.document_stage_v2 import mapping_metadata
+    from domain.imports.sources.document_stage_v2 import mapping_metadata
     return execute_source_record(request, lambda cur: mapping_metadata(cur, source_id=source_id))
 
 
 @router.put('/source-records/{source_id}/mapping')
 def map_source_record(source_id: UUID, body: SourceMapping, request: Request):
-    from domain.imports.document_stage_v2 import update_mapping
+    from domain.imports.sources.document_stage_v2 import update_mapping
     return execute_source_record(request, lambda cur: update_mapping(cur, source_id=source_id,
         revision=body.revision, mapping=body.mapping), write=True)
 
 
 @router.post('/source-records/{source_id}/cash-preview')
 def preview_cash_source_record(source_id: UUID, body: CashSourcePreview, request: Request):
-    from domain.imports.cash_publication_v2 import preview
+    from domain.imports.publication.cash_publication_v2 import preview
     return execute_source_record(request, lambda cur: preview(cur, source_id=source_id, revision=body.revision,
                                                                mode=body.mode), write=True)
 
 
 @router.post('/source-records/{source_id}/cash-publish')
 def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request: Request):
-    from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
-    from domain.imports.cash_publication_v2 import publish
+    from domain.imports.publication.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
+    from domain.imports.publication.cash_publication_v2 import publish
 
     def publish_ledger(cur):
         cur.execute('SELECT account_code,acquisition_method FROM public.source_records WHERE source_id=%s', (str(source_id),))
@@ -473,40 +473,40 @@ def publish_cash_source_record(source_id: UUID, body: CashSourcePublish, request
 
 @router.post('/source-records/{source_id}/confirm-bank-source')
 def confirm_bank_source_record(source_id: UUID, body: Revision, request: Request):
-    from domain.imports.bank_source_confirmation import confirm
+    from domain.imports.publication.bank_source_confirmation import confirm
     return execute_source_record(request, lambda cur: confirm(cur, source_id, body.revision), write=True)
 
 
 @router.post('/source-records/{source_id}/attach-trade-evidence')
 def attach_trade_evidence(source_id: UUID, body: AttachTradeEvidence, request: Request):
-    from domain.imports.trade_supplemental_evidence import attach
+    from domain.imports.publication.trade_supplemental_evidence import attach
     return execute_source_record(request, lambda cur: attach(cur, source_id=source_id, item_id=body.item_id,
         trade_id=body.trade_id, expected_revision=body.revision, note=body.note, confirmed=body.confirmed), write=True)
 
 
 @router.get('/trade-evidence/{trade_id}')
 def read_trade_evidence(trade_id: int, request: Request):
-    from domain.imports.trade_supplemental_evidence import read
+    from domain.imports.publication.trade_supplemental_evidence import read
     return execute_source_record(request, lambda cur: {'sources': read(cur, trade_id=trade_id)})
 
 
 @router.post('/trade-evidence/{confirmation_id}/revoke')
 def revoke_trade_evidence(confirmation_id: UUID, body: RevokeTradeEvidence, request: Request):
-    from domain.imports.trade_supplemental_evidence import revoke
+    from domain.imports.publication.trade_supplemental_evidence import revoke
     return execute_source_record(request, lambda cur: revoke(cur, confirmation_id=confirmation_id,
         note=body.note, confirmed=body.confirmed), write=True)
 
 
 @router.post('/source-records/{source_id}/holding-preview')
 def preview_holding_source(source_id: UUID, body: HoldingSourcePreview, request: Request):
-    from domain.imports import holding_publication_v2
+    from domain.imports.publication import holding_publication_v2
     return execute_source_record(request, lambda cur: holding_publication_v2.preview(
         cur, source_id=source_id, revision=body.revision, scope=_holding_scope(body), historical=body.historical), write=True)
 
 
 @router.post('/source-records/{source_id}/holding-publish')
 def publish_holding_source(source_id: UUID, body: HoldingSourcePublish, request: Request):
-    from domain.imports import holding_publication_v2
+    from domain.imports.publication import holding_publication_v2
     return execute_source_record(request, lambda cur: holding_publication_v2.publish(
         cur, source_id=source_id, revision=body.revision, preview_token=body.preview_token,
         scope=_holding_scope(body), historical=body.historical), write=True)
@@ -522,14 +522,14 @@ def _holding_scope(body):
 
 @router.post('/source-records/{source_id}/trade-preview')
 def preview_trade_source_record(source_id: UUID, body: TradeSourcePreview, request: Request):
-    from domain.imports.trade_publication_v2 import preview
+    from domain.imports.publication.trade_publication_v2 import preview
     return execute_source_record(request, lambda cur: preview(cur, source_id=source_id, revision=body.revision,
                                                                mode=body.mode), write=True)
 
 
 @router.post('/source-records/{source_id}/trade-publish')
 def publish_trade_source_record(source_id: UUID, body: TradeSourcePublish, request: Request):
-    from domain.imports.trade_publication_v2 import publish
+    from domain.imports.publication.trade_publication_v2 import publish
     return execute_source_record(request, lambda cur: publish(cur, source_id=source_id, revision=body.revision,
         preview_token=body.preview_token, mode=body.mode), write=True)
 
@@ -608,7 +608,7 @@ async def detect_document(request: Request, account_code: str = Query(..., max_l
             raise HTTPException(413, detail={'code': 'file_size', 'message': '文件超过10MB'})
     if not content:
         return {'kind': None, 'status': 'mismatch'}
-    from domain.imports.document_kind import detect, detect_licaitong_screenshot
+    from domain.imports.sources.document_kind import detect, detect_licaitong_screenshot
     detector = detect_licaitong_screenshot if auto_account else detect
     try:
         return await run_in_threadpool(detector, bytes(content), filename, account_code)
@@ -680,6 +680,6 @@ def publish(batch_id: UUID, body: Publish, request: Request):
 
 @router.post('/batches/{batch_id}/publish-ready')
 def publish_ready(batch_id: UUID, body: Publish, request: Request):
-    from domain.imports.account_import_partial import publish_ready as publish_ready_domain
+    from domain.imports.account_import.account_import_partial import publish_ready as publish_ready_domain
     return execute(request, lambda cur: publish_ready_domain(cur, batch_id, body.revision, body.preview_token),
                    write=True, serializable=True)

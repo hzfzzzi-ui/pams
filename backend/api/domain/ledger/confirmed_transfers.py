@@ -16,7 +16,7 @@ def _require(cur):
 def _leg(cur, kind, ident, *, lock=False):
     if kind not in {'cashflow', 'trade'} or not isinstance(ident, int) or ident < 1:
         raise ValueError('invalid transfer fact identity')
-    from domain.imports.source_fact_evidence import verify_native_fact
+    from domain.imports.sources.source_fact_evidence import verify_native_fact
     table = 'pams_cashflow_fact' if kind == 'cashflow' else 'pams_investment_trade_fact'
     if kind == 'trade':
         cur.execute('SELECT source_table FROM pams_investment_trade_fact WHERE trade_id=%s', (ident,))

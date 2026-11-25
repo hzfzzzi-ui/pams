@@ -3,8 +3,8 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
-from domain.imports.source_original_read import SourceOriginals
-from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+from domain.imports.sources.source_original_read import SourceOriginals
+from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
 from domain.investments.returns.fund_closed_sessions import surrounding_sessions
 from domain.investments.holdings.position_evidence_replay import replay_reviewed_cycle
 from domain.investments.trades.trade_read_v2 import load_trade_rows

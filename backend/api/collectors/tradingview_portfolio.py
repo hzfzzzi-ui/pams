@@ -459,7 +459,7 @@ def sync_portfolio_to_db(
         identities.append({'name': '同花顺现金', 'symbol': '$CASH', 'currency': 'CNY'})
     evidence.reject_identity_conflicts(conn, account_code=result.account_code, business_date=result.as_of, incoming=identities)
     proven_trade_ids = evidence.reject_unproven_tradingview_collisions(conn, account_code=result.account_code, transactions=transactions)
-    from domain.imports.tradingview_source_publish import source_row_from_item
+    from domain.imports.tradingview.tradingview_source_publish import source_row_from_item
     expected_cash: Decimal | None = Decimal('0')
     expected_quantities: dict[str, Decimal] = {}
     for tx in transactions:

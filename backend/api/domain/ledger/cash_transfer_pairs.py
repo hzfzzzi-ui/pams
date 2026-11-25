@@ -7,7 +7,7 @@ import re
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 from domain.ledger import confirmed_transfers_v2 as confirmation
 from domain.ledger.confirmed_transfers_v2 import is_independent_equal_pair, is_independent_opposite_pair, occupied_cashflow_ids
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports.sources.source_original_read import SourceOriginals
 
 
 TRANSFER_HINTS = {'internal_transfer', 'investment_funding', 'investment_withdrawal', 'debt_repayment'}

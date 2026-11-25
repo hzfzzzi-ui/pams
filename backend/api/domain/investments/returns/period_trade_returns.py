@@ -5,8 +5,8 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from domain.brokers.ibkr.ibkr_daily_holdings import MARKET_LABELS
-from domain.imports.source_original_read import SourceOriginals
-from domain.imports.ths_asset_candidates import MARKETS
+from domain.imports.sources.source_original_read import SourceOriginals
+from domain.imports.sources.ths_asset_candidates import MARKETS
 from domain.investments.returns.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.holdings.holdings_positions import _trade_order_ambiguous
 from domain.investments.returns.investment_return_data import exact_fx_rate_at
@@ -238,7 +238,7 @@ def load_closed_trade_returns(cur, *, start, end, owner_ratio, base_currency='CN
     trades = list({row['trade_id']: row for row in trades + wealth_trades}.values())
     if not trades:
         return {}
-    from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+    from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
     from domain.investments.holdings.position_evidence_replay import replay_reviewed_cycle
     wealth_groups = defaultdict(list)
     for row in wealth_trades:

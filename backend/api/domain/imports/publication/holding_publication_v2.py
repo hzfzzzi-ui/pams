@@ -8,9 +8,10 @@ import time
 from zoneinfo import ZoneInfo
 
 from domain.assets.alias_policy import identity_alias_sql
-from domain.imports import native_source, native_source_http
-from domain.imports.account_import_types import asset_type
-from domain.imports.source_records_v2 import SourceRevisionConflict
+from domain.imports.sources import native_source
+from domain.imports.sources import native_source_http
+from domain.imports.account_import.account_import_types import asset_type
+from domain.imports.sources.source_records_v2 import SourceRevisionConflict
 from domain.investments.holdings.account_snapshot_evidence import record_source_scope
 from domain.investments.holdings.holding_evidence_writer import finish_holding_change, lock_holding_accounts
 
@@ -68,7 +69,7 @@ def _holding(cur, fields, account, day, item_id, *, complete, historical=False, 
 
 def _historical_statement_balance_inputs(cur, fields, holding):
     """Bind a same-day account balance to an existing original statement row."""
-    from domain.imports.source_original_read import SourceOriginals
+    from domain.imports.sources.source_original_read import SourceOriginals
     evidence = fields.get('reconstruction_evidence')
     if not isinstance(evidence, dict) or set(evidence) != {'statement_source_item_id'}:
         raise ValueError('历史余额须关联账单余额证据')
@@ -91,7 +92,7 @@ def _historical_statement_balance_inputs(cur, fields, holding):
         amount = Decimal(str(parsed['net_cash']))
     except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
         raise ValueError('账单余额来源无效') from exc
-    from domain.imports.historical_statement_balance import statement_row_balance, verify_original_row
+    from domain.imports.publication.historical_statement_balance import statement_row_balance, verify_original_row
     original, original_ok = SourceOriginals(cur).read(row)
     if (row['source_account'] != holding['account_code'] or row['status'] != 'published'
             or row['document_type'] != 'cash' or row['acquisition_method'] != 'file'
@@ -121,8 +122,8 @@ def _historical_statement_balance_inputs(cur, fields, holding):
 def _historical_credit_bridge_inputs(cur, fields, holding, source):
     """Bind a partial credit-balance reconstruction to both original reports."""
     from uuid import UUID
-    from domain.imports.source_original_read import SourceOriginals
-    from domain.imports.historical_statement_balance import verify_original_credit_bridge
+    from domain.imports.sources.source_original_read import SourceOriginals
+    from domain.imports.publication.historical_statement_balance import verify_original_credit_bridge
 
     evidence = fields.get('reconstruction_evidence')
     if (not isinstance(evidence, dict) or set(evidence) not in ({'method', 'statement_source_item_ids'}, {'method', 'statement_source_item_ids', 'dated_interest'})
@@ -278,7 +279,7 @@ def _plan(cur, source_id, revision, scope, historical=False):
             elif holding['major_category'] == '现金':
                 evidence = fields['reconstruction_evidence']
                 if evidence == {'method': 'original_statement_opening'}:
-                    from domain.imports.historical_statement_balance import verify_original_opening
+                    from domain.imports.publication.historical_statement_balance import verify_original_opening
                     if (source['acquisition_method'] != 'file' or source['file_format'] != 'pdf'
                             or source['original_content'] is None or not source['filename']):
                         raise ValueError('历史余额缺少原始账单')

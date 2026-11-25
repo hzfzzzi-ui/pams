@@ -11,7 +11,7 @@ from pathlib import PurePath
 from typing import Any
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
-from domain.imports import account_import_ths as ths
+from domain.imports.account_import import account_import_ths as ths
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import column_index_from_string

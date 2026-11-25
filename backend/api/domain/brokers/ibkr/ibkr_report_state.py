@@ -183,7 +183,7 @@ def has_source_registry(cur) -> bool:
 def select_archived_report(cur) -> tuple[PublishedReport | None, dict[str, Any] | None]:
     """Read a published Flex archive through its source and verify its original."""
     from domain.brokers.ibkr.ibkr_daily_holdings import archive_account, published_archives, read_report
-    from domain.imports.source_original_read import SourceOriginals
+    from domain.imports.sources.source_original_read import SourceOriginals
 
     archives = published_archives(cur)
     if not archives:
@@ -267,8 +267,8 @@ def publication_floor(conn) -> date | None:
 
 def _published_source_report(conn, *, batch_id: str, observed: date, publication: dict[str, Any]) -> StoredReport:
     """Bind run, report batch, scope, original file and publication snapshot."""
-    from domain.imports.fact_associations import check_all_source_links
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.publication.fact_associations import check_all_source_links
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
     from domain.brokers.ibkr.ibkr_report_batch import NAMESPACE
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT current_setting('transaction_read_only')='on' AS ro,current_setting('transaction_isolation') AS level")
